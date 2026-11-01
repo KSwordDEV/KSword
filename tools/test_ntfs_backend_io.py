@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument('--cxx', default=shutil.which('cl' if os.name == 'nt' else 'c++'))
     parser.add_argument('--source-ref')
     parser.add_argument('--record-source-ref', help='Old record parser for the fixed-up cache-tail negative control')
-    parser.add_argument('--scenario', choices=('all', 'metadata', 'attribute-list'), default='all')
+    parser.add_argument('--scenario', choices=('all', 'metadata', 'attribute-list', 'record-recovery', 'continuation'), default='all')
     parser.add_argument('--sanitize', action='store_true')
     args = parser.parse_args()
     if not args.cxx:

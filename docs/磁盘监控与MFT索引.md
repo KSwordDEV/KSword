@@ -89,3 +89,18 @@ python tools/run_shared_ui_regressions.py --qt-root "$KSWORD_QT_DIR"
 完整后端受控 I/O 回归使用实际 FastIndex/Record TU，仅替换 Win32 I/O，覆盖33项；旧版负控分别复现属性列表拒绝、LSN 误判和 FSCTL 缓存尾字节处理错误。解析器另有5000组突变及 ASan/UBSan 检查，USN 回归有32个场景。
 
 Windows CI 从 HostX64 环境调用 `tools/test_ntfs_volume_integration.ps1 -QtRoot <Qt根目录>`：只在唯一新建、经过映射身份检查的128MiB临时VHD上创建NTFS和测试Journal，执行真实生产索引器的建索引、扫描期间变化、硬链接、空间计量、USN改名/写入/删除与取消恢复。C++进一步拒绝系统卷和重解析工作目录，脚本在 finally 卸载并清理自己的镜像。生产索引器仍为只读。这一自动化不代替用户现场卷、ETW采集、实际多屏/DPI或完整产品GUI验收。
+
+## 2026-11-01：合法稀疏续段导致固定校验失败
+
+用户现场 C: 每次建立索引均返回“MFT 记录校验失败，卷可能正在变化；请重试。”。有界只读探针定位到第401条记录：卷脏位为0，两个 USA 尾标记均匹配；原始记录和 `FSCTL_GET_NTFS_FILE_RECORD` 返回的逻辑记录均在同一属性头检查处被拒绝。该 `$DATA` 属性长度784字节，稀疏标志 `0x8000`，VCN 范围30464–55183，映射偏移64，属于合法的非首段记录。
+
+原解析器把首段的尺寸字段及 `TotalAllocated` 扩展头要求应用于所有非驻留 DATA 段，错误要求该续段的映射偏移至少为72。现在仅 `LowestVcn == 0` 读取和验证尺寸及扩展头；续段仍验证 VCN 范围，但不使用未定义的尺寸字段，大小保持未知，MFT 映射续段的 `logicalBytes` 归零。首段尺寸、非法 VCN、属性边界和 raw USA 校验保持严格。尺寸有效范围参见 [Microsoft ATTRIBUTE_RECORD_HEADER 定义](https://learn.microsoft.com/en-us/windows/win32/devnotes/attribute-record-header)。
+
+另补充活动卷的单记录复核：仅当 raw FILE 解析失败时，对同一索引调用一次 FSCTL，并以逻辑记录格式验证。返回较小索引代表原槽已释放，不能把较小记录插入为请求身份；调用错误、畸形返回或逻辑记录仍不合法均继续失败。扩展身份从复核后的同一缓冲读取，调用前后检查取消，不将缺失或损坏数据冒充完整成功。FSCTL 的向下查找语义参见 [Microsoft FSCTL_GET_NTFS_FILE_RECORD 定义](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_file_record)。
+
+回归使用合成结构，不保存现场文件名、原始记录或用户内容：
+
+- `test_ntfs_backend_io.py --scenario continuation --record-source-ref <修复前提交>` 可复现相同错误；当前续段专项通过28项，完整生产后端受控 I/O 通过82项。
+- `ntfs_index_record_test.cpp` 使用原生 HostX64 MSVC `/W4 /WX` 编译并通过5000组突变输入；覆盖 raw/FSCTL、未定义续段尺寸、紧凑稀疏/压缩头、首段严格负例和非法 VCN。
+- 现场修复后探针处理首批4096条记录后主动取消，无校验错误；总原始读取4MiB加512字节，包含 MFT 属性列表。该结果只覆盖原失败点和首批记录，不代表完整 C: 索引、USN 最终重放或主程序 GUI 验收。
+- 主程序通过仓库构建脚本的 HostX64 MSVC Release/x64 检查：`BUILD_RESULT=SUCCESS`、`EXIT_CODE=0`，标准路径 EXE 已更新且为32002560字节。双语和主题门禁通过。本轮只修改后端及回归，没有调整页面布局；真实主程序 GUI 桥因客户端与管理员进程的权限不匹配无法连接，完整页面/整卷索引验收未完成。

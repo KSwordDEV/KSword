@@ -106,6 +106,10 @@ struct Simulation {
     DWORD error = 0, journalError = 0;
     bool journal = false, metadataChanges = false, mappingChanges = false, shortRead = false;
     bool enforceAlignment = true, cachedTailChanges = false;
+    bool nearestLowerRecord = false, malformedRecoveryRecord = false, shortRecoveryRecord = false;
+    DWORD recoveryError = 0;
+    unsigned recoveryReads = 0;
+    std::shared_ptr<std::atomic_bool> cancelDuringRecovery;
     unsigned opens = 0, closes = 0, mappingReads = 0, listReads = 0;
     std::int64_t nextUsn = 100;
     std::vector<std::uint64_t> dirty;
@@ -160,9 +164,20 @@ static int DeviceIoControl(HANDLE, DWORD code, void* input, DWORD, void* output,
     }
     if (code == FSCTL_GET_NTFS_FILE_RECORD) {
         const auto index = std::uint64_t(static_cast<NTFS_FILE_RECORD_INPUT_BUFFER*>(input)->FileReferenceNumber.QuadPart);
+        if (index == 6 || index == 7) {
+            ++state.recoveryReads;
+            if (state.cancelDuringRecovery) state.cancelDuringRecovery->store(true);
+            if (state.recoveryError) { state.error = state.recoveryError; return FALSE; }
+        }
         auto found = state.records.find(index);
+        if (found == state.records.end() && state.nearestLowerRecord) {
+            found = state.records.upper_bound(index);
+            if (found != state.records.begin()) --found;
+            else found = state.records.end();
+        }
         if (found == state.records.end()) { state.error = ERROR_FILE_NOT_FOUND; return FALSE; }
         Bytes bytes = fsctlRecord(found->second);
+        if (index == 6 && state.malformedRecoveryRecord) put(bytes, 56 + 4, 0xfffffff8U, 4);
         if (index == 6 && state.cachedTailChanges) put(bytes, 510, u'新', 2);
         if (index == 0) {
             ++state.mappingReads;
@@ -172,9 +187,9 @@ static int DeviceIoControl(HANDLE, DWORD code, void* input, DWORD, void* output,
         const std::size_t header = offsetof(NTFS_FILE_RECORD_OUTPUT_BUFFER, FileRecordBuffer);
         if (size < header + bytes.size()) throw std::runtime_error("output buffer too small");
         auto* result = static_cast<NTFS_FILE_RECORD_OUTPUT_BUFFER*>(output);
-        result->FileReferenceNumber.QuadPart = LONGLONG(index); result->FileRecordLength = DWORD(bytes.size());
+        result->FileReferenceNumber.QuadPart = LONGLONG(found->first); result->FileRecordLength = DWORD(bytes.size());
         std::memcpy(static_cast<std::byte*>(output) + header, bytes.data(), bytes.size());
-        *returned = DWORD(header + bytes.size()); return 1;
+        *returned = DWORD(header + bytes.size() - ((index == 6 && state.shortRecoveryRecord) ? 1 : 0)); return 1;
     }
     if (code == FSCTL_QUERY_USN_JOURNAL) {
         if (!state.journal || state.journalError) {
@@ -214,6 +229,115 @@ int main(int argc, char** argv) {
     constexpr std::uint64_t fileReference = (std::uint64_t{2} << 48) | 6;
     try {
         const QString scenario = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QStringLiteral("all");
+        if (scenario == QStringLiteral("all") || scenario == QStringLiteral("continuation")) {
+            // A continuation's 64-byte nonresident header does not contain the
+            // compressed/sparse TotalAllocated field. Its size fields are also
+            // undefined; only LowestVcn == 0 owns authoritative stream sizes.
+            for (unsigned flags : {0x8000U, 1U, 0x8001U, 0U}) {
+                Simulation continuation; continuation.seed();
+                auto data = stream(0x80, 4, 1, 21, 0); put(data, 12, flags, 2);
+                if (flags == 0x8000U) {
+                    // Match the failing live volume's structural metadata,
+                    // without copying any names, user payload or disk bytes.
+                    data.resize(784); put(data, 4, data.size(), 4);
+                    put(data, 16, 30464, 8); put(data, 24, 55183, 8);
+                    put(data, 64, 0x12, 1); put(data, 65, 24720, 2);
+                    put(data, 67, 21, 1); put(data, 68, 0, 1);
+                }
+                auto extension = record({data}, 1, 2, fileReference);
+                continuation.records[7] = extension;
+                std::copy(extension.begin(), extension.end(), continuation.storage.begin() + 20 * 4096 + 7 * 1024);
+                const auto result = build(continuation);
+                if (!result->complete) std::cerr << "BACKEND_ERROR=" << result->error.toStdString() << '\n';
+                check(result->complete && result->error.isEmpty(), "legal compact nonresident continuation rejected by complete backend");
+                check(result->entries.value(fileReference).sizeKnown && result->entries.value(fileReference).logicalBytes == 17,
+                    "continuation sizes replaced the base file's authoritative size");
+                check(result->extensions.contains((std::uint64_t{2} << 48) | 7), "continuation extension identity was lost");
+                check(continuation.recoveryReads == 0, "valid compact continuation unnecessarily required FSCTL recovery");
+
+                // Exercise genuinely undefined words independently of the
+                // compact sparse-header regression, including non-sparse DATA.
+                put(data, 40, UINT64_MAX, 8); put(data, 48, UINT64_MAX, 8); put(data, 56, UINT64_MAX, 8);
+                extension = record({data}, 1, 2, fileReference);
+                continuation.records[7] = extension;
+                std::copy(extension.begin(), extension.end(), continuation.storage.begin() + 20 * 4096 + 7 * 1024);
+                const auto undefinedSizes = build(continuation);
+                check(undefinedSizes->complete && undefinedSizes->entries.value(fileReference).logicalBytes == 17,
+                    "undefined continuation size fields prevented a complete snapshot");
+            }
+            if (scenario == QStringLiteral("continuation")) {
+                std::cout << "NTFS_BACKEND_IO=PASS CHECKS=" << checks << " SCENARIO=continuation\n"; return 0;
+            }
+        }
+        if (scenario == QStringLiteral("all") || scenario == QStringLiteral("record-recovery")) {
+            // Raw reads of an active volume can see a torn FILE sector while
+            // NTFS can still return a coherent, already-fixed-up cache record.
+            Simulation recover; recover.seed();
+            put(recover.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto recovered = build(recover);
+            if (!recovered->complete) std::cerr << "BACKEND_ERROR=" << recovered->error.toStdString() << '\n';
+            check(recovered->complete && recovered->error.isEmpty(), "coherent FSCTL record did not recover a torn raw FILE slot");
+            check(Index::fullPath(*recovered, fileReference) == QStringLiteral("C:\\alpha.txt")
+                && recovered->entries.value(fileReference).logicalBytes == 17, "record recovery lost the file name or data size");
+            check(recover.recoveryReads == 1, "a torn record must use one bounded FSCTL read");
+
+            // A deleted FILE remnant cannot be trusted as a live record. The
+            // real FSCTL returns the nearest lower live record for this hole.
+            Simulation hole; hole.seed(); hole.nearestLowerRecord = true;
+            auto remnant = file(u"deleted.txt"); put(remnant, 510, 0, 2);
+            std::copy(remnant.begin(), remnant.end(), hole.storage.begin() + 20 * 4096 + 7 * 1024);
+            const auto holes = build(hole);
+            check(holes->complete && Index::fullPath(*holes, fileReference) == QStringLiteral("C:\\alpha.txt"),
+                "nearest-lower FSCTL response did not identify a deleted slot");
+            check(holes->entries.size() == 3 && hole.recoveryReads == 1,
+                "nearest-lower record was inserted as the requested deleted identity");
+
+            Simulation unused; unused.seed(); unused.records[6] = record({}, 0, 2);
+            put(unused.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto deleted = build(unused);
+            check(deleted->complete && !deleted->entries.contains(fileReference) && unused.recoveryReads == 1,
+                "a recovered unused logical record retained stale raw file metadata");
+
+            Simulation extension; extension.seed();
+            auto coherentExtension = file(u"alias.txt"); put(coherentExtension, 32, fileReference, 8);
+            extension.records[7] = coherentExtension;
+            auto tornExtension = coherentExtension;
+            put(tornExtension, 32, (std::uint64_t{1} << 48) | 5, 8); put(tornExtension, 510, 0, 2);
+            std::copy(tornExtension.begin(), tornExtension.end(), extension.storage.begin() + 20 * 4096 + 7 * 1024);
+            const auto extended = build(extension);
+            constexpr std::uint64_t extensionReference = (std::uint64_t{2} << 48) | 7;
+            check(extended->complete && extended->extensions.contains(extensionReference)
+                && extended->extensions.value(extensionReference).baseReference == fileReference,
+                "recovered extension metadata was read from the stale raw FILE bytes");
+
+            Simulation denied; denied.seed(); denied.recoveryError = ERROR_ACCESS_DENIED;
+            put(denied.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto inaccessible = build(denied);
+            check(!inaccessible->complete && inaccessible->error.contains(QString::number(ERROR_ACCESS_DENIED))
+                && denied.recoveryReads == 1, "recovery permission failure was hidden or retried");
+
+            Simulation invalid; invalid.seed(); invalid.malformedRecoveryRecord = true;
+            put(invalid.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto malformed = build(invalid);
+            check(!malformed->complete && !malformed->error.isEmpty() && invalid.recoveryReads == 1,
+                "malformed logical FSCTL record was accepted as a complete snapshot");
+
+            Simulation shortRecord; shortRecord.seed(); shortRecord.shortRecoveryRecord = true;
+            put(shortRecord.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto truncated = build(shortRecord);
+            check(!truncated->complete && !truncated->error.isEmpty() && shortRecord.recoveryReads == 1,
+                "truncated FSCTL recovery output was accepted as complete");
+
+            Simulation cancelled; cancelled.seed();
+            cancelled.cancelDuringRecovery = std::make_shared<std::atomic_bool>(false);
+            put(cancelled.storage, 20 * 4096 + 6 * 1024 + 510, 0, 2);
+            const auto interrupted = build(cancelled, cancelled.cancelDuringRecovery);
+            check(interrupted->cancelled && !interrupted->complete && cancelled.recoveryReads == 1,
+                "cancellation during FSCTL recovery published a successful snapshot");
+            if (scenario == QStringLiteral("record-recovery")) {
+                std::cout << "NTFS_BACKEND_IO=PASS CHECKS=" << checks << " SCENARIO=record-recovery\n"; return 0;
+            }
+        }
         for (bool external : {false, true}) {
             if ((scenario == QStringLiteral("metadata") && external)
                 || (scenario == QStringLiteral("attribute-list") && !external)) continue;
@@ -229,6 +353,7 @@ int main(int argc, char** argv) {
             check(Index::fullPath(*result, fileReference) == QStringLiteral("C:\\alpha.txt"), "full backend lost the searchable file path");
             check(result->entries.value(fileReference).logicalBytes == 17, "full backend lost the file's space accounting");
             check(!external || state.listReads == 2, "nonresident MFT attribute list was not read and revalidated");
+            check(external || state.recoveryReads == 0, "healthy raw FILE records unnecessarily used per-record FSCTL reads");
         }
         if (scenario != QStringLiteral("all")) {
             std::cout << "NTFS_BACKEND_IO=PASS CHECKS=" << checks << " SCENARIO=" << scenario.toStdString() << '\n'; return 0;

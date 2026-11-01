@@ -289,20 +289,24 @@ namespace ks::files::ntfs
                 {
                     const auto lowestVcn = Load(bytes, position + 16, 8);
                     const auto highestVcn = Load(bytes, position + 24, 8);
-                    const auto logical = Load(bytes, position + 48, 8);
-                    const auto initialized = Load(bytes, position + 56, 8);
-                    auto diskBytes = Load(bytes, position + 40, 8);
-                    const bool emptyMapping = lowestVcn == 0
+                    // Stream sizes belong only to the first extent. Later
+                    // sparse/compressed segments can start mapping pairs at
+                    // +64, with no TotalAllocated field and undefined sizes.
+                    const bool firstExtent = lowestVcn == 0;
+                    const auto logical = firstExtent ? Load(bytes, position + 48, 8) : 0;
+                    const auto initialized = firstExtent ? Load(bytes, position + 56, 8) : 0;
+                    auto diskBytes = firstExtent ? Load(bytes, position + 40, 8) : 0;
+                    const bool emptyMapping = firstExtent
                         && highestVcn == std::numeric_limits<std::uint64_t>::max()
                         && logical == 0 && initialized == 0 && diskBytes == 0;
                     if (!ValidSize(logical) || !ValidSize(initialized)
                         || initialized > logical || !ValidSize(diskBytes)
                         || !ValidSize(lowestVcn) || (!ValidSize(highestVcn) && !emptyMapping)
-                        || (highestVcn < lowestVcn && logical != 0))
+                        || highestVcn < lowestVcn)
                         return false;
                     // Compressed/sparse headers carry TotalAllocated at +64;
                     // AllocatedLength at +40 is their logical cluster allocation.
-                    if ((flags & 0x8001U) != 0)
+                    if (firstExtent && (flags & 0x8001U) != 0)
                     {
                         const auto mappingOffset = Load(bytes, position + 32, 2);
                         if (attributeLength < 72 || mappingOffset < 72)
@@ -314,7 +318,7 @@ namespace ks::files::ntfs
                     parsed.logicalBytes = logical;
                     parsed.allocatedBytes = diskBytes;
                     // Only the first extent contains authoritative stream sizes.
-                    parsed.sizeKnown = lowestVcn == 0 && (flags & 0x00feU) == 0;
+                    parsed.sizeKnown = firstExtent && (flags & 0x00feU) == 0;
                 }
             }
             position += attributeLength;
@@ -377,7 +381,7 @@ namespace ks::files::ntfs
                 MftStreamPart part;
                 part.lowestVcn = Load(bytes, position + 16, 8);
                 part.highestVcn = Load(bytes, position + 24, 8);
-                part.logicalBytes = Load(bytes, position + 48, 8);
+                part.logicalBytes = part.lowestVcn == 0 ? Load(bytes, position + 48, 8) : 0;
                 if (part.highestVcn < part.lowestVcn
                     || !ParseMappingPairs(bytes,
                         position + static_cast<std::size_t>(Load(bytes, position + 32, 2)),

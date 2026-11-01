@@ -619,17 +619,31 @@ NtfsFastIndex::Snapshot NtfsFastIndex::build(const QString& volumeRoot,
         }
         for (DWORD offset = 0; offset < wanted; offset += recordBytes) {
             const quint64 index = (logical + offset) / recordBytes;
-            // Unallocated slots can be zero, BAAD or remnants; only FILE slots
-            // are parsed. A torn live FILE slot fails the entire snapshot.
+            // Only FILE slots are parsed; BAAD remains an explicit failure.
+            // Raw reads on a live volume can see a torn or deleted FILE slot.
+            // Ask NTFS for that exact record before abandoning the snapshot.
             if (std::memcmp(chunk.data() + offset, "BAAD", 4) == 0) {
                 snapshot->error = QStringLiteral("MFT 包含损坏记录，无法完成索引。"); return snapshot;
             }
             if (std::memcmp(chunk.data() + offset, "FILE", 4) != 0) continue;
             ntfs::ParsedRecord parsed;
+            const std::byte* record = chunk.data() + offset;
+            std::vector<std::byte> currentRecord;
             if (!ntfs::ParseRecord(chunk.data() + offset, recordBytes, volume.info.BytesPerSector, index, parsed)) {
-                snapshot->error = QStringLiteral("MFT 记录校验失败，卷可能正在变化；请重试。"); return snapshot;
+                if (stopped(cancel)) { snapshot->cancelled = true; return snapshot; }
+                const auto result = readRecord(volume, index, currentRecord, snapshot->error);
+                if (stopped(cancel)) { snapshot->cancelled = true; return snapshot; }
+                if (result == RecordResult::Failed) return snapshot;
+                // FSCTL returns a lower live record when the requested slot is
+                // free. readRecord verifies its identity; never insert it here.
+                if (result == RecordResult::Missing) continue;
+                if (!ntfs::ParseRecord(currentRecord.data(), currentRecord.size(), volume.info.BytesPerSector,
+                        index, parsed, ntfs::RecordFormat::FileSystemControl)) {
+                    snapshot->error = QStringLiteral("MFT 记录校验失败，卷可能正在变化；请重试。"); return snapshot;
+                }
+                record = currentRecord.data();
             }
-            insertRecord(*snapshot, parsed, chunk.data() + offset);
+            insertRecord(*snapshot, parsed, record);
         }
         logical += wanted;
         if (progress) progress(logical / recordBytes, total);

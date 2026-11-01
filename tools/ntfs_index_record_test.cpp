@@ -109,6 +109,69 @@ static Bytes FsctlRecord(Bytes bytes)
     return bytes;
 }
 
+static void TestNonresidentContinuations()
+{
+    ParsedRecord parsed;
+    for (const auto flags : {0x8000U, 1U, 0x8001U, 0U})
+    {
+        // Compressed/sparse continuation headers need not include the +64
+        // TotalAllocated word; mapping pairs may start directly at +64.
+        auto continuation = Nonresident(0, 4);
+        Put(continuation, 12, flags, 2);
+        auto raw = Record({continuation});
+        assert(ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        assert(!parsed.sizeKnown);
+        auto logical = FsctlRecord(raw);
+        assert(ParseRecord(logical.data(), logical.size(), 512, 1, parsed, RecordFormat::FileSystemControl));
+        assert(!parsed.sizeKnown);
+
+        // These header words are undefined for LowestVcn > 0. A parser cannot
+        // impose stream-size bounds or compare them as initialized <= logical.
+        Put(continuation, 40, UINT64_MAX, 8);
+        Put(continuation, 48, UINT64_MAX, 8);
+        Put(continuation, 56, UINT64_MAX, 8);
+        raw = Record({continuation});
+        assert(ParseRecord(raw.data(), raw.size(), 512, 1, parsed) && !parsed.sizeKnown);
+        logical = FsctlRecord(raw);
+        assert(ParseRecord(logical.data(), logical.size(), 512, 1, parsed, RecordFormat::FileSystemControl)
+            && !parsed.sizeKnown);
+        std::vector<MftStreamPart> parts;
+        std::vector<std::uint64_t> references;
+        if (flags == 0)
+        {
+            assert(ParseMftStreamParts(raw.data(), raw.size(), 512, parts, references));
+            assert(parts.size() == 1 && parts[0].lowestVcn == 4 && parts[0].logicalBytes == 0);
+            assert(ParseMftStreamParts(logical.data(), logical.size(), 512, parts, references,
+                RecordFormat::FileSystemControl));
+            assert(parts.size() == 1 && parts[0].logicalBytes == 0);
+        }
+        else
+            assert(!ParseMftStreamParts(raw.data(), raw.size(), 512, parts, references));
+
+        // VCN bounds and first-segment size validation remain mandatory.
+        Put(continuation, 24, 3, 8);
+        raw = Record({continuation});
+        assert(!ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        Put(continuation, 24, UINT64_MAX, 8);
+        raw = Record({continuation});
+        assert(!ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        auto first = Nonresident(flags);
+        Put(first, 56, 12501, 8);
+        raw = Record({first});
+        assert(!ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        if (flags)
+        {
+            first = Nonresident(); Put(first, 12, flags, 2);
+            raw = Record({first});
+            assert(!ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        }
+        raw = Record({Nonresident(flags)});
+        assert(ParseRecord(raw.data(), raw.size(), 512, 1, parsed));
+        assert(parsed.sizeKnown && parsed.logicalBytes == 12500
+            && parsed.allocatedBytes == (flags ? 8192U : 16384U));
+    }
+}
+
 // Storage sectors are 4096 bytes here; the NTFS USA stride stays 512 bytes.
 // Keep the original 1 KiB fixture independent of this record-size variation.
 static Bytes Record4Kn(const std::vector<Bytes>& attributes, std::size_t usaOffset = 48)
@@ -210,6 +273,7 @@ static void Test4Kn()
 
 int main()
 {
+    TestNonresidentContinuations();
     ParsedRecord parsed;
     const auto data = Resident(0x80, Bytes(17));
     auto b = Record({Resident(0x30, Name(0x9000000000005ULL, u"hello.txt")), data});
