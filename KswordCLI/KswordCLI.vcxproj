@@ -606,4 +606,25 @@
     <ClCompile Include="..\shared\usermode\backend\process\EventProcessImagePath.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\EventProcessImagePath.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3MonitorApi.cpp" />
+    <ClCompile Include="..\shared\ApiMonitorCapture.cpp" />
+    <ClCompile Include="..\shared\ApiMonitorInjectionBroker.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClInclude Include="..\shared\ApiMonitorCapture.h" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Platform)'=='x64'">
+    <ProjectReference Include="..\APIMonitor_x64\APIMonitor_x64.vcxproj">
+      <Project>{CEF9AD14-A819-4792-AA6B-009DB21334EE}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\APIMonitor_x86\APIMonitor_x86.vcxproj">
+      <Project>{250A09F6-9F1F-456A-A407-901BA91E3B3D}</Project>
+      <SetPlatform>Platform=Win32</SetPlatform>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
 </Project>

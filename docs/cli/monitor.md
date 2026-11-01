@@ -1,4 +1,31 @@
-# ETW R3 命令（迁移项 41）
+# 监控 R3 命令
+
+## API Monitor
+
+```powershell
+KswordCLI.exe help monitor api capture
+KswordCLI.exe monitor api capture --pid 1234 --categories file,registry --duration-ms 3000 --confirm --json
+KswordCLI.exe monitor api capture --pid 1234 --raw 1 --auto-children 1 --limit 20000 --confirm --json
+KswordCLI.exe monitor api capture --pid 1234 --options-file monitor-options.ini --confirm --json
+```
+
+使用 x64 CLI，配套两个位数的 Agent DLL 放在 CLI 同目录，或用 `--agent PATH` 指定；标准 DLL 文件名按目标位数自动切换，自定义 DLL 校验 PE 位数。采用主程序相同的原生注入器、Global PID 会话租约、UTF-16 原子配置、受验证管道、子进程 broker 及 `CoverageSnapshotReceiver`，不要求驱动、不自动提权。需要目标进程注入／VM 权限。help 与参数错误不加载 Agent。
+
+必填 `--pid >4`、`--confirm`。`--duration-ms 100..120000` 默认1000，从收到根目标 HooksInstalled 后计时；`--limit 1..100000` 默认5000，保留最近事件，继续读取控制事件及覆盖快照；`--startup-timeout-ms` 默认30000、`--stop-timeout-ms` 默认15000，两者范围1000..120000。注入器和系统 API 自身的有界等待可能延长 elapsedMs。`--categories` 为逗号分隔的 file、registry、network、process、loader、clipboard；省略时采用 Agent 默认分类。`--raw 0|1`、`--raw-modules`、`--raw-exclude`、`--raw-default-denylist 0|1` 配置 Raw；两个列表用分号分隔。`--auto-children 0|1` 启用经过 broker 验证的后代自动注入及采集，支持 x64/x86 混合进程树。
+
+`--options-file` 从现有 INI 的 `[monitor]` 节导入 enable_file/registry/network/process/loader/clipboard、auto_inject_child、enable_raw_fallback、raw_use_default_denylist、raw_modules、raw_denylist、fake_success_enabled、fake_success_raw_fallback、fake_success_rules、detail_limit、clipboard_read_action/write_action/enum_action。可直接取主程序生成的 INI；控制端 PID、会话、管道、停止路径、SID、broker 字段一律重新生成。显式命令行选项覆盖 INI；规则使用原 Agent 的格式和能力边界，Fake Success／剪贴板拦截会改变目标行为，默认不启用。
+
+JSON envelope 沿用 schemaVersion=1／backend=r3。data 包含 pid、sessionId、agentPath、configPath、stopPath、configPublished、reusedResident、requestedDurationMs、elapsedMs、cancelled、completedRequestedInterval、stopWritten、cleanupComplete、receivedCount、returnedCount、bufferDroppedCount、invalidPacketCount、autoChildren、options、processes、events。计数／FILETIME 为十进制字符串，地址／会话身份为十六进制字符串。
+
+events 提供 pid/tid、timestampFileTime、category、module/api/detail、resultKind、resultCode、eventKind、apiId、operationId、sessionIdentity、definitionSha256；EntryOnly 的 resultCode 为 null，不伪造 OK。processes 提供保留的进程创建身份、connected、hooksInstalled、hooksRemoved、targetExited、installFailed、partialHooks、pipeWin32Error、agentDroppedCount、coverageComplete/Stale/Revision、coverageStateCounts 和完整 coverage。覆盖项 state 为 Installed=0、SharedEntry=1、CategoryDisabled=2、WaitingModule=3、ExportMissing=4、RuleExcluded=5、RetryableFailure=6、Unsupported=7、Removed=8；hookKind 为 Strong=0、Raw=1、Fake=2、DynamicExtension=3。仅完整有序快照替换上一次结果，中断保留原完整数据并标记 stale。
+
+正常结束／Ctrl+C 均先发布停止标记、通知 broker 的全部已受理后代，再继续读到 HooksRemoved 和管道排空，或确认原目标已经退出。清理完成后释放会话租约；保留停止标记供迟到的加载线程／常驻 Agent 检查。DLL、退役 trampoline 和回调按现有 Agent 策略保持到目标退出，重复采集复用常驻 DLL。强制杀死控制端不保证优雅清理，需通过正常停止流程恢复。
+
+完整采集且无损失返回0；部分 Hook、Agent 丢包、缓冲截断、取消、提前退出、覆盖过期或未确认停止返回6；启动失败3，参数错误1，非 x64 宿主5。分类项不可用、保守解码拒绝和严格 CFG/CET／受保护进程仍有原有边界，完整覆盖列表不代表全部 API 已安装；任意 COM／直接系统调用不保证覆盖。
+
+真实回归入口 `tools/Test-KSwordCliApiMonitor.ps1`，参数为 Cli、Fixture64、Fixture32、ReportRoot；自有目标源 `tools/api_monitor/cli_capture_fixture.cpp` 分别在 HostX64 的 x64／x86 编译环境以 `/MT /W4 /WX /std:c++20` 编译。脚本验证真实文件事件、双位数选择、常驻复用、输出截断、配置隔离、会话冲突和跨位数子进程，保留每次 JSON 回执与正常退出证据。
+
+## ETW（迁移项 41）
 
 ```powershell
 KswordCLI.exe help monitor

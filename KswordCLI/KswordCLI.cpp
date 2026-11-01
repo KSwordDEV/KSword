@@ -559,6 +559,7 @@ namespace ks::cli::legacy
             ks::cli::registerWindowHierarchy();
         ks::cli::registerWindowHotkeys();
         ks::cli::registerMonitorEtw();
+        ks::cli::registerMonitorApi();
         ks::cli::registerSystemFileHolders();
         ks::cli::registerSystemEventLog();
         ks::cli::registerSystemContextMenu();

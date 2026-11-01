@@ -109,6 +109,7 @@ void registerWindowCapture();
 void registerWindowHierarchy();
 void registerWindowHotkeys();
 void registerMonitorEtw();
+void registerMonitorApi();
 void registerSystemFileHolders();
 void registerSystemEventLog();
 void registerSystemContextMenu();

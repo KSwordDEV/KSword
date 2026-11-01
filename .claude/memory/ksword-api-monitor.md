@@ -1,5 +1,15 @@
 # API Monitor 定义、x86/x64 引擎、覆盖与异步采集
 
+## CLI 监控接入（2026-11-01）
+
+- 新命令 `monitor api capture --pid PID --confirm [--json]`，注册元数据在 `KswordCLI/R3MonitorApi.cpp`，文档在 `docs/CLI使用文档.md`、`docs/cli/monitor.md`。x64 CLI 使用 Qt-free `shared/ApiMonitorCapture.{h,cpp}`，复用主程序的 Agent 位数选择、原生注入、SessionLease、InjectionBroker 和 CoverageSnapshotReceiver；没有新增 R0 注入路径。CLI 工程非链接依赖两个 Agent，x86 CLI 对本命令明确返回5。
+- 支持限时／取消、分类、Raw 模块／排除规则、跨位数自动子进程、导入主程序 INI 的业务选项及 Fake Success／剪贴板规则、文本和 JSON 事件／完整覆盖输出。控制端 SID、会话、broker、管道、停止路径始终由新会话生成，导入不能覆盖。Raw EntryOnly 的结果为 null。
+- 每个目标保留进程创建身份，管道连接复核服务端 PID。只有 HooksInstalled 后开始计时；停止时通知根和全部已受理后代，继续读取到 HooksRemoved 和管道关闭（或确认原目标退出）。停止标记保留给迟到加载／常驻 Agent；DLL 和退役代码仍按原策略留到目标退出。目标已退出可确认清理，但不得虚构 stopWritten=true。
+- Win10 常驻 Agent 的 GetPrivateProfileString 可能短暂阻止原子替换 INI，MoveFileEx 返回5／32；对原子 rename 有界重试2秒，不能退回截断原文件。虚拟机首次验收实际遇到并修复；重复 x86／x64 会话随后通过。
+- `tools/Test-KSwordCliApiMonitor.ps1` 与自有 `tools/api_monitor/cli_capture_fixture.cpp` 覆盖77项：非法输入、双位数真实 WriteFile、常驻复用、缓冲截断、INI 控制字段隔离、真实 Raw 未知结果、隔离控制台 CTRL_BREAK、同 PID 租约冲突、x64→x86 子进程、目标提前正常退出及所有自有进程正常退出。Windows10-20H2 真实 WinRM 验收通过，完整轮次 Agent 丢包为0，无遗留测试进程；缺失导出／未加载模块等原有覆盖边界如实为 partial，不宣称所有641项均可用。
+- CLI 与两套 Agent Release 构建成功，0 warnings／0 errors；新增 C++ 通过 HostX64 `/W4 /WX`，x86 capture stub 编译通过。覆盖快照、跨线程租约、管道分片三个生产协议回归通过。构建日志在 `.codex-build-logs/cli-apimon/`；运行 JSON 留在虚拟机隔离验收目录及本聊天产物中，不纳入提交。
+- 两个已有通用测试入口存在本次改动前的失效假设：`tools/test_ksword_cli.py` 在旧夹具直接调用未限定命名空间的 configureConsole，编译报 C3861；`tools/Test-KSwordCliR3Coverage.ps1` 固定要求66条迁移记录，当前已有67条。专项回归和生产构建通过，不将这两个旧入口描述为通过，也未顺带改动其框架。
+
 ## 分层和会话
 
 - `APIMonitor_x64/hook/HookEngine.cpp` 负责入口补丁与 trampoline；HookTargets 负责强类型包装、Raw 入口和 Fake Success。MonitorAgent 管理配置与安装，MonitorPipe 负责有界队列和发送。主程序的 MonitorDock/WinAPIDock 与 MiscDock/ClipboardGuard 共用 Agent。

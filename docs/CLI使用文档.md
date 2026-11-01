@@ -38,6 +38,14 @@ KswordCLI.exe network connections help
 参数错误仍返回 1 并提供语法；已识别的 R3 命令在 JSON 模式下同时输出结构化失败。
 地址和句柄为十六进制字符串，大于安全整数范围的计数为十进制字符串。部分完成返回 6。
 
+## API Monitor 注入监控
+
+`monitor api capture --pid PID --confirm [--duration-ms N] [--json]` 已接入主程序同源的 API Monitor Agent、位数选择、原生注入、会话租约、子进程注入 broker 和覆盖快照协议，无需加载 R0 驱动。默认从 CLI 同目录选择 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`；限时采集结束或 Ctrl+C 后写停止标记，并等待 Hook 移除和管道排空。DLL 保持常驻，可对同一目标再次采集。
+
+支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard`（逗号分隔）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+
+输出事件、异步 operationId、每个 PID 的完整覆盖快照、Hook 安装／移除、Agent 丢包、输出缓冲截断、进程创建身份及清理结果。Raw 的未知返回值为 null。完整无损采集返回 0；部分 Hook、丢包、截断、取消、提前退出或未确认停止返回 6；启动失败 3，参数错误 1，非 x64 宿主 5。仅加载 DLL 不算监控成功，只有 HooksInstalled 才开始计时；只有 HooksRemoved／原目标退出才确认停止。停止标记保留，以防迟到的加载线程重启旧会话。详见 [监控命令](cli/monitor.md)。
+
 ## 原始 IOCTL 调用
 
 `system ioctl call --code N [--input-hex HEX | --input-file PATH] [--output-bytes N] --confirm [--allow-unregistered] [--json]` 通过现有 `ArkDriverClient` 向固定 KSword 控制设备发送一次原始请求。默认先查询驱动 IOCTL 注册表并拒绝未登记的控制码；`--allow-unregistered` 仅用于明确受信的兼容性探测。输入／输出各上限 1 MiB；输出默认 4096 字节，原始内容采用十六进制回执，只保留实际返回长度。所有调用都必须确认，不自动加载驱动、提权或重试。编码及缓冲区 ABI 由配套共享协议定义；传输成功不代替响应中的业务状态。详见 [系统工具命令](cli/system.md)。内置帮助入口为 `help system ioctl call`。
