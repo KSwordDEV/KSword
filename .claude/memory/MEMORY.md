@@ -1,5 +1,7 @@
 # Memory Index
 
+- [进程列表矩形面积视图与选择保留](ksword-process-metric-area.md) — 度量表头入口、主列表快照同步、树/友好嵌套、聚合行选区、原进程菜单与零值语义
+
 - [硬件 Dock 字段回填](ksword-hardware-dock.md) — USB/设备栈/HID/总线普通页的后台值投影、采集状态默认折叠与实机验收边界
 
 - [默认 UI 状态与首帧](ksword-ui-input-first-frame.md) — 鼠标/键盘焦点区分、默认几何、首次主题准备、原生分栏及安全队列边界

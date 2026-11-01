@@ -7280,13 +7280,9 @@ void ProcessDock::initializeConnections()
         }
 
         const ProcessTableRow* tableRow = processTableRowForViewIndex(index);
-        if (tableRow != nullptr && tableRow->rowKind == ProcessTableRowKind::Process)
+        if (tableRow != nullptr)
         {
-            m_trackedSelectedIdentityKey = tableRow->identityKey;
-        }
-        else if (tableRow != nullptr)
-        {
-            m_trackedSelectedIdentityKey.clear();
+            m_trackedSelectedIdentityKey = processTableSelectionKey(*tableRow);
         }
         if (index.column() >= 0 && index.column() < static_cast<int>(TableColumn::Count))
         {
@@ -7823,6 +7819,7 @@ std::vector<int> ProcessDock::defaultVisibleColumnsForViewMode(const ViewMode vi
 
     case ViewMode::Monitor:
     default:
+        // 监视预设只保留常用资源指标；会话和内核字段由其它预设或手动选择列提供。
         appendColumns({
             TableColumn::Cpu,
             TableColumn::WorkingSet,
@@ -7831,11 +7828,6 @@ std::vector<int> ProcessDock::defaultVisibleColumnsForViewMode(const ViewMode vi
             TableColumn::Gpu,
             TableColumn::Net,
             TableColumn::HandleCount,
-            TableColumn::Protection,
-            TableColumn::Ppl,
-            TableColumn::HandleTable,
-            TableColumn::SectionObject,
-            TableColumn::R0Status,
             TableColumn::CpuCore });
         break;
     }
@@ -9600,7 +9592,7 @@ void ProcessDock::rebuildTable()
     const auto sortElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - sortStartTime).count();
 
-    // 按 identityKey 恢复用户之前选中的进程：
+    // 按稳定选择键恢复真实进程及友好视图的应用聚合行：
     // - Ctrl 多选集合逐行用 Select|Rows 写回，避免刷新后丢失批量选择；
     // - 当前焦点只通过 NoUpdate 更新，不允许 currentIndex 把多选压成单选；
     // - 若该进程已不存在，则清空追踪状态，避免错误高亮。
@@ -9611,24 +9603,24 @@ void ProcessDock::rebuildTable()
     {
         // 增量模型更新会维护 persistent index；当前实际选择仍与追踪集合一致时，不清空再重选，避免高频刷新闪烁。
         std::unordered_set<std::string> currentSelectedIdentityKeys;
-        bool containsSyntheticSelection = false;
+        bool containsInvalidSelection = false;
         const std::vector<QModelIndex> selectedRows = selectedProcessTableRowIndexes(false);
         currentSelectedIdentityKeys.reserve(selectedRows.size());
         for (const QModelIndex& rowIndex : selectedRows)
         {
             const ProcessTableRow* selectedTableRow = processTableRowForViewIndex(rowIndex);
-            if (selectedTableRow == nullptr ||
-                selectedTableRow->rowKind != ProcessTableRowKind::Process ||
-                selectedTableRow->identityKey.empty())
+            const std::string selectionKey = selectedTableRow != nullptr
+                ? processTableSelectionKey(*selectedTableRow) : std::string();
+            if (selectionKey.empty())
             {
-                containsSyntheticSelection = true;
+                containsInvalidSelection = true;
                 continue;
             }
-            currentSelectedIdentityKeys.insert(selectedTableRow->identityKey);
+            currentSelectedIdentityKeys.insert(selectionKey);
         }
 
         selectionRestoreRequired =
-            containsSyntheticSelection ||
+            containsInvalidSelection ||
             currentSelectedIdentityKeys != trackedIdentityKeysBeforeRebuild;
         if (!selectionRestoreRequired && !trackedIdentityKeyBeforeRebuild.empty())
         {
@@ -9636,7 +9628,7 @@ void ProcessDock::rebuildTable()
             const ProcessTableRow* currentTableRow = processTableRowForViewIndex(currentIndex);
             selectionRestoreRequired =
                 currentTableRow == nullptr ||
-                currentTableRow->identityKey != trackedIdentityKeyBeforeRebuild ||
+                processTableSelectionKey(*currentTableRow) != trackedIdentityKeyBeforeRebuild ||
                 currentIndex.column() != trackedColumnBeforeRebuild;
         }
     }
@@ -9668,6 +9660,10 @@ void ProcessDock::rebuildTable()
         {
             selectionModel->setCurrentIndex(currentIndexToRestore, QItemSelectionModel::NoUpdate);
             restoredAnySelection = true;
+        }
+        else
+        {
+            selectionModel->clearCurrentIndex();
         }
     }
 
@@ -9711,6 +9707,7 @@ void ProcessDock::rebuildTable()
     // 表格重建完成后恢复刷新绘制。
     m_processTable->setUpdatesEnabled(true);
     m_processTable->viewport()->update();
+    refreshMetricAreaViews(true);
     const auto tableRebuildElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - tableRebuildStartTime).count();
 
@@ -10382,6 +10379,7 @@ void ProcessDock::updateProcessActivityStatusLabel()
 {
     const bool recordingAllowed = isProcessActivityRecordingAllowedNow();
     m_activityRecordingEnabled = recordingAllowed;
+    updateMetricAreaState();
 }
 
 void ProcessDock::previewProcessActivitySnapshotForIndex(const int sampleIndex)
@@ -11766,9 +11764,23 @@ const ProcessDock::ProcessTableRow* ProcessDock::processTableRowForViewIndex(con
     return m_processTableModel->rowAt(sourceIndex.row());
 }
 
+std::string ProcessDock::processTableSelectionKey(const ProcessTableRow& tableRow)
+{
+    if (tableRow.rowKind == ProcessTableRowKind::Process)
+    {
+        return tableRow.identityKey;
+    }
+    // 聚合父行不是单个 PID，但仍是可选的批量目标；不能用易变的度量或标题作身份。
+    if (tableRow.rowKind == ProcessTableRowKind::ApplicationAggregate && !tableRow.expansionKey.isEmpty())
+    {
+        return std::string("aggregate:") + tableRow.expansionKey.toUtf8().toStdString();
+    }
+    return {};
+}
+
 QModelIndex ProcessDock::processTableViewIndexForIdentityKey(const std::string& identityKey, const int column) const
 {
-    // 输入：稳定 identityKey 和目标列；处理：扫描模型行并映射到当前代理视图；返回：有效视图索引或空索引。
+    // 输入：稳定选择键（真实进程或应用聚合）和目标列；返回同一对象在当前代理中的索引。
     if (identityKey.empty() || m_processSortProxy == nullptr || m_processTableModel == nullptr)
     {
         return QModelIndex();
@@ -11778,7 +11790,7 @@ QModelIndex ProcessDock::processTableViewIndexForIdentityKey(const std::string& 
     const std::vector<ProcessTableRow>& rows = m_processTableModel->rows();
     for (int rowIndex = 0; rowIndex < static_cast<int>(rows.size()); ++rowIndex)
     {
-        if (rows[static_cast<std::size_t>(rowIndex)].identityKey != identityKey)
+        if (processTableSelectionKey(rows[static_cast<std::size_t>(rowIndex)]) != identityKey)
         {
             continue;
         }
@@ -12223,6 +12235,17 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildFriendlyDisplayOrder() co
         }
     }
 
+    if (!m_metricAreaWindows.isEmpty())
+    {
+        m_metricFriendlyRoots.clear(); m_metricFriendlyGroups.clear();
+        for (const auto* node : applicationNodes) {
+            m_metricFriendlyRoots[*node->identityKey] = node->applicationRootPid;
+            m_metricFriendlyGroups[*node->identityKey] = FriendlyProcessGroupType::Application;
+        }
+        for (const auto* node : backgroundNodes) m_metricFriendlyGroups[*node->identityKey] = FriendlyProcessGroupType::Background;
+        for (const auto* node : systemNodes) m_metricFriendlyGroups[*node->identityKey] = FriendlyProcessGroupType::WindowsSystem;
+    }
+
     const int friendlySortColumn = std::clamp(
         m_friendlySortColumn,
         0,
@@ -12577,6 +12600,12 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
     }
 
     bindContextActionToIndex(clickedIndex);
+    showBoundProcessContextMenu(m_processTable->viewport()->mapToGlobal(localPosition));
+}
+
+void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow, const int areaColumn)
+{
+
     const std::vector<ProcessActionTarget> contextActionTargets = selectedActionTargets();
     const bool hasBatchSelection = contextActionTargets.size() > 1;
     const ks::process::ProcessRecord* contextProcessRecord =
@@ -13975,7 +14004,7 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
     }
 
     m_contextMenuVisible = true;
-    QAction* selectedAction = contextMenu.exec(m_processTable->viewport()->mapToGlobal(localPosition));
+    QAction* selectedAction = contextMenu.exec(globalPosition);
     m_contextMenuVisible = false;
     if (*affinityChanged)
     {
@@ -13997,7 +14026,15 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
                 << eol;
         }
 
-        if (selectedAction == copyCellAction) { copyCurrentCell(); }
+        if (areaRow != nullptr && (selectedAction == copyCellAction || selectedAction == copyRowAction))
+        {
+            QStringList fields;
+            if (selectedAction == copyCellAction) fields.push_back(processTableData(*areaRow, areaColumn, Qt::DisplayRole).toString());
+            else for (int column = 0; column < static_cast<int>(TableColumn::Count); ++column)
+                fields.push_back(processTableData(*areaRow, column, Qt::DisplayRole).toString());
+            QApplication::clipboard()->setText(fields.join(QLatin1Char('\t')));
+        }
+        else if (selectedAction == copyCellAction) { copyCurrentCell(); }
         else if (selectedAction == copyRowAction) { copyCurrentRow(); }
         else if (selectedAction == terminateProcessAction) { executeTerminateProcessAction(); }
         else if (selectedAction == terminateAndDeleteImageAction) { executeTerminateAndDeleteImageAction(); }
@@ -14136,8 +14173,6 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
 
 void ProcessDock::showHeaderContextMenu(const QPoint& localPosition)
 {
-    Q_UNUSED(localPosition);
-
     if (m_processTable == nullptr)
     {
         return;
@@ -14145,6 +14180,13 @@ void ProcessDock::showHeaderContextMenu(const QPoint& localPosition)
 
     QMenu columnMenu(this);
     columnMenu.setStyleSheet(KswordTheme::ContextMenuStyle());
+
+    const int metricColumn = m_processTable->horizontalHeader()->logicalIndexAt(localPosition);
+    QAction* areaAction = nullptr;
+    if (isMetricAreaColumn(metricColumn)) {
+        areaAction = columnMenu.addAction(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
+        columnMenu.addSeparator();
+    }
 
     // 顶部入口指向完整的“选择列”对话框：列数已经接近任务管理器的全量集合，
     // 只靠一次一项的右键菜单难以做批量增减。
@@ -14178,6 +14220,7 @@ void ProcessDock::showHeaderContextMenu(const QPoint& localPosition)
     {
         return;
     }
+    if (selectedAction == areaAction) { openMetricAreaWindow(metricColumn); return; }
     if (selectedAction == chooserAction)
     {
         showColumnChooserDialog();
@@ -14575,31 +14618,31 @@ void ProcessDock::syncTrackedSelectionFromTable()
     for (const QModelIndex& rowIndex : selectedRows)
     {
         const ProcessTableRow* tableRow = processTableRowForViewIndex(rowIndex);
-        if (tableRow == nullptr ||
-            tableRow->rowKind != ProcessTableRowKind::Process ||
-            tableRow->identityKey.empty())
+        const std::string selectionKey = tableRow != nullptr
+            ? processTableSelectionKey(*tableRow) : std::string();
+        if (selectionKey.empty())
         {
             continue;
         }
-        if (!visitedIdentitySet.insert(tableRow->identityKey).second)
+        if (!visitedIdentitySet.insert(selectionKey).second)
         {
             continue;
         }
-        selectedIdentityKeys.push_back(tableRow->identityKey);
+        selectedIdentityKeys.push_back(selectionKey);
     }
 
     const QModelIndex currentIndex = m_processTable->selectionModel() != nullptr
         ? m_processTable->selectionModel()->currentIndex()
         : QModelIndex();
     const ProcessTableRow* currentRow = processTableRowForViewIndex(currentIndex);
-    if (currentRow != nullptr &&
-        currentRow->rowKind == ProcessTableRowKind::Process &&
-        !currentRow->identityKey.empty())
+    const std::string currentSelectionKey = currentRow != nullptr
+        ? processTableSelectionKey(*currentRow) : std::string();
+    if (!currentSelectionKey.empty())
     {
-        m_trackedSelectedIdentityKey = currentRow->identityKey;
-        if (visitedIdentitySet.find(currentRow->identityKey) == visitedIdentitySet.end())
+        m_trackedSelectedIdentityKey = currentSelectionKey;
+        if (visitedIdentitySet.find(currentSelectionKey) == visitedIdentitySet.end())
         {
-            selectedIdentityKeys.push_back(currentRow->identityKey);
+            selectedIdentityKeys.push_back(currentSelectionKey);
         }
     }
     else

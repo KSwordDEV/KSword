@@ -7375,6 +7375,18 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "%1 · PID %2\n%3: %4\nPPID %5\n%6\n%7": "%1 · PID %2\n%3: %4\nPPID %5\n%6\n%7",
+    "矩形面积视图": "Rectangle area view",
+    "当前范围没有可绘制的正面积数据。": "There are no positive values to draw in this scope.",
+    "全部进程": "All processes",
+    "双击矩形放大，按退格键返回；右键打开进程菜单。": "Double-click a rectangle to zoom in, press Backspace to return, or right-click for process actions.",
+    "零值或不可用（不占矩形面积）": "Zero or unavailable (no rectangle area)",
+    "零值": "Zero",
+    "进程树": "Process tree",
+    "扁平列表": "Flat list",
+    "跟随主列表": "Following process list",
+    "面积按变化绝对值计算，正负方向保留在数值中。": "Area uses the absolute change; the value retains its sign.",
+    "包含折叠分组内的进程。": "Includes processes within collapsed groups.",
     "内存概览": "Memory overview",
     "白色表示未知；已读字节显示淡主题色，非零字节更深，可显示 ASCII 字符越多颜色越深。点击定位，拖动滚动。": "White indicates unknown bytes. Read bytes have a light theme tint; nonzero bytes are darker, and more printable ASCII makes the tint deeper. Click to navigate; drag to scroll.",
     "连续的未知区域（未加载、读取中或不可读）只显示首行和末行；保留光标与暂存编辑，不修改原始字节": "Show only the first and last rows of unknown runs (unloaded, reading or unreadable); keep the caret and staged edits visible without changing original bytes",

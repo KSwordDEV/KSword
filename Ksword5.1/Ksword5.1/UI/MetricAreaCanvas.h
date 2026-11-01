@@ -1,0 +1,52 @@
+#pragma once
+#include <QWidget>
+#include <QIcon>
+#include <QColor>
+#include <functional>
+#include <vector>
+
+namespace ks::ui {
+struct MetricAreaNode {
+    QString key, name, pid, value, tooltip;
+    QIcon icon;
+    QColor background, foreground;
+    double weight = 0;
+    int parent = -1;
+    bool group = false;
+    bool known = true;
+};
+
+// A view of an immutable presentation snapshot. No sampling, process lookup or timers.
+class MetricAreaCanvas final : public QWidget {
+public:
+    explicit MetricAreaCanvas(QWidget* parent = nullptr);
+    void setNodes(std::vector<MetricAreaNode> nodes);
+    void resetRoot();
+    void goBack();
+    int nodeAt(QPointF point) const;
+    QRectF nodeRect(int index) const;
+    int rootIndex() const { return m_root; }
+    const std::vector<MetricAreaNode>& nodes() const { return m_nodes; }
+    std::function<void(int, QPoint)> contextRequested;
+    std::function<void(int)> activated;
+    std::function<void()> rootChanged;
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
+    void leaveEvent(QEvent*) override;
+    void keyPressEvent(QKeyEvent*) override;
+    bool event(QEvent*) override;
+private:
+    struct Box { QRectF rect; int node; bool container; };
+    void rebuildLayout();
+    void focusNode(int index);
+    std::vector<MetricAreaNode> m_nodes;
+    std::vector<std::vector<int>> m_children;
+    std::vector<double> m_totals;
+    std::vector<Box> m_boxes;
+    int m_root = -1, m_hover = -1;
+};
+}

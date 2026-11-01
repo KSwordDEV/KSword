@@ -863,6 +863,8 @@
     <QtMoc Include="Framework\CustomTitleBar.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="ProcessDock\ProcessActivityHistory.h" />
     <ClInclude Include="ProcessDock\ProcessEtwCaptureLifecycle.h" />
     <ClInclude Include="MonitorDock\MonitorTableExport.h" />
@@ -1727,6 +1729,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ProcessDock\ProcessDock.MetricArea.cpp" />
+    <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />
     <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp" />

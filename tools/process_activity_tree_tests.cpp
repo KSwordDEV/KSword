@@ -36,6 +36,9 @@ struct ProcessDock {
     int m_friendlySortColumn = static_cast<int>(TableColumn::Name);
     Qt::SortOrder m_friendlySortOrder = Qt::AscendingOrder;
     QHash<QString, bool> m_friendlyExpandedStateByKey;
+    QHash<int,int> m_metricAreaWindows;
+    mutable std::unordered_map<std::string,std::uint32_t> m_metricFriendlyRoots;
+    mutable std::unordered_map<std::string,FriendlyProcessGroupType> m_metricFriendlyGroups;
     mutable std::vector<ks::process::ProcessRecord> m_friendlySyntheticRecords;
     bool isProcessActivityTableSnapshotActive() const { return active; }
     bool isTreeModeEnabled() const { return tree; }

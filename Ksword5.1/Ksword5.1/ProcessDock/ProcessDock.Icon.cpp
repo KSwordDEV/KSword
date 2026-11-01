@@ -191,6 +191,7 @@ void ProcessDock::applyProcessIconExtractionResult(
 
     // 只要求视口重绘引用该路径的名称单元格，其他行会在进入视口后自然读取新缓存。
     refreshProcessTableRowsForIcon(imagePath);
+    scheduleMetricAreaRefresh();
 }
 
 void ProcessDock::refreshProcessTableRowsForIcon(const QString& imagePath)

@@ -70,6 +70,7 @@ class QTableView;
 class QTabWidget;
 class QTimer;
 class QTreeView;
+namespace ks::ui { class MetricAreaWindow; }
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
@@ -756,6 +757,19 @@ private:
     void showThreadTableContextMenu(const QPoint& localPosition);
     void showThreadHeaderContextMenu(const QPoint& localPosition);
     void showHeaderContextMenu(const QPoint& localPosition);
+    void showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow = nullptr, int areaColumn = 0);
+    static bool isMetricAreaColumn(int column);
+    static bool metricAreaIncludesProcess(int column, const ks::process::ProcessRecord& record);
+    void openMetricAreaWindow(int column);
+    void refreshMetricAreaViews(bool captureRows);
+    void scheduleMetricAreaRefresh();
+    void updateMetricAreaState();
+    struct MetricAreaSnapshot;
+    std::shared_ptr<const MetricAreaSnapshot> m_metricAreaSnapshot;
+    QHash<int, QPointer<ks::ui::MetricAreaWindow>> m_metricAreaWindows;
+    mutable std::unordered_map<std::string, std::uint32_t> m_metricFriendlyRoots;
+    mutable std::unordered_map<std::string, FriendlyProcessGroupType> m_metricFriendlyGroups;
+    bool m_metricAreaRefreshScheduled = false;
 
     // ======== 进程表列管理（添加/减少列） ========
     // showColumnChooserDialog 作用：
@@ -1080,6 +1094,7 @@ private:
     ks::ui::CompleteExportPublishedTable makeProcessCompleteExportTable();
     std::uint64_t m_processCompleteExportVersion = 0;
     const ProcessTableRow* processTableRowForViewIndex(const QModelIndex& viewIndex) const;
+    static std::string processTableSelectionKey(const ProcessTableRow& tableRow);
     QModelIndex processTableViewIndexForIdentityKey(const std::string& identityKey, int column) const;
     std::vector<QModelIndex> selectedProcessTableRowIndexes(bool includeCurrentFallback) const;
     ProcessActionTarget processActionTargetFromTableRow(const ProcessTableRow& tableRow) const;
@@ -1449,8 +1464,8 @@ private:
     QThreadPool m_processIconExtractionPool; // 专属图标线程池，避免大量 Shell 查询占满通用后台任务池。
     std::unordered_map<std::string, QPointer<ProcessDetailWindow>> m_detailWindowByIdentity; // 详情窗口缓存（同进程复用窗口）。
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_detailWindowLastSyncTimeByIdentity; // 详情窗口最近一次同步时间，避免每轮刷新都触发重型解析。
-    std::string m_trackedSelectedIdentityKey; // 当前选中进程 identityKey；表格刷新重建后用于恢复高亮。
-    std::vector<std::string> m_trackedSelectedIdentityKeys; // 多选进程 identityKey 集合；Ctrl 复选后用于刷新恢复。
+    std::string m_trackedSelectedIdentityKey; // 稳定选择键：真实进程 identityKey 或 aggregate:展开键，仅用于 UI 恢复。
+    std::vector<std::string> m_trackedSelectedIdentityKeys; // 多选行的稳定选择键；进程动作仍从行数据解析真实成员。
     int m_trackedSelectedColumn = 0;          // 当前选中列索引；恢复 currentItem 时尽量保持用户焦点列。
     std::shared_ptr<const std::vector<ks::process::SystemThreadRecord>> m_threadRecordList; // 线程页最近一次刷新结果缓存。
     std::shared_ptr<const std::unordered_map<std::string, ks::process::ThreadCounterSample>> m_threadCounterSampleByIdentity; // 线程 CPU 差分基准。
