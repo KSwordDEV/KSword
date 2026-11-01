@@ -66,6 +66,7 @@ class HandleDock;
 class MemoryDock;
 class NetworkDock;
 class OtherDock;
+namespace ks::ui { class MetricAreaWindow; }
 
 class ProcessDetailWindow final : public QWidget
 {
@@ -647,6 +648,8 @@ private:
     void finishModuleRefreshPresentation(const ModuleRefreshResult& refreshResult);
     // filterModuleTable 作用：按搜索框内容隐藏不匹配的模块表行。
     void filterModuleTable(const QString& filterText);
+    void openModuleAreaWindow();
+    void refreshModuleAreaWindow();
     void updateModuleStatusLabel(const QString& statusText, bool refreshing);
     // requestAsyncDllHijackScan：只读扫描程序目录与实际加载模块，
     // 使用签名可信的架构匹配系统 DLL 作为基线，不加载任何待检 DLL。
@@ -960,6 +963,7 @@ private:
     QLineEdit* m_moduleFilterEdit = nullptr;   // 模块列表筛选输入框。
     QLabel* m_moduleStatusLabel = nullptr;     // 模块刷新状态标签。
     ks::ui::ImmutableValueTable* m_moduleTable = nullptr;      // 模块表格。
+    QPointer<ks::ui::MetricAreaWindow> m_moduleAreaWindow;
 
     std::shared_ptr<const std::vector<ModuleRowValue>> m_moduleRecords; // 当前模块数据缓存。
 

@@ -12,6 +12,7 @@
 #include <QString>
 #include <QStringList>
 #include <QWidget>
+#include <QPointer>
 
 #include <array>
 #include <atomic>
@@ -23,6 +24,7 @@ class QTableWidget;
 class QTableView;
 class QBoxLayout;
 struct DiskMonitorStoragePerformanceState;
+namespace ks::ui { class MetricAreaWindow; }
 
 // DiskMonitorStorageSample：
 // - 输入：collectSamples() 从 Windows 固定卷和磁盘性能接口读取；
@@ -148,6 +150,18 @@ private:
     // - 输入：每秒字节数；
     // - 返回：带 /s 后缀的可读吞吐。
     static QString formatRate(double bytesPerSecond);
+    void openAreaWindow();
+    void refreshAreaWindow();
+
+    struct AreaRow
+    {
+        QString key, drive, label;
+        double readRate = 0, writeRate = 0;
+        bool known = false;
+    };
+    std::vector<AreaRow> m_areaRows;
+    QPointer<ks::ui::MetricAreaWindow> m_areaWindow;
+    int m_areaMode = 2;
 
     QTableWidget* m_table = nullptr;         // m_table：固定卷存储状态表。
     std::shared_ptr<DiskMonitorStorageSamplingBackend> m_samplingBackend;

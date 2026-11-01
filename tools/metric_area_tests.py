@@ -7,8 +7,10 @@ from process_activity_tree_tests import declaration
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--qt',type=Path,default=Path('D:/Software/Qt/6.9.3/msvc2022_64'))
-    args=parser.parse_args();root=Path(__file__).resolve().parents[1]
+    qt_default=Path(__file__).resolve().parents[1]/'.deps/Qt/6.9.3/msvc2022_64'
+    if not qt_default.is_dir():qt_default=Path('D:/Software/Qt/6.9.3/msvc2022_64')
+    parser.add_argument('--qt',type=Path,default=qt_default)
+    args=parser.parse_args();args.qt=args.qt.resolve();root=Path(__file__).resolve().parents[1]
     output=root/'.codex-build-logs/metric-area-tests';output.mkdir(parents=True,exist_ok=True)
     developer=next(p for p in [Path('D:/Software/VS/Common7/Tools/VsDevCmd.bat'),Path('C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/Tools/VsDevCmd.bat')] if p.exists())
     command=['cl.exe','/nologo','/std:c++20','/Zc:__cplusplus','/utf-8','/EHsc','/MD','/W4','/WX','/O2','/DNOMINMAX','/DWIN32_LEAN_AND_MEAN','/external:W0']
@@ -22,9 +24,10 @@ def main():
     probe+='static '+declaration(source,'bool ProcessDock::processUsageHighlightValue(').replace('ProcessDock::','')+'\n'
     probe+='static '+declaration(area,'bool ProcessDock::isMetricAreaColumn(').replace('ProcessDock::','')+'\n};'
     probe=probe[:-2]+'static '+declaration(area,'bool ProcessDock::metricAreaIncludesProcess(').replace('ProcessDock::','')+'\n};'
+    probe=probe[:-2]+'static '+declaration(area,'double ProcessDock::metricAreaNetworkValue(').replace('ProcessDock::','')+'\n};'
     fixture=output/'fixture.cpp'
     fixture.write_text('#include <Windows.h>\n#include "../Ksword5.1/Ksword5.1/ksword/process/process.h"\n'+(root/'tools/metric_area_tests.cpp').read_text(encoding='utf-8').replace('__METRIC_PROBE__',probe),encoding='utf-8')
-    command+=['/I'+str(root/'tools'),str(fixture),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaCanvas.cpp'),str(root/'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp'),'/Fo'+str(output)+'\\','/Fe'+str(output/'test.exe'),'/link','/LIBPATH:'+str(args.qt/'lib'),'Qt6Core.lib','Qt6Gui.lib','Qt6Widgets.lib','Qt6Test.lib','user32.lib','advapi32.lib']
+    command+=['/I'+str(root/'tools'),str(fixture),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaCanvas.cpp'),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaWindow.cpp'),str(root/'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp'),'/Fo'+str(output)+'\\','/Fe'+str(output/'test.exe'),'/link','/LIBPATH:'+str(args.qt/'lib'),'Qt6Core.lib','Qt6Gui.lib','Qt6Widgets.lib','Qt6Test.lib','user32.lib','advapi32.lib']
     build=output/'build.cmd';build.write_text('@echo off\ncall "'+str(developer)+'" -arch=x64 -host_arch=x64 >nul\n'+subprocess.list2cmdline(command)+'\nexit /b %errorlevel%\n',encoding='utf-8')
     subprocess.run(['cmd.exe','/d','/c',str(build)],cwd=output,check=True)
     environment=dict(os.environ);environment['PATH']=str(args.qt/'bin')+os.pathsep+environment.get('PATH','')
@@ -37,7 +40,7 @@ def main():
     assert 'logicalIndexAt(localPosition)' in source and 'isMetricAreaColumn(metricColumn)' in source
     assert 'refreshMetricAreaViews(true);' in source
     assert source.index('m_processTableModel->setRows(std::move(tableRows))')<source.index('refreshMetricAreaViews(true);')
-    assert 'showBoundProcessContextMenu(global,&row,column)' in area
+    assert 'showBoundProcessContextMenu(global,&row,column' in area
     assert 'processActionTargetFromTableRow(row)' in area and 'display.record->creationTime100ns' in area
     assert 'startTimer' not in area and 'setInterval' not in area
     print('PASS: logical header identity, accepted table publication, shared process menu and stable action identity wiring')

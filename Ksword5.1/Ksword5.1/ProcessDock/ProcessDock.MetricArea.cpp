@@ -32,6 +32,17 @@ bool ProcessDock::metricAreaIncludesProcess(const int column, const ks::process:
         QStringLiteral("System Idle Process"),Qt::CaseInsensitive)!=0;
 }
 
+double ProcessDock::metricAreaNetworkValue(const ks::process::ProcessRecord& record, const int mode){
+    // 0=upload, 1=download, 2=both. Do not infer a direction from netKBps.
+    if(mode<0||mode>2)return -1;
+    const auto valid=[](double value){return std::isfinite(value)&&value>=0;};
+    if(mode==0)return valid(record.netTxKBps)?record.netTxKBps:-1;
+    if(mode==1)return valid(record.netRxKBps)?record.netRxKBps:-1;
+    if(!valid(record.netTxKBps)||!valid(record.netRxKBps))return -1;
+    const double sum=record.netTxKBps+record.netRxKBps;
+    return valid(sum)?sum:-1;
+}
+
 void ProcessDock::openMetricAreaWindow(const int column){
     if(!isMetricAreaColumn(column))return;
     if(auto window=m_metricAreaWindows.value(column)){window->show();window->raise();window->activateWindow();return;}
@@ -39,6 +50,10 @@ void ProcessDock::openMetricAreaWindow(const int column){
     const QPointer<ProcessDock> guard(this);
     connect(window,&QObject::destroyed,this,[guard,column](){if(guard){guard->m_metricAreaWindows.remove(column);if(guard->m_metricAreaWindows.isEmpty())guard->m_metricAreaSnapshot.reset();}});
     window->appearanceChanged=[guard](){if(guard)guard->scheduleMetricAreaRefresh();};
+    if(column==static_cast<int>(TableColumn::Net)){
+        window->setModes({areaText("上行"),areaText("下行"),areaText("合计")},2);
+        window->modeChanged=[guard](int){if(guard)guard->scheduleMetricAreaRefresh();};
+    }
     // Opening the first view commits the same cached data to the main table and area view together.
     rebuildTable();window->show();window->raise();window->activateWindow();
 }
@@ -132,17 +147,22 @@ void ProcessDock::refreshMetricAreaViews(const bool captureRows){
             ks::ui::MetricAreaNode node;node.key=entry.key;node.parent=entry.parent;node.group=entry.group;
             node.name=QString::fromStdString(entry.row.record.processName);
             if(!entry.group){
-                node.pid=QString::number(entry.row.record.pid);node.icon=resolveProcessIcon(entry.row.record);
+                node.identity=QString::number(entry.row.record.pid);node.icon=resolveProcessIcon(entry.row.record);
                 double weight=0;node.known=metric==TableColumn::CpuCore||processUsageHighlightValue(entry.row.record,metric,&weight);
                 if(metric==TableColumn::CpuCore)weight=std::fabs(entry.row.record.cpuCorePercent);
+                if(metric==TableColumn::Net){weight=metricAreaNetworkValue(entry.row.record,window->currentMode());node.known=weight>=0;}
                 node.weight=node.known&&std::isfinite(weight)?weight:0;total+=node.weight;
                 node.value=processTableData(entry.row,column,Qt::DisplayRole).toString();
+                if(metric==TableColumn::Net)node.value=node.known?QStringLiteral("%1 KB/s").arg(weight,0,'f',2):areaText("不可用");
                 const auto background=processTableData(entry.row,column,Qt::BackgroundRole);
                 if(background.isValid())node.background=background.value<QBrush>().color();
                 const auto foreground=processTableData(entry.row,column,Qt::ForegroundRole);
                 if(foreground.isValid())node.foreground=foreground.value<QBrush>().color();
-                node.tooltip=ks::i18n::sourceText(QStringLiteral("%1 · PID %2\n%3: %4\nPPID %5\n%6\n%7")).arg(node.name,node.pid,
-                    processColumnDisplayName(column),node.value).arg(entry.row.record.parentPid)
+                const QString metricLabel=metric==TableColumn::Net
+                    ? (window->currentMode()==0?areaText("网络上行"):window->currentMode()==1?areaText("网络下行"):areaText("网络合计"))
+                    : processColumnDisplayName(column);
+                node.tooltip=ks::i18n::sourceText(QStringLiteral("%1 · PID %2\n%3: %4\nPPID %5\n%6\n%7")).arg(node.name,node.identity,
+                    metricLabel,node.value).arg(entry.row.record.parentPid)
                     .arg(QString::fromStdString(entry.row.record.imagePath),snapshot->time);
             }
             projectionIndexes[sourceIndex]=static_cast<int>(nodes.size());nodes.push_back(std::move(node));
@@ -155,17 +175,30 @@ void ProcessDock::refreshMetricAreaViews(const bool captureRows){
         for(auto& node:nodes)if(!node.group){
             if(node.known&&total>0)node.tooltip+=QStringLiteral("\n%1%").arg(node.weight/total*100,0,'f',2);
         }else node.tooltip=node.name;
-        window->setPresentation(processColumnDisplayName(column),QString(),std::move(nodes));
+        window->setSubject(areaText("全部进程"),areaText("进程"),QStringLiteral("PID"),
+            areaText("双击矩形放大，按退格键返回；右键打开进程菜单。"));
+        QString metricName=processColumnDisplayName(column);
+        if(metric==TableColumn::Net){
+            const int mode=window->currentMode()<0?2:window->currentMode();
+            window->setModes({areaText("上行"),areaText("下行"),areaText("合计")},mode);
+            metricName=mode==0?areaText("网络上行"):mode==1?areaText("网络下行"):areaText("网络合计");
+        }
+        window->setPresentation(metricName,QString(),std::move(nodes));
         const QPointer<ProcessDock> guard(this);
-        window->processContextRequested=[guard,snapshot,column](const QString& key,QPoint global){
+        window->itemContextRequested=[guard,snapshot,column,networkMode=window->currentMode()](const QString& key,QPoint global){
             if(!guard)return;const auto found=std::find_if(snapshot->entries.begin(),snapshot->entries.end(),[&](const auto& e){return !e.group&&e.key==key;});
             if(found==snapshot->entries.end())return;const ProcessTableRow row=found->row;
             guard->clearContextActionBinding();auto target=guard->processActionTargetFromTableRow(row);
             if(target.identityKey.empty())return;guard->m_contextActionRecords.push_back(target);
             guard->m_contextActionIdentityKey=target.identityKey;guard->m_contextActionRecord=target.record;guard->m_hasContextActionRecord=true;
-            guard->showBoundProcessContextMenu(global,&row,column);
+            QString cellText;
+            if(column==static_cast<int>(TableColumn::Net)){
+                const double value=metricAreaNetworkValue(row.record,networkMode);
+                cellText=value>=0?QStringLiteral("%1 KB/s").arg(value,0,'f',2):areaText("不可用");
+            }
+            guard->showBoundProcessContextMenu(global,&row,column,cellText);
         };
-        window->processActivated=[guard](const QString& key){
+        window->itemActivated=[guard](const QString& key){
             if(!guard)return;const auto index=guard->processTableViewIndexForIdentityKey(key.toStdString(),0);
             if(index.isValid()){auto* selection=guard->m_processTable->selectionModel();if(selection)selection->setCurrentIndex(index,QItemSelectionModel::ClearAndSelect|QItemSelectionModel::Rows);}
         };

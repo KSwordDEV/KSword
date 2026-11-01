@@ -2,6 +2,7 @@
 #include "PhysicalPageScan.h"
 #include "PhysicalPageMappings.h"
 #include <QWidget>
+#include <QPointer>
 #include <functional>
 class QLabel;
 class QPushButton;
@@ -15,6 +16,7 @@ class MemoryAttributionChart;
 class QCheckBox;
 class QTimer;
 class MemoryConsumerEvidencePage;
+namespace ks::ui { class MetricAreaWindow; }
 
 class PhysicalPageAttributionPage final : public QWidget {
 public:
@@ -23,6 +25,8 @@ public:
     void startScan();
     static QString classificationName(ksword::pfn::Use use);
     void focusCategory(int use);
+    void openMetricAreaView();
+    bool hasMetricAreaData() const;
     // Invoked on the UI thread after an immutable scan result has been published.
     std::function<void(const std::shared_ptr<ksword::pfn::Scan>&)> snapshotReady;
     std::function<void(const QString&)> openModuleDetails;
@@ -40,6 +44,7 @@ private:
     void startMappings();
     void exportEvidence();
     void retranslate();
+    void refreshMetricAreaView();
     QPushButton* m_scanButton = nullptr;
     QPushButton* m_cancelButton = nullptr;
     QPushButton* m_mappingButton = nullptr;
@@ -64,6 +69,7 @@ private:
     QTableWidget* m_mappings = nullptr;
     QTabWidget* m_tabs = nullptr;
     MemoryAttributionChart* m_chart = nullptr;
+    QPointer<ks::ui::MetricAreaWindow> m_metricAreaWindow;
     int m_selectedCategory = -1;
     std::shared_ptr<ksword::pfn::ScanJob> m_job;
     std::shared_ptr<ksword::pfn::Scan> m_scan;

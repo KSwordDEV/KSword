@@ -6,6 +6,7 @@
 #include "../UI/X64DbgNavigation.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/ThemeAccentIcon.h"
+#include "../UI/MetricAreaWindow.h"
 #include "../MemoryDock/MemoryDock.h"
 #include <Shellapi.h>
 
@@ -288,6 +289,7 @@ void ProcessDetailWindow::rebuildModuleTable()
             row.roles.insert(Qt::UserRole, path);
             row.roles.insert(Qt::UserRole + 1, QVariant::fromValue<qulonglong>(record.moduleBaseAddress));
             row.roles.insert(Qt::UserRole + 2, QVariant::fromValue(record.representativeThreadId));
+            row.roles.insert(Qt::UserRole + 3, QVariant::fromValue<qulonglong>(record.moduleSizeBytes));
             row.columnRoles[toModuleColumnIndex(ModuleColumn::ThreadId)].insert(Qt::ToolTipRole,
                 translator.sourceText(QStringLiteral("%1\n仅列出启动地址位于该模块内的线程，不代表当前执行位置。? 表示部分线程的启动地址无法查询。"))
                     .arg(QString::fromStdString(record.threadIdText)));
@@ -306,6 +308,50 @@ void ProcessDetailWindow::filterModuleTable(const QString& filterText)
     if (m_moduleTable != nullptr) m_moduleTable->setQuery(filterText.trimmed());
 }
 
+void ProcessDetailWindow::openModuleAreaWindow()
+{
+    if (!m_moduleAreaWindow)
+    {
+        auto* window = new ks::ui::MetricAreaWindow(this);
+        m_moduleAreaWindow = window;
+        window->itemActivated = [this](const QString& key) {
+            if (!m_moduleTable) return;
+            for (int row = 0; row < m_moduleTable->rowCount(); ++row)
+                if (m_moduleTable->rowKey(row) == key) { m_moduleTable->selectKey(key); break; }
+        };
+        window->appearanceChanged = [this] { refreshModuleAreaWindow(); };
+    }
+    refreshModuleAreaWindow();
+    m_moduleAreaWindow->show(); m_moduleAreaWindow->raise(); m_moduleAreaWindow->activateWindow();
+}
+
+void ProcessDetailWindow::refreshModuleAreaWindow()
+{
+    if (!m_moduleAreaWindow || !m_moduleTable) return;
+    m_moduleAreaWindow->setSubject(ks::i18n::sourceText(QStringLiteral("全部模块")),
+        ks::i18n::sourceText(QStringLiteral("模块")),
+        ks::i18n::sourceText(QStringLiteral("模块基址")),
+        ks::i18n::sourceText(QStringLiteral("面积表示模块虚拟映像大小；点击矩形可选中原列表中的模块。")));
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    nodes.reserve(static_cast<std::size_t>(m_moduleTable->rowCount()));
+    for (int row = 0; row < m_moduleTable->rowCount(); ++row)
+    {
+        const QString path = m_moduleTable->cell(row, 0, Qt::UserRole).toString();
+        const auto rawSize = m_moduleTable->cell(row, 0, Qt::UserRole + 3);
+        ks::ui::MetricAreaNode node;
+        node.key = m_moduleTable->rowKey(row);
+        node.name = QFileInfo(path).fileName();
+        node.identity = QStringLiteral("0x%1").arg(m_moduleTable->cell(row, 0, Qt::UserRole + 1).toULongLong(), 0, 16).toUpper();
+        node.known = rawSize.isValid(); node.weight = rawSize.toDouble();
+        node.value = m_moduleTable->cell(row, toModuleColumnIndex(ModuleColumn::Size)).toString();
+        node.icon = qvariant_cast<QIcon>(m_moduleTable->cell(row, 0, Qt::DecorationRole));
+        node.tooltip = path + QLatin1Char('\n') + node.identity + QLatin1Char('\n') + node.value;
+        nodes.push_back(std::move(node));
+    }
+    m_moduleAreaWindow->setPresentation(ks::i18n::sourceText(QStringLiteral("模块映像大小")),
+        ks::i18n::sourceText(QStringLiteral("来自当前筛选后的已提交模块列表；虚拟映像大小不代表实际驻留内存。")), std::move(nodes));
+}
+
 void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, const bool refreshing)
 {
     if (m_moduleStatusLabel == nullptr)
@@ -314,6 +360,7 @@ void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, con
     }
 
     m_moduleStatusLabel->setText(statusText);
+    m_moduleStatusLabel->setToolTip(statusText);
 
     // 状态标签更新日志：输出文本与刷新状态。
     kLogEvent moduleStatusEvent;

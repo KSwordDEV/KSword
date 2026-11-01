@@ -47,6 +47,7 @@ MetricAreaCanvas::MetricAreaCanvas(QWidget* parent):QWidget(parent){
     setMinimumSize(80,80);
 }
 void MetricAreaCanvas::setNodes(std::vector<MetricAreaNode> nodes){
+    for(auto& node:nodes)if(!std::isfinite(node.weight)||node.weight<0)node.known=false;
     bool sameLayout=m_nodes.size()==nodes.size();
     if(sameLayout)for(std::size_t i=0;i<nodes.size();++i){const auto& a=m_nodes[i];const auto& b=nodes[i];
         if(a.key!=b.key||a.parent!=b.parent||a.weight!=b.weight||a.group!=b.group||a.known!=b.known){sameLayout=false;break;}}
@@ -59,7 +60,8 @@ void MetricAreaCanvas::setNodes(std::vector<MetricAreaNode> nodes){
 void MetricAreaCanvas::rebuildLayout(){
     m_boxes.clear();m_children.assign(m_nodes.size(),{});m_totals.assign(m_nodes.size(),0);
     const int count=static_cast<int>(m_nodes.size());
-    std::vector<int> parents(count,-1),state(count,0),roots;
+    m_parents.assign(count,-1);auto& parents=m_parents;
+    std::vector<int> state(count,0),roots;
     for(int i=0;i<count;++i){const int p=m_nodes[i].parent;if(p>=0&&p<count&&p!=i)parents[i]=p;}
     for(int i=0;i<count;++i){
         int at=i;while(at>=0&&state[at]==0){state[at]=1;int p=parents[at];if(p>=0&&state[p]==1){parents[at]=-1;break;}at=p;}
@@ -68,8 +70,13 @@ void MetricAreaCanvas::rebuildLayout(){
     for(int i=0;i<count;++i){if(parents[i]>=0)m_children[parents[i]].push_back(i);else roots.push_back(i);}
     std::vector<int> order,pending=roots;
     while(!pending.empty()){int i=pending.back();pending.pop_back();order.push_back(i);for(int c:m_children[i])pending.push_back(c);}
+    // Scale only geometry weights. Raw display values remain caller-owned;
+    // summing several individually finite DBL_MAX-sized metrics must not turn
+    // partition ratios into infinities/NaNs.
+    double maxWeight=0;
+    for(const auto& node:m_nodes)if(!node.group&&node.known&&std::isfinite(node.weight))maxWeight=std::max(maxWeight,node.weight);
     for(auto it=order.rbegin();it!=order.rend();++it){int i=*it;const auto& n=m_nodes[i];
-        m_totals[i]=!n.group&&n.known&&std::isfinite(n.weight)?std::max(0.0,n.weight):0;
+        m_totals[i]=!n.group&&n.known&&std::isfinite(n.weight)&&maxWeight>0?std::max(0.0,n.weight)/maxWeight:0;
         for(int c:m_children[i])m_totals[i]+=m_totals[c];
     }
     struct Work{int index;QRectF rect;};
@@ -89,7 +96,7 @@ void MetricAreaCanvas::rebuildLayout(){
         // At extreme nesting/tiny sizes the parent remains a zoomable summary.
         if(box.width()<28||box.height()<header+8)continue;
         const QRectF inner=box.adjusted(2,header,-2,-2);
-        if(!n.group&&n.known&&n.weight>0)parts.push_back({i,true,n.weight});
+        if(!n.group&&n.known&&n.weight>0)parts.push_back({i,true,n.weight/maxWeight});
         for(const auto& p:partition(std::move(parts),inner)){
             if(p.part.own)m_boxes.push_back({p.rect,i,false});else work.push_back({p.part.node,p.rect});
         }
@@ -123,12 +130,12 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*){
         if(!n.icon.isNull()&&iconSize>=4){n.icon.paint(&p,QRectF(content.topLeft(),QSizeF(iconSize,iconSize)).toAlignedRect());content.setLeft(content.left()+iconSize+4);}
         if(content.width()>fontMetrics().horizontalAdvance(QStringLiteral("…"))&&content.height()>=fontMetrics().height()){
             QString title=n.name;
-            const bool inlinePid=!n.pid.isEmpty()&&fontMetrics().horizontalAdvance(title+QLatin1Char(' ')+n.pid)<=content.width();
-            if(inlinePid)title+=QLatin1Char(' ')+n.pid;
+            const bool inlineIdentity=!n.identity.isEmpty()&&fontMetrics().horizontalAdvance(title+QLatin1Char(' ')+n.identity)<=content.width();
+            if(inlineIdentity)title+=QLatin1Char(' ')+n.identity;
             p.drawText(content,Qt::AlignTop|Qt::AlignLeft,fontMetrics().elidedText(title,Qt::ElideRight,static_cast<int>(content.width())));
-            if(!inlinePid&&!box.container&&!n.pid.isEmpty()&&content.height()>=fontMetrics().height()*2+4
-                &&content.width()>=fontMetrics().horizontalAdvance(n.pid)){
-                p.drawText(content.adjusted(0,fontMetrics().height()+4,0,0),Qt::AlignTop|Qt::AlignLeft,n.pid);
+            if(!inlineIdentity&&!box.container&&!n.identity.isEmpty()&&content.height()>=fontMetrics().height()*2+4
+                &&content.width()>=fontMetrics().horizontalAdvance(n.identity)){
+                p.drawText(content.adjusted(0,fontMetrics().height()+4,0,0),Qt::AlignTop|Qt::AlignLeft,n.identity);
             }
         }
         p.restore();
@@ -145,7 +152,7 @@ void MetricAreaCanvas::mousePressEvent(QMouseEvent* e){
 void MetricAreaCanvas::focusNode(int index){if(index<0||index>=static_cast<int>(m_nodes.size()))return;m_root=index;rebuildLayout();update();const auto cb=rootChanged;if(cb)cb();}
 void MetricAreaCanvas::mouseDoubleClickEvent(QMouseEvent* e){if(e->button()==Qt::LeftButton)focusNode(nodeAt(e->position()));}
 void MetricAreaCanvas::resetRoot(){m_root=-1;rebuildLayout();update();const auto cb=rootChanged;if(cb)cb();}
-void MetricAreaCanvas::goBack(){if(m_root>=0){m_root=m_nodes[m_root].parent;rebuildLayout();update();const auto cb=rootChanged;if(cb)cb();}}
+void MetricAreaCanvas::goBack(){if(m_root>=0&&m_root<static_cast<int>(m_parents.size())){m_root=m_parents[m_root];rebuildLayout();update();const auto cb=rootChanged;if(cb)cb();}}
 void MetricAreaCanvas::keyPressEvent(QKeyEvent* e){if(e->key()==Qt::Key_Escape||e->key()==Qt::Key_Backspace){goBack();e->accept();}else QWidget::keyPressEvent(e);}
 bool MetricAreaCanvas::event(QEvent* e){
     if(e->type()==QEvent::ToolTip){auto* help=static_cast<QHelpEvent*>(e);const int hit=nodeAt(help->pos());

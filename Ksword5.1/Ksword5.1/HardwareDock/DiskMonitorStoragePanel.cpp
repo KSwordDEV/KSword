@@ -14,6 +14,9 @@
 #include "../UI/TablePresentation.h"
 #include "../UI/SegmentedControl.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/MetricAreaWindow.h"
+#include "../UI/FlowLayout.h"
+#include "../UI/PrimaryPageStyle.h"
 #include <QColor>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -502,7 +505,11 @@ DiskMonitorStoragePanel::DiskMonitorStoragePanel(QWidget* parent)
         QCryptographicHash::hash(scopeSource.toUtf8(), QCryptographicHash::Sha1).toHex().left(16)), scopeSource);
     scope->setWordWrap(true);
     rootLayout->addWidget(scope);
-    auto* columnControls = new QHBoxLayout;
+    auto* controlSurface = new QWidget(this);
+    ks::ui::StylePrimaryToolbar(controlSurface);
+    auto* viewTools = new ks::ui::FlowLayout(controlSurface, 0, 8, 8);
+    auto* presetHost = new QWidget(controlSurface);
+    auto* columnControls = new QHBoxLayout(presetHost);
     columnControls->setContentsMargins(0, 0, 0, 0);
     disk_monitor_ui::InstallColumnPresets(columnControls, m_table,
         {kStorageColumnDrive, kStorageColumnLabel, kStorageColumnFileSystem, kStorageColumnActiveTime,
@@ -510,9 +517,15 @@ DiskMonitorStoragePanel::DiskMonitorStoragePanel(QWidget* parent)
         {kStorageColumnDrive, kStorageColumnResponse, kStorageColumnQueueDepth, kStorageColumnAverageQueue,
          kStorageColumnReadIops, kStorageColumnWriteIops, kStorageColumnDevice},
         QStringLiteral("A：容量与吞吐"), QStringLiteral("B：队列与延迟"), 1);
-    columnControls->addStretch();
+    viewTools->addWidget(presetHost);
+    auto* areaButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("矩形面积视图")), this);
+    ks::i18n::LanguageManager::instance().bindText(areaButton,
+        QStringLiteral("hardware.storage.metric_area.open"), QStringLiteral("矩形面积视图"));
+    viewTools->addWidget(areaButton);
+    ks::ui::NormalizeToolbarControl(areaButton);
+    connect(areaButton, &QPushButton::clicked, this, &DiskMonitorStoragePanel::openAreaWindow);
     ks::ui::NormalizeToolbarRow(columnControls);
-    rootLayout->addLayout(columnControls);
+    rootLayout->addWidget(controlSurface);
     rootLayout->addWidget(m_table, 1);
 
     m_summaryText = QStringLiteral("存储：等待首轮采样");
@@ -527,6 +540,51 @@ void DiskMonitorStoragePanel::changeEvent(QEvent* event)
     for (int column = kStorageColumnQueueDepth; column < kStorageColumnCount; ++column)
         if (auto* item = m_table->horizontalHeaderItem(column))
             item->setText(ks::i18n::sourceText(labels[column - kStorageColumnQueueDepth]));
+    refreshAreaWindow();
+}
+
+void DiskMonitorStoragePanel::openAreaWindow()
+{
+    if (!m_areaWindow)
+    {
+        m_areaWindow = new ks::ui::MetricAreaWindow(this);
+        m_areaWindow->modeChanged = [this](int mode) { m_areaMode = mode; refreshAreaWindow(); };
+        m_areaWindow->appearanceChanged = [this] { refreshAreaWindow(); };
+        m_areaWindow->itemActivated = [this](const QString& key) {
+            for (int row = 0; row < m_table->rowCount(); ++row) {
+                const auto* item = m_table->item(row, kStorageColumnDrive);
+                if (item && item->data(Qt::UserRole + 1).toString() == key) { m_table->selectRow(row); break; }
+            }
+        };
+    }
+    refreshAreaWindow();
+    m_areaWindow->show(); m_areaWindow->raise(); m_areaWindow->activateWindow();
+}
+
+void DiskMonitorStoragePanel::refreshAreaWindow()
+{
+    if (!m_areaWindow) return;
+    const QStringList modes{ks::i18n::sourceText(QStringLiteral("读取速率")),
+        ks::i18n::sourceText(QStringLiteral("写入速率")), ks::i18n::sourceText(QStringLiteral("读写合计"))};
+    m_areaWindow->setModes(modes, m_areaMode);
+    m_areaWindow->setSubject(ks::i18n::sourceText(QStringLiteral("全部卷")),
+        ks::i18n::sourceText(QStringLiteral("卷")), QString(),
+        ks::i18n::sourceText(QStringLiteral("点击矩形可选中原表中的卷；等待基线或采集失败的卷列为不可用。")));
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    nodes.reserve(m_areaRows.size());
+    for (const auto& row : m_areaRows)
+    {
+        ks::ui::MetricAreaNode node;
+        node.key = row.key; node.name = row.label.isEmpty() ? row.drive : row.drive + QLatin1Char(' ') + row.label;
+        node.known = row.known;
+        node.weight = m_areaMode == 0 ? row.readRate : m_areaMode == 1 ? row.writeRate : row.readRate + row.writeRate;
+        node.value = node.known ? formatRate(node.weight) : QStringLiteral("N/A");
+        node.tooltip = node.name + QLatin1Char('\n') + modes[m_areaMode] + QStringLiteral(": ") + node.value;
+        nodes.push_back(std::move(node));
+    }
+    m_areaWindow->setPresentation(modes[m_areaMode],
+        ks::i18n::sourceText(QStringLiteral("来自已提交的卷性能样本；多个卷可能共享设备，面积合计不能视为物理磁盘总吞吐。"))
+            + QLatin1Char('\n') + ks::i18n::LanguageManager::instance().displayText(m_summaryText), std::move(nodes));
 }
 
 DiskMonitorStoragePanel::~DiskMonitorStoragePanel()
@@ -1135,6 +1193,8 @@ void DiskMonitorStoragePanel::applySamples(
     int validRateSampleCount = 0;
     int baselinePendingCount = 0;
     QHash<QString, StorageBaseline> nextBaselineByIdentity;
+    std::vector<AreaRow> areaRows;
+    areaRows.reserve(sampleList.size());
 
     for (std::size_t sampleIndex = 0U;
          sampleIndex < sampleList.size();
@@ -1280,10 +1340,15 @@ void DiskMonitorStoragePanel::applySamples(
         }
 
         const int rowIndex = static_cast<int>(sampleIndex);
+        const QString areaKey = baselineKey.isEmpty()
+            ? normalizedVolumeGuidName(sample.volumeGuidName) + QLatin1Char('|') + sample.driveRoot
+            : baselineKey;
+        areaRows.push_back({areaKey, sample.driveRoot, sample.volumeLabel, readRate, writeRate, rateAvailable});
         m_table->setItem(
             rowIndex,
             kStorageColumnDrive,
             createStorageItem(sample.driveRoot));
+        m_table->item(rowIndex, kStorageColumnDrive)->setData(Qt::UserRole + 1, areaKey);
         m_table->setItem(
             rowIndex,
             kStorageColumnLabel,
@@ -1456,6 +1521,8 @@ void DiskMonitorStoragePanel::applySamples(
             .arg(throughputSummary);
     }
     m_table->setSortingEnabled(sortingWasEnabled);
+    m_areaRows = std::move(areaRows);
+    refreshAreaWindow();
 }
 
 QString DiskMonitorStoragePanel::summaryText() const

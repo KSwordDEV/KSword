@@ -12603,7 +12603,7 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
     showBoundProcessContextMenu(m_processTable->viewport()->mapToGlobal(localPosition));
 }
 
-void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow, const int areaColumn)
+void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow, const int areaColumn, const QString& areaCellText)
 {
 
     const std::vector<ProcessActionTarget> contextActionTargets = selectedActionTargets();
@@ -14029,7 +14029,8 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         if (areaRow != nullptr && (selectedAction == copyCellAction || selectedAction == copyRowAction))
         {
             QStringList fields;
-            if (selectedAction == copyCellAction) fields.push_back(processTableData(*areaRow, areaColumn, Qt::DisplayRole).toString());
+            if (selectedAction == copyCellAction) fields.push_back(areaCellText.isNull()
+                ? processTableData(*areaRow, areaColumn, Qt::DisplayRole).toString() : areaCellText);
             else for (int column = 0; column < static_cast<int>(TableColumn::Count); ++column)
                 fields.push_back(processTableData(*areaRow, column, Qt::DisplayRole).toString());
             QApplication::clipboard()->setText(fields.join(QLatin1Char('\t')));

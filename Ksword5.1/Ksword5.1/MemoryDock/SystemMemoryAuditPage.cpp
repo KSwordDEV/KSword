@@ -16,6 +16,8 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/MetricAreaWindow.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/PageControlStyle.h"
 #include "../ksword/log/log.h"
 #include "MemoryAccessBackend.h"
@@ -64,6 +66,7 @@
 #include <array>
 #include <cstddef>
 #include <exception>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -731,6 +734,15 @@ struct SystemMemoryAuditPage::ProjectionJob {
     std::shared_ptr<ProjectionData> result;
     bool failed = false;
 };
+struct SystemMemoryAuditPage::MetricAreaJob {
+    std::atomic_bool done{false}, cancel{false};
+    AuditKind kind;
+    std::shared_ptr<const ProjectionData> projection;
+    int mode = 0, column = 0;
+    QStringList labels;
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    bool failed = false;
+};
 struct SystemMemoryAuditPage::SnapshotJob {
     std::atomic_bool done{false};
     std::uint64_t ticket = 0;
@@ -752,6 +764,7 @@ void SystemMemoryAuditPage::retireValue(std::function<void()> destroy)
 SystemMemoryAuditPage::~SystemMemoryAuditPage()
 {
     if (m_projectionJob) { m_projectionJob->cancel.store(true); }
+    for (const auto& job : m_metricAreaJobs) if (job) job->cancel.store(true);
 }
 void SystemMemoryAuditPage::showEvent(QShowEvent* event)
 {
@@ -844,7 +857,7 @@ void SystemMemoryAuditPage::initializeUi()
     // 快照与深度扫描属于全页操作，以轻底面区分下面的摘要与分项数据。
     QWidget* const snapshotToolbar = new QWidget(this);
     ks::ui::StylePrimaryToolbar(snapshotToolbar);
-    QHBoxLayout* const controls = new QHBoxLayout(snapshotToolbar);
+    auto* const controls = new ks::ui::FlowLayout(snapshotToolbar, 0, 8, 6);
     controls->setContentsMargins(8, 4, 8, 4);
     // 刷新按钮：整机内存快照的手动采集入口，沿用全局刷新图标别名。
     m_refreshButton = new QPushButton(
@@ -870,10 +883,15 @@ void SystemMemoryAuditPage::initializeUi()
     controls->addWidget(m_userResidencyScanButton);
     m_pfnScanButton = new QPushButton(localized("PFN deep attribution"), this);
     controls->addWidget(m_pfnScanButton);
+    m_metricAreaButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("矩形面积视图")), this);
+    m_metricAreaButton->setObjectName(QStringLiteral("memory_audit_metric_area"));
+    m_metricAreaButton->setEnabled(false);
+    controls->addWidget(m_metricAreaButton);
     controls->addWidget(m_autoRefreshCheck);
     controls->addWidget(m_intervalSpin);
-    controls->addWidget(m_filterEdit, 1);
-    ks::ui::NormalizeToolbarRow(controls);
+    controls->addExpandingWidget(m_filterEdit, 220);
+    for (auto* control : std::array<QWidget*, 7>{m_refreshButton, m_userResidencyScanButton, m_pfnScanButton,
+        m_metricAreaButton, m_autoRefreshCheck, m_intervalSpin, m_filterEdit}) ks::ui::NormalizeToolbarControl(control);
     ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Accent);
     ks::ui::ApplyFlatButtonTheme(m_userResidencyScanButton, ks::ui::FlatButtonTone::Neutral);
     ks::ui::ApplyFlatButtonTheme(m_pfnScanButton, ks::ui::FlatButtonTone::Neutral);
@@ -1041,6 +1059,7 @@ void SystemMemoryAuditPage::initializeUi()
     m_pfnPage->snapshotReady = [this](const std::shared_ptr<ksword::pfn::Scan>& scan) {
         m_hyperVPage->setPfnContext(scan);
         applyPfnOverview(scan);
+        updateMetricAreaAction();
     };
     ks::i18n::LanguageManager::instance().bindTab(
         m_detailTabs, overviewPage, QStringLiteral("memory.audit.tab.distribution"), QStringLiteral("物理内存分布"));
@@ -1283,6 +1302,7 @@ void SystemMemoryAuditPage::updateSummaryTiles()
 
 void SystemMemoryAuditPage::initializeConnections()
 {
+    connect(m_metricAreaButton, &QPushButton::clicked, this, [this] { openMetricAreaView(); });
     m_projectionDebounce = new QTimer(this); m_projectionDebounce->setSingleShot(true); m_projectionDebounce->setInterval(120);
     connect(m_projectionDebounce, &QTimer::timeout, this, [this] { rebuildCurrentDetailView(); });
     m_jobsTimer = new QTimer(this); m_jobsTimer->setInterval(30);
@@ -1302,6 +1322,7 @@ void SystemMemoryAuditPage::initializeConnections()
         updateSummaryTiles();
         scheduleCurrentDetailViewRebuild();
         updateDetails();
+        updateMetricAreaAction();
     });
     connect(m_pfnScanButton, &QPushButton::clicked, this, [this]() {
         m_detailTabs->setCurrentWidget(m_pfnPage);
@@ -1352,6 +1373,7 @@ void SystemMemoryAuditPage::initializeConnections()
         rebuildCurrentDetailView();
         updateSummaryTiles();
         updateDetails();
+        updateMetricAreaAction();
     });
     connect(m_ddmaCrossCheckButton, &QPushButton::clicked, this, [this]() {
         runDdmaCrossCheck();
@@ -1567,6 +1589,9 @@ void SystemMemoryAuditPage::runDdmaCrossCheck()
 
 void SystemMemoryAuditPage::retranslateUi()
 {
+    m_metricAreaButton->setText(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
+    updateMetricAreaAction();
+    for (int kind = 0; kind < 4; ++kind) refreshMetricAreaView(static_cast<AuditKind>(kind));
     m_overviewSource->setItemText(0, localized("Fast snapshot"));
     if (m_overviewSource->count() > 1) { m_overviewSource->setItemText(1, localized("Latest PFN ledger")); }
     m_pfnScanButton->setText(localized("PFN deep attribution"));
@@ -2987,6 +3012,178 @@ void SystemMemoryAuditPage::invalidateTableProjections()
         tables[index]->setEnabled(false);
         m_statusLabel->setText(localized("Updating memory table..."));
     }
+    updateMetricAreaAction();
+    for (int kind = 0; kind < 4; ++kind) {
+        if (m_metricAreaWindows[kind]) m_metricAreaWindows[kind]->updateState(
+            localized("Memory table is updating; this view retains the last committed results."));
+    }
+}
+
+void SystemMemoryAuditPage::updateMetricAreaAction()
+{
+    if (!m_metricAreaButton || !m_detailTabs) return;
+    if (m_pfnPage && m_detailTabs->currentWidget() == m_pfnPage) {
+        m_metricAreaButton->setEnabled(m_pfnPage->hasMetricAreaData());
+        m_metricAreaButton->setToolTip(m_pfnPage->hasMetricAreaData()
+            ? localized("Visualize the published PFN ledger without starting another scan.")
+            : localized("Run PFN deep attribution before opening its area view."));
+        return;
+    }
+    const int kind = m_detailTabs->currentIndex() - 1;
+    const bool supported = kind >= 0 && kind < 4;
+    const bool ready = supported && m_metricAreaProjections[kind]
+        && m_publishedVersions[kind] == m_projectionVersions[kind];
+    m_metricAreaButton->setEnabled(ready);
+    m_metricAreaButton->setToolTip(!supported
+        ? localized("Select user residency, processes, pool tags, or Big Pool to visualize its committed table.")
+        : !ready ? localized("Wait for the current memory table to finish loading before opening its area view.")
+        : localized("Visualize the current filtered memory table without starting another scan."));
+}
+
+void SystemMemoryAuditPage::openMetricAreaView()
+{
+    if (m_pfnPage && m_detailTabs->currentWidget() == m_pfnPage) { m_pfnPage->openMetricAreaView(); return; }
+    const int kind = m_detailTabs->currentIndex() - 1;
+    if (kind < 0 || kind >= 4 || !m_metricAreaProjections[kind]
+        || m_publishedVersions[kind] != m_projectionVersions[kind]) return;
+    if (!m_metricAreaWindows[kind]) {
+        auto* window = new ks::ui::MetricAreaWindow(this);
+        window->setObjectName(QStringLiteral("memory_audit_metric_area_") + QString::number(kind));
+        m_metricAreaWindows[kind] = window;
+        m_metricAreaPresentedModes[kind] = -1;
+        const QPointer<SystemMemoryAuditPage> owner(this);
+        window->modeChanged = [owner, kind](int) {
+            if (owner) owner->refreshMetricAreaView(static_cast<AuditKind>(kind));
+        };
+        window->appearanceChanged = [owner, kind] {
+            if (owner) owner->refreshMetricAreaView(static_cast<AuditKind>(kind));
+        };
+    }
+    refreshMetricAreaView(static_cast<AuditKind>(kind));
+    if (const auto window = m_metricAreaWindows[kind]) {
+        window->show(); window->raise(); window->activateWindow();
+    }
+}
+
+void SystemMemoryAuditPage::refreshMetricAreaView(const AuditKind kind)
+{
+    const auto slot = static_cast<std::size_t>(kind);
+    const auto window = m_metricAreaWindows[slot];
+    const auto projection = m_metricAreaProjections[slot];
+    if (!window || !projection) return;
+    const std::array<AuditTableView*, 4> tables{m_userResidencyTable, m_processTable, m_poolTagTable, m_bigPoolTable};
+    auto* const table = tables[slot];
+    // Every choice is an explicit quantitative column; addresses, PID/session,
+    // names and status codes are never interpreted as areas.
+    static const std::array<std::vector<int>, 4> columns{{
+        {5, 8, 4, 6, 7}, {3, 4, 5, 6, 7, 8, 9, 10}, {3, 1, 2, 5, 6, 4}, {2, 4}
+    }};
+    QStringList labels;
+    for (const int column : columns[slot]) labels.append(table->model()->headerData(column, Qt::Horizontal).toString());
+    const int mode = qBound(0, window->currentMode(), static_cast<int>(columns[slot].size()) - 1);
+    window->setModes(labels, mode);
+    const int column = columns[slot][static_cast<std::size_t>(mode)];
+    window->setSubject(localized("All memory entries"), localized("Memory source"),
+        kind == AuditKind::PoolTags ? QString() : kind == AuditKind::BigPool ? localized("Virtual address") : QStringLiteral("PID"),
+        localized("Click a block to inspect its memory-table row; double-click zooms in. Areas use the selected metric; zero values do not receive artificial area."));
+    // Palette/show notifications only repaint the existing immutable view.
+    // Reformat all rows only for a new committed source, metric or language.
+    if (!m_metricAreaJobs[slot] && m_metricAreaPresentedProjections[slot].lock() == projection && m_metricAreaPresentedModes[slot] == mode
+        && m_metricAreaPresentedLabels[slot] == labels) return;
+    if (m_metricAreaJobs[slot]) {
+        const auto& pending = m_metricAreaJobs[slot];
+        if (pending->projection == projection && pending->mode == mode && pending->labels == labels) return;
+        pending->cancel.store(true);
+    }
+    const auto job = valueStorage<MetricAreaJob>();
+    job->kind = kind; job->projection = projection; job->mode = mode; job->column = column; job->labels = labels;
+    m_metricAreaJobs[slot] = job;
+    window->updateState(localized("Preparing the area view from the last committed memory table..."));
+    m_jobsTimer->start();
+    try { std::thread([job] { buildMetricAreaView(job); }).detach(); }
+    catch (...) { job->failed = true; job->done.store(true); }
+}
+
+void SystemMemoryAuditPage::buildMetricAreaView(const std::shared_ptr<MetricAreaJob>& job)
+{
+    try {
+    const auto& projection = job->projection;
+    const auto kind = job->kind;
+    const auto column = job->column;
+    job->nodes.reserve(projection->rows->size());
+    for (const auto row : *projection->rows) {
+        if (job->cancel.load()) break;
+        ks::ui::MetricAreaNode node;
+        node.key = projectionRowKey(*projection, row);
+        node.name = projectionCell(*projection, row, 0, Qt::DisplayRole).toString();
+        node.identity = kind == AuditKind::PoolTags ? node.name
+            : projectionCell(*projection, row, 1, Qt::DisplayRole).toString();
+        const auto value = projectionCell(*projection, row, column, ks::ui::NumericSortRole);
+        const double weight = value.toDouble();
+        node.known = value.isValid() && std::isfinite(weight);
+        node.weight = node.known ? std::fabs(weight) : 0;
+        node.value = projectionCell(*projection, row, column, Qt::DisplayRole).toString();
+        node.tooltip = projectionSearch(*projection, row) + QLatin1Char('\n') + job->labels[job->mode] + QStringLiteral(": ") + node.value;
+        if (kind == AuditKind::UserResidency) {
+            node.name += QStringLiteral(" · ") + projectionCell(*projection, row, 2, Qt::DisplayRole).toString();
+            node.name += QStringLiteral(" · ") + projectionCell(*projection, row, 3, Qt::DisplayRole).toString();
+        }
+        // The source rows are disjoint records, with no synthetic subtotal
+        // leaves. Shared references remain references, never unique bytes.
+        job->nodes.push_back(std::move(node));
+    }
+    } catch (...) { job->failed = true; }
+    job->done.store(true);
+}
+
+void SystemMemoryAuditPage::publishMetricAreaView(const std::shared_ptr<MetricAreaJob>& job)
+{
+    const auto kind = job->kind;
+    const auto slot = static_cast<std::size_t>(kind);
+    const auto window = m_metricAreaWindows[slot];
+    const auto projection = job->projection;
+    if (!window || job->cancel.load() || m_metricAreaProjections[slot] != projection || window->currentMode() != job->mode) return;
+    if (job->failed) {
+        window->updateState(localized("Memory area view preparation failed; the previous view is retained. Change the metric or refresh the table to retry."));
+        return;
+    }
+    const auto column = job->column;
+    const QString sampledAt = kind == AuditKind::UserResidency ? projection->residency.sampledAt : projection->snapshot.sampledAt;
+    QString state = localized("Committed memory-table results | Snapshot %1 | Entries %2")
+        .arg(sampledAt).arg(projection->rows->size());
+    if (kind == AuditKind::UserResidency) {
+        state += QStringLiteral("\n") + localized("Resident references and proportional estimates are not unique physical memory. Accessible processes: %1; inaccessible: %2; scan warnings: %3.")
+            .arg(projection->residency.accessibleProcessCount).arg(projection->residency.inaccessibleProcessCount).arg(projection->residency.errors.size());
+    } else if (kind == AuditKind::PoolTags) {
+        state += QStringLiteral("\n") + localized("Paged-pool bytes are commitments; outstanding allocations are counts, not resident bytes.");
+    } else if (kind == AuditKind::Processes) {
+        state += QStringLiteral("\n") + localized("Working sets may share pages; commit and quota metrics are not unique resident memory.");
+    }
+    if ((kind == AuditKind::Processes && column == 10) || (kind == AuditKind::PoolTags && column == 4)
+        || (kind == AuditKind::BigPool && column == 4)) state += QStringLiteral("\n")
+            + localized("Area uses the absolute change; the displayed value retains its sign.");
+    if (m_publishedVersions[slot] != m_projectionVersions[slot]) state += QStringLiteral("\n")
+        + localized("Memory table is updating; this view retains the last committed results.");
+    const QPointer<SystemMemoryAuditPage> owner(this);
+    window->setPresentation(job->labels[job->mode], state, std::move(job->nodes));
+    if (!owner || !window) return;
+    m_metricAreaPresentedProjections[slot] = projection;
+    m_metricAreaPresentedModes[slot] = job->mode;
+    m_metricAreaPresentedLabels[slot] = job->labels;
+    window->itemActivated = [owner, projection, kind](const QString& key) {
+        if (!owner) return;
+        const auto index = static_cast<std::size_t>(kind);
+        if (owner->m_metricAreaProjections[index] != projection || owner->m_publishedVersions[index] != owner->m_projectionVersions[index]) return;
+        const std::array<AuditTableView*, 4> views{owner->m_userResidencyTable, owner->m_processTable, owner->m_poolTagTable, owner->m_bigPoolTable};
+        for (std::size_t row = 0; row < projection->rows->size(); ++row) {
+            if (projectionRowKey(*projection, (*projection->rows)[row]) != key) continue;
+            owner->m_detailTabs->setCurrentIndex(static_cast<int>(index) + 1);
+            if (!owner) return;
+            const auto target = views[index]->model()->index(static_cast<int>(row), 0);
+            views[index]->setCurrentIndex(target); views[index]->scrollTo(target); owner->updateDetails();
+            return;
+        }
+    };
 }
 
 void SystemMemoryAuditPage::requestTableProjection(const AuditKind kind)
@@ -3017,28 +3214,38 @@ void SystemMemoryAuditPage::requestTableProjection(const AuditKind kind)
     catch (...) { job->failed = true; job->done.store(true); }
 }
 
-void SystemMemoryAuditPage::publishTableProjection(const std::shared_ptr<ProjectionData>& data, const std::uint64_t version)
+void SystemMemoryAuditPage::publishTableProjection(const std::shared_ptr<ProjectionData>& projection, const std::uint64_t version)
 {
-    const auto kind = static_cast<std::size_t>(data->kind);
+    const auto kind = static_cast<std::size_t>(projection->kind);
     if (!isVisible() || m_detailTabs->currentIndex() != static_cast<int>(kind) + 1 || m_projectionVersions[kind] != version) { return; }
     const std::array<AuditTableView*, 4> tables{m_userResidencyTable, m_processTable, m_poolTagTable, m_bigPoolTable};
     const QPointer<SystemMemoryAuditPage> owner(this);
     const QPointer<AuditTableView> table(tables[kind]);
     const int scroll = table->verticalScrollBar()->value();
-    table->auditModel->publish(data->rows, [data](std::size_t row, int column, int role) { return projectionCell(*data, row, column, role); });
+    table->auditModel->publish(projection->rows, [projection](std::size_t row, int column, int role) { return projectionCell(*projection, row, column, role); });
     if (!owner || !table || m_projectionVersions[kind] != version || m_detailTabs->currentIndex() != static_cast<int>(kind) + 1) { return; }
     m_publishedVersions[kind] = version;
     table->setEnabled(true);
     if (!owner || !table || m_projectionVersions[kind] != version) { return; }
-    if (data->selectedRow >= 0) { table->setCurrentIndex(table->auditModel->index(data->selectedRow, 0)); }
+    if (projection->selectedRow >= 0) { table->setCurrentIndex(table->auditModel->index(projection->selectedRow, 0)); }
     if (!owner || !table || m_projectionVersions[kind] != version) { return; }
     table->verticalScrollBar()->setValue(scroll);
-    if (owner) { updateStatus(); }
+    if (owner) {
+        m_metricAreaProjections[kind] = projection;
+        refreshMetricAreaView(projection->kind);
+        updateMetricAreaAction(); updateStatus();
+    }
 }
 
 void SystemMemoryAuditPage::pollJobs()
 {
     const QPointer<SystemMemoryAuditPage> owner(this);
+    for (auto& pending : m_metricAreaJobs) {
+        if (!pending || !pending->done.load()) continue;
+        const auto ready = std::move(pending);
+        publishMetricAreaView(ready);
+        if (!owner) return;
+    }
     if (m_snapshotJob && m_snapshotJob->done.load()) {
         const auto job = std::move(m_snapshotJob);
         if (job->failed || !job->result) {
@@ -3069,5 +3276,6 @@ void SystemMemoryAuditPage::pollJobs()
         }
     }
     if (owner && isVisible()) { rebuildCurrentDetailView(); }
-    if (owner && !m_snapshotJob && !m_residencyJob && !m_projectionJob) { m_jobsTimer->stop(); }
+    const bool areaBusy = std::any_of(m_metricAreaJobs.cbegin(), m_metricAreaJobs.cend(), [](const auto& job) { return bool(job); });
+    if (owner && !m_snapshotJob && !m_residencyJob && !m_projectionJob && !areaBusy) { m_jobsTimer->stop(); }
 }

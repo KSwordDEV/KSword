@@ -21,6 +21,7 @@
 #include "../UI/DetailPresentation.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/FlowLayout.h"
 #include "../PluginHost.h"
 
 #include <QTimer>
@@ -5531,6 +5532,9 @@ void ProcessDetailWindow::initializeModuleTab()
         "QCheckBox { color:%1; font-weight:600; }")
         .arg(KswordTheme::TextPrimaryHex()));
     m_moduleStatusLabel = new QLabel("● 等待首次刷新", m_moduleTab);
+    m_moduleStatusLabel->setWordWrap(true);
+    m_moduleStatusLabel->setMinimumWidth(0);
+    m_moduleStatusLabel->setToolTip(m_moduleStatusLabel->text());
     m_moduleStatusLabel->setStyleSheet(
         QStringLiteral("color:%1; font-weight:600;")
         .arg(KswordTheme::TextSecondaryHex()));
@@ -5538,6 +5542,10 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_dllHijackScanButton);
     m_moduleTopBarLayout->addWidget(m_injectionTraceButton);
     m_moduleTopBarLayout->addWidget(m_injectionTraceDeepButton);
+    auto* moduleAreaButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("矩形面积视图")), m_moduleTab);
+    ks::i18n::LanguageManager::instance().bindText(moduleAreaButton,
+        QStringLiteral("process.modules.metric_area.open"), QStringLiteral("矩形面积视图"));
+    connect(moduleAreaButton, &QPushButton::clicked, this, &ProcessDetailWindow::openModuleAreaWindow);
     m_moduleTopBarLayout->addWidget(m_signatureCheckBox);
     m_moduleFilterEdit = new QLineEdit(m_moduleTab);
     // 模块树专用文本过滤，颜色绑定不改变原来的过滤信号和尺寸。
@@ -5548,16 +5556,26 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleFilterEdit->setToolTip(ks::i18n::sourceText(
         QStringLiteral("按模块路径过滤关键字")));
     m_moduleFilterEdit->setMinimumWidth(220);
-    m_moduleTopBarLayout->addWidget(m_moduleFilterEdit);
     m_moduleTopBarLayout->addStretch(1);
-    m_moduleTopBarLayout->addWidget(m_moduleStatusLabel);
     ks::ui::NormalizeToolbarRow(m_moduleTopBarLayout);
     m_moduleLayout->addLayout(m_moduleTopBarLayout);
+    auto* moduleViewTools = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
+    moduleViewTools->addWidget(moduleAreaButton);
+    moduleViewTools->addExpandingWidget(m_moduleFilterEdit, 220);
+    ks::ui::NormalizeToolbarControl(moduleAreaButton);
+    ks::ui::NormalizeToolbarControl(m_moduleFilterEdit);
+    m_moduleLayout->addLayout(moduleViewTools);
+    m_moduleLayout->addWidget(m_moduleStatusLabel);
 
     // 模块列表表格。
     QVector<ks::ui::ImmutableTableHeader> moduleHeaders;
     for (const auto& header : ModuleHeaders) moduleHeaders.push_back(ks::ui::ImmutableTableHeader(header));
     m_moduleTable = new ks::ui::ImmutableValueTable(m_moduleTab, std::move(moduleHeaders));
+    // Use the committed visible model, including asynchronous filtering/sorting.
+    connect(m_moduleTable->model(), &QAbstractItemModel::modelReset, this,
+        &ProcessDetailWindow::refreshModuleAreaWindow, Qt::QueuedConnection);
+    connect(m_moduleTable->model(), &QAbstractItemModel::layoutChanged, this,
+        &ProcessDetailWindow::refreshModuleAreaWindow, Qt::QueuedConnection);
     ks::ui::SetTableActionBarMode(m_moduleTable, ks::ui::TableActionBarMode::Compact);
     m_moduleTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_moduleTable->setSelectionMode(QAbstractItemView::SingleSelection);

@@ -7,9 +7,11 @@
 
 namespace ks::ui {
 struct MetricAreaNode {
-    QString key, name, pid, value, tooltip;
+    QString key, name, identity, value, tooltip;
     QIcon icon;
     QColor background, foreground;
+    // Non-negative finite area. For signed deltas the adapter supplies abs(value)
+    // here while retaining the signed display text. Invalid areas are unavailable.
     double weight = 0;
     int parent = -1;
     bool group = false;
@@ -45,6 +47,7 @@ private:
     void focusNode(int index);
     std::vector<MetricAreaNode> m_nodes;
     std::vector<std::vector<int>> m_children;
+    std::vector<int> m_parents;
     std::vector<double> m_totals;
     std::vector<Box> m_boxes;
     int m_root = -1, m_hover = -1;

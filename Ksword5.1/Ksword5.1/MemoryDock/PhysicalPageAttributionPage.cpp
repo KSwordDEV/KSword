@@ -3,6 +3,7 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/MetricAreaWindow.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "MemoryAttributionChart.h"
@@ -156,6 +157,38 @@ void number(QTableWidget* table, int row, int column, std::uint64_t value, bool 
     item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
     table->setItem(row, column, item);
 }
+}
+
+namespace {
+std::vector<ks::ui::MetricAreaNode> pfnMetricAreaNodes(const ksword::pfn::Accounting& counts, const int mode)
+{
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    const auto add = [&nodes](QString key, QString name, const std::uint64_t pages) {
+        ks::ui::MetricAreaNode node;
+        node.key = std::move(key); node.name = std::move(name);
+        node.weight = static_cast<double>(pages) * static_cast<double>(pageBytes);
+        node.value = bytes(pages * pageBytes);
+        node.tooltip = node.name + QStringLiteral("\n%1 | %2").arg(QString::number(pages), node.value);
+        nodes.push_back(std::move(node));
+    };
+    if (mode == 0) {
+        for (std::size_t use = 0; use < useCount; ++use) add(QStringLiteral("use:") + QString::number(use), L(useNames[use]), counts.inUse(static_cast<Use>(use)));
+        // Available, bad, unreadable and unscanned pages are disjoint from the
+        // in-use classification. They stay visible instead of becoming owners.
+        add(QStringLiteral("available"), L("Available"), counts.availablePages);
+        add(QStringLiteral("bad"), L("Bad"), counts.bad());
+    } else {
+        for (std::size_t list = 0; list < stateNames.size(); ++list) {
+            std::uint64_t pages = 0;
+            for (const auto& use : counts.byUseAndState) pages += use[list];
+            add(QStringLiteral("state:") + QString::number(list), L(stateNames[list]), pages);
+        }
+    }
+    add(QStringLiteral("unreadable"), L("Query failed"), counts.unreadable);
+    add(QStringLiteral("unscanned"), L("Not scanned"), counts.notScanned());
+    return nodes;
+}
+
 }
 
 struct PhysicalPageAttributionPage::GroupIndex {
@@ -791,6 +824,55 @@ void PhysicalPageAttributionPage::rebuild()
         evidence.field(QStringLiteral("budget reached"), QStringLiteral("budget reached %1").arg(QStringLiteral("%1").arg(maps.budgetReached ? L("Yes") : L("No"))));
     } else { evidence.note(QStringLiteral("Mapping resolution has not run. Large-page and per-PFN reference coverage is unavailable.")); }
     m_evidence->setDocument(evidence);
+    refreshMetricAreaView();
+}
+
+bool PhysicalPageAttributionPage::hasMetricAreaData() const
+{
+    return m_scan && m_scan->accounting.expected && m_scan->accounting.reconciles();
+}
+
+void PhysicalPageAttributionPage::openMetricAreaView()
+{
+    if (!hasMetricAreaData()) return;
+    if (!m_metricAreaWindow) {
+        auto* window = new ks::ui::MetricAreaWindow(this);
+        window->setObjectName(QStringLiteral("pfn_metric_area_window"));
+        m_metricAreaWindow = window;
+        const QPointer<PhysicalPageAttributionPage> owner(this);
+        window->modeChanged = [owner](int) { if (owner) owner->refreshMetricAreaView(); };
+        window->appearanceChanged = [owner] { if (owner) owner->refreshMetricAreaView(); };
+    }
+    refreshMetricAreaView();
+    if (const auto window = m_metricAreaWindow) { window->show(); window->raise(); window->activateWindow(); }
+}
+
+void PhysicalPageAttributionPage::refreshMetricAreaView()
+{
+    const auto window = m_metricAreaWindow;
+    const auto snapshot = m_scan;
+    if (!window || !hasMetricAreaData()) return;
+    const auto& counts = snapshot->accounting;
+    const int mode = qBound(0, window->currentMode(), 1);
+    window->setModes({L("Physical-page categories"), L("Physical-page states")}, mode);
+    window->setSubject(L("All physical pages"), L("Memory source"), QString(),
+        L("Each physical page belongs to one displayed category. In category mode, click a block to inspect the existing PFN details. Double-click zooms in."));
+    auto nodes = pfnMetricAreaNodes(counts, mode);
+    QString stateText = L("PFN ledger %1 | Collection interval %2 to %3 | %4")
+        .arg(snapshot->epoch, snapshot->started, snapshot->finished, snapshot->complete ? L("Scan complete") : L("Partial / unavailable"));
+    stateText += QStringLiteral("\n") + L("Coverage %1% | Unreadable %2 | Unscanned %3. Unknown and unscanned pages are not attributed to a process or driver.")
+        .arg(100.0 * static_cast<double>(counts.valid) / static_cast<double>(counts.expected), 0, 'f', 2)
+        .arg(bytes(counts.unreadable * pageBytes), bytes(counts.notScanned() * pageBytes));
+    if (!snapshot->semanticsValidated) stateText += QStringLiteral("\n") + L("Classification semantics have not been validated on this Windows build.");
+    if (m_latestAttemptFailed && m_lastAttempt != snapshot) stateText += QStringLiteral("\n") + L("Latest PFN attempt failed; showing the previous ledger.");
+    if (m_job) stateText += QStringLiteral("\n") + L("A new PFN scan is running; this view retains the previous ledger.");
+    window->setPresentation(mode == 0 ? L("Physical-page categories") : L("Physical-page states"), stateText, std::move(nodes));
+    const QPointer<PhysicalPageAttributionPage> owner(this);
+    window->itemActivated = [owner, snapshot, mode](const QString& key) {
+        if (!owner || owner->m_scan != snapshot || mode != 0 || !key.startsWith(QStringLiteral("use:"))) return;
+        bool valid = false; const int use = key.mid(4).toInt(&valid);
+        if (valid && use >= 0 && use < static_cast<int>(useCount)) owner->focusCategory(use);
+    };
 }
 
 void PhysicalPageAttributionPage::rebuildGroups()

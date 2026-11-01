@@ -757,9 +757,10 @@ private:
     void showThreadTableContextMenu(const QPoint& localPosition);
     void showThreadHeaderContextMenu(const QPoint& localPosition);
     void showHeaderContextMenu(const QPoint& localPosition);
-    void showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow = nullptr, int areaColumn = 0);
+    void showBoundProcessContextMenu(const QPoint& globalPosition, const ProcessTableRow* areaRow = nullptr, int areaColumn = 0, const QString& areaCellText = QString());
     static bool isMetricAreaColumn(int column);
     static bool metricAreaIncludesProcess(int column, const ks::process::ProcessRecord& record);
+    static double metricAreaNetworkValue(const ks::process::ProcessRecord& record, int mode);
     void openMetricAreaWindow(int column);
     void refreshMetricAreaViews(bool captureRows);
     void scheduleMetricAreaRefresh();
