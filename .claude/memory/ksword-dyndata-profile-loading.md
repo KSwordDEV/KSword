@@ -1,5 +1,17 @@
 # DynData v4 读取、提取与分模块回执
 
+## 2026-11-01：自身驱动总览刷新阻塞
+
+- 导航为“驱动 Dock → Ksword自身驱动 → 总览”，实际实现是 `KernelDock.DynData.cpp`，不是相邻的“驱动状态”。总览属于只读结果列表＋字段详情；同次刷新还更新 PDB Profile 的列表与完整诊断。参考 `KernelDock.DriverStatus.cpp`、`HardwareOtherDevicesPage.cpp` 及共享 `StructuredFieldView` 值模型。
+- 原刷新在替换快照后直接 `setRowCount(0)`，触发 `currentCellChanged`；无当前行分支随即把完整诊断同步建成原生字段树，随后又被选中单字段详情替换。隐藏的 Profile 详情也同步构建同一完整诊断树。查询虽在 worker，结果投影仍会阻塞 GUI；不能仅检查是否有后台查询线程。
+- 两个普通详情均改用 `setValueModelProjection()`：共享后台准备与按需行模型，隐藏时只保存规范文档。刷新在冻结 `SourceTextSnapshot` 的 `ResultTextScope` 中生成一次完整报告，成功/失败详情共用这个纯值。
+- 字段表重建期间用 `QSignalBlocker` 屏蔽中间当前行信号，全部内容与排序完成后按字段 ID 恢复选择，并只更新最终详情。筛选无匹配时显示既有空态说明，不再展开完整报告。字段表和 V4 item 表先算可见行，再一次设置行数，减少逐行插入通知；源索引仍保存于 `Qt::UserRole`，字段 ID 单独保存于 `Qt::UserRole + 1`。
+- 共享入口保持 `VisibleTableWidget`/表格呈现、`NormalizeToolbarRow`、`StyleSearchField`、`StructuredFieldView`；两张摘要表为 None，两张字段/item 表为 Compact，既有 splitter 和专业表格横向滚动保留。没有同步 `tree()` 消费者，适合单向切换共享值模型。
+- 源码核对与 `git diff --check` 通过；HostX64 Release/x64 构建（含 Qt 部署）通过，`BUILD_RESULT=SUCCESS`、`EXIT_CODE=0`，语言包审计 29859 条及主题 token 自测/全量门禁通过。日志 `.codex-build-logs/ksword-build-check-20261101-073626.raw.log`；主程序产物 32139776 字节、SHA256 `255c9555d2b78e744cb579df9074de80ddce72209d915ea2c3093c51e01a3a62`。首轮因运行中的 EXE 占用而 LNK1104，用户正常退出后重试成功。
+- 验证边界：本轮实机 UI 自动化在读取主窗口前被拒绝，未以伪窗口替代；连续刷新、筛选后选择身份、Profile 切页、复制/导出、窄窗、DPI/长文本、深浅主题/背景及首帧仍需真实主程序验收。没有实测卡顿时长或宣称全部视觉合规。
+
+## 2026-10-11：v4 读取与分模块回执
+
 - 2026-10-11：协议/配置包含可选 `PspTerminateProcess`（1401），旧 GUI 的手写 ID switch 漏项，导致整份 NTOS profile 无效，EX/V4 都不下发。包格式合规不等于实际消费者能接受；回归必须执行生产 `loadV4ItemsFromJson`。
 - 支持的特殊 ID 统一登记于 `shared/driver/KswordArkDynDataIoctl.h` 的 `KSW_DYN_V4_SUPPORTED_SPECIAL_ITEMS`；GUI 使用该头的 `KswordArkDynDataV4ItemIdSupported`，Python 发布器读取同一目录和数值宏。1004/1006 仍保留协议编号，但不进入接受目录。不要恢复独立的 GUI 数字名单。
 - 原汇总会把 FLTMGR 成功的 7 项计入 NTOS 的已应用/状态，掩盖 NTOS 读取失败。现有兼容汇总只代表 NTOS；`profileModules` 分别记录 EX/V4 是否尝试、状态、本次接受及最终缓存接受，界面和复制报告共用。缓存接受不能覆盖本轮格式失败。

@@ -38,6 +38,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QStringList>
 #include <QSplitter>
 #include <QTabWidget>
@@ -3245,6 +3246,8 @@ void KernelDock::initializeDynDataTab()
     installDynDataCopyMenu(m_dynDataFieldTable);
 
     m_dynDataDetailEditor = new ks::ui::StructuredFieldView(lowerSplitter);
+    // 普通字段详情不依赖 tree()；完整诊断使用共享后台投影，避免同步建树。
+    m_dynDataDetailEditor->setValueModelProjection();
 
     m_dynDataDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.detail.initial", QStringLiteral("请选择一条动态偏移字段查看详情。"))));
 
@@ -3322,6 +3325,8 @@ void KernelDock::initializeDynDataTab()
     installDynDataCopyMenu(m_dynDataV4ItemTable);
 
     m_dynDataProfileDetailEditor = new ks::ui::StructuredFieldView(profileSplitter);
+    // 总览刷新也更新此隐藏页，规范文档立即可用，树投影等到可见时再准备。
+    m_dynDataProfileDetailEditor->setValueModelProjection();
 
     m_dynDataProfileDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.profile_status.detail.initial", QStringLiteral("请先刷新动态偏移，再查看 PDB profile 管理状态。"))));
 
@@ -3380,13 +3385,17 @@ void KernelDock::refreshDynDataAsync()
     m_dynDataStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::PrimaryBlueHex));
 
     QPointer<KernelDock> guardThis(this);
-    std::thread([guardThis]() {
+    const auto texts = ks::i18n::LanguageManager::instance().sourceTextSnapshot();
+    std::thread([guardThis, texts]() {
+        ksword::kernel_dock_internal::ResultTextScope textScope(texts);
         KernelDynDataSummary summary;
         std::vector<KernelDynDataFieldEntry> rows;
         std::vector<KernelDynDataV4ItemEntry> v4ItemRows;
         const bool success = queryDynDataSnapshot(summary, rows, v4ItemRows);
+        // 完整报告只生成一次；UI 回填共享该值，不在隐藏详情中重新拼装。
+        auto report = buildDynDataReport(summary, rows);
 
-        QMetaObject::invokeMethod(guardThis, [guardThis, success, summary = std::move(summary), rows = std::move(rows), v4ItemRows = std::move(v4ItemRows)]() mutable {
+        QMetaObject::invokeMethod(guardThis, [guardThis, success, summary = std::move(summary), rows = std::move(rows), v4ItemRows = std::move(v4ItemRows), report = std::move(report)]() mutable {
             const auto deferredSummary =
                 std::make_shared<KernelDynDataSummary>(std::move(summary));
             const auto deferredRows =
@@ -3398,7 +3407,8 @@ void KernelDock::refreshDynDataAsync()
                 success,
                 deferredSummary,
                 deferredRows,
-                deferredV4Rows]() mutable
+                deferredV4Rows,
+                report = std::move(report)]() mutable
             {
             KernelDynDataSummary& summary = *deferredSummary;
             std::vector<KernelDynDataFieldEntry>& rows = *deferredRows;
@@ -3418,7 +3428,7 @@ void KernelDock::refreshDynDataAsync()
                 guardThis->m_dynDataSummaryTable,
                 guardThis->m_dynDataSummary,
                 guardThis->m_dynDataRows.size());
-            guardThis->rebuildDynDataFieldTable(guardThis->m_dynDataFilterEdit->text().trimmed());
+            guardThis->rebuildDynDataFieldTable(guardThis->m_dynDataFilterEdit->text().trimmed(), false);
             guardThis->rebuildDynDataV4ItemTable(guardThis->m_dynDataFilterEdit->text().trimmed());
 
             const std::size_t missingRequiredCount = static_cast<std::size_t>(
@@ -3434,7 +3444,7 @@ void KernelDock::refreshDynDataAsync()
             {
                 guardThis->m_dynDataStatusLabel->setText(kernelText("kernel.dyndata.status.refresh_failed", QStringLiteral("状态：刷新失败")));
                 guardThis->m_dynDataStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_dynDataDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                guardThis->m_dynDataDetailEditor->setDocument(report);
                 populateProfileStatusTable(guardThis->m_dynDataProfileSummaryTable, guardThis->m_dynDataSummary);
                 if (guardThis->m_dynDataProfileStatusLabel != nullptr)
                 {
@@ -3443,7 +3453,7 @@ void KernelDock::refreshDynDataAsync()
                 }
                 if (guardThis->m_dynDataProfileDetailEditor != nullptr)
                 {
-                    guardThis->m_dynDataProfileDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                    guardThis->m_dynDataProfileDetailEditor->setDocument(report);
                 }
             }
             else
@@ -3459,14 +3469,7 @@ void KernelDock::refreshDynDataAsync()
                 guardThis->m_dynDataStatusLabel->setStyleSheet(
                     statusLabelStyle(ntosActive && pdbProfileActive && missingRequiredCount == 0U ? KswordTheme::SuccessHex() : KswordTheme::WarningHex()));
 
-                if (guardThis->m_dynDataFieldTable->rowCount() > 0)
-                {
-                    guardThis->m_dynDataFieldTable->setCurrentCell(0, 0);
-                }
-                else
-                {
-                    guardThis->m_dynDataDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.empty.filtered", QStringLiteral("当前筛选条件下没有动态偏移字段。"))));
-                }
+                guardThis->showDynDataDetailByCurrentRow();
 
                 populateProfileStatusTable(guardThis->m_dynDataProfileSummaryTable, guardThis->m_dynDataSummary);
                 if (guardThis->m_dynDataProfileStatusLabel != nullptr)
@@ -3480,7 +3483,7 @@ void KernelDock::refreshDynDataAsync()
                 }
                 if (guardThis->m_dynDataProfileDetailEditor != nullptr)
                 {
-                    guardThis->m_dynDataProfileDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                    guardThis->m_dynDataProfileDetailEditor->setDocument(report);
                 }
             }
 
@@ -3522,26 +3525,33 @@ void KernelDock::refreshDynDataAsync()
     }).detach();
 }
 
-void KernelDock::rebuildDynDataFieldTable(const QString& filterKeyword)
+void KernelDock::rebuildDynDataFieldTable(const QString& filterKeyword, const bool updateDetail)
 {
     if (m_dynDataFieldTable == nullptr)
     {
         return;
     }
 
-    m_dynDataFieldTable->setSortingEnabled(false);
-    m_dynDataFieldTable->setRowCount(0);
-
+    const auto* currentItem = m_dynDataFieldTable->item(
+        m_dynDataFieldTable->currentRow(), static_cast<int>(DynDataColumn::Field));
+    const QVariant selectedField = currentItem ? currentItem->data(Qt::UserRole + 1) : QVariant();
+    std::vector<std::size_t> visibleSources;
+    visibleSources.reserve(m_dynDataRows.size());
     for (std::size_t sourceIndex = 0U; sourceIndex < m_dynDataRows.size(); ++sourceIndex)
     {
-        const KernelDynDataFieldEntry& entry = m_dynDataRows[sourceIndex];
-        if (!shouldShowField(entry, filterKeyword))
-        {
-            continue;
-        }
+        if (shouldShowField(m_dynDataRows[sourceIndex], filterKeyword))
+            visibleSources.push_back(sourceIndex);
+    }
 
-        const int rowIndex = m_dynDataFieldTable->rowCount();
-        m_dynDataFieldTable->insertRow(rowIndex);
+    // 清表发出的 currentCellChanged 曾同步展开全部诊断；只发布最终选中字段。
+    QSignalBlocker blocker(m_dynDataFieldTable);
+    m_dynDataFieldTable->setSortingEnabled(false);
+    m_dynDataFieldTable->setRowCount(0);
+    m_dynDataFieldTable->setRowCount(static_cast<int>(visibleSources.size()));
+    int rowIndex = 0;
+    for (const std::size_t sourceIndex : visibleSources)
+    {
+        const KernelDynDataFieldEntry& entry = m_dynDataRows[sourceIndex];
 
         auto* fieldItem = new QTableWidgetItem(safeText(entry.fieldNameText));
         auto* offsetItem = new QTableWidgetItem(formatOffset(entry.offset));
@@ -3551,6 +3561,7 @@ void KernelDock::rebuildDynDataFieldTable(const QString& filterKeyword)
         auto* capabilityItem = new QTableWidgetItem(formatHex64(entry.capabilityMask));
 
         fieldItem->setData(Qt::UserRole, static_cast<qulonglong>(sourceIndex));
+        fieldItem->setData(Qt::UserRole + 1, entry.fieldId);
         if (!fieldPresent(entry.flags, entry.offset))
         {
             statusItem->setForeground(QBrush((entry.flags & KSW_DYN_FIELD_FLAG_REQUIRED) != 0U
@@ -3568,9 +3579,25 @@ void KernelDock::rebuildDynDataFieldTable(const QString& filterKeyword)
         setReadonlyItem(m_dynDataFieldTable, rowIndex, DynDataColumn::Source, sourceItem);
         setReadonlyItem(m_dynDataFieldTable, rowIndex, DynDataColumn::Feature, featureItem);
         setReadonlyItem(m_dynDataFieldTable, rowIndex, DynDataColumn::Capability, capabilityItem);
+        ++rowIndex;
     }
 
     m_dynDataFieldTable->setSortingEnabled(true);
+    int selectedRow = m_dynDataFieldTable->rowCount() > 0 ? 0 : -1;
+    if (selectedField.isValid())
+    {
+        for (int row = 0; row < m_dynDataFieldTable->rowCount(); ++row)
+        {
+            if (m_dynDataFieldTable->item(row, static_cast<int>(DynDataColumn::Field))->data(Qt::UserRole + 1) == selectedField)
+            {
+                selectedRow = row;
+                break;
+            }
+        }
+    }
+    m_dynDataFieldTable->setCurrentCell(selectedRow, 0);
+    blocker.unblock();
+    if (updateDetail) showDynDataDetailByCurrentRow();
 }
 
 void KernelDock::rebuildDynDataV4ItemTable(const QString& filterKeyword)
@@ -3591,18 +3618,21 @@ void KernelDock::rebuildDynDataV4ItemTable(const QString& filterKeyword)
         m_dynDataV4ItemTable->setItem(row, column, item);
     };
 
-    m_dynDataV4ItemTable->setSortingEnabled(false);
-    m_dynDataV4ItemTable->setRowCount(0);
-
+    const QSignalBlocker blocker(m_dynDataV4ItemTable);
+    std::vector<const KernelDynDataV4ItemEntry*> visibleRows;
+    visibleRows.reserve(m_dynDataV4ItemRows.size());
     for (const KernelDynDataV4ItemEntry& entry : m_dynDataV4ItemRows)
     {
-        if (!v4ItemMatchesFilter(entry, filterKeyword))
-        {
-            continue;
-        }
+        if (v4ItemMatchesFilter(entry, filterKeyword)) visibleRows.push_back(&entry);
+    }
+    m_dynDataV4ItemTable->setSortingEnabled(false);
+    m_dynDataV4ItemTable->setRowCount(0);
+    m_dynDataV4ItemTable->setRowCount(static_cast<int>(std::max<std::size_t>(1U, visibleRows.size())));
 
-        const int rowIndex = m_dynDataV4ItemTable->rowCount();
-        m_dynDataV4ItemTable->insertRow(rowIndex);
+    int rowIndex = 0;
+    for (const KernelDynDataV4ItemEntry* source : visibleRows)
+    {
+        const KernelDynDataV4ItemEntry& entry = *source;
         insertReadonlyCell(rowIndex, 0, moduleClassText(entry.moduleClassId));
         insertReadonlyCell(rowIndex, 1, QString::number(entry.itemIndex));
         insertReadonlyCell(rowIndex, 2, QString::number(entry.itemId));
@@ -3612,9 +3642,10 @@ void KernelDock::rebuildDynDataV4ItemTable(const QString& filterKeyword)
         insertReadonlyCell(rowIndex, 6, formatHex64(entry.value));
         insertReadonlyCell(rowIndex, 7, entry.auxText);
         insertReadonlyCell(rowIndex, 8, entry.detailDocument.toPlainText(true).replace(QStringLiteral("\n"), QStringLiteral("; ")));
+        ++rowIndex;
     }
 
-    if (m_dynDataV4ItemTable->rowCount() == 0)
+    if (visibleRows.empty())
     {
         const QString stateText = v4IoStateText(m_dynDataSummary.dynDataV4ItemsQueryOk, m_dynDataSummary.dynDataV4ItemsUnsupported);
         const QString detailText = kernelText("kernel.dyndata.v4.empty.detail", QStringLiteral("V4 accepted item 查询状态：%1；返回 %2/%3；%4"))
@@ -3622,8 +3653,7 @@ void KernelDock::rebuildDynDataV4ItemTable(const QString& filterKeyword)
             .arg(m_dynDataSummary.dynDataV4ItemsReturnedCount)
             .arg(m_dynDataSummary.dynDataV4ItemsTotalCount)
             .arg(safeText(m_dynDataSummary.dynDataV4ItemsIoMessageText));
-        const int rowIndex = m_dynDataV4ItemTable->rowCount();
-        m_dynDataV4ItemTable->insertRow(rowIndex);
+        const int rowIndex = 0;
         insertReadonlyCell(rowIndex, 0, kernelText("kernel.dyndata.v4.empty.item", QStringLiteral("<无v4 item>")));
         insertReadonlyCell(rowIndex, 1, QStringLiteral("N/A"));
         insertReadonlyCell(rowIndex, 2, QStringLiteral("N/A"));
@@ -3683,7 +3713,7 @@ void KernelDock::showDynDataDetailByCurrentRow()
     const KernelDynDataFieldEntry* entry = currentDynDataFieldEntry();
     if (entry == nullptr)
     {
-        m_dynDataDetailEditor->setDocument(buildDynDataReport(m_dynDataSummary, m_dynDataRows));
+        m_dynDataDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.empty.filtered", QStringLiteral("当前筛选条件下没有动态偏移字段。"))));
         return;
     }
 
