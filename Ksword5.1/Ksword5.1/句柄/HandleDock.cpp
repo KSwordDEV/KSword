@@ -1681,7 +1681,7 @@ void HandleDock::rebuildHandleTable()
 
 QTreeWidgetItem* HandleDock::createHandleTreeRow(const std::size_t sourceRowIndex)
 {
-    if (sourceRowIndex >= m_allRows.size())
+    if (sourceRowIndex >= static_cast<std::size_t>(m_allRows.size()))
     {
         return nullptr;
     }
@@ -1816,7 +1816,7 @@ void HandleDock::scheduleProcessIconResolution(
     {
         const std::size_t sourceRowIndex =
             static_cast<std::size_t>(sourceRowIndices.at(itemIndex));
-        if (sourceRowIndex >= m_allRows.size() || itemList.at(itemIndex) == nullptr)
+        if (sourceRowIndex >= static_cast<std::size_t>(m_allRows.size()) || itemList.at(itemIndex) == nullptr)
         {
             continue;
         }

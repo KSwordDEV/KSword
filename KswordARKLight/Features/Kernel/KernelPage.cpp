@@ -3010,22 +3010,22 @@ void KernelPage::Layout() {
             // 工具栏行右侧剩余宽度会被算成 0，状态文字整条消失；辅助函数给它一个可读下限。
         Ksword::Ui::PlaceStatusLabel(statusText_, toolbarX, toolbarTop, width);
 
-            const int filterTop = toolbarTop + 28;
+            const int deviceFilterTop = toolbarTop + 28;
             int filterX = 0;
-            ::MoveWindow(deviceDriverDirectoryLabel_, filterX, filterTop + 5, 42, 20, TRUE);
+            ::MoveWindow(deviceDriverDirectoryLabel_, filterX, deviceFilterTop + 5, 42, 20, TRUE);
             filterX += 42;
             const int directoryWidth = std::max(150, std::min(230, width / 5));
-            ::MoveWindow(deviceDriverDirectoryCombo_, filterX, filterTop + 2, directoryWidth, 260, TRUE);
+            ::MoveWindow(deviceDriverDirectoryCombo_, filterX, deviceFilterTop + 2, directoryWidth, 260, TRUE);
             filterX += directoryWidth + 6;
-            ::MoveWindow(deviceDriverTypeLabel_, filterX, filterTop + 5, 42, 20, TRUE);
+            ::MoveWindow(deviceDriverTypeLabel_, filterX, deviceFilterTop + 5, 42, 20, TRUE);
             filterX += 42;
             const int typeWidth = std::max(130, std::min(200, width / 6));
-            ::MoveWindow(deviceDriverTypeCombo_, filterX, filterTop + 2, typeWidth, 260, TRUE);
+            ::MoveWindow(deviceDriverTypeCombo_, filterX, deviceFilterTop + 2, typeWidth, 260, TRUE);
             filterX += typeWidth + 6;
             ::SetWindowTextW(filterLabel_, L"关键字：");
-            ::MoveWindow(filterLabel_, filterX, filterTop + 5, 58, 20, TRUE);
+            ::MoveWindow(filterLabel_, filterX, deviceFilterTop + 5, 58, 20, TRUE);
             filterX += 58;
-            ::MoveWindow(filterEdit_, filterX, filterTop + 3, std::max(0, width - filterX), 22, TRUE);
+            ::MoveWindow(filterEdit_, filterX, deviceFilterTop + 3, std::max(0, width - filterX), 22, TRUE);
 
             const int objectTop = contentTop + 56;
             ::MoveWindow(resultList_, 0, objectTop, width, std::max(0, height - objectTop), TRUE);
@@ -3334,9 +3334,9 @@ void KernelPage::Layout() {
             ::MoveWindow(filterEdit_, toolbarX, toolbarTop + 3, filterWidth, 22, TRUE);
             toolbarX += filterWidth + 6;
         } else {
-            const int moduleWidth = std::max(220, std::min(520, std::max(0, width - toolbarX - 300)));
-            ::MoveWindow(moduleFilterEdit_, toolbarX, toolbarTop + 3, moduleWidth, 22, TRUE);
-            toolbarX += moduleWidth + 6;
+            const int scanModuleWidth = std::max(220, std::min(520, std::max(0, width - toolbarX - 300)));
+            ::MoveWindow(moduleFilterEdit_, toolbarX, toolbarTop + 3, scanModuleWidth, 22, TRUE);
+            toolbarX += scanModuleWidth + 6;
         }
         // 工具栏行右侧剩余宽度会被算成 0，状态文字整条消失；辅助函数给它一个可读下限。
         Ksword::Ui::PlaceStatusLabel(statusText_, toolbarX, toolbarTop, width);
@@ -4900,61 +4900,52 @@ void KernelPage::RenderResult(const KernelOperationResult& result, KernelDynamic
         currentRawRows_ = currentRows_.contiguousSnapshot();
     }
     currentRawColumns_ = currentColumns_;
-    if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr && IsObjectNamespaceFeature(descriptor->id)) {
-        RebuildObjectNamespaceListFromCache(descriptor->id);
+    const KernelFeatureDescriptor* resultDescriptor = CurrentDescriptor();
+    if (resultDescriptor != nullptr && IsObjectNamespaceFeature(resultDescriptor->id)) {
+        RebuildObjectNamespaceListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr && descriptor->id == KernelFeatureId::AtomTable) {
+    } else if (resultDescriptor != nullptr && resultDescriptor->id == KernelFeatureId::AtomTable) {
         RebuildAtomTableFromCache();
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr && descriptor->id == KernelFeatureId::NtQueryLegacy) {
+    } else if (resultDescriptor != nullptr && resultDescriptor->id == KernelFeatureId::NtQueryLegacy) {
         RebuildNtQueryLegacyListFromCache();
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr &&
-        (descriptor->id == KernelFeatureId::DynData || descriptor->id == KernelFeatureId::DriverStatus)) {
-        RebuildDiagnosticDualTableFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr &&
+        (resultDescriptor->id == KernelFeatureId::DynData || resultDescriptor->id == KernelFeatureId::DriverStatus)) {
+        RebuildDiagnosticDualTableFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr && descriptor->id == KernelFeatureId::CallbackEnumeration) {
+    } else if (resultDescriptor != nullptr && resultDescriptor->id == KernelFeatureId::CallbackEnumeration) {
         RebuildCallbackEnumerationListFromCache();
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr && IsKernelHookFeature(descriptor->id)) {
-        RebuildKernelHookListFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr && IsKernelHookFeature(resultDescriptor->id)) {
+        RebuildKernelHookListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr &&
-        (descriptor->id == KernelFeatureId::KernelExecutableMemory ||
-            descriptor->id == KernelFeatureId::KernelMemoryEvidence)) {
-        RebuildKernelMemoryScanListFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr &&
+        (resultDescriptor->id == KernelFeatureId::KernelExecutableMemory ||
+            resultDescriptor->id == KernelFeatureId::KernelMemoryEvidence)) {
+        RebuildKernelMemoryScanListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr &&
-        (descriptor->id == KernelFeatureId::ProcessCrossView ||
-            descriptor->id == KernelFeatureId::ThreadCrossView)) {
-        RebuildCrossViewListFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr &&
+        (resultDescriptor->id == KernelFeatureId::ProcessCrossView ||
+            resultDescriptor->id == KernelFeatureId::ThreadCrossView)) {
+        RebuildCrossViewListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr &&
-        (descriptor->id == KernelFeatureId::DriverIntegrity ||
-            descriptor->id == KernelFeatureId::KernelCpuIntegrity)) {
-        RebuildIntegrityEvidenceListFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr &&
+        (resultDescriptor->id == KernelFeatureId::DriverIntegrity ||
+            resultDescriptor->id == KernelFeatureId::KernelCpuIntegrity)) {
+        RebuildIntegrityEvidenceListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
-    } else if (const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
-        descriptor != nullptr &&
-        (descriptor->id == KernelFeatureId::CpuHardwareSnapshot ||
-            descriptor->id == KernelFeatureId::PhysicalMemoryLayout ||
-            descriptor->id == KernelFeatureId::MutationAudit ||
-            descriptor->id == KernelFeatureId::KeyboardHotkeys ||
-             descriptor->id == KernelFeatureId::KeyboardHooks ||
-             descriptor->id == KernelFeatureId::DynDataCapabilities ||
-             descriptor->id == KernelFeatureId::MinifilterBypassPids ||
-             descriptor->id == KernelFeatureId::KernelTimerDpc ||
-             descriptor->id == KernelFeatureId::IoctlRegistry)) {
-        RebuildR0EvidenceListFromCache(descriptor->id);
+    } else if (resultDescriptor != nullptr &&
+        (resultDescriptor->id == KernelFeatureId::CpuHardwareSnapshot ||
+            resultDescriptor->id == KernelFeatureId::PhysicalMemoryLayout ||
+            resultDescriptor->id == KernelFeatureId::MutationAudit ||
+            resultDescriptor->id == KernelFeatureId::KeyboardHotkeys ||
+             resultDescriptor->id == KernelFeatureId::KeyboardHooks ||
+             resultDescriptor->id == KernelFeatureId::DynDataCapabilities ||
+             resultDescriptor->id == KernelFeatureId::MinifilterBypassPids ||
+             resultDescriptor->id == KernelFeatureId::KernelTimerDpc ||
+             resultDescriptor->id == KernelFeatureId::IoctlRegistry)) {
+        RebuildR0EvidenceListFromCache(resultDescriptor->id);
         statusHandledBySpecializedRenderer = true;
     } else {
         RebuildResultListFromCache();

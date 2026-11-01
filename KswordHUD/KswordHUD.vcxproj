@@ -111,7 +111,7 @@
     </QtMoc>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <QtRcc Include="KswordHUD.qrc" />
+    <None Include="KswordHUD.qrc" />
     <QtUic Include="KswordHUD.ui" />
     <QtMoc Include="KswordHUD.h" />
     <ClCompile Include="Get.cpp">

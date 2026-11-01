@@ -561,7 +561,7 @@ bool StartupDock::continueProjectionPreparation()
             preparation.phase = ProjectionPreparation::Phase::Scan;
             break;
         case ProjectionPreparation::Phase::Scan:
-            if (preparation.nextEntry < m_entryList.size())
+            if (preparation.nextEntry < static_cast<std::size_t>(m_entryList.size()))
             {
                 const int entryIndex = static_cast<int>(preparation.nextEntry++);
                 const StartupEntry& entry = m_entryList.at(static_cast<std::size_t>(entryIndex));
