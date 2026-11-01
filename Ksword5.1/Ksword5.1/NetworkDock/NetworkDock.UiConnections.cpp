@@ -2,6 +2,7 @@
 #include <QItemSelectionModel>
 #include <QTableView>
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ParameterWorkspace.h"
 #include "../UI/TableContextMenu.h"
 #include "NetworkAuditPage.h"
 #include "NetworkFirewallPage.h"
@@ -331,6 +332,9 @@ void NetworkDock::initializeConnections()
     connect(m_addMonitorFilterGroupButton, &QPushButton::clicked, this, [this]()
         {
             addMonitorFilterRuleGroup();
+            m_monitorFilterToggleButton->setChecked(true);
+            if (m_trafficMonitorWorkspace && !m_monitorFilterRuleGroupUiList.empty())
+                m_trafficMonitorWorkspace->revealParameter(m_monitorFilterRuleGroupUiList.back()->containerWidget);
         });
 
     connect(m_applyMonitorFilterButton, &QPushButton::clicked, this, [this]()

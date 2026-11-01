@@ -27,4 +27,7 @@ namespace ks::ui
     // fixedAccent 为未知样式回退所用的管理器主题快照；空源图原样返回。
     QIcon MakeThemeButtonAccentIcon(const QIcon& sourceIcon,
         const QColor& fixedAccent, QAbstractButton* button);
+
+    // 明确的单色按钮直接绑定真实按钮状态，避免动态创建时仍绘制原始同色 SVG。
+    void SetThemeButtonIcon(QAbstractButton* button, const QIcon& sourceIcon);
 }

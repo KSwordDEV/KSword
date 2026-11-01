@@ -1,8 +1,11 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
-#include "../UI/FlowLayout.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeAccentIcon.h"
+#include "../theme.h"
 
 #include <QCompleter>
 #include <QCoreApplication>
@@ -10,7 +13,6 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFrame>
 #include <QHash>
 #include <QHeaderView>
 #include <QImage>
@@ -25,7 +27,6 @@
 #include <QStandardItemModel>
 
 #include <algorithm>
-#include <array>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -220,6 +221,16 @@ namespace
 
     constexpr int kProcessSuggestPidRole = Qt::UserRole + 1;
     constexpr int kProcessSuggestNameRole = Qt::UserRole + 2;
+
+    void styleFilterAction(QPushButton* button, const QString& iconResource = {})
+    {
+        ks::ui::ApplyFlatButtonTheme(button, ks::ui::FlatButtonTone::Neutral,
+            ks::ui::FlatButtonAppearance::Solid);
+        if (!iconResource.isEmpty())
+            ks::ui::SetThemeButtonIcon(button, QIcon(iconResource));
+        if (button->text().isEmpty() && !button->icon().isNull())
+            KswordTheme::ApplyCompactIconButtonMetrics(button);
+    }
 
     QStringList jsonArrayToStringList(const QJsonValue& value)
     {
@@ -682,11 +693,11 @@ void NetworkDock::rebuildMonitorFilterRuleGroupUi()
             groupState->removeGroupButton->setEnabled(canRemoveGroup);
         }
 
-        m_monitorFilterGroupHostLayout->addWidget(groupState->containerWidget);
+        m_monitorFilterGroupHostLayout->addWidget(groupState->containerWidget, 1, Qt::AlignTop);
         ++displayIndex;
     }
 
-    m_monitorFilterGroupHostLayout->addStretch(1);
+    m_monitorFilterGroupHostLayout->addStretch(0);
 }
 
 void NetworkDock::addMonitorFilterRuleGroup()
@@ -700,17 +711,22 @@ void NetworkDock::addMonitorFilterRuleGroup()
     groupState->groupId = m_monitorFilterNextGroupId++;
 
     groupState->containerWidget = new QWidget(m_monitorFilterGroupHostWidget);
+    groupState->containerWidget->setMaximumWidth(520);
+    groupState->containerWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    ks::ui::StylePrimaryContentPanel(groupState->containerWidget);
     auto* rootLayout = new QVBoxLayout(groupState->containerWidget);
-    rootLayout->setContentsMargins(8, 8, 8, 8);
-    rootLayout->setSpacing(6);
+    rootLayout->setContentsMargins(16, 16, 16, 16);
+    rootLayout->setSpacing(16);
+    rootLayout->setSizeConstraint(QLayout::SetMinimumSize);
+    rootLayout->addStrut(380);
 
     auto* headerLayout = new QHBoxLayout();
-    headerLayout->setSpacing(6);
     groupState->titleLabel = new QLabel(QStringLiteral("规则组"), groupState->containerWidget);
+    ks::ui::StylePrimarySectionTitle(groupState->titleLabel);
     groupState->enabledCheck = new QCheckBox(QStringLiteral("启用"), groupState->containerWidget);
     groupState->enabledCheck->setChecked(true);
     groupState->removeGroupButton = new QPushButton(groupState->containerWidget);
-    groupState->removeGroupButton->setIcon(QIcon(":/Icon/log_cancel_track.svg"));
+    styleFilterAction(groupState->removeGroupButton, QStringLiteral(":/Icon/log_cancel_track.svg"));
     groupState->removeGroupButton->setToolTip(QStringLiteral("删除当前规则组"));
 
     headerLayout->addWidget(groupState->titleLabel);
@@ -720,35 +736,28 @@ void NetworkDock::addMonitorFilterRuleGroup()
     ks::ui::NormalizeToolbarRow(headerLayout);
     rootLayout->addLayout(headerLayout);
 
-    QFrame* separatorLine = new QFrame(groupState->containerWidget);
-    separatorLine->setFrameShape(QFrame::HLine);
-    separatorLine->setFrameShadow(QFrame::Sunken);
-    rootLayout->addWidget(separatorLine);
-
     auto* fieldRowLayout = new QVBoxLayout();
-    fieldRowLayout->setSpacing(8);
+    fieldRowLayout->setSpacing(16);
 
-    QWidget* processBlock = new QWidget(groupState->containerWidget);
-    processBlock->setMinimumWidth(0);
+    auto* processBlock = new QGroupBox(QStringLiteral("进程"), groupState->containerWidget);
     auto* processBlockLayout = new QVBoxLayout(processBlock);
-    processBlockLayout->setContentsMargins(0, 0, 0, 0);
-    processBlockLayout->setSpacing(4);
+    ks::ui::StyleParameterCard(processBlock);
 
-    auto* processTopLayout = new ks::ui::FlowLayout(nullptr, 0, 4, 4);
-    QLabel* processLabel = new QLabel(QStringLiteral("进程"), processBlock);
+    auto* processTopLayout = new QHBoxLayout();
     groupState->processInputEdit = new QLineEdit(processBlock);
+    groupState->processInputEdit->setMinimumWidth(0);
     groupState->processInputEdit->setPlaceholderText(QStringLiteral("输入 PID 或进程名"));
     groupState->processInputEdit->setToolTip(QStringLiteral("输入后自动匹配系统进程，支持 PID/进程名。"));
-    groupState->addProcessButton = new QPushButton(QStringLiteral("+"), processBlock);
-    groupState->addProcessButton->setText(QString());
-    groupState->addProcessButton->setIcon(QIcon(QStringLiteral(":/Icon/plus.svg")));
+    groupState->addProcessButton = new QPushButton(processBlock);
+    styleFilterAction(groupState->addProcessButton, QStringLiteral(":/Icon/plus.svg"));
     groupState->addProcessButton->setToolTip(
         QStringLiteral("把上方输入框中的进程加入本规则组的进程过滤列表"));
     groupState->removeInvalidProcessButton = new QPushButton(QStringLiteral("清除失效"), processBlock);
+    styleFilterAction(groupState->removeInvalidProcessButton);
     groupState->removeInvalidProcessButton->setToolTip(
         QStringLiteral("移除列表中已经关闭或不存在的进程"));
     groupState->clearProcessButton = new QPushButton(processBlock);
-    groupState->clearProcessButton->setIcon(QIcon(":/Icon/log_clear.svg"));
+    styleFilterAction(groupState->clearProcessButton, QStringLiteral(":/Icon/log_clear.svg"));
     groupState->clearProcessButton->setToolTip(QStringLiteral("清空进程列表"));
 
     groupState->processSuggestionModel = new QStandardItemModel(groupState->processInputEdit);
@@ -758,13 +767,11 @@ void NetworkDock::addMonitorFilterRuleGroup()
     groupState->processCompleter->setFilterMode(Qt::MatchContains);
     groupState->processInputEdit->setCompleter(groupState->processCompleter);
 
-    processTopLayout->addWidget(processLabel);
-    processTopLayout->addExpandingWidget(groupState->processInputEdit, 120);
+    processTopLayout->addWidget(groupState->processInputEdit, 1);
     processTopLayout->addWidget(groupState->addProcessButton);
     processTopLayout->addWidget(groupState->removeInvalidProcessButton);
     processTopLayout->addWidget(groupState->clearProcessButton);
-    for (auto* control : std::array<QWidget*, 4>{groupState->processInputEdit, groupState->addProcessButton,
-        groupState->removeInvalidProcessButton, groupState->clearProcessButton}) ks::ui::NormalizeToolbarControl(control);
+    ks::ui::NormalizeToolbarRow(processTopLayout);
 
     groupState->processTable = new ks::ui::VisibleTableWidget(processBlock);
     groupState->processTable->setMinimumHeight(56);
@@ -783,37 +790,32 @@ void NetworkDock::addMonitorFilterRuleGroup()
         MonitorTextRuleFieldUiState& fieldState,
         const QString& labelText,
         const QString& placeholderText,
-        const MonitorTextRuleFieldKind fieldKind,
-        const int minimumWidth)
+        const MonitorTextRuleFieldKind fieldKind)
         {
             fieldState.labelText = labelText;
 
-            QWidget* block = new QWidget(groupStatePtr->containerWidget);
-            Q_UNUSED(minimumWidth);
-            block->setMinimumWidth(0);
+            auto* block = new QGroupBox(labelText, groupStatePtr->containerWidget);
             auto* blockLayout = new QVBoxLayout(block);
-            blockLayout->setContentsMargins(0, 0, 0, 0);
-            blockLayout->setSpacing(4);
+            ks::ui::StyleParameterCard(block);
 
-            auto* topLayout = new ks::ui::FlowLayout(nullptr, 0, 4, 4);
-            QLabel* label = new QLabel(labelText, block);
+            auto* topLayout = new QHBoxLayout();
             fieldState.inputEdit = new QLineEdit(block);
+            fieldState.inputEdit->setMinimumWidth(0);
             fieldState.inputEdit->setPlaceholderText(placeholderText);
-            fieldState.addButton = new QPushButton(QStringLiteral("+"), block);
-            fieldState.addButton->setText(QString());
-            fieldState.addButton->setIcon(QIcon(QStringLiteral(":/Icon/plus.svg")));
+            fieldState.inputEdit->setToolTip(placeholderText);
+            fieldState.addButton = new QPushButton(block);
+            styleFilterAction(fieldState.addButton, QStringLiteral(":/Icon/plus.svg"));
             fieldState.addButton->setToolTip(
                 QStringLiteral("把上方输入的地址或端口加入本条件的过滤列表"));
             fieldState.clearButton = new QPushButton(QStringLiteral("清空"), block);
+            styleFilterAction(fieldState.clearButton);
             fieldState.clearButton->setToolTip(
                 QStringLiteral("清空本条件已添加的所有过滤项"));
 
-            topLayout->addWidget(label);
-            topLayout->addExpandingWidget(fieldState.inputEdit, 120);
+            topLayout->addWidget(fieldState.inputEdit, 1);
             topLayout->addWidget(fieldState.addButton);
             topLayout->addWidget(fieldState.clearButton);
-            for (auto* control : std::array<QWidget*, 3>{fieldState.inputEdit, fieldState.addButton, fieldState.clearButton})
-                ks::ui::NormalizeToolbarControl(control);
+            ks::ui::NormalizeToolbarRow(topLayout);
 
             fieldState.tableWidget = new ks::ui::VisibleTableWidget(block);
             fieldState.tableWidget->setMinimumHeight(56);
@@ -845,39 +847,31 @@ void NetworkDock::addMonitorFilterRuleGroup()
         groupState->localAddressField,
         QStringLiteral("本地地址"),
         QStringLiteral("如 192.168.1.0/24 或 2001:db8::/32"),
-        MonitorTextRuleFieldKind::LocalAddress,
-        240);
+        MonitorTextRuleFieldKind::LocalAddress);
     buildTextFieldBlock(
         groupState->remoteAddressField,
         QStringLiteral("远程地址"),
         QStringLiteral("IPv4/IPv6、CIDR 或 IPv4 范围"),
-        MonitorTextRuleFieldKind::RemoteAddress,
-        260);
+        MonitorTextRuleFieldKind::RemoteAddress);
     buildTextFieldBlock(
         groupState->localPortField,
         QStringLiteral("本地端口"),
         QStringLiteral("如 80 或 1000-2000"),
-        MonitorTextRuleFieldKind::LocalPort,
-        220);
+        MonitorTextRuleFieldKind::LocalPort);
     buildTextFieldBlock(
         groupState->remotePortField,
         QStringLiteral("远程端口"),
         QStringLiteral("如 443 或 5000-6000"),
-        MonitorTextRuleFieldKind::RemotePort,
-        220);
+        MonitorTextRuleFieldKind::RemotePort);
     buildTextFieldBlock(
         groupState->packetSizeField,
         QStringLiteral("包长"),
         QStringLiteral("如 40,60-80"),
-        MonitorTextRuleFieldKind::PacketSize,
-        220);
+        MonitorTextRuleFieldKind::PacketSize);
 
     rootLayout->addLayout(fieldRowLayout);
 
-    QFrame* bottomLine = new QFrame(groupState->containerWidget);
-    bottomLine->setFrameShape(QFrame::HLine);
-    bottomLine->setFrameShadow(QFrame::Sunken);
-    rootLayout->addWidget(bottomLine);
+    ks::ui::StyleParameterFields(groupState->containerWidget);
 
     connect(groupState->enabledCheck, &QCheckBox::toggled, this, [this]()
         {
@@ -996,6 +990,7 @@ void NetworkDock::refreshProcessTableForGroup(const int groupId)
         processTable->setItem(row, 1, createReadonlyItem(QString::number(target.pid)));
 
         QPushButton* removeButton = new QPushButton(QStringLiteral("移除"), processTable);
+        styleFilterAction(removeButton);
         connect(removeButton, &QPushButton::clicked, this, [this, groupId, pid = target.pid]()
             {
                 removeProcessTarget(groupId, pid);
@@ -1025,6 +1020,7 @@ void NetworkDock::refreshTextTableForGroup(const int groupId, const MonitorTextR
     {
         tableWidget->setItem(row, 0, createReadonlyItem(fieldState->valueList[row]));
         QPushButton* removeButton = new QPushButton(QStringLiteral("移除"), tableWidget);
+        styleFilterAction(removeButton);
         connect(removeButton, &QPushButton::clicked, this, [this, groupId, fieldKind, row]()
             {
                 removeTextFilterItem(groupId, fieldKind, row);

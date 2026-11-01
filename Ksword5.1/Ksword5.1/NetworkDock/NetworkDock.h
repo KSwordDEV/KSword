@@ -62,14 +62,13 @@ class QWidget;
 class QShowEvent;
 class QDialog;
 class QCompleter;
-class QScrollArea;
 class QStandardItemModel;
 class CodeEditorWidget;
 class MultiThreadDownloadSegmentBarWidget;
 class NetworkFirewallPage;
 class NetworkAuditPage;
 
-namespace ks::ui { class AsyncUiDispatcher; class RetainedCleanupJob; }
+namespace ks::ui { class AsyncUiDispatcher; class RetainedCleanupJob; class ParameterWorkspace; }
 
 namespace network_dock_detail
 {
@@ -1391,10 +1390,9 @@ private:
     QHBoxLayout* m_monitorControlLayout = nullptr;// 抓包控制栏布局。
     QHBoxLayout* m_monitorFilterHeaderLayout = nullptr; // 过滤面板标题栏（漏斗/按钮组）。
     QWidget* m_monitorFilterPanel = nullptr;            // 过滤规则组折叠面板容器。
-    QVBoxLayout* m_monitorFilterPanelLayout = nullptr;  // 过滤规则组面板主布局。
-    QScrollArea* m_monitorFilterScrollArea = nullptr;   // 规则组滚动容器。
+    ks::ui::ParameterWorkspace* m_trafficMonitorWorkspace = nullptr; // 固定管理/执行栏与规则列滚动。
     QWidget* m_monitorFilterGroupHostWidget = nullptr;  // 规则组承载容器。
-    QVBoxLayout* m_monitorFilterGroupHostLayout = nullptr; // 规则组承载布局。
+    QHBoxLayout* m_monitorFilterGroupHostLayout = nullptr; // 规则组横向并排，不足时滚动。
 
     QPushButton* m_startMonitorButton = nullptr; // 启动监控按钮。
     QPushButton* m_stopMonitorButton = nullptr;  // 停止监控按钮。
