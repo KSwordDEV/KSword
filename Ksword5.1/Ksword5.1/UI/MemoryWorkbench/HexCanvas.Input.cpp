@@ -4,6 +4,7 @@
 // 因此不会出现"原生选区 / 成员变量 / 画刷三头不同步"的旧问题。
 
 #include "HexCanvas.h"
+#include "HexCanvasFormat.h"
 
 #include <QContextMenuEvent>
 #include <QHelpEvent>
@@ -43,7 +44,7 @@ namespace ks::ui
         const int contentX = viewportPos.x() + m_hOffset;
         const int columns = static_cast<int>(m_viewport.BytesPerRow());
         int column = 0;
-        if (contentX < m_layout.hexX - m_layout.charWidth)
+        if (viewportPos.x() < addressGutterWidth())
         {
             // 地址列：点击表示选整行，面板保持当前面板。
             hit.inGutter = true;
@@ -517,7 +518,17 @@ namespace ks::ui
         {
             const QHelpEvent* helpEvent = static_cast<QHelpEvent*>(event);
             const Hit hit = hitTest(helpEvent->pos());
-            if (hit.valid && !hit.inGutter && hit.exact)
+            if (m_addressColumnCollapsed && helpEvent->pos().y() < m_layout.headerHeight
+                && helpEvent->pos().x() < addressGutterWidth() && !m_addressColumnPrefix.isEmpty())
+            {
+                QToolTip::showText(helpEvent->globalPos(), m_addressColumnPrefix, viewport());
+            }
+            else if (m_addressColumnCollapsed && hit.valid && hit.inGutter)
+            {
+                QToolTip::showText(helpEvent->globalPos(),
+                    hexcanvas_format::FormatAddress(m_viewport.RowStartAddress(hit.row).value(), addressDigits()), viewport());
+            }
+            else if (hit.valid && !hit.inGutter && hit.exact)
             {
                 QToolTip::showText(
                     helpEvent->globalPos(),

@@ -491,4 +491,10 @@
     <ClCompile Include="..\shared\usermode\backend\process\EventProcessImagePath.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\EventProcessImagePath.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3MonitorApi.cpp" />
+    <ClCompile Include="..\shared\ApiMonitorCapture.cpp" />
+    <ClCompile Include="..\shared\ApiMonitorInjectionBroker.cpp" />
+    <ClInclude Include="..\shared\ApiMonitorCapture.h" />
+  </ItemGroup>
 </Project>

@@ -16,6 +16,7 @@
 #include <QPointer>
 #include <QStringList>
 #include <QTimer>
+#include <QToolButton>
 
 #include <algorithm>
 
@@ -199,6 +200,7 @@ namespace ks::ui
         m_lastPaintedRows = 0;
         if (!m_hasSpace)
         {
+            updateUniformButtons(false, 0);
             return;
         }
 
@@ -209,28 +211,64 @@ namespace ks::ui
         const std::optional<AddressRange> bottomSpan = m_viewport.RowValidSpan(m_firstRow + (rowsToPaint - 1ULL));
         if (topSpan.has_value() && bottomSpan.has_value())
         {
-            touchVisiblePages(topSpan->first, bottomSpan->last);
+            if (!m_viewport.HasFoldedRows()) touchVisiblePages(topSpan->first, bottomSpan->last);
+            else
+            {
+                // Never walk the physical span across a folded multi-terabyte hole.
+                std::optional<std::uint64_t> lastTouched;
+                for (std::uint64_t row = 0; row < rowsToPaint; ++row)
+                {
+                    const auto span = m_viewport.RowValidSpan(m_firstRow + row);
+                    if (!span) continue;
+                    const auto firstPage = ksword::memwb::HexViewport::PageStartOf(span->first);
+                    const auto lastPage = ksword::memwb::HexViewport::PageStartOf(span->last);
+                    if (!lastTouched || *lastTouched != firstPage) touchVisiblePages(span->first, span->first);
+                    if (lastPage != firstPage) touchVisiblePages(span->last, span->last);
+                    lastTouched = lastPage;
+                }
+            }
         }
+        UniformPaintProbe uniform;
+        uniform.uniform = rowsToPaint >= fullVisibleRows();
 
         // 行区域：裁剪到表头之下，并按横向滚动量平移；整个内容坐标系从这里开始。
         const int viewWidth = viewport()->width();
         const int viewHeight = viewport()->height();
         const std::optional<AddressRange> selection = m_viewport.SelectedRange();
         painter.save();
-        painter.setClipRect(0, m_layout.headerHeight, viewWidth, std::max(0, viewHeight - m_layout.headerHeight));
+        const int gutter = addressGutterWidth();
+        const int clipLeft = m_hOffset ? gutter : 0;
+        painter.setClipRect(clipLeft, m_layout.headerHeight, std::max(0, viewWidth - clipLeft), std::max(0, viewHeight - m_layout.headerHeight));
         painter.translate(-m_hOffset, 0);
         for (std::uint64_t index = 0; index < rowsToPaint; ++index)
         {
             const int rowTop = m_layout.headerHeight + static_cast<int>(index) * m_layout.rowHeight;
-            paintRow(painter, palette, m_firstRow + index, rowTop, selection);
+            paintRow(painter, palette, m_firstRow + index, rowTop, selection,
+                m_uniformNavigationEnabled ? &uniform : nullptr);
             ++m_lastPaintedRows;
         }
         paintCaretFrames(painter, palette);
         painter.restore();
 
+        // The address gutter stays visible while byte/ASCII columns scroll.
+        if (m_hOffset)
+        {
+            painter.save();
+            painter.setClipRect(0, m_layout.headerHeight, std::min(gutter, viewWidth), std::max(0, viewHeight - m_layout.headerHeight));
+            for (std::uint64_t index = 0; index < rowsToPaint; ++index)
+            {
+                const auto start = m_viewport.RowStartAddress(m_firstRow + index);
+                const auto span = m_viewport.RowValidSpan(m_firstRow + index);
+                if (start && span) paintAddress(painter, palette, *start, *span,
+                    m_layout.headerHeight + static_cast<int>(index) * m_layout.rowHeight);
+            }
+            painter.restore();
+        }
+
         // 表头最后画，盖住行区域顶部的任何溢出。
         const std::optional<std::uint32_t> caretColumn = m_viewport.ColumnOfAddress(m_viewport.GetSelection().caret);
         paintHeader(painter, palette, viewWidth, caretColumn.has_value() ? *caretColumn : 0U);
+        updateUniformButtons(m_uniformNavigationEnabled && uniform.uniform && uniform.seen, uniform.value);
 
         // 可见页被 LRU 淘汰后（单元格回到"未加载"且没有在途），排队一次补读。
         if (m_provider != nullptr && !m_refetchQueued && topSpan.has_value() && bottomSpan.has_value())
@@ -260,16 +298,26 @@ namespace ks::ui
         painter.fillRect(0, 0, viewWidth, m_layout.headerHeight, palette.surfaceAlt);
         painter.setPen(palette.border);
         painter.drawLine(0, m_layout.headerHeight - 1, viewWidth, m_layout.headerHeight - 1);
+        if (m_addressColumnCollapsed && m_addressColumnButton) {
+            const QRect prefixRect(m_layout.addrX, 0,
+                std::max(0, m_addressColumnButton->x() - m_layout.addrX - 4), m_layout.headerHeight - 1);
+            painter.save();
+            painter.setClipRect(prefixRect);
+            painter.setPen(palette.textSecondary);
+            painter.drawText(prefixRect, Qt::AlignLeft | Qt::AlignVCenter,
+                QFontMetrics(font()).elidedText(m_addressColumnPrefix, Qt::ElideMiddle, prefixRect.width()));
+            painter.restore();
+        }
 
         painter.save();
+        const int addrDivider = addressGutterWidth();
+        painter.setClipRect(addrDivider, 0, std::max(0, viewWidth - addrDivider), viewport()->height());
         painter.translate(-m_hOffset, 0);
 
         // 两条竖向分隔线：地址列|十六进制区，十六进制区|ASCII 区，贯穿表头与行区域。
         const int viewHeight = viewport()->height();
-        const int addrDivider = m_layout.addrX + m_layout.addrWidth + m_layout.charWidth;
         const int asciiDivider = m_layout.asciiX - m_layout.charWidth;
         painter.setPen(palette.border);
-        painter.drawLine(addrDivider, 0, addrDivider, viewHeight);
         painter.drawLine(asciiDivider, 0, asciiDivider, viewHeight);
 
         // 十六进制列偏移：直接复用 256 个字节值的缓存文字（列号 < 64）。
@@ -294,6 +342,16 @@ namespace ks::ui
             painter.drawText(QPointF(m_layout.asciiX + column * m_layout.charWidth, baseline), digit);
         }
         painter.restore();
+        painter.setPen(palette.border);
+        painter.drawLine(addrDivider, 0, addrDivider, viewHeight);
+    }
+
+    void HexCanvas::paintAddress(QPainter& painter, const PaintPalette& palette, std::uint64_t start, const AddressRange& span, int rowTop) const
+    {
+        const auto caret = m_viewport.GetSelection().caret;
+        painter.setPen(caret >= span.first && caret <= span.last ? palette.text : palette.textSecondary);
+        painter.drawText(QPointF(m_layout.addrX, rowTop + 1 + m_layout.ascent),
+            hexcanvas_format::FormatAddressSuffix(start, m_layout.addrDigits, m_addressColumnPrefix));
     }
 
     // 绘制一行：地址、十六进制单元格、ASCII 单元格。
@@ -303,7 +361,7 @@ namespace ks::ui
         const PaintPalette& palette,
         std::uint64_t row,
         int rowTop,
-        const std::optional<AddressRange>& selection) const
+        const std::optional<AddressRange>& selection, UniformPaintProbe* probe) const
     {
         const std::optional<std::uint64_t> start = m_viewport.RowStartAddress(row);
         const std::optional<AddressRange> span = m_viewport.RowValidSpan(row);
@@ -312,19 +370,14 @@ namespace ks::ui
             return;
         }
 
-        // 地址列：行首地址（首行含补空位时仍显示对齐后的行首，与列头一致）。
-        const std::uint64_t caret = m_viewport.GetSelection().caret;
-        const bool caretInRow = caret >= span->first && caret <= span->last;
-        const QString addressText = QString::number(static_cast<qulonglong>(*start), 16)
-            .toUpper()
-            .rightJustified(m_layout.addrDigits, QLatin1Char('0'));
         const int textTop = rowTop + 1;
-        painter.setPen(caretInRow ? palette.text : palette.textSecondary);
-        painter.drawText(QPointF(m_layout.addrX, textTop + m_layout.ascent), addressText);
+        if (!m_hOffset) paintAddress(painter, palette, *start, *span, rowTop);
 
         // 有效列范围：补空位列不参与任何绘制。
         const int firstColumn = static_cast<int>(span->first - *start);
         const int lastColumn = static_cast<int>(span->last - *start);
+        if (probe && (firstColumn != 0 || lastColumn + 1 != static_cast<int>(m_viewport.BytesPerRow())))
+            probe->uniform = false;
 
         // cores/selected：本行每一列的轻量状态与是否在选区内。
         CellCore cores[64];
@@ -333,6 +386,13 @@ namespace ks::ui
         {
             const std::uint64_t address = *start + static_cast<std::uint64_t>(column);
             cores[column] = resolveCore(address);
+            if (probe && probe->uniform)
+            {
+                const auto& core = cores[column];
+                if (core.state != ByteState::Valid || !core.hasValue) probe->uniform = false;
+                else if (!probe->seen) { probe->value = core.value; probe->seen = true; }
+                else if (probe->value != core.value) probe->uniform = false;
+            }
             selected[column] = selection.has_value() && address >= selection->first && address <= selection->last;
         }
 

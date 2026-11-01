@@ -107,6 +107,7 @@ namespace ks::ui
         // 这段地址保持 Pending，等下一次显式 retryFailedRanges/重建地址空间；
         // 这个字段只用于诊断/日志，不参与任何判断分支。
         bool skippedDueToPoison = false;
+        std::vector<ksword::memwb::IMemoryIoPort::UnreadableExtent> unreadableExtents;
     };
 
     // WorkbenchPageProvider::ReadPool：唯一的单线程读池，详见本文件头与
@@ -257,7 +258,7 @@ namespace ks::ui
             std::shared_ptr<std::atomic<bool>> cancelFlag,
             std::shared_ptr<std::atomic<bool>> poisoned,
             std::shared_ptr<std::atomic<bool>> started,
-            ReadPool* pool);
+            ReadPool* pool, bool foldUnknown = false);
 
         // run：QThreadPool 的工作线程调用。逐个 range 调用
         // ksword::memwb::ReadPages（除非共享的 poisoned_ 标志已经置位，这种
@@ -288,5 +289,6 @@ namespace ks::ui
         // 竞争——UI 线程只在 rereadByteRange 的去重判断里读它。
         std::shared_ptr<std::atomic<bool>> started_;
         ReadPool* pool_;
+        bool foldUnknown_ = false;
     };
 }

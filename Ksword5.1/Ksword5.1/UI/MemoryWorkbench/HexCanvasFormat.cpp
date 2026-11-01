@@ -7,9 +7,30 @@
 #include <QFontDatabase>
 #include <QRegularExpression>
 #include <QStringList>
+#include <algorithm>
 
 namespace ks::ui::hexcanvas_format
 {
+    QString CommonAddressPrefix(std::uint64_t firstRow, std::uint64_t lastRow, int digits)
+    {
+        const auto first = FormatAddress(firstRow, digits), last = FormatAddress(lastRow, digits);
+        const auto characters = std::min(first.size(), last.size());
+        // Reserve roughly three character widths for the header arrow. Move
+        // shared digits back into the rows rather than eliding a long prefix
+        // above a nearly empty suffix column. Odd rounding favors the body.
+        const auto limit = std::max<qsizetype>(2, (characters - 3) / 2);
+        qsizetype length = 0;
+        while (length < limit && first[length] == last[length]) ++length;
+        return first.left(length);
+    }
+
+    QString FormatAddressSuffix(std::uint64_t address, int digits, const QString& prefix)
+    {
+        const auto full = FormatAddress(address, digits);
+        // A stale/out-of-view prefix must never silently change an address.
+        return !prefix.isEmpty() && full.startsWith(prefix) ? full.mid(prefix.size()) : full;
+    }
+
     QFont BuildFixedFont()
     {
         QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -89,8 +110,8 @@ namespace ks::ui::hexcanvas_format
         // hexChars：十六进制区宽度（每列 2 个字符 + 1 个空格，最后一列没有尾随空格，再补回 2 个字符）。
         const int hexChars = (bytesPerRow - 1) * 3 + extra + 2;
 
-        // 总宽 = 左边距 1 + 地址位数 + 间隔 2 + 十六进制区 + 间隔 2 + ASCII 区（每字节 1 个字符）+ 右边距 1。
-        return 1 + addressDigits + 2 + hexChars + 2 + bytesPerRow + 1;
+        // 总宽 = 左边距 1 + 0x 前缀 2 + 地址位数 + 间隔 2 + 十六进制区 + 间隔 2 + ASCII 区 + 右边距 1。
+        return 1 + (addressDigits + 2) + 2 + hexChars + 2 + bytesPerRow + 1;
     }
 
     // 在视口宽度内选放得下的最大行宽，都放不下退到 8。

@@ -9,8 +9,103 @@
 #include <cstring>
 #include <limits>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace ks::ui::hexfind
 {
+    std::uint32_t SystemAnsiCodePage()
+    {
+#ifdef _WIN32
+        return GetACP();
+#else
+        return 65001;
+#endif
+    }
+
+    bool ParseAnsiPattern(
+        const QString& text,
+        std::uint32_t codePage,
+        bool caseSensitive,
+        ksword::memwb::SearchPattern& patternOut,
+        ksword::memwb::ParseError& errorOut)
+    {
+        using ksword::memwb::ParseErrorCode;
+        patternOut = {};
+        errorOut = {};
+        if (text.isEmpty())
+        {
+            errorOut.code = ParseErrorCode::Empty;
+            return false;
+        }
+#ifdef _WIN32
+        ksword::memwb::SearchPattern parsed;
+        std::size_t utf8Offset = 0;
+        for (qsizetype index = 0; index < text.size();)
+        {
+            const QChar first = text.at(index);
+            const bool pair = first.isHighSurrogate() && index + 1 < text.size()
+                && text.at(index + 1).isLowSurrogate();
+            if (first.isSurrogate() && !pair)
+            {
+                errorOut = {ParseErrorCode::BadPattern, utf8Offset};
+                return false;
+            }
+            const int units = pair ? 2 : 1;
+            const wchar_t input[2] = {static_cast<wchar_t>(first.unicode()),
+                pair ? static_cast<wchar_t>(text.at(index + 1).unicode()) : wchar_t{0}};
+            char encoded[8]{};
+            BOOL usedDefault = FALSE;
+            const bool unicodePage = codePage == CP_UTF8 || codePage == 54936;
+            const int count = WideCharToMultiByte(codePage,
+                unicodePage ? WC_ERR_INVALID_CHARS : WC_NO_BEST_FIT_CHARS,
+                input, units, encoded, static_cast<int>(sizeof(encoded)), nullptr,
+                unicodePage ? nullptr : &usedDefault);
+            wchar_t roundTrip[2]{};
+            const int decoded = count > 0 && !usedDefault
+                ? MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, encoded, count, roundTrip, 2) : 0;
+            if (decoded != units || roundTrip[0] != input[0] || (pair && roundTrip[1] != input[1]))
+            {
+                errorOut = {ParseErrorCode::UnrepresentableText, utf8Offset};
+                return false;
+            }
+            // GBK/Big5 的尾字节可能落在 A-Z/a-z，不能逐字节套用 UTF-8 的折叠规则。
+            const ushort scalar = first.unicode();
+            const bool fold = !caseSensitive && count == 1
+                && ((scalar >= 'A' && scalar <= 'Z') || (scalar >= 'a' && scalar <= 'z'))
+                && static_cast<unsigned char>(encoded[0]) == scalar;
+            for (int byte = 0; byte < count; ++byte)
+            {
+                const auto value = static_cast<std::uint8_t>(encoded[byte]);
+                parsed.bytes.push_back(fold ? static_cast<std::uint8_t>(value & 0xDF) : value);
+                parsed.mask.push_back(fold ? 0xDF : 0xFF);
+            }
+            utf8Offset += pair ? 4 : scalar < 0x80 ? 1 : scalar < 0x800 ? 2 : 3;
+            index += units;
+        }
+        parsed.description = "ansi-cp" + std::to_string(codePage) + (caseSensitive ? ":" : "/i:");
+        const QByteArray utf8 = text.toUtf8();
+        parsed.description.append(utf8.constData(), static_cast<std::size_t>(utf8.size()));
+        patternOut = std::move(parsed);
+        return true;
+#else
+        // 非 Windows 夹具仅提供 UTF-8；不冒充其它平台拥有 Windows 代码页转换。
+        if (codePage == 65001)
+        {
+            const QByteArray utf8 = text.toUtf8();
+            return ksword::memwb::ParseTextPattern(
+                std::string_view(utf8.constData(), static_cast<std::size_t>(utf8.size())),
+                ksword::memwb::TextEncoding::Utf8, !caseSensitive, patternOut, errorOut);
+        }
+        errorOut.code = ParseErrorCode::UnrepresentableText;
+        return false;
+#endif
+    }
+
     // 解析用户输入。
     bool ParsePattern(
         Mode mode,
@@ -32,6 +127,10 @@ namespace ks::ui::hexfind
         {
             return ksword::memwb::ParseHexPattern(view, patternOut, errorOut);
         }
+        if (mode == Mode::TextAnsi)
+        {
+            return ParseAnsiPattern(text, SystemAnsiCodePage(), caseSensitive, patternOut, errorOut);
+        }
         const ksword::memwb::TextEncoding encoding = (mode == Mode::TextUtf16Le)
             ? ksword::memwb::TextEncoding::Utf16Le
             : ksword::memwb::TextEncoding::Utf8;
@@ -48,6 +147,10 @@ namespace ks::ui::hexfind
 
         // 位置换算成 1 起的字符序号；输入里有中文时字节偏移与字符序号不同。
         const std::size_t charIndex = hexview_format::CharIndexFromUtf8Offset(utf8, error.position);
+        if (error.code == ksword::memwb::ParseErrorCode::UnrepresentableText)
+        {
+            return QStringLiteral("第 %1 个字符无法用所选 ANSI 代码页无损表示").arg(static_cast<qulonglong>(charIndex) + 1ULL);
+        }
         return QStringLiteral("第 %1 个字符处有误").arg(static_cast<qulonglong>(charIndex) + 1ULL);
     }
 

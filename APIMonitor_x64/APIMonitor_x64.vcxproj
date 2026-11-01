@@ -203,6 +203,12 @@
     <MakeDir Directories="$(OutDir)profiles" />
     <Copy SourceFiles="$(ProjectDir)api_monitor_definitions.json" DestinationFiles="$(OutDir)profiles\api_monitor_definitions.json" SkipUnchangedFiles="true" />
   </Target>
+  <PropertyGroup><ApiMonitorDiagnostics Condition="'$(ApiMonitorDiagnostics)'==''">0</ApiMonitorDiagnostics></PropertyGroup>
+  <ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>KSWORD_APIMON_DIAGNOSTICS=$(ApiMonitorDiagnostics);%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile></ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="core\MonitorDiagnostics.cpp" />
+    <ClInclude Include="core\MonitorDiagnostics.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
@@ -226,4 +232,6 @@
   </ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="hook\NearAllocation.h" /><ClInclude Include="hook\ThreadPatchGuard.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="hook\CodePageAllocator.h" /></ItemGroup>
 </Project>

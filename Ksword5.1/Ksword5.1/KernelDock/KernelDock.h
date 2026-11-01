@@ -832,7 +832,7 @@ private:
     // rebuildDynDataFieldTable：
     // - 作用：根据筛选关键词重建动态偏移字段表。
     // - 参数 filterKeyword：筛选关键词（空表示不过滤）。
-    void rebuildDynDataFieldTable(const QString& filterKeyword);
+    void rebuildDynDataFieldTable(const QString& filterKeyword, bool updateDetail = true);
 
     // rebuildDynDataV4ItemTable：
     // - 作用：重建 v4 accepted item 明细表。

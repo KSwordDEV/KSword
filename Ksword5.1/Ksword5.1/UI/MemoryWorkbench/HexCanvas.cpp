@@ -10,6 +10,7 @@
 //   HexCanvas.Menu.cpp    复制与右键菜单
 
 #include "HexCanvas.h"
+#include "../../Internationalization/LanguageManager.h"
 #include "HexCanvasFormat.h"
 
 #include <QApplication>
@@ -169,6 +170,19 @@ namespace ks::ui
             lastAddress,
             rowWidth,
             ksword::memwb::HexViewport::kMaxCachedPages);
+        m_viewport.SetFoldUnknown(m_foldUnknownRegions);
+        m_viewport.SetOverviewEnabled(m_overviewEnabled && m_overviewBar != nullptr);
+        m_viewport.SetFoldProtection([this](std::uint64_t first, std::uint64_t last) -> std::optional<AddressRange> {
+            const auto range = m_overlay ? m_overlay->FirstPendingRange(first, last) : std::nullopt;
+            return range ? std::optional<AddressRange>(AddressRange{range->first, range->last}) : std::nullopt;
+        });
+        m_foldGeometryRevision = m_viewport.FoldRevision();
+        m_foldFetchBudget = 16;
+        m_foldScrollAnchor.reset();
+        m_foldNavigationAddress.reset();
+        m_foldScrollUp = false;
+        m_keepScrollEnd = false;
+        cancelUniformBoundarySearch();
         m_hasSpace = true;
 
         // 新代次：旧空间里还在途的异步结果回来时会被拒收。
@@ -182,6 +196,7 @@ namespace ks::ui
         };
         m_firstRow = 0;
         m_hOffset = 0;
+        m_notifiedOnce = false;
         cancelNibble();
 
         // 地址位数可能变化（8 位 <-> 16 位，例如 32 位目标与 64 位目标互换），重算几何后同步滚动条。
@@ -246,6 +261,9 @@ namespace ks::ui
     // 回到无数据状态。
     void HexCanvas::clearAddressSpace()
     {
+        m_foldScrollAnchor.reset();
+        m_foldNavigationAddress.reset();
+        cancelUniformBoundarySearch();
         const bool hadSpace = m_hasSpace;
 
         // 占位视图：单字节空间，仅为保持成员有效；m_hasSpace 为假时不会被画出。
@@ -294,6 +312,9 @@ namespace ks::ui
             m_staticProvider.reset();
         }
         m_provider = provider;
+        const QPointer<HexCanvas> alive(this);
+        if (m_provider) m_provider->SetUnknownFoldingEnabled(m_foldUnknownRegions);
+        if (!alive) return;
         refresh();
     }
 
@@ -329,7 +350,12 @@ namespace ks::ui
     // 换叠加层会改变 Pending/ExternalChange 着色与补丁值，也改变"能不能编辑"，所以要通知订阅者。
     void HexCanvas::setOverlay(ksword::memwb::MemoryDiffOverlay* overlay)
     {
+        cancelUniformBoundarySearch();
         m_overlay = overlay;
+        m_viewport.RefreshFoldProtection();
+        const QPointer<HexCanvas> alive(this);
+        syncFoldGeometry();
+        if (!alive) return;
         cancelNibble();
         viewport()->update();
         scheduleContentChanged();
@@ -339,6 +365,11 @@ namespace ks::ui
     // 不取消半字节：半字节只记着高位与目标地址，叠加层变化不会让它失效（宿主写回后用户可能正敲到一半）。
     void HexCanvas::notifyOverlayChanged()
     {
+        cancelUniformBoundarySearch();
+        const QPointer<HexCanvas> alive(this);
+        m_viewport.RefreshFoldProtection();
+        syncFoldGeometry();
+        if (!alive) return;
         viewport()->update();
         scheduleContentChanged();
     }
@@ -373,9 +404,13 @@ namespace ks::ui
         const PageResult result = m_viewport.InsertPage(pageStart, byteVector, maskVector, sourceRevision);
         if (result == PageResult::Accepted)
         {
+            const QPointer<HexCanvas> alive(this);
+            syncFoldGeometry();
+            if (!alive || this->sourceRevision() != sourceRevision) return result;
             // 被接受的页：该页地址的值从"未加载"变成了真实字节（也可能淘汰了别的页），排队通知订阅者。
             viewport()->update();
             scheduleContentChanged(HexFetchRange{pageStart, 1, 0});
+            if (m_uniformSearch) advanceUniformBoundarySearch();
         }
         return result;
     }
@@ -390,8 +425,12 @@ namespace ks::ui
         const PageResult result = m_viewport.MarkUnreadable(range, sourceRevision);
         if (result == PageResult::Accepted)
         {
+            const QPointer<HexCanvas> alive(this);
+            syncFoldGeometry();
+            if (!alive || this->sourceRevision() != sourceRevision) return result;
             viewport()->update();
             scheduleContentChanged(range);
+            if (m_uniformSearch) advanceUniformBoundarySearch();
         }
         return result;
     }
@@ -402,6 +441,9 @@ namespace ks::ui
         if (m_hasSpace)
         {
             m_viewport.CancelInFlight(range);
+            if (m_uniformSearch && m_uniformSearch->cursor >= range.firstPageStart
+                && (m_uniformSearch->cursor - range.firstPageStart) / ksword::memwb::HexViewport::kPageBytes < range.pageCount)
+                boundaryReadFailed(ks::i18n::sourceText(QStringLiteral("边界查找未能读取数据，请检查通道后重试")));
         }
     }
 
@@ -591,7 +633,12 @@ namespace ks::ui
         {
             return;
         }
+        cancelUniformBoundarySearch();
+        m_foldFetchBudget = 16;
+        const QPointer<HexCanvas> alive(this);
         m_viewport.InvalidateAll(++m_revisionCounter);
+        syncFoldGeometry();
+        if (!alive) return;
         viewport()->update();
         requestVisiblePages();
 
@@ -862,6 +909,9 @@ namespace ks::ui
     // 传入：变化前的选区。所有改动选区的路径都必须经过这里。
     void HexCanvas::applySelectionChange(const ksword::memwb::HexViewport::Selection& before)
     {
+        const QPointer<HexCanvas> foldAlive(this);
+        syncFoldGeometry();
+        if (!foldAlive) return;
         const ksword::memwb::HexViewport::Selection now = m_viewport.GetSelection();
         const bool anchorChanged = now.anchor != before.anchor;
         const bool caretChanged = now.caret != before.caret;
@@ -870,6 +920,7 @@ namespace ks::ui
         {
             return;
         }
+        cancelUniformBoundarySearch();
 
         // 半字节只属于它输入时的那个字节与 Hex 面板，插入点或面板变了就作废。
         if (m_nibbleActive && (now.caret != m_nibbleAddress || now.pane != ActivePane::Hex))

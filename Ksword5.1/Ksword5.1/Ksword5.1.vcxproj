@@ -372,6 +372,7 @@
     <ClCompile Include="MemoryDock\SystemMemoryAuditPage.cpp" />
     <ClCompile Include="MemoryDock\MemoryAccessBackend.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.cpp" />
+    <ClCompile Include="MemoryDock\WorkbenchUserModeRead.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.Kernel.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoMapping.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.Workbench.cpp" />
@@ -862,6 +863,8 @@
     <QtMoc Include="Framework\CustomTitleBar.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="ProcessDock\ProcessActivityHistory.h" />
     <ClInclude Include="ProcessDock\ProcessEtwCaptureLifecycle.h" />
     <ClInclude Include="MonitorDock\MonitorTableExport.h" />
@@ -1138,6 +1141,7 @@
     <ClInclude Include="MemoryDock\SystemMemoryAuditPage.h" />
     <ClInclude Include="MemoryDock\MemoryAccessBackend.h" />
     <ClInclude Include="MemoryDock\WorkbenchIoPorts.h" />
+    <ClInclude Include="MemoryDock\WorkbenchUserModeRead.h" />
     <ClInclude Include="MemoryDock\WorkbenchIoMapping.h" />
     <ClInclude Include="MemoryDock\WorkbenchServicesMapping.h" />
     <ClInclude Include="MemoryDock\WorkbenchServicesAudit.h" />
@@ -1314,6 +1318,7 @@
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h" />
+    <ClInclude Include="UI\MemoryWorkbench\HexCanvasOverviewBar.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexExport.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexFindBar.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexFindSearch.h" />
@@ -1724,6 +1729,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ProcessDock\ProcessDock.MetricArea.cpp" />
+    <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />
     <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp" />

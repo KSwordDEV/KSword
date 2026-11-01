@@ -288,6 +288,9 @@ void ProcessDetailWindow::rebuildModuleTable()
             row.roles.insert(Qt::UserRole, path);
             row.roles.insert(Qt::UserRole + 1, QVariant::fromValue<qulonglong>(record.moduleBaseAddress));
             row.roles.insert(Qt::UserRole + 2, QVariant::fromValue(record.representativeThreadId));
+            row.columnRoles[toModuleColumnIndex(ModuleColumn::ThreadId)].insert(Qt::ToolTipRole,
+                translator.sourceText(QStringLiteral("%1\n仅列出启动地址位于该模块内的线程，不代表当前执行位置。? 表示部分线程的启动地址无法查询。"))
+                    .arg(QString::fromStdString(record.threadIdText)));
             row.roles.insert(Qt::DecorationRole, value.icon.isNull() ? QVariant(placeholder) : QVariant(value.icon));
             row.columnRoles[toModuleColumnIndex(ModuleColumn::Signature)].insert(Qt::ForegroundRole,
                 record.signatureTrusted ? trusted : (record.signatureState == "Pending" || record.signatureState == "Unknown") ? secondary : untrusted);

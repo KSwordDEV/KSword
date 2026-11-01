@@ -8,6 +8,7 @@
 #include "HexViewport.h"
 
 #include <limits>
+#include <algorithm>
 
 namespace ksword::memwb {
 
@@ -114,6 +115,8 @@ bool HexViewport::SetBytesPerRow(std::uint32_t bytesPerRow) {
     // 行宽变了，第 0 行起始地址要按新行宽重新对齐。
     bytesPerRow_ = bytesPerRow;
     rowBase_ = firstAddress_ - (firstAddress_ % bytesPerRow_);
+    if (foldUnknown_) for (auto& [address, page] : pages_) RebuildReadableRanges(address, page);
+    RebuildFolds();
     return true;
 }
 
@@ -125,11 +128,15 @@ bool HexViewport::ContainsAddress(std::uint64_t address) const {
 // 总行数。
 // 最后一个有效地址所在行号 + 1。(last - rowBase) 不会下溢也不会超过 uint64，
 // 除以至少为 8 的行宽后 +1 也不会溢出。
-std::uint64_t HexViewport::RowCount() const {
+std::uint64_t HexViewport::RawRowCount() const {
     if (!IsValid()) {
         return 0;
     }
     return (lastAddress_ - rowBase_) / bytesPerRow_ + 1ULL;
+}
+
+std::uint64_t HexViewport::RowCount() const {
+    return RawRowCount() - hiddenRowCount_;
 }
 
 // 某行的起始地址。
@@ -139,7 +146,7 @@ std::optional<std::uint64_t> HexViewport::RowStartAddress(std::uint64_t row) con
     if (row >= RowCount()) {
         return std::nullopt;
     }
-    return rowBase_ + row * static_cast<std::uint64_t>(bytesPerRow_);
+    return rowBase_ + VisualToRaw(row) * static_cast<std::uint64_t>(bytesPerRow_);
 }
 
 // 某行内属于地址空间的闭区间。
@@ -174,7 +181,7 @@ std::optional<std::uint64_t> HexViewport::RowOfAddress(std::uint64_t address) co
     if (!ContainsAddress(address)) {
         return std::nullopt;
     }
-    return (address - rowBase_) / static_cast<std::uint64_t>(bytesPerRow_);
+    return RawToVisual((address - rowBase_) / static_cast<std::uint64_t>(bytesPerRow_));
 }
 
 // 地址所在列。
@@ -278,6 +285,229 @@ std::optional<std::uint64_t> HexViewport::ScrollToAddress(
 
     // 最后统一夹取，防止滚出末尾空白。
     return (result > maxFirstRow) ? maxFirstRow : result;
+}
+
+void HexViewport::EraseUnknownRange(std::uint64_t first, std::uint64_t last) {
+    if (unknownRanges_.empty() || first > last) return;
+    auto it = unknownRanges_.upper_bound(first);
+    if (it != unknownRanges_.begin()) --it;
+    while (it != unknownRanges_.end() && it->first <= last) {
+        if (it->second < first) { ++it; continue; }
+        const auto low = it->first, high = it->second;
+        it = unknownRanges_.erase(it);
+        if (low < first) unknownRanges_.emplace(low, first - 1);
+        if (high > last) { unknownRanges_.emplace(last + 1, high); break; }
+    }
+}
+
+void HexViewport::AddUnknownRange(std::uint64_t first, std::uint64_t last) {
+    if (first > last || last < firstAddress_ || first > lastAddress_) return;
+    first = std::max(first, firstAddress_); last = std::min(last, lastAddress_);
+    auto it = unknownRanges_.lower_bound(first);
+    if (it != unknownRanges_.begin()) {
+        const auto previous = std::prev(it);
+        if (previous->second >= first || first - previous->second == 1) it = previous;
+    }
+    while (it != unknownRanges_.end() && (it->first <= last || it->first - last == 1)) {
+        first = std::min(first, it->first); last = std::max(last, it->second);
+        it = unknownRanges_.erase(it);
+    }
+    if (unknownRanges_.size() < 4096) unknownRanges_.emplace(first, last);
+}
+
+bool HexViewport::IsKnownUnreadable(std::uint64_t address) const {
+    if (!foldUnknown_ || unknownRanges_.empty()) return false;
+    auto it = unknownRanges_.upper_bound(address);
+    return it != unknownRanges_.begin() && std::prev(it)->second >= address;
+}
+
+void HexViewport::TrackUnknownPage(std::uint64_t pageStart, const std::vector<std::uint8_t>& mask) {
+    if (!foldUnknown_) return;
+    EraseUnknownRange(pageStart, pageStart + kPageBytes - 1);
+    std::size_t index = 0;
+    while (index < mask.size()) {
+        if (mask[index] != 0) { ++index; continue; }
+        const auto begin = index;
+        while (index < mask.size() && mask[index] == 0) ++index;
+        if (index - begin >= 8 || begin == 0 || index == mask.size())
+            AddUnknownRange(pageStart + begin, pageStart + index - 1);
+    }
+}
+
+void HexViewport::RebuildReadableRanges(std::uint64_t pageStart, CachedPage& page) {
+    page.readableRanges.clear();
+    if (page.unreadable || page.validMask.empty()) return;
+    const auto first = std::max(pageStart, firstAddress_);
+    const auto last = std::min(pageStart + kPageBytes - 1, lastAddress_);
+    auto offset = static_cast<std::size_t>(first - pageStart);
+    const auto limit = static_cast<std::size_t>(last - pageStart + 1);
+    while (offset < limit) {
+        if (!page.validMask[offset]) { ++offset; continue; }
+        const auto begin = offset;
+        while (offset < limit && page.validMask[offset]) ++offset;
+        const auto low = pageStart + begin, high = pageStart + offset - 1;
+        // Several valid bytes on adjacent rows keep the same rows visible. Merge
+        // them in the summary, so checkerboard byte masks do not inflate the index.
+        if (!page.readableRanges.empty()
+            && (low - rowBase_) / bytesPerRow_ <= (page.readableRanges.back().last - rowBase_) / bytesPerRow_ + 1)
+            page.readableRanges.back().last = high;
+        else page.readableRanges.push_back({low, high});
+    }
+}
+
+void HexViewport::RebuildFolds() {
+    if (!foldUnknown_ && hiddenRows_.empty()) return;
+    knownRows_.clear();
+    knownRowCount_ = 0;
+    std::vector<HiddenRows> next;
+    std::uint64_t hidden = 0;
+    if (foldUnknown_ && IsValid()) {
+        const auto caretRow = (selection_.caret - rowBase_) / bytesPerRow_;
+        const auto append = [&](std::uint64_t first, std::uint64_t last) {
+            if (first > last) return;
+            if (!next.empty() && first == next.back().last + 1) next.back().last = last;
+            else next.push_back({first, last, hidden, first - hidden});
+            hidden += last - first + 1;
+        };
+        const auto appendProtected = [&](std::uint64_t first, std::uint64_t last) {
+            // Walk staged BLOCKS rather than staged rows/bytes. A 64MiB patch
+            // remains one range query even when most of the address space is unknown.
+            while (first <= last) {
+                const auto lowAddress = rowBase_ + first * bytesPerRow_;
+                const auto lastRowAddress = rowBase_ + last * bytesPerRow_;
+                const auto highAddress = lastRowAddress + std::min<std::uint64_t>(bytesPerRow_ - 1, lastAddress_ - lastRowAddress);
+                const auto range = foldProtection_ ? foldProtection_(lowAddress, highAddress) : std::nullopt;
+                if (!range) { append(first, last); return; }
+                if (range->first > highAddress || range->last < lowAddress || range->first > range->last) return;
+                const auto lowRow = (std::max(lowAddress, range->first) - rowBase_) / bytesPerRow_;
+                const auto highRow = (std::min(highAddress, range->last) - rowBase_) / bytesPerRow_;
+                if (first < lowRow) append(first, lowRow - 1);
+                if (highRow == last) return;
+                first = highRow + 1;
+            }
+        };
+        const auto unknown = [&](std::uint64_t first, std::uint64_t last) {
+            if (first > last) return;
+            const auto low = (first - rowBase_) / bytesPerRow_;
+            const auto high = (last - rowBase_) / bytesPerRow_;
+            if (high - low < 2) return;
+            const auto begin = low + 1, end = high - 1;
+            std::uint64_t protectedRows[2] = {caretRow, foldRevealedAddress_
+                ? (*foldRevealedAddress_ - rowBase_) / bytesPerRow_ : kMaxAddress};
+            if (protectedRows[1] < protectedRows[0]) std::swap(protectedRows[0], protectedRows[1]);
+            auto cursor = begin;
+            for (const auto row : protectedRows) if (row >= cursor && row <= end) {
+                if (cursor < row) appendProtected(cursor, row - 1);
+                cursor = row + 1;
+            }
+            if (cursor <= end) appendProtected(cursor, end);
+        };
+        // Unloaded and pending bytes are unknown too. Build their complement from
+        // the bounded readable-page summaries, without visiting absent pages.
+        std::vector<AddressRange> readable;
+        for (const auto& [address, page] : pages_) {
+            (void)address;
+            for (const auto& range : page.readableRanges) {
+                if (!readable.empty()
+                    && (range.first - rowBase_) / bytesPerRow_ <= (readable.back().last - rowBase_) / bytesPerRow_ + 1)
+                    readable.back().last = range.last;
+                else readable.push_back(range);
+            }
+        }
+        auto cursor = firstAddress_;
+        bool finished = false;
+        for (const auto& range : readable) {
+            const auto low = (range.first - rowBase_) / bytesPerRow_;
+            const auto high = (range.last - rowBase_) / bytesPerRow_;
+            knownRows_.push_back({low, high, knownRowCount_});
+            knownRowCount_ += high - low + 1;
+            if (cursor < range.first) unknown(cursor, range.first - 1);
+            if (range.last == lastAddress_) { finished = true; break; }
+            cursor = range.last + 1;
+        }
+        if (!finished) unknown(cursor, lastAddress_);
+    }
+    if (next != hiddenRows_) ++foldRevision_;
+    hiddenRows_ = std::move(next);
+    hiddenRowCount_ = hidden;
+}
+
+void HexViewport::SetFoldUnknown(bool enabled) {
+    if (foldUnknown_ == enabled) return;
+    foldUnknown_ = enabled;
+    if (!enabled) { knownRows_.clear(); knownRowCount_ = 0; }
+    foldRevealedAddress_.reset();
+    unknownRanges_.clear();
+    if (enabled) for (auto& [address, page] : pages_) {
+        RebuildReadableRanges(address, page);
+        if (page.unreadable) AddUnknownRange(address, address + kPageBytes - 1);
+        else TrackUnknownPage(address, page.validMask);
+    }
+    RebuildFolds();
+}
+
+std::optional<HexViewport::AddressRange> HexViewport::KnownRowSpan(std::uint64_t row) const {
+    if (row >= knownRowCount_) return std::nullopt;
+    auto it = std::upper_bound(knownRows_.begin(), knownRows_.end(), row,
+        [](auto value, const KnownRows& run) { return value < run.before; });
+    --it;
+    const auto start = rowBase_ + (it->first + row - it->before) * bytesPerRow_;
+    return AddressRange{std::max(start, firstAddress_), start + std::min<std::uint64_t>(bytesPerRow_ - 1, lastAddress_ - start)};
+}
+
+std::uint64_t HexViewport::KnownRowAtOrAfter(std::uint64_t address) const {
+    if (knownRows_.empty() || address > lastAddress_) return knownRowCount_;
+    const auto raw = (std::max(address, firstAddress_) - rowBase_) / bytesPerRow_;
+    const auto it = std::lower_bound(knownRows_.begin(), knownRows_.end(), raw,
+        [](const KnownRows& run, auto row) { return run.last < row; });
+    return it == knownRows_.end() ? knownRowCount_ : it->before + std::max(raw, it->first) - it->first;
+}
+
+std::optional<std::uint64_t> HexViewport::KnownRowOfAddress(std::uint64_t address) const {
+    if (!ContainsAddress(address)) return std::nullopt;
+    const auto row = KnownRowAtOrAfter(address);
+    const auto span = KnownRowSpan(row);
+    return span && address >= span->first && address <= span->last ? std::optional<std::uint64_t>(row) : std::nullopt;
+}
+
+void HexViewport::NoteUnreadableRange(std::uint64_t first, std::uint64_t last) {
+    if (!foldUnknown_ || !IsValid()) return;
+    AddUnknownRange(first, last);
+    // Mapping evidence may arrive after data: never hide retained values or pending reads.
+    const auto firstPage = PageStartOf(first), lastPage = PageStartOf(last);
+    for (auto it = pages_.lower_bound(firstPage); it != pages_.end() && it->first <= lastPage; ++it)
+        if (!it->second.unreadable && std::any_of(it->second.validMask.begin(), it->second.validMask.end(),
+            [](auto value) { return value != 0; })) EraseUnknownRange(it->first, it->first + kPageBytes - 1);
+    for (auto it = inFlight_.lower_bound(firstPage); it != inFlight_.end() && *it <= lastPage; ++it)
+        EraseUnknownRange(*it, *it + kPageBytes - 1);
+    RebuildFolds();
+}
+
+void HexViewport::RevealAddress(std::uint64_t address) {
+    if (!foldUnknown_ || !ContainsAddress(address)) return;
+    if (foldRevealedAddress_ && *foldRevealedAddress_ == address) return;
+    // Keep explicit navigation pinned even if the row is already visible: a
+    // later width change or cache eviction must not fold the target away.
+    foldRevealedAddress_ = address;
+    RebuildFolds();
+}
+
+std::uint64_t HexViewport::RawToVisual(std::uint64_t row) const {
+    if (hiddenRows_.empty()) return row;
+    auto it = std::upper_bound(hiddenRows_.begin(), hiddenRows_.end(), row,
+        [](auto value, const HiddenRows& span) { return value < span.first; });
+    if (it == hiddenRows_.begin()) return row;
+    --it;
+    return row <= it->last ? it->visual : row - it->before - (it->last - it->first + 1);
+}
+
+std::uint64_t HexViewport::VisualToRaw(std::uint64_t row) const {
+    if (hiddenRows_.empty()) return row;
+    auto it = std::upper_bound(hiddenRows_.begin(), hiddenRows_.end(), row,
+        [](auto value, const HiddenRows& span) { return value < span.visual; });
+    if (it == hiddenRows_.begin()) return row;
+    --it;
+    return row + it->before + (it->last - it->first + 1);
 }
 
 }  // namespace ksword::memwb

@@ -3,7 +3,7 @@
 // ============================================================
 // HexFindBar.h
 // 作用：
-// - HexView 的查找条：模式（十六进制 / 文本 UTF-8 / 文本 UTF-16LE 三段按钮）、输入框、区分大小写开关、
+// - HexView 的查找条：模式（十六进制 / UTF-8 / UTF-16LE / 系统 ANSI 四段按钮）、输入框、区分大小写开关、
 //   上一个 / 下一个、结果文字、关闭。取代旧 HexEditorWidget 的查找面板。
 // - 搜索引擎复用 shared/evidence/memory_workbench/MemoryByteSearch（经 HexFindSearch.h 适配）：
 //   半字节通配、空格逗号分隔或连写、UTF-16LE、可取消的分块扫描、重叠命中。

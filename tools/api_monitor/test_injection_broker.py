@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix="ksword_broker_test_") as temporary:
     directory=Path(temporary);cpp=directory/"fixture.cpp";cpp.write_text(source,encoding="utf-8")
     environment=target_environment("x64");compiler=shutil.which("cl",path=environment["PATH"])
     executable=directory/"fixture.exe"
-    subprocess.run([compiler,"/nologo","/EHsc","/std:c++17","/utf-8","/MT","/I"+str(ROOT/"shared"),str(cpp),
+    subprocess.run([compiler,"/nologo","/EHsc","/std:c++20","/utf-8","/MT","/I"+str(ROOT/"shared"),str(cpp),
                     str(ROOT/"shared/ApiMonitorInjectionBroker.cpp"),"/Fe:"+str(executable),"/Fo:"+str(directory)+"\\",
                     "/link","Advapi32.lib"],env=environment,check=True)
     subprocess.run([str(executable),str(ROOT/"Ksword5.1/x64/Release/APIMonitor_x64.dll")],check=True,timeout=60)

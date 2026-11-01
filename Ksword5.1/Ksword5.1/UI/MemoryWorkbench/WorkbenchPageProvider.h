@@ -183,6 +183,7 @@ namespace ks::ui
         Q_OBJECT
 
     public:
+        void SetUnknownFoldingEnabled(bool enabled) override { foldUnknown_ = enabled; }
         // IoPortFactory：构造一个 IMemoryIoPort 实现的工厂。本类在构造时调用恰好一次
         // 并长期持有返回的端口——真实端口（WorkbenchIoPort，见 MemoryDock/
         // WorkbenchIoPorts.h）本身无成员状态，可安全地让读线程与 UI 线程并发使用；
@@ -328,6 +329,7 @@ namespace ks::ui
         void jobLanded();
 
     private:
+        bool foldUnknown_ = false;
         // ReadPool：唯一的单线程读池，定义在 .cpp（避免本头文件把 QThreadPool 的
         // 调度细节暴露给每个包含者）。
         class ReadPool;

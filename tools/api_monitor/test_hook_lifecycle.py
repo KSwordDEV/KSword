@@ -13,7 +13,7 @@ code = r"""
 static void* testTarget;
 static bool failProtection=false;
 HMODULE WINAPI TestGetModuleHandleW(LPCWSTR name) { return name && wcscmp(name,L"ntdll.dll")==0 ? GetModuleHandleW(name) : GetModuleHandleW(nullptr); }
-FARPROC WINAPI TestGetProcAddress(HMODULE h,LPCSTR name) { return strcmp(name,"NtGetNextThread")==0 ? GetProcAddress(h,name) : reinterpret_cast<FARPROC>(testTarget); }
+FARPROC WINAPI TestGetProcAddress(HMODULE h,LPCSTR name) { if(strcmp(name,"VirtualAlloc2")==0)return nullptr;return strcmp(name,"NtGetNextThread")==0 ? GetProcAddress(h,name) : reinterpret_cast<FARPROC>(testTarget); }
 BOOL WINAPI TestGetModuleHandleExW(DWORD,LPCWSTR,HMODULE* h) { *h=GetModuleHandleW(nullptr); return TRUE; }
 BOOL WINAPI TestVirtualProtect(LPVOID p,SIZE_T n,DWORD access,PDWORD old) {
  if(failProtection) return FALSE;

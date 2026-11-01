@@ -12,6 +12,8 @@
         <file alias="mcp_agent_install_prompt.txt">../../tools/ksword_mcp/agent_install_prompt.txt</file>
     </qresource>
     <qresource prefix="/Icon">
+        <file alias="memwb_upper_bound.svg">Resource/Icon/arrow/arrow_to_up_line.svg</file>
+        <file alias="memwb_lower_bound.svg">Resource/Icon/arrow/arrow_to_down_line.svg</file>
         <!-- 日志面板使用的图标资源（均来自 Resource/Icon 图标库） -->
         <file alias="log_export.svg">Resource/Icon/file/file_export_line.svg</file>
         <file alias="reg_import.svg">Resource/Icon/file/file_import_line.svg</file>

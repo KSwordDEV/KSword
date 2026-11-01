@@ -1,5 +1,36 @@
 # API Monitor 定义、x86/x64 引擎、覆盖与异步采集
 
+## CLI 监控接入（2026-11-01）
+
+- 新命令 `monitor api capture --pid PID --confirm [--json]`，注册元数据在 `KswordCLI/R3MonitorApi.cpp`，文档在 `docs/CLI使用文档.md`、`docs/cli/monitor.md`。x64 CLI 使用 Qt-free `shared/ApiMonitorCapture.{h,cpp}`，复用主程序的 Agent 位数选择、原生注入、SessionLease、InjectionBroker 和 CoverageSnapshotReceiver；没有新增 R0 注入路径。CLI 工程非链接依赖两个 Agent，x86 CLI 对本命令明确返回5。
+- 支持限时／取消、分类、Raw 模块／排除规则、跨位数自动子进程、导入主程序 INI 的业务选项及 Fake Success／剪贴板规则、文本和 JSON 事件／完整覆盖输出。控制端 SID、会话、broker、管道、停止路径始终由新会话生成，导入不能覆盖。Raw EntryOnly 的结果为 null。
+- 每个目标保留进程创建身份，管道连接复核服务端 PID。只有 HooksInstalled 后开始计时；停止时通知根和全部已受理后代，继续读取到 HooksRemoved 和管道关闭（或确认原目标退出）。停止标记保留给迟到加载／常驻 Agent；DLL 和退役代码仍按原策略留到目标退出。目标已退出可确认清理，但不得虚构 stopWritten=true。
+- Win10 常驻 Agent 的 GetPrivateProfileString 可能短暂阻止原子替换 INI，MoveFileEx 返回5／32；对原子 rename 有界重试2秒，不能退回截断原文件。虚拟机首次验收实际遇到并修复；重复 x86／x64 会话随后通过。
+- `tools/Test-KSwordCliApiMonitor.ps1` 与自有 `tools/api_monitor/cli_capture_fixture.cpp` 覆盖77项：非法输入、双位数真实 WriteFile、常驻复用、缓冲截断、INI 控制字段隔离、真实 Raw 未知结果、隔离控制台 CTRL_BREAK、同 PID 租约冲突、x64→x86 子进程、目标提前正常退出及所有自有进程正常退出。Windows10-20H2 真实 WinRM 验收通过，完整轮次 Agent 丢包为0，无遗留测试进程；缺失导出／未加载模块等原有覆盖边界如实为 partial，不宣称所有641项均可用。
+- CLI 与两套 Agent Release 构建成功，0 warnings／0 errors；新增 C++ 通过 HostX64 `/W4 /WX`，x86 capture stub 编译通过。覆盖快照、跨线程租约、管道分片三个生产协议回归通过。构建日志在 `.codex-build-logs/cli-apimon/`；运行 JSON 留在虚拟机隔离验收目录及本聊天产物中，不纳入提交。
+- 两个已有通用测试入口存在本次改动前的失效假设：`tools/test_ksword_cli.py` 在旧夹具直接调用未限定命名空间的 configureConsole，编译报 C3861；`tools/Test-KSwordCliR3Coverage.ps1` 固定要求66条迁移记录，当前已有67条。专项回归和生产构建通过，不将这两个旧入口描述为通过，也未顺带改动其框架。
+
+## 虚拟机 DWM 附加实验（2026-11-01）
+
+- 用户要求只测试虚拟机，禁止操作宿主机 dwm。目标为 Windows10-20H2 来宾 `DESKTOP-D2161R7` 的 System32/dwm.exe，PID904、创建身份134379816769715121、Session1、x64、Window Manager/DWM-1，PPL=None、CFG开启、硬件栈保护关闭。所有附加经 WinRM 且强制校验计算机名；通过 CLI `privilege run --enable SeDebugPrivilege` 暂时启用已分配权限并在结束恢复，不改进程保护。
+- 建立实验前快照 `Codex-DwmApiMonitor-PreAttach-20261101-01`。约4.6GiB的带内存快照造成宿主机严重卡顿，用户叫停后结束快照请求客户端并暂停指定 VM；快照最终正常完成。用户随后明确允许继续，恢复 VM，未再创建内存快照。恢复实验不能把这一卡顿归因于 DWM 注入，快照阶段尚未注入。
+- 默认分类、Raw=0、3秒采集：elapsed5844ms，HooksInstalled/Removed=true，原DWM实例存活，无Application 1000/1001错误。仅5条Agent控制事件，无业务调用；返回6/partial，pipeWin32Error=233，coverageStale=true，不能描述为完整监控通过。
+- 默认Raw全模块、5秒采集：30秒启动+15秒停止等待，elapsed45016ms、退出3，只收到SessionReady；当时HooksInstalled/Removed=false且cleanupComplete=false。稍后真实转储显示Agent已回到WaitForNextSessionConfig，不能据超时就认定永久死锁或崩溃。
+- 将启动等待延至120秒、停止等待延至60秒复核同一常驻Agent：elapsed161578ms、退出3，启动仍超时；HooksInstalled/Removed在清理阶段才收到，cleanupComplete=true，但coverageStale仍为true，无实际业务调用。DWM始终是同一个PID/创建身份，没有崩溃/重启或WER自动转储；这种结果不能宣称Raw可用或所有Hook都覆盖成功。
+- 安装期间抓到的线程栈：MonitorWorkerThread → InstallConfiguredHooks → InstallRawFallbackHooks → TryInstallRawHookBinding → InstallInlineHookAtAddress → AllocateNear → VirtualQuery/HookedNtQueryVirtualMemory。`hook/HookEngine.cpp:371` 的AllocateNear按64KiB步进重复扫描±2GiB，为明确耗时点；注释说跳过占用区域，代码实际没有按RegionSize跳过。一次栈不能证明唯一原因。停止标记也不会中断整个Raw安装过程，导致超时后继续安装、再撤销。
+- 最后确认HooksRemoved、所有实验CLI退出、原DWM实例存活、临时dwm专用WER配置恢复为不存在，清理后线程栈回到WaitForNextSessionConfig。按既有策略Agent DLL/退役代码仍驻留，没有强制卸载。生产源码未修改；三轮JSON、一个手工完整转储及两份约3MiB线程转储保存在本聊天产物 `dwm-apimon/`。该空闲场景未验证图形交互负载、实际恶意载荷或长时间稳定性。
+
+## DWM稳定性修复与宏控插桩（2026-11-01）
+
+- 后续用户要求保留全部插桩源码并用宏包裹，最终二进制关闭宏；不进行git回滚。`KSWORD_APIMON_DIAGNOSTICS`／工程属性 `ApiMonitorDiagnostics` 默认0，两个位数工程及filters登记诊断源。临时1记录JSONL，最终0不求值参数、不链接日志／计数实现。研究报告见 `docs/API-Monitor-DWM稳定性诊断-20261101.md`。
+- 原版同一默认Raw配置首轮8097绑定安装71704ms，晚补装9909绑定87704ms；近地址查询42979700次、47278.701ms，上下文读取20999.206ms，移除22297ms，最终覆盖排空2秒超时。修复后插桩首轮3093ms，9909绑定补装4187ms；近地址查询0（VirtualAlloc2）、分配累计1205.101ms、上下文4.817ms、移除93ms、最终修订3约610ms排空。不是仅AllocateNear一个问题，没有证据证明APC杀死worker。
+- 邻近分配用VirtualAlloc2范围约束，最高包含地址必须是粒度边界减一；不支持接口时才按VAD区域跳跃。入口按区域读取；Strong键和活动补丁区间索引避免重复构造／扫描退役记录。准备后批量提交及批量恢复，在同一暂停区间复用上下文，恢复线程后绝不复用。页保护失败保留原值并重试；已公布代码／上下文仍保留到进程结束。
+- 扩展Explorer测试发现已结束但仍可枚举的线程对象：原生NtSuspendThread返回0xC000004B、WaitForSingleObject=0，被Win32映射为错误5。现只跳过确已结束线程，仍存活线程失败保持拒绝；用逐线程held标记恢复，避免跳过线程后恢复错位。重启来宾加载新DLL后Explorer首次／重复监控成功，再次探测仍有4个结束对象，证明覆盖真实边界。
+- 安装循环及兼容扫描可取消；取消后直接清理并发HooksRemoved。正常管道close保留已写未读字节，快照有积压不每64包睡25ms。HooksRemoved.snapshotRevision复用字段声明最终修订，CLI读到EOF后确认；新JSON字段finalCoverageRevision。未生效记录不再冒充Removed。旧Agent字段0表示未知，不改变1000字节布局。
+- 32位记事本第二次Raw会话发现真实崩溃：C++ bad_alloc从PublishConfiguredCoverage逃出worker，转储虽有约1.86GB空闲但最大连续段只有64KiB。新增CodePageAllocator为x86 trampoline／Raw/Fake／回调代码按64KiB保留区逐4KiB页提交／封RX，避免单独保留导致碎片；只释放未发布页，退役代码仍保留。worker与Hook补装增加异常边界并发AgentFailure，CLI不再把提前停止算足时采集。同一32位记事本6轮Raw后正常退出0，最大连续空闲仍1403518976字节，无丢包／新崩溃；已提交内存约515.9MB，保留代码仍线性增长。
+- HostX64构建0警告／0错误；最新`--no-ui`核心回归x64/x86各37项通过，主程序Release构建和双语审计通过。此前虚拟机CLI77项通过；最后的代码页修复后完整CLI／CMD／所有系统目标重跑未完成，用户停用VM并要求立即收尾提交，不能宣传为全部实机复验完成。带Qt的旧coverage夹具字段失配，完整UI入口未通过；本次未改版／验收图形页面。版本按用户最新要求保持5.2.1.0。
+- 用户询问完整DLL卸载后，明确以稳定性为先，本轮保持常驻。当前Agent使用PIN，HooksRemoved只代表恢复入口／停止采集；不要宣传成FreeLibrary完成。完整卸载需另做准入及在途／异步回调回收，不能仅删除PIN或扫描当前IP。来宾为更新已固定DLL曾有计划地重启，与测试期间崩溃区分；宿主机DWM始终未附加。
+
 ## 分层和会话
 
 - `APIMonitor_x64/hook/HookEngine.cpp` 负责入口补丁与 trampoline；HookTargets 负责强类型包装、Raw 入口和 Fake Success。MonitorAgent 管理配置与安装，MonitorPipe 负责有界队列和发送。主程序的 MonitorDock/WinAPIDock 与 MiscDock/ClipboardGuard 共用 Agent。

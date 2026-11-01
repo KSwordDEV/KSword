@@ -5,6 +5,7 @@
 #include "../Ksword5.1/Ksword5.1/UI/TableHeaderSortingSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableFreezeSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableSnapshotCompare.h"
+#include "../Ksword5.1/Ksword5.1/UI/TableCompleteExport.h"
 #include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include "../Ksword5.1/Ksword5.1/UI/TablePresentation.h"
 #include "../Ksword5.1/Ksword5.1/UI/ToolbarMetrics.h"
@@ -30,6 +31,7 @@
 #include <QToolButton>
 
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 
 namespace
@@ -73,6 +75,74 @@ namespace
     {
         for (QAction* action : menu->actions()) if (action->text() == text) return action;
         return nullptr;
+    }
+
+    // 初始宽窗再缩小：操作条必须跟随当前视口，不能只验证窄窗首次初始化。
+    void checkActionBarResize()
+    {
+        for (const auto mode : {ks::ui::TableActionBarMode::Full, ks::ui::TableActionBarMode::Compact})
+        for (int widgetTable = 0; widgetTable < 2; ++widgetTable)
+        {
+            QWidget page;
+            page.setAttribute(Qt::WA_DontShowOnScreen);
+            page.resize(1800, 600);
+            auto* root = new QVBoxLayout(&page);
+            QStandardItemModel model(40, 5);
+            QTableView* table = nullptr;
+            if (widgetTable)
+            {
+                auto* items = new ks::ui::VisibleTableWidget(&page);
+                items->setColumnCount(5);
+                items->setRowCount(40);
+                table = items;
+            }
+            else
+            {
+                table = new ks::ui::TableActionTableView(&page);
+                table->setModel(&model);
+            }
+            ks::ui::SetTableActionBarMode(table, mode);
+            root->addWidget(table);
+            page.show();
+            drain();
+            auto* more = table->findChild<QToolButton*>(QStringLiteral("ksword_table_more_actions"));
+            expect(more != nullptr, "resize fixture has production action bar");
+            if (!more) continue;
+            QWidget* bar = more->parentWidget();
+            auto* host = ks::ui::TableActionBarHostFor(table);
+            const auto verify = [&]()
+            {
+                expect(bar->geometry() == host->topActionBarGeometry(),
+                    "action bar follows settled table viewport geometry");
+                for (QToolButton* button : bar->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly))
+                {
+                    if (!button->isHidden())
+                        expect(bar->contentsRect().contains(button->geometry()),
+                            "visible table action remains inside resized bar");
+                }
+            };
+            verify();
+            for (int width : {450, 1300, 320, 1800})
+            {
+                page.resize(width, 600);
+                drain();
+                verify();
+                expect(more->isVisible() == (mode == ks::ui::TableActionBarMode::Full && width <= 450),
+                    "shrinking and expanding switches the existing overflow actions");
+            }
+            table->setLayoutDirection(Qt::RightToLeft);
+            page.resize(450, 600);
+            drain();
+            verify();
+            page.hide();
+            page.resize(1000, 600);
+            page.show();
+            drain();
+            verify();
+            expect(table->model()->rowCount() == 40 &&
+                table->findChildren<QToolButton*>(QStringLiteral("ksword_table_more_actions")).size() == 1,
+                "resizing preserves model rows and the original action bar");
+        }
     }
 
     // 物理左 Ctrl 探针可控，其余使用真实 Qt 视图和生产提交协调器。
@@ -670,9 +740,15 @@ namespace
 // 标题栏搜索路由不属于本组件范围；只替换这个外部入口，搜索控制器本身是生产代码。
 namespace ks::ui
 {
+    bool AreUiAnimationsEnabled() { return false; }
     void ActivateGlobalUiSearchForTable(QTableView*, const QString&, bool)
     {
     }
+
+    // 本夹具只验操作条和快照；意外触发系统剪贴板或文件输出必须立即失败。
+    void CopyCompleteTableRows(QTableView*, CompleteTableScope, CompleteTableColumns) { std::abort(); }
+    void ExportCompleteTableRows(QTableView*, CompleteTableScope, const QString&, CompleteTableColumns) { std::abort(); }
+    void CopyCompleteTreeRows(QTreeView*) { std::abort(); }
 }
 
 int main(int argc, char* argv[])
@@ -684,6 +760,13 @@ int main(int argc, char* argv[])
     if (fontId >= 0 && !QFontDatabase::applicationFontFamilies(fontId).isEmpty())
         application.setFont(QFont(QFontDatabase::applicationFontFamilies(fontId).first(), 9));
     application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+    if (application.arguments().contains(QStringLiteral("--resize-only")))
+    {
+        ks::ui::InstallGlobalTableInteractionSupport(&application);
+        checkActionBarResize();
+        std::printf("RESULT_TABLE_RESIZE_CHECKS=%d\nRESULT_TABLE_RESIZE_FAILURES=%d\n", checks, failures);
+        return failures == 0 ? 0 : 1;
+    }
     const QString output = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
     if (!output.isEmpty()) QDir().mkpath(output);
     checkCoordinator(application);
@@ -693,6 +776,7 @@ int main(int argc, char* argv[])
     checkFreezeMenu(application, output);
     checkFreezeMenuLifetime(application);
     checkPanelLayout(application);
+    checkActionBarResize();
     drain();
     std::printf("RESULT_TABLE_CHECKS=%d\nRESULT_TABLE_FAILURES=%d\n", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -1,11 +1,17 @@
 # 串行编译实际生产结果表组件，所有专属产物写入既有 output/ 目录。
-param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
+param(
+    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$ReuseUnchangedObjects,
+    [switch]$ResizeOnly
+)
 $ErrorActionPreference = 'Stop'
 $resultRepository = (Resolve-Path -LiteralPath $RepositoryRoot).Path
 $resultOutput = Join-Path $resultRepository 'output'
 if (!(Test-Path -LiteralPath $resultOutput)) { throw 'Existing output directory is required.' }
 $resultQt = Join-Path $resultRepository '.deps/Qt/6.9.3/msvc2022_64'
+if (!(Test-Path -LiteralPath $resultQt)) { $resultQt = 'D:/Software/Qt/6.9.3/msvc2022_64' }
 $resultVc = 'C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207'
+if (!(Test-Path -LiteralPath $resultVc)) { $resultVc = 'D:/Software/VS/VC/Tools/MSVC/14.44.35207' }
 $resultSdk = 'C:/Program Files (x86)/Windows Kits/10'
 $resultSdkVersion = '10.0.26100.0'
 $resultCompiler = Join-Path $resultVc 'bin/Hostx64/x64/cl.exe'
@@ -13,7 +19,7 @@ $resultLinker = Join-Path $resultVc 'bin/Hostx64/x64/link.exe'
 foreach ($resultRequired in @($resultCompiler, $resultLinker, (Join-Path $resultQt 'lib/Qt6Widgets.lib'))) {
     if (!(Test-Path -LiteralPath $resultRequired)) { throw "Missing HostX64 fixture dependency: $resultRequired" }
 }
-$resultIncludes = @(('/I' + $resultRepository), ('/external:I' + (Join-Path $resultVc 'include')))
+$resultIncludes = @(('/I' + $resultRepository), ('/I' + (Join-Path $resultRepository 'Ksword5.1/Ksword5.1')), ('/external:I' + (Join-Path $resultVc 'include')), ('/external:I' + (Join-Path $resultVc 'atlmfc/include')))
 foreach ($resultModule in @('', 'QtCore', 'QtGui', 'QtWidgets', 'QtSvg')) {
     $resultIncludes += '/external:I' + (Join-Path $resultQt ('include/' + $resultModule))
 }
@@ -25,11 +31,23 @@ $resultSources = @(
     'tools/result_table_tests.cpp', "$resultApp/UI/UiCommitCoordinator.cpp", "$resultApp/UI/ResultTableHost.cpp",
     "$resultApp/UI/TablePresentation.cpp", "$resultApp/UI/GlobalUiBaseStyle.cpp", "$resultApp/UI/FlatButtonTheme.cpp", "$resultApp/UI/ThemeBinding.cpp", "$resultApp/UI/ThemeControlGlyphs.cpp", "$resultApp/UI/ThemeStatusRole.cpp",
     "$resultApp/UI/TableInteractionSupport.cpp", "$resultApp/UI/TableContextMenu.cpp", "$resultApp/UI/TableFreezeSupport.cpp", "$resultApp/UI/TableHeaderSortingSupport.cpp",
-    "$resultApp/UI/TableSearchSupport.cpp", "$resultApp/UI/TableSnapshotCompare.cpp", "$resultApp/Internationalization/LanguageManager.cpp"
+    "$resultApp/UI/TableSearchSupport.cpp", "$resultApp/UI/TableSnapshotCompare.cpp", "$resultApp/Internationalization/LanguageManager.cpp",
+    "$resultApp/UI/CompleteExportCapture.cpp", "$resultApp/UI/CompleteExport.cpp", "$resultApp/UI/AsyncOperation.cpp",
+    "$resultApp/UI/MainSurfaceStyle.cpp", "$resultApp/UI/PrimaryPageStyle.cpp", "$resultApp/UI/RoundedViewSurface.cpp",
+    "$resultApp/UI/ThemedSlider.cpp", "$resultApp/UI/PageControlStyle.cpp", "$resultApp/UI/PageTabMotion.cpp",
+    "$resultApp/UI/TabHierarchyTransition.cpp", "$resultApp/UI/PageTabFocusStyle.cpp"
 )
+$resultHeaderTime = (Get-ChildItem -LiteralPath (Join-Path $resultRepository $resultApp) -Filter '*.h' -Recurse |
+    Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
 $resultObjects = @()
 foreach ($resultSource in $resultSources) {
     $resultObject = Join-Path $resultOutput ('result_table_' + [IO.Path]::GetFileNameWithoutExtension($resultSource) + '.obj')
+    if ($ReuseUnchangedObjects -and (Test-Path -LiteralPath $resultObject) -and
+        (Get-Item -LiteralPath $resultObject).LastWriteTimeUtc -gt (Get-Item -LiteralPath (Join-Path $resultRepository $resultSource)).LastWriteTimeUtc -and
+        (Get-Item -LiteralPath $resultObject).LastWriteTimeUtc -gt $resultHeaderTime) {
+        $resultObjects += $resultObject
+        continue
+    }
     Write-Output ('RESULT_TABLE_COMPILE=' + $resultSource)
     # 专属组件和回归按 /W4 /WX；Qt/SDK 头使用 external:W0，保持生产标准库边界。
     & $resultCompiler /nologo /std:c++20 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /external:W0 /O1 /Gy /bigobj `
@@ -54,7 +72,9 @@ try {
     $env:QT_QPA_PLATFORM = 'offscreen'
     $env:QT_PLUGIN_PATH = Join-Path $resultQt 'plugins'
     $ErrorActionPreference = 'Continue'
-    & $resultExe 2>&1 | Tee-Object -FilePath (Join-Path $resultOutput 'result_table_tests.log')
+    $resultTestArgs = @()
+    if ($ResizeOnly) { $resultTestArgs += '--resize-only' }
+    & $resultExe @resultTestArgs 2>&1 | Tee-Object -FilePath (Join-Path $resultOutput 'result_table_tests.log')
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw 'Result table Qt regression failed.' }
 }

@@ -12,6 +12,30 @@
 
 namespace apimon
 {
+    // The callback is scoped to the installing thread. Removal must remain
+    // possible after cancellation; no cancellation callback is used there.
+    using HookInstallStopCheck = bool(*)();
+    bool HookInstallationCancelled();
+    class ScopedHookInstallCancellation {
+    public:
+        explicit ScopedHookInstallCancellation(HookInstallStopCheck check);
+        ~ScopedHookInstallCancellation();
+    private:
+        HookInstallStopCheck previous;
+    };
+    class InlineHookInstallBatch {
+    public:
+        InlineHookInstallBatch();
+        ~InlineHookInstallBatch();
+        bool commit();
+        InlineHookInstallBatch(const InlineHookInstallBatch&) = delete;
+        InlineHookInstallBatch& operator=(const InlineHookInstallBatch&) = delete;
+    private:
+        struct State;
+        std::unique_ptr<State> state;
+    };
+    bool RestoreAllInlineHookEntries();
+    bool HasActiveInlineHookEntries();
     // IsInlineHookInternalBypassActive 作用：
     // - 输入：无；
     // - 处理：查询当前线程是否处于 HookEngine 自身安装/卸载 inline hook 的内部区间；
@@ -62,6 +86,7 @@ namespace apimon
         std::size_t failureOffset = 0;
         std::wstring lastFailure;
         bool installed = false;                             // installed：当前 Hook 是否已生效。
+        bool removed = false;                               // Only an actually active entry can be reported removed.
         bool permanentlyDisabled = false;                   // permanentlyDisabled：是否因不可安全安装而永久禁用。
     };
 

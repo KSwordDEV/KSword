@@ -35,21 +35,24 @@ namespace ks::ui
         m_pool.waitForDone();
     }
 
-    // 搭建界面：[模式三段] [输入框] [Aa] [上一个] [下一个] [结果文字] [关闭]。
+    // 搭建界面：[模式四段] [输入框] [Aa] [上一个] [下一个] [结果文字] [关闭]。
     void HexFindBar::buildUi()
     {
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(8, 4, 8, 4);
         layout->setSpacing(6);
 
-        // 模式三段按钮：标签是纯标识符（不翻译），说明放在逐段悬停提示里。
+        // 模式四段按钮：保留既有索引，标签是纯标识符，说明放在逐段悬停提示里。
         m_modeSegment = new HexViewSegmented(
-            QStringList{ QStringLiteral("HEX"), QStringLiteral("UTF-8"), QStringLiteral("UTF-16") }, this);
+            QStringList{ QStringLiteral("HEX"), QStringLiteral("UTF-8"), QStringLiteral("UTF-16"), QStringLiteral("ANSI") }, this);
         m_modeSegment->setSegmentToolTip(
             0,
             QStringLiteral("十六进制字节查找：空格或逗号分隔、连写都可以；?? 通配整个字节，A? 与 ?A 通配半个字节"));
         m_modeSegment->setSegmentToolTip(1, QStringLiteral("文本查找，按 UTF-8 编码匹配"));
         m_modeSegment->setSegmentToolTip(2, QStringLiteral("文本查找，按 UTF-16 小端编码匹配（Windows 宽字符串）"));
+        m_modeSegment->setSegmentToolTip(3,
+            QStringLiteral("文本查找，按系统 ANSI 代码页 CP%1 编码匹配；无法无损编码的字符将报错")
+                .arg(hexfind::SystemAnsiCodePage()));
         m_modeSegment->setAccessibleName(QStringLiteral("查找模式"));
         layout->addWidget(m_modeSegment);
 
@@ -108,6 +111,10 @@ namespace ks::ui
         else if (current == Mode::TextUtf8)
         {
             m_edit->setPlaceholderText(QStringLiteral("要查找的文本（UTF-8）"));
+        }
+        else if (current == Mode::TextAnsi)
+        {
+            m_edit->setPlaceholderText(QStringLiteral("要查找的文本（ANSI CP%1）").arg(hexfind::SystemAnsiCodePage()));
         }
         else
         {
@@ -206,7 +213,7 @@ namespace ks::ui
 
     // ======================== 状态与输入 ========================
 
-    // 当前模式：由三段按钮的下标换算。
+    // 当前模式：由四段按钮的下标换算。
     HexFindBar::Mode HexFindBar::mode() const
     {
         switch (m_modeSegment->currentIndex())
@@ -215,12 +222,14 @@ namespace ks::ui
             return Mode::TextUtf8;
         case 2:
             return Mode::TextUtf16Le;
+        case 3:
+            return Mode::TextAnsi;
         default:
             return Mode::Hex;
         }
     }
 
-    // 设置模式：同步三段按钮（其信号会更新提示）。
+    // 设置模式：同步四段按钮（其信号会更新提示）。
     void HexFindBar::setMode(Mode newMode)
     {
         m_modeSegment->setCurrentIndex(static_cast<int>(newMode));

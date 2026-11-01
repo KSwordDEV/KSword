@@ -85,7 +85,7 @@ namespace
         QStringLiteral("ACH@流星"), QStringLiteral("嗯呢呗")
     }};
 
-    const QString kReleaseVersionText = QStringLiteral("5.2.1.0Pre"); // RELEASE_META_VERSION_MARKER
+    const QString kReleaseVersionText = QStringLiteral("5.2.1.0"); // RELEASE_META_VERSION_MARKER
     const QString kReleaseBuildTimeText = [] { // RELEASE_META_BUILD_TIME_MARKER
         const QDate buildDate = QLocale(QLocale::English).toDate(
             QString::fromLatin1(__DATE__).simplified(), QStringLiteral("MMM d yyyy"));

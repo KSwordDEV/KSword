@@ -527,6 +527,24 @@ namespace ks::ui
             return;
         }
 
+        // Folded visual rows can straddle terabytes. Reread the actual visible
+        // spans and the bounded baseline independently, never a giant physical union.
+        const auto visibleSpans = canvas_->visibleAddressSpans();
+        if (visibleSpans.size() > 1)
+        {
+            const QPointer<WorkbenchHexPane> alive(this);
+            const auto revision = canvas_->sourceRevision();
+            const auto navigation = navigationRevision_;
+            if (overlay_.HasBaseline() && overlay_.BaselineSize() > 0)
+                pageProvider_->rereadByteRange(overlay_.BaseAddress(), overlay_.BaselineSize());
+            for (const auto& span : visibleSpans)
+            {
+                if (!alive || !pageProvider_ || canvas_->sourceRevision() != revision || navigationRevision_ != navigation) return;
+                pageProvider_->rereadByteRange(span.first, span.last - span.first + 1);
+            }
+            return;
+        }
+
         bool haveRange = false;
         std::uint64_t unionFirst = 0;
         std::uint64_t unionLast = 0;
@@ -633,11 +651,11 @@ namespace ks::ui
             if (!current()) return;
         }
 
-        // 视口中心：first + (last-first)/2，二者都是无符号数，first<=last 由
-        // 画布保证，减法不会回绕。无论 baselineFeeder_ 是否注入都先记下来——
+        // 按可见行取中心，折叠后不能取首尾物理地址的中点。无论
+        // baselineFeeder_ 是否注入都先记下来——
         // lastAnchor_ 是 jobLanded 落地时唯一可信的锚点来源（见该连接处的
         // 注释），不能因为这一刻 feeder 恰好是空指针就不更新。
-        const std::uint64_t anchor = first + (last - first) / 2ULL;
+        const std::uint64_t anchor = canvas_->visibleCenterAddress().value_or(first);
         lastAnchor_ = anchor;
 
         if (baselineFeeder_)

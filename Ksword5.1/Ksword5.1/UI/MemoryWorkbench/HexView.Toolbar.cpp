@@ -53,7 +53,7 @@ namespace ks::ui
 
         // 查找与跳转：点击打开对应的条。
         m_findButton = new HexViewGlyphButton(HexViewGlyphButton::Glyph::Find, m_toolbar);
-        m_findButton->setToolTip(QStringLiteral("查找（Ctrl+F）：十六进制字节、UTF-8 / UTF-16 文本，支持通配"));
+        m_findButton->setToolTip(QStringLiteral("查找（Ctrl+F）：十六进制字节、ANSI / UTF-8 / UTF-16 文本，支持通配"));
         layout->addWidget(m_findButton);
         m_gotoButton = new HexViewGlyphButton(HexViewGlyphButton::Glyph::Goto, m_toolbar);
         m_gotoButton->setToolTip(QStringLiteral("跳转（Ctrl+G）：按地址、偏移或行号定位"));

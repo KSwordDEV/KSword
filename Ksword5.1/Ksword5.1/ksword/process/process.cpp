@@ -2877,6 +2877,42 @@ namespace
         return stream.str();
     }
 
+    struct ModuleThreadStart
+    {
+        std::uint32_t tid = 0;
+        std::uint64_t creation = 0;
+        std::uint64_t address = 0;
+    };
+
+    // 关联只依据已验证线程的 Win32 启动地址；不推断线程的当前执行位置。
+    void AssignModuleThreads(std::vector<ks::process::ProcessModuleRecord>& modules,
+        const std::vector<ModuleThreadStart>& threads, bool complete)
+    {
+        for (auto& module : modules)
+        {
+            std::vector<std::uint32_t> ids;
+            module.representativeThreadId = 0;
+            module.representativeThreadCreationTime100ns = 0;
+            const bool validRange = module.moduleBaseAddress != 0 && module.moduleSizeBytes != 0
+                && module.moduleSizeBytes - 1 <= std::numeric_limits<std::uint64_t>::max() - module.moduleBaseAddress;
+            for (const auto& thread : threads)
+            {
+                // 用减法判断半开区间，避免 base + size 溢出或误收模块末端地址。
+                if (!validRange || thread.tid == 0 || thread.creation == 0
+                    || thread.address < module.moduleBaseAddress
+                    || thread.address - module.moduleBaseAddress >= module.moduleSizeBytes) continue;
+                ids.push_back(thread.tid);
+                if (module.representativeThreadId == 0)
+                {
+                    module.representativeThreadId = thread.tid;
+                    module.representativeThreadCreationTime100ns = thread.creation;
+                }
+            }
+            module.threadIdText = ids.empty() && !complete ? "?" : BuildThreadIdSummaryText(ids);
+            if (!ids.empty() && !complete) module.threadIdText += " (?)";
+        }
+    }
+
     // 路径是否指向目录。
     bool IsDirectoryPath(const std::string& utf8Path)
     {
@@ -6340,10 +6376,11 @@ namespace ks::process
                 moduleRecord.signatureTrusted = false;
             };
 
-        // 先枚举线程，供模块行填充 ThreadID 信息。
-        std::vector<std::uint32_t> threadIdList;
-        std::uint32_t representativeThreadId = 0U;
-        std::uint64_t representativeThreadCreationTime100ns = 0U;
+        // 查询每个线程的 Win32 启动地址，只向实际覆盖该地址的模块填充线程 ID。
+        using QueryThreadStartFn = NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+        const auto queryThreadStart = reinterpret_cast<QueryThreadStartFn>(GetNtdllProcAddress("NtQueryInformationThread"));
+        std::vector<ModuleThreadStart> moduleThreads;
+        bool threadStartsComplete = queryThreadStart != nullptr;
         HANDLE threadSnapshotHandle = ::CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
         if (threadSnapshotHandle != INVALID_HANDLE_VALUE)
         {
@@ -6365,45 +6402,35 @@ namespace ks::process
                     threadRecord.basePriority = static_cast<int>(threadEntry.tpBasePri);
                     threadRecord.stateText = "Running";
                     snapshot.threads.push_back(threadRecord);
-                    threadIdList.push_back(threadRecord.threadId);
 
-                    // 只将可在同一线程对象上核验 owner + 创建时间的线程用作模块动作入口。
-                    if (representativeThreadId == 0U)
+                    HANDLE threadHandle = ::OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION,
+                        FALSE, ToDwordPid(threadRecord.threadId));
+                    if (!threadHandle)
+                        threadHandle = ::OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, ToDwordPid(threadRecord.threadId));
+                    if (!threadHandle)
                     {
-                        const HANDLE representativeThreadHandle = ::OpenThread(
-                            THREAD_QUERY_LIMITED_INFORMATION,
-                            FALSE,
-                            ToDwordPid(threadRecord.threadId));
-                        if (representativeThreadHandle != nullptr)
-                        {
-                            const DWORD actualOwnerPid = ::GetProcessIdOfThread(representativeThreadHandle);
-                            FILETIME creationTime{};
-                            FILETIME exitTime{};
-                            FILETIME kernelTime{};
-                            FILETIME userTime{};
-                            const BOOL timeQueryOk = ::GetThreadTimes(
-                                representativeThreadHandle,
-                                &creationTime,
-                                &exitTime,
-                                &kernelTime,
-                                &userTime);
-                            const std::uint64_t creationTime100ns = timeQueryOk != FALSE
-                                ? ks::str::FileTimeToUint64(
-                                    creationTime.dwHighDateTime,
-                                    creationTime.dwLowDateTime)
-                                : 0U;
-                            if (actualOwnerPid == ToDwordPid(pid) && creationTime100ns != 0U)
-                            {
-                                representativeThreadId = threadRecord.threadId;
-                                representativeThreadCreationTime100ns = creationTime100ns;
-                            }
-                            ::CloseHandle(representativeThreadHandle);
-                        }
+                        threadStartsComplete = false;
+                        continue;
                     }
+                    FILETIME created{}, exited{}, kernel{}, user{};
+                    PVOID startAddress = nullptr;
+                    const bool sameOwner = ::GetProcessIdOfThread(threadHandle) == ToDwordPid(pid);
+                    const bool timeKnown = ::GetThreadTimes(threadHandle, &created, &exited, &kernel, &user) != FALSE;
+                    const auto creation = ks::str::FileTimeToUint64(created.dwHighDateTime, created.dwLowDateTime);
+                    const bool startKnown = queryThreadStart && queryThreadStart(threadHandle, 9U,
+                        &startAddress, sizeof(startAddress), nullptr) == 0 && startAddress != nullptr;
+                    ::CloseHandle(threadHandle);
+                    if (sameOwner && timeKnown && creation != 0 && startKnown)
+                        moduleThreads.push_back({threadRecord.threadId, creation, reinterpret_cast<std::uint64_t>(startAddress)});
+                    else
+                        threadStartsComplete = false;
                 } while (::Thread32Next(threadSnapshotHandle, &threadEntry) != FALSE);
+                if (::GetLastError() != ERROR_NO_MORE_FILES) threadStartsComplete = false;
             }
+            else if (::GetLastError() != ERROR_NO_MORE_FILES) threadStartsComplete = false;
             ::CloseHandle(threadSnapshotHandle);
         }
+        else threadStartsComplete = false;
 
         if (stopped()) { return {}; }
 
@@ -6437,9 +6464,6 @@ namespace ks::process
                     moduleRecord.runningState = "Loaded";
                     fillModuleSignature(moduleRecord);
 
-                    moduleRecord.representativeThreadId = representativeThreadId;
-                    moduleRecord.representativeThreadCreationTime100ns = representativeThreadCreationTime100ns;
-                    moduleRecord.threadIdText = BuildThreadIdSummaryText(threadIdList);
                     snapshot.modules.push_back(std::move(moduleRecord));
                 } while (::Module32NextW(moduleSnapshotHandle, &moduleEntry) != FALSE);
                 moduleEnumerated = true;
@@ -6544,9 +6568,6 @@ namespace ks::process
 
                 moduleRecord.runningState = "Loaded";
                 fillModuleSignature(moduleRecord);
-                moduleRecord.representativeThreadId = representativeThreadId;
-                moduleRecord.representativeThreadCreationTime100ns = representativeThreadCreationTime100ns;
-                moduleRecord.threadIdText = BuildThreadIdSummaryText(threadIdList);
                 snapshot.modules.push_back(std::move(moduleRecord));
             }
 
@@ -6564,6 +6585,7 @@ namespace ks::process
         {
             appendDiagnostic("Module enumeration succeeded but module count is 0.");
         }
+        AssignModuleThreads(snapshot.modules, moduleThreads, threadStartsComplete);
 
         return snapshot;
     }

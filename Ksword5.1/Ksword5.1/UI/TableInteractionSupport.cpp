@@ -2527,9 +2527,19 @@ namespace
     // 全局发现只是兼容适配层；实际模型、列能力由每张表的宿主维护。
     void configureTable(QTableView* tableView)
     {
+        const QPointer<QTableView> target(tableView);
         if (auto* const host = ks::ui::ResultTableHost::ensure(tableView))
         {
             host->refresh();
+        }
+        // 宿主只初始化一次交互，后续 Resize/LayoutRequest 仍需同步操作条几何。
+        // 沿用合并队列，等原生视口/表头/冻结区域完成布局后再定位，不重配模型或主题。
+        if (target)
+        {
+            if (TableActionBar* actionBar = actionBarForTable(target.data()))
+            {
+                actionBar->updatePosition();
+            }
         }
     }
 

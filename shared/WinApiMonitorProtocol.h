@@ -178,6 +178,8 @@ namespace ks::winapi_monitor
         std::uint32_t snapshotCount = 0;
         std::uint64_t sessionIdentity = 0;
         std::uint64_t operationId = 0;
+        // Coverage packets: this snapshot revision. HooksRemoved: the final
+        // required revision (0 from older agents means unknown).
         std::uint64_t snapshotRevision = 0;
         std::uint64_t hookAddress = 0;
         char definitionSha256[65] = {};

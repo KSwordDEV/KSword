@@ -70,9 +70,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace ksword::memwb {
@@ -206,6 +208,32 @@ public:
 
     // 总行数；视图无效时为 0。
     std::uint64_t RowCount() const;
+    std::uint64_t UnfoldedRowCount() const { return RawRowCount(); }
+    std::optional<std::uint64_t> UnfoldedRowOfAddress(std::uint64_t address) const {
+        return ContainsAddress(address) ? std::optional<std::uint64_t>((address - rowBase_) / bytesPerRow_) : std::nullopt;
+    }
+    // Cached rows containing at least one accepted read byte, in address order.
+    // Available while folding is enabled; boundary/caret/reveal rows do not
+    // contribute. Reuses readable page summaries and never performs I/O.
+    std::uint64_t KnownRowCount() const { return knownRowCount_; }
+    std::optional<AddressRange> KnownRowSpan(std::uint64_t row) const;
+    std::optional<std::uint64_t> KnownRowOfAddress(std::uint64_t address) const;
+    // Lower bound in [0, KnownRowCount()].
+    std::uint64_t KnownRowAtOrAfter(std::uint64_t address) const;
+
+    struct OverviewBin {
+        std::uint64_t firstRow = 0, rowCount = 0;
+        double totalBytes = 0; // May represent the complete 2^64 byte address space.
+        std::uint64_t readBytes = 0, nonZeroBytes = 0, asciiBytes = 0;
+    };
+    // Opt-in cache-only summaries. Queries never touch LRU or issue reads.
+    void SetOverviewEnabled(bool enabled);
+    bool OverviewEnabled() const { return overviewEnabled_; }
+    std::uint64_t OverviewRevision() const { return overviewRevision_; }
+    std::vector<OverviewBin> OverviewBins(std::size_t count, bool fixedAddressScale = false, bool knownOnly = false) const;
+    // Same selectable row scale for samples, caret and clicks. Fixed mode uses
+    // the complete address range and ignores folds for overview geometry.
+    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale = false, bool knownOnly = false) const;
 
     // 某行的起始地址（已向下对齐，首行可能小于 firstAddress，即含补空位）。越界返回空。
     std::optional<std::uint64_t> RowStartAddress(std::uint64_t row) const;
@@ -227,6 +255,20 @@ public:
     // 可滚动的最大首行：RowCount - visibleRowCount，不足一屏时为 0。供滚动条量程使用。
     std::uint64_t MaxFirstVisibleRow(std::uint64_t visibleRowCount) const;
 
+    // Opt-in projection only: byte addresses, selection and exported data stay physical.
+    // Fold Unreadable/NotLoaded/Pending together; their byte states remain distinct.
+    void SetFoldUnknown(bool enabled);
+    bool FoldUnknown() const { return foldUnknown_; }
+    bool HasFoldedRows() const { return !hiddenRows_.empty(); }
+    std::uint64_t FoldRevision() const { return foldRevision_; }
+    void NoteUnreadableRange(std::uint64_t first, std::uint64_t last);
+    bool IsKnownUnreadable(std::uint64_t address) const;
+    void RevealAddress(std::uint64_t address);
+    // Return the first staged range intersecting the query, without copying bytes.
+    void SetFoldProtection(std::function<std::optional<AddressRange>(std::uint64_t, std::uint64_t)> predicate)
+    { foldProtection_ = std::move(predicate); RebuildFolds(); }
+    void RefreshFoldProtection() { if (foldUnknown_) RebuildFolds(); }
+
     // 计算让 address 可见所需的目标首行。address 不属于空间、visibleRowCount 为 0、
     // 视图无效时返回空（调用方保持当前位置）。结果夹取到 [0, MaxFirstVisibleRow]。
     std::optional<std::uint64_t> ScrollToAddress(
@@ -247,7 +289,10 @@ public:
     std::vector<FetchRange> PlanFetch(
         std::uint64_t firstVisibleRow,
         std::uint64_t visibleRowCount,
-        std::uint64_t prefetchPages) const;
+        std::uint64_t prefetchPages,
+        bool ignoreCache = false) const;
+    std::vector<FetchRange> PlanAddressFetch(std::uint64_t first, std::uint64_t last,
+        std::uint64_t prefetchPages, bool ignoreCache = false) const;
 
     // 把范围内尚未缓存的页登记为在途（Pending）。已缓存的页不降级。拒绝时不登记任何页。
     PageResult MarkInFlight(const FetchRange& range);
@@ -344,6 +389,9 @@ private:
     struct CachedPage {
         std::vector<std::uint8_t> bytes;        // 页内字节（不可读页为空）
         std::vector<std::uint8_t> validMask;    // 有效掩码，每字节一个 0/1（不可读页为空）
+        std::vector<AddressRange> readableRanges; // Fold summary, rebuilt only on page/row-width changes.
+        struct OverviewPrefix { std::uint16_t read = 0, nonZero = 0, ascii = 0; };
+        std::vector<OverviewPrefix> overview; // Prefix counts per 64 bytes, only when enabled.
         std::uint64_t sourceRevision = 0;       // 读取时的来源代次
         bool unreadable = false;                // 整页不可读
         mutable std::uint64_t lastUsedTick = 0; // 最近使用序号，越小越久未用；读缓存命中时刷新
@@ -363,6 +411,36 @@ private:
 
     // 应用新的插入点。返回选区是否变化。
     bool ApplyCaret(std::uint64_t target, bool extend);
+    void RebuildFolds();
+    void RebuildReadableRanges(std::uint64_t pageStart, CachedPage& page);
+    void RebuildOverview(CachedPage& page);
+    bool overviewEnabled_ = false;
+    std::uint64_t overviewRevision_ = 0;
+    std::vector<FetchRange> PlanFetchRaw(std::uint64_t firstRow, std::uint64_t rows,
+        std::uint64_t prefetch, bool ignoreCache, bool skipKnownUnknown) const;
+    void TrackUnknownPage(std::uint64_t pageStart, const std::vector<std::uint8_t>& mask);
+    void EraseUnknownRange(std::uint64_t first, std::uint64_t last);
+    void AddUnknownRange(std::uint64_t first, std::uint64_t last);
+    std::uint64_t RawRowCount() const;
+    std::uint64_t RawToVisual(std::uint64_t row) const;
+    std::uint64_t VisualToRaw(std::uint64_t row) const;
+    struct HiddenRows {
+        std::uint64_t first = 0, last = 0, before = 0, visual = 0;
+        bool operator==(const HiddenRows&) const = default;
+    };
+    bool foldUnknown_ = false;
+    std::uint64_t foldRevision_ = 0, hiddenRowCount_ = 0;
+    // Bounded evidence of confirmed unreadability, separate from the display
+    // projection which also folds unloaded/pending bytes.
+    std::map<std::uint64_t, std::uint64_t> unknownRanges_;
+    std::vector<HiddenRows> hiddenRows_;
+    struct KnownRows {
+        std::uint64_t first = 0, last = 0, before = 0;
+    };
+    std::vector<KnownRows> knownRows_;
+    std::uint64_t knownRowCount_ = 0;
+    std::function<std::optional<AddressRange>(std::uint64_t, std::uint64_t)> foldProtection_;
+    std::optional<std::uint64_t> foldRevealedAddress_;
 
     // 按字节数量级移动（forward 为真向高地址）。
     bool MoveBytesByMagnitude(bool forward, std::uint64_t magnitude, bool extend);

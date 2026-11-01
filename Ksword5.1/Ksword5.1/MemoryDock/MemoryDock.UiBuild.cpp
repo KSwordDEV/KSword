@@ -220,6 +220,7 @@ MemoryDock::MemoryDock(QWidget* parent, const PageScope scope)
 
 MemoryDock::~MemoryDock()
 {
+    if (m_moduleNavigationOperation != nullptr) m_moduleNavigationOperation->close();
     cancelCoreProjection(true);
     // 首先关闭后台投递门禁；正在读取的区域转储将在下一分块边界取消原子文件发布。
     if (m_regionDumpOperation != nullptr)
@@ -1162,6 +1163,8 @@ void MemoryDock::initializeProcessModuleTab()
     ks::ui::NormalizeToolbarRow(moduleTopBarLayout);
 
     m_moduleTable = new MemoryTreeView(modulePanel);
+    // 模块树已有刷新/筛选与业务复制菜单，不安装重复的表格操作条。
+    m_moduleTable->setProperty(ks::ui::TableActionBarModeProperty, static_cast<int>(ks::ui::TableActionBarMode::None));
     m_moduleTable->setHeaderLabels(ModuleTreeHeaders);
     m_moduleTable->setRootIsDecorated(false);
     m_moduleTable->setItemsExpandable(false);

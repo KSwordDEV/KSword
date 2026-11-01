@@ -254,9 +254,12 @@ class QMouseEvent;
 class QPainter;
 class QResizeEvent;
 class QWheelEvent;
+class QToolButton;
+class QShowEvent;
 
 namespace ks::ui
 {
+    class HexCanvasOverviewBar;
     // HexFetchRange：页提供者收到的一段连续页，类型直接取自 HexViewport。
     using HexFetchRange = ksword::memwb::HexViewport::FetchRange;
 
@@ -271,6 +274,7 @@ namespace ks::ui
         virtual void UpdateViewportInterest(const std::vector<HexFetchRange>&, std::uint64_t) {}
         // Promote pending browse ownership even when no missing-page request is produced.
         virtual void ProtectPages(const std::vector<HexFetchRange>&, std::uint64_t) {}
+        virtual void SetUnknownFoldingEnabled(bool) {}
         // Explicit requests are protected; continuously visible decode/text windows are browsing.
         virtual void RequestExplicitPages(const std::vector<HexFetchRange>& ranges, std::uint64_t revision)
         { RequestPages(ranges, revision); }
@@ -344,6 +348,21 @@ namespace ks::ui
 
         // setPageProvider：设置外部页提供者（非拥有）。传空表示不再请求任何页。
         void setPageProvider(IHexPageProvider* provider);
+        void setFoldUnknownRegions(bool enabled);
+        bool foldUnknownRegions() const { return m_foldUnknownRegions; }
+        void deliverUnreadableExtent(std::uint64_t first, std::uint64_t last, std::uint64_t revision);
+        void setUniformBoundaryNavigationEnabled(bool enabled);
+        void boundaryReadFailed(const QString& reason);
+        void setOverviewEnabled(bool enabled);
+        bool overviewEnabled() const { return m_overviewEnabled; }
+        // Workbench scale: complete addresses when unfolded, cached known rows
+        // when folded. Generic HEX hosts retain their original projected scale.
+        void setFixedAddressScale(bool enabled);
+        bool fixedAddressScale() const { return m_fixedAddressScale; }
+        void setAddressColumnCollapseEnabled(bool enabled);
+        void setAddressColumnCollapsed(bool collapsed);
+        bool addressColumnCollapsed() const { return m_addressColumnCollapsed; }
+        QString addressColumnPrefix() const { return m_addressColumnPrefix; }
 
         // setStaticData：便捷接口，用一块字节数组当数据源。
         // 作用：地址空间设为 [base, base+size-1]，内置提供者按需供页（不会一次塞满缓存）。
@@ -530,6 +549,10 @@ namespace ks::ui
         // visibleAddressRange：实际正在绘制的字节闭区间，供切页后重喂当前视口，
         // 不使用仍停在旧地址的 caret，也不使用子页临时扩展的读取窗口。
         std::optional<AddressRange> visibleAddressRange() const;
+        // Folding preserves physical addresses. Use visual center/spans for bounded
+        // baseline/reread work instead of the enclosing physical interval above.
+        std::optional<std::uint64_t> visibleCenterAddress() const;
+        std::vector<AddressRange> visibleAddressSpans() const;
         // Other address-backed views use the same cache/read pool without moving the HEX viewport.
         enum class RangeReadPurpose { ExplicitRead, Browse };
         void requestAddressRange(std::uint64_t first, std::uint64_t last,
@@ -635,6 +658,7 @@ namespace ks::ui
         void autoScrollTick();
 
     signals:
+        void boundaryNavigationMessage(const QString& message, bool error);
         // caretMoved：插入点地址变化。
         void caretMoved(quint64 address);
 
@@ -677,6 +701,7 @@ namespace ks::ui
     protected:
         void paintEvent(QPaintEvent* event) override;
         void resizeEvent(QResizeEvent* event) override;
+        void showEvent(QShowEvent* event) override;
         void changeEvent(QEvent* event) override;
         void mousePressEvent(QMouseEvent* event) override;
         void mouseMoveEvent(QMouseEvent* event) override;
@@ -691,6 +716,42 @@ namespace ks::ui
         void focusOutEvent(QFocusEvent* event) override;
 
     private:
+        friend class HexCanvasOverviewBar;
+        void ensureOverviewBar();
+        void syncOverviewBar();
+        void updateOverviewBar();
+        void scrollOverviewToRow(std::uint64_t row);
+        bool m_overviewEnabled = false;
+        QWidget* m_overviewBar = nullptr;
+        void syncFoldGeometry();
+        void rememberFoldScrollAnchor(bool preferReadable = false);
+        struct FoldScrollAnchor { std::uint64_t address = 0, screenRow = 0; bool keepVisible = false; };
+        std::optional<FoldScrollAnchor> m_foldScrollAnchor;
+        std::optional<std::uint64_t> m_foldNavigationAddress;
+        bool m_foldScrollUp = false;
+        void updateUniformButtons(bool uniform, std::uint8_t value);
+        void startUniformBoundarySearch(bool upper);
+        void advanceUniformBoundarySearch();
+        void scanUniformBoundaryStep();
+        void cancelUniformBoundarySearch();
+        struct UniformPaintProbe { bool uniform = true, seen = false; std::uint8_t value = 0; };
+        bool m_foldUnknownRegions = false;
+        std::uint64_t m_foldGeometryRevision = 0;
+        std::uint64_t m_foldFetchBudget = 16; // Per user navigation, not renewed by page delivery.
+        bool m_uniformNavigationEnabled = false, m_uniformScreen = false;
+        std::uint8_t m_uniformValue = 0;
+        QToolButton* m_uniformUpperButton = nullptr;
+        QToolButton* m_uniformLowerButton = nullptr;
+        struct UniformSearch {
+            bool upper = false;
+            std::uint8_t value = 0;
+            std::uint64_t revision = 0, cursor = 0, origin = 0, scanned = 0;
+        };
+        std::optional<UniformSearch> m_uniformSearch;
+        bool m_uniformAdvanceQueued = false;
+        bool m_uniformUpdateQueued = false;
+        bool m_uniformButtonsWanted = false;
+        QSize m_uniformButtonViewport;
         StageSubmitter m_stageSubmitter;
         DiscardSubmitter m_discardSubmitter;
         // CellCore：绘制用的轻量单元格状态（不含字符串，避免逐格分配）。
@@ -749,8 +810,18 @@ namespace ks::ui
         // ---------- HexCanvas.cpp：数据、滚动、布局 ----------
         void rebuildMetrics();
         void recomputeLayout();
+        bool updateAddressColumnPrefix();
+        void syncAddressColumn();
+        void syncAddressColumnButton();
+        bool m_addressColumnCollapseEnabled = false;
+        bool m_addressColumnCollapsed = false;
+        QToolButton* m_addressColumnButton = nullptr;
+        std::optional<bool> m_addressColumnIconCollapsed;
+        QString m_addressColumnPrefix;
+        std::optional<AddressRange> m_addressPrefixRows;
+        int m_addressPrefixDigits = 0;
         void rebuildStaticTexts();
-        void syncScrollBars();
+        void syncScrollBars(bool syncVerticalPosition = true);
         void onVerticalBarChanged(int value);
         void onHorizontalBarChanged(int value);
         std::uint64_t maxFirstRow() const;
@@ -778,7 +849,16 @@ namespace ks::ui
         // 传出：true 表示按键已处理（已 accept）。与有没有地址空间无关，Alt 同时按下（AltGr 文字输入）不处理。
         bool handleZoomKey(QKeyEvent* event);
 
-        void setFirstRowInternal(std::uint64_t row, bool syncBar);
+        void setFirstRowInternal(std::uint64_t row, bool syncBar, bool keepEnd = false);
+        std::uint64_t scrollScaleRows() const;
+        std::uint64_t scrollScaleLimit() const;
+        std::uint64_t scrollScaleFirstRow() const;
+        std::uint64_t scrollScaleAddress(std::uint64_t row) const;
+        bool knownScrollScale() const { return m_fixedAddressScale && m_foldUnknownRegions; }
+        std::uint64_t scrollEndFirstRow() const;
+        void scrollKnownToRow(std::uint64_t row, bool syncBar);
+        bool m_fixedAddressScale = false;
+        bool m_keepScrollEnd = false;
         void applySelectionChange(const ksword::memwb::HexViewport::Selection& before);
         // 跨同步通知后核对实际选区；同一来源内重入导航也会使旧通知作废。
         bool selectionStillMatches(const ksword::memwb::HexViewport::Selection& expected) const;
@@ -799,12 +879,13 @@ namespace ks::ui
         void rebuildLayerSnapshot();
         void touchVisiblePages(std::uint64_t firstAddress, std::uint64_t lastAddress);
         void paintHeader(QPainter& painter, const PaintPalette& palette, int viewWidth, std::uint64_t caretColumn) const;
+        void paintAddress(QPainter& painter, const PaintPalette& palette, std::uint64_t start, const AddressRange& span, int rowTop) const;
         void paintRow(
             QPainter& painter,
             const PaintPalette& palette,
             std::uint64_t row,
             int rowTop,
-            const std::optional<AddressRange>& selection) const;
+            const std::optional<AddressRange>& selection, UniformPaintProbe* probe = nullptr) const;
         void paintCaretFrames(QPainter& painter, const PaintPalette& palette) const;
 
         // ---------- HexCanvas.Input.cpp：鼠标、键盘、滚轮 ----------
@@ -823,6 +904,7 @@ namespace ks::ui
         // ---------- HexCanvas.Menu.cpp：复制与菜单 ----------
         QString menuStyleSheet() const;
         int addressDigits() const;
+        int addressGutterWidth() const;
 
         // 暂定常量。
         static constexpr int kProportionalRange = 0x7FFFFFFF;       // 比例映射时滚动条量程

@@ -18,6 +18,7 @@
 #include <QMetaObject>
 
 #include <exception>
+#include <algorithm>
 #include <utility>
 
 namespace ks::ui
@@ -140,7 +141,7 @@ namespace ks::ui
         std::shared_ptr<std::atomic<bool>> cancelFlag,
         std::shared_ptr<std::atomic<bool>> poisoned,
         std::shared_ptr<std::atomic<bool>> started,
-        ReadPool* pool)
+        ReadPool* pool, bool foldUnknown)
         : provider_(std::move(provider))
         , port_(port)
         , session_(std::move(session))
@@ -154,6 +155,7 @@ namespace ks::ui
         , poisoned_(std::move(poisoned))
         , started_(std::move(started))
         , pool_(pool)
+        , foldUnknown_(foldUnknown)
     {
         // autoDelete=true：线程池会在 run() 返回后自动释放本对象，调用方
         // （WorkbenchPageProvider::RequestPages）不持有也不需要释放它。
@@ -208,7 +210,27 @@ namespace ks::ui
                 ksword::memwb::PageReadResult pageResult = ksword::memwb::ReadPages(
                     *port_, session_, range.firstPageStart, range.pageCount, cancelFlag_.get());
                 const bool shouldPoison = pageResult.channelFailed || pageResult.scratchAreaDirty;
-                completed.rangeResults.push_back(JobRangeResult{range, std::move(pageResult), false});
+                JobRangeResult entry{range, std::move(pageResult), false, {}};
+                if (foldUnknown_ && !shouldPoison && !entry.result.cancelled)
+                {
+                    for (const auto& page : entry.result.pages)
+                    {
+                        if (cancelFlag_ && cancelFlag_->load()) break;
+                        if (page.state != ksword::memwb::PageState::Unreadable) continue;
+                        const bool covered = std::any_of(entry.unreadableExtents.begin(), entry.unreadableExtents.end(),
+                            [&page](const auto& extent) { return page.pageStart >= extent.first && page.pageStart <= extent.last; });
+                        if (covered) continue;
+                        // Optional metadata must not turn a successful read into channel failure.
+                        try
+                        {
+                            const auto extent = port_->QueryUnreadableExtent(session_, page.pageStart);
+                            if (extent && extent->first <= page.pageStart && extent->last >= page.pageStart)
+                                entry.unreadableExtents.push_back(*extent);
+                        }
+                        catch (...) {}
+                    }
+                }
+                completed.rangeResults.push_back(std::move(entry));
                 if (shouldPoison && poisoned_)
                 {
                     poisoned_->store(true);
@@ -221,7 +243,7 @@ namespace ks::ui
             failure.channelFailed = true;
             failure.failure = std::string("WorkbenchPageProvider worker exception: ") + ex.what();
             completed.rangeResults.push_back(
-                JobRangeResult{ranges_.empty() ? HexFetchRange{} : ranges_.front(), std::move(failure), false});
+                JobRangeResult{ranges_.empty() ? HexFetchRange{} : ranges_.front(), std::move(failure), false, {}});
             if (poisoned_)
             {
                 poisoned_->store(true);
@@ -233,7 +255,7 @@ namespace ks::ui
             failure.channelFailed = true;
             failure.failure = "WorkbenchPageProvider worker exception: unknown";
             completed.rangeResults.push_back(
-                JobRangeResult{ranges_.empty() ? HexFetchRange{} : ranges_.front(), std::move(failure), false});
+                JobRangeResult{ranges_.empty() ? HexFetchRange{} : ranges_.front(), std::move(failure), false, {}});
             if (poisoned_)
             {
                 poisoned_->store(true);

@@ -16,7 +16,7 @@
         {
             if (record.installed) return record.sharedEntry ? CoverageState::SharedEntry : CoverageState::Installed;
             if (!enabled) return CoverageState::CategoryDisabled;
-            if (g_coverageRemovalInProgress && record.targetAddress && !record.installed) return CoverageState::Removed;
+            if (g_coverageRemovalInProgress && record.removed) return CoverageState::Removed;
             const auto image = ::GetModuleHandleW(module);
             if (!image) return CoverageState::WaitingModule;
             if (!::GetProcAddress(image, api)) return CoverageState::ExportMissing;
@@ -28,14 +28,16 @@
             {
                 g_rawCoverageObservations.erase(MakeRawHookKey(row->moduleName, row->procName));
                 g_removedCoverageRows.push_back(MakeCoverageRow(row->moduleName.c_str(), row->procNameWide.c_str(),
-                    HookKind::Raw, CoverageState::Removed, L"", &row->hookRecord));
+                    HookKind::Raw, StateForHook(row->hookRecord, row->moduleName.c_str(), row->procName.c_str(),
+                        ActiveConfig().enableRawFallback && CategoryEnabled(row->categoryValue)), row->hookRecord.lastFailure.c_str(), &row->hookRecord));
             }
         }
         void CaptureRemovedFakeCoverage()
         {
             for (const auto& row : FakeSuccessRules()) if (row)
                 g_removedCoverageRows.push_back(MakeCoverageRow(row->installModuleName.c_str(), row->apiName.c_str(),
-                    HookKind::Fake, CoverageState::Removed, L"", &row->hookRecord));
+                    HookKind::Fake, StateForHook(row->hookRecord, row->installModuleName.c_str(), row->apiNameAnsi.c_str(),
+                        ActiveConfig().fakeSuccessEnabled), row->hookRecord.lastFailure.c_str(), &row->hookRecord));
         }
         void PublishConfiguredCoverage()
         {

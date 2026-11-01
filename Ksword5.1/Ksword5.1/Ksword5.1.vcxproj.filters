@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
+    <ClCompile Include="ProcessDock\ProcessDock.MetricArea.cpp" />
+    <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="FileDock\NtfsFastIndex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -750,6 +753,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryDock\WorkbenchUserModeRead.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.Kernel.cpp">
@@ -2386,6 +2392,9 @@
     <ClInclude Include="MemoryDock\WorkbenchIoPorts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MemoryDock\WorkbenchUserModeRead.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MemoryDock\WorkbenchIoMapping.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2740,6 +2749,9 @@
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h">
       <Filter>Header Files\MemoryWorkbench</Filter>
     </QtMoc>
+    <ClInclude Include="UI\MemoryWorkbench\HexCanvasOverviewBar.h">
+      <Filter>Header Files\MemoryWorkbench</Filter>
+    </ClInclude>
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h">
       <Filter>Header Files\MemoryWorkbench</Filter>
     </ClInclude>
@@ -3120,6 +3132,8 @@
     </QtMoc>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="UI\UI.css\UI_css.h">
       <Filter>Header Files</Filter>
     </ClInclude>

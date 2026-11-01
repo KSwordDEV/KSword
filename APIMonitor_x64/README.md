@@ -45,9 +45,23 @@ python tools/api_monitor/generate_definitions.py --definitions APIMonitor_x64/ap
 
 未知指令、地址宽度覆盖、超范围位移、跳入指令中间、不可读/不可验证入口和跳转桩循环明确拒绝并报告地址/偏移/原因。同址同 detour 的兼容绑定共享入口，重叠或不兼容处理器拒绝覆盖。Raw 使用同一引擎，无法绕过入口失败。
 
+x64 邻近分配优先用 `VirtualAlloc2` 的地址范围约束；不支持该接口时按内存区域跳过占用区，安装取消时停止搜索。`HighestEndingAddress` 为包含式上界，必须是分配粒度边界减一。安装先准备 trampoline，再批量提交入口补丁；一次暂停期间只读取一份线程上下文，恢复线程后不复用 RIP/EIP。短暂的上下文查询失败最多重试三次，已提交的入口不重复写入。移除同样批量恢复入口；失败的页保护保留原值并重试，未确认移除不能释放绑定。
+
+入口检查按可读内存区域复制代码，不逐字节重复查询；活动入口使用有序区间索引，Strong 导出身份使用不可变索引，退役代码仍保留。线程对象可能已退出但仍被枚举：只有句柄已结束时才跳过，存活线程的暂停／上下文失败仍拒绝打补丁；按实际暂停的线程分别恢复。
+
+x86代码按64KiB保留区逐4KiB页提交并独立封为RX，避免每个小stub单独保留导致32位地址空间碎片。已发布／退役代码仍保留；未发布准备页可单独释放。Agent工作线程和Hook补装中的C++异常请求停止并报告AgentFailure，清理成功才报告HooksRemoved；CLI将提前停止计为部分／失败，不虚构足时采集。
+
 API 覆盖标签页按 PID 展示 Strong、Raw、Fake、Dynamic 的已安装、共享入口、分类关闭、等待模块、导出缺失、规则排除、可重试失败、不支持和已移除状态。完整快照带会话身份和修订号，由发送线程直接发送，不占普通事件队列；接收端只应用完整快照，中断/断线保留上次完整内容并标记过期。
 
 共享协议版本 `0x20261003`，Windows 包为 1000 字节。根、子进程与剪贴板保护读端共同更新。会话身份、UI generation 和修订检查拒绝旧会话更新。
+
+正常停止直接关闭服务端管道句柄，保留已经写入但尚未读取的字节；不调用会丢弃未读数据的 `DisconnectNamedPipe`。发送线程有积压时继续发送，不在每批快照后固定等待25ms。最终 `HooksRemoved.snapshotRevision` 表示应收齐的覆盖修订，CLI 排空到 EOF 后核对；旧 Agent 的0表示未知。该字段复用既有布局，不变更包大小。停止时仍未完整收到最终快照会如实标记过期。
+
+## 可选诊断插桩
+
+`core/MonitorDiagnostics` 的全部计数、计时、日志及参数求值受 `KSWORD_APIMON_DIAGNOSTICS` 控制。x64/x86 项目的 `ApiMonitorDiagnostics` 属性默认0；临时研究构建可追加 `/p:ApiMonitorDiagnostics=1`，向 `C:\Windows\Temp\KswordApiMon\profile_<PID>.jsonl` 记录安装、分配、线程上下文、移除及管道阶段。跨用户目标须预先授予该文件的写入权限。日志调用只在其他线程已恢复时执行，暂停窗口内只使用 QPC 和原子计数。
+
+研究后用 `/p:ApiMonitorDiagnostics=0` 重建两个 Agent。源码保留插桩，关闭时不链接诊断函数、文件路径或日志字符串；不要把已经加载诊断 DLL 的旧目标当作最终二进制验证。系统进程试验应在隔离虚拟机中记录 PID、创建身份和恢复结果。
 
 ## 异步与扩展
 
@@ -63,9 +77,11 @@ API 覆盖标签页按 PID 展示 Strong、Raw、Fake、Dynamic 的已安装、�
 
 ```powershell
 python tools/api_monitor/run_regressions.py
+# 只运行 Agent、CLI 读端及协议测试，不运行 Qt 页面夹具
+python tools/api_monitor/run_regressions.py --no-ui
 ```
 
-33 个 x64 回归脚本覆盖原始 614 项冻结身份、确定性生成/非法定义、元数据/返回契约、可执行机器码重定位、共享/冲突/卸载失败/退役 trampoline、租约、管道分片、丢失计数、覆盖快照/会话切换、Qt 状态/筛选及真实自有 x64 文件、IOCP、APC、取消、TCP/UDP 与全部七个扩展路径。UI 使用 offscreen Qt。另在 HostX64/x86 环境执行 `python tools/api_monitor/run_regressions.py --architecture x86`，29项回归覆盖对应32位行为、Raw/Fake ABI及双向跨位数注入/子进程。新增回归覆盖全部分类与默认 Raw 并发、TLS 清理后的旁路、加载器标记参数/不可读页，以及默认栈只有256 KiB的目标进程。
+回归脚本自动发现 `test_*.py`，覆盖原始 614 项冻结身份、确定性生成/非法定义、元数据/返回契约、可执行机器码重定位、共享/冲突/卸载失败/退役 trampoline、租约、管道分片、丢失计数、覆盖快照/会话切换、Qt 状态/筛选及真实自有文件、IOCP、APC、取消、TCP/UDP 与全部七个扩展路径。UI 使用 offscreen Qt。另在 HostX64/x86 环境执行 `python tools/api_monitor/run_regressions.py --architecture x86`。专项回归还覆盖批量提交/恢复、上下文瞬态失败重试、页保护失败恢复、近地址分配与取消、管道断开丢弃复现、最终修订缺失、半包 EOF 及诊断关闭后的无参数求值/无日志字符串。
 
 可选元数据审计只读本机 SDK 头文件，允许追加原生声明目录：
 

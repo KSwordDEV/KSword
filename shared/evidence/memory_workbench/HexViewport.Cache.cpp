@@ -150,15 +150,53 @@ std::uint64_t HexViewport::PageStartOf(std::uint64_t address) {
 // 用法：for (const auto& r : view.PlanFetch(top, rows, 2)) { view.MarkInFlight(r); 派发异步读取(r); }
 // 传入：首个可见行、可见行数、前后各预取的页数；传出：按距离由近到远的页范围列表。
 std::vector<HexViewport::FetchRange> HexViewport::PlanFetch(
+    std::uint64_t first, std::uint64_t count, std::uint64_t prefetch, bool ignoreCache) const {
+    if (hiddenRows_.empty()) return PlanFetchRaw(first, count, prefetch, ignoreCache, foldUnknown_);
+    if (first >= RowCount() || count == 0) return {};
+    count = std::min(count, RowCount() - first);
+    std::map<std::uint64_t, std::uint64_t> pages;
+    std::uint64_t offset = 0;
+    while (offset < count && pages.size() < maxCachedPages_) {
+        const auto raw = VisualToRaw(first + offset);
+        std::uint64_t run = 1;
+        while (offset + run < count && VisualToRaw(first + offset + run) == raw + run) ++run;
+        for (const auto& range : PlanFetchRaw(raw, run, prefetch, ignoreCache, true)) {
+            for (std::uint64_t n = 0; n < range.pageCount && pages.size() < maxCachedPages_; ++n) {
+                const auto page = range.firstPageStart + n * kPageBytes;
+                const auto found = pages.find(page);
+                if (found == pages.end()) pages.emplace(page, range.distancePages);
+                else found->second = std::min(found->second, range.distancePages);
+            }
+        }
+        offset += run;
+    }
+    std::vector<FetchRange> result;
+    for (const auto& [page, distance] : pages) result.push_back({page, 1, distance});
+    std::stable_sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+        return left.distancePages < right.distancePages;
+    });
+    return result;
+}
+
+std::vector<HexViewport::FetchRange> HexViewport::PlanAddressFetch(
+    std::uint64_t first, std::uint64_t last, std::uint64_t prefetch, bool ignoreCache) const {
+    if (!IsValid() || first > last || last < firstAddress_ || first > lastAddress_) return {};
+    first = std::max(first, firstAddress_); last = std::min(last, lastAddress_);
+    const auto low = (first - rowBase_) / bytesPerRow_;
+    const auto high = (last - rowBase_) / bytesPerRow_;
+    return PlanFetchRaw(low, high - low + 1, prefetch, ignoreCache, false);
+}
+
+std::vector<HexViewport::FetchRange> HexViewport::PlanFetchRaw(
     std::uint64_t firstVisibleRow,
     std::uint64_t visibleRowCount,
-    std::uint64_t prefetchPages) const {
+    std::uint64_t prefetchPages, bool ignoreCache, bool skipKnownUnknown) const {
     // plan：返回值，按距离排好序的页范围。
     std::vector<FetchRange> plan;
 
     // 无效视图、零行高、起始行越界：没有可见内容就没有需要读的页。
     // rowCount：总行数。
-    const std::uint64_t rowCount = RowCount();
+    const std::uint64_t rowCount = RawRowCount();
     if (!IsValid() || visibleRowCount == 0 || firstVisibleRow >= rowCount) {
         return plan;
     }
@@ -173,8 +211,9 @@ std::vector<HexViewport::FetchRange> HexViewport::PlanFetch(
     // 可见字节范围：首行取有效首地址、末行取有效末地址（已排除补空位），再换算成页号。
     // topSpan/bottomSpan：首个/末个可见行的有效区间；visibleLow/visibleHigh：可见页号范围；
     // spaceLow/spaceHigh：整个地址空间的页号范围。
-    const std::optional<AddressRange> topSpan = RowValidSpan(firstVisibleRow);
-    const std::optional<AddressRange> bottomSpan = RowValidSpan(lastVisibleRow);
+    const HexViewport geometry(firstAddress_, lastAddress_, bytesPerRow_, maxCachedPages_);
+    const std::optional<AddressRange> topSpan = geometry.RowValidSpan(firstVisibleRow);
+    const std::optional<AddressRange> bottomSpan = geometry.RowValidSpan(lastVisibleRow);
     if (!topSpan.has_value() || !bottomSpan.has_value()) {
         return plan;
     }
@@ -199,11 +238,20 @@ std::vector<HexViewport::FetchRange> HexViewport::PlanFetch(
     std::vector<std::uint64_t> occupied;
     const std::uint64_t lowStart = window.low * kPageBytes;
     const std::uint64_t highStart = window.high * kPageBytes;
-    for (auto it = pages_.lower_bound(lowStart); it != pages_.end() && it->first <= highStart; ++it) {
+    for (auto it = ignoreCache ? pages_.end() : pages_.lower_bound(lowStart); it != pages_.end() && it->first <= highStart; ++it) {
         occupied.push_back(it->first / kPageBytes);
     }
-    for (auto it = inFlight_.lower_bound(lowStart); it != inFlight_.end() && *it <= highStart; ++it) {
+    for (auto it = ignoreCache ? inFlight_.end() : inFlight_.lower_bound(lowStart); it != inFlight_.end() && *it <= highStart; ++it) {
         occupied.push_back(*it / kPageBytes);
+    }
+    if (skipKnownUnknown && !unknownRanges_.empty()) {
+        for (auto page = window.low; page <= window.high; ++page) {
+            const auto first = std::max(page * kPageBytes, firstAddress_);
+            const auto last = std::min(page * kPageBytes + kPageBytes - 1, lastAddress_);
+            const auto upper = unknownRanges_.upper_bound(first);
+            if (upper != unknownRanges_.begin() && std::prev(upper)->second >= last)
+                occupied.push_back(page);
+        }
     }
     std::sort(occupied.begin(), occupied.end());
     occupied.erase(std::unique(occupied.begin(), occupied.end()), occupied.end());
@@ -372,6 +420,8 @@ HexViewport::PageResult HexViewport::InsertPage(
     slot.sourceRevision = sourceRevision;
     slot.unreadable = false;
     inFlight_.erase(pageStart);
+    if (overviewEnabled_) { RebuildOverview(slot); ++overviewRevision_; }
+    if (foldUnknown_) { RebuildReadableRanges(pageStart, slot); TrackUnknownPage(pageStart, validMask); RebuildFolds(); }
     return PageResult::Accepted;
 }
 
@@ -400,9 +450,17 @@ HexViewport::PageResult HexViewport::MarkUnreadable(const FetchRange& range, std
         CachedPage& slot = AcquirePageSlot(pageStart);
         slot.bytes.clear();
         slot.validMask.clear();
+        slot.readableRanges.clear();
+        slot.overview.clear();
         slot.sourceRevision = sourceRevision;
         slot.unreadable = true;
         inFlight_.erase(pageStart);
+    }
+    if (overviewEnabled_) ++overviewRevision_;
+    if (foldUnknown_) {
+        const auto first = range.firstPageStart;
+        AddUnknownRange(first, first + (range.pageCount - 1) * kPageBytes + kPageBytes - 1);
+        RebuildFolds();
     }
     return PageResult::Accepted;
 }
@@ -411,7 +469,11 @@ HexViewport::PageResult HexViewport::MarkUnreadable(const FetchRange& range, std
 // 传入：新的来源代次；换目标/重读时必须传一个与旧值不同的新值，旧代次的在途结果才会被拒绝。
 void HexViewport::InvalidateAll(std::uint64_t newSourceRevision) {
     pages_.clear();
+    if (overviewEnabled_) ++overviewRevision_;
     inFlight_.clear();
+    unknownRanges_.clear();
+    foldRevealedAddress_.reset();
+    RebuildFolds();
     sourceRevision_ = newSourceRevision;
 }
 
@@ -442,6 +504,8 @@ HexViewport::ByteLookup HexViewport::Classify(std::uint64_t address, const Cache
     if (found == pages_.end()) {
         if (inFlight_.find(pageStart) != inFlight_.end()) {
             result.state = ByteState::Pending;
+        } else if (IsKnownUnreadable(address)) {
+            result.state = ByteState::Unreadable;
         }
         return result;
     }
@@ -537,6 +601,86 @@ const HexViewport::CacheStats& HexViewport::Stats() const {
 // 清零缓存计数，不影响缓存内容。
 void HexViewport::ResetStats() {
     stats_ = CacheStats{};
+}
+
+// Statistics belong to resident pages, never a permanent sampling history.
+void HexViewport::RebuildOverview(CachedPage& page) {
+    page.overview.clear();
+    if (page.unreadable || page.validMask.size() != kPageBytes || page.bytes.size() != kPageBytes) return;
+    page.overview.resize(kPageBytes / 64 + 1);
+    CachedPage::OverviewPrefix counts;
+    for (std::size_t offset = 0; offset < kPageBytes; ++offset) {
+        if (page.validMask[offset]) {
+            ++counts.read;
+            if (page.bytes[offset] != 0) ++counts.nonZero;
+            if (page.bytes[offset] >= 0x20 && page.bytes[offset] <= 0x7E) ++counts.ascii;
+        }
+        if ((offset + 1) % 64 == 0) page.overview[(offset + 1) / 64] = counts;
+    }
+}
+
+void HexViewport::SetOverviewEnabled(bool enabled) {
+    if (overviewEnabled_ == enabled) return;
+    overviewEnabled_ = enabled;
+    for (auto& [address, page] : pages_) {
+        (void)address;
+        if (enabled) RebuildOverview(page);
+        else page.overview.clear();
+    }
+    ++overviewRevision_;
+}
+
+std::uint64_t HexViewport::OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale, bool knownOnly) const {
+    if (!extent) return 0;
+    position = std::min(position, extent);
+    const auto rows = knownOnly ? KnownRowCount() : fixedAddressScale ? RawRowCount() : RowCount();
+    // No row*pixel product: rows can cover the entire 64-bit address space.
+    return (rows / extent) * position + ((rows % extent) * position) / extent;
+}
+
+std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t count, bool fixedAddressScale, bool knownOnly) const {
+    const auto rows = knownOnly ? KnownRowCount() : fixedAddressScale ? RawRowCount() : RowCount();
+    const HexViewport unfolded(firstAddress_, lastAddress_, bytesPerRow_, maxCachedPages_);
+    const auto& geometry = fixedAddressScale ? unfolded : *this;
+    count = std::min<std::size_t>(count, static_cast<std::size_t>(std::min<std::uint64_t>(rows, 4096)));
+    std::vector<OverviewBin> bins;
+    bins.reserve(count);
+    const auto prefix = [](const CachedPage& page, std::size_t offset) {
+        auto result = page.overview[offset / 64];
+        for (auto at = (offset / 64) * 64; at < offset; ++at) if (page.validMask[at]) {
+            ++result.read;
+            if (page.bytes[at] != 0) ++result.nonZero;
+            if (page.bytes[at] >= 0x20 && page.bytes[at] <= 0x7E) ++result.ascii;
+        }
+        return result;
+    };
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto firstRow = OverviewRowAt(static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(count), fixedAddressScale, knownOnly);
+        const auto endRow = OverviewRowAt(static_cast<std::uint32_t>(index + 1), static_cast<std::uint32_t>(count), fixedAddressScale, knownOnly);
+        const auto first = knownOnly ? KnownRowSpan(firstRow) : geometry.RowValidSpan(firstRow);
+        const auto last = knownOnly ? KnownRowSpan(endRow - 1) : geometry.RowValidSpan(endRow - 1);
+        if (!first || !last) continue;
+        OverviewBin bin{firstRow, endRow - firstRow,
+            static_cast<double>(endRow - firstRow) * bytesPerRow_, 0, 0, 0};
+        // Mixed read/unknown bytes within a known row retain separate coverage.
+        bin.totalBytes -= static_cast<double>(first->first % bytesPerRow_);
+        bin.totalBytes -= static_cast<double>(bytesPerRow_ - 1 - last->last % bytesPerRow_);
+        if (overviewEnabled_) {
+            // The enclosing physical span may cross a huge folded hole. Iterate
+            // only cached keys; hidden rows contain no accepted valid bytes.
+            for (auto it = pages_.lower_bound(PageStartOf(first->first)); it != pages_.end() && it->first <= last->last; ++it) {
+                if (it->second.overview.empty()) continue;
+                const auto low = static_cast<std::size_t>(std::max(first->first, it->first) - it->first);
+                const auto high = static_cast<std::size_t>(std::min(last->last, it->first + kPageBytes - 1) - it->first + 1);
+                const auto a = prefix(it->second, low), b = prefix(it->second, high);
+                bin.readBytes += b.read - a.read;
+                bin.nonZeroBytes += b.nonZero - a.nonZero;
+                bin.asciiBytes += b.ascii - a.ascii;
+            }
+        }
+        bins.push_back(bin);
+    }
+    return bins;
 }
 
 }  // namespace ksword::memwb

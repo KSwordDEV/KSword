@@ -36,7 +36,7 @@ class InjectionHost:
         directory=Path(self.temporary.name);cpp=directory/"host.cpp";cpp.write_text(HOST_SOURCE,encoding="utf-8")
         self.executable=directory/"host.exe";self.process=None
         environment=target_environment("x64");compiler=shutil.which("cl",path=environment["PATH"])
-        subprocess.run([compiler,"/nologo","/EHsc","/std:c++17","/utf-8","/MT","/I"+str(ROOT/"shared"),
+        subprocess.run([compiler,"/nologo","/EHsc","/std:c++20","/utf-8","/MT","/I"+str(ROOT/"shared"),
                         str(cpp),str(ROOT/"shared/ApiMonitorInjectionBroker.cpp"),"/Fe:"+str(self.executable),
                         "/Fo:"+str(directory)+"\\","/link","Advapi32.lib"],env=environment,check=True)
     def inject(self,pid,agent):

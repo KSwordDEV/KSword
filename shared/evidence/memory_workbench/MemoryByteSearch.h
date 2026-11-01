@@ -156,6 +156,7 @@ namespace ksword::memwb
         None = 0,
         Empty,       // 输入为空或只有分隔符
         BadPattern,  // 其它非法输入（字符、奇数半字节、孤立前缀、非法 UTF-8）
+        UnrepresentableText, // 文本无法按所选代码页无损编码
     };
 
     // ParseError：解析失败的详情，只含错误码与位置，不含面向用户的句子。

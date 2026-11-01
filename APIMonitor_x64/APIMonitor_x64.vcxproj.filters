@@ -125,4 +125,10 @@
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\shared\ApiMonitorInjection.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="core\MonitorDiagnostics.cpp" />
+    <ClInclude Include="core\MonitorDiagnostics.h" />
+  </ItemGroup>
+  <ItemGroup><ClInclude Include="hook\NearAllocation.h" /><ClInclude Include="hook\ThreadPatchGuard.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="hook\CodePageAllocator.h" /></ItemGroup>
 </Project>

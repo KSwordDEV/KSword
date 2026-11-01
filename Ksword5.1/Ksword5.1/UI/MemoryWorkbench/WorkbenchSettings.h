@@ -73,6 +73,8 @@ namespace ks::ui::workbench_settings
     // 自适应为真时"bytesPerRow"键保存的是用户上次手动选的值（自适应状态下不会被改写，见 HexPrefs.cpp）。
     bool LoadRowWidthAuto();
     void SaveRowWidthAuto(bool automatic);
+    bool LoadFoldUnknown();
+    void SaveFoldUnknown(bool enabled);
 
     // kHexZoomMin / kHexZoomMax：十六进制画布字号缩放级别的合法范围（含），与 HexCanvas::kMinZoomLevel /
     // kMaxZoomLevel 取同一组数值（本文件不依赖 HexCanvas，所以各存一份，由离屏测试核对两边一致）。
