@@ -2,8 +2,11 @@
 #include <QWidget>
 #include <QIcon>
 #include <QColor>
+#include <QPixmap>
 #include <functional>
 #include <vector>
+
+class QPainter;
 
 namespace ks::ui {
 struct MetricAreaNode {
@@ -45,11 +48,19 @@ private:
     struct Box { QRectF rect; int node; bool container; };
     void rebuildLayout();
     void focusNode(int index);
+    int boxAt(QPointF point) const;
+    QColor boxColor(int index) const;
+    void paintBox(QPainter& painter, const Box& box, bool hovered) const;
     std::vector<MetricAreaNode> m_nodes;
     std::vector<std::vector<int>> m_children;
     std::vector<int> m_parents;
+    std::vector<int> m_colorAnchors;
     std::vector<double> m_totals;
     std::vector<Box> m_boxes;
+    QPixmap m_cushion;
+    QPixmap m_surface;
+    bool m_surfaceDirty = true;
+    // Index into the visible boxes, so a process's own area and its child group stay distinct.
     int m_root = -1, m_hover = -1;
 };
 }
