@@ -52,6 +52,13 @@ namespace ks::ui
         m_splitter = new QSplitter(Qt::Horizontal, this);
         m_splitter->setChildrenCollapsible(false);
         m_canvas = new HexCanvas(m_splitter);
+        // All buffer/snapshot hosts share the workbench's cache-only overview
+        // and address header controls. Keep file/sector offsets on a fixed axis;
+        // data loading, edit permissions and the host's window range stay owned
+        // by the existing buffer provider.
+        m_canvas->setFixedAddressScale(true);
+        m_canvas->setOverviewEnabled(true);
+        m_canvas->setAddressColumnCollapseEnabled(true);
         m_splitter->addWidget(m_canvas);
         m_splitter->setStretchFactor(0, 1);
         m_root->addWidget(m_splitter, 1);

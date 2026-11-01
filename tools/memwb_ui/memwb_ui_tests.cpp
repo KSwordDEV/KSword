@@ -85,6 +85,16 @@ int main(int argc, char** argv)
 
     QElapsedTimer total;
     total.start();
+    // Focused shared HEX hosts: do not execute clipboard tests from other
+    // suites. Keep application preferences in the existing isolated INI root.
+    if (Flag(argc, argv, "--hexview-hosts-only"))
+    {
+        memwb_test::SettingsRedirect redirect;
+        memwb_test::RunHexViewHostTests();
+        std::cout << "hexview_hosts: " << memwb_test::g_checks << " checks, "
+                  << memwb_test::g_failures << " failures" << std::endl;
+        return memwb_test::g_failures == 0 ? 0 : 1;
+    }
 
     // 基准放在最前面：进程内第一块画布的构造耗时才有"首次"的意义。
     if (!Flag(argc, argv, "--skip-bench"))

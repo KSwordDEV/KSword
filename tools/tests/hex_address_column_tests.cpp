@@ -69,7 +69,7 @@ void runHexAddressColumnTests() {
     Reads reads;
     HexCanvas c;
     c.resize(800,300); c.setViewportReadEnabled(false); c.setPageProvider(&reads);
-    check(!toggle(c) && !c.addressColumnCollapsed(), "generic HEX hosts do not allocate an address toggle by default");
+    check(!toggle(c) && !c.addressColumnCollapsed(), "bare HexCanvas controls keep address tools opt-in");
     c.setAddressColumnCollapseEnabled(true); c.setAddressSpace(0xF10,0xF2F);
     c.deliverPage(0,QByteArray(4096,'A'),QByteArray(4096,'\1'),c.sourceRevision()); c.show(); drain();
     auto* button = toggle(c);
@@ -105,15 +105,15 @@ void runHexAddressColumnTests() {
     check(!c.addressColumnCollapsed() && c.addressColumnPrefix().isEmpty() && c.cellRect(0xF10,HexCanvas::ActivePane::Hex).left()==originalCell.left(), "keyboard activation expands back to the original zero-padded layout");
 
     c.setViewportReadEnabled(true);
-    c.setStaticData(0xFFF0,QByteArray(32768,'A')); c.setAddressColumnCollapsed(true); drain();
+    c.setStaticData(0x0FFFFFF0,QByteArray(32768,'A')); c.setAddressColumnCollapsed(true); drain();
     const auto firstVisible=c.visibleAddressRange()->first;
     c.verticalScrollBar()->setValue(100); drain();
     check(c.visibleAddressRange()->first!=firstVisible && c.addressColumnPrefix()==expectedPrefix(c),
         "native scrollbar navigation updates visible rows and their common prefix before painting");
     wheel(c);
     check(c.addressColumnPrefix()==expectedPrefix(c), "wheel navigation shares the same address prefix geometry");
-    c.scrollToAddress(0x11000,HexCanvas::ScrollAlign::Top); drain();
-    check(c.addressColumnPrefix()==expectedPrefix(c) && c.addressForViewportPos(c.cellRect(0x11000,HexCanvas::ActivePane::Hex).center())==0x11000,
+    c.scrollToAddress(0x10001000,HexCanvas::ScrollAlign::Top); drain();
+    check(c.addressColumnPrefix()==expectedPrefix(c) && c.addressForViewportPos(c.cellRect(0x10001000,HexCanvas::ActivePane::Hex).center())==0x10001000,
         "address jumps update both suffix layout and byte hit testing");
     c.setBytesPerRow(64); c.resize(450,300); drain();
     c.horizontalScrollBar()->setValue(0);drain();

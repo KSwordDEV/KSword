@@ -67,20 +67,22 @@ cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX 
   "%FIX%\memwb_ui_tests.cpp" "%FIX%\memwb_ui_common.cpp" "%FIX%\memwb_ui_tests.View.cpp" "%FIX%\memwb_ui_tests.Edit.cpp" "%FIX%\memwb_ui_render.cpp" "%FIX%\memwb_ui_bench.cpp" ^
   "%FIX%\memwb_ui_inspector.cpp" "%FIX%\memwb_ui_tests.Inspector.cpp" "%FIX%\memwb_ui_tests.Inspector.Edit.cpp" "%FIX%\memwb_ui_tests.Inspector.Shots.cpp" "%FIX%\memwb_ui_tests.Signals.cpp" "%FIX%\memwb_ui_tests.Signals.Stage.cpp" "%FIX%\memwb_ui_tests.Signals.View.cpp" "%FIX%\memwb_ui_tests.Signals.Inspector.cpp" ^
   "%FIX%\memwb_ui_hexview.cpp" "%FIX%\memwb_ui_tests.HexView.cpp" "%FIX%\memwb_ui_tests.HexView.Compat.cpp" "%FIX%\memwb_ui_tests.HexView.Reference.cpp" "%FIX%\memwb_ui_tests.HexView.Find.cpp" "%FIX%\memwb_ui_tests.HexView.FindLogic.cpp" "%FIX%\memwb_ui_tests.HexView.Goto.cpp" "%FIX%\memwb_ui_tests.HexView.Export.cpp" "%FIX%\memwb_ui_tests.HexView.Shots.cpp" ^
-  "%FIX%\memwb_ui_tests.HexView.Hosts.cpp" "%FIX%\memwb_ui_tests.Segmented.cpp" "%FIX%\memwb_ui_tests.CachedRange.cpp" "%FIX%\memwb_ui_tests.IconAliases.cpp" "%FIX%\memwb_ui_tests.RowFit.cpp" "%APP%\UI\SmoothScrollSupport.cpp" ^
+  "%FIX%\memwb_ui_tests.HexView.Hosts.cpp" "%FIX%\memwb_ui_tests.Segmented.cpp" "%FIX%\memwb_ui_tests.CachedRange.cpp" "%FIX%\memwb_ui_tests.IconAliases.cpp" "%FIX%\memwb_ui_tests.RowFit.cpp" "%FIX%\memwb_ui_smooth_scroll_test.cpp" ^
   "%FIX%\memwb_ui_tests.IoMapping.cpp" "%APP%\MemoryDock\WorkbenchIoMapping.cpp" ^
   "%FIX%\memwb_ui_tests.CompareContracts.cpp" "%UI%\WorkbenchCompareView.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%MOC%\moc_WorkbenchCompareView.cpp" ^
+  "%APP%\UI\ThemeBinding.cpp" "%APP%\UI\FlatButtonTheme.cpp" "%APP%\UI\MainSurfaceStyle.cpp" "%APP%\UI\PrimaryPageStyle.cpp" "%APP%\UI\ThemeControlGlyphs.cpp" ^
+  "%APP%\UI\SegmentedControl.cpp" "%APP%\UI\UiAnimationGate.cpp" "%APP%\UI\FloatingScrollbars.cpp" "%APP%\UI\CompleteExport.cpp" "%APP%\UI\AsyncOperation.cpp" ^
   "%UI%\HexCanvas.cpp" "%UI%\HexCanvas.Scroll.cpp" "%UI%\HexCanvas.Layout.cpp" "%UI%\HexCanvas.Paint.cpp" "%UI%\HexCanvas.Input.cpp" "%UI%\HexCanvas.Edit.cpp" "%UI%\HexCanvas.Menu.cpp" "%UI%\HexCanvasFormat.cpp" ^
   "%UI%\HexInspectorPanel.cpp" "%UI%\HexInspectorPanel.Rows.cpp" "%UI%\HexInspectorPanel.Edit.cpp" "%UI%\HexInspectorPanel.Menu.cpp" "%UI%\HexInspectorRowView.cpp" "%UI%\HexInspectorRowView.Paint.cpp" "%UI%\HexInspectorWidgets.cpp" ^
   "%UI%\HexView.cpp" "%UI%\HexView.Toolbar.cpp" "%UI%\HexView.Compat.cpp" "%UI%\HexView.Panels.cpp" "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" "%UI%\HexViewSettings.cpp" "%UI%\HexFindBar.cpp" "%UI%\HexFindSearch.cpp" "%UI%\HexGotoBar.cpp" "%UI%\HexExport.cpp" ^
   "%MOC%\moc_HexCanvas.cpp" "%MOC%\moc_HexInspectorPanel.cpp" "%MOC%\moc_HexInspectorRowView.cpp" "%MOC%\moc_HexView.cpp" "%MOC%\moc_HexFindBar.cpp" "%MOC%\moc_HexGotoBar.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\qrc_memwb_ui_icons.cpp" ^
   "%CORE%\HexViewport.cpp" "%CORE%\HexViewport.Cache.cpp" "%CORE%\HexViewport.Selection.cpp" "%CORE%\MemoryDiffOverlay.cpp" "%CORE%\MemoryDiffOverlay.Patches.cpp" "%CORE%\MemoryTargetSession.cpp" "%CORE%\MemoryValueDecode.cpp" "%CORE%\MemoryAddressExpr.cpp" "%CORE%\MemoryByteSearch.cpp" ^
   /Fo"%OBJ%\\" /Fe"%OUT%\memwb_ui_tests.exe" ^
-  /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib user32.lib advapi32.lib
+  /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib Qt6OpenGLWidgets.lib user32.lib advapi32.lib
 if errorlevel 1 exit /b %errorlevel%
 
 rem ---- 部署 DLL 与插件（离屏平台、SVG 图标引擎与图片格式） ----
-for %%D in (Qt6Core Qt6Gui Qt6Widgets Qt6Test Qt6Svg) do copy /y "%QT%\bin\%%D.dll" "%OUT%\" >nul
+for %%D in (Qt6Core Qt6Gui Qt6Widgets Qt6Test Qt6Svg Qt6OpenGL Qt6OpenGLWidgets) do copy /y "%QT%\bin\%%D.dll" "%OUT%\" >nul
 if not exist "%OUT%\plugins\platforms" mkdir "%OUT%\plugins\platforms"
 if not exist "%OUT%\plugins\iconengines" mkdir "%OUT%\plugins\iconengines"
 if not exist "%OUT%\plugins\imageformats" mkdir "%OUT%\plugins\imageformats"
