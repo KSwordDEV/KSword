@@ -608,6 +608,8 @@
     <ClInclude Include="include\ark\ark_network.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\ark\ark_network_managed.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkManagedNetworkIoctl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="include\ark\ark_keyboard.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1267,6 +1269,7 @@
     <ClCompile Include="src\features\network\network_wfp.c">
       <Filter>Source Files\Features\Network</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\network\network_managed.c"><Filter>Source Files\Features\Network</Filter></ClCompile>
     <ClCompile Include="src\features\network\network_traffic.c">
       <Filter>Source Files\Features\Network</Filter>
     </ClCompile>

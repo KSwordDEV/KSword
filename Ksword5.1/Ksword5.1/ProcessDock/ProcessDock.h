@@ -467,6 +467,8 @@ private:
         std::unordered_map<std::string, ks::process::CounterSample> nextCounters; // 下一轮计数器样本。
         std::uint64_t networkCaptureGeneration = 0;
         bool networkSnapshotValid = false;
+        int networkCaptureState = 0;
+        std::string networkCaptureError;
         std::uint64_t cpuCoreCaptureGeneration = 0; // 丢弃暂停/重启前构造的旧矩阵。
         std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> cpuCoreUsageSnapshot; // 后台构造的共享逐核心快照，UI 只移动指针。
 
@@ -527,6 +529,7 @@ public:
         double ramMB = 0.0;            // ramMB：该进程采样时申请/提交内存。
         double workingSetMB = 0.0;     // workingSetMB：该进程采样时实际工作集。
         double diskMBps = 0.0;         // diskMBps：该进程采样时磁盘吞吐。
+        bool networkUsageKnown = false;
         double netKBps = 0.0;          // netKBps：该进程采样时网络吞吐。
         double netRxKBps = 0.0;        // netRxKBps：该进程采样时网络下行吞吐。
         double netTxKBps = 0.0;        // netTxKBps：该进程采样时网络上行吞吐。
@@ -1209,7 +1212,7 @@ private:
         const std::unordered_map<std::string, CacheEntry>& previousCache,
         const std::unordered_map<std::string, ks::process::CounterSample>& previousCounters,
         const std::unordered_map<std::uint32_t, NetworkTrafficCounters>& networkTrafficSnapshot,
-        std::uint32_t logicalCpuCount);
+        std::uint32_t logicalCpuCount, bool networkSnapshotAvailable = true, std::uint64_t networkSnapshotTick100ns = 0);
 
     // ======== 进程网络吞吐采样 ========
     bool hasVisibleProcessDetailConsumer() const;
@@ -1443,6 +1446,9 @@ private:
     std::unordered_map<std::string, ks::process::CounterSample> m_counterSampleByIdentity; // 差值样本。
     std::shared_ptr<ks::network::ProcessNetworkEtwMonitor> m_processNetworkTrafficService; // 进程页内部 ETW 网络累计器。
     bool m_processNetworkBaselineResetRequired = true;
+    QString m_networkCaptureStatus;
+    unsigned m_networkRecoveryAttempts = 0;
+    std::uint64_t m_networkRecoveryNotBeforeMs = 0;
     bool m_processNetworkTrafficCaptureStarted = false; // ETW 采集器是否已经尝试启动。
     std::shared_ptr<ks::process::ProcessCpuCoreEtwMonitor> m_cpuCoreUsageService; // 单个系统级 CSwitch 会话；后台快照任务共享生命周期。
     bool m_cpuCoreUsageCaptureStarted = false; // UI 线程状态：本轮监视周期内是否已经投递启动。

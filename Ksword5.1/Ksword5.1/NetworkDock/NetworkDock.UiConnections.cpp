@@ -335,6 +335,8 @@ void NetworkDock::initializeConnections()
 
     connect(m_applyMonitorFilterButton, &QPushButton::clicked, this, [this]()
         {
+            m_trafficFocusPid = 0;
+            if (m_clearTrafficFocusButton) m_clearTrafficFocusButton->hide();
             applyMonitorFilters();
         });
     connect(m_clearMonitorFilterButton, &QPushButton::clicked, this, [this]()

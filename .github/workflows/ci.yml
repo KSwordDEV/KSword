@@ -445,6 +445,23 @@ jobs:
           cmd /c "`"$vcvars`" >nul && python -B tools\test_ntfs_backend_io.py --qt-root `"$env:QT_ROOT_DIR`" && pwsh -NoLogo -NoProfile -File tools\test_ntfs_volume_integration.ps1 -QtRoot `"$env:QT_ROOT_DIR`""
           if ($LASTEXITCODE -ne 0) { throw 'Native NTFS index integration tests failed.' }
 
+      - name: Check process-network data and policy contracts
+        if: ${{ !cancelled() && steps.qt_install.outcome == 'success' && steps.qt_msbuild.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          python -B tools/test_process_network_rate.py
+          if ($LASTEXITCODE -ne 0) { throw 'Process network rate or lifecycle contracts failed.' }
+          python -B tools/test_network_policy.py
+          if ($LASTEXITCODE -ne 0) { throw 'Network policy contracts failed.' }
+          python -B tools/managed_network_core_tests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Managed network kernel contracts failed.' }
+          python -B tools/test_network_monitor_filter.py --qt "$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Network address filter contracts failed.' }
+          python -B tools/test_process_network_exports.py --qt "$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'Process network export contracts failed.' }
+          python -B tools/test_network_qos_draft.py --qt "$env:QT_ROOT_DIR"
+          if ($LASTEXITCODE -ne 0) { throw 'QoS draft contracts failed.' }
+
       - name: Check shared UI defaults and first-paint behavior
         if: ${{ !cancelled() && steps.qt_install.outcome == 'success' && steps.qt_msbuild.outcome == 'success' }}
         shell: pwsh

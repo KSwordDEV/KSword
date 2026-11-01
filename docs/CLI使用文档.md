@@ -408,6 +408,7 @@ Network rules, endpoints, WFP/NDIS evidence, and R3 fallbacks.
 | --- | --- | --- | --- | --- |
 | `network set-rules` | `KswordCLI.exe network set-rules --blob PATH` | Load network rule bytes. | Required: --blob. |  |
 | `network query-status` | `KswordCLI.exe network query-status [--limit N]` | Query network runtime state and rules. | Optional: --limit. |  |
+| `network managed-policies` | `KswordCLI.exe network managed-policies [--limit N]` | Read managed R0 host and process-instance network policies. | Optional: --limit (default 16; 0 prints summary only). | Read-only. Backed by `IOCTL_KSWORD_ARK_NETWORK_QUERY_MANAGED_POLICIES`; does not apply, toggle or remove policies. |
 | `network audit` | `KswordCLI.exe network audit [--flags 0xN] [--max-rows N] [--limit N]` | Query TCP endpoint audit as the default network audit view. | Optional: --flags, --max-rows, --limit. | Use network wfp or network ndis for chain-specific views. |
 | `network tcp` | `KswordCLI.exe network tcp [--flags 0xN] [--max-rows N] [--limit N]` | Query TCP endpoint audit rows. | Optional: --flags, --max-rows, --limit. |  |
 | `network udp` | `KswordCLI.exe network udp [--flags 0xN] [--max-rows N] [--limit N]` | Query UDP endpoint audit rows. | Optional: --flags, --max-rows, --limit. |  |

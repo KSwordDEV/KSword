@@ -20,6 +20,7 @@ namespace network_navigation_detail
     // Dormant rate-limit/connection factories remain explicitly unexposed.
     inline constexpr Definition Definitions[] = {
         {"traffic", "", L"流量监控", "network.tab.traffic", true},
+        {"qos", "", L"QoS 管理", "network.tab.qos", true},
         {"nids", "", L"NIDS", "", true},
         {"rate-limit", "", L"进程限速", "network.tab.rate_limit", false},
         {"connections", "", L"连接管理", "network.tab.connections", false},

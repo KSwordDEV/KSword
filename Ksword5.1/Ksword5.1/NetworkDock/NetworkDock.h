@@ -15,6 +15,7 @@
 #include "../UI/PageNavigationCatalog.h"
 #include "../MonitorDock/ProcessTraceTimelineWidget.h"
 #include "../ksword/network/network_nids.h"
+#include "../../../shared/usermode/backend/network/NetworkPolicy.h"
 
 #include <QCache>
 #include <QCursor>
@@ -157,6 +158,7 @@ public:
 
     // 切换到网络审计 TCP/UDP Cross-View 并按 PID 集合过滤，独立于流量监控规则。
     void focusConnectionsByPids(const QVector<quint32>& processIds);
+    void focusTrafficByPid(quint32 processId, bool startCapture = true);
 
     // setProcessDetailConnectionScope：进程详情内嵌时仅显示网络审计 Cross-View 入口。
     void setProcessDetailConnectionScope();
@@ -301,6 +303,8 @@ private:
         std::vector<std::uint32_t> processIdList;
         std::vector<UInt32Range> localAddressRangeList;
         std::vector<UInt32Range> remoteAddressRangeList;
+        std::vector<ks::r3::network::NetworkAddressPrefix> localIpv6PrefixList;
+        std::vector<ks::r3::network::NetworkAddressPrefix> remoteIpv6PrefixList;
         std::vector<UInt16Range> localPortRangeList;
         std::vector<UInt16Range> remotePortRangeList;
         std::vector<UInt32Range> packetSizeRangeList;
@@ -310,6 +314,8 @@ private:
             return !processIdList.empty() ||
                 !localAddressRangeList.empty() ||
                 !remoteAddressRangeList.empty() ||
+                !localIpv6PrefixList.empty() ||
+                !remoteIpv6PrefixList.empty() ||
                 !localPortRangeList.empty() ||
                 !remotePortRangeList.empty() ||
                 !packetSizeRangeList.empty();
@@ -1643,6 +1649,8 @@ private:
     std::shared_ptr<network_dock_detail::HttpsProxyRecoveryState> m_httpsRecoveryState;
     std::shared_ptr<ks::ui::RetainedCleanupJob> m_httpsRecoveryCleanup;
     bool m_monitorRunning = false;             // 抓包运行状态缓存。
+    quint32 m_trafficFocusPid = 0;
+    QPushButton* m_clearTrafficFocusButton = nullptr;
     enum class TrafficMonitorSource : std::uint8_t
     {
         Stopped = 0, // 当前未监控。

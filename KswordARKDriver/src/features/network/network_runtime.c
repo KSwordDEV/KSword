@@ -749,6 +749,8 @@ Return Value:
 {
     KSWORD_ARK_NETWORK_RUNTIME* runtime = KswordARKNetworkGetRuntime();
 
+    KswordARKNetworkManagedUninitialize();
+
     if (runtime == NULL) {
         return;
     }

@@ -22,6 +22,7 @@ bool ProcessDock::isMetricAreaColumn(const int column){
     if(column==static_cast<int>(TableColumn::CpuCore))return true;
     // Reuse the semantic resource/counter whitelist, independently of per-row availability.
     ks::process::ProcessRecord probe;probe.cycleTimeKnown=probe.memoryDetailKnown=probe.privateWorkingSetKnown=true;
+    probe.networkUsageKnown=true;
     probe.guiResourceKnown=probe.ioDetailKnown=probe.gpuMemoryKnown=true;
     double value=0;return processUsageHighlightValue(probe,static_cast<TableColumn>(column),&value);
 }
@@ -34,7 +35,7 @@ bool ProcessDock::metricAreaIncludesProcess(const int column, const ks::process:
 
 double ProcessDock::metricAreaNetworkValue(const ks::process::ProcessRecord& record, const int mode){
     // 0=upload, 1=download, 2=both. Do not infer a direction from netKBps.
-    if(mode<0||mode>2)return -1;
+    if(!record.networkUsageKnown||mode<0||mode>2)return -1;
     const auto valid=[](double value){return std::isfinite(value)&&value>=0;};
     if(mode==0)return valid(record.netTxKBps)?record.netTxKBps:-1;
     if(mode==1)return valid(record.netRxKBps)?record.netRxKBps:-1;

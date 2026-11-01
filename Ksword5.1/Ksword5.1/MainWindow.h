@@ -135,6 +135,7 @@ public slots:
     // 右上角的 DDMA 指示灯点击后走这里——常驻虚扇区的登记与解除都在那个页面上。
     void focusMemoryDockDdmaPage();
     void focusNetworkDockByPids(const QString& pidListText);
+    void startNetworkMonitorByPid(const quint32 pid);
     void focusWindowDockByPids(const QString& pidListText);
 
     // openProcessDetailByPid 作用：

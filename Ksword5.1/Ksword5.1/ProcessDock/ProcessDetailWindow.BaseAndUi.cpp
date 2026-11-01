@@ -10,6 +10,7 @@
 #include "../句柄/HandleDock.h"
 #include "../MemoryDock/MemoryDock.h"
 #include "../NetworkDock/NetworkDock.h"
+#include "ProcessNetworkPage.h"
 #include "../OtherDock/OtherDock.h"
 #include "../MiscDock/SoundSource/SoundSourcePage.h"
 #include "../UI/VisibleTableWidget.h"
@@ -2256,6 +2257,11 @@ void ProcessDetailWindow::updateBaseRecord(const ks::process::ProcessRecord& bas
     const bool identityChanged = m_identityKey != oldIdentityKey;
     if (identityChanged)
     {
+        if (m_processNetworkPage) {
+            m_processNetworkPage->shutdown(); m_processNetworkPage->hide();
+            if (m_embeddedNetworkLayout) m_embeddedNetworkLayout->removeWidget(m_processNetworkPage);
+            m_processNetworkPage->deleteLater(); m_processNetworkPage = nullptr;
+        }
         // 同一窗口如果被复用于新 identity，需要重置一次性后台刷新状态。
         // 否则旧进程的首刷标记会阻止新进程数据按需加载。
         m_staticDetailRefreshing = false;
@@ -2295,6 +2301,7 @@ void ProcessDetailWindow::updateBaseRecord(const ks::process::ProcessRecord& bas
         refreshCpuCoreView(true);
     }
     refreshDetailTabTexts();
+    if (m_processNetworkPage) m_processNetworkPage->updateRateSnapshot(m_baseRecord);
     if (shouldTryStaticBackgroundRefresh || identityChanged)
     {
         requestAsyncStaticDetailRefresh(true);
@@ -2344,6 +2351,10 @@ void ProcessDetailWindow::setPerformanceHistory(std::vector<PerformanceHistorySa
         }
     }
     refreshPerformanceHistoryCharts();
+    if (m_processNetworkPage && !m_performanceHistory.empty()) {
+        const auto& sample = m_performanceHistory.back();
+        m_processNetworkPage->setRates(sample.networkRxKBps, sample.networkTxKBps, sample.networkUsageKnown);
+    }
 }
 
 void ProcessDetailWindow::appendPerformanceHistorySample(const PerformanceHistorySample& sample)
@@ -2360,6 +2371,7 @@ void ProcessDetailWindow::appendPerformanceHistorySample(const PerformanceHistor
         m_performanceHistory.pop_front();
     }
     refreshPerformanceHistoryCharts();
+    if (m_processNetworkPage) m_processNetworkPage->setRates(sample.networkRxKBps, sample.networkTxKBps, sample.networkUsageKnown);
 }
 
 void ProcessDetailWindow::setCpuCoreViewSample(CpuCoreViewSample sample)
@@ -2805,7 +2817,7 @@ void ProcessDetailWindow::initializeUi()
     m_tabWidget->addTab(m_moduleTab, QIcon(":/Icon/process_list.svg"), "模块");
     m_tabWidget->addTab(m_embeddedHandleTab, QIcon(":/Icon/handle_refresh.svg"), "句柄");
     m_tabWidget->addTab(m_embeddedMemoryTab, QIcon(":/Icon/process_list.svg"), "内存");
-    m_tabWidget->addTab(m_embeddedNetworkTab, QIcon(":/Icon/process_details.svg"), "网络连接");
+    m_tabWidget->addTab(m_embeddedNetworkTab, QIcon(":/Icon/process_details.svg"), "网络监控");
     m_tabWidget->addTab(m_soundSourceTab, QIcon(":/Icon/sound_source.svg"), "声音来源");
     m_tabWidget->addTab(m_embeddedWindowTab, QIcon(":/Icon/process_tree.svg"), "窗口列表");
     m_tabWidget->addTab(m_tokenTab, QIcon(":/Icon/process_critical.svg"), "令牌");
@@ -3312,7 +3324,7 @@ void ProcessDetailWindow::initializeEmbeddedNetworkTab()
     m_embeddedNetworkLayout->setContentsMargins(0, 0, 0, 0);
     m_embeddedNetworkLayout->setSpacing(0);
     m_embeddedNetworkPlaceholder = new QLabel(
-        QStringLiteral("网络连接视图将在首次进入本页时加载。"),
+        QStringLiteral("网络监控将在首次进入本页时加载。"),
         m_embeddedNetworkTab);
     m_embeddedNetworkPlaceholder->setAlignment(Qt::AlignCenter);
     m_embeddedNetworkPlaceholder->setStyleSheet(
@@ -3323,46 +3335,24 @@ void ProcessDetailWindow::initializeEmbeddedNetworkTab()
 void ProcessDetailWindow::ensureEmbeddedNetworkView()
 {
     if (m_embeddedNetworkLayout == nullptr || !isCurrentEmbeddedPage(m_embeddedNetworkTab, m_tabWidget)) return;
-    if (m_embeddedNetworkDock != nullptr && !m_embeddedNetworkTab->property(kEmbeddedViewContextPendingProperty).toBool()) return;
+    if (m_processNetworkPage != nullptr) return;
     if (!markEmbeddedViewBuildPending(m_embeddedNetworkTab)) return;
-
     const QPointer<QWidget> page(m_embeddedNetworkTab);
-    const std::uint32_t targetProcessId = m_baseRecord.pid;
-    const std::uint64_t creationTime = m_baseRecord.creationTime100ns;
-    QTimer::singleShot(kEmbeddedViewBuildFirstStageDelayMs, this, [this, page, targetProcessId, creationTime]
-    {
+    const auto targetRecord = m_baseRecord;
+    QTimer::singleShot(kEmbeddedViewBuildFirstStageDelayMs, this, [this, page, targetRecord] {
         if (!page || page != m_embeddedNetworkTab || !isCurrentEmbeddedPage(page, m_tabWidget)
-            || targetProcessId != m_baseRecord.pid || creationTime != m_baseRecord.creationTime100ns)
-        {
-            clearEmbeddedViewBuildPending(page);
-            return;
+            || targetRecord.pid != m_baseRecord.pid || targetRecord.creationTime100ns != m_baseRecord.creationTime100ns) {
+            clearEmbeddedViewBuildPending(page); return;
         }
         const ks::ui::ScopedWidgetThemePreparation prepareMountedTab(page);
-        if (m_embeddedNetworkDock == nullptr)
-        {
-            m_embeddedNetworkDock = new NetworkDock(page, NetworkDock::ConstructScope::ProcessConnections);
-            m_embeddedNetworkDock->hide();
-            attachEmbeddedDockToTabLayout(m_embeddedNetworkLayout, m_embeddedNetworkPlaceholder, m_embeddedNetworkDock);
-        m_embeddedNetworkDock->setProcessDetailConnectionScope();
-            page->setProperty(kEmbeddedViewContextPendingProperty, true);
-            m_embeddedNetworkDock->show();
+        m_processNetworkPage = new ProcessNetworkPage(targetRecord, page);
+        m_processNetworkPage->openFullMonitorRequested = [this](std::uint32_t targetPid) { emit requestStartFullNetworkMonitor(targetPid); };
+        attachEmbeddedDockToTabLayout(m_embeddedNetworkLayout, m_embeddedNetworkPlaceholder, m_processNetworkPage);
+        if (!m_performanceHistory.empty()) {
+            const auto& sample = m_performanceHistory.back();
+            m_processNetworkPage->setRates(sample.networkRxKBps, sample.networkTxKBps, sample.networkUsageKnown);
         }
-        QTimer::singleShot(kEmbeddedViewBuildNextStageDelayMs, this, [this, page, targetProcessId, creationTime]
-        {
-            if (!page || page != m_embeddedNetworkTab || !isCurrentEmbeddedPage(page, m_tabWidget)
-                || targetProcessId != m_baseRecord.pid || creationTime != m_baseRecord.creationTime100ns)
-            {
-                // A mounted page keeps its pending context for the next real Show.
-                clearEmbeddedViewBuildPending(page);
-                return;
-            }
-            if (m_embeddedNetworkDock != nullptr)
-            {
-                m_embeddedNetworkDock->focusConnectionsByPids(QVector<quint32>{ targetProcessId });
-                page->setProperty(kEmbeddedViewContextPendingProperty, false);
-            }
-            clearEmbeddedViewBuildPending(page);
-        });
+        clearEmbeddedViewBuildPending(page);
     });
 }
 

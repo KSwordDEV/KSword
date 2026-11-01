@@ -75,6 +75,18 @@ namespace ks::process
             return Operation::None;
         }
 
+        bool RestartIfActive()
+        {
+            std::lock_guard<std::mutex> guard(m_mutex);
+            if (m_closing || !m_desired || !m_active || m_workerScheduled) return false;
+            m_active = false;
+            ++m_generation;
+            ++m_requestRevision;
+            m_stopRequired = m_owned;
+            m_workerScheduled = true;
+            return true;
+        }
+
         void CompleteStart(const bool started, const bool ownedResources = false)
         {
             std::lock_guard<std::mutex> guard(m_mutex);

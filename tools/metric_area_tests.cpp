@@ -103,7 +103,7 @@ int main(int argc,char** argv){
     assert(!MetricProbe::metricAreaIncludesProcess(static_cast<int>(Column::Cpu),idle));
     idle.processName="application.exe";
     assert(MetricProbe::metricAreaIncludesProcess(static_cast<int>(Column::Cpu),idle));
-    ks::process::ProcessRecord traffic;traffic.netTxKBps=3;traffic.netRxKBps=11;traffic.netKBps=999;
+    ks::process::ProcessRecord traffic;traffic.networkUsageKnown=true;traffic.netTxKBps=3;traffic.netRxKBps=11;traffic.netKBps=999;
     assert(MetricProbe::metricAreaNetworkValue(traffic,0)==3);
     assert(MetricProbe::metricAreaNetworkValue(traffic,1)==11);
     assert(MetricProbe::metricAreaNetworkValue(traffic,2)==14);

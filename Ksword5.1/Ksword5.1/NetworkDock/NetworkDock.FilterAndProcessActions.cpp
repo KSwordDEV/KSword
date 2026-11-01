@@ -1,6 +1,8 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/FlowLayout.h"
+#include "../UI/ParameterWorkspace.h"
 
 #include <QCompleter>
 #include <QCoreApplication>
@@ -23,6 +25,7 @@
 #include <QStandardItemModel>
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -34,6 +37,33 @@ using namespace network_dock_detail;
 
 namespace
 {
+    bool tryParseMonitorAddressText(const QString& input, std::pair<std::uint32_t,std::uint32_t>& ipv4Range,
+        ks::r3::network::NetworkAddressPrefix& ipv6Prefix, bool& ipv6, QString& normalized)
+    {
+        ipv6=false;
+        if(tryParseIpv4RangeText(input,ipv4Range,normalized))return true;
+        const auto text=input.trimmed();
+        if(!ks::r3::network::ParseNetworkAddressPrefix(text.toStdWString(),ipv6Prefix)||ipv6Prefix.family!=6)return false;
+        wchar_t address[INET6_ADDRSTRLEN]{};
+        if(!InetNtopW(AF_INET6,ipv6Prefix.address.data(),address,INET6_ADDRSTRLEN))return false;
+        normalized=QString::fromWCharArray(address);
+        if(text.contains(QLatin1Char('/')))normalized+=QLatin1Char('/')+QString::number(ipv6Prefix.prefixLength);
+        ipv6=true;return true;
+    }
+
+    bool monitorAddressMatches(const QString& input,const std::vector<std::pair<std::uint32_t,std::uint32_t>>& ipv4Ranges,
+        const std::vector<ks::r3::network::NetworkAddressPrefix>& ipv6Prefixes)
+    {
+        if(ipv4Ranges.empty()&&ipv6Prefixes.empty())return true;
+        const auto text=input.trimmed();
+        if(text.contains(QLatin1Char('/')))return false;
+        std::uint32_t v4=0;
+        if(tryParseIpv4Text(text,v4))return std::any_of(ipv4Ranges.begin(),ipv4Ranges.end(),[v4](const auto& range){return v4>=range.first&&v4<=range.second;});
+        ks::r3::network::NetworkAddressPrefix address;
+        if(!ks::r3::network::ParseNetworkAddressPrefix(text.toStdWString(),address)||address.family!=6)return false;
+        return std::any_of(ipv6Prefixes.begin(),ipv6Prefixes.end(),[&address](const auto& prefix){return ks::r3::network::NetworkAddressMatchesPrefix(address,prefix);});
+    }
+
     // kMaxMonitorProcessIconExtractPerRound：
     // - 单轮后台补图标的上限；
     // - 首次刷新时系统里可能有 300+ 进程，一次全量冷查 Shell 图标会长时间占用线程池，
@@ -695,17 +725,16 @@ void NetworkDock::addMonitorFilterRuleGroup()
     separatorLine->setFrameShadow(QFrame::Sunken);
     rootLayout->addWidget(separatorLine);
 
-    auto* fieldRowLayout = new QHBoxLayout();
+    auto* fieldRowLayout = new QVBoxLayout();
     fieldRowLayout->setSpacing(8);
 
     QWidget* processBlock = new QWidget(groupState->containerWidget);
-    processBlock->setMinimumWidth(340);
+    processBlock->setMinimumWidth(0);
     auto* processBlockLayout = new QVBoxLayout(processBlock);
     processBlockLayout->setContentsMargins(0, 0, 0, 0);
     processBlockLayout->setSpacing(4);
 
-    auto* processTopLayout = new QHBoxLayout();
-    processTopLayout->setSpacing(4);
+    auto* processTopLayout = new ks::ui::FlowLayout(nullptr, 0, 4, 4);
     QLabel* processLabel = new QLabel(QStringLiteral("进程"), processBlock);
     groupState->processInputEdit = new QLineEdit(processBlock);
     groupState->processInputEdit->setPlaceholderText(QStringLiteral("输入 PID 或进程名"));
@@ -730,11 +759,12 @@ void NetworkDock::addMonitorFilterRuleGroup()
     groupState->processInputEdit->setCompleter(groupState->processCompleter);
 
     processTopLayout->addWidget(processLabel);
-    processTopLayout->addWidget(groupState->processInputEdit, 1);
+    processTopLayout->addExpandingWidget(groupState->processInputEdit, 120);
     processTopLayout->addWidget(groupState->addProcessButton);
     processTopLayout->addWidget(groupState->removeInvalidProcessButton);
     processTopLayout->addWidget(groupState->clearProcessButton);
-    ks::ui::NormalizeToolbarRow(processTopLayout);
+    for (auto* control : std::array<QWidget*, 4>{groupState->processInputEdit, groupState->addProcessButton,
+        groupState->removeInvalidProcessButton, groupState->clearProcessButton}) ks::ui::NormalizeToolbarControl(control);
 
     groupState->processTable = new ks::ui::VisibleTableWidget(processBlock);
     groupState->processTable->setMinimumHeight(56);
@@ -759,13 +789,13 @@ void NetworkDock::addMonitorFilterRuleGroup()
             fieldState.labelText = labelText;
 
             QWidget* block = new QWidget(groupStatePtr->containerWidget);
-            block->setMinimumWidth(minimumWidth);
+            Q_UNUSED(minimumWidth);
+            block->setMinimumWidth(0);
             auto* blockLayout = new QVBoxLayout(block);
             blockLayout->setContentsMargins(0, 0, 0, 0);
             blockLayout->setSpacing(4);
 
-            auto* topLayout = new QHBoxLayout();
-            topLayout->setSpacing(4);
+            auto* topLayout = new ks::ui::FlowLayout(nullptr, 0, 4, 4);
             QLabel* label = new QLabel(labelText, block);
             fieldState.inputEdit = new QLineEdit(block);
             fieldState.inputEdit->setPlaceholderText(placeholderText);
@@ -779,10 +809,11 @@ void NetworkDock::addMonitorFilterRuleGroup()
                 QStringLiteral("清空本条件已添加的所有过滤项"));
 
             topLayout->addWidget(label);
-            topLayout->addWidget(fieldState.inputEdit, 1);
+            topLayout->addExpandingWidget(fieldState.inputEdit, 120);
             topLayout->addWidget(fieldState.addButton);
             topLayout->addWidget(fieldState.clearButton);
-            ks::ui::NormalizeToolbarRow(topLayout);
+            for (auto* control : std::array<QWidget*, 3>{fieldState.inputEdit, fieldState.addButton, fieldState.clearButton})
+                ks::ui::NormalizeToolbarControl(control);
 
             fieldState.tableWidget = new ks::ui::VisibleTableWidget(block);
             fieldState.tableWidget->setMinimumHeight(56);
@@ -813,13 +844,13 @@ void NetworkDock::addMonitorFilterRuleGroup()
     buildTextFieldBlock(
         groupState->localAddressField,
         QStringLiteral("本地地址"),
-        QStringLiteral("如 192.168.1.0/24"),
+        QStringLiteral("如 192.168.1.0/24 或 2001:db8::/32"),
         MonitorTextRuleFieldKind::LocalAddress,
         240);
     buildTextFieldBlock(
         groupState->remoteAddressField,
         QStringLiteral("远程地址"),
-        QStringLiteral("如 8.8.8.8 或 10.0.0.1-10.0.0.20"),
+        QStringLiteral("IPv4/IPv6、CIDR 或 IPv4 范围"),
         MonitorTextRuleFieldKind::RemoteAddress,
         260);
     buildTextFieldBlock(
@@ -1232,7 +1263,8 @@ void NetworkDock::addTextFilterItemsByInput(const int groupId, const MonitorText
         if (fieldKind == MonitorTextRuleFieldKind::LocalAddress || fieldKind == MonitorTextRuleFieldKind::RemoteAddress)
         {
             UInt32Range ipv4Range{};
-            parseOk = tryParseIpv4RangeText(token, ipv4Range, normalizedText);
+            ks::r3::network::NetworkAddressPrefix ipv6Prefix;bool ipv6=false;
+            parseOk = tryParseMonitorAddressText(token, ipv4Range, ipv6Prefix, ipv6, normalizedText);
         }
         else if (fieldKind == MonitorTextRuleFieldKind::LocalPort || fieldKind == MonitorTextRuleFieldKind::RemotePort)
         {
@@ -1321,6 +1353,18 @@ void NetworkDock::clearAllMonitorFilterConfigurations()
     rebuildMonitorFilterRuleGroupUi();
     resetPacketTimelineToCurrentRange();
     applyMonitorFilters();
+}
+
+void NetworkDock::focusTrafficByPid(const quint32 processId, const bool startCapture)
+{
+    if (!processId || !m_trafficMonitorPage) return;
+    m_trafficFocusPid = processId;
+    m_sideTabWidget->setCurrentWidget(m_trafficMonitorPage);
+    m_clearTrafficFocusButton->setVisible(true);
+    m_clearTrafficFocusButton->setToolTip(ks::i18n::sourceText(QStringLiteral("当前仅显示 PID %1；返回后恢复原规则组，原配置不会被覆盖。")).arg(processId));
+    resetPacketTimelineToCurrentRange();
+    updateMonitorFilterStateLabel(); rebuildMonitorTableByFilter();
+    if (startCapture && !m_monitorRunning) startTrafficMonitor();
 }
 
 void NetworkDock::addOrTrackProcessPid(const std::uint32_t pidValue)
@@ -1422,8 +1466,9 @@ bool NetworkDock::tryCompileMonitorFilterGroups(
                         fieldKind == MonitorTextRuleFieldKind::RemoteAddress)
                     {
                         UInt32Range range{};
+                        ks::r3::network::NetworkAddressPrefix ipv6Prefix;bool ipv6=false;
                         QString normalizedText;
-                        if (!tryParseIpv4RangeText(ruleText, range, normalizedText))
+                        if (!tryParseMonitorAddressText(ruleText, range, ipv6Prefix, ipv6, normalizedText))
                         {
                             errorTextOut = QStringLiteral("规则组%1 中 %2 条目无效：%3")
                                 .arg(displayIndex)
@@ -1433,11 +1478,13 @@ bool NetworkDock::tryCompileMonitorFilterGroups(
                         }
                         if (fieldKind == MonitorTextRuleFieldKind::LocalAddress)
                         {
-                            compiledGroup.localAddressRangeList.push_back(range);
+                            if(ipv6)compiledGroup.localIpv6PrefixList.push_back(ipv6Prefix);
+                            else compiledGroup.localAddressRangeList.push_back(range);
                         }
                         else
                         {
-                            compiledGroup.remoteAddressRangeList.push_back(range);
+                            if(ipv6)compiledGroup.remoteIpv6PrefixList.push_back(ipv6Prefix);
+                            else compiledGroup.remoteAddressRangeList.push_back(range);
                         }
                     }
                     else if (fieldKind == MonitorTextRuleFieldKind::LocalPort ||
@@ -1533,6 +1580,10 @@ void NetworkDock::clearMonitorFilters()
 
 void NetworkDock::updateMonitorFilterStateLabel()
 {
+    if (m_monitorFilterStateLabel && m_trafficFocusPid) {
+        m_monitorFilterStateLabel->setText(ks::i18n::sourceText(QStringLiteral("当前范围：PID %1。规则组暂不参与筛选，点击“返回规则组筛选”恢复。")).arg(m_trafficFocusPid));
+        return;
+    }
     if (m_monitorFilterStateLabel == nullptr)
     {
         return;
@@ -1557,13 +1608,13 @@ void NetworkDock::updateMonitorFilterStateLabel()
         {
             conditionList.push_back(QStringLiteral("进程%1项").arg(groupFilter.processIdList.size()));
         }
-        if (!groupFilter.localAddressRangeList.empty())
+        if (!groupFilter.localAddressRangeList.empty() || !groupFilter.localIpv6PrefixList.empty())
         {
-            conditionList.push_back(QStringLiteral("本地地址%1项").arg(groupFilter.localAddressRangeList.size()));
+            conditionList.push_back(QStringLiteral("本地地址%1项").arg(groupFilter.localAddressRangeList.size()+groupFilter.localIpv6PrefixList.size()));
         }
-        if (!groupFilter.remoteAddressRangeList.empty())
+        if (!groupFilter.remoteAddressRangeList.empty() || !groupFilter.remoteIpv6PrefixList.empty())
         {
-            conditionList.push_back(QStringLiteral("远程地址%1项").arg(groupFilter.remoteAddressRangeList.size()));
+            conditionList.push_back(QStringLiteral("远程地址%1项").arg(groupFilter.remoteAddressRangeList.size()+groupFilter.remoteIpv6PrefixList.size()));
         }
         if (!groupFilter.localPortRangeList.empty())
         {
@@ -1609,47 +1660,8 @@ bool NetworkDock::packetMatchesMonitorFilterGroup(
         }
     }
 
-    if (!groupFilter.localAddressRangeList.empty())
-    {
-        std::uint32_t localIpHostOrder = 0;
-        if (!tryParseIpv4Text(toQString(packetRecord.localAddress), localIpHostOrder))
-        {
-            return false;
-        }
-
-        const bool matched = std::any_of(
-            groupFilter.localAddressRangeList.begin(),
-            groupFilter.localAddressRangeList.end(),
-            [localIpHostOrder](const UInt32Range& range)
-            {
-                return localIpHostOrder >= range.first && localIpHostOrder <= range.second;
-            });
-        if (!matched)
-        {
-            return false;
-        }
-    }
-
-    if (!groupFilter.remoteAddressRangeList.empty())
-    {
-        std::uint32_t remoteIpHostOrder = 0;
-        if (!tryParseIpv4Text(toQString(packetRecord.remoteAddress), remoteIpHostOrder))
-        {
-            return false;
-        }
-
-        const bool matched = std::any_of(
-            groupFilter.remoteAddressRangeList.begin(),
-            groupFilter.remoteAddressRangeList.end(),
-            [remoteIpHostOrder](const UInt32Range& range)
-            {
-                return remoteIpHostOrder >= range.first && remoteIpHostOrder <= range.second;
-            });
-        if (!matched)
-        {
-            return false;
-        }
-    }
+    if (!monitorAddressMatches(toQString(packetRecord.localAddress),groupFilter.localAddressRangeList,groupFilter.localIpv6PrefixList))return false;
+    if (!monitorAddressMatches(toQString(packetRecord.remoteAddress),groupFilter.remoteAddressRangeList,groupFilter.remoteIpv6PrefixList))return false;
 
     if (!groupFilter.localPortRangeList.empty())
     {
@@ -1931,7 +1943,8 @@ bool NetworkDock::loadMonitorFilterConfigFromPath(const QString& filePath, const
                         fieldKind == MonitorTextRuleFieldKind::RemoteAddress)
                     {
                         UInt32Range range{};
-                        parseOk = tryParseIpv4RangeText(token, range, normalizedText);
+                        ks::r3::network::NetworkAddressPrefix ipv6Prefix;bool ipv6=false;
+                        parseOk = tryParseMonitorAddressText(token, range, ipv6Prefix, ipv6, normalizedText);
                     }
                     else if (fieldKind == MonitorTextRuleFieldKind::LocalPort ||
                         fieldKind == MonitorTextRuleFieldKind::RemotePort)

@@ -12503,6 +12503,17 @@ void MainWindow::focusNetworkDockByPids(const QString& pidListText)
     }
 }
 
+void MainWindow::startNetworkMonitorByPid(const quint32 pid)
+{
+    if (!pid) return;
+    if (m_dockNetwork) ensureDockContentInitialized(m_dockNetwork);
+    if (m_networkWidget) m_networkWidget->focusTrafficByPid(pid);
+    if (m_dockNetwork) {
+        withTemporaryNonTopMostForDockSwitch([this] { m_dockNetwork->raise(); });
+        m_dockNetwork->setVisible(true);
+    }
+}
+
 void MainWindow::focusWindowDockByPids(const QString& pidListText)
 {
     const QVector<quint32> processIds = parseProcessPidListText(pidListText);

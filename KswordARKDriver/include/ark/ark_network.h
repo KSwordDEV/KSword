@@ -3,6 +3,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 #include "driver/KswordArkNetworkIoctl.h"
+#include "ark_network_managed.h"
 
 EXTERN_C_START
 

@@ -168,6 +168,7 @@
     <ClInclude Include="CliCore.h" />
     <ClInclude Include="CliText.h" />
     <ClInclude Include="..\shared\driver\KswordArkMemoryResult.h" />
+    <ClInclude Include="..\shared\driver\KswordArkManagedNetworkIoctl.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CommandRegistry.cpp" />

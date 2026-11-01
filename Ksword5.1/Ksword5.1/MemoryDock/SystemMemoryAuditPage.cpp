@@ -1055,6 +1055,7 @@ void SystemMemoryAuditPage::initializeUi()
     };
     m_detailTabs->addTab(m_pfnPage, ks::ui::MemoryNavigationTabTitle(ks::ui::MemoryNavigationGroup::Audit, 5));
     m_hyperVPage = new HyperVMemoryPage(m_detailTabs);
+    m_hyperVPage->metricAreaStateChanged = [this] { updateMetricAreaAction(); };
     m_detailTabs->addTab(m_hyperVPage, ks::ui::MemoryNavigationTabTitle(ks::ui::MemoryNavigationGroup::Audit, 6));
     m_pfnPage->snapshotReady = [this](const std::shared_ptr<ksword::pfn::Scan>& scan) {
         m_hyperVPage->setPfnContext(scan);
@@ -1363,6 +1364,8 @@ void SystemMemoryAuditPage::initializeConnections()
         refreshSnapshot();
     });
     connect(m_detailTabs, &QTabWidget::currentChanged, this, [this]() {
+        if (m_openMetricAreaWhenPublished >= 0 && m_detailTabs->currentIndex() != m_openMetricAreaWhenPublished + 1)
+            m_openMetricAreaWhenPublished = -1;
         const bool showSnapshot = m_detailTabs->currentWidget() != m_pfnPage && m_detailTabs->currentWidget() != m_hyperVPage;
         m_detailText->setVisible(showSnapshot);
         m_statusLabel->setVisible(showSnapshot);
@@ -3022,6 +3025,18 @@ void SystemMemoryAuditPage::invalidateTableProjections()
 void SystemMemoryAuditPage::updateMetricAreaAction()
 {
     if (!m_metricAreaButton || !m_detailTabs) return;
+    if (m_detailTabs->currentIndex() == 0) {
+        m_metricAreaButton->setEnabled(usePfnOverview() ? m_pfnPage && m_pfnPage->hasMetricAreaData() : m_hasSnapshot);
+        m_metricAreaButton->setToolTip(usePfnOverview()
+            ? localized("Visualize in-use physical pages by process from the current PFN ledger.")
+            : localized("Open the process memory table from the current snapshot and visualize it without collecting again."));
+        return;
+    }
+    if (m_hyperVPage && m_detailTabs->currentWidget() == m_hyperVPage) {
+        m_metricAreaButton->setEnabled(m_hyperVPage->hasMetricAreaData());
+        m_metricAreaButton->setToolTip(localized("Visualize the current quantitative Hyper-V table without collecting again."));
+        return;
+    }
     if (m_pfnPage && m_detailTabs->currentWidget() == m_pfnPage) {
         m_metricAreaButton->setEnabled(m_pfnPage->hasMetricAreaData());
         m_metricAreaButton->setToolTip(m_pfnPage->hasMetricAreaData()
@@ -3042,6 +3057,18 @@ void SystemMemoryAuditPage::updateMetricAreaAction()
 
 void SystemMemoryAuditPage::openMetricAreaView()
 {
+    if (m_detailTabs->currentIndex() == 0) {
+        if (usePfnOverview() && m_pfnPage && m_pfnPage->hasMetricAreaData()) { m_pfnPage->openMetricAreaView(0); return; }
+        if (!m_hasSnapshot) return;
+        m_openMetricAreaWhenPublished = 1;
+        m_detailTabs->setCurrentIndex(2);
+        rebuildCurrentDetailView();
+        if (m_openMetricAreaWhenPublished == 1 && m_metricAreaProjections[1] && m_publishedVersions[1] == m_projectionVersions[1]) {
+            m_openMetricAreaWhenPublished = -1; openMetricAreaView();
+        }
+        return;
+    }
+    if (m_hyperVPage && m_detailTabs->currentWidget() == m_hyperVPage) { m_hyperVPage->openMetricAreaView(); return; }
     if (m_pfnPage && m_detailTabs->currentWidget() == m_pfnPage) { m_pfnPage->openMetricAreaView(); return; }
     const int kind = m_detailTabs->currentIndex() - 1;
     if (kind < 0 || kind >= 4 || !m_metricAreaProjections[kind]
@@ -3234,6 +3261,9 @@ void SystemMemoryAuditPage::publishTableProjection(const std::shared_ptr<Project
         m_metricAreaProjections[kind] = projection;
         refreshMetricAreaView(projection->kind);
         updateMetricAreaAction(); updateStatus();
+        if (m_openMetricAreaWhenPublished == static_cast<int>(kind)) {
+            m_openMetricAreaWhenPublished = -1; openMetricAreaView();
+        }
     }
 }
 
@@ -3268,6 +3298,7 @@ void SystemMemoryAuditPage::pollJobs()
         const auto kind = static_cast<std::size_t>(job->kind);
         if (!job->cancel.load() && job->version == m_projectionVersions[kind]) {
             if (job->failed) {
+                if (m_openMetricAreaWhenPublished == static_cast<int>(kind)) m_openMetricAreaWhenPublished = -1;
                 m_failedVersions[kind] = job->version;
                 m_statusLabel->setText(localized("Memory table projection failed"));
                 const std::array<AuditTableView*, 4> tables{m_userResidencyTable, m_processTable, m_poolTagTable, m_bigPoolTable};

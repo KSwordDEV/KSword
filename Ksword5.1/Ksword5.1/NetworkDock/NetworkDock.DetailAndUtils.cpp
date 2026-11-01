@@ -92,6 +92,7 @@ bool NetworkDock::packetPassesMonitorFilter(const ks::network::PacketRecord& pac
         return false;
     }
 
+    if (m_trafficFocusPid) return packetRecord.processId == m_trafficFocusPid;
     if (m_activeMonitorFilterGroupList.empty())
     {
         return true;
@@ -125,6 +126,7 @@ bool NetworkDock::packetPassesMonitorFilter(
         return false;
     }
 
+    if (m_trafficFocusPid) return packetRecord.processId == m_trafficFocusPid;
     if (m_activeMonitorFilterGroupList.empty())
     {
         return true;

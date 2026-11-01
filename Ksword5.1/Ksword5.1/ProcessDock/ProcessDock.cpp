@@ -149,6 +149,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include "../../../shared/usermode/backend/network/NetworkRate.h"
 #include <TlHelp32.h>
 
 #pragma comment(lib, "Advapi32.lib")
@@ -204,9 +205,9 @@ namespace
         const std::shared_ptr<ks::process::ProcessEtwCaptureLifecycle>& lifecycle,
         const std::shared_ptr<Service>& service,
         const bool desired,
-        StartedCallback startedCallback)
+        StartedCallback startedCallback, const bool restartActive = false)
     {
-        if (service == nullptr || !lifecycle->Request(desired)) return;
+        if (service == nullptr || !(restartActive ? lifecycle->RestartIfActive() : lifecycle->Request(desired))) return;
         QRunnable* task = QRunnable::create([lifecycle, service, startedCallback]()
         {
             using Operation = ks::process::ProcessEtwCaptureLifecycle::Operation;
@@ -4845,7 +4846,20 @@ void ProcessDock::ensureProcessNetworkTrafficCaptureStarted()
         m_processNetworkBaselineResetRequired = true;
         return;
     }
-    if (m_processNetworkTrafficCaptureStarted && !m_processNetworkCaptureLifecycle->CleanupPending()) return;
+    if (m_processNetworkCaptureLifecycle->CleanupPending()) {
+        m_processNetworkBaselineResetRequired = true;
+        return;
+    }
+    const bool restart = m_processNetworkTrafficCaptureStarted && m_processNetworkCaptureLifecycle->IsSettledActive()
+        && !m_processNetworkTrafficService->IsRunning();
+    if (restart) {
+        const auto now = ::GetTickCount64();
+        if (m_networkRecoveryAttempts >= 3 || now < m_networkRecoveryNotBeforeMs) return;
+        ++m_networkRecoveryAttempts;
+        m_networkRecoveryNotBeforeMs = now + 5000;
+        m_processNetworkBaselineResetRequired = true;
+    }
+    if (!restart && m_processNetworkTrafficCaptureStarted && !m_processNetworkCaptureLifecycle->CleanupPending()) return;
     m_processNetworkTrafficCaptureStarted = true;
     requestProcessEtwCapture(
         m_processNetworkCaptureLifecycle, m_processNetworkTrafficService, true,
@@ -4863,11 +4877,13 @@ void ProcessDock::ensureProcessNetworkTrafficCaptureStarted()
                         .arg(QString::fromStdString(service.LastErrorText())).toStdString()
                     << eol;
             }
-        });
+        }, restart);
 }
 
 void ProcessDock::stopProcessNetworkTrafficCapture()
 {
+    m_networkRecoveryAttempts = 0;
+    m_networkRecoveryNotBeforeMs = 0;
     m_processNetworkBaselineResetRequired = true;
     m_processNetworkTrafficCaptureStarted = false;
     requestProcessEtwCapture(
@@ -5364,6 +5380,8 @@ void ProcessDock::connectDetailWindowNavigation(ProcessDetailWindow* detailWindo
         [this](const std::uint32_t targetPid) {
             (void)invokeMainWindowPidListSlot("focusNetworkDockByPids", QString::number(targetPid));
         });
+    connect(detailWindow, &ProcessDetailWindow::requestStartFullNetworkMonitor, this,
+        [this](const std::uint32_t pid) { (void)invokeMainWindowPidSlot("startNetworkMonitorByPid", pid); });
     connect(detailWindow, &ProcessDetailWindow::requestOpenWindowDockByPid, this,
         [this](const std::uint32_t targetPid) {
             (void)invokeMainWindowPidListSlot("focusWindowDockByPids", QString::number(targetPid));
@@ -8119,10 +8137,17 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
         cpuCoreSnapshotDue,
         previousCpuCoreUsageSnapshot]() mutable {
         std::unordered_map<std::uint32_t, NetworkTrafficCounters> networkTrafficSnapshot;
-        const bool networkSnapshotValid = networkService != nullptr &&
-            networkLifecycle->SnapshotIfCurrent(networkCaptureGeneration, [&]()
+        const auto networkHealth = networkService ? networkService->SnapshotHealth() : ks::network::ProcessNetworkEtwHealth{};
+        bool networkSnapshotValid = false;
+        std::uint64_t networkSnapshotTick = 0;
+        if (networkService) (void)networkLifecycle->SnapshotIfCurrent(networkCaptureGeneration, [&]()
             {
-                networkTrafficSnapshot = ProcessDock::snapshotProcessNetworkTrafficCounters(networkService);
+                const auto health = networkService->SnapshotHealth();
+                if (health.isRunning && !health.dataLossDetected && health.acceptedEvents != 0) {
+                    networkTrafficSnapshot = ProcessDock::snapshotProcessNetworkTrafficCounters(networkService);
+                    networkSnapshotTick = steadyNow100ns();
+                    networkSnapshotValid = true;
+                }
             });
         if (resetNetworkBaseline || !networkSnapshotValid)
         {
@@ -8136,6 +8161,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
                     : networkTrafficSnapshot.find(cached->second.record.pid);
                 pair.second.networkRxBytes = counter == networkTrafficSnapshot.end() ? 0 : counter->second.rxBytes;
                 pair.second.networkTxBytes = counter == networkTrafficSnapshot.end() ? 0 : counter->second.txBytes;
+                pair.second.hasNetworkBaseline = false;
             }
         }
 
@@ -8163,11 +8189,13 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             previousCache,
             previousCounters,
             networkTrafficSnapshot,
-            cpuCount);
+            cpuCount, networkSnapshotValid, networkSnapshotTick);
         refreshResult.cpuCoreUsageSnapshot = std::move(cpuCoreUsageSnapshot);
         refreshResult.cpuCoreCaptureGeneration = cpuCoreCaptureGeneration;
         refreshResult.networkCaptureGeneration = networkCaptureGeneration;
         refreshResult.networkSnapshotValid = networkSnapshotValid;
+        refreshResult.networkCaptureState = !networkHealth.isRunning ? 0 : networkHealth.dataLossDetected ? 2 : networkSnapshotValid ? 3 : 1;
+        refreshResult.networkCaptureError = networkHealth.errorText;
 
         if (guard == nullptr)
         {
@@ -8236,6 +8264,11 @@ void ProcessDock::applyRefreshResult(RefreshResult refreshResult, const bool for
     {
         m_processNetworkBaselineResetRequired = false;
     }
+    if (currentEtwCaptureDemand().RefreshAllowed()) ensureProcessNetworkTrafficCaptureStarted();
+    const char* networkStates[] = {"网络采集未启动或已停止", "正在等待有效的网络事件与采样间隔", "网络事件发生丢失，需要重新启动采集", "网络采集正常"};
+    m_networkCaptureStatus = ks::i18n::sourceText(QString::fromUtf8(networkStates[std::clamp(refreshResult.networkCaptureState, 0, 3)]));
+    if (!refreshResult.networkCaptureError.empty()) m_networkCaptureStatus += QLatin1Char('\n') + QString::fromStdString(refreshResult.networkCaptureError);
+    if (m_activityNetworkButton) m_activityNetworkButton->setToolTip(m_networkCaptureStatus);
 
     restorePersistedAffinityForNewProcesses(refreshResult);
 
@@ -8541,7 +8574,7 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
     const std::unordered_map<std::string, CacheEntry>& previousCache,
     const std::unordered_map<std::string, ks::process::CounterSample>& previousCounters,
     const std::unordered_map<std::uint32_t, ProcessDock::NetworkTrafficCounters>& networkTrafficSnapshot,
-    const std::uint32_t logicalCpuCount)
+    const std::uint32_t logicalCpuCount, const bool networkSnapshotAvailable, const std::uint64_t networkSnapshotTick100ns)
 {
     const auto workerStartTime = std::chrono::steady_clock::now();
 
@@ -9152,24 +9185,17 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             nextSample.networkRxBytes = networkCounterIt->second.rxBytes;
             nextSample.networkTxBytes = networkCounterIt->second.txBytes;
         }
-        if (oldSample != nullptr && sampleTick > oldSample->sampleTick100ns)
-        {
-            const double deltaSeconds = static_cast<double>(sampleTick - oldSample->sampleTick100ns) / 10000000.0;
-            if (deltaSeconds > 0.0)
-            {
-                const std::uint64_t deltaRxBytes =
-                    (nextSample.networkRxBytes >= oldSample->networkRxBytes)
-                    ? (nextSample.networkRxBytes - oldSample->networkRxBytes)
-                    : 0ULL;
-                const std::uint64_t deltaTxBytes =
-                    (nextSample.networkTxBytes >= oldSample->networkTxBytes)
-                    ? (nextSample.networkTxBytes - oldSample->networkTxBytes)
-                    : 0ULL;
-                processRecord.netRxKBps = (static_cast<double>(deltaRxBytes) / deltaSeconds) / 1024.0;
-                processRecord.netTxKBps = (static_cast<double>(deltaTxBytes) / deltaSeconds) / 1024.0;
-                processRecord.netKBps = processRecord.netRxKBps + processRecord.netTxKBps;
-            }
-        }
+        nextSample.hasNetworkBaseline = networkSnapshotAvailable;
+        nextSample.networkSampleTick100ns = networkSnapshotTick100ns ? networkSnapshotTick100ns : sampleTick;
+        const ks::network::NetworkRateSample before = oldSample
+            ? ks::network::NetworkRateSample{oldSample->networkRxBytes, oldSample->networkTxBytes,
+                oldSample->networkSampleTick100ns, oldSample->hasNetworkBaseline} : ks::network::NetworkRateSample{};
+        const auto rate = ks::network::CalculateNetworkRate(before,
+            {nextSample.networkRxBytes, nextSample.networkTxBytes, nextSample.networkSampleTick100ns, networkSnapshotAvailable});
+        processRecord.networkUsageKnown = rate.known;
+        processRecord.netRxKBps = rate.receivedKBps;
+        processRecord.netTxKBps = rate.sentKBps;
+        processRecord.netKBps = rate.totalKBps;
         refreshResult.nextCounters[identityKey] = nextSample;
 
         CacheEntry cacheEntry{};
@@ -9747,6 +9773,7 @@ void ProcessDock::updateUsageSummaryInHeader()
     double totalDiskMBps = 0.0;
     double totalGpuPercent = 0.0;
     double totalNetKBps = 0.0;
+    bool anyNetworkKnown = false;
     std::uint64_t totalHandleCount = 0;
 
     const auto accumulateRecord = [this,
@@ -9756,6 +9783,7 @@ void ProcessDock::updateUsageSummaryInHeader()
         &totalDiskMBps,
         &totalGpuPercent,
         &totalNetKBps,
+        &anyNetworkKnown,
         &totalHandleCount](const ks::process::ProcessRecord& processRecord, const bool isExited)
     {
         if (isExited || !processRecordMatchesSearch(processRecord))
@@ -9779,7 +9807,7 @@ void ProcessDock::updateUsageSummaryInHeader()
         }
         totalDiskMBps += processRecord.diskMBps;
         totalGpuPercent += processRecord.gpuPercent;
-        totalNetKBps += processRecord.netKBps;
+        if (processRecord.networkUsageKnown) { totalNetKBps += processRecord.netKBps; anyNetworkKnown = true; }
         totalHandleCount += processRecord.handleCount;
     };
 
@@ -9800,7 +9828,7 @@ void ProcessDock::updateUsageSummaryInHeader()
     headerTexts[toColumnIndex(TableColumn::CommitSize)] += QStringLiteral(" %1 MB").arg(totalCommitMB, 0, 'f', 1);
     headerTexts[toColumnIndex(TableColumn::Disk)] = QString("DISK %1 MB/s").arg(totalDiskMBps, 0, 'f', 2);
     headerTexts[toColumnIndex(TableColumn::Gpu)] = QString("GPU %1%").arg(totalGpuPercent, 0, 'f', 1);
-    headerTexts[toColumnIndex(TableColumn::Net)] = QString("Net %1 KB/s").arg(totalNetKBps, 0, 'f', 2);
+    headerTexts[toColumnIndex(TableColumn::Net)] = anyNetworkKnown ? QString("Net %1 KB/s").arg(totalNetKBps, 0, 'f', 2) : QStringLiteral("Net N/A");
     headerTexts[toColumnIndex(TableColumn::HandleCount)] = QString("句柄数 %1").arg(static_cast<qulonglong>(totalHandleCount));
 
     auto* processSortProxy = static_cast<ProcessTableSortProxy*>(m_processSortProxy);
@@ -9999,6 +10027,7 @@ void ProcessDock::copyProcessActivityDynamicFields(Destination& destination, con
     destination.workingSetMB = source.workingSetMB;
     destination.diskMBps = source.diskMBps;
     destination.netKBps = source.netKBps;
+    destination.networkUsageKnown = source.networkUsageKnown;
     destination.netRxKBps = source.netRxKBps;
     destination.netTxKBps = source.netTxKBps;
     destination.gpuPercent = source.gpuPercent;
@@ -10198,6 +10227,7 @@ void ProcessDock::synchronizeDetailWindowPerformanceHistory(
         detailSample.memoryMB = processPointIt->workingSetMB;
         detailSample.diskMBps = processPointIt->diskMBps;
         detailSample.networkRxKBps = processPointIt->netRxKBps;
+        detailSample.networkUsageKnown = processPointIt->networkUsageKnown;
         detailSample.networkTxKBps = processPointIt->netTxKBps;
         detailSample.gpuPercent = processPointIt->gpuPercent;
         history.push_back(detailSample);
@@ -10236,6 +10266,7 @@ void ProcessDock::appendCurrentPerformanceSamplesToDetailWindows()
         detailSample.memoryMB = record.workingSetMB;
         detailSample.diskMBps = record.diskMBps;
         detailSample.networkRxKBps = record.netRxKBps;
+        detailSample.networkUsageKnown = record.networkUsageKnown;
         detailSample.networkTxKBps = record.netTxKBps;
         detailSample.gpuPercent = record.gpuPercent;
         detailWindow->appendPerformanceHistorySample(detailSample);
@@ -10809,7 +10840,7 @@ QVariant ProcessDock::processNumericSortValue(
     case TableColumn::Gpu:
         return processRecord.gpuPercent;
     case TableColumn::Net:
-        return processRecord.netKBps;
+        return processRecord.networkUsageKnown ? QVariant(processRecord.netKBps) : QVariant();
     case TableColumn::ParentPid:
         return static_cast<double>(processRecord.parentPid);
     case TableColumn::StartTime:
@@ -11077,8 +11108,8 @@ std::vector<ProcessDock::ProcessTableModel::ColumnChange> ProcessDock::processTa
             numericDirty = a.gpuPercent != b.gpuPercent;
             break;
         case TableColumn::Net:
-            displayDirty = a.netRxKBps != b.netRxKBps || a.netTxKBps != b.netTxKBps;
-            numericDirty = a.netKBps != b.netKBps;
+            displayDirty = a.netRxKBps != b.netRxKBps || a.netTxKBps != b.netTxKBps || a.networkUsageKnown != b.networkUsageKnown;
+            numericDirty = a.netKBps != b.netKBps || a.networkUsageKnown != b.networkUsageKnown;
             break;
         case TableColumn::Signature:
             displayDirty = a.signatureState != b.signatureState;
@@ -11361,6 +11392,9 @@ QVariant ProcessDock::processTableData(const ProcessTableRow& tableRow, const in
 
     const ks::process::ProcessRecord& processRecord = tableRow.record;
     const TableColumn tableColumn = static_cast<TableColumn>(column);
+    if (tableColumn == TableColumn::Net && role == Qt::ToolTipRole && !processRecord.networkUsageKnown)
+        return tableRow.activitySnapshotActive
+            ? ks::i18n::sourceText(QStringLiteral("此快照没有有效的网络速率样本。")) : m_networkCaptureStatus;
     if (role == Qt::UserRole)
     {
         // UserRole 作用：
@@ -14183,6 +14217,15 @@ void ProcessDock::showHeaderContextMenu(const QPoint& localPosition)
     columnMenu.setStyleSheet(KswordTheme::ContextMenuStyle());
 
     const int metricColumn = m_processTable->horizontalHeader()->logicalIndexAt(localPosition);
+    QAction* networkRetryAction = nullptr;
+    if (metricColumn == static_cast<int>(TableColumn::Net)) {
+        auto* stateAction = columnMenu.addAction(m_networkCaptureStatus.isEmpty()
+            ? ks::i18n::sourceText(QStringLiteral("正在准备网络统计")) : m_networkCaptureStatus.section(QLatin1Char('\n'), 0, 0));
+        stateAction->setEnabled(false); stateAction->setToolTip(m_networkCaptureStatus);
+        networkRetryAction = columnMenu.addAction(ks::i18n::sourceText(QStringLiteral("重启网络统计")));
+        networkRetryAction->setEnabled(currentEtwCaptureDemand().RefreshAllowed());
+        columnMenu.addSeparator();
+    }
     QAction* areaAction = nullptr;
     if (isMetricAreaColumn(metricColumn)) {
         areaAction = columnMenu.addAction(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
@@ -14222,6 +14265,9 @@ void ProcessDock::showHeaderContextMenu(const QPoint& localPosition)
         return;
     }
     if (selectedAction == areaAction) { openMetricAreaWindow(metricColumn); return; }
+    if (networkRetryAction && selectedAction == networkRetryAction) {
+        stopProcessNetworkTrafficCapture(); ensureProcessNetworkTrafficCaptureStarted(); requestAsyncRefresh(true); return;
+    }
     if (selectedAction == chooserAction)
     {
         showColumnChooserDialog();
@@ -14910,6 +14956,7 @@ QString ProcessDock::formatColumnText(const ks::process::ProcessRecord& processR
     case TableColumn::Gpu:
         return QString::number(processRecord.gpuPercent, 'f', 1) + "%";
     case TableColumn::Net:
+        if (!processRecord.networkUsageKnown) return QStringLiteral("N/A");
         return QStringLiteral("↓%1 / ↑%2 KB/s")
             .arg(processRecord.netRxKBps, 0, 'f', 2)
             .arg(processRecord.netTxKBps, 0, 'f', 2);
@@ -15697,6 +15744,7 @@ ks::process::ProcessRecord ProcessDock::aggregateFriendlyApplicationRecord(
     aggregateRecord.diskMBps = 0.0;
     aggregateRecord.gpuPercent = 0.0;
     aggregateRecord.netKBps = 0.0;
+    aggregateRecord.networkUsageKnown = true;
     aggregateRecord.netRxKBps = 0.0;
     aggregateRecord.netTxKBps = 0.0;
 
@@ -15759,6 +15807,7 @@ ks::process::ProcessRecord ProcessDock::aggregateFriendlyApplicationRecord(
         aggregateRecord.diskMBps += memberRecord.diskMBps;
         aggregateRecord.gpuPercent += memberRecord.gpuPercent;
         aggregateRecord.netKBps += memberRecord.netKBps;
+        aggregateRecord.networkUsageKnown = aggregateRecord.networkUsageKnown && memberRecord.networkUsageKnown;
         aggregateRecord.netRxKBps += memberRecord.netRxKBps;
         aggregateRecord.netTxKBps += memberRecord.netTxKBps;
 

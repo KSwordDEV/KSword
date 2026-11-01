@@ -339,6 +339,7 @@ namespace ks::process
         double diskMBps = 0.0;             // 磁盘吞吐（MB/s）。
         double gpuPercent = 0.0;           // GPU 百分比（R3 通过 PDH GPU Engine 按 PID 聚合）。
         bool gpuUsageKnown = false;        // false 表示 PDH 未热身或查询失败，不能把默认 0 当作实测。
+        bool networkUsageKnown = false;
         double netKBps = 0.0;              // 网络总吞吐（KB/s，等于下行 + 上行）。
         double netRxKBps = 0.0;            // 网络下行吞吐（KB/s，由进程页抓包聚合写入）。
         double netTxKBps = 0.0;            // 网络上行吞吐（KB/s，由进程页抓包聚合写入）。
@@ -544,6 +545,8 @@ namespace ks::process
     {
         std::uint64_t cpuTime100ns = 0;    // 上一轮 CPU 累计值。
         std::uint64_t ioBytes = 0;         // 上一轮 IO 累计值。
+        bool hasNetworkBaseline = false;
+        std::uint64_t networkSampleTick100ns = 0;
         std::uint64_t networkRxBytes = 0;  // 上一轮按 PID 聚合的网络下行累计字节。
         std::uint64_t networkTxBytes = 0;  // 上一轮按 PID 聚合的网络上行累计字节。
         std::uint64_t sampleTick100ns = 0; // 采样时刻（steady_clock 转 100ns）。

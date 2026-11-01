@@ -326,6 +326,7 @@ private:
     std::array<int, 4> m_metricAreaPresentedModes{-1, -1, -1, -1};
     std::array<QStringList, 4> m_metricAreaPresentedLabels;
     QTimer* m_jobsTimer = nullptr;
+    int m_openMetricAreaWhenPublished = -1;
     std::array<std::uint64_t, 4> m_projectionVersions{1, 1, 1, 1}, m_publishedVersions{}, m_failedVersions{};
     std::array<int, 4> m_sortColumns{4, 3, 3, 2};
     std::array<Qt::SortOrder, 4> m_sortOrders{Qt::DescendingOrder, Qt::DescendingOrder, Qt::DescendingOrder, Qt::DescendingOrder};
