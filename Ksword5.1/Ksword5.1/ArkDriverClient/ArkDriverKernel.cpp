@@ -789,7 +789,7 @@ namespace ksword::ark
                 {
                     auto& path = normalized->Modules[index].FullPathName;
                     const auto end = std::find(std::begin(path), std::end(path), 0U);
-                    std::fill(end, std::end(path), 0U);
+                    std::fill(end, std::end(path), UCHAR{0});
                 }
                 return value;
             }
