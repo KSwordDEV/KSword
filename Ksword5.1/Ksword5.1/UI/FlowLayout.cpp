@@ -3,6 +3,7 @@
 #include <QLayoutItem>
 #include <QStyle>
 #include <QWidget>
+#include <algorithm>
 
 namespace ks::ui
 {
@@ -38,6 +39,13 @@ namespace ks::ui
             return;
         }
         m_items.append(item);
+    }
+
+    void FlowLayout::addExpandingWidget(QWidget* const widget, const int minimumWidth)
+    {
+        if (widget == nullptr) return;
+        addWidget(widget);
+        m_expandingMinimumWidths.insert(widget, std::max(1, minimumWidth));
     }
 
     int FlowLayout::horizontalSpacing() const
@@ -91,7 +99,9 @@ namespace ks::ui
         {
             return nullptr;
         }
-        return m_items.takeAt(index);
+        QLayoutItem* const item = m_items.takeAt(index);
+        if (item->widget()) m_expandingMinimumWidths.remove(item->widget());
+        return item;
     }
 
     QSize FlowLayout::minimumSize() const
@@ -166,24 +176,33 @@ namespace ks::ui
             }
 
             const QSize itemHint = item->sizeHint();
-            int next = x + itemHint.width() + spaceX;
+            const bool expanding = widget && m_expandingMinimumWidths.contains(widget);
+            if (expanding && item->isEmpty()) continue;
+            const int minimumWidth = expanding
+                ? std::max(m_expandingMinimumWidths.value(widget), item->minimumSize().width())
+                : itemHint.width();
+            int next = x + minimumWidth + spaceX;
             if (next - spaceX > effective.right() + 1 && lineHeight > 0)
             {
                 // 这一行放不下了：换行。lineHeight > 0 的条件保证一个比整行
                 // 还宽的控件不会被无限往下推——它独占一行，宽度照给。
                 x = effective.x();
                 y = y + lineHeight + spaceY;
-                next = x + itemHint.width() + spaceX;
+                next = x + minimumWidth + spaceX;
                 lineHeight = 0;
             }
 
+            const int width = expanding ? std::max(1, effective.right() + 1 - x) : itemHint.width();
+            const int height = expanding && item->hasHeightForWidth()
+                ? std::max(item->minimumSize().height(), item->heightForWidth(width)) : itemHint.height();
+
             if (!testOnly)
             {
-                item->setGeometry(QRect(QPoint(x, y), itemHint));
+                item->setGeometry(QRect(x, y, width, height));
             }
 
-            x = next;
-            lineHeight = qMax(lineHeight, itemHint.height());
+            x = expanding ? x + width + spaceX : next;
+            lineHeight = qMax(lineHeight, height);
         }
         return y + lineHeight - rect.y() + bottom;
     }

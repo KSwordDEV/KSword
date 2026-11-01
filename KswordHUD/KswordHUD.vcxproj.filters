@@ -23,9 +23,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <QtRcc Include="KswordHUD.qrc">
+    <None Include="KswordHUD.qrc">
       <Filter>Resource Files</Filter>
-    </QtRcc>
+    </None>
     <QtUic Include="KswordHUD.ui">
       <Filter>Form Files</Filter>
     </QtUic>

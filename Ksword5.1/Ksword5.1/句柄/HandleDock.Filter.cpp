@@ -409,7 +409,7 @@ void HandleDock::appendNextRuleResultBatch(const QString& ruleId)
             delete summaryItem->takeChild(childIndex);
         }
     }
-    if (state->loadedCount >= state->rowIndices.size())
+    if (state->loadedCount >= static_cast<std::size_t>(state->rowIndices.size()))
     {
         return;
     }
@@ -448,7 +448,7 @@ void HandleDock::appendNextRuleResultBatch(const QString& ruleId)
         newItems.push_back(item);
     }
     state->loadedCount = batchEnd;
-    if (state->loadedCount < state->rowIndices.size())
+    if (state->loadedCount < static_cast<std::size_t>(state->rowIndices.size()))
     {
         auto* loadMoreItem = new QTreeWidgetItem(summaryItem);
         loadMoreItem->setData(0, ks::handle::HandleTreeItemKindRole,
@@ -471,7 +471,8 @@ bool HandleDock::handleTreeRowLessThan(QTreeWidgetItem* left, QTreeWidgetItem* r
         left->data(0, ks::handle::HandleTreeSourceRowIndexRole).toULongLong());
     const std::size_t rightIndex = static_cast<std::size_t>(
         right->data(0, ks::handle::HandleTreeSourceRowIndexRole).toULongLong());
-    if (leftIndex >= m_allRows.size() || rightIndex >= m_allRows.size())
+    if (leftIndex >= static_cast<std::size_t>(m_allRows.size())
+        || rightIndex >= static_cast<std::size_t>(m_allRows.size()))
     {
         return false;
     }
@@ -1302,7 +1303,7 @@ void HandleDock::exportRuleResults(const QString& ruleId)
             {
                 for (const auto sourceRowIndex : group.indices)
                 {
-                    if (sourceRowIndex >= input.rows.size()) continue;
+                    if (sourceRowIndex >= static_cast<std::size_t>(input.rows.size())) continue;
                     const HandleRow& row = input.rows[sourceRowIndex];
                     QStringList fieldList{
                         group.name,

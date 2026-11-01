@@ -4049,6 +4049,9 @@
     <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\Decompiler\RawCodePlanner.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PluginHost.Distribution.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -4076,6 +4079,12 @@
     <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeLicense.inc">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\Decompiler\RawCodePlanner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\Decompiler\GhidraRawScript.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <QtMoc Include="UI\Decompiler\GhidraDecompiler.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -4094,6 +4103,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Raw.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Pseudocode.cpp">

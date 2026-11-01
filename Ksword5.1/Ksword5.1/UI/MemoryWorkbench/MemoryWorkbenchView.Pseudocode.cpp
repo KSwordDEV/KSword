@@ -23,6 +23,7 @@ namespace ks::ui
         WorkbenchPseudocodeContext context;
         context.sourceIdentity = QString::fromStdString(detail::BuildSessionIdentityKey(session));
         context.revision = target_->revisions().Source();
+        context.contentRevision = target_->revisions().Content();
         context.addressBits = static_cast<int>(session.addressBits);
         context.maximumWindowBytes = 65536; // 共用缓存适配器一次只提供最多 64 KiB。
         context.baseAddress = address;
@@ -30,12 +31,18 @@ namespace ks::ui
         const auto bounds = hexPane_->canvas()->addressSpaceRange();
         if (bounds && address >= bounds->first && address <= bounds->last)
         {
+            context.hasReadBounds = true;
+            context.readFirst = bounds->first;
+            context.readLast = bounds->last;
+            context.allowEvictedSnapshot = true;
             const auto selected = hexPane_->canvas()->selectedRange();
             if (selected && selected->first == address && selected->last > address)
             {
                 // 显式选区必须完整分析，不能把范围尾部静默丢掉或补零。
                 const auto delta = selected->last - address;
                 context.length = delta == UINT64_MAX ? UINT64_MAX : delta + 1;
+                context.readFirst = selected->first;
+                context.readLast = selected->last;
             }
             else context.length = std::min<std::uint64_t>(4095, bounds->last - address) + 1;
         }
@@ -54,9 +61,13 @@ namespace ks::ui
                 const QPointer<MemoryWorkbenchView> self(this);
                 const bool wasBusy = subPageFollowBusy_;
                 subPageFollowBusy_ = true;
-                hexPane_->requestBrowseWindow(address, length, HexCanvas::RangeReadPurpose::ExplicitRead);
+                hexPane_->requestAnalysisWindow(address, length);
                 if (self) subPageFollowBusy_ = wasBusy;
             });
+        connect(target_.get(), &WorkbenchTarget::writeAuthorityChanged, this, [this] {
+            if (pseudocodeView_ && target_)
+                pseudocodeView_->setSourceRevisions(target_->revisions().Source(), target_->revisions().Content());
+        });
         connect(pseudocodeView_, &WorkbenchPseudocodeView::requestHexLocate, this,
             [this](quint64 address) {
                 const QPointer<MemoryWorkbenchView> self(this);

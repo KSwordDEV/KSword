@@ -16,6 +16,7 @@
 
 #include <QLayout>
 #include <QList>
+#include <QHash>
 #include <QRect>
 #include <QSize>
 
@@ -38,6 +39,8 @@ namespace ks::ui
         FlowLayout& operator=(const FlowLayout&) = delete;
 
         void addItem(QLayoutItem* item) override;
+        // The final item can use the remaining row width and wrap when it no longer fits.
+        void addExpandingWidget(QWidget* widget, int minimumWidth);
 
         int horizontalSpacing() const;
         int verticalSpacing() const;
@@ -59,6 +62,7 @@ namespace ks::ui
         int smartSpacing(int pixelMetric) const;
 
         QList<QLayoutItem*> m_items;
+        QHash<const QWidget*, int> m_expandingMinimumWidths;
         int m_horizontalSpacing;
         int m_verticalSpacing;
     };

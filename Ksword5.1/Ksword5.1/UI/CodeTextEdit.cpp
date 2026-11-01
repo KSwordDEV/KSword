@@ -125,7 +125,8 @@ namespace
         const QColor accent = palette.color(QPalette::Highlight);
         colors.bracket = KswordTheme::BlendColors(colors.base, accent, 65);
         colors.bracketError = KswordTheme::BlendColors(colors.base, KswordTheme::ErrorColor(), 65);
-        const std::array<QColor, 2> backgrounds{colors.base, colors.currentLine};
+        const std::array<QColor, 2> backgrounds{colors.base,
+            KswordTheme::BlendColors(colors.base, colors.currentLine, colors.currentLine.alpha())};
         const auto foreground = [&](const QColor& candidate) {
             return KswordTheme::EnsureTextContrastForBackgrounds(candidate, backgrounds.data(), static_cast<int>(backgrounds.size()));
         };

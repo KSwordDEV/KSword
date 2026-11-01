@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPointer>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <algorithm>
 #include <cstring>
@@ -17,10 +18,13 @@ namespace ks::ui
         bool ContextMatches(const WorkbenchPseudocodeContext& left, const WorkbenchPseudocodeContext& right)
         {
             return left.sourceIdentity == right.sourceIdentity && left.revision == right.revision
+                && left.contentRevision == right.contentRevision
                 && left.baseAddress == right.baseAddress && left.length == right.length
                 && left.selectedAddress == right.selectedAddress && left.addressBits == right.addressBits
                 && left.x86Compatible == right.x86Compatible && left.addressKind == right.addressKind
-                && left.maximumWindowBytes == right.maximumWindowBytes;
+                && left.maximumWindowBytes == right.maximumWindowBytes
+                && left.hasReadBounds == right.hasReadBounds && left.readFirst == right.readFirst
+                && left.readLast == right.readLast && left.allowEvictedSnapshot == right.allowEvictedSnapshot;
         }
 
         // AddressText：原始地址显示，使用独立有效位，绝不把地址 0 当作空值。
@@ -47,18 +51,28 @@ namespace ks::ui
                 source = QStringLiteral("当前位置没有可恢复的函数；请在代码节选择函数起点后重试。");
             else if (code == QStringLiteral("unsupported_architecture"))
                 source = QStringLiteral("当前伪代码后端仅支持 x86/x64 指令集。");
-            else if (code == QStringLiteral("unmapped_pe_address") || code == QStringLiteral("invalid_address"))
+            else if (code == QStringLiteral("unmapped_pe_address"))
                 source = QStringLiteral("当前位置没有有效的 PE 地址映射；请选择有文件内容的代码节。");
+            else if (code == QStringLiteral("invalid_address"))
+                source = QStringLiteral("分析位置超出可用地址范围；请重新选择地址或候选入口。");
             else if (code == QStringLiteral("process_isolation_failed"))
                 source = QStringLiteral("无法创建隔离的反编译进程；请检查系统进程限制。");
             else if (code == QStringLiteral("bytes_loading"))
                 source = QStringLiteral("正在读取反编译范围；字节就绪后继续分析。");
             else if (code == QStringLiteral("snapshot_unreadable"))
-                source = QStringLiteral("分析范围包含未读取或不可读字节；请重新读取或缩小选区后再反编译。");
+                source = QStringLiteral("所需代码或数据不可读，或超出已捕获范围；请重新读取或调整分析范围。");
             else if (code == QStringLiteral("non_code_address"))
                 source = QStringLiteral("当前位置在 PE 头部，或映像将该范围声明为非执行区；请在代码节选择已知函数起点。");
             else if (code == QStringLiteral("invalid_instruction_data"))
                 source = QStringLiteral("反编译遇到无效或不完整指令，未接受该伪代码结果；请核对地址、架构和完整函数范围。");
+            else if (code == QStringLiteral("invalid_entry_address") || code == QStringLiteral("entry_unknown"))
+                source = QStringLiteral("候选入口不是有效的十六进制地址，或超出当前可分析范围。");
+            else if (code == QStringLiteral("selected_outside_function"))
+                source = QStringLiteral("所选位置不在候选入口的可达代码中；请修正入口或重新选择分析位置。");
+            else if (code == QStringLiteral("incomplete_control_flow"))
+                source = QStringLiteral("控制流包含缺失代码或无法确定的间接跳转，未接受不完整伪代码。");
+            else if (code == QStringLiteral("analysis_budget_exceeded"))
+                source = QStringLiteral("分析已达到读取或指令数量上限，未接受截断结果；请缩小范围或选择更准确的入口。");
             else return ks::i18n::sourceText(QStringLiteral("反编译失败（%1）；请检查后端目录和运行日志。")).arg(code);
             return ks::i18n::sourceText(source);
         }
@@ -93,7 +107,20 @@ namespace ks::ui
     void WorkbenchPseudocodeView::setContext(const WorkbenchPseudocodeContext& context)
     {
         if (ContextMatches(context_, context)) return;
+        if (entry_ && (context_.sourceIdentity != context.sourceIdentity || context_.addressKind != context.addressKind))
+        {
+            const QSignalBlocker blocked(entry_);
+            entry_->clear();
+        }
         context_ = context;
+        invalidate();
+    }
+
+    void WorkbenchPseudocodeView::setSourceRevisions(const std::uint64_t source, const std::uint64_t content)
+    {
+        if (context_.revision == source && context_.contentRevision == content) return;
+        context_.revision = source;
+        context_.contentRevision = content;
         invalidate();
     }
 
@@ -163,6 +190,9 @@ namespace ks::ui
     // buildRequest：同步拷贝共享来源的捕获字节，所有掩码必须明确为 1。
     bool WorkbenchPseudocodeView::buildRequest(DecompilerRequest& request, QString& reason) const
     {
+        const QPointer<const WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
+        const auto* source = provider_;
         reason = QStringLiteral("invalid_address");
         const auto length = context_.length;
         if (!provider_ || !length || length - 1 > UINT64_MAX - context_.baseAddress
@@ -190,7 +220,8 @@ namespace ks::ui
         {
             const auto count = std::min<std::uint64_t>(65536, length - offset);
             const auto address = context_.baseAddress + offset;
-            const auto window = provider_->FetchWindow(address, count);
+            const auto window = source->FetchWindow(address, count);
+            if (!self || epoch_ != epoch || provider_ != source) return false;
             if (!window.ok)
             {
                 loading = true;
@@ -249,6 +280,11 @@ namespace ks::ui
         const auto epoch = ++epoch_;
         hasRequest_ = false;
         requestContentStamp_.reset();
+        requestSegmentStamps_.clear();
+        rawPlanner_.reset();
+        rawAdvanceQueued_ = false;
+        rawRequestedWindow_.reset();
+        rawEntry_.reset();
         waitingForBytes_ = false;
         stopProgress();
         if (!self || epoch != epoch_) return;
@@ -269,11 +305,18 @@ namespace ks::ui
     bool WorkbenchPseudocodeView::requestStillCurrent() const
     {
         if (!hasRequest_ || !ContextMatches(context_, requestContext_)) return false;
+        if (!request_.segments.isEmpty()) return sparseRequestStillCurrent();
+        const QPointer<const WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
+        const auto* source = provider_;
         const auto stamp = provider_ ? provider_->ContentStamp(context_.baseAddress, context_.length) : std::nullopt;
+        if (!self || epoch_ != epoch || provider_ != source) return false;
         if (stamp && requestContentStamp_ == stamp) return true;
         DecompilerRequest current;
         QString reason;
-        const bool unchanged = buildRequest(current, reason) && current.bytes == request_.bytes
+        const bool built = buildRequest(current, reason);
+        if (!self || epoch_ != epoch || provider_ != source) return false;
+        const bool unchanged = built && current.bytes == request_.bytes
             && current.baseAddress == request_.baseAddress && current.selectedAddress == request_.selectedAddress
             && current.inputKind == request_.inputKind && current.x64 == request_.x64;
         if (unchanged) requestContentStamp_ = stamp;
@@ -284,16 +327,25 @@ namespace ks::ui
     void WorkbenchPseudocodeView::refreshView()
     {
         const QPointer<WorkbenchPseudocodeView> self(this);
-        if (hasRequest_ && !requestStillCurrent())
+        const auto epoch = epoch_;
+        if (rawPlanner_)
         {
-            invalidate();
+            queueRawAnalysis();
             return;
         }
+        if (hasRequest_ && !requestStillCurrent())
+        {
+            if (self && epoch_ == epoch) invalidate();
+            return;
+        }
+        if (!self || epoch_ != epoch) return;
         if (waitingForBytes_)
         {
             DecompilerRequest current;
             QString reason;
-            if (buildRequest(current, reason) || reason != QStringLiteral("bytes_loading")) startDecompilation();
+            const bool ready = buildRequest(current, reason);
+            if (!self || epoch_ != epoch) return;
+            if (ready || reason != QStringLiteral("bytes_loading")) startDecompilation();
         }
         if (self) updateState();
     }
@@ -308,10 +360,16 @@ namespace ks::ui
         const auto epoch = epoch_ + 1;
         invalidate();
         if (!self || epoch_ != epoch) return;
+        if (context_.addressKind != SnapshotAddressKind::FileOffset || !fileSnapshot_)
+        {
+            startRawAnalysis();
+            return;
+        }
         QString reason;
         DecompilerRequest request;
         if (!buildRequest(request, reason))
         {
+            if (!self || epoch_ != epoch) return;
             setStatus(ErrorText(reason));
             waitingForBytes_ = reason == QStringLiteral("bytes_loading");
             if (waitingForBytes_) beginProgress(continuedWaiting ? &continuedClock : nullptr);
@@ -320,10 +378,31 @@ namespace ks::ui
             if (waitingForBytes_) emit windowRequested(context_.baseAddress, context_.length);
             return;
         }
+        if (continuedWaiting) beginProgress(&continuedClock);
+        if (self && epoch_ == epoch) submitRequest(request);
+    }
+
+    void WorkbenchPseudocodeView::submitRequest(const DecompilerRequest& request)
+    {
+        const QPointer<WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
+        const QElapsedTimer continuedClock = progressElapsed_;
+        const bool continuedWaiting = progressActive_ && progressElapsed_.isValid();
         request_ = request;
         requestContext_ = context_;
-        requestContentStamp_ = provider_ ? provider_->ContentStamp(context_.baseAddress, context_.length) : std::nullopt;
+        const auto stamp = request.segments.isEmpty() && provider_
+            ? provider_->ContentStamp(context_.baseAddress, context_.length) : std::nullopt;
+        if (!self || epoch_ != epoch) return;
+        requestContentStamp_ = stamp;
+        requestSegmentStamps_.clear();
+        requestSegmentStamps_.resize(request.segments.size());
         hasRequest_ = true;
+        if (!request.segments.isEmpty() && !sparseRequestStillCurrent())
+        {
+            if (self && epoch_ == epoch) invalidate();
+            return;
+        }
+        if (!self || epoch_ != epoch) return;
         beginProgress(continuedWaiting ? &continuedClock : nullptr);
         if (!self || epoch_ != epoch) return;
         refreshDecompilerRuntime();
@@ -336,17 +415,33 @@ namespace ks::ui
         if (self) updateState();
     }
 
+    void WorkbenchPseudocodeView::failRawAnalysis(const QString& error, const std::optional<quint64> address)
+    {
+        const QPointer<WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
+        rawPlanner_.reset();
+        rawRequestedWindow_.reset();
+        rawAdvanceQueued_ = false;
+        waitingForBytes_ = false;
+        stopProgress();
+        if (!self || epoch_ != epoch) return;
+        const auto message = ErrorText(error);
+        setStatus(address ? ks::i18n::sourceText(QStringLiteral("%1 | 地址 %2")).arg(message, AddressText(*address)) : message);
+        if (self && epoch_ == epoch) updateState();
+    }
+
     // finishDecompilation：接受结果前再验身份、代次和输入字节；导航仍使用同一请求映射。
     void WorkbenchPseudocodeView::finishDecompilation(const DecompilerResult& result)
     {
+        const QPointer<WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
         if (!hasRequest_) return;
         if (!requestStillCurrent())
         {
-            invalidate();
+            if (self && epoch_ == epoch) invalidate();
             return;
         }
-        const QPointer<WorkbenchPseudocodeView> self(this);
-        const auto epoch = epoch_;
+        if (!self || epoch_ != epoch) return;
         stopProgress();
         if (!self || epoch_ != epoch) return;
         lineAddresses_ = result.lineAddresses;
@@ -357,7 +452,10 @@ namespace ks::ui
         {
             auto message = ks::i18n::sourceText(QStringLiteral("%1 | 函数地址 %2 | 分析位置 %3；伪代码由当前字节快照推断。"))
                 .arg(result.functionName, AddressText(result.functionAddress), AddressText(requestContext_.selectedAddress));
-            if (result.boundaryInferred)
+            if (result.rawControlFlow)
+                message += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("RAW 候选入口 %1；已捕获 %2 字节，分析 %3 条指令。"))
+                    .arg(AddressText(result.functionAddress)).arg(result.capturedBytes).arg(result.decodedInstructions);
+            else if (result.boundaryInferred)
                 message += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("RAW 候选函数：函数起点和范围由分析推断；请优先从已知函数起点分析。"));
             setStatus(message);
         }
@@ -367,6 +465,7 @@ namespace ks::ui
             lineValid_.clear();
             setStatus(ErrorText(result.error));
         }
+        if (!self || epoch_ != epoch) return;
         status_->setToolTip(result.diagnostics.toHtmlEscaped());
         updateState();
     }

@@ -176,6 +176,9 @@ namespace
         pageLayout->addWidget(titleLabel, 0);
 
         auto* editor = new ks::ui::StructuredFieldView(pageWidget);
+        // CIM 记录和 R0 风险行可能展开为上万字段。复用后台值投影与分页模型，
+        // 不在 GUI 回填、搜索或缩放时创建/测量整棵原生字段树。
+        editor->setValueModelProjection();
         editor->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
         pageLayout->addWidget(editor, 1);
 
@@ -2551,6 +2554,7 @@ namespace
         failure.section(QStringLiteral("采集状态"))
             .field(QStringLiteral("状态"), QStringLiteral("失败"), true)
             .note(payload);
+        failure.nodes.front().initiallyExpanded = false;
         return failure;
     }
 

@@ -20,7 +20,17 @@ def run_msvc_fixture(repo: Path, source: Path, output: Path, name: str,
                                                if (path / "lib/Qt6Widgets.lib").is_file()), None)
     if qt is None or not (qt / "lib/Qt6Test.lib").is_file():
         raise RuntimeError("A matching MSVC Qt SDK with Qt Test is required.")
-    vc = Path("C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207")
+    # Match the production build check's approved primary/fallback installations.
+    # Keep the validated toolset and HostX64/x64 entry points in either location.
+    vc_candidates = [
+        Path("C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207"),
+        Path("D:/Software/VS/VC/Tools/MSVC/14.44.35207"),
+    ]
+    vc = next((path for path in vc_candidates
+               if (path / "bin/Hostx64/x64/cl.exe").is_file()
+               and (path / "bin/Hostx64/x64/link.exe").is_file()), None)
+    if vc is None:
+        raise RuntimeError("The validated HostX64 MSVC toolchain is unavailable.")
     sdk = Path("C:/Program Files (x86)/Windows Kits/10")
     sdk_version = "10.0.26100.0"
     compiler = vc / "bin/Hostx64/x64/cl.exe"

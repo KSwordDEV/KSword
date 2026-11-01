@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QVector>
 #include <memory>
+#include <optional>
 
 namespace ks::ui
 {
@@ -21,6 +22,26 @@ namespace ks::ui
         qint64 totalUnits = -1;        // 当前阶段总量，未知时为 -1。
     };
 
+    struct DecompilerMemorySegment
+    {
+        quint64 address = 0;
+        QByteArray bytes;
+        bool operator==(const DecompilerMemorySegment& other) const
+        {
+            return address == other.address && bytes == other.bytes;
+        }
+    };
+
+    struct DecompilerAddressRange
+    {
+        quint64 address = 0;
+        quint64 length = 0;
+        bool operator==(const DecompilerAddressRange& other) const
+        {
+            return address == other.address && length == other.length;
+        }
+    };
+
     struct DecompilerRequest
     {
         // Always the current captured/staged bytes, never an original file path.
@@ -30,6 +51,11 @@ namespace ks::ui
         bool x64 = true;
         DecompilerInputKind inputKind = DecompilerInputKind::RawMemory;
         int timeoutSeconds = 120;
+        // Nonempty segments select a frozen sparse RAW plan. Every segment byte
+        // is captured evidence; bodyRanges contain only planned instruction bytes.
+        std::optional<quint64> entryAddress;
+        QVector<DecompilerMemorySegment> segments;
+        QVector<DecompilerAddressRange> bodyRanges;
     };
 
     struct DecompilerResult
@@ -46,6 +72,9 @@ namespace ks::ui
         QVector<bool> lineAddressValid;
         QByteArray snapshotSha256;
         bool boundaryInferred = false;
+        bool rawControlFlow = false;
+        quint32 decodedInstructions = 0;
+        quint64 capturedBytes = 0;
     };
 
     // Asynchronous, isolated external Ghidra headless adapter. Does not execute

@@ -15,13 +15,17 @@ namespace ks::ui
     {
         CodeTextSurfaceColors colors;
         colors.base = palette.color(QPalette::Base);
+        // QSS background:transparent can expose a transparent black Base.
+        // Contrast calculations need the visible theme surface, not that RGB.
+        if (colors.base.alpha() < 255)
+            colors.base = KswordTheme::BlendColors(KswordTheme::SurfaceColor(), colors.base, colors.base.alpha());
         const QColor text = palette.color(QPalette::Text);
         const QColor accent = palette.color(QPalette::Highlight);
-        colors.gutter = KswordTheme::BlendColors(colors.base, palette.color(QPalette::Window), 100);
+        colors.gutter = KswordTheme::IsDarkModeEnabled() ? colors.base : KswordTheme::WhiteColor();
         colors.gutterText = KswordTheme::EnsureTextContrast(KswordTheme::BlendColors(text, colors.gutter, 110), colors.gutter);
         colors.currentNumber = KswordTheme::EnsureTextContrast(accent, colors.gutter);
         colors.divider = KswordTheme::BlendColors(text, colors.gutter, 218);
-        colors.currentLine = KswordTheme::BlendColors(colors.base, accent, 18);
+        colors.currentLine = KswordTheme::WithAlpha(accent, 36);
         return colors;
     }
 }
