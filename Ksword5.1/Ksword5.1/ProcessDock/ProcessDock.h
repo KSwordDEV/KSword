@@ -419,6 +419,7 @@ private:
         bool isNewInLatestRound = false;   // 最新刷新中是否为新增。
         bool isExitedInLatestRound = false;// 最新刷新中是否为退出保留。
         bool isKernelOnlyInLatestRound = false; // 最新刷新中是否仅内核枚举可见。
+        bool snapshotHasVisibleWindow = false; // 历史样本的窗口归属，回放不重新枚举当前窗口。
         std::uint32_t staticFillAttemptCount = 0; // 静态详情补齐尝试次数（含成功/失败）。
         std::uint32_t staticFillFailureCount = 0; // 静态详情连续失败次数（用于退避重试）。
         // onDemandResolvedFlags：
@@ -515,6 +516,11 @@ public:
         std::string iconCacheKey;      // iconCacheKey：进程名 + 路径组成的稳定图标缓存键。
         std::uint64_t creationTime100ns = 0; // creationTime100ns：原始进程创建时间，用于历史表格保持 identity。
         std::uint32_t pid = 0;         // pid：快照悬停展示和排查用。
+        std::uint32_t parentPid = 0;   // 采样时的父 PID，即使父实例已退出也保留原值。
+        std::uint64_t parentCreationTime100ns = 0; // 同一采样内确认的父实例；缺失或 PID 复用时为 0。
+        bool hasVisibleWindow = false; // 当时是否拥有可见窗口，供历史友好分组使用。
+        bool hiddenByKsword = false;
+        bool isKernelOnly = false;
         double cpuPercent = 0.0;       // cpuPercent：该进程采样时 CPU。
         double cpuCorePercent = 0.0;   // cpuCorePercent：该进程单核等效 CPU，可超过 100%。
         double ramMB = 0.0;            // ramMB：该进程采样时申请/提交内存。
@@ -676,6 +682,7 @@ private:
     void showCrossViewDetailForCurrentRow(bool preferThreadTable);
     std::vector<DisplayRow> buildDisplayOrder() const;
     std::vector<DisplayRow> buildTreeDisplayOrder() const;
+    static std::vector<DisplayRow> buildProcessTreeDisplayOrder(std::vector<DisplayRow> rows, bool requireParentIdentity);
     std::vector<DisplayRow> buildListDisplayOrder() const;
     std::vector<DisplayRow> buildFriendlyDisplayOrder() const;
     // buildFriendlyGroupTypeByPid 作用：
@@ -685,6 +692,9 @@ private:
     // 返回：PID 到分组类型的映射。
     std::unordered_map<std::uint32_t, FriendlyProcessGroupType> buildFriendlyGroupTypeByPid() const;
     std::vector<DisplayRow> buildActivitySnapshotDisplayOrder() const;
+    const std::unordered_map<std::string, CacheEntry>& displayProcessCache() const;
+    QSet<std::uint32_t> displayVisibleWindowPidSet() const;
+    std::uint32_t displayParentPid(const ks::process::ProcessRecord& record) const;
     void applyR0ColumnAvailability(const std::vector<DisplayRow>& displayRows);
 
     // ======== 视图控制 ========
@@ -857,6 +867,7 @@ private:
     template <typename Destination, typename Source>
     static void copyProcessActivityDynamicFields(Destination& destination, const Source& source);
     void appendProcessActivitySample();
+    static void captureProcessActivityParentIdentities(ProcessActivitySample& sample);
     void synchronizeDetailWindowPerformanceHistory(
         ProcessDetailWindow* detailWindow,
         const std::string& identityKey) const;
@@ -1271,7 +1282,7 @@ private:
     std::shared_ptr<ks::process::ProcessActivityHistoryRetirementLane<ProcessActivitySample>> m_activityHistoryRetirementLane =
         std::make_shared<ks::process::ProcessActivityHistoryRetirementLane<ProcessActivitySample>>();
     QTimer* m_activityHistoryRetirementTimer = nullptr;
-    std::vector<ks::process::ProcessRecord> m_activityTableSnapshotRecords; // 历史样本映射出的进程表记录。
+    std::unordered_map<std::string, CacheEntry> m_activityTableSnapshotRecords; // 独立冻结的历史记录及分组依据。
 
     // Tooltip 与摘要共用同一完整文档缓存；数据/身份/指标/语言变化均失效。
     mutable bool m_activitySnapshotTextCacheValid = false;

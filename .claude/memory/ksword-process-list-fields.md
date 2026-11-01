@@ -1,5 +1,13 @@
 # 进程列表 R0 字段显示
 
+## 2026-11-01 历史进程树
+
+- 入口：进程 Dock → 进程列表 → 时间轴历史点；开关统一命名“友好视图”：勾选按应用/后台/系统分组，取消后按该时刻的进程树显示。此前实际文案误写为“进程树视图”，导致名称与勾选行为相反，现已同步修正中英文及提示。保留既有 TablePresentation、FlatTableModel、GPU 表格视口与工具行，没有新增页面或窗口。
+- `ProcessActivityProcessPoint` 记录原始 `parentPid` 和同一采样中确认的 `parentCreationTime100ns`；父 PID 不存在、父实例比子进程更新、创建时间缺失/合成或自引用时不建立关系。历史回放保留 PPID，但不能借用实时缓存补父节点。
+- 实时树和历史树共用 `buildProcessTreeDisplayOrder`；历史路径严格核对父 PID＋创建时间。迭代遍历处理长父链，环断开后所有节点仍只出现一次。历史搜索保持扁平，清空搜索恢复树；点表头可切到该时刻的扁平排序。
+- 切换友好/树状显示或列预设不再丢弃当前历史快照。每轮另保存可见窗口归属、隐藏标记和 kernel-only 状态，历史记录与实时共用列表、树及友好分组投影器；历史友好分组只从冻结的窗口归属和已确认父实例推导，不枚举当前窗口。已淘汰的选中样本继续由独立记录保有父子身份及分组依据；恢复实时后才显示当前树。
+- 定向入口 `python tools/process_activity_tree_tests.py` 编译生产采样身份、回放和树投影方法，覆盖 PID 复用、缺父、未知身份、搜索/扁平/树切换、冻结样本淘汰、环和 2 万节点父链。产品构建与用户实际 GUI 验收状态按当次交付报告。
+
 - 保护状态列只显示原始字节；`Runtime pattern`、PDB 等字段来源保留在悬停提示中，用于诊断偏移来源。
 - PPL 列按 `shared/driver/KswordArkProcessIoctl.h` 的 PS_PROTECTION 位域解码：Type 位 0–2、Audit 位 3、Signer 位 4–7。Type=0 显示 `-`；2026-10-05 按用户要求改为仅显示 signer 名称（如 `Antimalware` / `WinTCB`），完整原始代码在前面的保护状态列显示；未知类型或 signer 显示 `Unknown`，不能误报无保护。保护状态、PPL、HandleTable、SectionObject 未采集时均显示 `-`，字段来源保留在悬停提示中。
 - HandleTable、SectionObject 只显示实际地址，移除 `Available:` 与来源括号；字段不可用或地址为空都显示 `-`，字段来源放在提示中。

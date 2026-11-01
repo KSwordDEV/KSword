@@ -287,6 +287,8 @@ namespace ks::process
         // - 进程创建时间（FILETIME 100ns 基准）；
         // - 与 PID 共同构成稳定 identity（用于“复用旧数据”规则）。
         std::uint64_t creationTime100ns = 0;
+        // 历史采样中确认的父进程创建时间；0 表示该样本无法确认父实例。
+        std::uint64_t parentCreationTime100ns = 0;
 
         std::string processName;           // 进程名（显示名）。
         std::string imagePath;             // 可执行文件完整路径。
