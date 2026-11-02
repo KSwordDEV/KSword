@@ -236,7 +236,7 @@ void NtfsSpaceMapWidget::paintTile(QPainter& painter, int index, bool interactiv
     const bool showBytes = box.height() >= metrics.height() * 2 + 10;
     const QString amount = showBytes
         ? displayBytes(m_data->prefixWeights[tile.last] - m_data->prefixWeights[tile.first]) : QString();
-    const QColor caption = KswordTheme::BlendColors(painted, palette().color(QPalette::Base), 190);
+    const QColor caption = ks::ui::MetricAreaRenderer::captionColor(painted, palette());
     const int textWidth = std::max(metrics.horizontalAdvance(name), metrics.horizontalAdvance(amount));
     const int textHeight = metrics.height() * (showBytes ? 2 : 1) + (showBytes ? 4 : 0);
     painter.save();

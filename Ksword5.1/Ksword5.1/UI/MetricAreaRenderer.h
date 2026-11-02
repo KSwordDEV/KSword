@@ -25,6 +25,7 @@ public:
     MetricAreaRenderer();
     static QColor identityColor(const QString& identity, const QPalette& palette,
         const QString& variant = {});
+    static QColor captionColor(const QColor& color, const QPalette& palette);
     QColor paintTile(QPainter& painter, const QRectF& rectangle, const QColor& color,
         const MetricAreaTileState& state = {}) const;
 private:

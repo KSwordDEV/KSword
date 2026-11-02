@@ -165,7 +165,7 @@ void MetricAreaCanvas::paintBox(QPainter& p, const Box& box, bool hovered) const
             && content.width() >= fontMetrics().horizontalAdvance(node.identity);
         if (!box.container) {
             // Keep labels readable over both the highlight and the shadow, without framing the tile.
-            background = KswordTheme::BlendColors(background, palette().color(QPalette::Base), 190);
+            background = MetricAreaRenderer::captionColor(background, palette());
             const int textWidth = std::max(fontMetrics().horizontalAdvance(title),
                 secondLine ? fontMetrics().horizontalAdvance(node.identity) : 0);
             const int labelHeight = fontMetrics().height() * (secondLine ? 2 : 1) + (secondLine ? 4 : 0);

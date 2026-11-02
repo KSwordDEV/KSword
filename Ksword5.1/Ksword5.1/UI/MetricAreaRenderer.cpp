@@ -17,17 +17,23 @@ quint32 colorIdentity(const QString& key)
 
 QPixmap cushionLightMap()
 {
-    constexpr int size = 96;
+    constexpr int size = 128;
+    // Broad upper-left light, with a normalized halfway vector for a soft highlight.
+    const double lightLength = std::sqrt(0.28 * 0.28 + 0.38 * 0.38 + 0.88 * 0.88);
+    const double lx = -0.28 / lightLength, ly = -0.38 / lightLength, lz = 0.88 / lightLength;
+    const double halfLength = std::sqrt(lx * lx + ly * ly + (lz + 1.0) * (lz + 1.0));
+    const double hx = lx / halfLength, hy = ly / halfLength, hz = (lz + 1.0) / halfLength;
     QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
     for (int y = 0; y < size; ++y) {
         auto* pixels = reinterpret_cast<QRgb*>(image.scanLine(y));
-        const double ny = 1.8 * (2.0 * y / (size - 1) - 1.0);
+        const double ny = 1.15 * (2.0 * y / (size - 1) - 1.0);
         for (int x = 0; x < size; ++x) {
-            const double nx = 1.8 * (2.0 * x / (size - 1) - 1.0);
+            const double nx = 1.15 * (2.0 * x / (size - 1) - 1.0);
             const double length = std::sqrt(nx * nx + ny * ny + 1.0);
-            const double diffuse = std::max(0.0, (-0.32 * nx - 0.38 * ny + 0.86) / length);
-            const double shine = std::pow(std::max(0.0, (-0.16 * nx - 0.19 * ny + 0.97) / length), 24.0);
-            const double light = std::clamp(0.32 + 0.74 * diffuse + 0.16 * shine, 0.32, 1.22);
+            const double diffuse = std::max(0.0, (lx * nx + ly * ny + lz) / length);
+            const double shine = std::pow(std::max(0.0, (hx * nx + hy * ny + hz) / length), 8.0);
+            // Keep the shadow colored rather than black, and spread the gloss over the body.
+            const double light = std::clamp(0.48 + 0.60 * diffuse + 0.30 * shine, 0.58, 1.38);
             const int channel = light > 1.0 ? 255 : 0;
             const int alpha = qRound(std::abs(light - 1.0) * 255.0);
             pixels[x] = qPremultiply(qRgba(channel, channel, channel, alpha));
@@ -45,7 +51,13 @@ QColor MetricAreaRenderer::identityColor(const QString& identity, const QPalette
     const quint32 hash = colorIdentity(identity);
     const int variation = variant.isEmpty() ? 0 : static_cast<int>(colorIdentity(variant) % 33) - 16;
     const int hue = (static_cast<int>(hash % 360) + variation + 360) % 360;
-    return QColor::fromHsv(hue, 156, palette.color(QPalette::Base).lightnessF() < 0.5 ? 180 : 210);
+    return QColor::fromHsv(hue, 194, palette.color(QPalette::Base).lightnessF() < 0.5 ? 205 : 220);
+}
+
+QColor MetricAreaRenderer::captionColor(const QColor& color, const QPalette& palette)
+{
+    // Small tiles must not become neutral gray labels covering their colored body.
+    return palette.color(QPalette::Base).lightnessF() < 0.5 ? color.darker(135) : color.lighter(112);
 }
 
 QColor MetricAreaRenderer::paintTile(QPainter& painter, const QRectF& rectangle,
