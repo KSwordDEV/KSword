@@ -149,6 +149,11 @@ void MetricAreaCanvas::paintBox(QPainter& body, const Box& box, bool hovered, QP
     QPainter& p = labels ? *labels : body;
     p.save();
     p.setClipRect(r);
+    if (box.container) {
+        // Group headers are opaque flat navigation surfaces, outside the lighting layer.
+        p.fillRect(QRectF(r.left(), r.top(), r.width(),
+            std::min<qreal>(r.height(), std::max(22, fontMetrics().height() + 8))), background);
+    }
 
     QRectF content = r.adjusted(4, 3, -4, -3);
     if (box.container) content.setHeight(std::min<qreal>(content.height(), fontMetrics().height() + 2));
@@ -206,6 +211,10 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
         } else {
             for (const auto& box : m_boxes) paintBox(cache, box, false, &labels);
         }
+        std::vector<QRectF> lights;
+        lights.reserve(m_boxes.size());
+        for (const auto& box : m_boxes) if (!box.container) lights.push_back(box.rect);
+        m_renderer.setLightGeometry(size(), lights);
         m_surfaceDirty = false;
     }
     QPainter p(this);
@@ -215,11 +224,7 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.drawPixmap(0, 0, m_surface);
     if (m_hover >= 0 && m_hover < static_cast<int>(m_boxes.size())) paintBox(p, m_boxes[m_hover], true);
-    for (const auto& box : m_boxes) {
-        QRectF lightRect = box.rect;
-        if (box.container) lightRect.setHeight(std::min<qreal>(lightRect.height(), std::max(22, fontMetrics().height() + 8)));
-        m_renderer.paintLight(p, lightRect);
-    }
+    m_renderer.paintLights(p);
     p.drawPixmap(0, 0, m_labels);
 }
 void MetricAreaCanvas::resizeEvent(QResizeEvent* e){QWidget::resizeEvent(e);rebuildLayout();}

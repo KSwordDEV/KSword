@@ -9,6 +9,7 @@
 #include <QPointer>
 #include <QElapsedTimer>
 #include <array>
+#include <vector>
 
 class QPainter;
 class QWidget;
@@ -31,6 +32,8 @@ public:
     MetricAreaRenderer();
     void attach(QWidget* host);
     void paintLight(QPainter& painter, const QRectF& rectangle) const;
+    void setLightGeometry(QSize viewport, const std::vector<QRectF>& rectangles);
+    void paintLights(QPainter& painter) const;
     static QColor identityColor(const QString& identity, const QPalette& palette,
         const QString& variant = {});
     static QColor captionColor(const QColor& color, const QPalette& palette);
@@ -48,6 +51,12 @@ private:
     QElapsedTimer m_clock;
     QPointF m_position, m_target;
     double m_tracking = 0, m_targetTracking = 0;
+    QSize m_lightViewport, m_lightPixels;
+    std::vector<QRectF> m_lightRects;
+    mutable QPixmap m_lightLayer;
+    mutable QPointF m_lastLightPosition;
+    mutable double m_lastTracking = -1;
+    mutable bool m_lightDirty = true;
 };
 
 }

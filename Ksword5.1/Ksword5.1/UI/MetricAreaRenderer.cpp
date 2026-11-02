@@ -23,7 +23,7 @@ quint32 colorIdentity(const QString& key)
 
 QPixmap cushionLightMap(double lx = -0.32, double ly = -0.38, double lz = 0.86)
 {
-    constexpr int size = 96;
+    constexpr int size = 48;
     const double halfLength = std::sqrt(lx * lx + ly * ly + (lz + 1.0) * (lz + 1.0));
     const double hx = lx / halfLength, hy = ly / halfLength, hz = (lz + 1.0) / halfLength;
     QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
@@ -34,7 +34,11 @@ QPixmap cushionLightMap(double lx = -0.32, double ly = -0.38, double lz = 0.86)
             const double nx = 1.8 * (2.0 * x / (size - 1) - 1.0);
             const double length = std::sqrt(nx * nx + ny * ny + 1.0);
             const double diffuse = std::max(0.0, (lx * nx + ly * ny + lz) / length);
-            const double shine = std::pow(std::max(0.0, (hx * nx + hy * ny + hz) / length), 24.0);
+            const double specular = std::max(0.0, (hx * nx + hy * ny + hz) / length);
+            const double square = specular * specular;
+            const double fourth = square * square;
+            const double eighth = fourth * fourth;
+            const double shine = eighth * eighth * eighth;
             const double light = std::clamp(0.32 + 0.74 * diffuse + 0.16 * shine, 0.32, 1.22);
             const int channel = light > 1.0 ? 255 : 0;
             const int alpha = qRound(std::abs(light - 1.0) * 255.0);
@@ -114,15 +118,17 @@ const QPixmap& MetricAreaRenderer::directionalMap(int ix, int iy) const
 void MetricAreaRenderer::paintLight(QPainter& painter, const QRectF& rectangle) const
 {
     if (rectangle.isEmpty()) return;
+    const QRectF pixels = painter.deviceTransform().mapRect(rectangle);
+    if (pixels.width() < 0.75 || pixels.height() < 0.75) return;
     painter.save(); painter.setClipRect(rectangle, Qt::IntersectClip);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     if (m_host && m_tracking > 0) {
-        const double height = std::max(100.0, std::max(m_host->width(), m_host->height()) * 0.65);
+        const double height = std::max(100.0, std::max(m_lightViewport.width(), m_lightViewport.height()) * 0.65);
         const QPointF offset = (m_position - rectangle.center()) / height;
         // Blend the direction back to the original light; all tiles share one world-space source.
         const double gx = std::clamp((-0.32 / 0.86 * (1 - m_tracking) + offset.x() * m_tracking) * 8 + 8, 0.0, 16.0);
         const double gy = std::clamp((-0.38 / 0.86 * (1 - m_tracking) + offset.y() * m_tracking) * 8 + 8, 0.0, 16.0);
-        if (rectangle.width() < 8 || rectangle.height() < 8) {
+        if (pixels.width() < 8 || pixels.height() < 8) {
             const auto& map = directionalMap(qRound(gx), qRound(gy));
             painter.drawPixmap(rectangle, map, QRectF(map.rect()));
         } else {
@@ -140,6 +146,37 @@ void MetricAreaRenderer::paintLight(QPainter& painter, const QRectF& rectangle) 
     } else {
         painter.drawPixmap(rectangle, m_cushion, QRectF(m_cushion.rect()));
     }
+    painter.restore();
+}
+
+void MetricAreaRenderer::setLightGeometry(QSize viewport, const std::vector<QRectF>& rectangles)
+{
+    if (m_lightViewport == viewport && m_lightRects == rectangles) return;
+    m_lightViewport = viewport;
+    m_lightRects = rectangles;
+    const double area = static_cast<double>(viewport.width()) * viewport.height();
+    const double scale = area > 0 ? std::min(1.0, std::sqrt(196608.0 / area)) : 1.0;
+    m_lightPixels = QSize(std::max(1, qRound(viewport.width() * scale)),
+        std::max(1, qRound(viewport.height() * scale)));
+    m_lightDirty = true;
+}
+
+void MetricAreaRenderer::paintLights(QPainter& painter) const
+{
+    if (m_lightViewport.isEmpty() || m_lightRects.empty()) return;
+    if (m_lightDirty || m_lastLightPosition != m_position || m_lastTracking != m_tracking) {
+        if (m_lightLayer.size() != m_lightPixels) m_lightLayer = QPixmap(m_lightPixels);
+        m_lightLayer.fill(Qt::transparent);
+        QPainter layer(&m_lightLayer);
+        layer.scale(static_cast<double>(m_lightPixels.width()) / m_lightViewport.width(),
+            static_cast<double>(m_lightPixels.height()) / m_lightViewport.height());
+        for (const auto& rectangle : m_lightRects) paintLight(layer, rectangle);
+        m_lastLightPosition = m_position; m_lastTracking = m_tracking; m_lightDirty = false;
+    }
+    // Only the soft light is reduced; object edges, colors and text stay at native resolution.
+    painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    painter.drawPixmap(QRectF(QPointF(), QSizeF(m_lightViewport)), m_lightLayer, QRectF(m_lightLayer.rect()));
     painter.restore();
 }
 

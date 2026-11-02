@@ -210,6 +210,10 @@ void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
         {
             for (qsizetype i = 0; i < m_tiles.size(); ++i) paintTile(cache, static_cast<int>(i), false, &labels);
         }
+        std::vector<QRectF> lights;
+        lights.reserve(static_cast<std::size_t>(m_tiles.size()));
+        for (const auto& tile : m_tiles) lights.push_back(tile.rectangle);
+        m_renderer.setLightGeometry(size(), lights);
         m_surfaceDirty = false;
     }
     QPainter painter(this);
@@ -217,7 +221,7 @@ void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
     painter.drawPixmap(0, 0, m_surface);
     paintTile(painter, m_selectedTile, true);
     if (m_hover != m_selectedTile) paintTile(painter, m_hover, true);
-    for (const Tile& tile : m_tiles) m_renderer.paintLight(painter, tile.rectangle);
+    m_renderer.paintLights(painter);
     painter.drawPixmap(0, 0, m_labels);
 }
 
