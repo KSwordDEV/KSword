@@ -40,9 +40,10 @@ namespace apimon
         byte(0x81); byte(0xEC); word(528); byte(0x83); byte(0xE4); byte(0xF0);
         byte(0x0F); byte(0xAE); byte(0x04); byte(0x24); // aligned fxsave
         byte(0xFC); // clear DF before C++, restore saved flags afterwards
+        byte(0x55); // second cdecl argument: saved entry frame (EBP)
         byte(0x68); word(reinterpret_cast<std::uintptr_t>(context));
         byte(0xB8); word(reinterpret_cast<std::uintptr_t>(dispatcher)); byte(0xFF); byte(0xD0);
-        byte(0x83); byte(0xC4); byte(4);
+        byte(0x83); byte(0xC4); byte(8);
         byte(0x0F); byte(0xAE); byte(0x0C); byte(0x24);
         byte(0x8B); byte(0xE5); byte(0x61); byte(0x9D);
         byte(0xFF); byte(0x25); word(reinterpret_cast<std::uintptr_t>(original));

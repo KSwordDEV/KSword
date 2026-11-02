@@ -1897,4 +1897,5 @@
     <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedRead.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedWrite.cpp" />
   </ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIDiskArchive.h" /></ItemGroup>
 </Project>

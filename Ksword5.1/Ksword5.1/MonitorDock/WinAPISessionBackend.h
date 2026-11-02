@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+class WinAPIDiskArchive;
 
 struct WinAPIEventRow
 {
@@ -44,7 +45,7 @@ struct WinAPISessionConfig
 {
     std::uint32_t pid = 0, residentPid = 0;
     std::uint64_t generation = 0, residentCreation = 0;
-    QString requestedAgentPath, sessionId, options;
+    QString requestedAgentPath, sessionId, options, archiveDirectory;
     bool autoInjectChildren = false, stopOnly = false;
 };
 
@@ -63,6 +64,7 @@ struct WinAPISessionBackend final : std::enable_shared_from_this<WinAPISessionBa
     explicit WinAPISessionBackend(WinAPISessionConfig value) : config(std::move(value)) {}
     ~WinAPISessionBackend();
     const WinAPISessionConfig config;
+    std::shared_ptr<WinAPIDiskArchive> diskArchive;
     // The same gate serializes accepted startup and final cleanup. stop is set
     // before taking the gate, so a close that wins first permanently bars Start.
     std::mutex operationGate;

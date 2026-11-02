@@ -1,6 +1,10 @@
 #include "MonitorNavigationSchema.h"
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include <QSpinBox>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QDir>
 #include "../UI/CodeTextEdit.h"
 #include "../UI/ThemeItemForeground.h"
 #include "../UI/VisibleTableWidget.h"
@@ -346,6 +350,30 @@ void WinAPIDock::initializeUi()
     workspace->results()->addWidget(m_sessionStatusLabel);
     ks::ui::StyleParameterSection(sessionGroup);
     workspace->parameters()->addWidget(sessionGroup);
+
+    auto* archiveGroup = new QGroupBox(QStringLiteral("事件保留与归档"), workspace);
+    auto* archiveLayout = new QVBoxLayout(archiveGroup);
+    auto* archiveForm = new QFormLayout();
+    archiveForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    m_eventMemoryBudget = new QSpinBox(archiveGroup);
+    m_eventMemoryBudget->setRange(16, 65536);
+    m_eventMemoryBudget->setSuffix(QStringLiteral(" MiB"));
+    m_eventMemoryBudget->setKeyboardTracking(false);
+    const QString settingsRoot = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    QSettings archiveSettings(QDir(settingsRoot).filePath(QStringLiteral("api-monitor-view.ini")), QSettings::IniFormat);
+    m_eventMemoryBudget->setValue(archiveSettings.value(QStringLiteral("memoryMiB"), 512).toInt());
+    m_eventArchive.setMemoryCapacity(static_cast<std::size_t>(m_eventMemoryBudget->value()) * 1024 * 1024);
+    archiveForm->addRow(QStringLiteral("文本预算："), m_eventMemoryBudget);
+    archiveLayout->addLayout(archiveForm);
+    m_diskArchiveStatus = new QLabel(QStringLiteral("归档：等待开始监控"), archiveGroup);
+    m_diskArchiveStatus->setWordWrap(true);
+    m_diskArchiveStatus->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    archiveLayout->addWidget(m_diskArchiveStatus);
+    m_openDiskArchiveButton = new QPushButton(QStringLiteral("打开归档目录"), archiveGroup);
+    m_openDiskArchiveButton->setEnabled(false);
+    archiveLayout->addWidget(m_openDiskArchiveButton, 0, Qt::AlignLeft);
+    ks::ui::StyleParameterSection(archiveGroup);
+    workspace->parameters()->addWidget(archiveGroup);
 
     auto* fakeSuccessPanel = new QGroupBox(QStringLiteral("Fake Success（命中 API 直接伪返回）"), workspace);
     QVBoxLayout* const fakeSuccessLayout = new QVBoxLayout(fakeSuccessPanel);

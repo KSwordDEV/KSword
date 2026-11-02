@@ -41,6 +41,14 @@ public:
     std::uint64_t revision() const { return m_revision; }
     std::size_t estimatedMemoryBytes() const { return m_bytes; }
     std::size_t evictedCount() const { return m_evicted; }
+    void setMemoryCapacity(std::size_t bytes)
+    {
+        m_byteLimit = bytes;
+        while (m_rows.size() > 1 && m_bytes > m_byteLimit) {
+            auto row = std::move(m_rows.front()); m_rows.pop_front();
+            m_present.erase(row.get()); m_bytes -= estimatedBytes(row); ++m_evicted;
+        }
+    }
     std::vector<WinAPIEventRef> snapshot() const { return {m_rows.begin(), m_rows.end()}; }
 private:
     static std::size_t estimatedBytes(const WinAPIEventRef& row)

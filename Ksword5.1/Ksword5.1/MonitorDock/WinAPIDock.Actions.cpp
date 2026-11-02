@@ -5,6 +5,12 @@
 #include "../UI/DetailDialogChrome.h"
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIDiskArchive.h"
+#include <QDesktopServices>
+#include <QStandardPaths>
+#include <QSettings>
+#include <QSpinBox>
+#include <QUrl>
 #include "../UI/CodeEditorWidget.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -1358,6 +1364,9 @@ void WinAPIDock::startMonitoring()
     config.generation = m_sessionGeneration.load() + 1;
     config.requestedAgentPath = m_agentDllPathEdit->text().trimmed();
     config.sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString archiveRoot = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (archiveRoot.isEmpty()) archiveRoot = QCoreApplication::applicationDirPath();
+    config.archiveDirectory = QDir(archiveRoot).filePath(QStringLiteral("api_monitor_archive/%1").arg(config.sessionId));
     config.options = freezeSessionOptions(); // Last GUI access; workers receive only values.
     config.residentPid = m_residentAgentPid;
     config.residentCreation = m_residentAgentCreationTime100ns;
@@ -1450,6 +1459,21 @@ void WinAPIDock::terminateHooksForSelectedProcess()
 void WinAPIDock::initializeEventProjection()
 {
     initializeEventTailFollow();
+    connect(m_eventMemoryBudget, &QSpinBox::editingFinished, this, [this]() {
+        const int mib = m_eventMemoryBudget->value();
+        m_eventArchive.setMemoryCapacity(static_cast<std::size_t>(mib) * 1024 * 1024);
+        m_evictedRows = m_eventArchive.evictedCount(); m_eventProjectionStale = true;
+        const QString root = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+        if (QDir().mkpath(root)) {
+            QSettings settings(QDir(root).filePath(QStringLiteral("api-monitor-view.ini")), QSettings::IniFormat);
+            settings.setValue(QStringLiteral("memoryMiB"), mib); settings.sync();
+        }
+        flushPendingRows();
+    });
+    connect(m_openDiskArchiveButton, &QPushButton::clicked, this, [this]() {
+        if (m_sessionBackend && m_sessionBackend->startupTerminal.load() && m_sessionBackend->diskArchive)
+            QDesktopServices::openUrl(QUrl::fromLocalFile(m_sessionBackend->diskArchive->directory()));
+    });
     m_eventModel->filterStateChanged = [this]() {
         m_visibleEventCount = m_eventProxy->rowCount();
         if (m_eventFilterStatusLabel) {

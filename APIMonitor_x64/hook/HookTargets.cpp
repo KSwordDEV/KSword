@@ -11,6 +11,7 @@
 #include "../core/MonitorAsyncIo.h"
 #include "ContextThunk.h"
 #include "ExportCatalog.h"
+#include "RawAbiSnapshot.h"
 #include "../../shared/ApiMonitorInjection.h"
 #ifdef _M_IX86
 #include "../../APIMonitor_x86/hook/EntryStubs.h"
@@ -1730,7 +1731,7 @@ namespace apimon
         // - 输入：bindingValue 为动态 stub 传入的 Raw Hook 元数据；
         // - 处理：在不解析参数语义的前提下上报 module/api/target/trampoline，并用全局 reentry guard 避免日志链路递归；
         // - 返回：无返回值，动态 stub 随后恢复寄存器并跳入 trampoline 继续执行原函数。
-        void RawHookEnter(RawHookBinding* const bindingValue)
+        void RawHookEnter(RawHookBinding* const bindingValue, const std::uintptr_t* const savedFrame)
         {
             if (bindingValue == nullptr)
             {
@@ -1749,7 +1750,29 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(bindingValue->hookRecord.targetAddress));
             AppendWideText(detailBuffer, L" trampoline=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(bindingValue->originalAddress));
-            AppendWideText(detailBuffer, L" strongTyped=0 params=unparsed");
+            const auto arguments = CaptureRawAbi(savedFrame);
+#ifdef _M_IX86
+            AppendWideText(detailBuffer, L" strongTyped=0 params=raw abi=x86 ECX=");
+            AppendHexText(detailBuffer, arguments.registers[0]);
+            AppendWideText(detailBuffer, L" EDX=");
+            AppendHexText(detailBuffer, arguments.registers[1]);
+#else
+            AppendWideText(detailBuffer, L" strongTyped=0 params=raw abi=x64 RCX=");
+            AppendHexText(detailBuffer, arguments.registers[0]);
+            AppendWideText(detailBuffer, L" RDX=");
+            AppendHexText(detailBuffer, arguments.registers[1]);
+            AppendWideText(detailBuffer, L" R8=");
+            AppendHexText(detailBuffer, arguments.registers[2]);
+            AppendWideText(detailBuffer, L" R9=");
+            AppendHexText(detailBuffer, arguments.registers[3]);
+#endif
+            AppendWideText(detailBuffer, L" stackSlots=[");
+            for (unsigned i = 0; i < arguments.stackCount; ++i)
+            {
+                if (i) AppendWideText(detailBuffer, L",");
+                AppendHexText(detailBuffer, arguments.stack[i]);
+            }
+            AppendWideText(detailBuffer, L"]");
             SendRawEventWithStatus(
                 bindingValue->categoryValue,
                 bindingValue->moduleName.c_str(),
@@ -1849,6 +1872,8 @@ namespace apimon
 
             emit(0x48); emit(0xB9);             // mov rcx, bindingValue
             EmitRawStubU64(codePointer, offsetValue, reinterpret_cast<std::uint64_t>(bindingValue));
+            emit(0x48); emit(0x8D); emit(0x94); emit(0x24); // lea rdx, [rsp+0xA0]: saved entry frame
+            EmitRawStubU32(codePointer, offsetValue, 0x000000A0U);
             emit(0x48); emit(0xB8);             // mov rax, RawHookEnter
             EmitRawStubU64(codePointer, offsetValue, reinterpret_cast<std::uint64_t>(&RawHookEnter));
             emit(0xFF); emit(0xD0);             // call rax

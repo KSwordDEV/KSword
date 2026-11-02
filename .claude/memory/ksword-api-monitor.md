@@ -55,6 +55,9 @@
 
 ## 有界记录与协议
 
+- 2026-11-01：WinAPI 页面可输入16–65536 MiB文本估算预算并保存，立即淘汰超预算的显示窗口；100万条上限仍存在。新会话在注入前创建 AppLocalDataLocation 下 `api_monitor_archive/<session>/events.jsonl`，每个通过协议／会话校验的原始包在读管道线程内、UI有界队列之前落入单线程序列化的归档缓冲；JSONL保留机器字段和完整1000字节Base64原包，覆盖包也保留。每1MiB／有新包且经过1秒写盘，停止时FlushFileBuffers；写失败标红并请求停止。已接收与已写包数分开显示；已写不等于每包都已物理刷盘。只保证实际收到并成功写入的数据，不覆盖Agent丢包、停机前未读管道、启动前行为或本次改动之前已淘汰的记录。已有的表格TSV导出仍仅限当前保留窗口，完整记录直接从归档JSONL读取。
+- Raw入口桩额外传递保存帧：x64显示RCX/RDX/R8/R9和最多四个原始栈槽，x86显示ECX/EDX和最多四个栈槽；读取限定在线程StackLimit/StackBase且用SEH保护，不解引用槽内指针。未经签名无法确定参数个数、类型或有效位，x64栈槽高32位可能保留垃圾；XMM未解码，结果仍为EntryOnly。自建x64/x86六参数函数回归验证寄存器、栈槽及原函数返回；禁止将本机DWM作为测试目标。
+
 - Agent 环形队列 4096 个包，其中 64 个容量预留内部通知。队列拒收及取出后无法发送的包计入累计 EventsDropped 通知，通知由发送线程直接发送，不进入满队列。内部通知洪峰仍可能溢出，进程突然退出前的最后统计也不能保证送达。
 - UI 待显示队列仍为24000；2026-11-01前端由QTableWidget迁为TableActionTableView＋WinAPIEventTableModel＋WinAPIEventFilterModel。规范保留窗口上限100万条／约512 MiB文本估算预算，先到者淘汰；估算不是总RSS硬限制。Agent丢失、UI队列丢失、窗口移出分别计数。导出读取同一规范窗口及当前筛选／排序条件，包含尚未物化的保留记录，已移出记录不在内；它不是无限完整调用轨迹。
 - 不再为每行创建六个item、长期persistent index及独立过滤字段副本。普通增量批量beginInsert/RemoveRows，不reset；默认2048条一批。筛选快照按2048／4ms捕获纯值，AsyncOperation后台匹配，按512／4ms发布AcceptedRole，代理只处理变化范围；代次拒绝旧条件、已淘汰ordinal及clear之前的结果。隐藏页不提交筛选投影，菜单复用共享屏障。

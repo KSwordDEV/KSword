@@ -52,6 +52,7 @@ class QAbstractItemModel;
 class QTabWidget;
 class QTableWidgetItem;
 class QTimer;
+class QSpinBox;
 class QToolButton;
 class QVBoxLayout;
 class QWidget;
@@ -231,6 +232,9 @@ private:
     QLineEdit* m_eventFilterEdit = nullptr;            // m_eventFilterEdit：全字段事件过滤框。
     QPushButton* m_eventFilterClearButton = nullptr;   // m_eventFilterClearButton：清空事件过滤按钮。
     QCheckBox* m_eventKeepBottomCheck = nullptr;       // m_eventKeepBottomCheck：是否自动滚动到底部。
+    QSpinBox* m_eventMemoryBudget = nullptr;
+    QLabel* m_diskArchiveStatus = nullptr;
+    QPushButton* m_openDiskArchiveButton = nullptr;
     QLabel* m_eventFilterStatusLabel = nullptr;        // m_eventFilterStatusLabel：过滤结果状态文本。
     QTableView* m_eventTable = nullptr;                // 轻量事件模型，仅绘制当前视口。
     WinAPIEventTableModel* m_eventModel = nullptr;

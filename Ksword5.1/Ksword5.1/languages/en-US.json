@@ -7441,6 +7441,18 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    " MiB": " MiB",
+    "memoryMiB": "memoryMiB",
+    "packetBase64": "packetBase64",
+    "readerPid": "readerPid",
+    "resultKind": "resultKind",
+    "事件保留与归档": "Event retention and archive",
+    "归档失败：%1（错误码 %2）": "Archive failed: %1 (error %2)",
+    "归档：%1\n已接收 %2 包，已写入 %3 包": "Archive: %1\nReceived %2 packets, wrote %3 packets",
+    "归档：等待开始监控": "Archive: waiting for monitoring",
+    "打开归档目录": "Open archive folder",
+    "文本预算：": "Text budget:",
+    "无法创建 API 事件归档：%1（错误码 %2）": "Cannot create API event archive: %1 (error %2)",
     "快速搜索与空间分布": "Quick search and space distribution",
     "已加载 %1：%2 条文件记录；%3 个文件大小未知；更新于 %4。": "Loaded %1: %2 file records; %3 files have unknown sizes. Updated at %4.",
     "注意：%1 个文件的名称可能不完整，搜索结果可能遗漏这些名称。": "Note: %1 files may have incomplete names. Those names may be missing from search results.",

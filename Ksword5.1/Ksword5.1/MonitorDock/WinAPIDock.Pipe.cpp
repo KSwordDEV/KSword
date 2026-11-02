@@ -1,11 +1,13 @@
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIDiskArchive.h"
 #include "../UI/TableSearchSupport.h"
 #include <QItemSelectionModel>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QHeaderView>
 #include "../UI/ThemeItemForeground.h"
+#include "../UI/ThemeStatusRole.h"
 #include "../theme.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/TableInteractionSupport.h"
@@ -35,6 +37,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QLineEdit>
+#include <QLabel>
 #include <QMessageBox>
 #include <tuple>
 
@@ -219,6 +222,11 @@ bool WinAPISessionBackend::start()
         targetProcess = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, config.pid);
         creation = targetProcess ? ks::winapi_monitor::processCreationIdentity(targetProcess) : 0;
         if (!creation) { startupError = QString::number(::GetLastError()); return false; }
+        diskArchive = std::make_shared<WinAPIDiskArchive>(config.archiveDirectory);
+        if (!diskArchive->open()) {
+            startupError = QStringLiteral("无法创建 API 事件归档：%1（错误码 %2）").arg(config.archiveDirectory).arg(diskArchive->error());
+            return false;
+        }
         std::wstring path, error;
         if (!ks::winapi_monitor::resolveAgentPath(config.pid, config.requestedAgentPath.toStdWString(), &path, &error))
         {
@@ -399,6 +407,9 @@ void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool 
                 if (!ks::winapi_monitor::readEventPacket(pipe, &packet, stop)) break;
                 if (packet.size != sizeof(packet) || packet.version != ks::winapi_monitor::kProtocolVersion
                     || packet.sessionIdentity != reader->session) continue;
+                if (!diskArchive || !diskArchive->append(packet, reader->pid)) {
+                    requestStop(); break;
+                }
                 if (ks::winapi_monitor::isCoverageEvent(packet.eventKind))
                 {
                     if (receiver.consume(packet)) queueCoverageSnapshot(reader->pid, reader->session, receiver.revision(), receiver.items(), false, config.generation);
@@ -510,6 +521,7 @@ bool WinAPISessionBackend::cleanup()
         if (!writeStop(child.pid, child.creation, false)) flagsOk = false;
     for (const auto& reader : current)
         if (reader->thread && reader->thread->joinable()) reader->thread->join();
+    if (diskArchive) diskArchive->finish();
     connected.store(false);
     if (!flagsOk)
     {
@@ -589,6 +601,15 @@ void WinAPIDock::pollSessionBackend()
             backend->requestStop();
             if (!m_sessionCleanup->isCleanupRequested()) m_sessionCleanup->requestCleanup();
         }
+    }
+    if (m_diskArchiveStatus && backend->startupTerminal.load() && backend->diskArchive)
+    {
+        const auto archive = backend->diskArchive;
+        m_diskArchiveStatus->setText(archive->failed()
+            ? QStringLiteral("归档失败：%1（错误码 %2）").arg(archive->directory()).arg(archive->error())
+            : QStringLiteral("归档：%1\n已接收 %2 包，已写入 %3 包").arg(archive->directory()).arg(archive->accepted()).arg(archive->written()));
+        ks::ui::ApplyStatusRole(m_diskArchiveStatus, archive->failed() ? ks::ui::StatusRole::Error : ks::ui::StatusRole::Info);
+        if (m_openDiskArchiveButton) m_openDiskArchiveButton->setEnabled(true);
     }
     if (backend->rootEnded.load() && !m_stopping)
     {
