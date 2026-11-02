@@ -3,7 +3,6 @@
 #include "../Internationalization/LanguageManager.h"
 #include <QPainter>
 #include <QPainterPath>
-#include <QImage>
 #include <QtMath>
 #include <QMouseEvent>
 #include <QHelpEvent>
@@ -17,36 +16,6 @@ namespace ks::ui {
 namespace {
 struct Part { int node; bool own; double weight; };
 struct Placement { Part part; QRectF rect; };
-
-// A reusable cushion light map: a curved surface lit from the upper left.
-// The alpha mask shades each caller-owned color without a per-tile pixel loop.
-QPixmap cushionLightMap()
-{
-    constexpr int size = 96;
-    QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
-    for (int y = 0; y < size; ++y) {
-        auto* pixels = reinterpret_cast<QRgb*>(image.scanLine(y));
-        const double ny = 1.8 * (2.0 * y / (size - 1) - 1.0);
-        for (int x = 0; x < size; ++x) {
-            const double nx = 1.8 * (2.0 * x / (size - 1) - 1.0);
-            const double length = std::sqrt(nx * nx + ny * ny + 1.0);
-            const double diffuse = std::max(0.0, (-0.32 * nx - 0.38 * ny + 0.86) / length);
-            const double shine = std::pow(std::max(0.0, (-0.16 * nx - 0.19 * ny + 0.97) / length), 24.0);
-            const double light = std::clamp(0.32 + 0.74 * diffuse + 0.16 * shine, 0.32, 1.22);
-            const int channel = light > 1.0 ? 255 : 0;
-            const int alpha = qRound(std::abs(light - 1.0) * 255.0);
-            pixels[x] = qPremultiply(qRgba(channel, channel, channel, alpha));
-        }
-    }
-    return QPixmap::fromImage(image);
-}
-
-quint32 colorIdentity(const QString& key)
-{
-    quint32 hash = 2166136261U;
-    for (const QChar character : key) hash = (hash ^ character.unicode()) * 16777619U;
-    return hash;
-}
 
 // Weight-balanced bisection keeps siblings reasonably square and is bounded by O(n log n).
 std::vector<Placement> partition(std::vector<Part> parts, QRectF area) {
@@ -78,7 +47,6 @@ MetricAreaCanvas::MetricAreaCanvas(QWidget* parent):QWidget(parent){
     setMouseTracking(true);setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     setMinimumSize(80,80);
-    m_cushion = cushionLightMap();
 }
 void MetricAreaCanvas::setNodes(std::vector<MetricAreaNode> nodes){
     for(auto& node:nodes)if(!std::isfinite(node.weight)||node.weight<0)node.known=false;
@@ -157,11 +125,9 @@ QColor MetricAreaCanvas::boxColor(int index) const
     if (!color.isValid()) {
         const int anchor = m_colorAnchors[index];
         const auto& owner = m_nodes[anchor >= 0 ? anchor : index];
-        const quint32 hash = colorIdentity(owner.key.isEmpty() ? owner.name : owner.key);
         // Members share their group's hue; individual identities add a small variation.
-        const int variation = anchor == index ? 0 : static_cast<int>(colorIdentity(node.key) % 33) - 16;
-        const int hue = (static_cast<int>(hash % 360) + variation + 360) % 360;
-        color = QColor::fromHsv(hue, 156, palette().color(QPalette::Base).lightnessF() < 0.5 ? 180 : 210);
+        color = MetricAreaRenderer::identityColor(owner.key.isEmpty() ? owner.name : owner.key,
+            palette(), anchor == index ? QString() : node.key);
     }
     if (color.alpha() < 255) {
         color = KswordTheme::BlendColors(palette().color(QPalette::Base), color, color.alpha());
@@ -176,23 +142,11 @@ void MetricAreaCanvas::paintBox(QPainter& p, const Box& box, bool hovered) const
     if (r.isEmpty()) return;
     const auto& node = m_nodes[box.node];
     const QColor color = boxColor(box.node);
-    QColor background = box.container
-        ? KswordTheme::BlendColors(palette().color(QPalette::Base), color, 76) : color;
+    QColor background = m_renderer.paintTile(p, r, color,
+        {box.container, hovered, false, hovered && box.container});
+    if (hovered && box.container) return;
     p.save();
     p.setClipRect(r);
-    if (box.container) {
-        if (!hovered) p.fillRect(r, background);
-        const QColor border = KswordTheme::EnsureTextContrast(color, background, 3.0);
-        p.setPen(QPen(border, hovered ? 2.0 : 1.0));
-        p.setBrush(Qt::NoBrush);
-        p.drawRect(r.adjusted(1, 1, -1, -1));
-        // Hovering a group must not cover its already-painted children.
-        if (hovered) { p.restore(); return; }
-    } else {
-        if (hovered) background = background.lighter(118);
-        p.fillRect(r, background);
-        p.drawPixmap(r, m_cushion, QRectF(m_cushion.rect()));
-    }
 
     QRectF content = r.adjusted(4, 3, -4, -3);
     if (box.container) content.setHeight(std::min<qreal>(content.height(), fontMetrics().height() + 2));

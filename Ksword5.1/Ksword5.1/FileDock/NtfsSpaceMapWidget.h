@@ -1,4 +1,5 @@
 #pragma once
+#include "../UI/MetricAreaRenderer.h"
 
 #include <QRectF>
 #include <QString>
@@ -12,6 +13,7 @@ class QKeyEvent;
 class QMouseEvent;
 class QPaintEvent;
 class QResizeEvent;
+class QPainter;
 
 // A projection of one immutable directory snapshot. This widget never queries
 // the file system; the page computes directory sizes on its worker.
@@ -46,6 +48,7 @@ public:
     void setSelectedReference(quint64 reference);
     // Distinguish unavailable/loading states from a successful empty directory.
     void setEmptyMessage(const QString& source);
+    void refreshAppearance();
 
     std::function<void(quint64)> activated;
     std::function<void(quint64)> selected;
@@ -71,6 +74,7 @@ private:
     int hitTest(const QPointF& point) const;
     void chooseTile(int tile);
     QString tileToolTip(int tile) const;
+    void paintTile(QPainter& painter, int tile, bool interactive) const;
 
     DataPtr m_data;
     QVector<Tile> m_tiles;
@@ -79,4 +83,7 @@ private:
     quint64 m_selectedReference = 0;
     bool m_hasSelection = false;
     QString m_emptyMessage;
+    ks::ui::MetricAreaRenderer m_renderer;
+    QPixmap m_surface;
+    bool m_surfaceDirty = true;
 };

@@ -17,6 +17,7 @@
 #include <QThread>
 #include <QThreadPool>
 #include <QToolTip>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
@@ -41,21 +42,6 @@ namespace
                 QString::fromLatin1(units[unit]));
     }
 
-    QColor itemColor(const NtfsSpaceMapWidget::Item& item)
-    {
-        // Fixed extension identity across Qt hash seeds and refreshes. The lightness
-        // follows the current theme; text is calibrated against this actual fill.
-        quint32 hash = 2166136261U;
-        for (const QChar character : item.extension.toCaseFolded())
-        {
-            hash ^= character.unicode();
-            hash *= 16777619U;
-        }
-        if (item.directory)
-            return KswordTheme::PrimaryBlueColor;
-        return QColor::fromHsl(static_cast<int>(hash % 360U), 130,
-            KswordTheme::IsDarkModeEnabled() ? 92 : 180);
-    }
 }
 
 NtfsSpaceMapWidget::NtfsSpaceMapWidget(QWidget* parent)
@@ -103,6 +89,7 @@ void NtfsSpaceMapWidget::setItems(QVector<Item> items)
 void NtfsSpaceMapWidget::setData(DataPtr data)
 {
     m_data = data ? std::move(data) : prepare({});
+    m_surfaceDirty = true;
     m_hover = -1;
     rebuildLayout();
     update();
@@ -129,6 +116,12 @@ void NtfsSpaceMapWidget::setEmptyMessage(const QString& source)
 {
     if (m_emptyMessage == source) return;
     m_emptyMessage = source;
+    refreshAppearance();
+}
+
+void NtfsSpaceMapWidget::refreshAppearance()
+{
+    m_surfaceDirty = true;
     update();
 }
 
@@ -190,53 +183,76 @@ void NtfsSpaceMapWidget::rebuildLayout()
 void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
+    const qreal dpr = devicePixelRatioF();
+    const QSize pixels(qCeil(width() * dpr), qCeil(height() * dpr));
+    if (m_surfaceDirty || m_surface.size() != pixels || m_surface.devicePixelRatio() != dpr)
+    {
+        if (m_surface.size() != pixels) m_surface = QPixmap(pixels);
+        m_surface.setDevicePixelRatio(dpr);
+        m_surface.fill(Qt::transparent);
+        QPainter cache(&m_surface);
+        cache.setFont(font());
+        cache.setClipRect(rect().adjusted(4, 4, -4, -4));
+        if (m_tiles.isEmpty())
+        {
+            cache.setPen(KswordTheme::TextSecondaryColor());
+            cache.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignCenter | Qt::TextWordWrap,
+                ks::i18n::sourceText(m_emptyMessage.isEmpty()
+                    ? QStringLiteral("没有可显示的已知大小文件") : m_emptyMessage));
+        }
+        else
+        {
+            for (qsizetype i = 0; i < m_tiles.size(); ++i) paintTile(cache, static_cast<int>(i), false);
+        }
+        m_surfaceDirty = false;
+    }
     QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, false);
     painter.setClipRect(rect().adjusted(4, 4, -4, -4));
-    if (m_tiles.isEmpty())
-    {
-        painter.setPen(KswordTheme::TextSecondaryColor());
-        painter.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignCenter | Qt::TextWordWrap,
-            ks::i18n::sourceText(m_emptyMessage.isEmpty()
-                ? QStringLiteral("没有可显示的已知大小文件") : m_emptyMessage));
-        return;
-    }
-    for (qsizetype i = 0; i < m_tiles.size(); ++i)
-    {
-        const Tile& tile = m_tiles[i];
-        if (!tile.rectangle.intersects(event->rect())) continue;
-        const bool aggregate = tile.last > tile.first + 1;
-        const QColor fill = aggregate ? KswordTheme::SurfaceMutedColor() : itemColor(m_data->items[tile.first]);
-        const QRectF box = tile.rectangle;
-        painter.fillRect(box, fill);
-        if (box.width() > 3.0 && box.height() > 3.0)
-        {
-            painter.setPen(QPen(KswordTheme::EnsureTextContrast(fill, fill, 1.4), 1.0));
-            painter.drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5));
-        }
-        if (static_cast<int>(i) == m_selectedTile || static_cast<int>(i) == m_hover)
-        {
-            painter.setPen(QPen(KswordTheme::EnsureTextContrast(
-                KswordTheme::TextPrimaryColor(), fill, 3.0), static_cast<int>(i) == m_selectedTile ? 3.0 : 2.0));
-            painter.drawRect(box.adjusted(1.5, 1.5, -1.5, -1.5));
-        }
-        const QFontMetrics metrics(font());
-        if (box.width() < 50.0 || box.height() < metrics.height() + 6.0) continue;
-        const QString name = aggregate
-            ? ks::i18n::sourceText(QStringLiteral("%1 个较小项")).arg(tile.last - tile.first)
-            : m_data->items[tile.first].name;
-        painter.setPen(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), fill));
-        painter.drawText(box.adjusted(5, 3, -5, -3), Qt::AlignLeft | Qt::AlignTop,
-            metrics.elidedText(name, Qt::ElideMiddle, static_cast<int>(box.width()) - 10));
-        if (box.height() >= metrics.height() * 2 + 10)
-            painter.drawText(box.adjusted(5, metrics.height() + 5, -5, -3), Qt::AlignLeft | Qt::AlignTop,
-                displayBytes(m_data->prefixWeights[tile.last] - m_data->prefixWeights[tile.first]));
-    }
+    painter.drawPixmap(0, 0, m_surface);
+    paintTile(painter, m_selectedTile, true);
+    if (m_hover != m_selectedTile) paintTile(painter, m_hover, true);
+}
+
+void NtfsSpaceMapWidget::paintTile(QPainter& painter, int index, bool interactive) const
+{
+    if (index < 0 || index >= m_tiles.size()) return;
+    const Tile& tile = m_tiles[index];
+    const Item& item = m_data->items[tile.first];
+    const bool aggregate = tile.last > tile.first + 1;
+    const QString colorKey = aggregate ? QStringLiteral("ntfs:small-items")
+        : item.directory ? QStringLiteral("directory:") + (item.path.isEmpty()
+            ? QString::number(item.reference) : item.path.toCaseFolded())
+        : QStringLiteral("extension:") + item.extension.toCaseFolded();
+    const QColor fill = ks::ui::MetricAreaRenderer::identityColor(colorKey, palette());
+    const QRectF box = tile.rectangle;
+    const QColor painted = m_renderer.paintTile(painter, box, fill,
+        {aggregate || item.directory, interactive && index == m_hover,
+            interactive && index == m_selectedTile, false});
+    const QFontMetrics metrics(font());
+    if (box.width() < 50.0 || box.height() < metrics.height() + 6.0) return;
+    const QString name = metrics.elidedText(aggregate
+        ? ks::i18n::sourceText(QStringLiteral("%1 个较小项")).arg(tile.last - tile.first) : item.name,
+        Qt::ElideMiddle, static_cast<int>(box.width()) - 10);
+    const bool showBytes = box.height() >= metrics.height() * 2 + 10;
+    const QString amount = showBytes
+        ? displayBytes(m_data->prefixWeights[tile.last] - m_data->prefixWeights[tile.first]) : QString();
+    const QColor caption = KswordTheme::BlendColors(painted, palette().color(QPalette::Base), 190);
+    const int textWidth = std::max(metrics.horizontalAdvance(name), metrics.horizontalAdvance(amount));
+    const int textHeight = metrics.height() * (showBytes ? 2 : 1) + (showBytes ? 4 : 0);
+    painter.save();
+    painter.setClipRect(box, Qt::IntersectClip);
+    painter.fillRect(QRectF(box.left() + 3, box.top() + 2, textWidth + 4, textHeight + 2), caption);
+    painter.setPen(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), caption));
+    painter.drawText(box.adjusted(5, 3, -5, -3), Qt::AlignLeft | Qt::AlignTop, name);
+    if (showBytes)
+        painter.drawText(box.adjusted(5, metrics.height() + 7, -5, -3), Qt::AlignLeft | Qt::AlignTop, amount);
+    painter.restore();
 }
 
 void NtfsSpaceMapWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    m_surfaceDirty = true;
     m_hover = -1;
     rebuildLayout();
 }
@@ -327,8 +343,12 @@ bool NtfsSpaceMapWidget::event(QEvent* event)
         else QToolTip::showText(help->globalPos(), text, this);
         return true;
     }
-    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange)
-        update();
+    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange
+        || event->type() == QEvent::FontChange || event->type() == QEvent::LanguageChange
+        || event->type() == QEvent::StyleChange)
+    {
+        refreshAppearance();
+    }
     return QWidget::event(event);
 }
 

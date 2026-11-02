@@ -1,4 +1,5 @@
 #pragma once
+#include "MetricAreaRenderer.h"
 #include <QWidget>
 #include <QIcon>
 #include <QColor>
@@ -57,7 +58,7 @@ private:
     std::vector<int> m_colorAnchors;
     std::vector<double> m_totals;
     std::vector<Box> m_boxes;
-    QPixmap m_cushion;
+    MetricAreaRenderer m_renderer;
     QPixmap m_surface;
     bool m_surfaceDirty = true;
     // Index into the visible boxes, so a process's own area and its child group stay distinct.

@@ -864,6 +864,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaRenderer.h" />
     <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="ProcessDock\ProcessActivityHistory.h" />
     <ClInclude Include="ProcessDock\ProcessEtwCaptureLifecycle.h" />
@@ -1746,6 +1747,7 @@
     <ClInclude Include="..\..\shared\usermode\backend\network\NetworkRate.h" />
     <ClInclude Include="..\..\shared\driver\KswordArkManagedNetworkIoctl.h" />
     <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaRenderer.cpp" />
     <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />

@@ -27,7 +27,7 @@ def main():
     probe=probe[:-2]+'static '+declaration(area,'double ProcessDock::metricAreaNetworkValue(').replace('ProcessDock::','')+'\n};'
     fixture=output/'fixture.cpp'
     fixture.write_text('#include <Windows.h>\n#include "../Ksword5.1/Ksword5.1/ksword/process/process.h"\n'+(root/'tools/metric_area_tests.cpp').read_text(encoding='utf-8').replace('__METRIC_PROBE__',probe),encoding='utf-8')
-    command+=['/I'+str(root/'tools'),str(fixture),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaCanvas.cpp'),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaWindow.cpp'),str(root/'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp'),'/Fo'+str(output)+'\\','/Fe'+str(output/'test.exe'),'/link','/LIBPATH:'+str(args.qt/'lib'),'Qt6Core.lib','Qt6Gui.lib','Qt6Widgets.lib','Qt6Test.lib','user32.lib','advapi32.lib']
+    command+=['/I'+str(root/'tools'),str(fixture),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaCanvas.cpp'),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaRenderer.cpp'),str(root/'Ksword5.1/Ksword5.1/UI/MetricAreaWindow.cpp'),str(root/'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp'),'/Fo'+str(output)+'\\','/Fe'+str(output/'test.exe'),'/link','/LIBPATH:'+str(args.qt/'lib'),'Qt6Core.lib','Qt6Gui.lib','Qt6Widgets.lib','Qt6Test.lib','user32.lib','advapi32.lib']
     build=output/'build.cmd';build.write_text('@echo off\ncall "'+str(developer)+'" -arch=x64 -host_arch=x64 >nul\n'+subprocess.list2cmdline(command)+'\nexit /b %errorlevel%\n',encoding='utf-8')
     subprocess.run(['cmd.exe','/d','/c',str(build)],cwd=output,check=True)
     environment=dict(os.environ);environment['PATH']=str(args.qt/'bin')+os.pathsep+environment.get('PATH','')

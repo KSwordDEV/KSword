@@ -18,6 +18,7 @@
     <ClInclude Include="..\..\shared\usermode\backend\network\NetworkRate.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\driver\KswordArkManagedNetworkIoctl.h"><Filter>Header Files</Filter></ClInclude>
     <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaRenderer.cpp" />
     <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="FileDock\NtfsFastIndex.cpp">
       <Filter>Source Files</Filter>
@@ -3148,6 +3149,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaRenderer.h" />
     <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="UI\UI.css\UI_css.h">
       <Filter>Header Files</Filter>

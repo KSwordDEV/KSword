@@ -931,6 +931,6 @@ void NtfsSearchPage::changeEvent(QEvent* event)
         state.volume->setItemText(0, ks::i18n::sourceText(state.volumeMessage));
     state.searchModel->retranslate(); state.extensionModel->retranslate(); state.directoryModel->retranslate();
     state.results->viewport()->update(); state.extensions->viewport()->update(); state.directories->viewport()->update();
-    state.map->update();
+    state.map->refreshAppearance();
     updateButtons();
 }
