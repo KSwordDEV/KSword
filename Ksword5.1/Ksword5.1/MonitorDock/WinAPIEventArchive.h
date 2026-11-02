@@ -13,7 +13,10 @@
 class WinAPIEventArchive final
 {
 public:
-    static constexpr std::size_t capacity = 12000;
+    static constexpr std::size_t capacity = 1000000;
+    static constexpr std::size_t memoryCapacity = 512ULL * 1024 * 1024;
+    explicit WinAPIEventArchive(std::size_t rowLimit = capacity, std::size_t byteLimit = memoryCapacity)
+        : m_rowLimit(std::max<std::size_t>(1, rowLimit)), m_byteLimit(byteLimit) {}
     WinAPIEventRef append(WinAPIEventRef row)
     {
         if (!row) return {};
@@ -22,20 +25,35 @@ public:
         try { m_rows.push_back(row); }
         catch (...) { m_present.erase(present); throw; }
         ++m_revision;
-        if (m_rows.size() <= capacity) return {};
-        auto evicted = std::move(m_rows.front());
-        m_rows.pop_front(); m_present.erase(evicted.get());
-        return evicted;
+        m_bytes += estimatedBytes(row);
+        WinAPIEventRef firstEvicted;
+        while (m_rows.size() > m_rowLimit || (m_rows.size() > 1 && m_bytes > m_byteLimit))
+        {
+            auto evicted = std::move(m_rows.front());
+            m_rows.pop_front(); m_present.erase(evicted.get()); m_bytes -= estimatedBytes(evicted); ++m_evicted;
+            if (!firstEvicted) firstEvicted = std::move(evicted);
+        }
+        return firstEvicted;
     }
-    void clear() { m_rows.clear(); m_present.clear(); ++m_revision; }
+    void clear() { m_rows.clear(); m_present.clear(); m_bytes = 0; m_evicted = 0; ++m_revision; }
     bool contains(const WinAPIEventRef& row) const { return row && m_present.contains(row.get()); }
     std::size_t size() const { return m_rows.size(); }
     std::uint64_t revision() const { return m_revision; }
+    std::size_t estimatedMemoryBytes() const { return m_bytes; }
+    std::size_t evictedCount() const { return m_evicted; }
     std::vector<WinAPIEventRef> snapshot() const { return {m_rows.begin(), m_rows.end()}; }
 private:
+    static std::size_t estimatedBytes(const WinAPIEventRef& row)
+    {
+        const auto& v = row->value;
+        return sizeof(WinAPIEventRecord) + 128 + 2 * static_cast<std::size_t>(row->searchText.size()
+            + v.time100nsText.size() + v.categoryText.size() + v.apiText.size() + v.resultText.size()
+            + v.pidTidText.size() + v.detailText.size() + v.agentStatus.size());
+    }
     std::deque<WinAPIEventRef> m_rows;
     std::unordered_set<const WinAPIEventRecord*> m_present;
     std::uint64_t m_revision = 0;
+    std::size_t m_rowLimit, m_byteLimit, m_bytes = 0, m_evicted = 0;
 };
 
 // Frozen source, conditions and translation values. The exporter evaluates the

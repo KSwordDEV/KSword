@@ -56,8 +56,9 @@
 ## 有界记录与协议
 
 - Agent 环形队列 4096 个包，其中 64 个容量预留内部通知。队列拒收及取出后无法发送的包计入累计 EventsDropped 通知，通知由发送线程直接发送，不进入满队列。内部通知洪峰仍可能溢出，进程突然退出前的最后统计也不能保证送达。
-- UI 保留 24000 个待显示事件与 12000 行表格，分别记录 UI 丢失、移出表格和待显示数量。Agent 丢失按 PID 汇总。TSV 只导出当前可见行，包含覆盖范围与计数说明；它不是完整调用轨迹。
-- 筛选文本缓存于时间列 UserRole；已有行不可变，仅筛选条件变化时全表扫描。新行单独筛选，淘汰旧行时同步可见计数。
+- UI 待显示队列仍为24000；2026-11-01前端由QTableWidget迁为TableActionTableView＋WinAPIEventTableModel＋WinAPIEventFilterModel。规范保留窗口上限100万条／约512 MiB文本估算预算，先到者淘汰；估算不是总RSS硬限制。Agent丢失、UI队列丢失、窗口移出分别计数。导出读取同一规范窗口及当前筛选／排序条件，包含尚未物化的保留记录，已移出记录不在内；它不是无限完整调用轨迹。
+- 不再为每行创建六个item、长期persistent index及独立过滤字段副本。普通增量批量beginInsert/RemoveRows，不reset；默认2048条一批。筛选快照按2048／4ms捕获纯值，AsyncOperation后台匹配，按512／4ms发布AcceptedRole，代理只处理变化范围；代次拒绝旧条件、已淘汰ordinal及clear之前的结果。隐藏页不提交筛选投影，菜单复用共享屏障。
+- “保持贴底”时关闭Qt的currentChanged自动定位，避免旧选中行淘汰／筛掉后跳到替代的首行；rangeChanged和批次结尾合并一次排队scrollToBottom，勾选、可见性和菜单屏障都在执行时复核。取消贴底恢复原生导航，删除旧行后按事件身份及像素偏移恢复阅读点。不要只在append返回前滚一次，也不要每次菜单屏障后clear模型。前端实现与验收边界见`docs/API-Monitor前端长列表-20261101.md`。
 - 协议版本 `0x20261003`，Windows 包大小1000字节。包包含 EventKind、API ID、操作 ID、会话身份、快照修订/状态/种类/地址及定义 SHA256。resultKind 为 StatusCode 或 EntryOnly，Raw 结果显示“未采集”，不能因 resultCode=0 标成 OK 或错误。剪贴板分类码为7。
 - 升级必须同时部署新主程序、APIMonitor_x64.dll、APIMonitor_x86.dll；旧协议组合不兼容。已加载旧 Agent 的目标进程需要重启后再监控。剪贴板保护的读端也使用共享包布局与版本检查。
 

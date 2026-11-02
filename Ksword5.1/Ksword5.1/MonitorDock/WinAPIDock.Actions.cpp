@@ -4,7 +4,7 @@
 #include "../UI/TableContextMenu.h"
 #include "../UI/DetailDialogChrome.h"
 #include "WinAPIDock.h"
-#include "MonitorEventFilterProjection.h"
+#include "WinAPIEventTableModel.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -651,11 +651,11 @@ void WinAPIDock::initializeConnections()
     }
     if (m_eventTable != nullptr)
     {
-        connect(m_eventTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        connect(m_eventTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& position) {
             showEventContextMenu(position);
         });
-        connect(m_eventTable, &QTableWidget::cellDoubleClicked, this, [this](const int row, const int) {
-            showEventDetailDialog(row);
+        connect(m_eventTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
+            showEventDetailDialog(index.row());
         });
     }
     if (m_resultTabs)
@@ -1286,7 +1286,7 @@ void WinAPIDock::appendInternalEvent(const QString& categoryText, const QString&
         auto record = std::make_shared<WinAPIEventRecord>();
         record->searchText = WinAPIEventFields(rowValue).join(QStringLiteral(" | "));
         record->value = std::move(rowValue);
-        if (m_eventArchive.append(std::move(record))) ++m_evictedRows;
+        m_eventArchive.append(std::move(record)); m_evictedRows = m_eventArchive.evictedCount();
         m_eventProjectionStale = true;
     }
     updateActionState();
@@ -1299,14 +1299,13 @@ void WinAPIDock::showEventDetailDialog(const int rowValue)
     // - 输入：rowValue 为事件表中的物理行号；
     // - 处理：读取该行所有列，拼成可复制的多行详情文本并用模态窗口展示；
     // - 返回：无返回值，行号无效或表格不存在时直接返回。
-    if (m_eventTable == nullptr || rowValue < 0 || rowValue >= m_eventTable->rowCount())
+    if (m_eventTable == nullptr || rowValue < 0 || rowValue >= m_eventTable->model()->rowCount())
     {
         return;
     }
 
     const auto columnText = [this, rowValue](const int columnValue) -> QString {
-        QTableWidgetItem* const itemPointer = m_eventTable->item(rowValue, columnValue);
-        return itemPointer != nullptr ? itemPointer->text() : QString();
+        return m_eventTable->model()->index(rowValue, columnValue).data().toString();
     };
 
     ks::ui::FieldDocument detailText;
@@ -1450,30 +1449,24 @@ void WinAPIDock::terminateHooksForSelectedProcess()
 
 void WinAPIDock::initializeEventProjection()
 {
-    m_eventFilterProjection = new ks::monitor::EventFilterProjection(m_eventTable,
-        [this](int row) {
-            const auto item = m_eventTable->item(row, EventColumnTime100ns);
-            return ks::monitor::EventFilterRow{{item ? item->data(Qt::UserRole).toString() : QString()}, {}, 0};
-        },
-        [this](int visible, int total, bool pending) {
-            m_visibleEventCount = visible;
-            if (m_eventFilterStatusLabel)
-            {
-                m_eventFilterStatusLabel->setText(QStringLiteral("筛选结果：%1 / %2").arg(visible).arg(total));
-                ks::ui::ApplyStatusRole(m_eventFilterStatusLabel, pending ? ks::ui::StatusRole::Warning
-                    : visible > 0 ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Idle);
-            }
-        });
+    initializeEventTailFollow();
+    m_eventModel->filterStateChanged = [this]() {
+        m_visibleEventCount = m_eventProxy->rowCount();
+        if (m_eventFilterStatusLabel) {
+            m_eventFilterStatusLabel->setText(QStringLiteral("筛选结果：%1 / %2").arg(m_visibleEventCount).arg(m_eventModel->rowCount()));
+            ks::ui::ApplyStatusRole(m_eventFilterStatusLabel, (m_eventModel->filterPending() || m_eventModel->filterFailed()) ? ks::ui::StatusRole::Warning
+                : m_visibleEventCount > 0 ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Idle);
+        }
+    };
     applyEventFilter();
 }
 
 void WinAPIDock::applyEventFilter()
 {
     m_eventFilterKeyword = m_eventFilterEdit ? m_eventFilterEdit->text().trimmed() : QString();
-    if (!m_eventFilterProjection || !m_eventTable || !m_eventTable->isVisible()) return;
-    ks::monitor::EventFilterSpec spec;
-    spec.patterns = {m_eventFilterKeyword}; spec.fieldIndexes = {0};
-    m_eventFilterProjection->setFilter(std::move(spec));
+    if (!m_eventModel) return;
+    m_eventModel->setKeyword(m_eventFilterKeyword);
+    if (m_eventModel->filterStateChanged) m_eventModel->filterStateChanged();
 }
 
 void WinAPIDock::clearEventFilter()
@@ -1573,10 +1566,9 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
     QAction* copyRowAction = menu.addAction(QStringLiteral("复制整行"));
     // 声明业务菜单已提供此能力，避免共享表格菜单追加重复项。
     ks::ui::SetTableContextActionRole(copyRowAction, ks::ui::TableContextActionRole::CopyRows);
-    const QTableWidgetItem* processIdItem = m_eventTable->item(row, EventColumnPidTid);
+    const QString processIdText = indexValue.siblingAtColumn(EventColumnPidTid).data().toString();
     std::uint32_t processId = 0;
-    const bool hasProcessId = processIdItem != nullptr &&
-        ks::online_scan::tryParsePidFromText(processIdItem->text(), &processId) &&
+    const bool hasProcessId = ks::online_scan::tryParsePidFromText(processIdText, &processId) &&
         processId != 0U;
     QAction* openProcessDetailAction = menu.addAction(QStringLiteral("转到进程详细信息"));
     openProcessDetailAction->setEnabled(hasProcessId);
@@ -1588,11 +1580,9 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
             // 输入：WinAPI 监控事件表当前右键行。
             // 处理：从 PID/TID 列解析进程 PID，再解析进程镜像路径。
             // 返回：VT 上传目标；解析失败时返回 errorText 交给统一 helper 弹窗。
-            QTableWidgetItem* pidItem = m_eventTable != nullptr
-                ? m_eventTable->item(row, EventColumnPidTid)
-                : nullptr;
+            const QString pidText = m_eventTable->model()->index(row, EventColumnPidTid).data().toString();
             std::uint32_t pidValue = 0;
-            if (pidItem == nullptr || !ks::online_scan::tryParsePidFromText(pidItem->text(), &pidValue))
+            if (!ks::online_scan::tryParsePidFromText(pidText, &pidValue))
             {
                 return {
                     QString(),
@@ -1626,11 +1616,7 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
 
     if (selectedAction == copyCellAction)
     {
-        QTableWidgetItem* itemPointer = m_eventTable->item(row, column);
-        if (itemPointer != nullptr)
-        {
-            QApplication::clipboard()->setText(itemPointer->text());
-        }
+        QApplication::clipboard()->setText(m_eventTable->model()->index(row, column).data().toString());
         return;
     }
 
@@ -1645,8 +1631,7 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
         QStringList rowTextList;
         for (int currentColumn = 0; currentColumn < EventColumnCount; ++currentColumn)
         {
-            QTableWidgetItem* itemPointer = m_eventTable->item(row, currentColumn);
-            rowTextList << (itemPointer != nullptr ? itemPointer->text() : QString());
+            rowTextList << m_eventTable->model()->index(row, currentColumn).data().toString();
         }
         QApplication::clipboard()->setText(rowTextList.join('\t'));
     }

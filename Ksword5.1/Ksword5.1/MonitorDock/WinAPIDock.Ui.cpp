@@ -1,5 +1,6 @@
 #include "MonitorNavigationSchema.h"
 #include "WinAPIDock.h"
+#include "WinAPIEventTableModel.h"
 #include "../UI/CodeTextEdit.h"
 #include "../UI/ThemeItemForeground.h"
 #include "../UI/VisibleTableWidget.h"
@@ -511,24 +512,22 @@ void WinAPIDock::initializeUi()
     eventResultsLayout->addWidget(m_filterPanel);
     workspace->results()->addWidget(eventResults, 1);
 
-    m_eventTable = new ks::ui::VisibleTableWidget(this);
+    m_eventTable = new ks::ui::TableActionTableView(this);
+    m_eventModel = new WinAPIEventTableModel(m_eventTable);
+    m_eventProxy = new WinAPIEventFilterModel(m_eventTable);
+    m_eventProxy->setSourceModel(m_eventModel);
+    m_eventTable->setModel(m_eventProxy);
+    m_eventTable->setProperty("ks_i18n_preserve_model_data", true);
     ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
-    m_eventTable->setColumnCount(EventColumnCount);
     m_eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_eventTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_eventTable->setAlternatingRowColors(true);
     ks::ui::InstallThemeItemForegroundDelegate(m_eventTable);
     m_eventTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_eventTable->setHorizontalHeaderLabels(
-        QStringList{
-            QStringLiteral("时间(100ns)"),
-            QStringLiteral("分类"),
-            QStringLiteral("API"),
-            QStringLiteral("结果"),
-            QStringLiteral("PID/TID"),
-            QStringLiteral("详情")
-        });
+    m_eventTable->setWordWrap(false);
+    m_eventTable->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    m_eventTable->verticalHeader()->setDefaultSectionSize(22);
     m_eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_eventTable->setColumnWidth(EventColumnTime100ns, 160);
     m_eventTable->setColumnWidth(EventColumnCategory, 72);

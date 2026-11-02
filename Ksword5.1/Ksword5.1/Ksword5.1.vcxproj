@@ -763,6 +763,7 @@
     <ClCompile Include="MonitorDock\WinAPIDock.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Actions.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp" />
+    <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Ui.cpp" />
     <ClCompile Include="WindowDock\WindowDock.cpp" />
     <ClCompile Include="WindowDock\WindowEventHookTab.cpp" />
@@ -1414,6 +1415,7 @@
     <ClInclude Include="ProcessDock\HotkeyClearController.h" />
     <ClInclude Include="UI\UI.css\UI_css.h" />
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventTableModel.h" />
     <ClInclude Include="MonitorDock\WinAPISessionBackend.h" />
     <ClInclude Include="MonitorDock\WinAPIDock.h" />
     <ClInclude Include="MonitorDock\WinApiMonitorProtocol.h" />

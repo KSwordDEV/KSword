@@ -27,7 +27,7 @@ static WinAPIEventRef row(std::uint64_t sequence, QString api = {})
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
-    WinAPIEventArchive archive;
+    WinAPIEventArchive archive(12000, static_cast<std::size_t>(-1));
     const auto first = row(1); archive.append(first);
     const auto old = archive.snapshot();
     for (std::uint64_t i = 2; i <= 30000; ++i) archive.append(row(i));

@@ -1,5 +1,5 @@
 #include "WinAPIDock.h"
-#include "MonitorEventFilterProjection.h"
+#include "WinAPIEventTableModel.h"
 #include "../UI/TableSearchSupport.h"
 #include <QItemSelectionModel>
 #include <QScrollBar>
@@ -631,31 +631,22 @@ void WinAPIDock::acceptPendingEventRows()
     std::deque<WinAPIEventRef> accepted;
     { const std::lock_guard<std::mutex> lock(m_pendingMutex); accepted.swap(m_pendingRows); }
     const bool visible = m_eventTable && m_eventTable->isVisible();
-    if (!visible) { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); m_expiredEventProjection.clear(); }
+    if (!visible) { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); }
     for (auto& record : accepted)
     {
-        applyEventState(record->value); // Hook status/definition state remains current while hidden.
-        auto evicted = m_eventArchive.append(record);
-        if (evicted)
-        {
-            ++m_evictedRows;
-            if (visible && !m_eventProjectionStale && m_projectedEvents.contains(evicted.get()))
-                m_expiredEventProjection.push_back(std::move(evicted));
-        }
+        applyEventState(record->value);
+        m_eventArchive.append(record);
         if (visible && !m_eventProjectionStale) m_eventProjectionQueue.push_back(std::move(record));
     }
+    m_evictedRows = m_eventArchive.evictedCount();
     if (m_eventProjectionQueue.size() > WinAPIEventArchive::capacity)
-    { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); m_expiredEventProjection.clear(); }
+    { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); }
 }
 
 WinAPIEventRef WinAPIDock::eventRecordAt(int row) const
 {
-    if (!m_eventTable || row < 0) return {};
-    const auto item = m_eventTable->item(row, EventColumnTime100ns);
-    if (!item) return {};
-    const auto key = reinterpret_cast<const WinAPIEventRecord*>(item->data(Qt::UserRole + 1).value<quintptr>());
-    const auto found = m_projectedEvents.find(key);
-    return found != m_projectedEvents.end() ? found->second.record : WinAPIEventRef{};
+    if (!m_eventModel || !m_eventProxy || row < 0) return {};
+    return m_eventModel->recordAt(m_eventProxy->mapToSource(m_eventProxy->index(row, 0)).row());
 }
 
 void WinAPIDock::flushPendingRows()
@@ -664,10 +655,9 @@ void WinAPIDock::flushPendingRows()
     acceptPendingEventRows(); // Always archive before menu/visibility projection barriers.
     flushCoverageUpdates();
     const bool visible = m_eventTable && m_eventTable->isVisible();
-    if (m_eventFilterProjection) m_eventFilterProjection->setSuspended(!visible);
     if (!visible && m_eventProjectionWasVisible)
     {
-        m_restoreSelectedEvent = eventRecordAt(m_eventTable->currentRow());
+        m_restoreSelectedEvent = eventRecordAt(m_eventTable->currentIndex().row());
         m_restoreTopEvent = eventRecordAt(m_eventTable->indexAt(QPoint(0, 0)).row());
     }
     m_eventProjectionWasVisible = visible;
@@ -675,81 +665,96 @@ void WinAPIDock::flushPendingRows()
     const QPointer<WinAPIDock> guard(this);
     if (ks::ui::DeferTableUiCommitIfContextMenuOpen(this, QStringLiteral("winapi-event-flush"), {m_eventTable},
         [guard]() { if (guard) guard->flushPendingRows(); }))
-    { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); m_expiredEventProjection.clear(); return; }
+    { return; }
     projectEventRows();
     applyEventFilter(); updateActionState(); updateStatusLabel();
+}
+
+void WinAPIDock::initializeEventTailFollow()
+{
+    // Filtering, sorting and row geometry can update the range after the bounded
+    // event batch has already followed the tail. Reconcile after Qt's layout,
+    // through the same menu barrier as event publication, without polling.
+    connect(m_eventTable->verticalScrollBar(), &QScrollBar::rangeChanged, this,
+        [this]() { scheduleEventTailFollow(); });
+    // Qt otherwise scrolls to the replacement current row when an old selected
+    // event is evicted or filtered out, which can jump straight to the top.
+    m_eventTable->setAutoScroll(!m_eventKeepBottomCheck->isChecked());
+    connect(m_eventKeepBottomCheck, &QCheckBox::toggled, this,
+        [this](bool enabled) {
+            m_eventTable->setAutoScroll(!enabled);
+            m_restoreTopEvent.reset();
+            if (enabled) scheduleEventTailFollow();
+        });
+}
+
+void WinAPIDock::scheduleEventTailFollow()
+{
+    if (m_eventTailFollowScheduled || !m_eventTable || !m_eventTable->isVisible()
+        || !m_eventKeepBottomCheck || !m_eventKeepBottomCheck->isChecked()) return;
+    m_eventTailFollowScheduled = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_eventTailFollowScheduled = false;
+        if (!m_eventTable || !m_eventTable->isVisible()
+            || !m_eventKeepBottomCheck || !m_eventKeepBottomCheck->isChecked()) return;
+        const QPointer<WinAPIDock> guard(this);
+        if (ks::ui::DeferTableUiCommitIfContextMenuOpen(this, QStringLiteral("winapi-event-tail"), {m_eventTable},
+            [guard]() { if (guard) guard->scheduleEventTailFollow(); })) return;
+        m_eventTable->scrollToBottom();
+    });
 }
 
 void WinAPIDock::projectEventRows()
 {
     if (!m_eventTable || !m_eventTable->isVisible()) return;
+    if (!m_eventProjectionStale && m_eventProjectionQueue.empty() && !m_restoreSelectedEvent && !m_restoreTopEvent) return;
+    const auto selected = m_restoreSelectedEvent ? m_restoreSelectedEvent : eventRecordAt(m_eventTable->currentIndex().row());
+    const auto top = m_restoreTopEvent ? m_restoreTopEvent : eventRecordAt(m_eventTable->indexAt(QPoint(0, 0)).row());
+    const int topOffset = m_eventTable->rowViewportPosition(m_eventTable->indexAt(QPoint(0, 0)).row());
+    const int horizontal = m_eventTable->horizontalScrollBar()->value();
+    const bool updates = m_eventTable->updatesEnabled(); m_eventTable->setUpdatesEnabled(false);
     if (m_eventProjectionStale)
     {
-        m_eventProjectionQueue.clear(); m_expiredEventProjection.clear();
-        for (const auto& [key, projected] : m_projectedEvents)
-            if (!m_eventArchive.contains(projected.record)) m_expiredEventProjection.push_back(projected.record);
-        for (const auto& record : m_eventArchive.snapshot())
-            if (!m_projectedEvents.contains(record.get())) m_eventProjectionQueue.push_back(record);
+        m_restoreSelectedEvent = selected;
+        if (!m_eventKeepBottomCheck || !m_eventKeepBottomCheck->isChecked()) m_restoreTopEvent = top;
+        m_eventModel->clear(); m_eventProjectionQueue.clear();
+        for (const auto& record : m_eventArchive.snapshot()) m_eventProjectionQueue.push_back(record);
         m_eventProjectionStale = false;
     }
-    if (m_expiredEventProjection.empty() && m_eventProjectionQueue.empty()
-        && !m_restoreSelectedEvent && !m_restoreTopEvent) return;
+    int expired = 0;
+    while (expired < m_eventModel->rowCount() && !m_eventArchive.contains(m_eventModel->recordAt(expired))) ++expired;
+    m_eventModel->trimFront(expired);
     QElapsedTimer budget; budget.start();
-    const bool updates = m_eventTable->updatesEnabled();
-    m_eventTable->setUpdatesEnabled(false);
-    const bool sorting = m_eventTable->isSortingEnabled();
-    if (sorting) m_eventTable->setSortingEnabled(false);
-    const auto selected = m_restoreSelectedEvent ? m_restoreSelectedEvent : eventRecordAt(m_eventTable->currentRow());
-    const auto top = m_restoreTopEvent ? m_restoreTopEvent : eventRecordAt(m_eventTable->indexAt(QPoint(0, 0)).row());
-    std::vector<int> removed;
-    std::size_t mutations = 0;
-    while (!m_expiredEventProjection.empty() && mutations < kUiFlushRowLimit && budget.elapsed() < kUiFlushBudgetMs)
-    {
-        auto record = std::move(m_expiredEventProjection.front()); m_expiredEventProjection.pop_front();
-        const auto found = m_projectedEvents.find(record.get());
-        if (found == m_projectedEvents.end()) continue;
-        if (found->second.index.isValid()) { removed.push_back(found->second.index.row()); ++mutations; }
-        m_projectedEvents.erase(found);
-    }
-    std::sort(removed.begin(), removed.end(), std::greater<int>());
-    removed.erase(std::unique(removed.begin(), removed.end()), removed.end());
-    for (std::size_t i = 0; i < removed.size();)
-    {
-        const int last = removed[i]; int first = last;
-        while (++i < removed.size() && removed[i] == first - 1) first = removed[i];
-        m_eventTable->model()->removeRows(first, last - first + 1);
-    }
-    std::size_t appended = 0;
-    while (!m_eventProjectionQueue.empty() && mutations < kUiFlushRowLimit && budget.elapsed() < kUiFlushBudgetMs)
+    std::vector<WinAPIEventRef> rows; rows.reserve(kUiFlushRowLimit);
+    while (!m_eventProjectionQueue.empty() && rows.size() < kUiFlushRowLimit && budget.elapsed() < kUiFlushBudgetMs)
     {
         auto record = std::move(m_eventProjectionQueue.front()); m_eventProjectionQueue.pop_front();
-        if (!m_eventArchive.contains(record) || m_projectedEvents.contains(record.get())) continue;
-        materializeEventRow(record); ++appended; ++mutations;
+        if (m_eventArchive.contains(record)) rows.push_back(std::move(record));
     }
-    if (sorting) m_eventTable->setSortingEnabled(true); // One sort per bounded projection batch.
-    if (m_restoreSelectedEvent && selected && m_eventArchive.contains(selected))
+    m_eventModel->append(rows);
+    if (m_restoreSelectedEvent && selected)
     {
-        const auto found = m_projectedEvents.find(selected.get());
-        if (found != m_projectedEvents.end() && found->second.index.isValid())
-        {
-            if (m_eventTable->selectionModel())
-                m_eventTable->selectionModel()->setCurrentIndex(found->second.index, QItemSelectionModel::NoUpdate);
-            m_restoreSelectedEvent.reset();
-        }
+        const auto index = m_eventProxy->mapFromSource(m_eventModel->index(m_eventModel->rowForRecord(selected), 0));
+        if (index.isValid()) { m_eventTable->selectionModel()->setCurrentIndex(index, QItemSelectionModel::NoUpdate); m_restoreSelectedEvent.reset(); }
     }
     if (m_eventKeepBottomCheck && m_eventKeepBottomCheck->isChecked())
-        m_eventTable->scrollToBottom();
-    else if ((m_restoreTopEvent || !removed.empty()) && top && m_eventArchive.contains(top))
     {
-        const auto found = m_projectedEvents.find(top.get());
-        if (found != m_projectedEvents.end() && found->second.index.isValid())
-        { m_eventTable->scrollTo(found->second.index, QAbstractItemView::PositionAtTop); m_restoreTopEvent.reset(); }
+        m_restoreTopEvent.reset(); m_eventTable->scrollToBottom(); scheduleEventTailFollow();
+    }
+    else if ((m_restoreTopEvent || expired) && top && m_eventArchive.contains(top))
+    {
+        const auto index = m_eventProxy->mapFromSource(m_eventModel->index(m_eventModel->rowForRecord(top), 0));
+        if (index.isValid()) {
+            m_eventTable->scrollTo(index, QAbstractItemView::PositionAtTop);
+            if (m_eventTable->verticalScrollMode() == QAbstractItemView::ScrollPerPixel)
+                m_eventTable->verticalScrollBar()->setValue(m_eventTable->verticalScrollBar()->value() - topOffset);
+            m_eventTable->horizontalScrollBar()->setValue(horizontal); m_restoreTopEvent.reset();
+        }
     }
     if (selected && !m_eventArchive.contains(selected)) m_restoreSelectedEvent.reset();
     if (top && !m_eventArchive.contains(top)) m_restoreTopEvent.reset();
     m_eventTable->setUpdatesEnabled(updates);
-    if (updates && (appended || !removed.empty())) m_eventTable->viewport()->update();
-    if ((!m_eventProjectionQueue.empty() || !m_expiredEventProjection.empty()) && !m_eventProjectionPumpScheduled)
+    if (!m_eventProjectionQueue.empty() && !m_eventProjectionPumpScheduled)
     {
         m_eventProjectionPumpScheduled = true;
         QTimer::singleShot(0, this, [this]() { m_eventProjectionPumpScheduled = false; flushPendingRows(); });
@@ -758,31 +763,17 @@ void WinAPIDock::projectEventRows()
 
 void WinAPIDock::clearCanonicalEvents()
 {
-    m_eventArchive.clear(); m_eventProjectionQueue.clear(); m_expiredEventProjection.clear(); m_projectedEvents.clear();
-    m_restoreSelectedEvent.reset(); m_restoreTopEvent.reset(); m_eventProjectionStale = true;
-    if (m_eventTable) { m_eventTable->clearContents(); m_eventTable->setRowCount(0); }
+    m_eventArchive.clear(); m_eventProjectionQueue.clear();
+    m_restoreSelectedEvent.reset(); m_restoreTopEvent.reset(); m_eventProjectionStale = false;
+    if (m_eventModel) m_eventModel->clear();
     m_visibleEventCount = 0;
 }
 
 WinAPIDock::EventExportSnapshot WinAPIDock::freezeVisibleEventRowsForExport()
 {
-    pollSessionBackend(); acceptPendingEventRows(); // Never materializes a hidden table.
+    pollSessionBackend(); acceptPendingEventRows();
     EventExportSnapshot snapshot;
-    // Preserve current sort/order through stable identities, then append arrivals
-    // that have not been materialized. This reads no item texts or hidden bits.
-    const auto canonical = m_eventArchive.snapshot();
-    std::vector<WinAPIEventRef> projected(m_eventTable ? m_eventTable->rowCount() : 0);
-    std::unordered_set<const WinAPIEventRecord*> represented;
-    for (const auto& [key, row] : m_projectedEvents)
-    {
-        if (!row.index.isValid() || !m_eventArchive.contains(row.record)) continue;
-        const int index = row.index.row();
-        if (index >= 0 && static_cast<std::size_t>(index) < projected.size())
-        { projected[static_cast<std::size_t>(index)] = row.record; represented.insert(key); }
-    }
-    snapshot.rows.reserve(canonical.size());
-    for (auto& row : projected) if (row) snapshot.rows.push_back(std::move(row));
-    for (const auto& row : canonical) if (!represented.contains(row.get())) snapshot.rows.push_back(row);
+    snapshot.rows = m_eventArchive.snapshot();
     snapshot.businessKeyword = m_eventFilterEdit ? m_eventFilterEdit->text().trimmed() : m_eventFilterKeyword;
     snapshot.search = ks::ui::CaptureTableSearchResultFilterSpec(m_eventTable);
     snapshot.language = ks::i18n::LanguageManager::instance().sourceTextSnapshot();
@@ -790,15 +781,13 @@ WinAPIDock::EventExportSnapshot WinAPIDock::freezeVisibleEventRowsForExport()
     snapshot.archiveRevision = m_eventArchive.revision(); snapshot.lossSummary = eventLossSummary();
     if (m_eventTable && m_eventTable->horizontalHeader())
     {
-        snapshot.continuousSort = m_eventTable->isSortingEnabled();
-        snapshot.sortColumn = m_eventTable->horizontalHeader()->sortIndicatorSection();
+        // A header sort is also included when the shared header performs a one-shot sort.
+        snapshot.continuousSort = m_eventProxy && m_eventProxy->sortColumn() >= 0;
+        snapshot.sortColumn = m_eventProxy ? m_eventProxy->sortColumn() : -1;
         snapshot.sortOrder = m_eventTable->horizontalHeader()->sortIndicatorOrder();
     }
     for (int column = 0; column < EventColumnCount; ++column)
-    {
-        const auto header = m_eventTable ? m_eventTable->horizontalHeaderItem(column) : nullptr;
-        snapshot.headers.push_back(header ? snapshot.language.displayText(header->text()) : QString());
-    }
+        snapshot.headers.push_back(m_eventModel->headerData(column, Qt::Horizontal).toString());
     return snapshot;
 }
 
@@ -825,47 +814,3 @@ void WinAPIDock::applyEventState(const EventRow& rowValue)
         if (m_hookState == HookState::Failed) kPro.set(m_sessionProgressPid, "WinAPI Hook 安装失败", 0, 100.0f);
     }
  }
-
-void WinAPIDock::materializeEventRow(const WinAPIEventRef& record)
-{
-    const auto& rowValue = record->value;
-    if (m_eventTable == nullptr)
-    {
-        return;
-    }
-
-    const bool sorting = m_eventTable->isSortingEnabled();
-    if (sorting) m_eventTable->setSortingEnabled(false);
-    const int row = m_eventTable->rowCount();
-    m_eventTable->insertRow(row);
-
-    QTableWidgetItem* timeItem = createReadOnlyItem(rowValue.time100nsText);
-    QTableWidgetItem* categoryItem = createReadOnlyItem(rowValue.categoryText);
-    QTableWidgetItem* apiItem = createReadOnlyItem(rowValue.apiText);
-    QTableWidgetItem* resultItem = createReadOnlyItem(rowValue.resultText);
-    QTableWidgetItem* pidTidItem = createReadOnlyItem(rowValue.pidTidText);
-    QTableWidgetItem* detailItem = createReadOnlyItem(rowValue.detailText);
-
-    if (rowValue.internalEvent)
-    {
-        ks::ui::ApplyThemeItemForeground(categoryItem, ks::ui::ItemForegroundRole::Info);
-        ks::ui::ApplyThemeItemForeground(apiItem, ks::ui::ItemForegroundRole::Info);
-    }
-    else if (rowValue.resultKnown && rowValue.resultText != QStringLiteral("OK"))
-    {
-        ks::ui::ApplyThemeItemForeground(resultItem, ks::ui::ItemForegroundRole::Error);
-    }
-
-    m_eventTable->setItem(row, EventColumnTime100ns, timeItem);
-    m_eventTable->setItem(row, EventColumnCategory, categoryItem);
-    m_eventTable->setItem(row, EventColumnApi, apiItem);
-    m_eventTable->setItem(row, EventColumnResult, resultItem);
-    m_eventTable->setItem(row, EventColumnPidTid, pidTidItem);
-    m_eventTable->setItem(row, EventColumnDetail, detailItem);
-    timeItem->setData(Qt::UserRole, record->searchText);
-    timeItem->setData(Qt::UserRole + 1, QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(record.get())));
-    const QPersistentModelIndex identity(m_eventTable->model()->index(row, 0));
-    m_projectedEvents.emplace(record.get(), ProjectedEvent{record, identity});
-    if (sorting) m_eventTable->setSortingEnabled(true);
-    if (m_eventFilterProjection && identity.isValid()) m_eventFilterProjection->trackRow(identity.row());
-}

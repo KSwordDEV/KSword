@@ -36,7 +36,8 @@ namespace ks::monitor { class MonitorCanonicalExport; }
 #include <unordered_map>
 #include <vector>   // std::vector：进程快照与待刷新事件缓存。
 
-namespace ks::monitor { class EventFilterProjection; }
+class WinAPIEventTableModel;
+class WinAPIEventFilterModel;
 
 class QCheckBox;
 class QComboBox;
@@ -155,8 +156,9 @@ private:
     void initializeEventProjection();
     void acceptPendingEventRows();
     void applyEventState(const EventRow& rowValue);
-    void materializeEventRow(const WinAPIEventRef& record);
     void projectEventRows();
+    void initializeEventTailFollow();
+    void scheduleEventTailFollow();
     void clearCanonicalEvents();
     WinAPIEventRef eventRecordAt(int row) const;
 
@@ -230,7 +232,9 @@ private:
     QPushButton* m_eventFilterClearButton = nullptr;   // m_eventFilterClearButton：清空事件过滤按钮。
     QCheckBox* m_eventKeepBottomCheck = nullptr;       // m_eventKeepBottomCheck：是否自动滚动到底部。
     QLabel* m_eventFilterStatusLabel = nullptr;        // m_eventFilterStatusLabel：过滤结果状态文本。
-    QTableWidget* m_eventTable = nullptr;              // m_eventTable：API 事件结果表。
+    QTableView* m_eventTable = nullptr;                // 轻量事件模型，仅绘制当前视口。
+    WinAPIEventTableModel* m_eventModel = nullptr;
+    WinAPIEventFilterModel* m_eventProxy = nullptr;
     bool m_itemThemeRefreshScheduled = false; // 主题事件合并标志；不会改变过滤关键词或可见行计数。
 
     QTabWidget* m_resultTabs = nullptr;
@@ -252,19 +256,16 @@ private:
     std::unordered_map<std::uint32_t, CoverageViewState> m_pendingCoverage, m_coverageViews;
     std::vector<ks::process::ProcessRecord> m_processList; // m_processList：当前系统进程快照。
     static constexpr std::size_t kPendingRowCapacity = 24000; // 后台队列上限，积压时丢弃最旧事件以保护内存与延迟。
-    static constexpr std::size_t kUiFlushRowLimit = 160;      // 单个 GUI tick 最多渲染的事件数。
+    static constexpr std::size_t kUiFlushRowLimit = 2048;     // 单个 GUI tick 的值投影批次上限。
     static constexpr int kUiFlushBudgetMs = 4;                // 单个 GUI tick 的渲染时间预算。
     static constexpr std::uint32_t kPipeReconnectLimit = 3;  // 旧会话切换时读端可容忍的瞬时断线次数，避免新 Agent 建管道前 UI 放弃读取。
 
     std::deque<WinAPIEventRef> m_pendingRows;                    // m_pendingRows：后台线程待刷入的有界 FIFO 事件队列。
     WinAPIEventArchive m_eventArchive;
-    struct ProjectedEvent { WinAPIEventRef record; QPersistentModelIndex index; };
-    std::unordered_map<const WinAPIEventRecord*, ProjectedEvent> m_projectedEvents;
     std::deque<WinAPIEventRef> m_eventProjectionQueue;
-    std::deque<WinAPIEventRef> m_expiredEventProjection;
     WinAPIEventRef m_restoreSelectedEvent, m_restoreTopEvent;
     bool m_eventProjectionStale = true, m_eventProjectionWasVisible = false, m_eventProjectionPumpScheduled = false;
-    ks::monitor::EventFilterProjection* m_eventFilterProjection = nullptr;
+    bool m_eventTailFollowScheduled = false;
     std::mutex m_pendingMutex;                             // m_pendingMutex：保护待刷入事件队列。
     std::unordered_map<std::uint32_t, std::uint64_t> m_agentDroppedRows;
     std::size_t m_evictedRows = 0;

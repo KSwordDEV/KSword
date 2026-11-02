@@ -1,6 +1,6 @@
 #include "MonitorCanonicalExport.h"
 #include "WinAPIDock.h"
-#include "MonitorEventFilterProjection.h"
+#include "WinAPIEventTableModel.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/ThemeItemForeground.h"
 
@@ -67,7 +67,7 @@ void WinAPIDock::changeEvent(QEvent* event)
 WinAPIDock::~WinAPIDock()
 {
     if (m_eventExport) m_eventExport->close();
-    if (m_eventFilterProjection) m_eventFilterProjection->close();
+    if (m_eventModel) m_eventModel->close();
     if (m_sessionOperation) m_sessionOperation->close();
     if (m_coverageDispatcher) m_coverageDispatcher->close();
     ++m_coverageFilterTicket;

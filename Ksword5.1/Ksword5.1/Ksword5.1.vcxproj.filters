@@ -893,6 +893,9 @@
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MonitorDock\WinAPIDock.Ui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3735,6 +3738,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventTableModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\WinAPISessionBackend.h">
