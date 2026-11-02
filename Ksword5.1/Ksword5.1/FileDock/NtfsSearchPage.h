@@ -25,6 +25,7 @@ private:
     void startSearch();
     bool hasSelectedVolumeIndex() const;
     void showDirectory(quint64 reference);
+    void loadDirectoryExtensions(quint64 reference, bool allocated);
     void updateButtons();
     void updateUnavailableResults(const char* message);
     void cancelOperations();

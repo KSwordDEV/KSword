@@ -7845,6 +7845,9 @@
     "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
+    "正在统计文件类型…": "正在统计文件类型…",
+    "文件类型统计已停止。": "文件类型统计已停止。",
+    "文件类型统计失败；请重新选择目录或计量方式重试。": "文件类型统计失败；请重新选择目录或计量方式重试。",
     "Choose TCP, UDP or TCP + UDP before using IP prefixes or port conditions; the provider ignores these conditions for its default protocol.": "使用 IP 前缀或端口条件前，请选择 TCP、UDP 或 TCP + UDP；提供者默认协议会忽略这些条件。",
     " The new policy was removed.": " 新策略已移除。",
     " The new policy may remain active; refresh the provider state before retrying.": " 新策略可能仍在生效，请刷新提供者状态后再重试。",
