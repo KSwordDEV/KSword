@@ -147,9 +147,19 @@ QColor MetricAreaRenderer::identityColor(const QString& identity, const QPalette
     const QString& variant)
 {
     const quint32 hash = colorIdentity(identity);
-    const int variation = variant.isEmpty() ? 0 : static_cast<int>(colorIdentity(variant) % 33) - 16;
+    const quint32 childHash = colorIdentity(variant);
+    const int variation = variant.isEmpty() ? 0 : static_cast<int>(childHash % 37) - 18;
     const int hue = (static_cast<int>(hash % 360) + variation + 360) % 360;
-    return QColor::fromHsv(hue, 156, palette.color(QPalette::Base).lightnessF() < 0.5 ? 180 : 210);
+    // Color grouping is independent of lighting: retain saturated bodies at the lower brightness.
+    const int saturation = 194 + (variant.isEmpty() ? 0 : static_cast<int>((childHash >> 8) % 25) - 12);
+    const int value = (palette.color(QPalette::Base).lightnessF() < 0.5 ? 180 : 210)
+        - (variant.isEmpty() ? 0 : static_cast<int>((childHash >> 16) % 11));
+    return QColor::fromHsv(hue, saturation, value);
+}
+
+QColor MetricAreaRenderer::captionColor(const QColor& color, const QPalette& palette)
+{
+    return palette.color(QPalette::Base).lightnessF() < 0.5 ? color.darker(135) : color.lighter(112);
 }
 
 QColor MetricAreaRenderer::paintTile(QPainter& painter, const QRectF& rectangle,
