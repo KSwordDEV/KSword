@@ -8,6 +8,7 @@
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：元数据编辑子页的页内滚动壳
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/ParameterWorkspace.h"
 #include "../UI/AsyncOperation.h"
@@ -10701,7 +10702,10 @@ namespace
         QWidget* buildMetadataNameAndFilesystemPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。名称与文件系统页在窄窗下可能超出可视高度，
+            // 使用共享滚动壳避免把整个元数据 Tab 撑高，页面指针身份保持不变。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QFormLayout* form = new QFormLayout();
 
             QCheckBox* renameCheck = new QCheckBox(QStringLiteral("暂存重命名"), page);
@@ -10844,7 +10848,10 @@ namespace
         QWidget* buildMetadataShellPropertyPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。Shell 属性的六行输入在窄窗下会超过页高，
+            // 由共享滚动壳承接，保证底部字段仍可通过滚动访问。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QGridLayout* grid = new QGridLayout();
             struct ShellRow
             {
@@ -10965,7 +10972,10 @@ namespace
         QWidget* buildMetadataAdsPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。ADS 表与新增流编辑器同屏时高度较大，
+            // 交给共享滚动壳后表格仍占满可用高度，超出部分在页内滚动。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QTableView* table = createPropertyTable(page, QStringList{
                 QStringLiteral("目标"), QStringLiteral("数据流"), QStringLiteral("字节数") }, QStringLiteral("file-detail-ads"));
             ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
@@ -11119,7 +11129,10 @@ namespace
         QWidget* buildMetadataEaPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。EA 表与新增/删除编辑器叠加后高度不可控，
+            // 使用共享滚动壳避免影响外层元数据 Tab 的最小高度。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QTableView* table = createPropertyTable(page, QStringList{
                 QStringLiteral("目标"), QStringLiteral("EA 名称"),
                 QStringLiteral("字节数"), QStringLiteral("值预览") }, QStringLiteral("file-detail-ea"));
@@ -11255,7 +11268,10 @@ namespace
         QWidget* buildMetadataSecurityPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。SDDL 编辑框与六个作用域选项在窄窗下会超高，
+            // 滚动壳保证下方选项仍可访问，同时不放大详情窗口。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QLabel* hint = new QLabel(QStringLiteral(
                 "可编辑 Owner、Primary Group、DACL、SACL、Mandatory Integrity 与继承保护。"
                 "SDDL 会在保存事务中通过 Windows 安全 API 写入。"), page);
@@ -11408,7 +11424,10 @@ namespace
         QWidget* buildMetadataPeAndReparsePage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。重解析点原始数据、PE 资源与签名选项同时存在，
+            // 页面高度不可控；共享滚动壳让本页独立滚动，不撑高外层窗口。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             QGroupBox* reparseGroup = new QGroupBox(QStringLiteral("重解析点原始缓冲"), page);
             QVBoxLayout* reparseLayout = new QVBoxLayout(reparseGroup);
             QHBoxLayout* reparseActions = new QHBoxLayout();
@@ -11620,7 +11639,11 @@ namespace
         QWidget* buildMetadataBasicPropertiesPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。基础属性页包含四组时间与六项属性，
+            // 在低分辨率或高 DPI 下会高于详情窗口；由共享滚动壳承接后，
+            // 只滚动本页，不再把页面的最小高度传给外层 Tab 窗口。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             layout->setSpacing(10);
 
             QLabel* targetLabel = new QLabel(
@@ -11732,6 +11755,9 @@ namespace
         {
             QTabWidget* tabs = new QTabWidget(parent);
             ks::ui::StylePageTabs(tabs);
+            // 子页都已带页内滚动壳；再隔离一次 Tab 自身的最小高度，
+            // 防止懒加载页首次构造时把外层详情窗口撑大（issue #176）。
+            ks::ui::IsolateMinimumSize(tabs);
             tabs->addTab(
                 buildMetadataBasicPropertiesPage(tabs),
                 ks::i18n::sourceText(QStringLiteral("基础属性")));
