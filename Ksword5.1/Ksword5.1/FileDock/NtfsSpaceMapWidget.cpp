@@ -52,6 +52,7 @@ NtfsSpaceMapWidget::NtfsSpaceMapWidget(QWidget* parent)
     setMinimumSize(100, 100);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ks::ui::StylePrimaryContentPanel(this, false);
+    m_renderer.attach(this);
 }
 
 NtfsSpaceMapWidget::DataPtr NtfsSpaceMapWidget::prepare(QVector<Item> items)
@@ -190,6 +191,11 @@ void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
         if (m_surface.size() != pixels) m_surface = QPixmap(pixels);
         m_surface.setDevicePixelRatio(dpr);
         m_surface.fill(Qt::transparent);
+        if (m_labels.size() != pixels) m_labels = QPixmap(pixels);
+        m_labels.setDevicePixelRatio(dpr);
+        m_labels.fill(Qt::transparent);
+        QPainter labels(&m_labels);
+        labels.setFont(font());
         QPainter cache(&m_surface);
         cache.setFont(font());
         cache.setClipRect(rect().adjusted(4, 4, -4, -4));
@@ -202,7 +208,7 @@ void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
         }
         else
         {
-            for (qsizetype i = 0; i < m_tiles.size(); ++i) paintTile(cache, static_cast<int>(i), false);
+            for (qsizetype i = 0; i < m_tiles.size(); ++i) paintTile(cache, static_cast<int>(i), false, &labels);
         }
         m_surfaceDirty = false;
     }
@@ -211,9 +217,11 @@ void NtfsSpaceMapWidget::paintEvent(QPaintEvent* event)
     painter.drawPixmap(0, 0, m_surface);
     paintTile(painter, m_selectedTile, true);
     if (m_hover != m_selectedTile) paintTile(painter, m_hover, true);
+    for (const Tile& tile : m_tiles) m_renderer.paintLight(painter, tile.rectangle);
+    painter.drawPixmap(0, 0, m_labels);
 }
 
-void NtfsSpaceMapWidget::paintTile(QPainter& painter, int index, bool interactive) const
+void NtfsSpaceMapWidget::paintTile(QPainter& body, int index, bool interactive, QPainter* labels) const
 {
     if (index < 0 || index >= m_tiles.size()) return;
     const Tile& tile = m_tiles[index];
@@ -225,7 +233,7 @@ void NtfsSpaceMapWidget::paintTile(QPainter& painter, int index, bool interactiv
         : QStringLiteral("extension:") + item.extension.toCaseFolded();
     const QColor fill = ks::ui::MetricAreaRenderer::identityColor(colorKey, palette());
     const QRectF box = tile.rectangle;
-    const QColor painted = m_renderer.paintTile(painter, box, fill,
+    const QColor painted = m_renderer.paintTile(body, box, fill,
         {aggregate || item.directory, interactive && index == m_hover,
             interactive && index == m_selectedTile, false});
     const QFontMetrics metrics(font());
@@ -236,9 +244,10 @@ void NtfsSpaceMapWidget::paintTile(QPainter& painter, int index, bool interactiv
     const bool showBytes = box.height() >= metrics.height() * 2 + 10;
     const QString amount = showBytes
         ? displayBytes(m_data->prefixWeights[tile.last] - m_data->prefixWeights[tile.first]) : QString();
-    const QColor caption = ks::ui::MetricAreaRenderer::captionColor(painted, palette());
+    const QColor caption = KswordTheme::BlendColors(painted, palette().color(QPalette::Base), 190);
     const int textWidth = std::max(metrics.horizontalAdvance(name), metrics.horizontalAdvance(amount));
     const int textHeight = metrics.height() * (showBytes ? 2 : 1) + (showBytes ? 4 : 0);
+    QPainter& painter = labels ? *labels : body;
     painter.save();
     painter.setClipRect(box, Qt::IntersectClip);
     painter.fillRect(QRectF(box.left() + 3, box.top() + 2, textWidth + 4, textHeight + 2), caption);

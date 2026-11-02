@@ -3,6 +3,12 @@
 
 #include <QImage>
 #include <QPainter>
+#include <QWidget>
+#include <QMouseEvent>
+#include <QTimer>
+#include <QScreen>
+#include <QStyle>
+#include <QLineF>
 #include <algorithm>
 #include <cmath>
 
@@ -15,25 +21,21 @@ quint32 colorIdentity(const QString& key)
     return hash;
 }
 
-QPixmap cushionLightMap()
+QPixmap cushionLightMap(double lx = -0.32, double ly = -0.38, double lz = 0.86)
 {
-    constexpr int size = 128;
-    // Broad upper-left light, with a normalized halfway vector for a soft highlight.
-    const double lightLength = std::sqrt(0.28 * 0.28 + 0.38 * 0.38 + 0.88 * 0.88);
-    const double lx = -0.28 / lightLength, ly = -0.38 / lightLength, lz = 0.88 / lightLength;
+    constexpr int size = 96;
     const double halfLength = std::sqrt(lx * lx + ly * ly + (lz + 1.0) * (lz + 1.0));
     const double hx = lx / halfLength, hy = ly / halfLength, hz = (lz + 1.0) / halfLength;
     QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
     for (int y = 0; y < size; ++y) {
         auto* pixels = reinterpret_cast<QRgb*>(image.scanLine(y));
-        const double ny = 1.15 * (2.0 * y / (size - 1) - 1.0);
+        const double ny = 1.8 * (2.0 * y / (size - 1) - 1.0);
         for (int x = 0; x < size; ++x) {
-            const double nx = 1.15 * (2.0 * x / (size - 1) - 1.0);
+            const double nx = 1.8 * (2.0 * x / (size - 1) - 1.0);
             const double length = std::sqrt(nx * nx + ny * ny + 1.0);
             const double diffuse = std::max(0.0, (lx * nx + ly * ny + lz) / length);
-            const double shine = std::pow(std::max(0.0, (hx * nx + hy * ny + hz) / length), 8.0);
-            // Keep the shadow colored rather than black, and spread the gloss over the body.
-            const double light = std::clamp(0.48 + 0.60 * diffuse + 0.30 * shine, 0.58, 1.38);
+            const double shine = std::pow(std::max(0.0, (hx * nx + hy * ny + hz) / length), 24.0);
+            const double light = std::clamp(0.32 + 0.74 * diffuse + 0.16 * shine, 0.32, 1.22);
             const int channel = light > 1.0 ? 255 : 0;
             const int alpha = qRound(std::abs(light - 1.0) * 255.0);
             pixels[x] = qPremultiply(qRgba(channel, channel, channel, alpha));
@@ -45,19 +47,109 @@ QPixmap cushionLightMap()
 
 MetricAreaRenderer::MetricAreaRenderer() : m_cushion(cushionLightMap()) {}
 
+void MetricAreaRenderer::attach(QWidget* host)
+{
+    if (m_host || !host) return;
+    m_host = host;
+    host->installEventFilter(this);
+    m_timer = new QTimer(this);
+    m_timer->setTimerType(Qt::PreciseTimer);
+    connect(m_timer, &QTimer::timeout, this, [this] { advanceLight(); });
+}
+
+void MetricAreaRenderer::scheduleLight()
+{
+    if (!m_host || !m_host->isVisible()) return;
+    if (!m_host->style()->styleHint(QStyle::SH_Widget_Animate, nullptr, m_host)) {
+        m_position = m_target; m_tracking = m_targetTracking;
+        m_timer->stop(); m_host->update(); return;
+    }
+    if (!m_timer->isActive()) {
+        const qreal hz = m_host->screen() ? m_host->screen()->refreshRate() : 60.0;
+        m_timer->setInterval(qMax(7, qRound(1000.0 / qBound(30.0, hz, 144.0))));
+        m_clock.restart(); m_timer->start();
+    }
+}
+
+void MetricAreaRenderer::advanceLight()
+{
+    if (!m_host || !m_host->isVisible()) { m_timer->stop(); return; }
+    const double elapsed = std::min(0.25, m_clock.restart() / 1000.0);
+    const double fraction = 1.0 - std::exp(-elapsed / 0.055);
+    m_position += (m_target - m_position) * fraction;
+    m_tracking += (m_targetTracking - m_tracking) * fraction;
+    if (std::abs(m_tracking - m_targetTracking) < 0.002
+        && QLineF(m_position, m_target).length() < 0.5) {
+        m_position = m_target; m_tracking = m_targetTracking; m_timer->stop();
+    }
+    m_host->update();
+}
+
+bool MetricAreaRenderer::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched != m_host) return false;
+    if (event->type() == QEvent::MouseMove) {
+        m_target = static_cast<QMouseEvent*>(event)->position();
+        if (m_tracking == 0) m_position = m_target;
+        m_targetTracking = 1; scheduleLight();
+    } else if (event->type() == QEvent::Leave) {
+        m_targetTracking = 0; scheduleLight();
+    } else if (event->type() == QEvent::Hide) {
+        m_timer->stop(); m_tracking = m_targetTracking = 0;
+    }
+    return false;
+}
+
+const QPixmap& MetricAreaRenderer::directionalMap(int ix, int iy) const
+{
+    auto& map = m_directions[static_cast<std::size_t>(iy * 17 + ix)];
+    if (map.isNull()) {
+        const double dx = (ix - 8) / 8.0, dy = (iy - 8) / 8.0;
+        const double length = std::sqrt(dx * dx + dy * dy + 1.0);
+        map = cushionLightMap(dx / length, dy / length, 1.0 / length);
+    }
+    return map;
+}
+
+void MetricAreaRenderer::paintLight(QPainter& painter, const QRectF& rectangle) const
+{
+    if (rectangle.isEmpty()) return;
+    painter.save(); painter.setClipRect(rectangle, Qt::IntersectClip);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    if (m_host && m_tracking > 0) {
+        const double height = std::max(100.0, std::max(m_host->width(), m_host->height()) * 0.65);
+        const QPointF offset = (m_position - rectangle.center()) / height;
+        // Blend the direction back to the original light; all tiles share one world-space source.
+        const double gx = std::clamp((-0.32 / 0.86 * (1 - m_tracking) + offset.x() * m_tracking) * 8 + 8, 0.0, 16.0);
+        const double gy = std::clamp((-0.38 / 0.86 * (1 - m_tracking) + offset.y() * m_tracking) * 8 + 8, 0.0, 16.0);
+        if (rectangle.width() < 8 || rectangle.height() < 8) {
+            const auto& map = directionalMap(qRound(gx), qRound(gy));
+            painter.drawPixmap(rectangle, map, QRectF(map.rect()));
+        } else {
+            const int x = static_cast<int>(gx), y = static_cast<int>(gy);
+            const double fx = gx - x, fy = gy - y;
+            const double opacity = painter.opacity();
+            for (int dy = 0; dy < 2; ++dy) for (int dx = 0; dx < 2; ++dx) {
+                const double weight = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy);
+                if (weight <= 0) continue;
+                const auto& map = directionalMap(std::min(16, x + dx), std::min(16, y + dy));
+                painter.setOpacity(opacity * weight);
+                painter.drawPixmap(rectangle, map, QRectF(map.rect()));
+            }
+        }
+    } else {
+        painter.drawPixmap(rectangle, m_cushion, QRectF(m_cushion.rect()));
+    }
+    painter.restore();
+}
+
 QColor MetricAreaRenderer::identityColor(const QString& identity, const QPalette& palette,
     const QString& variant)
 {
     const quint32 hash = colorIdentity(identity);
     const int variation = variant.isEmpty() ? 0 : static_cast<int>(colorIdentity(variant) % 33) - 16;
     const int hue = (static_cast<int>(hash % 360) + variation + 360) % 360;
-    return QColor::fromHsv(hue, 194, palette.color(QPalette::Base).lightnessF() < 0.5 ? 205 : 220);
-}
-
-QColor MetricAreaRenderer::captionColor(const QColor& color, const QPalette& palette)
-{
-    // Small tiles must not become neutral gray labels covering their colored body.
-    return palette.color(QPalette::Base).lightnessF() < 0.5 ? color.darker(135) : color.lighter(112);
+    return QColor::fromHsv(hue, 156, palette.color(QPalette::Base).lightnessF() < 0.5 ? 180 : 210);
 }
 
 QColor MetricAreaRenderer::paintTile(QPainter& painter, const QRectF& rectangle,
@@ -70,8 +162,8 @@ QColor MetricAreaRenderer::paintTile(QPainter& painter, const QRectF& rectangle,
     if (!state.outlineOnly) {
         // Groups and leaves both carry their color across the entire block.
         painter.fillRect(rectangle, fill);
-        painter.setRenderHint(QPainter::SmoothPixmapTransform);
-        painter.drawPixmap(rectangle, m_cushion, QRectF(m_cushion.rect()));
+        // Attached views composite lighting separately, above cached colors and below cached labels.
+        if (!m_host) paintLight(painter, rectangle);
     }
     if (state.group && rectangle.width() > 3.0 && rectangle.height() > 3.0) {
         const QColor border = KswordTheme::EnsureTextContrast(color.darker(150), fill, 3.0);

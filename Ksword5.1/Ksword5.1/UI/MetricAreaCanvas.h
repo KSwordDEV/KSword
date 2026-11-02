@@ -51,7 +51,7 @@ private:
     void focusNode(int index);
     int boxAt(QPointF point) const;
     QColor boxColor(int index) const;
-    void paintBox(QPainter& painter, const Box& box, bool hovered) const;
+    void paintBox(QPainter& painter, const Box& box, bool hovered, QPainter* labels = nullptr) const;
     std::vector<MetricAreaNode> m_nodes;
     std::vector<std::vector<int>> m_children;
     std::vector<int> m_parents;
@@ -60,6 +60,7 @@ private:
     std::vector<Box> m_boxes;
     MetricAreaRenderer m_renderer;
     QPixmap m_surface;
+    QPixmap m_labels;
     bool m_surfaceDirty = true;
     // Index into the visible boxes, so a process's own area and its child group stay distinct.
     int m_root = -1, m_hover = -1;

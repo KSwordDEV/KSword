@@ -155,10 +155,9 @@ void ProcessDock::refreshMetricAreaViews(const bool captureRows){
                 node.weight=node.known&&std::isfinite(weight)?weight:0;total+=node.weight;
                 node.value=processTableData(entry.row,column,Qt::DisplayRole).toString();
                 if(metric==TableColumn::Net)node.value=node.known?QStringLiteral("%1 KB/s").arg(weight,0,'f',2):areaText("不可用");
-                // Preserve process status colors; ordinary tiles use identity colors instead of a pale cell heatmap.
-                const auto background=processTableData(entry.row,static_cast<int>(TableColumn::Name),Qt::BackgroundRole);
+                const auto background=processTableData(entry.row,column,Qt::BackgroundRole);
                 if(background.isValid())node.background=background.value<QBrush>().color();
-                const auto foreground=processTableData(entry.row,static_cast<int>(TableColumn::Name),Qt::ForegroundRole);
+                const auto foreground=processTableData(entry.row,column,Qt::ForegroundRole);
                 if(foreground.isValid())node.foreground=foreground.value<QBrush>().color();
                 const QString metricLabel=metric==TableColumn::Net
                     ? (window->currentMode()==0?areaText("网络上行"):window->currentMode()==1?areaText("网络下行"):areaText("网络合计"))

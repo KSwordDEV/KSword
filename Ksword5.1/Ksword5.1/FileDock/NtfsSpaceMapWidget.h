@@ -74,7 +74,7 @@ private:
     int hitTest(const QPointF& point) const;
     void chooseTile(int tile);
     QString tileToolTip(int tile) const;
-    void paintTile(QPainter& painter, int tile, bool interactive) const;
+    void paintTile(QPainter& painter, int tile, bool interactive, QPainter* labels = nullptr) const;
 
     DataPtr m_data;
     QVector<Tile> m_tiles;
@@ -85,5 +85,6 @@ private:
     QString m_emptyMessage;
     ks::ui::MetricAreaRenderer m_renderer;
     QPixmap m_surface;
+    QPixmap m_labels;
     bool m_surfaceDirty = true;
 };

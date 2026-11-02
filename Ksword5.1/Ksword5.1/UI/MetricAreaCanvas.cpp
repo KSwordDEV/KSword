@@ -47,6 +47,7 @@ MetricAreaCanvas::MetricAreaCanvas(QWidget* parent):QWidget(parent){
     setMouseTracking(true);setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     setMinimumSize(80,80);
+    m_renderer.attach(this);
 }
 void MetricAreaCanvas::setNodes(std::vector<MetricAreaNode> nodes){
     for(auto& node:nodes)if(!std::isfinite(node.weight)||node.weight<0)node.known=false;
@@ -136,15 +137,16 @@ QColor MetricAreaCanvas::boxColor(int index) const
     return color;
 }
 
-void MetricAreaCanvas::paintBox(QPainter& p, const Box& box, bool hovered) const
+void MetricAreaCanvas::paintBox(QPainter& body, const Box& box, bool hovered, QPainter* labels) const
 {
     const QRectF r = box.rect;
     if (r.isEmpty()) return;
     const auto& node = m_nodes[box.node];
     const QColor color = boxColor(box.node);
-    QColor background = m_renderer.paintTile(p, r, color,
+    QColor background = m_renderer.paintTile(body, r, color,
         {box.container, hovered, false, hovered && box.container});
     if (hovered && box.container) return;
+    QPainter& p = labels ? *labels : body;
     p.save();
     p.setClipRect(r);
 
@@ -165,7 +167,7 @@ void MetricAreaCanvas::paintBox(QPainter& p, const Box& box, bool hovered) const
             && content.width() >= fontMetrics().horizontalAdvance(node.identity);
         if (!box.container) {
             // Keep labels readable over both the highlight and the shadow, without framing the tile.
-            background = MetricAreaRenderer::captionColor(background, palette());
+            background = KswordTheme::BlendColors(background, palette().color(QPalette::Base), 190);
             const int textWidth = std::max(fontMetrics().horizontalAdvance(title),
                 secondLine ? fontMetrics().horizontalAdvance(node.identity) : 0);
             const int labelHeight = fontMetrics().height() * (secondLine ? 2 : 1) + (secondLine ? 4 : 0);
@@ -188,6 +190,11 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
         if (m_surface.size() != pixels) m_surface = QPixmap(pixels);
         m_surface.setDevicePixelRatio(dpr);
         m_surface.fill(Qt::transparent);
+        if (m_labels.size() != pixels) m_labels = QPixmap(pixels);
+        m_labels.setDevicePixelRatio(dpr);
+        m_labels.fill(Qt::transparent);
+        QPainter labels(&m_labels);
+        labels.setFont(font());
         QPainter cache(&m_surface);
         cache.setFont(font());
         cache.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -197,7 +204,7 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
             cache.drawText(rect().adjusted(16, 16, -16, -16), Qt::AlignCenter | Qt::TextWordWrap,
                 ks::i18n::sourceText(QStringLiteral("当前范围没有可绘制的正面积数据。")));
         } else {
-            for (const auto& box : m_boxes) paintBox(cache, box, false);
+            for (const auto& box : m_boxes) paintBox(cache, box, false, &labels);
         }
         m_surfaceDirty = false;
     }
@@ -208,6 +215,12 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.drawPixmap(0, 0, m_surface);
     if (m_hover >= 0 && m_hover < static_cast<int>(m_boxes.size())) paintBox(p, m_boxes[m_hover], true);
+    for (const auto& box : m_boxes) {
+        QRectF lightRect = box.rect;
+        if (box.container) lightRect.setHeight(std::min<qreal>(lightRect.height(), std::max(22, fontMetrics().height() + 8)));
+        m_renderer.paintLight(p, lightRect);
+    }
+    p.drawPixmap(0, 0, m_labels);
 }
 void MetricAreaCanvas::resizeEvent(QResizeEvent* e){QWidget::resizeEvent(e);rebuildLayout();}
 void MetricAreaCanvas::mouseMoveEvent(QMouseEvent* e){const int hit=boxAt(e->position());if(hit!=m_hover){m_hover=hit;update();}setCursor(hit>=0?Qt::PointingHandCursor:Qt::ArrowCursor);}
