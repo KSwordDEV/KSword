@@ -1,6 +1,12 @@
 #include "MonitorNavigationSchema.h"
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIParameterEditor.h"
+#include "../UI/DetailLayoutRegistry.h"
+#include "../UI/DetailLayoutHost.h"
+#include "../UI/StructuredFieldView.h"
+#include "../UI/MemoryWorkbench/HexView.h"
+#include "../UI/TablePresentation.h"
 #include <QSpinBox>
 #include <QSettings>
 #include <QStandardPaths>
@@ -44,6 +50,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableView>
+#include <QTreeWidget>
 #include <QTimer>
 #include <QTabWidget>
 #include <QToolButton>
@@ -521,6 +528,8 @@ void WinAPIDock::initializeUi()
     m_eventKeepBottomCheck = new QCheckBox(QStringLiteral("保持贴底"), m_filterPanel);
     m_eventKeepBottomCheck->setChecked(true);
     m_eventKeepBottomCheck->setToolTip(QStringLiteral("新事件到来时自动滚动到最底部。"));
+    m_showEventDetails = new QCheckBox(QStringLiteral("显示详情"), m_filterPanel);
+    m_showEventDetails->setChecked(false);
 
     m_eventFilterStatusLabel = new QLabel(QStringLiteral("筛选结果：0 / 0"), m_filterPanel);
     ks::ui::ApplyStatusRole(m_eventFilterStatusLabel, ks::ui::StatusRole::Idle);
@@ -528,6 +537,7 @@ void WinAPIDock::initializeUi()
     filterLayout->addWidget(m_eventFilterEdit, 1);
     filterLayout->addWidget(m_eventFilterClearButton, 0);
     filterLayout->addWidget(m_eventKeepBottomCheck, 0);
+    filterLayout->addWidget(m_showEventDetails, 0);
     filterLayout->addWidget(m_eventFilterStatusLabel, 0);
     filterLayout->addWidget(m_exportButton);
     filterLayout->addWidget(m_clearEventButton);
@@ -572,7 +582,60 @@ void WinAPIDock::initializeUi()
     }
     m_resultTabs = new QTabWidget(this);
     ks::ui::StyleJoinedResultTabs(m_resultTabs, m_filterPanel);
-    ks::monitor::AddMonitorNavigationTab(m_resultTabs, m_eventTable, QStringLiteral("winapi-events"));
+    auto* eventPage = new QWidget(m_resultTabs);
+    auto* eventPageLayout = new QVBoxLayout(eventPage);
+    eventPageLayout->setContentsMargins(0, 0, 0, 0); eventPageLayout->setSpacing(6);
+    auto* eventSplitter = new QSplitter(Qt::Vertical, eventPage);
+    eventSplitter->addWidget(m_eventTable);
+    auto* detailPane = new QWidget(eventSplitter);
+    auto* detailLayout = new QVBoxLayout(detailPane);
+    detailLayout->setContentsMargins(0, 0, 0, 0); detailLayout->setSpacing(6);
+    auto* detailActions = new QWidget(detailPane);
+    auto* detailActionsLayout = new QHBoxLayout(detailActions);
+    detailActionsLayout->setContentsMargins(0, 0, 0, 0);
+    m_eventDetails = new ks::ui::StructuredFieldView(detailActions);
+    m_eventDetails->setDocumentOnly();
+    if (auto* search = m_eventDetails->findChild<QLineEdit*>()) search->hide();
+    detailActionsLayout->addWidget(m_eventDetails);
+    detailActions->setMaximumHeight(m_eventDetails->fontMetrics().height() + 24);
+    detailLayout->addWidget(detailActions, 0);
+    auto* detailColumns = new QSplitter(Qt::Horizontal, detailPane);
+    detailColumns->setChildrenCollapsible(false);
+    const auto makeFields = [detailColumns](const QString& title) {
+        auto* pane = new QWidget(detailColumns);
+        pane->setMinimumWidth(0); pane->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+        auto* column = new QVBoxLayout(pane); column->setContentsMargins(0, 0, 0, 0); column->setSpacing(4);
+        column->addWidget(new QLabel(title, pane));
+        auto* tree = new QTreeWidget(pane);
+        tree->setColumnCount(2); tree->setHeaderLabels({QStringLiteral("名称"), QStringLiteral("值")});
+        tree->setRootIsDecorated(false); tree->setAlternatingRowColors(true);
+        tree->setMinimumWidth(0); tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        ks::ui::ApplyTablePresentation(tree);
+        column->addWidget(tree, 1);
+        return tree;
+    };
+    m_eventProperties = makeFields(QStringLiteral("属性"));
+    m_eventParameters = makeFields(QStringLiteral("参数"));
+    auto* hexPane = new QWidget(detailColumns);
+    hexPane->setMinimumWidth(0); hexPane->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+    auto* hexLayout = new QVBoxLayout(hexPane); hexLayout->setContentsMargins(0, 0, 0, 0); hexLayout->setSpacing(4);
+    hexLayout->addWidget(new QLabel(QStringLiteral("未分配 HEX / ASCII"), hexPane));
+    m_eventHex = new ks::ui::HexView(hexPane);
+    m_eventHex->setEditable(false); m_eventHex->setInspectorVisible(false);
+    m_eventHex->setStatusBarVisible(false); m_eventHex->setMinimumWidth(0);
+    hexLayout->addWidget(m_eventHex, 1);
+    detailColumns->setStretchFactor(0, 2); detailColumns->setStretchFactor(1, 2); detailColumns->setStretchFactor(2, 3);
+    detailLayout->addWidget(detailColumns, 1);
+    eventSplitter->addWidget(detailPane);
+    eventPageLayout->addWidget(eventSplitter, 1);
+    m_parameterEditor = new WinAPIParameterEditor(eventPage);
+    m_parameterEditor->hide(); eventPageLayout->addWidget(m_parameterEditor);
+    m_eventDetailHost = ks::ui::DetailLayoutRegistry::registerStructuredHost(
+        m_eventTable, m_eventDetails, eventPage, eventSplitter, m_eventTable, detailPane);
+    if (m_eventDetailHost) m_eventDetailHost->setBottomDetailWeight(450);
+    m_eventTable->setColumnHidden(EventColumnDetail, true);
+    ks::monitor::AddMonitorNavigationTab(m_resultTabs, eventPage, QStringLiteral("winapi-events"));
     QWidget* coveragePanel = new QWidget(m_resultTabs);
     auto* coverageLayout = new QVBoxLayout(coveragePanel);
     auto* coverageFilterLayout = new QHBoxLayout();
@@ -604,7 +667,11 @@ void WinAPIDock::initializeUi()
     m_coverageTable->setColumnWidth(3, 240);
     m_coverageTable->setColumnWidth(4, 120);
     m_coverageTable->setColumnWidth(5, 140);
-    coverageLayout->addWidget(m_coverageTable, 1);
+    auto* coverageSplitter = new QSplitter(Qt::Vertical, coveragePanel);
+    coverageSplitter->addWidget(m_coverageTable);
+    coverageSplitter->addWidget(createEventRulesPanel(coverageSplitter));
+    coverageSplitter->setStretchFactor(0, 2); coverageSplitter->setStretchFactor(1, 1);
+    coverageLayout->addWidget(coverageSplitter, 1);
     ks::monitor::AddMonitorNavigationTab(m_resultTabs, coveragePanel, QStringLiteral("winapi-coverage"));
     eventResultsLayout->addWidget(m_resultTabs, 1);
     workspace->finish();

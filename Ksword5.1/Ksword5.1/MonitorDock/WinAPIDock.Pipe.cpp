@@ -407,6 +407,13 @@ void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool 
                 if (!ks::winapi_monitor::readEventPacket(pipe, &packet, stop)) break;
                 if (packet.size != sizeof(packet) || packet.version != ks::winapi_monitor::kProtocolVersion
                     || packet.sessionIdentity != reader->session) continue;
+                // Control and coverage packets are never filtered: they drive session state.
+                if (!ks::winapi_monitor::isCoverageEvent(packet.eventKind)
+                    && packet.category != static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal) && eventRules) {
+                    const auto rules = eventRules->snapshot();
+                    if ((!rules->preModules.isEmpty() || !rules->preFunctions.isEmpty())
+                        && rules->rejects(packetWideText(packet.moduleName), packetWideText(packet.apiName), true)) continue;
+                }
                 if (!diskArchive || !diskArchive->append(packet, reader->pid)) {
                     requestStop(); break;
                 }
@@ -796,6 +803,7 @@ WinAPIDock::EventExportSnapshot WinAPIDock::freezeVisibleEventRowsForExport()
     EventExportSnapshot snapshot;
     snapshot.rows = m_eventArchive.snapshot();
     snapshot.businessKeyword = m_eventFilterEdit ? m_eventFilterEdit->text().trimmed() : m_eventFilterKeyword;
+    snapshot.eventRules = m_eventRules ? m_eventRules->snapshot() : nullptr;
     snapshot.search = ks::ui::CaptureTableSearchResultFilterSpec(m_eventTable);
     snapshot.language = ks::i18n::LanguageManager::instance().sourceTextSnapshot();
     snapshot.sessionGeneration = m_sessionGeneration.load(); snapshot.targetPid = m_currentSessionPid;

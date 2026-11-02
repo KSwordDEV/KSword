@@ -5,6 +5,7 @@
 #include "WinApiMonitorProtocol.h"
 #include "../../../shared/ApiMonitorCoverage.h"
 #include "../../../shared/ApiMonitorInjectionBroker.h"
+#include "WinAPIFilterRules.h"
 #include <QString>
 #include <QStringList>
 #include <atomic>
@@ -82,6 +83,7 @@ struct WinAPISessionBackend final : std::enable_shared_from_this<WinAPISessionBa
     std::vector<std::shared_ptr<Reader>> readers;
     std::vector<ks::winapi_monitor::InjectionParticipant> participants;
     std::mutex pendingMutex;
+    std::shared_ptr<ks::monitor::WinAPIFilterRules> eventRules;
     std::deque<WinAPIEventRef> pendingRows;
     std::uint64_t nextEventSequence = 0;
     std::unordered_map<std::uint32_t, CoverageViewState> pendingCoverage;

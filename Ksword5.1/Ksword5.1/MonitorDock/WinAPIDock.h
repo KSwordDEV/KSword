@@ -18,6 +18,7 @@ namespace ks::monitor { class MonitorCanonicalExport; }
 #include "../UI/AsyncUiDispatcher.h"
 #include "WinAPISessionBackend.h"
 #include "WinAPIEventArchive.h"
+#include "WinAPIFilterCatalog.h"
 #include <QPersistentModelIndex>
 #include "../UI/AsyncOperation.h"
 #include "UI/RetainedCleanupJob.h"
@@ -38,7 +39,10 @@ namespace ks::monitor { class MonitorCanonicalExport; }
 
 class WinAPIEventTableModel;
 class WinAPIEventFilterModel;
+class WinAPIParameterEditor;
+namespace ks::ui { class StructuredFieldView; class DetailLayoutHost; class HexView; }
 
+class QTreeWidget;
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
@@ -54,6 +58,8 @@ class QTableWidgetItem;
 class QTimer;
 class QSpinBox;
 class QToolButton;
+class QTreeWidget;
+class QTreeWidgetItem;
 class QVBoxLayout;
 class QWidget;
 class QPoint;
@@ -153,6 +159,18 @@ private:
     void updateCoverageView();
     void resetCoverageView();
     void markCoverageStale();
+    QWidget* createEventRulesPanel(QWidget* parent);
+    void refreshEventRulesPanel();
+    void refreshEventRuleItem(const QString& module, const QString& function, const QString& category = {});
+    void queueEventRuleCatalog(std::shared_ptr<const ks::monitor::WinAPIFilterCatalog> entries);
+    void pumpEventRuleCatalog();
+    void loadEventRuleDefinitions();
+    void scheduleEventRuleSearch();
+    void pumpEventRuleSearch();
+    void pumpEventRuleStates();
+    void applyEventRule(const QString& module, const QString& function, bool pre, bool enabled);
+    void applyVisibleEventRules(bool pre, bool invert);
+    void eventRulesChanged();
     void flushPendingRows();
     void initializeEventProjection();
     void acceptPendingEventRows();
@@ -169,6 +187,7 @@ private:
     void updateEventExportAction();
     void showEventContextMenu(const QPoint& position);
     void showEventDetailDialog(int rowValue);
+    void updateEventDetails();
 
     static QString blueButtonStyle();
     static QString blueInputStyle();
@@ -232,6 +251,14 @@ private:
     QLineEdit* m_eventFilterEdit = nullptr;            // m_eventFilterEdit：全字段事件过滤框。
     QPushButton* m_eventFilterClearButton = nullptr;   // m_eventFilterClearButton：清空事件过滤按钮。
     QCheckBox* m_eventKeepBottomCheck = nullptr;       // m_eventKeepBottomCheck：是否自动滚动到底部。
+    QCheckBox* m_showEventDetails = nullptr;
+    ks::ui::StructuredFieldView* m_eventDetails = nullptr;
+    QTreeWidget* m_eventProperties = nullptr;
+    QTreeWidget* m_eventParameters = nullptr;
+    ks::ui::HexView* m_eventHex = nullptr;
+    ks::ui::DetailLayoutHost* m_eventDetailHost = nullptr;
+    WinAPIParameterEditor* m_parameterEditor = nullptr;
+    bool m_eventDetailsUpdateScheduled = false;
     QSpinBox* m_eventMemoryBudget = nullptr;
     QLabel* m_diskArchiveStatus = nullptr;
     QPushButton* m_openDiskArchiveButton = nullptr;
@@ -247,6 +274,23 @@ private:
     QLabel* m_coverageStatusLabel = nullptr;
     QTableView* m_coverageTable = nullptr;
     QAbstractItemModel* m_coverageModel = nullptr;
+    std::shared_ptr<ks::monitor::WinAPIFilterRules> m_eventRules;
+    QTreeWidget* m_eventRulesTree = nullptr;
+    QLineEdit* m_ruleSearchEdit = nullptr;
+    QLabel* m_eventRulesStatus = nullptr;
+    bool m_eventRulesValid = true;
+    bool m_eventRulesPreStage = true, m_ruleCatalogPumpScheduled = false, m_ruleDefinitionsUnavailable = false;
+    QHash<QString, QTreeWidgetItem*> m_ruleModules, m_ruleFunctions, m_ruleCategories;
+    QList<QTreeWidgetItem*> m_ruleSearchItems;
+    QList<QTreeWidgetItem*> m_ruleStateItems;
+    QSet<QString> m_ruleExpandedBeforeSearch;
+    QString m_ruleSearchText;
+    qsizetype m_ruleSearchCursor = 0;
+    qsizetype m_ruleStateCursor = 0;
+    std::uint64_t m_ruleSearchTicket = 0;
+    std::uint64_t m_ruleDefinitionsTicket = 0;
+    bool m_ruleSearchScheduled = false, m_ruleSearchActive = false, m_ruleStateScheduled = false;
+    std::deque<std::pair<std::shared_ptr<const ks::monitor::WinAPIFilterCatalog>, std::size_t>> m_ruleCatalogBatches;
     std::shared_ptr<ks::ui::AsyncUiDispatcher> m_coverageDispatcher;
     QByteArray m_coverageDefinitionHash;
     std::uint64_t m_coverageFilterTicket = 0;

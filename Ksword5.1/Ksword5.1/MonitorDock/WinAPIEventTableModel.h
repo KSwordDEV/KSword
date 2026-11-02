@@ -25,6 +25,7 @@ public:
     void trimFront(int count);
     void clear();
     void setKeyword(QString keyword);
+    void setEventRules(std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> rules);
     bool filterPending() const { return m_filterPending; }
     bool filterFailed() const { return m_filterFailed; }
     void close();
@@ -32,7 +33,7 @@ public:
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
     struct Row { WinAPIEventRef record; bool accepted; };
-    struct FilterWork { QString keyword; std::vector<std::pair<std::uint64_t, QString>> rows; };
+    struct FilterWork { QString keyword; std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> rules; std::vector<std::pair<std::uint64_t, WinAPIEventRef>> rows; };
     using Matches = std::vector<std::pair<std::uint64_t, bool>>;
     void captureFilterRows();
     void applyFilterRows();
@@ -42,6 +43,7 @@ private:
     std::uint64_t m_firstOrdinal = 0, m_nextOrdinal = 0, m_filterRevision = 0;
     std::uint64_t m_filterCursor = 0, m_filterEnd = 0;
     QString m_keyword;
+    std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> m_rules;
     std::shared_ptr<FilterWork> m_filterWork;
     std::shared_ptr<const Matches> m_filterMatches;
     std::size_t m_filterApplyCursor = 0;

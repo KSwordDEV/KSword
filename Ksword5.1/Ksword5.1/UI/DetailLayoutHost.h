@@ -83,6 +83,10 @@ namespace ks::ui
 
         // applyScheme：切换当前页面布局；会清理旧模式的临时行内视图/窗口状态。
         void applyScheme(ks::settings::DetailDisplayScheme scheme);
+        // Optional page-owned visibility gate; the requested global scheme is retained.
+        void setDetailsEnabled(bool enabled);
+        void setBottomDetailWeight(int weight);
+        void showDetailsForIndex(const QModelIndex& index) { handleViewClicked(QPersistentModelIndex(index)); }
 
         // clearEmbeddedDetails：移除所有行内详情并恢复原行高及delegate。
         void clearEmbeddedDetails();
@@ -227,7 +231,9 @@ namespace ks::ui
             ks::settings::DetailDisplayScheme::BottomCollapsed; // 保留全局请求，能力回退不改设置。
         bool m_preparingHostUi = false;                 // Coalesce synchronous layout/show reentry.
         bool m_constructing = true;                     // 构造期间只排队，避免 Show 回调销毁半构造宿主。
+        int m_bottomDetailWeight = 250;
         bool m_bottomExpanded = false;                  // m_bottomExpanded：下方详情是否展开。
+        bool m_detailsEnabled = true;
         bool m_explicitBinding = false;                 // 是否启用页面显式布局契约。
         quint64 m_bindingGeneration = 0;                // 取消换布局/模型前 queued 点击。
         quint64 m_hostUiInitializationGeneration = 0;    // Invalidate a consumed queued initialization.

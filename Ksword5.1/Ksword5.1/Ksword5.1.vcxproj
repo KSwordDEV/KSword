@@ -1898,4 +1898,9 @@
     <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedWrite.cpp" />
   </ItemGroup>
 <ItemGroup><ClInclude Include="MonitorDock\WinAPIDiskArchive.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterDecode.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterRules.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterEditor.h" /><ClCompile Include="MonitorDock\WinAPIParameterEditor.cpp" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterRules.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterCatalog.h" /></ItemGroup>
 </Project>

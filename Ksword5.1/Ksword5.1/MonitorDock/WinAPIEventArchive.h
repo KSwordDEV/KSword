@@ -71,6 +71,7 @@ struct WinAPIEventExportSnapshot
 {
     std::vector<WinAPIEventRef> rows;
     QString businessKeyword, lossSummary;
+    std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> eventRules;
     QStringList headers;
     ks::ui::TableSearchResultFilterSpec search;
     ks::i18n::SourceTextSnapshot language;
@@ -106,6 +107,7 @@ struct WinAPIEventExportSnapshot
     {
         return record && (businessKeyword.isEmpty()
             || record->searchText.contains(businessKeyword, Qt::CaseInsensitive))
+            && (record->value.internalEvent || !eventRules || !eventRules->rejectsApi(record->value.apiText, false))
             && ks::ui::TableSearchResultFilterMatches(search, displayedCells(record));
     }
 };

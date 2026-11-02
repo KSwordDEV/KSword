@@ -158,7 +158,7 @@ int main(int argc, char** argv)
         std::vector<WinAPIEventRef> batch;
         for (std::uint64_t i = 1; i <= static_cast<std::uint64_t>(stressRows); ++i) {
             auto row = std::make_shared<WinAPIEventRecord>(); row->sequence = i;
-            row->value.apiText = QStringLiteral("retained"); row->searchText = row->value.apiText;
+            row->value.apiText = i == 1 ? QStringLiteral("user32.dll!GetMessageW") : QStringLiteral("retained"); row->searchText = row->value.apiText;
             archive.append(row); batch.push_back(std::move(row));
             if (batch.size() == 2048) { model.append(batch); batch.clear(); }
         }
@@ -179,6 +179,14 @@ int main(int argc, char** argv)
         model.setKeyword({}); CHECK(settle([&]() { return !model.filterPending(); }));
         CHECK(model.index(stressRows - 1, 0).data(WinAPIEventTableModel::AcceptedRole).toBool());
         CHECK(proxy.rowCount() == stressRows);
+        auto rules = std::make_shared<ks::monitor::WinAPIFilterSnapshot>();
+        rules->postFunctions.insert(ks::monitor::WinAPIFilterSnapshot::functionKey(QStringLiteral("USER32.DLL"), QStringLiteral("GetMessageW")));
+        model.setEventRules(rules); CHECK(settle([&]() { return !model.filterPending(); }));
+        CHECK(proxy.rowCount() == stressRows - 1); CHECK(!model.index(0, 0).data(WinAPIEventTableModel::AcceptedRole).toBool());
+        auto live = std::make_shared<WinAPIEventRecord>(); live->value.apiText = QStringLiteral("user32.dll!GetMessageW");
+        live->searchText = live->value.apiText; model.append({live}); CHECK(proxy.rowCount() == stressRows - 1);
+        model.setEventRules(std::make_shared<ks::monitor::WinAPIFilterSnapshot>());
+        CHECK(settle([&]() { return !model.filterPending(); })); CHECK(proxy.rowCount() == stressRows + 1);
         model.close();
         WinAPIEventArchive bounded(1000000, 8192);
         for (const auto& row : archive.snapshot()) bounded.append(row);

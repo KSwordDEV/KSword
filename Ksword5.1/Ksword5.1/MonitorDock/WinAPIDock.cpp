@@ -39,6 +39,8 @@ WinAPIDock::WinAPIDock(QWidget* parent)
     info << initEvent << "[WinAPIDock] 开始初始化 WinAPI 监控页。" << eol;
 
     m_sessionOperation = new ks::ui::AsyncOperation(this);
+    m_eventRules = std::make_shared<ks::monitor::WinAPIFilterRules>(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("config/winapi-filter.cfg")));
+    m_eventRulesValid = m_eventRules->load();
     initializeUi();
     initializeEventProjection();
     initializeConnections();

@@ -74,7 +74,8 @@ void WinAPIEventTableModel::append(const std::vector<WinAPIEventRef>& records)
     for (const auto& record : records)
     {
         m_ordinals.emplace(record.get(), m_nextOrdinal++);
-        m_rows.push_back({record, m_keyword.isEmpty() || record->searchText.contains(m_keyword, Qt::CaseInsensitive)});
+        m_rows.push_back({record, (m_keyword.isEmpty() || record->searchText.contains(m_keyword, Qt::CaseInsensitive))
+            && (record->value.internalEvent || !m_rules || !m_rules->rejectsApi(record->value.apiText, false))});
     }
     endInsertRows();
 }
@@ -105,9 +106,16 @@ void WinAPIEventTableModel::setKeyword(QString keyword)
 {
     keyword = keyword.trimmed(); if (m_closed || (keyword == m_keyword && !m_filterFailed)) return;
     m_keyword = std::move(keyword); ++m_filterRevision; m_filterOperation->cancel(); m_applyTimer.stop();
-    m_filterMatches.reset(); m_filterWork = std::make_shared<FilterWork>(); m_filterWork->keyword = m_keyword;
+    m_filterMatches.reset(); m_filterWork = std::make_shared<FilterWork>(); m_filterWork->keyword = m_keyword; m_filterWork->rules = m_rules;
     m_filterCursor = m_firstOrdinal; m_filterEnd = m_nextOrdinal; m_filterPending = true; m_filterFailed = false;
     m_captureTimer.start(0); notifyFilterState();
+}
+void WinAPIEventTableModel::setEventRules(std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> rules)
+{
+    m_rules = std::move(rules);
+    // Force the existing bounded asynchronous scan even if the text did not change.
+    m_filterFailed = true;
+    setKeyword(m_keyword);
 }
 void WinAPIEventTableModel::captureFilterRows()
 {
@@ -117,7 +125,7 @@ void WinAPIEventTableModel::captureFilterRows()
     while (m_filterCursor < m_filterEnd && count++ < 2048 && budget.elapsed() < 4)
     {
         const auto row = recordAt(static_cast<int>(m_filterCursor - m_firstOrdinal));
-        if (row) m_filterWork->rows.emplace_back(m_filterCursor, row->searchText);
+        if (row) m_filterWork->rows.emplace_back(m_filterCursor, row);
         ++m_filterCursor;
     }
     if (m_filterCursor < m_filterEnd) { m_captureTimer.start(0); return; }
@@ -126,9 +134,10 @@ void WinAPIEventTableModel::captureFilterRows()
     m_filterOperation->submit<std::shared_ptr<FilterWork>, std::shared_ptr<const Matches>>(std::move(request),
         [](const std::shared_ptr<FilterWork>& work, const ks::ui::AsyncOperationToken& token) {
             auto result = std::make_shared<Matches>(); result->reserve(work->rows.size());
-            for (const auto& [ordinal, text] : work->rows) {
+            for (const auto& [ordinal, row] : work->rows) {
                 if (token.isCanceled()) break;
-                result->emplace_back(ordinal, work->keyword.isEmpty() || text.contains(work->keyword, Qt::CaseInsensitive));
+                result->emplace_back(ordinal, (work->keyword.isEmpty() || row->searchText.contains(work->keyword, Qt::CaseInsensitive))
+                    && (row->value.internalEvent || !work->rules || !work->rules->rejectsApi(row->value.apiText, false)));
             }
             return std::shared_ptr<const Matches>(std::move(result));
         },

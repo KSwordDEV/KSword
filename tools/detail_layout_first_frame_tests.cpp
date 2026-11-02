@@ -252,6 +252,17 @@ int main(int argc, char** argv)
     reentrantBoundary(true);
     reentrantBoundary(false, true);
     reentrantBoundary(true, true);
+    for (auto scheme : {DetailDisplayScheme::BottomCollapsed, DetailDisplayScheme::Embedded, DetailDisplayScheme::Right, DetailDisplayScheme::Floating}) {
+        caseName = QStringLiteral("visibility gate %1").arg(int(scheme));
+        Fixture fixture; fixture.panels(true, true); fixture.createHost(true);
+        fixture.host->setDetailsEnabled(false); fixture.host->applyScheme(scheme); fixture.showOwner(); settle();
+        check(fixture.host->isBound() && fixture.detailPane->isHidden(), "disabled detail remains hidden at first show");
+        fixture.host->setDetailsEnabled(true); settle();
+        check(fixture.host->effectiveScheme() == scheme, "enabling keeps requested scheme");
+        check(fixture.detailPane->isHidden() == (scheme != DetailDisplayScheme::Right), "enabling applies scheme visibility");
+        fixture.host->setDetailsEnabled(false); settle();
+        check(fixture.detailPane->isHidden(), "disabling hides detail again");
+    }
     std::printf("DETAIL_FIRST_FRAME_CASES=%d CHECKS=%d FAILURES=%d NATURAL_PAINT=1 MAIN_GUI=0 CORE_METHODS_UNMODIFIED=1\n", cases, checks, failures);
     return failures ? 1 : 0;
 }

@@ -270,7 +270,7 @@ void ks::ui::DetailLayoutHost::ensureManagedSplitter()
 void ks::ui::DetailLayoutHost::handleViewClicked(
     const QPersistentModelIndex& sourceIndex)
 {
-    if (!sourceIndex.isValid())
+    if (!m_detailsEnabled || !sourceIndex.isValid())
     {
         return;
     }

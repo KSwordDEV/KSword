@@ -45,6 +45,11 @@ int main(int argc, char** argv)
     snapshot.rows = {row(1, QStringLiteral("z")), row(2, QStringLiteral("a")), row(3, QStringLiteral("a"))};
     snapshot.businessKeyword = QStringLiteral("Z"); CHECK(snapshot.matches(snapshot.rows[0])); CHECK(!snapshot.matches(snapshot.rows[1]));
     snapshot.businessKeyword.clear(); snapshot.search.active = true; snapshot.search.query = QStringLiteral("displayed"); snapshot.search.columns = {1}; CHECK(snapshot.matches(snapshot.rows[0]));
+    auto rules = std::make_shared<ks::monitor::WinAPIFilterSnapshot>();
+    rules->postFunctions.insert(ks::monitor::WinAPIFilterSnapshot::functionKey(QStringLiteral("user32.dll"), QStringLiteral("GetMessageW")));
+    snapshot.eventRules = rules;
+    CHECK(!snapshot.matches(row(4, QStringLiteral("user32.dll!GetMessageW"))));
+    snapshot.eventRules.reset();
     snapshot.search.columns = {2}; CHECK(!snapshot.matches(snapshot.rows[0]));
     snapshot.search.active = false; CHECK(snapshot.matches(snapshot.rows[0]));
     snapshot.continuousSort = true; snapshot.sortColumn = 2;
