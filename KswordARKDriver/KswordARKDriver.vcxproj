@@ -342,6 +342,7 @@
     <ClCompile Include="src\features\network\network_inventory_wfp.c" />
     <ClCompile Include="src\features\network\network_inventory_ndis.c" />
     <ClCompile Include="src\features\network\network_wfp.c" />
+    <ClCompile Include="src\features\network\network_managed.c" />
     <ClCompile Include="src\features\network\network_traffic.c" />
     <ClCompile Include="src\features\network\network_ioctl.c" />
     <ClCompile Include="src\features\keyboard\keyboard_query.c" />
@@ -544,6 +545,8 @@
     <ClInclude Include="src\dispatch\ioctl_validation.h" />
     <ClInclude Include="include\ark\ark_redirect.h" />
     <ClInclude Include="include\ark\ark_network.h" />
+    <ClInclude Include="include\ark\ark_network_managed.h" />
+    <ClInclude Include="..\shared\driver\KswordArkManagedNetworkIoctl.h" />
     <ClInclude Include="include\ark\ark_keyboard.h" />
     <ClInclude Include="src\features\keyboard\keyboard_internal.h" />
     <ClInclude Include="src\features\keyboard\keyboard_rule_ir.h" />

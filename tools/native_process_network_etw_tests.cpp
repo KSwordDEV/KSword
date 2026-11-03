@@ -2,6 +2,7 @@
 #include "../KswordARKLight/Ui/BackgroundWork.h"
 
 #include <cassert>
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <iostream>
@@ -22,6 +23,8 @@ struct FakeBackend final {
     ULONG enableError = ERROR_SUCCESS;
     ULONG processError = ERROR_CANCELLED;
     std::wstring identity;
+    PEVENT_RECORD_CALLBACK callback = nullptr;
+    void* callbackContext = nullptr;
 } backend;
 
 template<class Predicate> void Eventually(Predicate predicate) {
@@ -66,8 +69,10 @@ ULONG WINAPI NativeFakeEnableTraceEx2(TRACEHANDLE, LPCGUID, ULONG, UCHAR, ULONGL
     std::lock_guard lock(backend.mutex);
     return backend.enableError;
 }
-PROCESSTRACE_HANDLE WINAPI NativeFakeOpenTraceW(PEVENT_TRACE_LOGFILEW) {
+PROCESSTRACE_HANDLE WINAPI NativeFakeOpenTraceW(PEVENT_TRACE_LOGFILEW logFile) {
     std::lock_guard lock(backend.mutex);
+    backend.callback = logFile->EventRecordCallback;
+    backend.callbackContext = logFile->Context;
     backend.consumer = true;
     return 23;
 }
@@ -89,6 +94,29 @@ ULONG WINAPI NativeFakeProcessTrace(PROCESSTRACE_HANDLE* handle, ULONG count, LP
 
 int main() {
     using ks::network::ProcessNetworkEtwMonitor;
+    {
+        ProcessNetworkEtwMonitor monitor;
+        assert(monitor.Start());
+        assert(monitor.SnapshotHealth().acceptedEvents == 0);
+        EVENT_RECORD record{};
+        record.EventHeader.ProviderId = GUID{0x7dd42a49,0x5329,0x4832,{0x8d,0xfd,0x43,0xd9,0x79,0x15,0x3a,0x88}};
+        std::uint32_t payload[2]{1234,2048};
+        record.UserData = payload;record.UserDataLength = static_cast<USHORT>(sizeof(payload));
+        record.UserContext = backend.callbackContext;
+        record.EventHeader.ProcessId = 9999;
+        for (const USHORT id : std::array<USHORT,4>{10,26,42,58}) {record.EventHeader.EventDescriptor.Id=id;backend.callback(&record);}
+        for (const USHORT id : std::array<USHORT,4>{11,27,43,59}) {record.EventHeader.EventDescriptor.Id=id;backend.callback(&record);}
+        const auto counters = monitor.SnapshotCounters();
+        assert(counters.at(1234).rxBytes == 8192 && counters.at(1234).txBytes == 8192 && counters.count(9999) == 0);
+        assert(monitor.SnapshotHealth().acceptedEvents == 8);
+        record.EventHeader.EventDescriptor.Id=12;backend.callback(&record);
+        record.EventHeader.EventDescriptor.Id=10;record.UserDataLength=7;backend.callback(&record);
+        record.UserDataLength=static_cast<USHORT>(sizeof(payload));payload[0]=0;backend.callback(&record);
+        payload[0]=1234;payload[1]=0;backend.callback(&record);
+        assert(monitor.SnapshotHealth().acceptedEvents == 8);
+        assert(monitor.StopChecked());
+    }
+    Reset();
     {
         ProcessNetworkEtwMonitor monitor;
         assert(monitor.Start());

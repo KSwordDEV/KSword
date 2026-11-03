@@ -2,7 +2,23 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
     <ClCompile Include="ProcessDock\ProcessDock.MetricArea.cpp" />
+    <ClCompile Include="ProcessDock\ProcessNetworkController.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ProcessDock\ProcessNetworkPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="NetworkDock\NetworkQosPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverNetworkPolicy.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\network\NetworkPolicy.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\network\Connections.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\network\Firewall.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\network\NetworkSupport.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="ProcessDock\ProcessNetworkController.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ProcessDock\ProcessNetworkPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="NetworkDock\NetworkQosPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkDriverNetworkPolicy.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\usermode\backend\network\NetworkPolicy.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\usermode\backend\network\NetworkRate.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\driver\KswordArkManagedNetworkIoctl.h"><Filter>Header Files</Filter></ClInclude>
     <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaRenderer.cpp" />
     <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="FileDock\NtfsFastIndex.cpp">
       <Filter>Source Files</Filter>
@@ -3137,6 +3153,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaRenderer.h" />
     <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="UI\UI.css\UI_css.h">
       <Filter>Header Files</Filter>

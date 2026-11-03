@@ -146,6 +146,8 @@ namespace ks::network
         setLastErrorText(std::string());
         m_bufferEventsLost.store(0, std::memory_order_relaxed);
         m_sessionEventsLost.store(0, std::memory_order_relaxed);
+        m_providerEvents.store(0, std::memory_order_relaxed);
+        m_acceptedEvents.store(0, std::memory_order_relaxed);
         m_stopRequested.store(false, std::memory_order_release);
 
         const std::wstring sessionName = buildSessionName();
@@ -304,6 +306,8 @@ namespace ks::network
         health.stopErrorKnown = health.stopError != ERROR_SUCCESS;
         health.eventsLost = std::max(bufferEventsLost, sessionEventsLost);
         health.dataLossDetected = (health.eventsLost != 0);
+        health.providerEvents = m_providerEvents.load(std::memory_order_relaxed);
+        health.acceptedEvents = m_acceptedEvents.load(std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> errorGuard(m_errorMutex);
             health.errorCodeKnown = m_lastErrorCodeKnown;
@@ -394,6 +398,8 @@ namespace ks::network
 
     void ProcessNetworkEtwMonitor::recordNetworkEvent(const EVENT_RECORD& eventRecord)
     {
+        if (::IsEqualGUID(eventRecord.EventHeader.ProviderId, KernelNetworkProviderGuid))
+            m_providerEvents.fetch_add(1, std::memory_order_relaxed);
         if (!::IsEqualGUID(eventRecord.EventHeader.ProviderId, KernelNetworkProviderGuid) ||
             eventRecord.UserData == nullptr ||
             eventRecord.UserDataLength < (sizeof(std::uint32_t) * 2))
@@ -418,6 +424,7 @@ namespace ks::network
         {
             return;
         }
+        m_acceptedEvents.fetch_add(1, std::memory_order_relaxed);
 
         std::lock_guard<std::mutex> counterGuard(m_counterMutex);
         ProcessNetworkTrafficCounters& counters = m_countersByPid[processId];

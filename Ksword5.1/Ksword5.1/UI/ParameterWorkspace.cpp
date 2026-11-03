@@ -29,6 +29,7 @@
 #include <QPointer>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSplitter>
 #include <QStyleOptionButton>
 #include <QTimer>
@@ -573,6 +574,43 @@ namespace ks::ui
         setMinimumSize(0, 0);
     }
 
+    QVBoxLayout* ParameterWorkspace::parameterHeader()
+    {
+        if (!m_parameterHeader)
+        {
+            auto* header = new QWidget(m_parameterPanel);
+            bindWorkspaceSurface(header, false, true);
+            m_parameterHeader = new QVBoxLayout(header);
+            m_parameterHeader->setContentsMargins(0, 0, 0, 16);
+            m_parameterHeader->setSpacing(8);
+            static_cast<QVBoxLayout*>(m_parameterPanel->layout())->insertWidget(0, header);
+        }
+        return m_parameterHeader;
+    }
+
+    void ParameterWorkspace::enableHorizontalParameterScroll()
+    {
+        m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        m_scroll->widget()->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
+        m_parameters->setSizeConstraint(QLayout::SetMinimumSize);
+    }
+
+    void ParameterWorkspace::revealParameter(QWidget* target)
+    {
+        const QPointer<QWidget> guarded(target);
+        QTimer::singleShot(0, this, [this, guarded]()
+        {
+            if (guarded && m_scroll->widget()->isAncestorOf(guarded))
+            {
+                const QPointer<ParameterWorkspace> alive(this);
+                m_scroll->ensureWidgetVisible(guarded, 16, 16);
+                // 整列可能高于视口；横向露出该列后从列首开始阅读。
+                if (alive && guarded)
+                    m_scroll->verticalScrollBar()->setValue(guarded->mapTo(m_scroll->widget(), QPoint()).y());
+            }
+        });
+    }
+
     // 页面显式选择参数密集布局；百分比只控制初次分配，后续尺寸由 QSplitter 保留。
     void ParameterWorkspace::useWideParameterLayout(int parameterPercent)
     {
@@ -680,7 +718,18 @@ namespace ks::ui
     void StyleParameterSection(QGroupBox* group)
     {
         if (!group) return;
+        group->setProperty("ksword_parameter_card", false);
         group->setProperty("ksword_parameter_section", true);
+        StylePrimaryGroup(group);
+        ConfigureGroupBoxLayout(group);
+    }
+
+    void StyleParameterCard(QGroupBox* group)
+    {
+        if (!group) return;
+        group->setProperty("ksword_parameter_card", true);
+        group->setProperty("ksword_parameter_section", false);
+        group->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         StylePrimaryGroup(group);
         ConfigureGroupBoxLayout(group);
     }
@@ -720,6 +769,8 @@ namespace ks::ui
             }
             else if (qobject_cast<QCheckBox*>(field) || qobject_cast<QRadioButton*>(field))
             {
+                // 明确的单行工具栏保留选项的自然宽度；Ignored 会让旁边的 stretch 吞掉标签。
+                if (field->property("ksword_toolbar_control").toBool()) continue;
                 if (!field->property("ksword_parameter_wrap_choice").toBool())
                 {
                     field->setProperty("ksword_parameter_wrap_choice", true);

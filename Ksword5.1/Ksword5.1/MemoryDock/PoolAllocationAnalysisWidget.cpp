@@ -9,6 +9,7 @@
 #include "../UI/PageControlStyle.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/MetricAreaWindow.h"
 #include <QAbstractTableModel>
 #include <QComboBox>
 #include <QEvent>
@@ -272,6 +273,15 @@ struct PoolAllocationAnalysisWidget::ResolveJob {
     Group group;
     std::vector<std::wstring> symbols;
 };
+struct PoolAllocationAnalysisWidget::MetricAreaJob {
+    std::atomic_bool cancel{false}, done{false};
+    bool failed = false;
+    int mode = 0;
+    QStringList labels;
+    QString state;
+    std::shared_ptr<const PoolViewRows> view;
+    std::vector<ks::ui::MetricAreaNode> nodes;
+};
 
 PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QWidget(parent) {
     m_reader = [](const std::wstring& path, const std::atomic_bool& cancel) {
@@ -288,6 +298,9 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_open = new QPushButton(this); m_open->setObjectName(QStringLiteral("pool_analysis_open"));
     m_cancel = new QPushButton(this); m_cancel->setObjectName(QStringLiteral("pool_analysis_cancel"));
     actions->addWidget(m_open); actions->addWidget(m_cancel);
+    m_areaButton = new QPushButton(this); actions->addWidget(m_areaButton);
+    ks::ui::NormalizeToolbarControl(m_areaButton);
+    connect(m_areaButton, &QPushButton::clicked, this, [this] { openMetricAreaView(); });
     // 换行工具行仅统一单个按钮，保持自动换行能力。
     ks::ui::NormalizeToolbarControl(m_open);
     ks::ui::NormalizeToolbarControl(m_cancel);
@@ -313,6 +326,7 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
     m_model = new PoolAllocationTableModel(this);
     m_table->setModel(m_model);
+    connect(m_model, &QAbstractItemModel::modelReset, this, [this] { refreshMetricAreaView(); updateControls(); }, Qt::QueuedConnection);
     m_table->setProperty("ks_i18n_preserve_model_data",true);m_model->setProperty("ks_i18n_preserve_model_data",true);
     ks::ui::SetTableColumnAutoFitEnabled(m_table,false);
     ks::ui::SetTableRowFilterBusinessOwnership(m_table,ks::ui::TableRowFilterBusinessOwnership::ExclusiveSharedIdentity);
@@ -376,6 +390,7 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
 
 PoolAllocationAnalysisWidget::~PoolAllocationAnalysisWidget() {
     cancelJobs();if(m_projectionJob)m_projectionJob->cancel.store(true,std::memory_order_relaxed);
+    if (m_areaJob) m_areaJob->cancel.store(true);
     // QObject child teardown owns the models; destruction emits no reset/selection
     // signals. Drop their heavy value owners onto workers before deleting them.
     m_stackModel->row=nullptr;retirePoolValue(std::move(m_stackModel->owner));retirePoolValue(std::move(m_model->view));
@@ -424,6 +439,24 @@ void PoolAllocationAnalysisWidget::startRead(const QString& path) {
 }
 
 void PoolAllocationAnalysisWidget::pollJobs() {
+    if (m_areaJob && !m_areaWindow) m_areaJob->cancel.store(true);
+    if (m_areaJob && m_areaJob->done.load()) {
+        auto job = std::move(m_areaJob);
+        if (m_areaWindow && !job->cancel.load() && m_model->view == job->view && m_areaWindow->currentMode() == job->mode) {
+            if (!job->failed) {
+                m_areaWindow->setPresentation(job->labels[job->mode], job->state, std::move(job->nodes));
+                m_areaPresentedView = job->view; m_areaPresentedMode = job->mode; m_areaPresentedLabels = job->labels;
+                const QPointer<PoolAllocationAnalysisWidget> owner(this);
+                m_areaWindow->itemActivated = [owner, view = job->view](const QString& key) {
+                    if (!owner || owner->m_model->view != view) return;
+                    bool valid = false; const auto index = key.section(QLatin1Char('|'), -1).toULongLong(&valid);
+                    if (!valid) return;
+                    for (std::size_t row = 0; row < view->indices.size(); ++row)
+                        if (view->indices[row] == index) { owner->m_table->selectRow(static_cast<int>(row)); break; }
+                };
+            } else m_areaWindow->updateState(L("Pool area projection failed; the previous chart is retained."));
+        }
+    }
     if (m_readJob && m_readJob->done.load(std::memory_order_acquire)) {
         auto job=std::move(m_readJob);
         if(!m_pendingPath.isEmpty()) {const auto path=m_pendingPath;m_pendingPath.clear();startRead(path);}
@@ -471,7 +504,7 @@ void PoolAllocationAnalysisWidget::pollJobs() {
         retirePoolValue(std::move(job));
     }
     if(!m_readJob&&!m_resolveJob&&(!m_projectionJob||m_projectionJob->done.load(std::memory_order_acquire))&&
-        (!isVisible()||m_publishedVersion==m_projectionVersion))m_poll->stop();
+        (!isVisible()||m_publishedVersion==m_projectionVersion) && !m_areaJob)m_poll->stop();
     updateControls();updateSummary();
 }
 void PoolAllocationAnalysisWidget::requestProjection(bool rebuild) {
@@ -489,6 +522,8 @@ void PoolAllocationAnalysisWidget::clearStackModel() {
     const QPointer<PoolAllocationAnalysisWidget> guard(this);QSignalBlocker blocked(m_stacks);m_stackModel->replace({},nullptr);if(!guard)blocked.dismiss();
 }
 void PoolAllocationAnalysisWidget::clearProjection() {
+    if (m_areaJob) m_areaJob->cancel.store(true);
+    if (m_areaWindow) m_areaWindow->updateState(L("Pool history is loading; the previous committed area view is retained."));
     ++m_projectionVersion;m_publishedVersion=m_projectionVersion;
     if(m_projectionJob)m_projectionJob->cancel.store(true,std::memory_order_relaxed);
     const QPointer<PoolAllocationAnalysisWidget> guard(this);clearStackModel();if(!guard)return;
@@ -568,6 +603,7 @@ void PoolAllocationAnalysisWidget::updateControls() {
     m_module->setEnabled(!m_readJob && m_openModuleDetails && !m_modulePath.isEmpty());
     m_module->setToolTip(m_modulePath.isEmpty() ? L("No reliable local module path is available.") : m_modulePath);
     m_stacks->setEnabled(m_stacks->count() > 0 && m_publishedVersion == m_projectionVersion);
+    m_areaButton->setEnabled(bool(m_model->view));
 }
 void PoolAllocationAnalysisWidget::updateSummary() {
     if (m_projectionFailed) m_status->setText(L("Pool table projection failed."));
@@ -596,6 +632,7 @@ void PoolAllocationAnalysisWidget::updateSummary() {
             N(result.imageHistoryTruncated ? 1 : 0), N(result.fileChanged ? 1 : 0), H(result.analysis.gapReasons)));
 }
 void PoolAllocationAnalysisWidget::retranslate() {
+    m_areaButton->setText(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
     m_note->setText(L("Analyze only events retained in this ETL. Allocations before capture or overwritten by circular buffers are unknown. Unpaired allocations do not prove a leak. Historical modules show stack origins, not responsibility."));
     m_open->setText(L("Open ETL")); m_cancel->setText(L("Cancel analysis"));
     { const QSignalBlocker blocked(m_grouping);
@@ -604,6 +641,54 @@ void PoolAllocationAnalysisWidget::retranslate() {
     m_filter->setPlaceholderText(L("Filter tag or historical module"));
     m_resolve->setText(L("Resolve local symbols")); m_module->setText(L("Open module details"));
     m_model->retranslate(); requestProjection(true); updateSummary(); updateControls();
+}
+void PoolAllocationAnalysisWidget::openMetricAreaView()
+{
+    if (!m_model->view) return;
+    if (!m_areaWindow) {
+        auto* window = new ks::ui::MetricAreaWindow(this); m_areaWindow = window;
+        m_areaPresentedView.reset(); m_areaPresentedMode = -1; m_areaPresentedLabels.clear();
+        window->modeChanged = [this](int) { refreshMetricAreaView(); };
+        window->appearanceChanged = [this] { refreshMetricAreaView(); };
+    }
+    refreshMetricAreaView(); m_areaWindow->show(); m_areaWindow->raise(); m_areaWindow->activateWindow();
+}
+void PoolAllocationAnalysisWidget::refreshMetricAreaView()
+{
+    if (!m_areaWindow || !m_model->view) return;
+    const auto view = m_model->view;
+    const std::array<int, 8> columns{5, 1, 2, 3, 4, 6, 7, 8};
+    QStringList labels; for (int column : columns) labels.append(m_model->headerData(column, Qt::Horizontal, Qt::DisplayRole).toString());
+    const int mode = qBound(0, m_areaWindow->currentMode(), 7);
+    m_areaWindow->setModes(labels, mode);
+    m_areaWindow->setSubject(L("Current pool history table"), L("Allocation source"), QString(),
+        L("One metric from the filtered ETL history is shown at a time. Counts and bytes are separate; neither is unique resident physical ownership."));
+    if (!m_areaJob && m_areaPresentedView.lock().get() == view.get() && m_areaPresentedMode == mode && m_areaPresentedLabels == labels) return;
+    if (m_areaJob && m_areaJob->view == view && m_areaJob->mode == mode && m_areaJob->labels == labels) return;
+    if (m_areaJob) m_areaJob->cancel.store(true);
+    auto job = std::make_shared<MetricAreaJob>(); job->view = view; job->mode = mode; job->labels = labels;
+    job->state = m_status->text() + QLatin1Char('\n') + L("Areas are observed history, not proof of a leak. Saturated lower-bound values are listed without an area.");
+    m_areaJob = job; m_poll->start();
+    const QLocale locale;
+    try { std::thread([job, column = columns[mode], locale] {
+        try {
+            const auto& rows = job->view->source->modes[job->view->mode];
+            job->nodes.reserve(job->view->indices.size());
+            const QString prefix = QString::number(reinterpret_cast<quintptr>(job->view->source->trace.get()))
+                + QLatin1Char('|') + QString::number(job->view->mode) + QLatin1Char('|');
+            for (const auto index : job->view->indices) {
+                if (job->cancel.load()) break;
+                const auto& row = rows[index]; const auto counter = static_cast<std::size_t>(column - 1);
+                ks::ui::MetricAreaNode node;
+                node.key = prefix + QString::number(index); node.name = row.source;
+                node.known = !row.saturated[counter]; node.weight = static_cast<double>(row.counters[counter]);
+                node.value = (row.saturated[counter] ? QStringLiteral("\u2265") : QString()) + locale.toString(static_cast<qulonglong>(row.counters[counter]));
+                node.tooltip = row.search + QLatin1Char('\n') + job->labels[job->mode] + QStringLiteral(": ") + node.value;
+                job->nodes.push_back(std::move(node));
+            }
+        } catch (...) { job->failed = true; }
+        job->done.store(true);
+    }).detach(); } catch (...) { job->failed = true; job->done.store(true); }
 }
 void PoolAllocationAnalysisWidget::changeEvent(QEvent* event) {
     QWidget::changeEvent(event);

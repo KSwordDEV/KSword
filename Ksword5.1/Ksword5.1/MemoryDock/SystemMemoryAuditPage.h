@@ -13,6 +13,7 @@
 #include "../../../shared/evidence/MemorySnapshotAccounting.h"
 
 #include <QHash>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -42,6 +43,7 @@ class PhysicalPageAttributionPage;
 class HyperVMemoryPage;
 class MemoryAttributionChart;
 namespace ksword::pfn { struct Scan; }
+namespace ks::ui { class MetricAreaWindow; }
 
 class SystemMemoryAuditPage final : public QWidget
 {
@@ -228,12 +230,18 @@ private:
     enum class AuditKind { UserResidency, Processes, PoolTags, BigPool };
     struct ProjectionData;
     struct ProjectionJob;
+    struct MetricAreaJob;
     struct SnapshotJob;
     struct ResidencyJob;
     void pollJobs();
     void invalidateTableProjections();
     void requestTableProjection(AuditKind kind);
     void publishTableProjection(const std::shared_ptr<ProjectionData>& data, std::uint64_t version);
+    void openMetricAreaView();
+    void refreshMetricAreaView(AuditKind kind);
+    void publishMetricAreaView(const std::shared_ptr<MetricAreaJob>& job);
+    static void buildMetricAreaView(const std::shared_ptr<MetricAreaJob>& job);
+    void updateMetricAreaAction();
     static QVariant projectionCell(const ProjectionData& data, std::size_t row, int column, int role);
     static QString projectionRowKey(const ProjectionData& data, std::size_t row);
     static QString projectionSearch(const ProjectionData& data, std::size_t row);
@@ -279,6 +287,7 @@ private:
 private:
     QPushButton* m_refreshButton = nullptr;
     QPushButton* m_userResidencyScanButton = nullptr;
+    QPushButton* m_metricAreaButton = nullptr;
     QPushButton* m_pfnScanButton = nullptr;
     PhysicalPageAttributionPage* m_pfnPage = nullptr;
     HyperVMemoryPage* m_hyperVPage = nullptr;
@@ -310,7 +319,14 @@ private:
     std::shared_ptr<ResidencyJob> m_residencyJob;
     std::shared_ptr<ProjectionJob> m_projectionJob;
     std::array<std::shared_ptr<ProjectionData>, 4> m_readyProjections;
+    std::array<std::shared_ptr<const ProjectionData>, 4> m_metricAreaProjections;
+    std::array<QPointer<ks::ui::MetricAreaWindow>, 4> m_metricAreaWindows;
+    std::array<std::shared_ptr<MetricAreaJob>, 4> m_metricAreaJobs;
+    std::array<std::weak_ptr<const ProjectionData>, 4> m_metricAreaPresentedProjections;
+    std::array<int, 4> m_metricAreaPresentedModes{-1, -1, -1, -1};
+    std::array<QStringList, 4> m_metricAreaPresentedLabels;
     QTimer* m_jobsTimer = nullptr;
+    int m_openMetricAreaWhenPublished = -1;
     std::array<std::uint64_t, 4> m_projectionVersions{1, 1, 1, 1}, m_publishedVersions{}, m_failedVersions{};
     std::array<int, 4> m_sortColumns{4, 3, 3, 2};
     std::array<Qt::SortOrder, 4> m_sortOrders{Qt::DescendingOrder, Qt::DescendingOrder, Qt::DescendingOrder, Qt::DescendingOrder};

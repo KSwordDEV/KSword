@@ -41,6 +41,8 @@ namespace ks::network
         bool stopErrorKnown = false;
         std::uint32_t stopError = 0;
         std::uint64_t eventsLost = 0;
+        std::uint64_t providerEvents = 0;
+        std::uint64_t acceptedEvents = 0;
         bool errorCodeKnown = false;
         std::uint32_t errorCode = 0;
         std::string errorText;
@@ -104,6 +106,7 @@ namespace ks::network
         std::atomic_bool m_stopRequested{ false };
         std::atomic<std::uint64_t> m_bufferEventsLost{ 0 };
         std::atomic<std::uint64_t> m_sessionEventsLost{ 0 };
+        std::atomic<std::uint64_t> m_providerEvents{ 0 }, m_acceptedEvents{ 0 };
 
         mutable std::mutex m_counterMutex;
         std::unordered_map<std::uint32_t, ProcessNetworkTrafficCounters> m_countersByPid;

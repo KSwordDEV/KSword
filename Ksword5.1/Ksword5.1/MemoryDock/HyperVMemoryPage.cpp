@@ -13,6 +13,8 @@
 #include "../UI/TableColumnAutoFit.h"
 #include "../UI/TableRowFilterSupport.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/MetricAreaWindow.h"
+#include "../UI/FlowLayout.h"
 #include <QEvent>
 #include <QShowEvent>
 #include <QThreadPool>
@@ -40,6 +42,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <thread>
 
@@ -366,6 +369,10 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     ks::ui::ApplyFlatButtonTheme(m_cancel, ks::ui::FlatButtonTone::Neutral);
     ks::ui::ApplyFlatButtonTheme(m_export, ks::ui::FlatButtonTone::Neutral);
     headerLayout->addWidget(collectionToolbar);
+    auto* metricTools = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
+    m_metricAreaButton = new QPushButton(this); metricTools->addWidget(m_metricAreaButton);
+    ks::ui::NormalizeToolbarControl(m_metricAreaButton); headerLayout->addLayout(metricTools);
+    connect(m_metricAreaButton, &QPushButton::clicked, this, [this] { openMetricAreaView(); });
     m_summary = new QLabel(this); m_summary->setWordWrap(true); m_summary->setTextFormat(Qt::PlainText);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse); headerLayout->addWidget(m_summary);
     m_progress = new QProgressBar(this); m_progress->setTextVisible(false); m_progress->setMaximumHeight(5); headerLayout->addWidget(m_progress);
@@ -399,7 +406,7 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     m_projectionDebounce=new QTimer(this);m_projectionDebounce->setSingleShot(true);m_projectionDebounce->setInterval(120);
     connect(m_projectionDebounce,&QTimer::timeout,this,[this]{pollProjection();});
     connect(m_filter,&QLineEdit::textChanged,this,[this]{requestProjection();});
-    connect(m_tabs,&QTabWidget::currentChanged,this,[this]{bindCurrentProjection();pollProjection();});
+    connect(m_tabs,&QTabWidget::currentChanged,this,[this]{bindCurrentProjection();pollProjection();updateMetricAreaAction();});
     connect(m_partitions->selectionModel(),&QItemSelectionModel::selectionChanged,this,[this]{
         const auto*row=static_cast<HyperTableModel*>(m_partitions->model())->row(m_partitions->currentIndex().row());if(row)showPartition(row->source);
     });
@@ -483,6 +490,8 @@ void HyperVMemoryPage::poll()
 }
 void HyperVMemoryPage::retranslate()
 {
+    m_metricAreaButton->setText(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
+    updateMetricAreaAction();
     m_collect->setText(L("Collect Hyper-V evidence")); m_cancel->setText(m_exportJob ? L("Cancel") : L("Cancel collection")); m_export->setText(L("Export evidence"));
     m_filter->setPlaceholderText(L("Filter partition, owner, GUID, or runtime ID"));
     m_collect->setToolTip(L("Read VID, Hyper-V WMI, HCS, VBS and host process evidence. Repeat to compare allocations over time."));
@@ -546,6 +555,99 @@ void HyperVMemoryPage::bindCurrentProjection() {
     const auto preparedView=m_readyView;
     const QPointer<HyperVMemoryPage>guard(this);QSignalBlocker blocked(view->selectionModel());model->replace(preparedView,kind);if(!guard){blocked.dismiss();return;}view->setEnabled(true);
     if(kind==0){m_requestedPartition=-1;const auto selected=preparedView->selected;if(selected>=0){view->setCurrentIndex(model->index(selected,0));showPartition(model->row(selected)->source);}else{m_shownPartition=-1;retireHyperValue(std::move(m_detailSnapshot));m_detail->setDocument({});}}
+    refreshMetricAreaView(kind); updateMetricAreaAction();
+}
+void HyperVMemoryPage::updateMetricAreaAction()
+{
+    if (!m_metricAreaButton || !m_tabs) return;
+    const int kind = m_tabs->currentIndex();
+    QTableView* views[]{m_partitions, m_host, m_processes, m_sources};
+    m_metricAreaButton->setEnabled(kind >= 0 && kind < 4 && bool(static_cast<HyperTableModel*>(views[kind]->model())->view));
+    const auto callback = metricAreaStateChanged; if (callback) callback();
+}
+bool HyperVMemoryPage::hasMetricAreaData() const
+{
+    if (!m_tabs) return false;
+    const int kind = m_tabs->currentIndex(); if (kind < 0 || kind >= 4) return false;
+    QTableView* views[]{m_partitions, m_host, m_processes, m_sources};
+    return bool(static_cast<HyperTableModel*>(views[kind]->model())->view);
+}
+void HyperVMemoryPage::openMetricAreaView()
+{
+    const int kind = m_tabs->currentIndex(); if (kind < 0 || kind >= 4) return;
+    QTableView* views[]{m_partitions, m_host, m_processes, m_sources};
+    if (!static_cast<HyperTableModel*>(views[kind]->model())->view) return;
+    if (!m_metricAreaWindows[kind]) {
+        auto* window = new ks::ui::MetricAreaWindow(this); m_metricAreaWindows[kind] = window;
+        window->modeChanged = [this, kind](int) { refreshMetricAreaView(kind); };
+        window->appearanceChanged = [this, kind] { refreshMetricAreaView(kind); };
+    }
+    refreshMetricAreaView(kind);
+    const auto window = m_metricAreaWindows[kind]; window->show(); window->raise(); window->activateWindow();
+}
+void HyperVMemoryPage::refreshMetricAreaView(const int kind)
+{
+    if (kind < 0 || kind >= 4) return;
+    const auto window = m_metricAreaWindows[kind]; if (!window) return;
+    QTableView* views[]{m_partitions, m_host, m_processes, m_sources};
+    auto* model = static_cast<HyperTableModel*>(views[kind]->model());
+    const auto committed = model->view; if (!committed) return;
+    const auto snapshot = committed->source->snapshot;
+    const std::array<int, 6> partitionColumns{3, 4, 5, 6, 7, 8};
+    QStringList modes;
+    if (kind == 0) for (int column : partitionColumns) modes.append(model->headerData(column, Qt::Horizontal, Qt::DisplayRole).toString());
+    else if (kind == 1) for (int metric = 0; metric <= static_cast<int>(Metric::BalancerAvailableForBalancing); ++metric) modes.append(metricLabel(static_cast<Metric>(metric)));
+    else if (kind == 2) modes = {L("Working set"), L("Private commit")};
+    else modes = {L("Provider row counts")};
+    const int mode = qBound(0, window->currentMode(), static_cast<int>(modes.size()) - 1);
+    window->setModes(modes, mode);
+    window->setSubject(L("Current Hyper-V table"), kind == 2 ? L("Process") : kind == 3 ? L("Source") : L("Partition / instance"), kind == 2 ? QStringLiteral("PID") : QString(),
+        L("Click a rectangle to select the source row. Metrics are separate views and cannot be added to the PFN ledger; double-click zooms in."));
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const auto* rowData = model->row(row); if (!rowData || rowData->source < 0) continue;
+        const auto index = static_cast<std::size_t>(rowData->source);
+        if (kind == 1) {
+            const auto& counter = snapshot->counters[index];
+            if (static_cast<int>(counter.metric) != mode || counter.instance.compare(QStringLiteral("_Total"), Qt::CaseInsensitive) == 0) continue;
+        }
+        const int column = kind == 0 ? partitionColumns[mode] : kind == 2 ? mode + 2 : 2;
+        QVariant raw = kind == 3 ? QVariant::fromValue(snapshot->sources[index].rows) : rowData->cells[column].number;
+        if (kind == 0 && (mode == 0 || mode == 2) && snapshot->vidConflict) raw = {};
+        ks::ui::MetricAreaNode node;
+        node.key = QString::number(index);
+        node.name = kind == 1 ? rowData->cells[1].text : rowData->cells[0].text;
+        node.identity = kind == 2 ? rowData->cells[1].text : QString();
+        node.known = raw.isValid(); node.weight = std::fabs(raw.toDouble());
+        node.value = node.known ? rowData->cells[column].text : L("Unavailable"); node.tooltip = node.name + QLatin1Char('\n') + modes[mode] + QStringLiteral(": ") + node.value;
+        if (kind == 0) node.key = snapshot->partitions[index].key + QLatin1Char('|') + snapshot->partitions[index].runtimeId;
+        else node.key += QLatin1Char('|') + snapshot->finished;
+        nodes.push_back(std::move(node));
+    }
+    QString stateText = L("Committed Hyper-V table | Collection %1 to %2 | Metrics are not additive physical ownership.").arg(snapshot->started, snapshot->finished);
+    if (kind == 0 && mode == 2) stateText += QLatin1Char('\n') + L("Area uses the absolute change; the displayed value retains its sign.");
+    if (kind == 1) stateText += QLatin1Char('\n') + L("_Total counter rows are excluded to avoid adding an aggregate to its instances.");
+    if (kind == 3) stateText += QLatin1Char('\n') + L("Area is a count of provider rows, not memory bytes.");
+    if (kind == 0 && snapshot->vidConflict) stateText += QLatin1Char('\n') + L("VID identity conflict: aggregate and chart withheld to prevent double counting.");
+    if (m_job) stateText += QLatin1Char('\n') + L("Collection is running; the previous committed table remains visible.");
+    window->setPresentation(modes[mode], stateText, std::move(nodes));
+    const QPointer<HyperVMemoryPage> owner(this);
+    window->itemActivated = [owner, committed, kind](const QString& key) {
+        if (!owner) return;
+        QTableView* views[]{owner->m_partitions, owner->m_host, owner->m_processes, owner->m_sources};
+        auto* model = static_cast<HyperTableModel*>(views[kind]->model()); if (model->view != committed) return;
+        for (int row = 0; row < model->rowCount(); ++row) {
+            const auto* rowData = model->row(row); if (!rowData || rowData->source < 0) continue;
+            const auto index = static_cast<std::size_t>(rowData->source);
+            const QString rowKey = kind == 0 ? committed->source->snapshot->partitions[index].key + QLatin1Char('|') + committed->source->snapshot->partitions[index].runtimeId
+                : QString::number(index) + QLatin1Char('|') + committed->source->snapshot->finished;
+            if (rowKey == key) {
+                owner->m_tabs->setCurrentIndex(kind);
+                if (!owner || static_cast<HyperTableModel*>(views[kind]->model())->view != committed) return;
+                views[kind]->selectRow(row); break;
+            }
+        }
+    };
 }
 void HyperVMemoryPage::showPartition(int index) {
     if(m_publishedVersion!=m_projectionVersion||!m_prepared||m_prepared->snapshot!=m_snapshot)return;

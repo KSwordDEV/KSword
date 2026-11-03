@@ -18,6 +18,11 @@ namespace ks::ui
         QVBoxLayout* parameters() const { return m_parameters; }
         QVBoxLayout* results() const { return m_results; }
         QHBoxLayout* actions() const { return m_actions; }
+        // 多组参数共用的标题/管理动作固定在滚动正文上方；按需创建。
+        QVBoxLayout* parameterHeader();
+        // 明确需要并排比较的参数列保留最小宽度，由同一正文视口承担横纵滚动。
+        void enableHorizontalParameterScroll();
+        void revealParameter(QWidget* target);
         // 仅参数密集页显式调用；宽屏按百分比分配初始宽度，之后保留用户拖动的分栏比例。
         void useWideParameterLayout(int parameterPercent = 60);
         // 页面完成构造后调用，只为该参数区内的独立输入控件补齐表面和行高。
@@ -30,6 +35,7 @@ namespace ks::ui
         QWidget* m_parameterPanel = nullptr;
         QWidget* m_resultPanel = nullptr;
         QVBoxLayout* m_parameters = nullptr;
+        QVBoxLayout* m_parameterHeader = nullptr;
         QVBoxLayout* m_results = nullptr;
         QHBoxLayout* m_actions = nullptr;
         int m_parameterWidth = 480;
@@ -44,6 +50,8 @@ namespace ks::ui
     // 同步明确登记编辑区的 QSS 与真实 palette；只读日志跟随面板底色，输入单独铺底。
     void StyleWorkspaceTextViews(QWidget* container);
     void StyleParameterSection(QGroupBox* group);
+    // 独立条件卡片使用有底色的标题/正文结构，适用于一列内多个列表型参数。
+    void StyleParameterCard(QGroupBox* group);
     // 嵌入参数面板的普通页壳与滚动画布复用同一内容底色，不新增页根层。
     void StyleParameterCanvas(QWidget* canvas);
     // 页面完成分区后显式调用：两列分别自然排列；不够两列时按原 layout 顺序回到单列。

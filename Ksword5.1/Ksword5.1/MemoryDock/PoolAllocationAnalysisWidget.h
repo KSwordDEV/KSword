@@ -2,7 +2,9 @@
 
 #include "PoolTraceReader.h"
 #include <QWidget>
+#include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -20,6 +22,7 @@ class QTimer;
 class QShowEvent;
 class PoolAllocationTableModel;
 class PoolStackListModel;
+namespace ks::ui { class MetricAreaWindow; }
 
 // Bounded, read-only ETL analysis. Historical stacks are evidence of a call
 // path, and observed outstanding allocations are not proof of a pool leak.
@@ -62,12 +65,21 @@ private:
     void updateSummary();
     void updateControls();
     void retranslate();
+    void openMetricAreaView();
+    void refreshMetricAreaView();
+    struct MetricAreaJob;
     const ks::evidence::pool::Group* selectedGroup() const;
 
     QPushButton* m_open = nullptr;
     QPushButton* m_cancel = nullptr;
     QPushButton* m_resolve = nullptr;
     QPushButton* m_module = nullptr;
+    QPushButton* m_areaButton = nullptr;
+    QPointer<ks::ui::MetricAreaWindow> m_areaWindow;
+    std::shared_ptr<MetricAreaJob> m_areaJob;
+    std::weak_ptr<const void> m_areaPresentedView;
+    int m_areaPresentedMode = -1;
+    QStringList m_areaPresentedLabels;
     QComboBox* m_grouping = nullptr;
     QComboBox* m_stacks = nullptr;
     QLineEdit* m_filter = nullptr;

@@ -11,6 +11,8 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/MetricAreaWindow.h"
+#include "../UI/FlowLayout.h"
 #include <Windows.h>
 #include <QDateTime>
 #include <QTimeZone>
@@ -36,6 +38,7 @@
 #include <QUuid>
 #include <QVBoxLayout>
 #include <atomic>
+#include <array>
 #include <deque>
 #include "../UI/AsyncCleanupRegistry.h"
 #include <mutex>
@@ -58,6 +61,12 @@ QString gpuMetricText(ksword::gpu_memory::Metric value)
     case M::ProcessDedicated: return L("GPU process dedicated references");
     }
     return L("Unavailable");
+}
+QString gpuMetricKey(const ksword::gpu_memory::Counter& row)
+{
+    return QString::number(static_cast<int>(row.metric)) + QLatin1Char('|') + QString::fromStdWString(row.path)
+        + QLatin1Char('|') + QString::fromStdWString(row.instance) + QLatin1Char('|')
+        + QString::number(row.processIdentityKnown ? row.processCreateTime : row.sampledUtc100ns);
 }
 QStringList traceArguments(ksword::pool_trace::Action action, const QString& instance, const QString& output, const QString& profile = {})
 {
@@ -300,6 +309,10 @@ MemoryConsumerEvidencePage::MemoryConsumerEvidencePage(QWidget* parent) : QWidge
     m_detailTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     auto* gpuPage = new QWidget(m_detailTabs);
     auto* gpuLayout = new QVBoxLayout(gpuPage);
+    auto* gpuTools = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
+    m_gpuAreaButton = new QPushButton(gpuPage);
+    ks::ui::NormalizeToolbarControl(m_gpuAreaButton); gpuTools->addWidget(m_gpuAreaButton); gpuLayout->addLayout(gpuTools);
+    connect(m_gpuAreaButton, &QPushButton::clicked, this, [this] { openGpuArea(); });
     m_gpuStatus = new QLabel(gpuPage); m_gpuStatus->setWordWrap(true); gpuLayout->addWidget(m_gpuStatus);
     m_gpuTable = new ks::ui::VisibleTableWidget(gpuPage);
     // GPU 采样是独立证据清单，仍保留前后快照比较。
@@ -395,6 +408,8 @@ void MemoryConsumerEvidencePage::changeEvent(QEvent* event)
 }
 void MemoryConsumerEvidencePage::retranslate()
 {
+    m_gpuAreaButton->setText(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
+    m_gpuAreaButton->setEnabled(bool(m_gpuResult));
     m_gpuButton->setText(L("Collect GPU consumer evidence"));
     m_traceStart->setText(L("Capture pool allocation history"));
     m_detailTabs->setTabText(0, ks::ui::MemoryNavigationTabTitle(ks::ui::MemoryNavigationGroup::Consumer, 0));
@@ -470,6 +485,7 @@ void MemoryConsumerEvidencePage::rebuildGpu()
     for (const auto& counter : m_gpuResult->snapshot.counters) {
         const int row = m_gpuTable->rowCount(); m_gpuTable->insertRow(row);
         m_gpuTable->setItem(row, 0, new QTableWidgetItem(gpuMetricText(counter.metric)));
+        m_gpuTable->item(row, 0)->setData(Qt::UserRole, gpuMetricKey(counter));
         m_gpuTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdWString(counter.instance)));
         const bool process = ksword::gpu_memory::processMetric(counter.metric);
         m_gpuTable->setItem(row, 2, new QTableWidgetItem(counter.pid ? QString::number(counter.pid) : (process ? L("Unresolved") : L("Not applicable"))));
@@ -479,9 +495,53 @@ void MemoryConsumerEvidencePage::rebuildGpu()
         m_gpuTable->setItem(row, 6, new QTableWidgetItem(utc(counter.sampledUtc100ns)));
     }
     m_gpuTable->setSortingEnabled(true); m_gpuTable->resizeColumnsToContents();
+    m_gpuAreaButton->setEnabled(true); refreshGpuArea();
     if (m_gpuResult->failed || snapshot.queryStatus || snapshot.truncated || snapshot.cancelled || known < snapshot.counters.size() || snapshot.counters.empty()) {
         m_traceLog->appendRawText(L("GPU consumer collection is incomplete; unobserved values remain unavailable."));
     }
+}
+void MemoryConsumerEvidencePage::openGpuArea()
+{
+    if (!m_gpuResult) return;
+    if (!m_gpuAreaWindow) {
+        auto* window = new ks::ui::MetricAreaWindow(this); m_gpuAreaWindow = window;
+        window->modeChanged = [this](int) { refreshGpuArea(); };
+        window->appearanceChanged = [this] { refreshGpuArea(); };
+    }
+    refreshGpuArea(); m_gpuAreaWindow->show(); m_gpuAreaWindow->raise(); m_gpuAreaWindow->activateWindow();
+}
+void MemoryConsumerEvidencePage::refreshGpuArea()
+{
+    if (!m_gpuAreaWindow || !m_gpuResult) return;
+    using Metric = ksword::gpu_memory::Metric;
+    const std::array<Metric, 4> metrics{Metric::ProcessShared, Metric::ProcessDedicated, Metric::AdapterShared, Metric::AdapterDedicated};
+    const int mode = qBound(0, m_gpuAreaWindow->currentMode(), 3);
+    QStringList modes; for (auto metric : metrics) modes.append(gpuMetricText(metric));
+    m_gpuAreaWindow->setModes(modes, mode);
+    m_gpuAreaWindow->setSubject(L("All GPU consumers"), L("Instance"), QStringLiteral("PID"),
+        L("Areas use one GPU metric at a time. Shared references and dedicated-device values are separate scopes, not unique host physical ownership."));
+    const auto snapshot = m_gpuResult;
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    for (std::size_t index = 0; index < snapshot->snapshot.counters.size(); ++index) {
+        const auto& value = snapshot->snapshot.counters[index];
+        if (value.metric != metrics[mode]) continue;
+        ks::ui::MetricAreaNode node;
+        node.key = gpuMetricKey(value);
+        node.name = QString::fromStdWString(value.instance); node.identity = value.pid ? QString::number(value.pid) : QString();
+        node.known = value.valueKnown; node.weight = static_cast<double>(value.bytes);
+        node.value = value.valueKnown ? L("%1 bytes").arg(value.bytes) : L("Unavailable");
+        node.tooltip = node.name + QLatin1Char('\n') + node.value + QLatin1Char('\n') + utc(value.sampledUtc100ns);
+        nodes.push_back(std::move(node));
+    }
+    m_gpuAreaWindow->setPresentation(modes[mode], m_gpuStatus->text(), std::move(nodes));
+    const QPointer<MemoryConsumerEvidencePage> owner(this);
+    m_gpuAreaWindow->itemActivated = [owner, snapshot](const QString& key) {
+        if (!owner || owner->m_gpuResult != snapshot) return;
+        for (int row = 0; row < owner->m_gpuTable->rowCount(); ++row) {
+            const auto* item = owner->m_gpuTable->item(row, 0);
+            if (item && item->data(Qt::UserRole).toString() == key) { owner->m_gpuTable->selectRow(row); break; }
+        }
+    };
 }
 void MemoryConsumerEvidencePage::startTrace()
 {

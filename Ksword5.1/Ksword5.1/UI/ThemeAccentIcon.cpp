@@ -302,4 +302,11 @@ namespace ks::ui
         }
         return QIcon(new ThemeAccentIconEngine(sourceIcon, fixedAccent, button));
     }
+
+    void SetThemeButtonIcon(QAbstractButton* button, const QIcon& sourceIcon)
+    {
+        if (!button) return;
+        button->setProperty("ksword_theme_icon_managed", true);
+        button->setIcon(MakeThemeButtonAccentIcon(sourceIcon, QColor(), button));
+    }
 }

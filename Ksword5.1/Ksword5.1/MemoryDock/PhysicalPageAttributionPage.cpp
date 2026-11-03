@@ -3,6 +3,8 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/MetricAreaWindow.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "MemoryAttributionChart.h"
@@ -46,7 +48,11 @@
 
 namespace {
 using namespace ksword::pfn;
-QString L(const char* text) { return ks::i18n::packedSourceText(QString::fromUtf8(text)); }
+thread_local const ks::i18n::SourceTextSnapshot* pfnAreaText = nullptr;
+QString L(const char* text) {
+    const auto source = QString::fromUtf8(text);
+    return pfnAreaText ? pfnAreaText->packedSourceText(source) : ks::i18n::packedSourceText(source);
+}
 constexpr std::array<const char*, useCount> useNames{
     "Process private", "Mapped file / cache", "Shareable / pagefile section", "Page tables",
     "Paged pool", "Nonpaged pool", "System PTE", "Session private", "Metafile",
@@ -158,12 +164,165 @@ void number(QTableWidget* table, int row, int column, std::uint64_t value, bool 
 }
 }
 
+namespace {
+std::vector<ks::ui::MetricAreaNode> pfnMetricAreaNodes(const ksword::pfn::Accounting& counts, const int mode)
+{
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    const auto add = [&nodes](QString key, QString name, const std::uint64_t pages) {
+        ks::ui::MetricAreaNode node;
+        node.key = std::move(key); node.name = std::move(name);
+        node.weight = static_cast<double>(pages) * static_cast<double>(pageBytes);
+        node.value = bytes(pages * pageBytes);
+        node.tooltip = node.name + QStringLiteral("\n%1 | %2").arg(QString::number(pages), node.value);
+        nodes.push_back(std::move(node));
+    };
+    if (mode == 0) {
+        for (std::size_t use = 0; use < useCount; ++use) add(QStringLiteral("use:") + QString::number(use), L(useNames[use]), counts.inUse(static_cast<Use>(use)));
+        // Available, bad, unreadable and unscanned pages are disjoint from the
+        // in-use classification. They stay visible instead of becoming owners.
+        add(QStringLiteral("available"), L("Available"), counts.availablePages);
+        add(QStringLiteral("bad"), L("Bad"), counts.bad());
+    } else {
+        for (std::size_t list = 0; list < stateNames.size(); ++list) {
+            std::uint64_t pages = 0;
+            for (const auto& use : counts.byUseAndState) pages += use[list];
+            add(QStringLiteral("state:") + QString::number(list), L(stateNames[list]), pages);
+        }
+    }
+    add(QStringLiteral("unreadable"), L("Query failed"), counts.unreadable);
+    add(QStringLiteral("unscanned"), L("Not scanned"), counts.notScanned());
+    return nodes;
+}
+
+std::vector<ks::ui::MetricAreaNode> pfnProcessMetricAreaNodes(const ksword::pfn::Scan& scan, const std::atomic_bool* cancel = nullptr)
+{
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    std::array<std::uint64_t, useCount> remaining{};
+    for (std::size_t use = 0; use < useCount; ++use) remaining[use] = scan.accounting.inUse(static_cast<Use>(use));
+    std::map<QString, int> processes;
+    std::map<QString, std::uint64_t> processPages;
+    // All process leaves are subtractions from the disjoint primary ledger.
+    // Separately collected working-set mappings are never added to this view.
+    for (std::size_t index = 0; index < scan.groups.size(); ++index) {
+        if (cancel && cancel->load()) return {};
+        const auto& group = scan.groups[index];
+        if (group.use != Use::Private || !group.ownerLifetimeVerified || !group.pid || !group.ownerCreateTime
+            || group.name.isEmpty() || !group.pages || group.pages > remaining[static_cast<std::size_t>(Use::Private)]) continue;
+        const QString processKey = QStringLiteral("process:") + QString::number(group.pid) + QLatin1Char(':') + QString::number(group.ownerCreateTime);
+        auto found = processes.find(processKey);
+        if (found == processes.end()) {
+            ks::ui::MetricAreaNode process;
+            process.key = processKey; process.name = group.name; process.identity = QString::number(group.pid); process.group = true;
+            found = processes.emplace(processKey, static_cast<int>(nodes.size())).first;
+            nodes.push_back(std::move(process));
+        }
+        const int processIndex = found->second;
+        processPages[processKey] += group.pages;
+        ks::ui::MetricAreaNode backing;
+        backing.key = QStringLiteral("group:") + QString::number(index) + QLatin1Char(':') + scan.epoch;
+        backing.name = L("Process private"); backing.group = true; backing.parent = processIndex;
+        backing.value = bytes(group.pages * pageBytes);
+        backing.tooltip = L("Disjoint private physical pages | First PFN %1 | Owner creation time %2")
+            .arg(group.firstPfn).arg(group.ownerCreateTime);
+        const int backingIndex = static_cast<int>(nodes.size()); nodes.push_back(std::move(backing));
+        std::uint64_t left = group.pages;
+        for (const unsigned list : {3U, 4U, 6U, 7U}) {
+            const auto pages = (std::min)(left, group.pagesByState[list]);
+            if (!pages) continue;
+            ks::ui::MetricAreaNode leaf;
+            leaf.key = QStringLiteral("group-state:") + QString::number(index) + QLatin1Char(':') + QString::number(list) + QLatin1Char(':') + scan.epoch;
+            leaf.name = L(stateNames[list]); leaf.parent = backingIndex;
+            leaf.weight = static_cast<double>(pages) * pageBytes; leaf.value = bytes(pages * pageBytes);
+            leaf.tooltip = group.name + QStringLiteral(" · PID ") + QString::number(group.pid) + QLatin1Char('\n') + leaf.name + QLatin1Char('\n') + leaf.value;
+            nodes.push_back(std::move(leaf)); left -= pages;
+        }
+        if (left) {
+            ks::ui::MetricAreaNode leaf;
+            leaf.key = QStringLiteral("group-other:") + QString::number(index) + QLatin1Char(':') + scan.epoch;
+            leaf.name = L("Other private physical pages"); leaf.parent = backingIndex;
+            leaf.weight = static_cast<double>(left) * pageBytes; leaf.value = bytes(left * pageBytes);
+            nodes.push_back(std::move(leaf));
+        }
+        remaining[static_cast<std::size_t>(Use::Private)] -= group.pages;
+    }
+    for (const auto& [key, index] : processes) {
+        nodes[index].value = bytes(processPages[key] * pageBytes);
+        nodes[index].tooltip = nodes[index].name + QStringLiteral(" · PID ") + nodes[index].identity + QLatin1Char('\n') + nodes[index].value;
+    }
+    ks::ui::MetricAreaNode other;
+    other.key = QStringLiteral("non-process"); other.name = L("System, shared, or unresolved ownership"); other.group = true;
+    const int otherIndex = static_cast<int>(nodes.size()); nodes.push_back(std::move(other));
+    for (std::size_t use = 0; use < useCount; ++use) {
+        ks::ui::MetricAreaNode leaf;
+        leaf.key = QStringLiteral("use:") + QString::number(use); leaf.parent = otherIndex;
+        leaf.name = use == static_cast<std::size_t>(Use::Private) ? L("Private physical pages without a resolved process") : L(useNames[use]);
+        leaf.weight = static_cast<double>(remaining[use]) * pageBytes; leaf.value = bytes(remaining[use] * pageBytes);
+        leaf.tooltip = leaf.name + QLatin1Char('\n') + leaf.value;
+        nodes.push_back(std::move(leaf));
+    }
+    return nodes;
+}
+
+std::vector<ks::ui::MetricAreaNode> pfnBackingMetricAreaNodes(const ksword::pfn::Scan& scan, const std::atomic_bool* cancel = nullptr, const bool activeOnly = false)
+{
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    std::array<std::uint64_t, useCount> remaining{};
+    for (std::size_t use = 0; use < useCount; ++use) {
+        remaining[use] = activeOnly ? scan.accounting.byUseAndState[use][6] : scan.accounting.inUse(static_cast<Use>(use));
+        ks::ui::MetricAreaNode parent; parent.key = QStringLiteral("use:") + QString::number(use); parent.name = L(useNames[use]); parent.group = true;
+        nodes.push_back(std::move(parent));
+    }
+    for (std::size_t index = 0; index < scan.groups.size(); ++index) {
+        if (cancel && cancel->load()) return {};
+        const auto& group = scan.groups[index]; const auto use = static_cast<std::size_t>(group.use);
+        const auto pages = activeOnly ? group.activePages : group.pages;
+        if (use >= useCount || !pages || pages > remaining[use]) continue;
+        ks::ui::MetricAreaNode node; node.key = QStringLiteral("group:") + QString::number(index) + QLatin1Char(':') + scan.epoch; node.parent = static_cast<int>(use);
+        node.name = group.name.isEmpty() ? (group.key ? L("Backing key %1").arg(hex(group.key)) : L("Unresolved backing")) : group.name;
+        if (group.use == Use::Private && !group.ownerLifetimeVerified) node.name += QStringLiteral(" · ") + L("Owner hint only");
+        node.identity = group.ownerLifetimeVerified ? QString::number(group.pid) : QString();
+        node.weight = static_cast<double>(pages) * pageBytes; node.value = bytes(pages * pageBytes); node.tooltip = node.name + QLatin1Char('\n') + node.value;
+        nodes.push_back(std::move(node)); remaining[use] -= pages;
+    }
+    for (std::size_t use = 0; use < useCount; ++use) if (remaining[use]) {
+        ks::ui::MetricAreaNode node; node.key = QStringLiteral("unretained:") + QString::number(use); node.parent = static_cast<int>(use);
+        node.name = L("No retained backing-group detail"); node.weight = static_cast<double>(remaining[use]) * pageBytes; node.value = bytes(remaining[use] * pageBytes);
+        nodes.push_back(std::move(node));
+    }
+    return nodes;
+}
+std::vector<ks::ui::MetricAreaNode> pfnCoverageMetricAreaNodes(const ksword::pfn::Scan& scan, const int mode)
+{
+    std::vector<ks::ui::MetricAreaNode> nodes;
+    const auto& matrix = mode == 8 ? scan.accounting.byUseAndState : mode == 4 ? scan.ownerCoverage.resolved : mode == 5 ? scan.ownerCoverage.unresolved
+        : mode == 6 ? scan.ownerCoverage.notApplicable : scan.ownerCoverage.objectKeyKnown;
+    const bool available = mode == 8 ? scan.accounting.reconciles() : scan.ownerCoverage.reconciles(scan.accounting);
+    for (std::size_t use = 0; use < useCount; ++use) {
+        std::uint64_t pages = 0; for (auto count : matrix[use]) pages += count;
+        ks::ui::MetricAreaNode node; node.key = QStringLiteral("use:") + QString::number(use); node.name = L(useNames[use]);
+        node.known = available; node.weight = static_cast<double>(pages) * pageBytes; node.value = available ? bytes(pages * pageBytes) : L("Unavailable");
+        nodes.push_back(std::move(node));
+    }
+    return nodes;
+}
+
+}
+
 struct PhysicalPageAttributionPage::GroupIndex {
     struct Row { QString kind, owner, search; };
     std::shared_ptr<const ksword::pfn::Scan> scan;
     QStringList kinds;
     QString unavailable, hint;
     std::vector<Row> rows;
+};
+struct PhysicalPageAttributionPage::MetricAreaJob {
+    std::atomic_bool cancel{false}, done{false};
+    bool failed = false;
+    int mode = 0;
+    QStringList modes;
+    QString state;
+    std::shared_ptr<const ksword::pfn::Scan> scan;
+    std::vector<ks::ui::MetricAreaNode> nodes;
 };
 struct PhysicalPageAttributionPage::GroupFilterJob {
     std::atomic_bool done{false}, cancel{false};
@@ -248,6 +407,10 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     ks::ui::ApplyFlatButtonTheme(m_mappingButton, ks::ui::FlatButtonTone::Neutral);
     ks::ui::ApplyFlatButtonTheme(m_exportButton, ks::ui::FlatButtonTone::Neutral);
     headerLayout->addWidget(scanToolbar);
+    auto* areaTools = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
+    m_areaButton = new QPushButton(this); areaTools->addWidget(m_areaButton);
+    ks::ui::NormalizeToolbarControl(m_areaButton); headerLayout->addLayout(areaTools);
+    connect(m_areaButton, &QPushButton::clicked, this, [this] { openMetricAreaView(); });
     m_summary = new QLabel(this);
     m_summary->setWordWrap(true);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -373,6 +536,7 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
 
 PhysicalPageAttributionPage::~PhysicalPageAttributionPage()
 {
+    if (m_metricAreaJob) m_metricAreaJob->cancel.store(true);
     if (m_groupFilterJob) { m_groupFilterJob->cancel.store(true); }
     if (m_job) { m_job->cancel.store(true); }
     if (m_mappingJob) { m_mappingJob->cancel.store(true); }
@@ -387,6 +551,8 @@ void PhysicalPageAttributionPage::changeEvent(QEvent* event)
 
 void PhysicalPageAttributionPage::retranslate()
 {
+    m_areaButton->setText(ks::i18n::sourceText(QStringLiteral("矩形面积视图")));
+    m_areaButton->setEnabled(hasMetricAreaData());
     m_scanButton->setText(L("Scan physical pages"));
     m_cancelButton->setText(L("Cancel scan"));
     m_mappingButton->setText(L("Resolve PFN mappings"));
@@ -467,6 +633,10 @@ void PhysicalPageAttributionPage::startMappings()
 
 void PhysicalPageAttributionPage::poll()
 {
+    if (m_metricAreaJob && !m_metricAreaWindow) m_metricAreaJob->cancel.store(true);
+    if (m_metricAreaJob && m_metricAreaJob->done.load()) {
+        const auto ready = std::move(m_metricAreaJob); publishMetricAreaView(ready);
+    }
     if (m_groupFilterJob && m_groupFilterJob->done.load()) {
         const auto job = std::move(m_groupFilterJob);
         if (!job->cancel.load() && !job->failed && job->revision == m_groupFilterRevision
@@ -486,6 +656,7 @@ void PhysicalPageAttributionPage::poll()
             m_lastAttempt->resourceFailure || !m_lastAttempt->accounting.valid || !m_lastAttempt->accounting.reconciles();
         if (!m_latestAttemptFailed || !m_scan) {
             m_scan = m_lastAttempt;
+            m_areaFocusGroup = static_cast<std::size_t>(-1);
             m_mappingScan.reset();
         }
         if (m_lastAttempt) {
@@ -516,6 +687,7 @@ void PhysicalPageAttributionPage::poll()
     m_mappingButton->setEnabled(!busy && m_scan && m_scan->accounting.valid != 0);
     m_cancelButton->setEnabled(busy);
     m_exportButton->setEnabled(m_scan != nullptr && !busy);
+    m_areaButton->setEnabled(hasMetricAreaData());
     m_retainRaw->setEnabled(!busy); m_exportMappings->setEnabled(!busy);
     if (m_job) {
         const auto total = m_job->total.load();
@@ -791,6 +963,109 @@ void PhysicalPageAttributionPage::rebuild()
         evidence.field(QStringLiteral("budget reached"), QStringLiteral("budget reached %1").arg(QStringLiteral("%1").arg(maps.budgetReached ? L("Yes") : L("No"))));
     } else { evidence.note(QStringLiteral("Mapping resolution has not run. Large-page and per-PFN reference coverage is unavailable.")); }
     m_evidence->setDocument(evidence);
+    refreshMetricAreaView();
+}
+
+bool PhysicalPageAttributionPage::hasMetricAreaData() const
+{
+    return m_scan && m_scan->accounting.expected && m_scan->accounting.reconciles();
+}
+
+void PhysicalPageAttributionPage::openMetricAreaView(int mode)
+{
+    if (!hasMetricAreaData()) return;
+    if (!m_metricAreaWindow) {
+        auto* window = new ks::ui::MetricAreaWindow(this);
+        window->setObjectName(QStringLiteral("pfn_metric_area_window"));
+        m_metricAreaWindow = window;
+        m_metricAreaPresented.reset(); m_metricAreaPresentedMode = -1; m_metricAreaPresentedLabels.clear();
+        const QPointer<PhysicalPageAttributionPage> owner(this);
+        window->modeChanged = [owner](int) { if (owner) owner->refreshMetricAreaView(); };
+        window->appearanceChanged = [owner] { if (owner) owner->refreshMetricAreaView(); };
+    }
+    if (mode < 0) mode = m_tabs->currentIndex() == 1 ? 3 : m_tabs->currentIndex() == 4 ? 4 : 0;
+    m_metricAreaWindow->setModes({L("In-use physical pages by process"), L("Physical-page categories"), L("Physical-page states"),
+        L("Backing identities"), L("Resolved consumers"), L("Unresolved consumers"), L("Consumer not applicable"), L("Observed object keys"), L("Observed physical bytes"), L("Active backing pages")}, qBound(0, mode, 9));
+    refreshMetricAreaView();
+    if (const auto window = m_metricAreaWindow) { window->show(); window->raise(); window->activateWindow(); }
+}
+
+void PhysicalPageAttributionPage::refreshMetricAreaView()
+{
+    const auto window = m_metricAreaWindow;
+    const auto snapshot = m_scan;
+    if (!window || !hasMetricAreaData()) return;
+    const auto& counts = snapshot->accounting;
+    const int mode = qBound(0, window->currentMode(), 9);
+    const QStringList modes{L("In-use physical pages by process"), L("Physical-page categories"), L("Physical-page states"),
+        L("Backing identities"), L("Resolved consumers"), L("Unresolved consumers"), L("Consumer not applicable"), L("Observed object keys"), L("Observed physical bytes"), L("Active backing pages")};
+    window->setModes(modes, mode);
+    const QString hint = mode == 0
+        ? L("Process rectangles contain only lifetime-resolved private physical pages. System, shared and unresolved pages are separate. Double-click a process or backing block to expand it.")
+        : mode == 3 || mode == 9 ? L("Areas use retained disjoint backing groups. Click a block to locate its group; groups omitted by the retention limit remain a separate remainder.")
+        : mode >= 4 ? L("One consumer-coverage metric is shown at a time. Click a category to inspect its existing PFN evidence.")
+        : L("Each physical page belongs to one displayed category. In category mode, click a block to inspect the existing PFN details. Double-click zooms in.");
+    window->setSubject(mode == 9 ? L("Active backing pages") : mode == 0 || mode == 3 ? L("In-use physical-page ownership") : mode >= 4 ? L("Consumer coverage") : L("All physical pages"), L("Memory source"), mode == 0 || mode == 3 || mode == 9 ? QStringLiteral("PID") : QString(), hint);
+    QString stateText = L("PFN ledger %1 | Collection interval %2 to %3 | %4")
+        .arg(snapshot->epoch, snapshot->started, snapshot->finished, snapshot->complete ? L("Scan complete") : L("Partial / unavailable"));
+    stateText += QStringLiteral("\n") + L("Coverage %1% | Unreadable %2 | Unscanned %3. Unknown and unscanned pages are not attributed to a process or driver.")
+        .arg(100.0 * static_cast<double>(counts.valid) / static_cast<double>(counts.expected), 0, 'f', 2)
+        .arg(bytes(counts.unreadable * pageBytes), bytes(counts.notScanned() * pageBytes));
+    if (!snapshot->semanticsValidated) stateText += QStringLiteral("\n") + L("Classification semantics have not been validated on this Windows build.");
+    if (m_latestAttemptFailed && m_lastAttempt != snapshot) stateText += QStringLiteral("\n") + L("Latest PFN attempt failed; showing the previous ledger.");
+    if (m_job) stateText += QStringLiteral("\n") + L("A new PFN scan is running; this view retains the previous ledger.");
+    if (mode == 0 || mode == 3) stateText += QStringLiteral("\n") + L("Area scope: in-use physical pages. Available %1; bad %2; unreadable %3; unscanned %4 are outside process area.")
+        .arg(bytes(counts.availablePages * pageBytes), bytes(counts.bad() * pageBytes), bytes(counts.unreadable * pageBytes), bytes(counts.notScanned() * pageBytes));
+    if (mode >= 4 && mode <= 8) stateText += QLatin1Char('\n') + L("Consumer coverage and object-key evidence are separate dimensions. View one metric at a time; do not add these areas to the physical-page ledger.");
+    if (mode == 9) stateText += QLatin1Char('\n') + L("Area includes only active physical pages (state 6), a subset of in-use pages.");
+    if (!m_metricAreaJob && m_metricAreaPresented.lock() == snapshot && m_metricAreaPresentedMode == mode && m_metricAreaPresentedLabels == modes) {
+        window->updateState(stateText); return;
+    }
+    if (m_metricAreaJob && m_metricAreaJob->scan == snapshot && m_metricAreaJob->mode == mode && m_metricAreaJob->modes == modes) {
+        m_metricAreaJob->state = stateText; return;
+    }
+    if (m_metricAreaJob) m_metricAreaJob->cancel.store(true);
+    const auto job = std::make_shared<MetricAreaJob>(); job->scan = snapshot; job->mode = mode; job->modes = modes; job->state = stateText;
+    m_metricAreaJob = job;
+    window->updateState(L("Preparing the physical-page area view from the committed ledger..."));
+    const auto text = ks::i18n::LanguageManager::instance().sourceTextSnapshot();
+    try { std::thread([job, text] {
+        const auto* prior = pfnAreaText; pfnAreaText = &text;
+        try {
+            job->nodes = job->mode == 0 ? pfnProcessMetricAreaNodes(*job->scan, &job->cancel)
+                : job->mode == 3 || job->mode == 9 ? pfnBackingMetricAreaNodes(*job->scan, &job->cancel, job->mode == 9)
+                : job->mode >= 4 ? pfnCoverageMetricAreaNodes(*job->scan, job->mode) : pfnMetricAreaNodes(job->scan->accounting, job->mode - 1);
+        } catch (...) { job->failed = true; }
+        pfnAreaText = prior; job->done.store(true);
+    }).detach(); } catch (...) { job->failed = true; job->done.store(true); }
+}
+void PhysicalPageAttributionPage::publishMetricAreaView(const std::shared_ptr<MetricAreaJob>& job)
+{
+    const auto window = m_metricAreaWindow; const auto snapshot = job->scan; const int mode = job->mode;
+    if (!window || job->cancel.load() || m_scan != snapshot || window->currentMode() != mode) return;
+    if (job->failed) { window->updateState(L("Physical-page area preparation failed; the previous chart is retained.")); return; }
+    window->setPresentation(job->modes[mode], job->state, std::move(job->nodes));
+    m_metricAreaPresented = snapshot; m_metricAreaPresentedMode = mode; m_metricAreaPresentedLabels = job->modes;
+    const QPointer<PhysicalPageAttributionPage> owner(this);
+    window->itemActivated = [owner, snapshot, mode](const QString& key) {
+        if (!owner || owner->m_scan != snapshot || mode == 2) return;
+        if (key.startsWith(QStringLiteral("group:")) || key.startsWith(QStringLiteral("group-state:")) || key.startsWith(QStringLiteral("group-other:"))) {
+            bool valid = false; const auto index = key.section(QLatin1Char(':'), 1, 1).toULongLong(&valid);
+            if (valid && index < snapshot->groups.size()) {
+                const auto& group = snapshot->groups[static_cast<std::size_t>(index)];
+                owner->m_areaFocusGroup = static_cast<std::size_t>(index);
+                const QString search = owner->m_groupIndex && owner->m_groupIndex->scan == snapshot
+                    ? owner->m_groupIndex->rows[static_cast<std::size_t>(index)].search : group.name.isEmpty() ? hex(group.key) : group.name;
+                owner->m_filter->setText(search);
+                owner->rebuildGroups();
+                owner->m_tabs->setCurrentWidget(owner->m_groups);
+            }
+            return;
+        }
+        if (!key.startsWith(QStringLiteral("use:"))) return;
+        bool valid = false; const int use = key.mid(4).toInt(&valid);
+        if (valid && use >= 0 && use < static_cast<int>(useCount)) owner->focusCategory(use);
+    };
 }
 
 void PhysicalPageAttributionPage::rebuildGroups()
@@ -888,10 +1163,10 @@ void PhysicalPageAttributionPage::applyGroupProjection()
         number(m_groups, row, 3, group.pages * pageBytes);
         number(m_groups, row, 4, group.activePages * pageBytes);
         m_groups->setItem(row, 5, new QTableWidgetItem(hex(group.firstPfn)));
-        if (hadSelection && group.firstPfn == selectedPfn) { restored = row; }
+        if (index == m_areaFocusGroup || (m_areaFocusGroup == static_cast<std::size_t>(-1) && hadSelection && group.firstPfn == selectedPfn)) { restored = row; }
     }
     }
-    if (restored >= 0) { m_groups->setCurrentCell(restored, 0); }
+    if (restored >= 0) { m_groups->setCurrentCell(restored, 0); m_areaFocusGroup = static_cast<std::size_t>(-1); }
     m_groups->verticalScrollBar()->setValue(scroll);
     m_groups->setUpdatesEnabled(true);
     m_groups->setEnabled(true);

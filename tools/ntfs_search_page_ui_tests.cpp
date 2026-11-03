@@ -283,7 +283,7 @@ void runPage(bool dark)
     backendMode = 1; s.query->clear();
     const int beforeEnter = entered.load();
     pressEnter(s.query);
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy(); }, "successful fixture index/search/space settle");
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "successful fixture index/search/space settle");
     check(entered.load() > beforeEnter, "Enter before an index exists starts automatic preparation");
     check(s.projection && s.search->isEnabled() && s.refresh->isEnabled(), "usable index enables search and USN refresh");
     check(s.search->text() == QStringLiteral("搜索") && visibleLabels(page).contains(QStringLiteral("T:\\")),
@@ -304,14 +304,14 @@ void runPage(bool dark)
     check(s.currentDirectory == 5 && s.map->m_data == rootMap && !s.up->isEnabled(),
         "cancelled deferred action cannot replace restored result or parent navigation");
     page->showDirectory(7);
-    until([&] { return !s.spaceOperation->isBusy(); }, "directory navigation retry settles");
+    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "directory navigation retry settles");
     check(s.currentDirectory == 7 && s.up->isEnabled() && s.mapPath->text() == QStringLiteral("T:\\folder"),
         "directory navigation retry commits correct identity and parent action");
     s.up->click();
-    until([&] { return !s.spaceOperation->isBusy(); }, "parent navigation button settles");
+    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "parent navigation button settles");
     check(s.currentDirectory == 5 && !s.up->isEnabled(), "parent navigation returns to indexed volume root");
     s.mapMetric->setCurrentIndex(1);
-    until([&] { return !s.spaceOperation->isBusy(); }, "logical-size mode settles");
+    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "logical-size mode settles");
     check(s.map->m_data->items.size() == 1 && s.map->m_data->items.front().bytes == 100,
         "space metric preserves actual logical/allocated size semantics");
     s.tabs->setCurrentIndex(0); s.query->setText(QStringLiteral("folder")); s.search->click();
@@ -359,7 +359,7 @@ void runPage(bool dark)
     check(s.projection == old && !s.refresh->isEnabled() && s.build->isEnabled(),
         "invalid journal retains usable snapshot and requires full rebuild");
     backendMode = 1; s.build->click();
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy(); }, "full rebuild after invalid journal settles");
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "full rebuild after invalid journal settles");
     check(s.refresh->isEnabled(), "successful full rebuild restores incremental refresh availability");
     s.discovering = true; page->updateButtons();
     const int beforeDiscovery = entered.load();
@@ -396,7 +396,7 @@ void runPage(bool dark)
         "failed selected-volume preparation preserves old results for retry without searching the old snapshot");
     check(!s.map->isEnabled() && !s.locate->isEnabled(), "failed preparation keeps old-volume navigation unavailable");
     backendMode = 1; s.query->setText(QStringLiteral("sample")); pressEnter(s.query);
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy(); },
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); },
         "Enter prepares and searches the selected replacement volume");
     check(s.projection != previousVolume && s.projection->snapshot->volumeRoot == QStringLiteral("U:\\")
         && s.searchModel->rowCount() == 1 && s.searchModel->row(0)->path == QStringLiteral("U:\\folder\\sample.txt"),

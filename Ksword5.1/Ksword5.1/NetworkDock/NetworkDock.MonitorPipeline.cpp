@@ -848,6 +848,7 @@ void NetworkDock::requestPacketTableProjection()
         bool timelineFilter = false;
         int sortColumn = -1;
         Qt::SortOrder sortOrder = Qt::AscendingOrder;
+        quint32 focusPid = 0;
     };
     Input input;
     input.records.reserve(m_packetSequenceOrder.size());
@@ -857,6 +858,8 @@ void NetworkDock::requestPacketTableProjection()
         if (row != m_packetTableRecords.end()) input.records.push_back(row->second);
     }
     input.groups = m_activeMonitorFilterGroupList;
+    input.focusPid = m_trafficFocusPid;
+    if (input.focusPid) input.groups.clear();
     input.previous = m_packetTable->values();
     input.language = ks::i18n::LanguageManager::instance().sourceTextSnapshot();
     const auto languageId = input.language.languageId();
@@ -919,6 +922,7 @@ void NetworkDock::requestPacketTableProjection()
                 }
                 next->canonical.push_back(row);
                 if (input.timelineFilter && (record->timeline100ns < input.start || record->timeline100ns > input.end)) continue;
+                if (input.focusPid && packet.processId != input.focusPid) continue;
                 bool accepted = input.groups.empty();
                 for (const auto& group : input.groups)
                     if (group.enabled && packetMatchesMonitorFilterGroup(packet, group)) { accepted = true; break; }

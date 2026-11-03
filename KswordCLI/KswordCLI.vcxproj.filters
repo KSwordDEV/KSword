@@ -56,6 +56,7 @@
     <ClInclude Include="CliCore.h"><Filter>头文件</Filter></ClInclude>
     <ClInclude Include="CliText.h"><Filter>头文件</Filter></ClInclude>
     <ClInclude Include="..\shared\driver\KswordArkMemoryResult.h"><Filter>头文件</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkManagedNetworkIoctl.h"><Filter>头文件</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CommandRegistry.cpp" />

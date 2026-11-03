@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QJsonObject>
+#include <QPointer>
 #include <memory>
 #include <functional>
 #include "../../../shared/evidence/PoolTraceCapturePolicy.h"
@@ -16,6 +17,7 @@ class QTabWidget;
 class PoolAllocationAnalysisWidget;
 class TraceMetadataWriter;
 struct TraceExitState;
+namespace ks::ui { class MetricAreaWindow; }
 
 // Separate consumer observations and prospective allocation history. Neither
 // data source is added to the PFN ledger or used to rename its residual.
@@ -32,6 +34,8 @@ private:
     void startGpu();
     void pollGpu();
     void rebuildGpu();
+    void openGpuArea();
+    void refreshGpuArea();
     void startTrace();
     void stopTrace();
     void runTrace(const QStringList& arguments, ksword::pool_trace::Command action);
@@ -49,6 +53,8 @@ private:
     QLabel* m_note = nullptr;
     QLabel* m_gpuStatus = nullptr;
     QTableWidget* m_gpuTable = nullptr;
+    QPushButton* m_gpuAreaButton = nullptr;
+    QPointer<ks::ui::MetricAreaWindow> m_gpuAreaWindow;
     CodeEditorWidget* m_traceLog = nullptr;
     QTabWidget* m_detailTabs = nullptr;
     PoolAllocationAnalysisWidget* m_poolAnalysis = nullptr;

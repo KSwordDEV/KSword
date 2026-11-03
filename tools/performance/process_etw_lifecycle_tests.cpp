@@ -12,6 +12,24 @@ using Op = Lifecycle::Operation;
 
 int main()
 {
+    {
+        Lifecycle c;
+        assert(c.Request(true));
+        assert(c.NextOperation() == Op::Start);
+        c.CompleteStart(true);
+        assert(c.NextOperation() == Op::None);
+        const auto old = c.Generation();
+        assert(c.RestartIfActive());
+        assert(c.Generation() != old && !c.IsSettledActive());
+        assert(!c.RestartIfActive());
+        assert(c.NextOperation() == Op::Stop);
+        c.CompleteStop();
+        assert(c.NextOperation() == Op::Start);
+        c.CompleteStart(true);
+        assert(c.NextOperation() == Op::None && c.IsSettledActive());
+        c.Close();
+        assert(!c.RestartIfActive());
+    }
     for (int bits = 0; bits < 32; ++bits)
     {
         ks::process::ProcessEtwCaptureDemand d{

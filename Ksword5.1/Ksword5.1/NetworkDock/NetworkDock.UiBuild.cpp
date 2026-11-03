@@ -7,9 +7,12 @@
 #include "../UI/PageControlStyle.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/ThemeAccentIcon.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/FlowLayout.h"
 #include "NetworkFirewallPage.h"
 #include "NetworkAuditPage.h"
+#include "NetworkQosPage.h"
 #include "./PortDiagnosticsPage.h"
 #include "../Internationalization/LanguageManager.h"
 
@@ -57,6 +60,12 @@ void NetworkDock::initializeUi()
     };
     cold(m_nidsPage, QStringLiteral("nids"), QIcon(QStringLiteral(":/Icon/process_critical.svg")),
         [this]() { initializeNidsTab(); initializeNidsConnections(); });
+    auto* qosPage = new QWidget(m_sideTabWidget);
+    m_coldNetworkToolFactories.insert(qosPage, [qosPage] {
+        auto* layout = new QVBoxLayout(qosPage); layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(new NetworkQosPage(qosPage));
+    });
+    network_navigation_detail::AddTab(m_sideTabWidget, qosPage, QStringLiteral("qos"), QIcon(QStringLiteral(":/Icon/process_main.svg")));
     cold(m_firewallTabPage, QStringLiteral("firewall"), QIcon(QStringLiteral(":/Icon/process_critical.svg")),
         [this]() { initializeFirewallTab(); });
     cold(m_networkAuditTabPage, QStringLiteral("audit"), QIcon(QStringLiteral(":/Icon/process_details.svg")),
@@ -86,8 +95,14 @@ void NetworkDock::initializeTrafficMonitorTab()
 {
     m_trafficMonitorPage = new QWidget(this);
     m_trafficMonitorLayout = new QVBoxLayout(m_trafficMonitorPage);
-    m_trafficMonitorLayout->setContentsMargins(6, 6, 6, 6);
+    m_trafficMonitorLayout->setContentsMargins(0, 0, 0, 0);
     m_trafficMonitorLayout->setSpacing(6);
+    ks::ui::StyleWorkspacePage(m_trafficMonitorPage, 0);
+    ks::ui::StyleWorkspaceContentFrame(m_trafficMonitorPage, 6);
+    auto* workspace = new ks::ui::ParameterWorkspace(m_trafficMonitorPage, 480);
+    m_trafficMonitorWorkspace = workspace;
+    workspace->enableHorizontalParameterScroll();
+    m_trafficMonitorLayout->addWidget(workspace, 1);
 
     // 采集与筛选属于一个操作区，使用两条紧凑行并与时间轴留出层次。
     QWidget* const captureToolbar = new QWidget(m_trafficMonitorPage);
@@ -101,28 +116,28 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_startMonitorButton = new QPushButton(m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_startMonitorButton, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
-    m_startMonitorButton->setIcon(QIcon(":/Icon/process_start.svg"));
-    KswordTheme::ApplyCompactIconButtonMetrics(m_startMonitorButton);
+    ks::ui::SetThemeButtonIcon(m_startMonitorButton, QIcon(":/Icon/process_start.svg"));
+    m_startMonitorButton->setText(ks::i18n::sourceText(QStringLiteral("开始监控")));
     m_startMonitorButton->setToolTip(QStringLiteral("启动网络流量监控"));
 
     m_stopMonitorButton = new QPushButton(m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_stopMonitorButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_stopMonitorButton->setIcon(QIcon(":/Icon/process_pause.svg"));
-    KswordTheme::ApplyCompactIconButtonMetrics(m_stopMonitorButton);
+    ks::ui::SetThemeButtonIcon(m_stopMonitorButton, QIcon(":/Icon/process_pause.svg"));
+    m_stopMonitorButton->setText(ks::i18n::sourceText(QStringLiteral("停止监控")));
     m_stopMonitorButton->setToolTip(QStringLiteral("停止网络流量监控"));
 
     m_clearPacketButton = new QPushButton(m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_clearPacketButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_clearPacketButton->setIcon(QIcon(":/Icon/log_clear.svg"));
+    ks::ui::SetThemeButtonIcon(m_clearPacketButton, QIcon(":/Icon/log_clear.svg"));
     KswordTheme::ApplyCompactIconButtonMetrics(m_clearPacketButton);
     m_clearPacketButton->setToolTip(QStringLiteral("清空当前流量列表"));
 
     m_networkPluginButton = new QPushButton(QStringLiteral("插件"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_networkPluginButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_networkPluginButton->setIcon(QIcon(":/Icon/process_start.svg"));
+    ks::ui::SetThemeButtonIcon(m_networkPluginButton, QIcon(":/Icon/process_start.svg"));
     m_networkPluginButton->setToolTip(QStringLiteral("运行声明支持网络目标的独立插件"));
     m_networkPluginMenu = new QMenu(m_networkPluginButton);
     m_networkPluginButton->setMenu(m_networkPluginMenu);
@@ -131,9 +146,16 @@ void NetworkDock::initializeTrafficMonitorTab()
     // 状态标签不再设置较大最小宽度，避免窗口变窄时挤出横向滚动条。
     m_monitorStatusLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
-    m_monitorControlLayout->addWidget(m_startMonitorButton);
-    m_monitorControlLayout->addWidget(m_stopMonitorButton);
+    workspace->actions()->addWidget(m_startMonitorButton);
+    workspace->actions()->addWidget(m_stopMonitorButton);
     m_monitorControlLayout->addWidget(m_clearPacketButton);
+    m_clearTrafficFocusButton = new QPushButton(m_trafficMonitorPage);
+    ks::i18n::LanguageManager::instance().bindText(m_clearTrafficFocusButton, QStringLiteral("network.traffic.scope.back"), QStringLiteral("返回规则组筛选"));
+    m_clearTrafficFocusButton->setVisible(false);
+    connect(m_clearTrafficFocusButton, &QPushButton::clicked, this, [this] {
+        m_trafficFocusPid = 0; m_clearTrafficFocusButton->hide(); updateMonitorFilterStateLabel(); rebuildMonitorTableByFilter();
+    });
+    m_monitorControlLayout->addWidget(m_clearTrafficFocusButton);
     m_monitorControlLayout->addWidget(m_networkPluginButton);
     m_monitorControlLayout->addWidget(m_monitorStatusLabel);
     m_monitorControlLayout->addStretch(1);
@@ -149,8 +171,8 @@ void NetworkDock::initializeTrafficMonitorTab()
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_monitorFilterToggleButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
     m_monitorFilterToggleButton->setCheckable(true);
-    m_monitorFilterToggleButton->setChecked(false);
-    m_monitorFilterToggleButton->setIcon(QIcon(":/Icon/filter_funnel.svg"));
+    m_monitorFilterToggleButton->setChecked(true);
+    ks::ui::SetThemeButtonIcon(m_monitorFilterToggleButton, QIcon(":/Icon/filter_funnel.svg"));
     KswordTheme::ApplyCompactIconButtonMetrics(m_monitorFilterToggleButton);
     m_monitorFilterToggleButton->setToolTip(QStringLiteral("展开/收起网络筛选器配置"));
 
@@ -161,89 +183,73 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_addMonitorFilterGroupButton = new QPushButton(QStringLiteral("新增规则组"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_addMonitorFilterGroupButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_addMonitorFilterGroupButton->setIcon(QIcon(":/Icon/plus.svg"));
+    ks::ui::SetThemeButtonIcon(m_addMonitorFilterGroupButton, QIcon(":/Icon/plus.svg"));
     m_addMonitorFilterGroupButton->setToolTip(QStringLiteral("新增一个 OR 规则组"));
 
     m_applyMonitorFilterButton = new QPushButton(QStringLiteral("应用"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_applyMonitorFilterButton, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
-    m_applyMonitorFilterButton->setIcon(QIcon(":/Icon/log_track.svg"));
+    ks::ui::SetThemeButtonIcon(m_applyMonitorFilterButton, QIcon(":/Icon/log_track.svg"));
     m_applyMonitorFilterButton->setToolTip(QStringLiteral("应用当前全部规则组过滤条件"));
 
     m_saveMonitorFilterButton = new QPushButton(QStringLiteral("保存"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
-    ks::ui::ApplyFlatButtonTheme(m_saveMonitorFilterButton, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
-    m_saveMonitorFilterButton->setIcon(QIcon(":/Icon/codeeditor_save.svg"));
+    ks::ui::ApplyFlatButtonTheme(m_saveMonitorFilterButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
+    ks::ui::SetThemeButtonIcon(m_saveMonitorFilterButton, QIcon(":/Icon/codeeditor_save.svg"));
     m_saveMonitorFilterButton->setToolTip(QStringLiteral("保存到 exe 目录下 config/wireshark.cfg"));
 
     m_importMonitorFilterButton = new QPushButton(QStringLiteral("导入"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_importMonitorFilterButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_importMonitorFilterButton->setIcon(QIcon(":/Icon/codeeditor_open.svg"));
+    ks::ui::SetThemeButtonIcon(m_importMonitorFilterButton, QIcon(":/Icon/codeeditor_open.svg"));
     m_importMonitorFilterButton->setToolTip(QStringLiteral("从配置文件导入规则组"));
 
     m_exportMonitorFilterButton = new QPushButton(QStringLiteral("导出"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_exportMonitorFilterButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    m_exportMonitorFilterButton->setIcon(QIcon(":/Icon/log_export.svg"));
+    ks::ui::SetThemeButtonIcon(m_exportMonitorFilterButton, QIcon(":/Icon/log_export.svg"));
     m_exportMonitorFilterButton->setToolTip(QStringLiteral("导出当前规则组到配置文件"));
 
     m_clearMonitorFilterButton = new QPushButton(QStringLiteral("一键清空"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
     ks::ui::ApplyFlatButtonTheme(m_clearMonitorFilterButton, ks::ui::FlatButtonTone::Danger, ks::ui::FlatButtonAppearance::Solid);
-    m_clearMonitorFilterButton->setIcon(QIcon(":/Icon/log_clear.svg"));
+    ks::ui::SetThemeButtonIcon(m_clearMonitorFilterButton, QIcon(":/Icon/log_clear.svg"));
     m_clearMonitorFilterButton->setToolTip(QStringLiteral("清空全部规则组配置"));
 
     m_monitorFilterHeaderLayout->addWidget(m_monitorFilterToggleButton);
     m_monitorFilterHeaderLayout->addWidget(filterTitleLabel);
     m_monitorFilterHeaderLayout->addWidget(m_addMonitorFilterGroupButton);
-    m_monitorFilterHeaderLayout->addWidget(m_applyMonitorFilterButton);
-    m_monitorFilterHeaderLayout->addWidget(m_saveMonitorFilterButton);
-    m_monitorFilterHeaderLayout->addWidget(m_importMonitorFilterButton);
-    m_monitorFilterHeaderLayout->addWidget(m_exportMonitorFilterButton);
-    m_monitorFilterHeaderLayout->addWidget(m_clearMonitorFilterButton);
+    workspace->actions()->addWidget(m_applyMonitorFilterButton);
+    ks::ui::NormalizeToolbarRow(workspace->actions());
     m_monitorFilterHeaderLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_monitorFilterHeaderLayout);
-    captureToolbarLayout->addLayout(m_monitorFilterHeaderLayout);
-    m_trafficMonitorLayout->addWidget(captureToolbar);
+    workspace->parameterHeader()->addLayout(m_monitorFilterHeaderLayout);
+    auto* filterFiles = new ks::ui::FlowLayout(nullptr, 0, 8, 6);
+    for (auto* button : {m_saveMonitorFilterButton, m_importMonitorFilterButton, m_exportMonitorFilterButton, m_clearMonitorFilterButton}) {
+        filterFiles->addWidget(button); ks::ui::NormalizeToolbarControl(button);
+    }
+    workspace->parameterHeader()->addLayout(filterFiles);
+    workspace->results()->addWidget(captureToolbar);
 
-    // 过滤折叠面板：标题分隔线 + 规则组滚动区 + 状态标签。
+    // 只有规则列进入同一个横纵滚动视口，管理动作与状态不随列滚走。
     m_monitorFilterPanel = new QWidget(m_trafficMonitorPage);
-    m_monitorFilterPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
-    // 过滤面板采用“受限高度 + 内部滚动”策略，避免撑高整个 Dock 出现外层滚动条。
-    m_monitorFilterPanel->setMaximumHeight(240);
-    m_monitorFilterPanelLayout = new QVBoxLayout(m_monitorFilterPanel);
-    m_monitorFilterPanelLayout->setContentsMargins(2, 0, 2, 0);
-    m_monitorFilterPanelLayout->setSpacing(6);
-
-    QFrame* filterSeparatorLine = new QFrame(m_monitorFilterPanel);
-    filterSeparatorLine->setFrameShape(QFrame::HLine);
-    filterSeparatorLine->setFrameShadow(QFrame::Sunken);
-    m_monitorFilterPanelLayout->addWidget(filterSeparatorLine);
-
-    m_monitorFilterScrollArea = new QScrollArea(m_monitorFilterPanel);
-    m_monitorFilterScrollArea->setWidgetResizable(true);
-    m_monitorFilterScrollArea->setFrameShape(QFrame::NoFrame);
-    m_monitorFilterScrollArea->setMinimumHeight(0);
-    m_monitorFilterScrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_monitorFilterScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_monitorFilterScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-
-    m_monitorFilterGroupHostWidget = new QWidget(m_monitorFilterScrollArea);
-    m_monitorFilterGroupHostLayout = new QVBoxLayout(m_monitorFilterGroupHostWidget);
+    m_monitorFilterPanel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Maximum);
+    m_monitorFilterGroupHostWidget = m_monitorFilterPanel;
+    ks::ui::StyleParameterCanvas(m_monitorFilterGroupHostWidget);
+    m_monitorFilterGroupHostLayout = new QHBoxLayout(m_monitorFilterGroupHostWidget);
     m_monitorFilterGroupHostLayout->setContentsMargins(0, 0, 0, 0);
-    m_monitorFilterGroupHostLayout->setSpacing(8);
-    m_monitorFilterScrollArea->setWidget(m_monitorFilterGroupHostWidget);
-    m_monitorFilterPanelLayout->addWidget(m_monitorFilterScrollArea, 1);
+    m_monitorFilterGroupHostLayout->setSpacing(16);
+    m_monitorFilterGroupHostLayout->setSizeConstraint(QLayout::SetMinimumSize);
 
-    m_monitorFilterStateLabel = new QLabel(QStringLiteral("当前过滤：无"), m_monitorFilterPanel);
+    m_monitorFilterStateLabel = new QLabel(QStringLiteral("当前过滤：无"), m_trafficMonitorPage);
     m_monitorFilterStateLabel->setWordWrap(true);
     m_monitorFilterStateLabel->setMinimumWidth(0);
     m_monitorFilterStateLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_monitorFilterPanelLayout->addWidget(m_monitorFilterStateLabel);
+    workspace->parameterHeader()->addWidget(m_monitorFilterStateLabel);
 
-    m_trafficMonitorLayout->addWidget(m_monitorFilterPanel);
-    m_monitorFilterPanel->setVisible(false);
+    workspace->parameters()->addWidget(m_monitorFilterPanel);
+    workspace->parameters()->addStretch();
+    m_monitorFilterPanel->setVisible(true);
 
     addMonitorFilterRuleGroup();
     updateMonitorFilterStateLabel();
@@ -256,7 +262,7 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_packetTimelineWidget->setTracks(ks::ui::PacketTimelineTracks());
     m_packetTimelineWidget->setToolTip(QStringLiteral(
         "流量时间轴：横轴只统计监控开启时长，停机间隔不计入；绿色折线为上传速率，蓝色折线为下载速率；拖动矩形移动时间窗口，拖动左右边调整边界，滚轮向上放大窗口、向下缩小窗口。清空报文会重置时间轴。"));
-    m_trafficMonitorLayout->addWidget(m_packetTimelineWidget, 0);
+    workspace->results()->addWidget(m_packetTimelineWidget, 0);
 
     // 报文主表：展示“全部发送 UDP/TCP 包”。
     m_packetTable = new PacketMonitorTable(m_trafficMonitorPage);
@@ -308,7 +314,8 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_packetTable->horizontalHeader()->setStretchLastSection(true);
     m_packetTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-    m_trafficMonitorLayout->addWidget(m_packetTable, 1);
+    workspace->results()->addWidget(m_packetTable, 1);
+    workspace->finish();
     network_navigation_detail::AddTab(m_sideTabWidget, m_trafficMonitorPage, QStringLiteral("traffic"), QIcon(":/Icon/process_main.svg"));
 
 }

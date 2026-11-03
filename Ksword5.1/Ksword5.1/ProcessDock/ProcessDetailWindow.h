@@ -65,7 +65,9 @@ class QPoint;
 class HandleDock;
 class MemoryDock;
 class NetworkDock;
+class ProcessNetworkPage;
 class OtherDock;
+namespace ks::ui { class MetricAreaWindow; }
 
 class ProcessDetailWindow final : public QWidget
 {
@@ -101,6 +103,7 @@ public:
         double diskMBps = 0.0;             // 磁盘吞吐 MB/s。
         double networkRxKBps = 0.0;        // 网络下行 KB/s。
         double networkTxKBps = 0.0;        // 网络上行 KB/s。
+        bool networkUsageKnown = false;
         double gpuPercent = 0.0;           // GPU 占用百分比。
     };
 
@@ -173,6 +176,7 @@ signals:
     void requestOpenHandleDockByPid(std::uint32_t pid);
     void requestOpenMemoryDockByPid(std::uint32_t pid);
     void requestOpenNetworkDockByPid(std::uint32_t pid);
+    void requestStartFullNetworkMonitor(std::uint32_t pid);
     void requestOpenWindowDockByPid(std::uint32_t pid);
     // requestOpenFileDetailByPath：将当前映像路径交给主窗口的 FileDock，复用既有文件详情窗口。
     void requestOpenFileDetailByPath(const QString& filePath);
@@ -647,6 +651,8 @@ private:
     void finishModuleRefreshPresentation(const ModuleRefreshResult& refreshResult);
     // filterModuleTable 作用：按搜索框内容隐藏不匹配的模块表行。
     void filterModuleTable(const QString& filterText);
+    void openModuleAreaWindow();
+    void refreshModuleAreaWindow();
     void updateModuleStatusLabel(const QString& statusText, bool refreshing);
     // requestAsyncDllHijackScan：只读扫描程序目录与实际加载模块，
     // 使用签名可信的架构匹配系统 DLL 作为基线，不加载任何待检 DLL。
@@ -960,6 +966,7 @@ private:
     QLineEdit* m_moduleFilterEdit = nullptr;   // 模块列表筛选输入框。
     QLabel* m_moduleStatusLabel = nullptr;     // 模块刷新状态标签。
     ks::ui::ImmutableValueTable* m_moduleTable = nullptr;      // 模块表格。
+    QPointer<ks::ui::MetricAreaWindow> m_moduleAreaWindow;
 
     std::shared_ptr<const std::vector<ModuleRowValue>> m_moduleRecords; // 当前模块数据缓存。
 
@@ -977,7 +984,7 @@ private:
     // ======== 内嵌网络连接页 ========
     QVBoxLayout* m_embeddedNetworkLayout = nullptr;
     QLabel* m_embeddedNetworkPlaceholder = nullptr;
-    NetworkDock* m_embeddedNetworkDock = nullptr;
+    ProcessNetworkPage* m_processNetworkPage = nullptr;
 
     // ======== 内嵌窗口列表页 ========
     QVBoxLayout* m_embeddedWindowLayout = nullptr;

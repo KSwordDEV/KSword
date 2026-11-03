@@ -1,7 +1,7 @@
 # 网络 R3 命令
 
 使用 `help network` 查看直属命令，`help network connections` 查看连接操作，
-`help network connections close` 查看精确语法。以下命令默认为 R3，不需要驱动；
+`help network connections close` 查看精确语法。除末节明确列出的 R0 托管策略查询外，以下命令默认为 R3，不需要驱动；
 `--backend r3` 可以显式指定，`--backend r0` 不适用于这些新增命令。
 
 ## TCP/UDP 连接（迁移项 01）
@@ -100,3 +100,23 @@ rows 每行保留 available、evidence、win32Error、truncated、结构化 fiel
 显示 limit 默认 100、0 仅显示统计，displayTruncated 单独说明显示截断。
 采集完整返回 0，部分证据或后端截断返回 6，证据全部不可用返回 5。不会执行断连、修改接口或路由。
 既有 `network afd` 与 `network nsi` 的默认输出保持兼容；新增路径提供统一 JSON 和共享 Light 后端。
+
+## R0 托管网络策略查询
+
+```powershell
+KswordCLI.exe network managed-policies [--limit N]
+```
+
+通过既有 CLI 中央驱动传输读取 `IOCTL_KSWORD_ARK_NETWORK_QUERY_MANAGED_POLICIES`，仅需读访问。
+查询的是独立托管表，不合并旧端口规则或 Windows Firewall 规则，也不创建、启停、删除阻断策略。
+驱动按需准备空的 WFP 管理会话；该准备不添加阻断规则。
+
+先完整校验固定响应长度、版本、数量、能力位、策略唯一 ID、PID/创建时间关系、方向、保留字段及所有地址前缀，再输出任何策略。
+默认显示最多 16 条，`--limit 0` 仅输出摘要，但仍校验全部返回条目。
+摘要包含协议/原始状态、Win32 返回字节数、策略数、显示数、代数和能力位。
+能力位分别为 IPv4 `0x1`、IPv6 `0x2`、CIDR `0x4`、进程实例身份保护 `0x8`。
+策略行包含 GUID、PID、创建时间、方向、配置启用状态、进程退出状态及 IPv4/IPv6 CIDR。
+`configuredEnabled` 表示规则配置，是否具备实际执行能力还须同时检查摘要中的 WFP 状态及 capabilities。
+
+查询成功返回 0；驱动或 WFP 不可用返回 3/5；响应结构或字段无效返回 4。
+通用驱动功能矩阵仅执行此查询，托管控制 IOCTL 始终排除，避免改变宿主网络策略。

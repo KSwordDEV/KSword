@@ -20,6 +20,7 @@
       "^RXPF_(REGISTER|UNREGISTER|CHANGE|WRITE|SET_EMULATION|RUN_SELF_TEST|ATOMIC_COMMIT|EXEC_PROOF)",
       "^CONTROL_DRIVER_",
       "^CONTROL_(HVM|SYSTEM_TIME|CPU_POWER)$",
+      "^NETWORK_CONTROL_MANAGED_POLICY$",
       "^SET_BUGCHECK_",
       "^CONFIGURE_BUGCHECK_",
       "PATCH_INLINE_HOOK",
@@ -2007,6 +2008,24 @@
       "timeoutSeconds": 120
     },
     {
+      "id": "network.managed-policies",
+      "tier": "probe",
+      "ioctls": [
+        "NETWORK_QUERY_MANAGED_POLICIES"
+      ],
+      "steps": [
+        [
+          "network",
+          "managed-policies",
+          "--limit",
+          "10"
+        ]
+      ],
+      "expect": "graceful",
+      "timeoutSeconds": 120,
+      "notes": "只读独立托管规则快照与能力状态；不创建、停用或移除阻断策略。"
+    },
+    {
       "id": "network.tcp-endpoints",
       "tier": "probe",
       "ioctls": [
@@ -3125,6 +3144,11 @@
       "ioctl": "NETWORK_CONTROL_TRAFFIC_CAPTURE",
       "reason": "no-cli-path",
       "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+    },
+    {
+      "ioctl": "NETWORK_CONTROL_MANAGED_POLICY",
+      "reason": "alters-host-network-policy",
+      "detail": "可创建、启停或删除全局主机与进程实例阻断，可能切断 runner 的网络及 CI 控制通道；任何模式均不执行。只通过 NETWORK_QUERY_MANAGED_POLICIES 读取当前状态。"
     },
     {
       "ioctl": "PATCH_INLINE_HOOK",

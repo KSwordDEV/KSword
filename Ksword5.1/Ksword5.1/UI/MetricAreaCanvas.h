@@ -1,15 +1,21 @@
 #pragma once
+#include "MetricAreaRenderer.h"
 #include <QWidget>
 #include <QIcon>
 #include <QColor>
+#include <QPixmap>
 #include <functional>
 #include <vector>
 
+class QPainter;
+
 namespace ks::ui {
 struct MetricAreaNode {
-    QString key, name, pid, value, tooltip;
+    QString key, name, identity, value, tooltip;
     QIcon icon;
     QColor background, foreground;
+    // Non-negative finite area. For signed deltas the adapter supplies abs(value)
+    // here while retaining the signed display text. Invalid areas are unavailable.
     double weight = 0;
     int parent = -1;
     bool group = false;
@@ -43,10 +49,20 @@ private:
     struct Box { QRectF rect; int node; bool container; };
     void rebuildLayout();
     void focusNode(int index);
+    int boxAt(QPointF point) const;
+    QColor boxColor(int index) const;
+    void paintBox(QPainter& painter, const Box& box, bool hovered, QPainter* labels = nullptr) const;
     std::vector<MetricAreaNode> m_nodes;
     std::vector<std::vector<int>> m_children;
+    std::vector<int> m_parents;
+    std::vector<int> m_colorAnchors;
     std::vector<double> m_totals;
     std::vector<Box> m_boxes;
+    MetricAreaRenderer m_renderer;
+    QPixmap m_surface;
+    QPixmap m_labels;
+    bool m_surfaceDirty = true;
+    // Index into the visible boxes, so a process's own area and its child group stay distinct.
     int m_root = -1, m_hover = -1;
 };
 }

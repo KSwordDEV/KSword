@@ -866,6 +866,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\MetricAreaCanvas.h" />
+    <ClInclude Include="UI\MetricAreaRenderer.h" />
     <ClInclude Include="UI\MetricAreaWindow.h" />
     <ClInclude Include="ProcessDock\ProcessActivityHistory.h" />
     <ClInclude Include="ProcessDock\ProcessEtwCaptureLifecycle.h" />
@@ -1743,7 +1744,23 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ProcessDock\ProcessDock.MetricArea.cpp" />
+    <ClCompile Include="ProcessDock\ProcessNetworkController.cpp" />
+    <ClCompile Include="ProcessDock\ProcessNetworkPage.cpp" />
+    <ClCompile Include="NetworkDock\NetworkQosPage.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverNetworkPolicy.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\network\NetworkPolicy.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\network\Connections.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\network\Firewall.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\network\NetworkSupport.cpp" />
+    <ClInclude Include="ProcessDock\ProcessNetworkController.h" />
+    <ClInclude Include="ProcessDock\ProcessNetworkPage.h" />
+    <ClInclude Include="NetworkDock\NetworkQosPage.h" />
+    <ClInclude Include="ArkDriverClient\ArkDriverNetworkPolicy.h" />
+    <ClInclude Include="..\..\shared\usermode\backend\network\NetworkPolicy.h" />
+    <ClInclude Include="..\..\shared\usermode\backend\network\NetworkRate.h" />
+    <ClInclude Include="..\..\shared\driver\KswordArkManagedNetworkIoctl.h" />
     <ClCompile Include="UI\MetricAreaCanvas.cpp" />
+    <ClCompile Include="UI\MetricAreaRenderer.cpp" />
     <ClCompile Include="UI\MetricAreaWindow.cpp" />
     <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />

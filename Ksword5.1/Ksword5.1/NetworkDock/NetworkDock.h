@@ -15,6 +15,7 @@
 #include "../UI/PageNavigationCatalog.h"
 #include "../MonitorDock/ProcessTraceTimelineWidget.h"
 #include "../ksword/network/network_nids.h"
+#include "../../../shared/usermode/backend/network/NetworkPolicy.h"
 
 #include <QCache>
 #include <QCursor>
@@ -61,14 +62,13 @@ class QWidget;
 class QShowEvent;
 class QDialog;
 class QCompleter;
-class QScrollArea;
 class QStandardItemModel;
 class CodeEditorWidget;
 class MultiThreadDownloadSegmentBarWidget;
 class NetworkFirewallPage;
 class NetworkAuditPage;
 
-namespace ks::ui { class AsyncUiDispatcher; class RetainedCleanupJob; }
+namespace ks::ui { class AsyncUiDispatcher; class RetainedCleanupJob; class ParameterWorkspace; }
 
 namespace network_dock_detail
 {
@@ -157,6 +157,7 @@ public:
 
     // 切换到网络审计 TCP/UDP Cross-View 并按 PID 集合过滤，独立于流量监控规则。
     void focusConnectionsByPids(const QVector<quint32>& processIds);
+    void focusTrafficByPid(quint32 processId, bool startCapture = true);
 
     // setProcessDetailConnectionScope：进程详情内嵌时仅显示网络审计 Cross-View 入口。
     void setProcessDetailConnectionScope();
@@ -301,6 +302,8 @@ private:
         std::vector<std::uint32_t> processIdList;
         std::vector<UInt32Range> localAddressRangeList;
         std::vector<UInt32Range> remoteAddressRangeList;
+        std::vector<ks::r3::network::NetworkAddressPrefix> localIpv6PrefixList;
+        std::vector<ks::r3::network::NetworkAddressPrefix> remoteIpv6PrefixList;
         std::vector<UInt16Range> localPortRangeList;
         std::vector<UInt16Range> remotePortRangeList;
         std::vector<UInt32Range> packetSizeRangeList;
@@ -310,6 +313,8 @@ private:
             return !processIdList.empty() ||
                 !localAddressRangeList.empty() ||
                 !remoteAddressRangeList.empty() ||
+                !localIpv6PrefixList.empty() ||
+                !remoteIpv6PrefixList.empty() ||
                 !localPortRangeList.empty() ||
                 !remotePortRangeList.empty() ||
                 !packetSizeRangeList.empty();
@@ -1385,10 +1390,9 @@ private:
     QHBoxLayout* m_monitorControlLayout = nullptr;// 抓包控制栏布局。
     QHBoxLayout* m_monitorFilterHeaderLayout = nullptr; // 过滤面板标题栏（漏斗/按钮组）。
     QWidget* m_monitorFilterPanel = nullptr;            // 过滤规则组折叠面板容器。
-    QVBoxLayout* m_monitorFilterPanelLayout = nullptr;  // 过滤规则组面板主布局。
-    QScrollArea* m_monitorFilterScrollArea = nullptr;   // 规则组滚动容器。
+    ks::ui::ParameterWorkspace* m_trafficMonitorWorkspace = nullptr; // 固定管理/执行栏与规则列滚动。
     QWidget* m_monitorFilterGroupHostWidget = nullptr;  // 规则组承载容器。
-    QVBoxLayout* m_monitorFilterGroupHostLayout = nullptr; // 规则组承载布局。
+    QHBoxLayout* m_monitorFilterGroupHostLayout = nullptr; // 规则组横向并排，不足时滚动。
 
     QPushButton* m_startMonitorButton = nullptr; // 启动监控按钮。
     QPushButton* m_stopMonitorButton = nullptr;  // 停止监控按钮。
@@ -1643,6 +1647,8 @@ private:
     std::shared_ptr<network_dock_detail::HttpsProxyRecoveryState> m_httpsRecoveryState;
     std::shared_ptr<ks::ui::RetainedCleanupJob> m_httpsRecoveryCleanup;
     bool m_monitorRunning = false;             // 抓包运行状态缓存。
+    quint32 m_trafficFocusPid = 0;
+    QPushButton* m_clearTrafficFocusButton = nullptr;
     enum class TrafficMonitorSource : std::uint8_t
     {
         Stopped = 0, // 当前未监控。

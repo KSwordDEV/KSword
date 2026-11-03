@@ -325,7 +325,7 @@ void configureTable(QTableView* view, QAbstractItemModel* model, const QStringLi
 }
 
 struct NtfsSearchPage::State {
-    ks::ui::AsyncOperation *indexOperation = nullptr, *searchOperation = nullptr, *spaceOperation = nullptr, *volumeOperation = nullptr;
+    ks::ui::AsyncOperation *indexOperation = nullptr, *searchOperation = nullptr, *spaceOperation = nullptr, *volumeOperation = nullptr, *extensionOperation = nullptr;
     QComboBox *volume = nullptr, *searchType = nullptr, *mapMetric = nullptr;
     QPushButton *build = nullptr, *refresh = nullptr, *cancel = nullptr, *search = nullptr, *locate = nullptr, *up = nullptr, *discover = nullptr;
     QCheckBox *fullPath = nullptr, *wildcard = nullptr;
@@ -339,6 +339,7 @@ struct NtfsSearchPage::State {
     SearchModel* searchModel = nullptr;
     ExtensionModel* extensionModel = nullptr;
     DirectoryModel* directoryModel = nullptr;
+    QLabel* extensionStatus = nullptr;
     NtfsSpaceMapWidget* map = nullptr;
     Index::Cancel cancelToken;
     std::shared_ptr<std::atomic<quint64>> processed, total;
@@ -353,6 +354,7 @@ struct NtfsSearchPage::State {
     StatusText indexText{QStringLiteral("尚未建立索引"), {}, false};
     StatusText searchText{QStringLiteral("建立索引后可搜索"), {}, false};
     StatusText spaceText{QStringLiteral("尚无空间统计"), {}, false};
+    StatusText extensionText{QStringLiteral("正在统计文件类型…"), {}, false};
 };
 
 NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::make_unique<State>())
@@ -362,6 +364,7 @@ NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::
     s.volumeOperation = new ks::ui::AsyncOperation(this);
     s.searchOperation = new ks::ui::AsyncOperation(this);
     s.spaceOperation = new ks::ui::AsyncOperation(this);
+    s.extensionOperation = new ks::ui::AsyncOperation(this);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     auto* workspace = new ks::ui::ParameterWorkspace(this, 320);
@@ -459,13 +462,20 @@ NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::
     auto* split = new QSplitter(Qt::Vertical, spacePage);
     auto* tables = new QSplitter(Qt::Horizontal, split);
     s.directories = new QTreeView(tables); s.directoryModel = new DirectoryModel(s.directories); s.directories->setModel(s.directoryModel); s.directories->setUniformRowHeights(true); s.directories->setSelectionBehavior(QAbstractItemView::SelectRows); s.directories->setColumnWidth(0, 260); s.directories->setProperty(ks::ui::TableActionBarModeProperty, int(ks::ui::TableActionBarMode::None)); ks::ui::ApplyTablePresentation(s.directories);
-    s.extensions = new ks::ui::TableActionTableView(tables); s.extensionModel = new ExtensionModel(s.extensions); configureTable(s.extensions, s.extensionModel, {"extension", "logical", "allocated", "files", "unknown"});
+    auto* extensionPanel = new QWidget(tables);
+    auto* extensionLayout = new QVBoxLayout(extensionPanel);
+    extensionLayout->setContentsMargins(0, 0, 0, 0); extensionLayout->setSpacing(6);
+    s.extensionStatus = new QLabel(extensionPanel); s.extensionStatus->setWordWrap(true);
+    s.extensionStatus->setTextFormat(Qt::PlainText); s.extensionStatus->hide();
+    extensionLayout->addWidget(s.extensionStatus);
+    s.extensions = new ks::ui::TableActionTableView(extensionPanel); s.extensionModel = new ExtensionModel(s.extensions); configureTable(s.extensions, s.extensionModel, {"extension", "logical", "allocated", "files", "unknown"});
+    extensionLayout->addWidget(s.extensions, 1);
     s.map = new NtfsSpaceMapWidget(split); split->setStretchFactor(0, 1); split->setStretchFactor(1, 2); spaceLayout->addWidget(split, 1);
     s.tabs->addTab(spacePage, text("空间分布"));
     ks::i18n::LanguageManager::instance().bindTab(s.tabs, spacePage, sourceKey("空间分布"), QStringLiteral("空间分布"));
     workspace->finish();
     updateUnavailableResults("先选择磁盘，输入文件名或关键词，再点击“扫描并搜索”。");
-    for (auto* operation : {s.indexOperation, s.searchOperation, s.spaceOperation, s.volumeOperation})
+    for (auto* operation : {s.indexOperation, s.searchOperation, s.spaceOperation, s.volumeOperation, s.extensionOperation})
         operation->setStateChangedCallback([this] { updateButtons(); });
 
     s.progressTimer = new QTimer(this); s.progressTimer->setInterval(200);
@@ -490,7 +500,8 @@ NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::
     connect(s.volume, &QComboBox::currentIndexChanged, this, [this] {
         auto& state = *m_state;
         if (!state.discovering && !state.indexing) {
-            state.searchOperation->cancel(); state.spaceOperation->cancel(); restoreSpaceDirectory();
+            state.searchOperation->cancel(); state.spaceOperation->cancel(); state.extensionOperation->cancel(); restoreSpaceDirectory();
+            state.extensionStatus->hide();
         }
         updateButtons();
     });
@@ -517,7 +528,7 @@ NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::
 NtfsSearchPage::~NtfsSearchPage()
 {
     if (m_state->cancelToken) m_state->cancelToken->store(true);
-    m_state->indexOperation->close(); m_state->searchOperation->close(); m_state->spaceOperation->close(); m_state->volumeOperation->close();
+    m_state->indexOperation->close(); m_state->searchOperation->close(); m_state->extensionOperation->close(); m_state->spaceOperation->close(); m_state->volumeOperation->close();
     retire(std::move(m_state->projection));
 }
 
@@ -598,6 +609,10 @@ void NtfsSearchPage::updateUnavailableResults(const char* message)
 void NtfsSearchPage::cancelOperations()
 {
     auto& s = *m_state;
+    if (s.extensionOperation->isBusy()) {
+        s.extensionOperation->cancel();
+        s.extensionText.set(s.extensionStatus, "文件类型统计已停止。"); s.extensionStatus->show();
+    }
     if (s.indexing && s.cancelToken && !s.cancelToken->exchange(true)) {
         s.indexText.set(s.indexStatus, "正在取消，请等待当前读取返回");
         ks::ui::ApplyStatusRole(s.indexStatus, ks::ui::StatusRole::Info);
@@ -608,6 +623,7 @@ void NtfsSearchPage::cancelOperations()
     }
     if (s.spaceOperation->isBusy()) {
         s.spaceOperation->cancel();
+        s.extensionOperation->cancel();
         restoreSpaceDirectory();
         s.spaceText.set(s.spaceStatus, "MFT 空间汇总已取消；可重新选择目录或计量方式。");
         s.map->setEmptyMessage(QStringLiteral("MFT 空间汇总已取消；可重新选择目录或计量方式。"));
@@ -631,7 +647,7 @@ void NtfsSearchPage::updateButtons()
     s.build->setEnabled(!s.indexing && !s.discovering && volumeAvailable);
     const bool sameVolume = hasSelectedVolumeIndex();
     s.refresh->setEnabled(!s.indexing && !s.discovering && !s.journalInvalid && sameVolume && s.projection->snapshot->journalAvailable);
-    const bool searching = s.searchOperation->isBusy(), summarizing = s.spaceOperation->isBusy();
+    const bool searching = s.searchOperation->isBusy(), summarizing = s.spaceOperation->isBusy() || s.extensionOperation->isBusy();
     s.cancel->setEnabled((s.indexing && s.cancelToken && !s.cancelToken->load()) || searching || summarizing);
     s.build->setText(text(s.indexing && !s.incremental ? "正在扫描磁盘…"
         : sameVolume || s.indexFailed ? "重新扫描磁盘" : "加载文件列表"));
@@ -692,7 +708,8 @@ void NtfsSearchPage::startIndex(bool incremental)
 {
     auto& s = *m_state;
     if (s.indexing || s.discovering || s.volume->currentData().toString().isEmpty()) return;
-    s.searchOperation->cancel(); s.spaceOperation->cancel(); restoreSpaceDirectory();
+    s.searchOperation->cancel(); s.spaceOperation->cancel(); s.extensionOperation->cancel(); restoreSpaceDirectory();
+    s.extensionStatus->hide();
     struct Request {
         QString volume;
         Index::Snapshot previous;
@@ -743,6 +760,7 @@ void NtfsSearchPage::startIndex(bool incremental)
             // No old directory tile may be interpreted through a replacement
             // snapshot while its new projection is still being prepared.
             state.spaceOperation->cancel();
+            state.extensionOperation->cancel(); state.extensionStatus->hide();
             state.journalInvalid = false;
             state.displayedDirectory = 0; state.displayedDirectoryPath.clear();
             state.extensionModel->setResult({}); state.map->setData({});
@@ -836,6 +854,7 @@ void NtfsSearchPage::showDirectory(quint64 reference)
 {
     auto& s = *m_state;
     if (!hasSelectedVolumeIndex() || !s.projection->directories.contains(reference)) return;
+    s.extensionOperation->cancel(); s.extensionStatus->hide();
     struct Request { ProjectionPtr projection; quint64 reference; bool allocated; };
     Request request{s.projection, reference, s.mapMetric->currentIndex() == 0};
     s.currentDirectory = reference;
@@ -864,12 +883,55 @@ void NtfsSearchPage::showDirectory(quint64 reference)
             }
             std::sort(mapItems.begin(), mapItems.end(), [](const auto& a, const auto& b) { return a.bytes > b.bytes; });
             result.map = NtfsSpaceMapWidget::prepare(std::move(mapItems));
+            return result;
+        },
+        [this](const SpaceResult& result, std::uint64_t generation) {
+            const auto prepared = std::make_shared<const SpaceResult>(result);
+            const auto action = [this, prepared, generation] {
+                auto& state = *m_state;
+                if (!state.spaceOperation->isCurrent(generation)) return;
+                state.extensionModel->setResult({});
+                state.map->setData(prepared->map);
+                state.map->setEmptyMessage(QString());
+                state.displayedDirectory = prepared->reference;
+                state.displayedDirectoryPath = prepared->path;
+                state.mapPath->setText(prepared->path);
+                state.spaceText.set(state.spaceStatus, "文件 %1；已计量逻辑大小 %2；已计量占用 %3；未计量 %4；快照 %5",
+                    {QString::number(prepared->totals.files), bytes(prepared->totals.logical), bytes(prepared->totals.allocated),
+                     QString::number(prepared->totals.unknown), state.projection->sampledAt.toString(QStringLiteral("HH:mm:ss"))});
+                loadDirectoryExtensions(prepared->reference, state.mapMetric->currentIndex() == 0);
+                state.spaceOperation->completeDeferred(generation);
+            };
+            const auto submission = ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("ntfs-space"),
+                {ks::ui::ResultTableHost::ensure(m_state->extensions)}, action);
+            return submission != ks::ui::UiCommitSubmission::Deferred;
+        },
+        [this](std::exception_ptr) {
+            restoreSpaceDirectory();
+            m_state->spaceText.set(m_state->spaceStatus, "MFT 空间汇总失败；请重新选择目录或计量方式重试。");
+            m_state->map->setEmptyMessage(QStringLiteral("MFT 空间汇总失败；请重新选择目录或计量方式重试。"));
+            updateButtons();
+        });
+}
+
+void NtfsSearchPage::loadDirectoryExtensions(quint64 reference, bool allocated)
+{
+    auto& s = *m_state;
+    const auto projection = s.projection;
+    struct Request { ProjectionPtr projection; quint64 reference; bool allocated; };
+    s.extensionText.set(s.extensionStatus, "正在统计文件类型…"); s.extensionStatus->show();
+    s.extensionOperation->submit<Request, SpaceResult>({projection, reference, allocated},
+        [](const Request& request, const ks::ui::AsyncOperationToken& token) {
+            SpaceResult result; result.reference = request.reference;
+            const auto& projection = *request.projection;
+            const auto& snapshot = *projection.snapshot;
             QHash<QString, ExtensionRow> extensions;
             QVector<quint64> pending{request.reference};
             while (!pending.isEmpty()) {
                 if (token.isCanceled()) return SpaceResult();
                 const quint64 parent = pending.takeLast();
                 for (quint64 id : projection.children.value(parent)) {
+                    if (token.isCanceled()) return SpaceResult();
                     const auto it = snapshot.entries.constFind(id);
                     if (it == snapshot.entries.cend()) continue;
                     if (it->isDirectory()) { pending.append(id); continue; }
@@ -884,31 +946,25 @@ void NtfsSearchPage::showDirectory(quint64 reference)
             std::sort(result.extensions.begin(), result.extensions.end(), [allocated = request.allocated](const auto& a, const auto& b) { return allocated ? a.allocated > b.allocated : a.logical > b.logical; });
             return result;
         },
-        [this](const SpaceResult& result, std::uint64_t generation) {
+        [this, projection, reference, allocated](const SpaceResult& result, std::uint64_t generation) {
             const auto prepared = std::make_shared<const SpaceResult>(result);
-            const auto action = [this, prepared, generation] {
+            const auto action = [this, projection, reference, allocated, prepared, generation] {
                 auto& state = *m_state;
-                if (!state.spaceOperation->isCurrent(generation)) return;
-                state.extensionModel->setResult(prepared);
-                state.map->setData(prepared->map);
-                state.map->setEmptyMessage(QString());
-                state.displayedDirectory = prepared->reference;
-                state.displayedDirectoryPath = prepared->path;
-                state.mapPath->setText(prepared->path);
-                state.spaceText.set(state.spaceStatus, "文件 %1；已计量逻辑大小 %2；已计量占用 %3；未计量 %4；快照 %5",
-                    {QString::number(prepared->totals.files), bytes(prepared->totals.logical), bytes(prepared->totals.allocated),
-                     QString::number(prepared->totals.unknown), state.projection->sampledAt.toString(QStringLiteral("HH:mm:ss"))});
-                state.spaceOperation->completeDeferred(generation);
+                if (!state.extensionOperation->isCurrent(generation)) return;
+                if (state.projection == projection && state.displayedDirectory == reference
+                    && state.currentDirectory == reference && (state.mapMetric->currentIndex() == 0) == allocated) {
+                    state.extensionModel->setResult(prepared);
+                    state.extensionStatus->hide();
+                }
+                state.extensionOperation->completeDeferred(generation);
             };
-            const auto submission = ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("ntfs-space"),
+            const auto submission = ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("ntfs-extensions"),
                 {ks::ui::ResultTableHost::ensure(m_state->extensions)}, action);
             return submission != ks::ui::UiCommitSubmission::Deferred;
         },
         [this](std::exception_ptr) {
-            restoreSpaceDirectory();
-            m_state->spaceText.set(m_state->spaceStatus, "MFT 空间汇总失败；请重新选择目录或计量方式重试。");
-            m_state->map->setEmptyMessage(QStringLiteral("MFT 空间汇总失败；请重新选择目录或计量方式重试。"));
-            updateButtons();
+            m_state->extensionText.set(m_state->extensionStatus, "文件类型统计失败；请重新选择目录或计量方式重试。");
+            m_state->extensionStatus->show();
         });
 }
 
@@ -927,10 +983,11 @@ void NtfsSearchPage::changeEvent(QEvent* event)
     state.indexText.render(state.indexStatus);
     state.searchText.render(state.searchStatus);
     state.spaceText.render(state.spaceStatus);
+    state.extensionText.render(state.extensionStatus);
     if (state.volume->count() == 1 && state.volume->currentData().toString().isEmpty())
         state.volume->setItemText(0, ks::i18n::sourceText(state.volumeMessage));
     state.searchModel->retranslate(); state.extensionModel->retranslate(); state.directoryModel->retranslate();
     state.results->viewport()->update(); state.extensions->viewport()->update(); state.directories->viewport()->update();
-    state.map->update();
+    state.map->refreshAppearance();
     updateButtons();
 }

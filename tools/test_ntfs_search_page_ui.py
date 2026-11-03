@@ -105,6 +105,7 @@ class CodeTextEdit : public QPlainTextEdit { public: using QPlainTextEdit::QPlai
                      "ResultTableHost", "AsyncOperation"):
             sources.append(APP / "UI" / f"{name}.cpp")
         sources.append(APP / "FileDock/NtfsSpaceMapWidget.cpp")
+        sources.append(APP / "UI/MetricAreaRenderer.cpp")
         coordinator = (APP / "UI/UiCommitCoordinator.cpp").read_text(encoding="utf-8-sig")
         if os.name != "nt":
             # The actual coordinator already offers an input probe. Only its

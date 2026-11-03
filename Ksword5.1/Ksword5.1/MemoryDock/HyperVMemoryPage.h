@@ -1,7 +1,9 @@
 #pragma once
 #include "HyperVMemoryEvidence.h"
 #include <QWidget>
+#include <QPointer>
 #include <array>
+#include <functional>
 class QLabel;
 class QPushButton;
 class QLineEdit;
@@ -15,6 +17,7 @@ struct HyperViewData;
 class QTabWidget;
 class MemoryAttributionChart;
 namespace ksword::pfn { struct Scan; }
+namespace ks::ui { class MetricAreaWindow; }
 
 class HyperVMemoryPage final : public QWidget {
 public:
@@ -23,6 +26,9 @@ public:
     void startCollection();
     void setSnapshotContext(const QString& time, std::uint64_t remainder);
     void setPfnContext(const std::shared_ptr<ksword::pfn::Scan>& scan);
+    void openMetricAreaView();
+    bool hasMetricAreaData() const;
+    std::function<void()> metricAreaStateChanged;
 protected:
     void changeEvent(QEvent*) override;
     void showEvent(QShowEvent*) override;
@@ -36,9 +42,13 @@ private:
     void requestProjection(bool rebuild = false);
     void pollProjection();
     void bindCurrentProjection();
+    void refreshMetricAreaView(int kind);
+    void updateMetricAreaAction();
     QPushButton* m_collect = nullptr;
     QPushButton* m_cancel = nullptr;
     QPushButton* m_export = nullptr;
+    QPushButton* m_metricAreaButton = nullptr;
+    std::array<QPointer<ks::ui::MetricAreaWindow>, 4> m_metricAreaWindows;
     QLineEdit* m_filter = nullptr;
     QLabel* m_summary = nullptr;
     QProgressBar* m_progress = nullptr;

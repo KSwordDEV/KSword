@@ -7,6 +7,7 @@
 #include <tcpmib.h>
 #include <udpmib.h>
 #include <ws2tcpip.h>
+#include <objbase.h>
 
 #include <algorithm>
 #include <array>
@@ -49,6 +50,7 @@
 #include "../shared/driver/KswordArkDdmaPlan.h"
 #include "../shared/driver/KswordArkMutationIoctl.h"
 #include "../shared/driver/KswordArkNetworkIoctl.h"
+#include "../shared/driver/KswordArkManagedNetworkIoctl.h"
 #include "../shared/driver/KswordArkPreflightIoctl.h"
 #include "../shared/driver/KswordArkProcessIoctl.h"
 #include "../shared/driver/KswordArkRedirectIoctl.h"
@@ -385,6 +387,7 @@ namespace ks::cli::legacy
         { L"redirect", L"query-status", L"KswordCLI.exe redirect query-status [--limit N]", L"Query redirect runtime state and rules.", L"Optional: --limit.", L"" },
         { L"network", L"set-rules", L"KswordCLI.exe network set-rules --blob PATH", L"Load network rule bytes.", L"Required: --blob.", L"" },
         { L"network", L"query-status", L"KswordCLI.exe network query-status [--limit N]", L"Query network runtime state and rules.", L"Optional: --limit.", L"" },
+        { L"network", L"managed-policies", L"KswordCLI.exe network managed-policies [--limit N]", L"Read managed R0 host and process-instance network policies.", L"Optional: --limit (default 16; 0 prints summary only).", L"Read-only. Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_MANAGED_POLICIES. Does not apply, toggle or remove policies." },
         { L"network", L"audit", L"KswordCLI.exe network audit [--flags 0xN] [--max-rows N] [--limit N]", L"Query TCP endpoint audit as the default network audit view.", L"Optional: --flags, --max-rows, --limit.", L"Use network wfp or network ndis for chain-specific views." },
         { L"network", L"tcp", L"KswordCLI.exe network tcp [--flags 0xN] [--max-rows N] [--limit N]", L"Query TCP endpoint audit rows.", L"Optional: --flags, --max-rows, --limit.", L"" },
         { L"network", L"udp", L"KswordCLI.exe network udp [--flags 0xN] [--max-rows N] [--limit N]", L"Query UDP endpoint audit rows.", L"Optional: --flags, --max-rows, --limit.", L"" },
@@ -4744,7 +4747,7 @@ namespace ks::cli::legacy
         while (printedCount < visibleLimit)
         {
             IoctlResult io{};
-            std::fill(buffer.begin(), buffer.end(), 0U);
+            std::fill(buffer.begin(), buffer.end(), std::uint8_t{0});
             request.startIndex = startIndex;
             request.expectedSnapshotHash = snapshotHash;
             request.expectedTotalCount = snapshotTotalCount;
@@ -6026,6 +6029,80 @@ namespace ks::cli::legacy
         return 1;
     }
 
+    bool validManagedNetworkSnapshot(const KSWORD_ARK_NETWORK_MANAGED_QUERY_RESPONSE& response, const DWORD bytes)
+    {
+        constexpr unsigned long caps = KSWORD_ARK_NETWORK_MANAGED_CAP_IPV4 | KSWORD_ARK_NETWORK_MANAGED_CAP_IPV6
+            | KSWORD_ARK_NETWORK_MANAGED_CAP_CIDR | KSWORD_ARK_NETWORK_MANAGED_CAP_PROCESS_INSTANCE;
+        if (bytes != sizeof(response) || response.version != KSWORD_ARK_NETWORK_MANAGED_PROTOCOL_VERSION
+            || response.size != sizeof(response) || response.reserved || (response.capabilities & ~caps)
+            || response.policyCount > KSWORD_ARK_NETWORK_MANAGED_MAX_POLICIES
+            || (response.status != KSWORD_ARK_NETWORK_STATUS_APPLIED && response.status != KSWORD_ARK_NETWORK_STATUS_WFP_UNAVAILABLE
+                && response.status != KSWORD_ARK_NETWORK_STATUS_OPERATION_FAILED)) return false;
+        std::set<std::array<unsigned char, 16>> identities;
+        for (unsigned long index = 0; index < response.policyCount; ++index)
+        {
+            const auto& policy = response.policies[index];
+            std::array<unsigned char, 16> identity{}; std::copy(std::begin(policy.policyId), std::end(policy.policyId), identity.begin());
+            if (std::all_of(identity.begin(), identity.end(), [](unsigned char value) { return value == 0; })
+                || !identities.insert(identity).second || policy.reserved0 || policy.reserved1
+                || !policy.directionMask || (policy.directionMask & ~KSWORD_ARK_NETWORK_DIRECTION_BOTH)
+                || (policy.flags & ~(KSWORD_ARK_NETWORK_MANAGED_ENABLED | KSWORD_ARK_NETWORK_MANAGED_PROCESS_EXITED))
+                || (policy.processId ? policy.creationTime100ns == 0 : policy.creationTime100ns != 0 || policy.prefixCount == 0)
+                || policy.prefixCount > KSWORD_ARK_NETWORK_MANAGED_MAX_PREFIXES) return false;
+            for (unsigned long prefixIndex = 0; prefixIndex < policy.prefixCount; ++prefixIndex)
+            {
+                const auto& prefix = policy.prefixes[prefixIndex];
+                if ((prefix.family != 4 && prefix.family != 6) || prefix.prefixLength > (prefix.family == 4 ? 32UL : 128UL)) return false;
+                for (unsigned long byte = 0; byte < 16; ++byte)
+                {
+                    const int kept = std::clamp(static_cast<int>(prefix.prefixLength) - static_cast<int>(byte) * 8, 0, 8);
+                    const auto hostMask = static_cast<unsigned char>(kept == 8 ? 0 : 0xffU >> kept);
+                    if (prefix.address[byte] & hostMask) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    int queryManagedNetworkPolicies(const NamedArgs& args)
+    {
+        auto response = std::make_unique<KSWORD_ARK_NETWORK_MANAGED_QUERY_RESPONSE>(); IoctlResult io{};
+        if (!sendFixedNoInput(IOCTL_KSWORD_ARK_NETWORK_QUERY_MANAGED_POLICIES,
+            L"IOCTL_KSWORD_ARK_NETWORK_QUERY_MANAGED_POLICIES", *response, io, GENERIC_READ))
+            return normalizeIoctlRc(L"network managed-policies", io, 3);
+        if (!validManagedNetworkSnapshot(*response, io.bytesReturned))
+        {
+            std::wcerr << L"network managed-policies: invalid fixed response, identity or address prefix\n";
+            return 4;
+        }
+        printResponseBanner(response->version, response->status, response->lastStatus, io.bytesReturned);
+        const std::size_t count = std::min<std::size_t>(response->policyCount, getOptionU32(args, L"--limit", 16U));
+        std::wcout << L"policyCount=" << response->policyCount << L" displayed=" << count << L" generation=" << response->generation
+            << L" capabilities=0x" << std::hex << response->capabilities << std::dec << L"\n";
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            const auto& policy = response->policies[index]; GUID guid{}; wchar_t identifier[40]{};
+            static_assert(sizeof(guid) == sizeof(policy.policyId)); std::memcpy(&guid, policy.policyId, sizeof(guid));
+            if (::StringFromGUID2(guid, identifier, 40) == 0) return 4;
+            const bool configured = (policy.flags & KSWORD_ARK_NETWORK_MANAGED_ENABLED) != 0
+                && (policy.flags & KSWORD_ARK_NETWORK_MANAGED_PROCESS_EXITED) == 0;
+            std::wcout << L"  policy[" << index << L"] id=KSword.Driver." << identifier
+                << L" pid=" << policy.processId << L" creationTime100ns=" << policy.creationTime100ns
+                << L" directionMask=" << policy.directionMask << L" configuredEnabled=" << configured
+                << L" processExited=" << ((policy.flags & KSWORD_ARK_NETWORK_MANAGED_PROCESS_EXITED) != 0)
+                << L" prefixCount=" << policy.prefixCount << L"\n";
+            for (unsigned long host = 0; host < policy.prefixCount; ++host)
+            {
+                wchar_t address[INET6_ADDRSTRLEN]{}; const auto& prefix = policy.prefixes[host];
+                if (::InetNtopW(prefix.family == 4 ? AF_INET : AF_INET6, const_cast<unsigned char*>(prefix.address), address, INET6_ADDRSTRLEN))
+                    std::wcout << L"    remote=" << address << L"/" << prefix.prefixLength << L"\n";
+            }
+        }
+        const int status = operationStatusRc(response->lastStatus);
+        if (status) return status;
+        return response->status == KSWORD_ARK_NETWORK_STATUS_APPLIED ? 0 : response->status == KSWORD_ARK_NETWORK_STATUS_WFP_UNAVAILABLE ? 5 : 3;
+    }
+
     // commandNetworkFamily implements network rule load and status query.
     // Inputs: argc/argv from wmain.
     // Processing: accepts a blob for rules and prints runtime snapshot state.
@@ -6036,6 +6113,7 @@ namespace ks::cli::legacy
         const std::wstring sub = argv[2];
         const NamedArgs args = parseNamedArgs(argc, argv, 3);
         IoctlResult io{};
+        if (sub == L"managed-policies") return queryManagedNetworkPolicies(args);
         if (sub == L"set-rules")
         {
             std::vector<std::uint8_t> blob = readRequiredBlobOption(args, L"--blob", kMaxCommandBytes);

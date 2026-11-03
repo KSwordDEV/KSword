@@ -165,14 +165,18 @@ namespace ks::ui
         }
         // 先普通卡片、后参数分区的构造顺序会改变角色；只在已登记同一角色时跳过。
         const bool embedded = group->property("ksword_parameter_section").toBool();
+        const bool parameterCard = group->property("ksword_parameter_card").toBool();
         const QVariant registeredRole = group->property("ksword_primary_group_embedded_role");
         if (group->property("ksword_primary_group").toBool() && registeredRole.isValid()
-            && registeredRole.toBool() == embedded && HasWidgetThemeBinding(group))
+            && registeredRole.toBool() == embedded
+            && group->property("ksword_primary_group_card_role").toBool() == parameterCard
+            && HasWidgetThemeBinding(group))
         {
             return;
         }
         group->setProperty("ksword_primary_group", true);
         group->setProperty("ksword_primary_group_embedded_role", embedded);
+        group->setProperty("ksword_primary_group_card_role", parameterCard);
         const QPointer<QGroupBox> target(group);
         BindWidgetTheme(group, [target]()
         {
@@ -180,8 +184,9 @@ namespace ks::ui
             {
                 return;
             }
-            const QColor surface = UsesMainSurfaceHierarchy(target)
-                ? MainWindowSurfaceColors().content : KswordTheme::SurfaceColor();
+            const bool parameterCard = target->property("ksword_parameter_card").toBool();
+            const QColor surface = parameterCard ? MainWindowSurfaceColors().toolbar
+                : UsesMainSurfaceHierarchy(target) ? MainWindowSurfaceColors().content : KswordTheme::SurfaceColor();
             const QColor title = KswordTheme::EnsureTextContrast(
                 KswordTheme::TextSecondaryColor(), surface, 4.5);
             const QColor disabled = KswordTheme::EnsureTextContrast(
@@ -191,8 +196,9 @@ namespace ks::ui
             const QString selector = embedded
                 ? QStringLiteral("QGroupBox[ksword_parameter_section=\"true\"]")
                 : QStringLiteral("QGroupBox[ksword_primary_group=\"true\"]");
-            const QString background = UsesTransparentMainSurface(target)
-                ? QStringLiteral("transparent") : surface.name();
+            const QString background = parameterCard
+                ? MainControlSurfaceColor(surface, target).name(QColor::HexArgb)
+                : UsesTransparentMainSurface(target) ? QStringLiteral("transparent") : surface.name();
             ConfigureGroupBoxLayout(target);
             ReplacePrimaryStyle(target, GroupBoxStyle(selector, background,
                 title.name(), disabled.name(), target->fontMetrics().height(),
