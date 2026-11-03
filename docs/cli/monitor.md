@@ -6,18 +6,30 @@
 KswordCLI.exe help monitor api capture
 KswordCLI.exe monitor api capture --pid 1234 --categories file,registry --duration-ms 3000 --confirm --json
 KswordCLI.exe monitor api capture --pid 1234 --raw 1 --auto-children 1 --limit 20000 --confirm --json
+KswordCLI.exe monitor api capture --pid 1234 --r0-inject 1 --confirm --json
 KswordCLI.exe monitor api capture --pid 1234 --options-file monitor-options.ini --confirm --json
+KswordCLI.exe monitor api capture --pid 1234 --call-stack 1 --timeline 1 --pre-exclude-apis 'KernelBase!ReadFile' --post-exclude-modules 'user32' --confirm --json
 ```
 
-使用 x64 CLI，配套两个位数的 Agent DLL 放在 CLI 同目录，或用 `--agent PATH` 指定；标准 DLL 文件名按目标位数自动切换，自定义 DLL 校验 PE 位数。采用主程序相同的原生注入器、Global PID 会话租约、UTF-16 原子配置、受验证管道、子进程 broker 及 `CoverageSnapshotReceiver`，不要求驱动、不自动提权。需要目标进程注入／VM 权限。help 与参数错误不加载 Agent。
+使用 x64 CLI，配套两个位数的 Agent DLL 放在 CLI 同目录，或用 `--agent PATH` 指定；标准 DLL 文件名按目标位数自动切换，自定义 DLL 校验 PE 位数。采用主程序相同的注入器、Global PID 会话租约、UTF-16 原子配置、受验证管道、子进程 broker 及 `CoverageSnapshotReceiver`。默认 R3 注入，不要求驱动、不自动提权；需要目标进程注入／VM 权限。`--r0-inject 1` 显式选择现有 R0 驱动注入，失败直接报告，不回退 R3；开启自动子进程时，broker 在身份认证后也使用 R0 注入子进程，失败直接报告。`--r0-inject 0` 为默认。目标创建时间在驱动请求前后由用户态检查，但现有驱动协议仅包含 PID，仍存在请求到驱动查找之间的 PID 复用窗口。`injectionBackendRequested` 报告选择，`reusedResident=true` 表示无需再次注入；DLL 加载或线程启动本身不等于 Hook 安装成功。help 与参数错误不加载 Agent。
 
 必填 `--pid >4`、`--confirm`。`--duration-ms 100..120000` 默认1000，从收到根目标 HooksInstalled 后计时；`--limit 1..100000` 默认5000，保留最近事件，继续读取控制事件及覆盖快照；`--startup-timeout-ms` 默认30000、`--stop-timeout-ms` 默认15000，两者范围1000..120000。注入器和系统 API 自身的有界等待可能延长 elapsedMs。`--categories` 为逗号分隔的 file、registry、network、process、loader、clipboard；省略时采用 Agent 默认分类。`--raw 0|1`、`--raw-modules`、`--raw-exclude`、`--raw-default-denylist 0|1` 配置 Raw；两个列表用分号分隔。`--auto-children 0|1` 启用经过 broker 验证的后代自动注入及采集，支持 x64/x86 混合进程树。
 
-`--options-file` 从现有 INI 的 `[monitor]` 节导入 enable_file/registry/network/process/loader/clipboard、auto_inject_child、enable_raw_fallback、raw_use_default_denylist、raw_modules、raw_denylist、fake_success_enabled、fake_success_raw_fallback、fake_success_rules、detail_limit、clipboard_read_action/write_action/enum_action。可直接取主程序生成的 INI；控制端 PID、会话、管道、停止路径、SID、broker 字段一律重新生成。显式命令行选项覆盖 INI；规则使用原 Agent 的格式和能力边界，Fake Success／剪贴板拦截会改变目标行为，默认不启用。
+`--options-file` 从现有 INI 的 `[monitor]` 节导入 enable_file/registry/network/process/loader/clipboard、auto_inject_child、capture_call_stack、enable_raw_fallback、raw_use_default_denylist、raw_modules、raw_denylist、fake_success_enabled、fake_success_raw_fallback、fake_success_rules、detail_limit、clipboard_read_action/write_action/enum_action。可直接取主程序生成的 INI；控制端 PID、会话、管道、停止路径、SID、broker 字段一律重新生成。显式命令行选项覆盖 INI；规则使用原 Agent 的格式和能力边界，Fake Success／剪贴板拦截会改变目标行为，默认不启用。
+
+`capture_call_stack=1` 可选择采集强类型调用栈，默认关闭，会增加开销。事件 JSON 的 `callStackAvailable` 表示该事件是否携带有效栈，`callStack` 是最多 8 个十六进制地址，可能包含监控内部帧；Raw 调用和详情空间不足时可能没有栈。空数组不代表调用方没有堆栈。
+
+`--call-stack 0|1` 可直接设置该选项，并覆盖 `--options-file` 中的值。`--filter-file PATH` 可选导入界面保存的 `winapi-filter.cfg` v1/v2，保留被排除模块中的单函数允许例外；默认不自动加载。`--pre-exclude-modules`、`--pre-exclude-apis`、`--post-exclude-modules` 和 `--post-exclude-apis` 接受分号分隔的精确名称，API 写作 `模块!函数`，作为额外的强制排除，即使导入配置中有允许例外也会生效。模块比较不区分大小写，函数区分大小写。无路径且没有扩展名的模块按 `.dll` 匹配，例如 `KernelBase` 与 `KernelBase.dll` 等价；带路径或其他扩展名的模块不做这种转换。前置在管道接收验证后、加入有界事件缓冲前拒收；后置仅隐藏最终保留事件中的匹配项。内部控制和覆盖事件始终保留，两个筛选都不改变已安装的 Hook；`preFilteredCount` 和 `postFilteredRetainedCount` 分别报告两个阶段的数量，后者不包含此前已被缓冲淘汰的事件。
+
+`--timeline 1` 输出按 API 分类和 FILETIME 聚合的 `timeline`：起始桶宽 10 毫秒，时间跨度扩大时自动合并到最多 2048 个时间桶；每个非空类别单元包含数量及该类别在桶内的最早／最晚时间。它统计前置筛选通过的普通 API 调用，包含后置隐藏和缓冲淘汰的事件，不包含 Agent 丢失、前置拒收或异步阶段事件；`missingTimeCount` 单独统计缺时间的调用。它不保存每个事件的图形点，也不代表完整轨迹。默认关闭，关闭时为 `null`。
+
+Raw 入口事件的 `rawAbi` 提供 Agent 实际采集到的寄存器和栈槽十六进制值；数据截断或格式不完整时为 `null`。它们只是 ABI 位置，不代表已知函数参数个数、类型或浮点寄存器值。`--signatures 1` 可选读取 CLI 同目录 `profiles/api_monitor_definitions.json`，仅在该文件 SHA-256 与事件的 Agent 定义哈希一致时给事件附加 `declaration`，列出函数声明、参数名、类型和方向。`abiEvidence` 区分项目强类型声明、Windows SDK 已核对 ABI 与未核验第三方参考；未核验声明的方向为 `unknown`。旧 Agent 未提供哈希或哈希不同时不附加声明，分别用 `declarationCatalogMatchesAgent=null/false` 表示。声明不意味着 Hook 已安装或参数值已采集，不读取目标指针。
 
 JSON envelope 沿用 schemaVersion=1／backend=r3。data 包含 pid、sessionId、agentPath、configPath、stopPath、configPublished、reusedResident、requestedDurationMs、elapsedMs、cancelled、completedRequestedInterval、stopWritten、cleanupComplete、receivedCount、returnedCount、bufferDroppedCount、invalidPacketCount、autoChildren、options、processes、events。计数／FILETIME 为十进制字符串，地址／会话身份为十六进制字符串。
 
 events 提供 pid/tid、timestampFileTime、category、module/api/detail、resultKind、resultCode、eventKind、apiId、operationId、sessionIdentity、definitionSha256；EntryOnly 的 resultCode 为 null，不伪造 OK。processes 提供保留的进程创建身份、connected、hooksInstalled、hooksRemoved、targetExited、installFailed、partialHooks、pipeWin32Error、agentDroppedCount、coverageComplete/Stale/Revision、coverageStateCounts 和完整 coverage。覆盖项 state 为 Installed=0、SharedEntry=1、CategoryDisabled=2、WaitingModule=3、ExportMissing=4、RuleExcluded=5、RetryableFailure=6、Unsupported=7、Removed=8；hookKind 为 Strong=0、Raw=1、Fake=2、DynamicExtension=3。仅完整有序快照替换上一次结果，中断保留原完整数据并标记 stale。
+
+普通业务调用事件仅在 Agent 明确标记采集成功时提供 `returnValueAvailable=true`、`returnValue`（十六进制原始位模式字符串）以及 `durationAvailable=true`、`duration100ns`（100 纳秒单位的十进制字符串）。两项独立可用；未采集值为 `null`，0 是有效值。旧 Agent、Raw 入口和没有相应标记的调用不会推断返回值或耗时；耗时只覆盖受测原函数附近的调用区间，不包含异步操作完成时间。
 
 正常结束／Ctrl+C 均先发布停止标记、通知 broker 的全部已受理后代，再继续读到 HooksRemoved 和管道排空，或确认原目标已经退出。清理完成后释放会话租约；保留停止标记供迟到的加载线程／常驻 Agent 检查。DLL、退役 trampoline 和回调按现有 Agent 策略保持到目标退出，重复采集复用常驻 DLL。强制杀死控制端不保证优雅清理，需通过正常停止流程恢复。
 

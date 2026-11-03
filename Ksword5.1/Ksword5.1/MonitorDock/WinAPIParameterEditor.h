@@ -1,5 +1,9 @@
 #pragma once
 #include "WinAPIParameterRules.h"
+#include "WinAPISignatureCatalog.h"
+#include "WinAPICallerSnapshotAdapter.h"
+#include "WinAPIStackSnapshotAdapter.h"
+#include <optional>
 #include "WinAPISessionBackend.h"
 #include <QWidget>
 #include <functional>
@@ -18,6 +22,11 @@ public:
     explicit WinAPIParameterEditor(QWidget* parent = nullptr);
     void setRecord(WinAPIEventRef record);
     ks::monitor::RawDecodeResult decoded() const;
+    void setSignatureCatalog(std::shared_ptr<const ks::monitor::WinAPISignatureCatalog> catalog);
+    const ks::monitor::WinAPISignature* signature() const;
+    const ks::winapi_monitor::CallerSnapshot* callerSnapshot() const
+    { return m_callerSnapshot ? &*m_callerSnapshot : nullptr; }
+    const std::vector<ks::winapi_monitor::StackFrameSnapshot>& stackSnapshot() const { return m_stackSnapshot; }
     std::function<void()> changed;
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -27,6 +36,11 @@ private:
     void rebuild();
     void reorderTypeButtons(int slotWidth);
     WinAPIEventRef m_record;
+    WinAPICallerSnapshotAdapter* m_callerAdapter = nullptr;
+    WinAPIStackSnapshotAdapter* m_stackAdapter = nullptr;
+    std::vector<ks::winapi_monitor::StackFrameSnapshot> m_stackSnapshot;
+    std::optional<ks::winapi_monitor::CallerSnapshot> m_callerSnapshot;
+    std::shared_ptr<const ks::monitor::WinAPISignatureCatalog> m_signatureCatalog;
     ks::monitor::WinAPIParameterRules m_rules;
     ks::monitor::RawParameterRule m_rule;
     ks::monitor::RawParameterRule m_dragOriginal;

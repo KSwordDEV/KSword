@@ -61,5 +61,8 @@ namespace apimon
         const wchar_t* apiName,
         UINT formatValue,
         HANDLE dataHandleForSizeHash,
-        ClipboardPolicyAction actionTaken);
+        ClipboardPolicyAction actionTaken,
+        bool hasReturnValue = false, std::uint64_t returnBits = 0,
+        bool hasDuration = false, std::uint64_t duration100ns = 0,
+        bool statusKnown = true, std::int32_t statusCode = 0);
 }

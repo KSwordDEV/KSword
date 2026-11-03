@@ -1,6 +1,7 @@
 #pragma once
 
 #include "WinAPISessionBackend.h"
+#include "WinAPIEventColumns.h"
 #include "../Internationalization/LanguageManager.h"
 #include "UI/TableSearchFilterSnapshot.h"
 #include <unordered_set>
@@ -56,7 +57,7 @@ private:
         const auto& v = row->value;
         return sizeof(WinAPIEventRecord) + 128 + 2 * static_cast<std::size_t>(row->searchText.size()
             + v.time100nsText.size() + v.categoryText.size() + v.apiText.size() + v.resultText.size()
-            + v.pidTidText.size() + v.detailText.size() + v.agentStatus.size());
+            + v.pidTidText.size() + v.detailText.size() + v.agentStatus.size() + v.sourceProcessName.size() + v.capturedReturnValue.size() + v.capturedCallStack.size());
     }
     std::deque<WinAPIEventRef> m_rows;
     std::unordered_set<const WinAPIEventRecord*> m_present;
@@ -70,7 +71,9 @@ private:
 struct WinAPIEventExportSnapshot
 {
     std::vector<WinAPIEventRef> rows;
+    ks::monitor::CallerColumnMap callerColumns; // Frozen UI snapshot values, not historical mappings.
     QString businessKeyword, lossSummary;
+    ks::monitor::EventTimeRange timeRange;
     std::shared_ptr<const ks::monitor::WinAPIFilterSnapshot> eventRules;
     QStringList headers;
     ks::ui::TableSearchResultFilterSpec search;
@@ -84,30 +87,50 @@ struct WinAPIEventExportSnapshot
     QStringList displayedCells(const WinAPIEventRef& record) const
     {
         if (!record) return {};
-        auto cells = WinAPIEventFields(record->value);
+        auto cells = ks::monitor::EventColumnTexts(record, &callerColumns);
         for (auto& cell : cells) cell = language.displayText(cell);
         return cells;
     }
     std::vector<WinAPIEventRef> orderedRows() const
     {
-        if (!continuousSort || sortColumn < 0 || sortColumn >= 6) return rows;
-        std::vector<std::pair<WinAPIEventRef, QString>> keyed;
+        if (!continuousSort || sortColumn < 0 || sortColumn >= ks::monitor::ColumnCount) return rows;
+        struct SortRow { WinAPIEventRef record; QVariant value; std::size_t ordinal; };
+        std::vector<SortRow> keyed;
         keyed.reserve(rows.size());
-        for (const auto& row : rows) keyed.emplace_back(row, displayedCells(row).value(sortColumn));
+        for (std::size_t ordinal = 0; ordinal < rows.size(); ++ordinal)
+            keyed.push_back({rows[ordinal], ks::monitor::EventSortValue(rows[ordinal], sortColumn, &callerColumns), ordinal});
         std::stable_sort(keyed.begin(), keyed.end(), [this](const auto& left, const auto& right) {
-            const int order = collator.compare(left.second, right.second);
+            int order = 0;
+            if (!left.value.isValid() || !right.value.isValid())
+                order = int(right.value.isValid()) - int(left.value.isValid());
+            else if (left.value.metaType().id() == QMetaType::ULongLong && right.value.metaType().id() == QMetaType::ULongLong) {
+                const auto a = left.value.toULongLong(), b = right.value.toULongLong();
+                order = a < b ? -1 : a > b ? 1 : 0;
+            } else if (left.value.metaType().id() == QMetaType::LongLong && right.value.metaType().id() == QMetaType::LongLong) {
+                const auto a = left.value.toLongLong(), b = right.value.toLongLong();
+                order = a < b ? -1 : a > b ? 1 : 0;
+            } else order = collator.compare(language.displayText(left.value.toString()), language.displayText(right.value.toString()));
+            if (order == 0) return sortOrder == Qt::AscendingOrder
+                ? left.ordinal < right.ordinal : left.ordinal > right.ordinal;
             return sortOrder == Qt::AscendingOrder ? order < 0 : order > 0;
         });
         std::vector<WinAPIEventRef> ordered;
         ordered.reserve(keyed.size());
-        for (auto& [row, key] : keyed) ordered.push_back(std::move(row));
+        for (auto& row : keyed) ordered.push_back(std::move(row.record));
         return ordered;
     }
     bool matches(const WinAPIEventRef& record) const
     {
         return record && (businessKeyword.isEmpty()
-            || record->searchText.contains(businessKeyword, Qt::CaseInsensitive))
+            || record->searchText.contains(businessKeyword, Qt::CaseInsensitive)
+            || record->value.sourceProcessName.contains(businessKeyword, Qt::CaseInsensitive)
+            || record->value.capturedReturnValue.contains(businessKeyword, Qt::CaseInsensitive))
             && (record->value.internalEvent || !eventRules || !eventRules->rejectsApi(record->value.apiText, false))
-            && ks::ui::TableSearchResultFilterMatches(search, displayedCells(record));
+            && ks::monitor::EventInTimeRange(record, timeRange)
+            && (!search.active || ks::ui::MatchTableSearchResultFilterCells(search.query, search.columns,
+                [this, &record](int column) {
+                    return column >= 0 && column < ks::monitor::ColumnCount
+                        ? language.displayText(ks::monitor::EventColumnText(record, column, &callerColumns)) : QString();
+                }));
     }
 };

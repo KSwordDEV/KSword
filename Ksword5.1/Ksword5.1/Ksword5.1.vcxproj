@@ -763,6 +763,7 @@
     <ClCompile Include="MonitorDock\WinAPIDock.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Actions.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp" />
+    <ClCompile Include="MonitorDock\WinAPIEventTimeline.cpp" />
     <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Ui.cpp" />
     <ClCompile Include="WindowDock\WindowDock.cpp" />
@@ -1414,6 +1415,16 @@
     <ClInclude Include="ProcessDock\ProcessHotkeyEnumerator.h" />
     <ClInclude Include="ProcessDock\HotkeyClearController.h" />
     <ClInclude Include="UI\UI.css\UI_css.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventColumns.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventTimeline.h" />
+    <ClInclude Include="MonitorDock\WinAPITimelineDensity.h" />
+    <ClInclude Include="MonitorDock\WinAPISignatureCatalog.h" />
+    <ClInclude Include="MonitorDock\WinAPICallerSnapshotAdapter.h" />
+    <ClInclude Include="MonitorDock\WinAPIStackSnapshotAdapter.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorStackSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorExportSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorCallerSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorDrain.h" />
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h" />
     <ClInclude Include="MonitorDock\WinAPIEventTableModel.h" />
     <ClInclude Include="MonitorDock\WinAPISessionBackend.h" />
@@ -1777,6 +1788,7 @@
     </ProjectReference>
     <ClInclude Include="..\..\shared\ApiMonitorPlatform.h" />
     <ClInclude Include="..\..\shared\ApiMonitorInjection.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorR0Injection.h" />
   </ItemGroup>
   <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup>

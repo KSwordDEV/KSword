@@ -41,6 +41,7 @@ namespace ks::winapi_monitor
         struct Participant { std::uint64_t creation; std::wstring agentPath, session; };
         InjectionEndpoint endpoint;
         std::wstring rootStopPath;
+        InjectionBroker::Injector injector;
         std::unordered_map<DWORD, Participant> participants;
         std::unordered_map<DWORD, std::uint64_t> attemptedParticipants;
         HANDLE stopEvent = nullptr, pipe = INVALID_HANDLE_VALUE;
@@ -95,7 +96,9 @@ namespace ks::winapi_monitor
             if (!attemptedParticipants.contains(request.childPid) && attemptedParticipants.size() >= 8192)
                 return platformFailure(error, L"injection session participant capacity reached", ERROR_NOT_ENOUGH_QUOTA);
             attemptedParticipants[request.childPid] = request.childCreation;
-            if (!injectAgentNative(request.childPid, selected, error, request.childCreation, stopEvent)) return false;
+            if (injector) {
+                if (!injector(request.childPid, selected, error, request.childCreation, stopEvent)) return false;
+            } else if (!injectAgentNative(request.childPid, selected, error, request.childCreation, stopEvent)) return false;
             if (stopping()) return platformFailure(error, L"injection session stopped during load", ERROR_OPERATION_ABORTED);
             participants[request.childPid] = {request.childCreation, selected, session};
             return true;
@@ -149,7 +152,7 @@ namespace ks::winapi_monitor
     }
     InjectionEndpoint InjectionBroker::endpoint() const { return m_state ? m_state->endpoint : InjectionEndpoint{}; }
     bool InjectionBroker::start(DWORD rootPid, const std::wstring& agentPath, const std::wstring& session,
-        const std::wstring& rootStopPath, std::wstring* error)
+        const std::wstring& rootStopPath, std::wstring* error, Injector injector)
     {
         static_assert(sizeof(void*) == 8, "InjectionBroker must be hosted by the x64 main program");
         stop();
@@ -164,7 +167,8 @@ namespace ks::winapi_monitor
         state->endpoint.token = session;
         state->endpoint.pipeName = L"\\\\.\\pipe\\KswordApiInject_" + std::to_wstring(state->endpoint.hostPid)
             + L"_" + std::to_wstring(rootPid) + L"_" + session;
-        state->rootStopPath = rootStopPath; state->participants[rootPid] = {creation, agentPath, session};
+        state->rootStopPath = rootStopPath; state->injector = std::move(injector);
+        state->participants[rootPid] = {creation, agentPath, session};
         state->stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (!state->stopEvent) return platformFailure(error, L"create injection stop event", ::GetLastError());
         PSECURITY_DESCRIPTOR descriptor = nullptr;

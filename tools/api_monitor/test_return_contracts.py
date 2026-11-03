@@ -13,10 +13,16 @@ cpp = r'''
 #include <Windows.h>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 namespace ks::winapi_monitor {constexpr unsigned kMaxDetailChars=320;enum class EventCategory{File};}
 struct ScopedHookGuard{bool bypass()const{return false;}};
 bool failure=true;long observed=-1;
-void SendRawEventWithStatus(ks::winapi_monitor::EventCategory,const wchar_t*,const wchar_t*,long status,const wchar_t*){observed=status;SetLastError(9999);}
+template <typename T> std::uint64_t ApiReturnBits(T value){std::uint64_t bits{};static_assert(sizeof(value)<=sizeof(bits));memcpy(&bits,&value,sizeof(value));return bits;}
+template <size_t N> void AppendWideText(wchar_t (&)[N],const wchar_t*){}
+template <size_t N> void AppendHexText(wchar_t (&)[N],std::uint64_t){}
+int BeginApiCallClock(){const DWORD error=GetLastError();SetLastError(error);return 0;}
+int EndApiCallClock(int){const DWORD error=GetLastError();SetLastError(error);return 0;}
+void SendRawEventWithMetrics(ks::winapi_monitor::EventCategory,const wchar_t*,const wchar_t*,long status,const wchar_t*,bool,std::uint64_t,int){observed=status;SetLastError(9999);}
 '''
 calls = "int main(){\n"
 for api in (a for a in catalog["apis"] if a["export"] in names):

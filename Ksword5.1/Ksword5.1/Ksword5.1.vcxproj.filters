@@ -893,6 +893,7 @@
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MonitorDock\WinAPIEventTimeline.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3737,6 +3738,18 @@
     <ClInclude Include="MonitorDock\EventTimelineModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventTimeline.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPITimelineDensity.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPISignatureCatalog.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPICallerSnapshotAdapter.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIStackSnapshotAdapter.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorStackSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorExportSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorCallerSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorDrain.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventColumns.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -4003,7 +4016,7 @@
     <ClInclude Include="..\..\shared\ApiMonitorCoverage.h" />
   </ItemGroup>
   <ItemGroup><ClCompile Include="MonitorDock\WinAPIDock.Coverage.cpp" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\..\shared\ApiMonitorInjection.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\..\shared\ApiMonitorInjection.h" /><ClInclude Include="..\..\shared\ApiMonitorR0Injection.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\shared\ApiMonitorInjectionProtocol.h" />

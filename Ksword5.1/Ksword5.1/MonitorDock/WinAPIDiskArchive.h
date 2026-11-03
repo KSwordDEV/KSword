@@ -23,7 +23,10 @@ public:
         if (m_file == INVALID_HANDLE_VALUE) return fail(::GetLastError());
         m_lastFlush = ::GetTickCount64(); return true;
     }
-    bool append(const ks::winapi_monitor::ApiMonitorEventPacket& packet, std::uint32_t readerPid)
+    // Identity may only be supplied after validating the pipe server PID and
+    // its creation time. Each packet must still match that verified reader.
+    bool append(const ks::winapi_monitor::ApiMonitorEventPacket& packet, std::uint32_t readerPid,
+        bool identityVerified = false, std::uint64_t creation100ns = 0, const QString& processName = QString())
     {
         try {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -36,6 +39,11 @@ public:
             object.insert(QStringLiteral("sequence"), QString::number(m_accepted + 1));
             object.insert(QStringLiteral("readerPid"), static_cast<qint64>(readerPid));
             object.insert(QStringLiteral("pid"), static_cast<qint64>(packet.pid));
+            if (identityVerified && readerPid != 0 && packet.pid == readerPid && creation100ns != 0) {
+                // String preserves the complete 64-bit FILETIME value in JSON.
+                object.insert(QStringLiteral("processCreation100ns"), QString::number(creation100ns));
+                if (!processName.isEmpty()) object.insert(QStringLiteral("processName"), processName);
+            }
             object.insert(QStringLiteral("tid"), static_cast<qint64>(packet.tid));
             object.insert(QStringLiteral("time100ns"), QString::number(packet.timestamp100ns));
             object.insert(QStringLiteral("category"), static_cast<qint64>(packet.category));

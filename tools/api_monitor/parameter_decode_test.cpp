@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <iostream>
+#include <algorithm>
 #include "MonitorDock/WinAPIParameterDecode.h"
 #include "MonitorDock/WinAPIParameterRules.h"
 #include "MonitorDock/WinAPIFilterRules.h"
@@ -40,7 +41,7 @@ int main(int argc, char** argv)
     RawParameterData floatData{4, {0x3f800000, 0x00000000, 0x40040000}};
     auto floats = DecodeRawParameters(floatData, {{RawParameterType::Float}, {RawParameterType::Double}}, RawDecodeMode::Parameters);
     CHECK(floats.values[0].value == QStringLiteral("1") && floats.values[1].value == QStringLiteral("2.5"));
-    CHECK(DecodeRawParameters(raw, {{RawParameterType::Float}}, RawDecodeMode::Parameters).values[0].value == QStringLiteral("未采集浮点寄存器"));
+    CHECK(DecodeRawParameters(raw, {{RawParameterType::Float}}, RawDecodeMode::Parameters).values[0].value == QStringLiteral("-"));
     CHECK(DecodeRawParameters(RawParameterData{8, {0x3f800000}}, {{RawParameterType::Float}}, RawDecodeMode::Bytes).values[0].value == QStringLiteral("1"));
     auto incomplete = DecodeRawParameters(x86, {{RawParameterType::Bytes, 20}}, RawDecodeMode::Bytes);
     CHECK(incomplete.valid && !incomplete.values[0].available && incomplete.unallocated.size() == 16);
@@ -94,8 +95,12 @@ int main(int argc, char** argv)
     snapshot.postFunctions.insert(WinAPIFilterSnapshot::functionKey(QStringLiteral("USER32.DLL"), QStringLiteral("GetMessageW")));
     CHECK(filters.save(snapshot));
     CHECK(filters.snapshot()->rejects(QStringLiteral("ntdll.dll"), QStringLiteral("Foo"), true));
+    CHECK(filters.snapshot()->rejects(QStringLiteral("NtDll"), QStringLiteral("Foo"), true));
+    CHECK(!filters.snapshot()->rejects(QStringLiteral("ntdll.exe"), QStringLiteral("Foo"), true));
+    CHECK(!filters.snapshot()->rejects(QStringLiteral("C:\\Windows\\ntdll.dll"), QStringLiteral("Foo"), true));
     CHECK(!filters.snapshot()->rejects(QStringLiteral("ntdll.dll"), QStringLiteral("Foo"), false));
     CHECK(filters.snapshot()->rejectsApi(QStringLiteral("user32.dll!GetMessageW"), false));
+    CHECK(filters.snapshot()->rejectsApi(QStringLiteral("USER32!GetMessageW"), false));
     CHECK(!filters.snapshot()->rejectsApi(QStringLiteral("user32.dll!getmessagew"), false));
     WinAPIFilterRules filtersLoaded(filterPath); CHECK(filtersLoaded.load());
     CHECK(filtersLoaded.snapshot()->rejectsApi(QStringLiteral("user32.dll!GetMessageW"), false));
@@ -104,7 +109,9 @@ int main(int argc, char** argv)
     exceptions.preAllowed.insert(allowedKey); CHECK(filtersLoaded.save(exceptions));
     WinAPIFilterRules exceptionReload(filterPath); CHECK(exceptionReload.load());
     CHECK(!exceptionReload.snapshot()->rejects(QStringLiteral("ntdll.dll"), QStringLiteral("Allowed"), true));
+    CHECK(!exceptionReload.snapshot()->rejects(QStringLiteral("NtDll"), QStringLiteral("Allowed"), true));
     CHECK(exceptionReload.snapshot()->rejects(QStringLiteral("ntdll.dll"), QStringLiteral("Other"), true));
+    CHECK(exceptionReload.snapshot()->rejects(QStringLiteral("NtDll"), QStringLiteral("allowed"), true));
     const QString exportPath = folder.filePath(QStringLiteral("export.cfg"));
     CHECK(filtersLoaded.exportFile(exportPath)); WinAPIFilterRules imported(exportPath); CHECK(imported.load());
     CHECK(imported.snapshot()->rejects(QStringLiteral("ntdll.dll"), QStringLiteral("Bar"), true));
@@ -114,7 +121,15 @@ int main(int argc, char** argv)
     legacy.write(R"({"version":1,"rules":[{"module":"user32.dll","function":"GetMessageW","pre":false,"post":true}]})"); legacy.close();
     WinAPIFilterRules oldRules(filterPath); CHECK(oldRules.load());
     CHECK(oldRules.snapshot()->rejectsApi(QStringLiteral("USER32.DLL!GetMessageW"), false));
+    CHECK(oldRules.snapshot()->rejectsApi(QStringLiteral("USER32!GetMessageW"), false));
     CHECK(!oldRules.snapshot()->rejectsApi(QStringLiteral("USER32.DLL!GetMessageW"), true));
+    QFile legacy2(filterPath); CHECK(legacy2.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    legacy2.write(R"({"version":2,"rules":[{"module":"KernelBase","function":"","pre":true,"post":true,"preAllow":false,"postAllow":false},{"module":"kernelbase.dll","function":"ReadFile","pre":false,"post":false,"preAllow":true,"postAllow":false}]})"); legacy2.close();
+    WinAPIFilterRules oldV2(filterPath); CHECK(oldV2.load());
+    CHECK(!oldV2.snapshot()->rejects(QStringLiteral("KERNELBASE.DLL"), QStringLiteral("ReadFile"), true));
+    CHECK(oldV2.snapshot()->rejects(QStringLiteral("KernelBase"), QStringLiteral("ReadFile"), false));
+    CHECK(oldV2.snapshot()->rejects(QStringLiteral("KernelBase"), QStringLiteral("WriteFile"), true));
+    CHECK(!oldV2.snapshot()->rejects(QStringLiteral("KernelBase.exe"), QStringLiteral("WriteFile"), true));
     WinAPIFilterCatalog catalog;
     CHECK(ParseWinAPIFilterCatalog(R"({"schema_version":1,"apis":[{"module":"User32.dll","export":"GetMessageW","category":"Process"},{"module":"USER32.dll","export":"GetMessageW","category":"Process"},{"module":"user32.dll","export":"getmessagew","category":"Other"}]})", &catalog));
     CHECK(catalog.size() == 2 && catalog[0].module == QStringLiteral("User32.dll"));
@@ -122,5 +137,9 @@ int main(int argc, char** argv)
     CHECK(!ParseWinAPIFilterCatalog("{", &catalog) && catalog.size() == 2);
     QFile definitions(QStringLiteral("APIMonitor_x64/api_monitor_definitions.json")); CHECK(definitions.open(QIODevice::ReadOnly));
     CHECK(ParseWinAPIFilterCatalog(definitions.readAll(), &catalog) && catalog.size() >= 600);
+    CHECK(std::any_of(catalog.begin(), catalog.end(), [](const auto& entry) {
+        return entry.module.compare(QStringLiteral("KernelBase.dll"), Qt::CaseInsensitive) == 0
+            && entry.function == QStringLiteral("CreateFileW");
+    }));
     std::cout << "PASS: x86/x64 slots, both allocation modes, unavailable data and hex/ASCII\n";
 }

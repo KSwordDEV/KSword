@@ -613,6 +613,10 @@
       <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
     </ClCompile>
     <ClInclude Include="..\shared\ApiMonitorCapture.h" />
+    <ClInclude Include="..\shared\ApiMonitorR0Injection.h" />
+    <ClInclude Include="..\shared\ApiMonitorCliView.h" />
+    <ClInclude Include="ApiMonitorSignatureCatalog.h" />
+    <ClInclude Include="ApiMonitorFilterImport.h" />
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x64'">
     <ProjectReference Include="..\APIMonitor_x64\APIMonitor_x64.vcxproj">

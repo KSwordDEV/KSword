@@ -37,6 +37,7 @@ namespace ks::monitor { class MonitorCanonicalExport; }
 #include <unordered_map>
 #include <vector>   // std::vector：进程快照与待刷新事件缓存。
 
+class WinAPIEventTimeline;
 class WinAPIEventTableModel;
 class WinAPIEventFilterModel;
 class WinAPIParameterEditor;
@@ -88,13 +89,13 @@ public:
     // - 调用：插入事件、导出和右键菜单时统一按列访问。
     enum EventColumn
     {
-        EventColumnTime100ns = 0,
-        EventColumnCategory,
-        EventColumnApi,
-        EventColumnResult,
-        EventColumnPidTid,
-        EventColumnDetail,
-        EventColumnCount
+        EventColumnTime100ns = ks::monitor::Time,
+        EventColumnCategory = ks::monitor::Category,
+        EventColumnApi = ks::monitor::Api,
+        EventColumnResult = ks::monitor::Status,
+        EventColumnPidTid = ks::monitor::PidTid,
+        EventColumnDetail = ks::monitor::Detail,
+        EventColumnCount = ks::monitor::ColumnCount
     };
 
     // FakeRuleColumn:
@@ -115,7 +116,7 @@ public:
     // EventRow：
     // - 作用：缓存一行待刷入 UI 的 API 事件；
     // - internalEvent：是否是 UI/Agent 自己生成的内部状态事件。
-    enum class HookState { Waiting, Installing, Active, Partial, Failed, Removed };
+    enum class HookState { Waiting, Installing, Active, Partial, Failed, Paused, PauseFailed, Removed };
 
     using EventRow = WinAPIEventRow;
     using CoverageDisplayRow = WinAPICoverageDisplayRow;
@@ -146,7 +147,7 @@ private:
     QString freezeSessionOptions() const;
     void pollSessionBackend();
 
-    void appendInternalEvent(const QString& categoryText, const QString& apiText, const QString& detailText);
+    void appendInternalEvent(const QString& categoryText, const QString& apiText, const QString& detailText, bool success = true);
     QString fakeSuccessRulesIniText() const;
     bool validateFakeSuccessRules(QString* errorTextOut) const;
     void addFakeSuccessRuleFromInputs();
@@ -173,7 +174,7 @@ private:
     void eventRulesChanged();
     void flushPendingRows();
     void initializeEventProjection();
-    void acceptPendingEventRows();
+    void acceptPendingEventRows(bool drainAll = false);
     void applyEventState(const EventRow& rowValue);
     void projectEventRows();
     void initializeEventTailFollow();
@@ -207,7 +208,6 @@ private:
     QWidget* m_sessionPanel = nullptr;                 // m_sessionPanel：左侧 WinAPI Agent 会话配置面板。
     QWidget* m_filterPanel = nullptr;                  // m_filterPanel：底部事件筛选面板。
 
-    QLabel* m_processIconLabel = nullptr;              // m_processIconLabel：显示当前候选/选中进程的系统图标。
     QComboBox* m_processCombo = nullptr;               // m_processCombo：可编辑进程下拉框，用户输入进程名/PID 后从候选中选择。
     QPushButton* m_processRefreshButton = nullptr;     // m_processRefreshButton：刷新进程列表按钮。
     QLabel* m_processStatusLabel = nullptr;            // m_processStatusLabel：进程下拉框匹配/选择状态文本。
@@ -222,6 +222,9 @@ private:
     QCheckBox* m_hookLoaderCheck = nullptr;            // m_hookLoaderCheck：是否启用加载器 API 监控。
     QCheckBox* m_hookClipboardCheck = nullptr;         // m_hookClipboardCheck：是否启用剪贴板 API 监控（独立分类，不随"进程 API"一起装）。
     QCheckBox* m_autoInjectChildCheck = nullptr;       // m_autoInjectChildCheck：是否在 CreateProcessW 成功后自动注入子进程。
+    QCheckBox* m_r0InjectCheck = nullptr;              // 会话的注入后端；运行时不可更改。
+    QCheckBox* m_pauseEventsCheck = nullptr;
+    QCheckBox* m_captureCallStackCheck = nullptr;
     QCheckBox* m_rawFallbackCheck = nullptr;           // m_rawFallbackCheck：是否启用未强类型覆盖导出的 Raw ABI 兜底 Hook。
     QCheckBox* m_rawDefaultDenyListCheck = nullptr;    // m_rawDefaultDenyListCheck：是否启用默认高频/高风险 Raw 黑名单。
     QPlainTextEdit* m_rawModuleListEdit = nullptr;     // m_rawModuleListEdit：Raw 兜底扫描模块列表，多行编辑。
@@ -264,6 +267,7 @@ private:
     QPushButton* m_openDiskArchiveButton = nullptr;
     QLabel* m_eventFilterStatusLabel = nullptr;        // m_eventFilterStatusLabel：过滤结果状态文本。
     QTableView* m_eventTable = nullptr;                // 轻量事件模型，仅绘制当前视口。
+    WinAPIEventTimeline* m_apiTimeline = nullptr;
     WinAPIEventTableModel* m_eventModel = nullptr;
     WinAPIEventFilterModel* m_eventProxy = nullptr;
     bool m_itemThemeRefreshScheduled = false; // 主题事件合并标志；不会改变过滤关键词或可见行计数。
@@ -304,7 +308,7 @@ private:
     std::unordered_map<std::uint32_t, CoverageViewState> m_pendingCoverage, m_coverageViews;
     std::vector<ks::process::ProcessRecord> m_processList; // m_processList：当前系统进程快照。
     static constexpr std::size_t kPendingRowCapacity = 24000; // 后台队列上限，积压时丢弃最旧事件以保护内存与延迟。
-    static constexpr std::size_t kUiFlushRowLimit = 2048;     // 单个 GUI tick 的值投影批次上限。
+    static constexpr std::size_t kUiFlushRowLimit = 512;      // 单个 GUI tick 的值投影批次上限。
     static constexpr int kUiFlushBudgetMs = 4;                // 单个 GUI tick 的渲染时间预算。
     static constexpr std::uint32_t kPipeReconnectLimit = 3;  // 旧会话切换时读端可容忍的瞬时断线次数，避免新 Agent 建管道前 UI 放弃读取。
 
@@ -323,6 +327,7 @@ private:
     ks::ui::AsyncOperation* m_sessionOperation = nullptr;
     bool m_startupReported = false, m_stopReported = false;
     bool m_stopping = false;
+    bool m_userRequestedStop = false;
     std::uint64_t m_reportedCleanupAttempt = 0;
     std::atomic_bool m_processRefreshPending{ false };     // m_processRefreshPending：进程刷新是否进行中。
     HookState m_hookState = HookState::Waiting;
@@ -332,6 +337,9 @@ private:
     std::atomic_bool m_pipeConnected{ false };             // m_pipeConnected：是否已成功连上 Agent 管道。
     QTimer* m_uiFlushTimer = nullptr;                      // m_uiFlushTimer：批量刷新事件表的定时器。
     int m_sessionProgressPid = 0;                          // m_sessionProgressPid：kPro 任务卡片 ID。
+    int m_filterProgressPid = 0;
+    QTimer* m_filterProgressTimer = nullptr;
+    bool m_filterProgressActive = false;
     std::uint32_t m_currentSessionPid = 0;                 // m_currentSessionPid：当前监控中的目标 PID。
     std::uint32_t m_residentAgentPid = 0;                  // m_residentAgentPid：已成功注入且仍可能常驻 Agent 的 PID。
     std::uint64_t m_residentAgentCreationTime100ns = 0;    // m_residentAgentCreationTime100ns：常驻 Agent 所属进程实例的创建时间，防 PID 复用。

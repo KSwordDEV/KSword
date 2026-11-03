@@ -165,6 +165,13 @@ namespace ksword::ark
             std::uint32_t processId,
             const std::wstring& dllPath,
             unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED | KSWORD_ARK_PROCESS_INJECT_FLAG_WAIT_THREAD) const;
+        // Caller must resolve this address in the target process and verify its
+        // architecture and identity. The v1 IOCTL does not bind PID creation time.
+        ProcessInjectResult injectProcessDllAt(
+            std::uint32_t processId,
+            const std::wstring& dllPath,
+            std::uint64_t targetLoadLibraryAddress,
+            unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED | KSWORD_ARK_PROCESS_INJECT_FLAG_WAIT_THREAD) const;
         ProcessInjectResult injectProcessShellcode(
             std::uint32_t processId,
             const std::vector<std::uint8_t>& shellcode,

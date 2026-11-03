@@ -37,6 +37,7 @@ namespace apimon
     // - 作用：判断当前监控是否已收到停止请求；
     // - 调用：后台线程与 Hook 层可据此减少额外处理。
     bool StopRequested();
+    bool EventsPaused();
 
     // RequestStop：
     // - 作用：设置全局停止标志；

@@ -80,5 +80,5 @@
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\APIMonitor_x64\hook\NearAllocation.h" /><ClInclude Include="..\APIMonitor_x64\hook\ThreadPatchGuard.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="..\APIMonitor_x64\hook\CodePageAllocator.h" /></ItemGroup>
-<ItemGroup><ClInclude Include="..\APIMonitor_x64\hook\RawAbiSnapshot.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="..\APIMonitor_x64\hook\RawAbiSnapshot.h" /><ClInclude Include="..\APIMonitor_x64\hook\HookCallStack.h" /><ClInclude Include="..\shared\ApiMonitorCallStack.h" /></ItemGroup>
 </Project>

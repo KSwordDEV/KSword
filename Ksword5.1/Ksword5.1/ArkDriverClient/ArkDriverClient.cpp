@@ -1558,6 +1558,27 @@ namespace ksword::ark
                 "GetProcAddress(LoadLibraryW) failed, error=" + std::to_string(win32Error));
         }
 
+        return injectProcessDllAt(processId, dllPath,
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(loadLibraryAddress)), flags);
+    }
+
+    ProcessInjectResult DriverClient::injectProcessDllAt(
+        const std::uint32_t processId,
+        const std::wstring& dllPath,
+        const std::uint64_t targetLoadLibraryAddress,
+        const unsigned long flags) const
+    {
+        if (dllPath.empty() || targetLoadLibraryAddress == 0)
+        {
+            return makeProcessInjectInputFailure(processId, KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH,
+                ERROR_INVALID_PARAMETER, "DLL path or target LoadLibraryW address is empty");
+        }
+        if (dllPath.size() + 1U > KSWORD_ARK_PROCESS_INJECT_MAX_PAYLOAD_BYTES / sizeof(wchar_t))
+        {
+            return makeProcessInjectInputFailure(processId, KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH,
+                ERROR_BAD_LENGTH, "DLL path is larger than R0 inject payload limit");
+        }
+
         const std::size_t payloadBytes = (dllPath.size() + 1U) * sizeof(wchar_t);
         const std::size_t headerSize = processInjectRequestHeaderSize();
         std::vector<std::uint8_t> requestBuffer(headerSize + payloadBytes, 0U);
@@ -1567,8 +1588,7 @@ namespace ksword::ark
         request->injectType = KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH;
         request->flags = flags;
         request->payloadBytes = static_cast<unsigned long>(payloadBytes);
-        request->entryPointAddress =
-            static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(loadLibraryAddress));
+        request->entryPointAddress = static_cast<unsigned long long>(targetLoadLibraryAddress);
         request->parameterAddress = 0ULL;
         std::memcpy(request->payload, dllPath.c_str(), payloadBytes);
 

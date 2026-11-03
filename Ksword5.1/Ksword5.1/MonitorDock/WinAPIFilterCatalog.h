@@ -34,6 +34,27 @@ inline bool ParseWinAPIFilterCatalog(const QByteArray& data, WinAPIFilterCatalog
         const auto key = WinAPIFilterSnapshot::functionKey(module, function);
         if (!seen.contains(key)) { seen.insert(key); parsed.push_back({module, function, item.value(QStringLiteral("category")).toString()}); }
     }
+    const auto refValue = root.value(QStringLiteral("reference_signatures"));
+    if (!refValue.isUndefined()) {
+        if (!refValue.isObject()) return false;
+        const auto refs = refValue.toObject();
+        if (refs.value(QStringLiteral("schema_version")).toInt(-1) != 1
+            || refs.value(QStringLiteral("status")).toString() != QStringLiteral("unverified")
+            || !refs.value(QStringLiteral("entries")).isArray()) return false;
+        const auto rows = refs.value(QStringLiteral("entries")).toArray();
+        if (rows.size() > 65536 || rows.size() + entries.size() > 100000) return false;
+        parsed.reserve(static_cast<std::size_t>(entries.size() + rows.size()));
+        for (const auto& row : rows) {
+            if (!row.isArray()) return false;
+            const auto fields = row.toArray();
+            if (fields.size() != 6 || !fields[0].isString() || !fields[1].isString()) return false;
+            const auto module = fields[0].toString().trimmed();
+            const auto function = fields[1].toString().trimmed();
+            if (module.isEmpty() || function.isEmpty() || module.contains(QChar(0x1f)) || function.contains(QChar(0x1f))) return false;
+            const auto key = WinAPIFilterSnapshot::functionKey(module, function);
+            if (!seen.contains(key)) { seen.insert(key); parsed.push_back({module, function, {}}); }
+        }
+    }
     *result = std::move(parsed); return true;
 }
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "ApiMonitorCoverage.h"
+#include "ApiMonitorCliView.h"
 #include <deque>
 #include <map>
 #include <memory>
@@ -13,6 +14,11 @@ struct CaptureRequest {
     DWORD durationMs = 1000, startupTimeoutMs = 30000, stopTimeoutMs = 15000;
     std::size_t eventLimit = 5000;
     bool autoChildren = false;
+    // Explicitly selected injection mechanism; never silently fall back.
+    // A resident Agent may be reused without a new injection.
+    bool useR0Injection = false;
+    CliEventFilter preFilter, postFilter, importedPreFilter, importedPostFilter;
+    bool collectTimeline = false;
     std::map<std::wstring, std::wstring> options;
 };
 struct CaptureProcess {
@@ -28,9 +34,10 @@ struct CaptureResult {
     std::vector<std::wstring> errors;
     bool configPublished = false, reusedResident = false, cancelled = false;
     bool completedInterval = false, stopWritten = false, cleanupComplete = false;
-    std::uint64_t elapsedMs = 0, received = 0, bufferDropped = 0, invalidPackets = 0;
+    std::uint64_t elapsedMs = 0, received = 0, bufferDropped = 0, invalidPackets = 0, preFiltered = 0;
     std::deque<ApiMonitorEventPacket> events;
     std::vector<CaptureProcess> processes;
+    CliTimeline timeline;
 };
 CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic_bool& cancel);
 }

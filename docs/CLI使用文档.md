@@ -40,9 +40,17 @@ KswordCLI.exe network connections help
 
 ## API Monitor 注入监控
 
-`monitor api capture --pid PID --confirm [--duration-ms N] [--json]` 已接入主程序同源的 API Monitor Agent、位数选择、原生注入、会话租约、子进程注入 broker 和覆盖快照协议，无需加载 R0 驱动。默认从 CLI 同目录选择 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`；限时采集结束或 Ctrl+C 后写停止标记，并等待 Hook 移除和管道排空。DLL 保持常驻，可对同一目标再次采集。
+`monitor api capture --pid PID --confirm [--duration-ms N] [--json]` 已接入主程序同源的 API Monitor Agent、位数选择、原生注入、会话租约、子进程注入 broker 和覆盖快照协议，默认使用 R3 注入，无需加载 R0 驱动。可显式使用 `--r0-inject 1` 选择现有 R0 注入后端；开启自动子进程时子进程同样使用 R0 注入，失败不会自动回退 R3。目标创建时间在驱动调用前后校验，但现有 PID 协议仍有查找前复用窗口。`injectionBackendRequested` 记录选择，常驻 Agent 复用时不再次注入。默认从 CLI 同目录选择 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`；限时采集结束或 Ctrl+C 后写停止标记，并等待 Hook 移除和管道排空。DLL 保持常驻，可对同一目标再次采集。
 
-支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard`（逗号分隔）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+通过 `--call-stack 0|1` 或 `--options-file` 导入 `[monitor]` 节中的 `capture_call_stack=1` 可选采集强类型调用栈；事件 JSON 的 `callStackAvailable` 与 `callStack` 分别表示是否采到和最多 8 个地址。该栈可能包含监控内部帧，Raw 调用或详情空间不足时可能缺失；命令行选项优先于 INI。
+
+可用 `--filter-file PATH` 导入界面的前后置筛选配置；`--pre-exclude-modules`、`--pre-exclude-apis`、`--post-exclude-modules`、`--post-exclude-apis` 按分号分隔的模块或 `模块!函数` 身份追加排除，优先于导入配置中的允许例外。前置在接收后入缓冲前拒收，后置只隐藏已保留结果；控制和覆盖事件不受影响。模块名不区分大小写，无路径且无扩展名时按 `.dll` 匹配；函数名区分大小写。`--timeline 1` 输出最多 2048 个自适应时间桶，计入前置保留的普通调用（含后置隐藏和缓冲淘汰），不包含丢失或前置拒收事件；详见 [监控命令](cli/monitor.md)。
+
+事件中的 `rawAbi` 列出实际采集的 Raw 寄存器和栈槽，不推断参数类型。`--signatures 1` 读取同目录的项目声明文件，只有文件 SHA-256 与 Agent 事件定义哈希一致时才附加声明，并标识项目、SDK 已核对或未核验参考来源；不读取目标指针。
+
+支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard`（逗号分隔）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--r0-inject 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+
+采集事件的 `returnValueAvailable`、`durationAvailable` 分别表示是否实际采到返回位模式和调用耗时；对应的 `returnValue` 是十六进制字符串、`duration100ns` 是以 100 纳秒为单位的十进制字符串，缺失时为 `null`。旧 Agent 和 Raw 入口不会推断未采集值。详见 [monitor 命令](cli/monitor.md)。
 
 输出事件、异步 operationId、每个 PID 的完整覆盖快照、Hook 安装／移除、Agent 丢包、输出缓冲截断、进程创建身份及清理结果。Raw 的未知返回值为 null。完整无损采集返回 0；部分 Hook、丢包、截断、取消、提前退出或未确认停止返回 6；启动失败 3，参数错误 1，非 x64 宿主 5。仅加载 DLL 不算监控成功，只有 HooksInstalled 才开始计时；只有 HooksRemoved／原目标退出才确认停止。停止标记保留，以防迟到的加载线程重启旧会话。详见 [监控命令](cli/monitor.md)。
 

@@ -27,6 +27,26 @@
 
 namespace ks::winapi_monitor
 {
+    // The controller owns the event; monitored processes may only observe it.
+    inline HANDLE createPauseEvent(const std::wstring& name, const std::wstring& controllerSid, bool initiallyPaused, DWORD* error)
+    {
+        const std::wstring sddl = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + controllerSid + L")(A;;0x00100000;;;WD)";
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        if (!::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) {
+            if (error) *error = ::GetLastError(); return nullptr;
+        }
+        SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
+        HANDLE handle = ::CreateEventW(&attributes, TRUE, initiallyPaused ? TRUE : FALSE, name.c_str());
+        const DWORD status = ::GetLastError();
+        ::LocalFree(descriptor);
+        if (!handle || status == ERROR_ALREADY_EXISTS) {
+            if (handle) ::CloseHandle(handle);
+            if (error) *error = handle ? ERROR_ALREADY_EXISTS : status;
+            return nullptr;
+        }
+        if (error) *error = ERROR_SUCCESS;
+        return handle;
+    }
     // A kernel object lease works across UI/background threads and KSword instances.
     // CloseHandle releases ownership regardless of the thread that acquired it.
     class SessionLease
@@ -152,7 +172,16 @@ namespace ks::winapi_monitor
     inline bool isCoverageEvent(const std::uint32_t kind)
     { return kind >= static_cast<std::uint32_t>(EventKind::CoverageBegin) && kind <= static_cast<std::uint32_t>(EventKind::CoverageEnd); }
 
-    enum class EventResultKind : std::uint32_t { StatusCode = 0, EntryOnly = 1 };
+    enum class EventResultKind : std::uint32_t { StatusCode = 0, EntryOnly = 1, StatusUnknown = 2 };
+
+    // For ordinary ApiCall packets only: snapshotIndex marks a captured
+    // function return value in hookAddress. Coverage packets retain their
+    // original meaning, and older consumers can ignore these fields.
+    inline constexpr std::uint32_t kApiCallReturnValueMarker = 0x52545631u;
+    // For ordinary business ApiCall packets only: snapshotCount marks an
+    // explicitly measured duration in snapshotRevision, in 100 ns units.
+    // Coverage and HooksRemoved retain their original field meanings.
+    inline constexpr std::uint32_t kApiCallDurationMarker = 0x44555231u;
 
     // ApiMonitorEventPacket：
     // - 作用：命名管道中传输的固定长度事件包；
@@ -174,14 +203,14 @@ namespace ks::winapi_monitor
         std::uint32_t apiId = 0;
         std::uint32_t coverageState = 0;
         std::uint32_t hookKind = 0;
-        std::uint32_t snapshotIndex = 0;
+        std::uint32_t snapshotIndex = 0; // Coverage index; ApiCall may use kApiCallReturnValueMarker.
         std::uint32_t snapshotCount = 0;
         std::uint64_t sessionIdentity = 0;
         std::uint64_t operationId = 0;
         // Coverage packets: this snapshot revision. HooksRemoved: the final
         // required revision (0 from older agents means unknown).
         std::uint64_t snapshotRevision = 0;
-        std::uint64_t hookAddress = 0;
+        std::uint64_t hookAddress = 0; // Coverage hook address; marked ApiCall holds return bits.
         char definitionSha256[65] = {};
     };
 

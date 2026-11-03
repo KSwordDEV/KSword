@@ -1,6 +1,7 @@
 # API Monitor 共享采集与 x64 引擎
 
 `api_monitor_definitions.json` 是强类型 API 定义的唯一来源。当前有 641 项；原有 614 项的 ID、模块和导出名保持稳定。
+API Monitor v2 Alpha r13 XML 转换结果仅保留在隔离候选中，尚未合入本文件或发行目录。候选含 14,419 条参考声明及接口元数据，其中 227 条 User32 原型通过 Windows SDK 的 x86/x64 编译期核对；参数方向与运行时语义仍未核验。来源为 Rohitab Batra，修改后再发行的许可尚需核实；候选不生成 Hook。
 已发布的 ID 不得重编号或复用删除项的 ID。全部定义同时支持 x86/x64；独立32位工程与 ABI 说明见 `../APIMonitor_x86/README.md`。
 
 | ID | 定义范围 | 数量 |

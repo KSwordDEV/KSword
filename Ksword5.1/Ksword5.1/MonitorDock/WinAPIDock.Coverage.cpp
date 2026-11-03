@@ -6,6 +6,7 @@
 #include "../UI/SegmentedControl.h"
 #include "../UI/PageControlStyle.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIParameterEditor.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QAbstractTableModel>
 #include <QFileSystemWatcher>
@@ -302,13 +303,17 @@ void WinAPIDock::loadEventRuleDefinitions()
     const auto dispatcher = m_coverageDispatcher;
     const QString path = QApplication::applicationDirPath() + QStringLiteral("/profiles/api_monitor_definitions.json");
     QThreadPool::globalInstance()->start(QRunnable::create([this, dispatcher, path, ticket]() {
-        auto entries = std::make_shared<ks::monitor::WinAPIFilterCatalog>(); QFile file(path);
-        const bool ok = file.open(QIODevice::ReadOnly) && file.size() <= 16 * 1024 * 1024
-            && ks::monitor::ParseWinAPIFilterCatalog(file.readAll(), entries.get());
-        dispatcher->post([this, entries, ok, ticket]() {
+        auto entries = std::make_shared<ks::monitor::WinAPIFilterCatalog>();
+        auto signatures = std::make_shared<ks::monitor::WinAPISignatureCatalog>(); QFile file(path);
+        const bool opened = file.open(QIODevice::ReadOnly) && file.size() <= 16 * 1024 * 1024;
+        const QByteArray contents = opened ? file.readAll() : QByteArray();
+        const bool ok = opened && ks::monitor::ParseWinAPIFilterCatalog(contents, entries.get());
+        const bool signatureOk = opened && signatures->load(contents);
+        dispatcher->post([this, entries, signatures, signatureOk, ok, ticket]() {
             if (ticket != m_ruleDefinitionsTicket) return;
             m_ruleDefinitionsUnavailable = !ok;
             if (ok) queueEventRuleCatalog(entries);
+            if (signatureOk && m_parameterEditor) m_parameterEditor->setSignatureCatalog(signatures);
             refreshEventRulesPanel();
         });
     }));

@@ -236,7 +236,7 @@ void WinAPIDock::updateActionState()
     const bool hasPid = currentSelectedPid(&currentPidValue);
     const bool running = m_pipeRunning.load() || (m_sessionOperation && m_sessionOperation->isBusy());
     for (QCheckBox* check : {m_hookFileCheck, m_hookRegistryCheck, m_hookNetworkCheck,
-            m_hookProcessCheck, m_hookLoaderCheck, m_hookClipboardCheck, m_autoInjectChildCheck})
+            m_hookProcessCheck, m_hookLoaderCheck, m_hookClipboardCheck, m_autoInjectChildCheck, m_r0InjectCheck})
         if (check) check->setEnabled(!running);
     const bool hasEvents = m_eventArchive.size() > 0;
 
@@ -394,10 +394,22 @@ void WinAPIDock::updateStatusLabel()
             case HookState::Removed:
                 text = QStringLiteral("● Hook 已移除  PID=%1 | 事件=%2");
                 break;
+            case HookState::Paused:
+                text = m_pauseEventsCheck && m_pauseEventsCheck->isChecked()
+                    ? QStringLiteral("● 已暂停，Hook 已移除  PID=%1 | 事件=%2")
+                    : QStringLiteral("● 正在恢复 Hook  PID=%1 | 事件=%2");
+                break;
+            case HookState::PauseFailed:
+                text = QStringLiteral("● 暂停控制未生效  PID=%1 | 事件=%2");
+                role = ks::ui::StatusRole::Error;
+                break;
             default:
                 text = QStringLiteral("● Agent 已连接，正在安装 Hook  PID=%1 | 事件=%2");
                 break;
             }
+            if (m_pauseEventsCheck && m_pauseEventsCheck->isChecked()
+                && m_hookState != HookState::Paused && m_hookState != HookState::PauseFailed)
+                text = QStringLiteral("● 正在暂停 Hook  PID=%1 | 事件=%2");
             m_sessionStatusLabel->setText(text.arg(pidText).arg(eventCount));
             ks::ui::ApplyStatusRole(m_sessionStatusLabel, role);
         }
@@ -415,6 +427,8 @@ void WinAPIDock::updateStatusLabel()
         ks::ui::ApplyStatusRole(m_sessionStatusLabel, ks::ui::StatusRole::Idle);
     }
     m_sessionStatusLabel->setText(m_sessionStatusLabel->text() + eventLossSummary());
+    if (m_sessionBackend && (m_sessionBackend->drainIncomplete.load() || m_sessionBackend->invalidPackets.load()))
+        ks::ui::ApplyStatusRole(m_sessionStatusLabel, ks::ui::StatusRole::Warning);
     if (m_definitionMismatch)
     {
         m_sessionStatusLabel->setText(m_sessionStatusLabel->text() + QStringLiteral(" | API 定义不匹配或缺失"));
@@ -427,7 +441,17 @@ QString WinAPIDock::eventLossSummary()
     std::lock_guard<std::mutex> lock(m_pendingMutex);
     std::uint64_t agentDropped = 0;
     for (const auto& entry : m_agentDroppedRows) agentDropped += entry.second;
-    return QStringLiteral(" | Agent 丢失=%1，UI 丢失=%2，已移出表格=%3，待显示=%4")
+    QString summary = QStringLiteral(" | Agent 丢失=%1，UI 丢失=%2，已移出表格=%3，待显示=%4")
         .arg(static_cast<qulonglong>(agentDropped)).arg(static_cast<qulonglong>(m_pendingDroppedRows))
         .arg(static_cast<qulonglong>(m_evictedRows)).arg(static_cast<qulonglong>(m_pendingRows.size()));
+    if (m_sessionBackend) {
+        summary += QStringLiteral(" | 前置拒收=%1，无效包=%2")
+            .arg(static_cast<qulonglong>(m_sessionBackend->prefilteredPackets.load()))
+            .arg(static_cast<qulonglong>(m_sessionBackend->invalidPackets.load()));
+        summary += QStringLiteral(" | 暂停丢弃=%1")
+            .arg(static_cast<qulonglong>(m_sessionBackend->pausedDropped.load()));
+        if (m_sessionBackend->drainIncomplete.load())
+            summary += QStringLiteral(" | 停止排空未确认");
+    }
+    return summary;
 }

@@ -1,6 +1,10 @@
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIEventTimeline.h"
 #include "WinAPIDiskArchive.h"
+#include "../../../shared/ApiMonitorCallerSnapshot.h"
+#include "../../../shared/ApiMonitorCallStack.h"
+#include "../../../shared/ApiMonitorDrain.h"
 #include "../UI/TableSearchSupport.h"
 #include <QItemSelectionModel>
 #include <QScrollBar>
@@ -31,6 +35,7 @@
 #include <QTextStream>
 #include <QStringConverter>
 #include "../../../shared/ApiMonitorInjection.h"
+#include "../../../shared/ApiMonitorR0Injection.h"
 #include <QCryptographicHash>
 #include <QMetaObject>
 #include <QPointer>
@@ -116,7 +121,10 @@ namespace
     WinAPIDock::EventRow packetToEventRow(const ks::winapi_monitor::ApiMonitorEventPacket& packetValue)
     {
         WinAPIDock::EventRow rowValue;
+        rowValue.timestamp100ns = packetValue.timestamp100ns;
         rowValue.time100nsText = QString::number(static_cast<qulonglong>(packetValue.timestamp100ns));
+        rowValue.eventKindCode = packetValue.eventKind;
+        rowValue.categoryCode = packetValue.category;
         rowValue.categoryText = packetEventCategoryText(packetValue.category);
 
         const QString moduleNameText = packetWideText(packetValue.moduleName);
@@ -125,9 +133,28 @@ namespace
             ? apiNameText
             : QStringLiteral("%1!%2").arg(moduleNameText, apiNameText);
         rowValue.resultKnown = packetValue.resultKind == static_cast<std::uint32_t>(ks::winapi_monitor::EventResultKind::StatusCode);
-        rowValue.resultText = rowValue.resultKnown ? packetResultCodeText(packetValue.resultCode) : QStringLiteral("未采集");
+        rowValue.resultText = rowValue.resultKnown ? packetResultCodeText(packetValue.resultCode)
+            : packetValue.resultKind == static_cast<std::uint32_t>(ks::winapi_monitor::EventResultKind::StatusUnknown)
+                ? QObject::tr("状态未知") : QStringLiteral("未采集");
+        if (packetValue.eventKind == static_cast<std::uint32_t>(ks::winapi_monitor::EventKind::ApiCall)
+            && packetValue.category != static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal)
+            && packetValue.snapshotIndex == ks::winapi_monitor::kApiCallReturnValueMarker)
+            rowValue.capturedReturnValue = QStringLiteral("0x%1").arg(static_cast<qulonglong>(packetValue.hookAddress), 0, 16);
+        if (packetValue.eventKind == static_cast<std::uint32_t>(ks::winapi_monitor::EventKind::ApiCall)
+            && packetValue.category != static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal)
+            && packetValue.snapshotCount == ks::winapi_monitor::kApiCallDurationMarker) {
+            rowValue.durationCaptured = true;
+            rowValue.duration100ns = packetValue.snapshotRevision;
+        }
         rowValue.pidTidText = QStringLiteral("%1 / %2").arg(packetValue.pid).arg(packetValue.tid);
         rowValue.detailText = packetWideText(packetValue.detailText);
+        ks::winapi_monitor::CallStackTrailer stack{};
+        if (ks::winapi_monitor::ReadCallStackTrailer(packetValue, stack)) {
+            QStringList frames;
+            for (std::uint16_t i = 0; i < stack.count; ++i)
+                frames.push_back(QStringLiteral("#%1 0x%2").arg(i).arg(static_cast<qulonglong>(stack.frames[i]), 0, 16));
+            rowValue.capturedCallStack = frames.join(QLatin1Char('\n'));
+        }
         QString phase;
         switch (static_cast<ks::winapi_monitor::EventKind>(packetValue.eventKind)) {
         case ks::winapi_monitor::EventKind::IoSubmit: phase = QObject::tr("提交"); break;
@@ -197,6 +224,7 @@ WinAPISessionBackend::~WinAPISessionBackend()
 {
     // RetainedCleanupJob releases its value owner only after all readers joined.
     if (cancelEvent) ::CloseHandle(cancelEvent);
+    if (pauseEvent) ::CloseHandle(pauseEvent);
     if (targetProcess) ::CloseHandle(targetProcess);
 }
 
@@ -205,6 +233,17 @@ void WinAPISessionBackend::requestStop() noexcept
     stop.store(true);
     std::lock_guard<std::mutex> lock(cancelMutex);
     if (cancelEvent) (void)::SetEvent(cancelEvent);
+}
+
+void WinAPISessionBackend::setEventsPaused(bool paused) noexcept
+{
+    pauseRequested.store(paused, std::memory_order_release);
+    if (paused || !pauseControlReady.load(std::memory_order_acquire) || !pauseConfirmed.load(std::memory_order_acquire))
+        eventsPaused.store(paused, std::memory_order_release);
+    const std::lock_guard<std::mutex> lock(cancelMutex);
+    if (pauseEvent && !(paused ? ::SetEvent(pauseEvent) : ::ResetEvent(pauseEvent)))
+        pauseControlError.store(::GetLastError());
+    else pauseControlError.store(0);
 }
 
 bool WinAPISessionBackend::start()
@@ -252,7 +291,13 @@ bool WinAPISessionBackend::start()
         if (config.autoInjectChildren)
         {
             broker = std::make_unique<ks::winapi_monitor::InjectionBroker>();
-            if (!broker->start(config.pid, path, config.sessionId.toStdWString(), stopPath.toStdWString(), &error))
+            ks::winapi_monitor::InjectionBroker::Injector injector;
+            if (config.useR0Injection) {
+                injector = [](DWORD pid, const std::wstring& agent, std::wstring* detail, std::uint64_t creation, HANDLE stopEvent) {
+                    return ks::winapi_monitor::injectAgentR0(pid, agent, detail, stopEvent, creation);
+                };
+            }
+            if (!broker->start(config.pid, path, config.sessionId.toStdWString(), stopPath.toStdWString(), &error, std::move(injector)))
             { startupError = QString::fromStdWString(error); return false; }
         }
         QSaveFile file(configPath);
@@ -261,6 +306,13 @@ bool WinAPISessionBackend::start()
         std::wstring controllerSid;
         if (!ks::winapi_monitor::currentProcessUserSidString(&controllerSid))
         { startupError = QStringLiteral("无法读取当前控制端 SID。"); return false; }
+        pauseEventName = QStringLiteral("Global\\KswordApiMonPause_%1").arg(config.sessionId);
+        {
+            const std::lock_guard<std::mutex> lock(cancelMutex);
+            DWORD pauseError = ERROR_SUCCESS;
+            pauseEvent = ks::winapi_monitor::createPauseEvent(pauseEventName.toStdWString(), controllerSid, eventsPaused.load(), &pauseError);
+            if (!pauseEvent) { startupError = QStringLiteral("无法创建暂停控制事件（错误码 %1）").arg(pauseError); return false; }
+        }
         const auto endpoint = broker ? broker->endpoint() : ks::winapi_monitor::InjectionEndpoint{};
         QTextStream stream(&file);
         stream.setEncoding(QStringConverter::Utf16LE);
@@ -270,6 +322,7 @@ bool WinAPISessionBackend::start()
         stream << "root_stop_flag_path=" << stopPath << '\n' << "stop_flag_path=" << stopPath << '\n';
         stream << "session_id=" << config.sessionId << '\n';
         stream << "controller_sid=" << QString::fromStdWString(controllerSid) << '\n';
+        stream << "pause_event_name=" << pauseEventName << '\n';
         stream << "injection_broker_pipe=" << QString::fromStdWString(endpoint.pipeName) << '\n';
         stream << "injection_broker_token=" << QString::fromStdWString(endpoint.token) << '\n';
         stream << "injection_broker_pid=" << endpoint.hostPid << '\n';
@@ -289,8 +342,12 @@ bool WinAPISessionBackend::start()
         reusedResident.store(reuse);
         startReader(config.pid, config.sessionId.toStdWString(), true);
         if (stop.load()) return false;
-        if (!reuse && !ks::winapi_monitor::injectAgent(config.pid, path, &error, cancelEvent, creation))
-        { startupError = QString::fromStdWString(error); return false; }
+        if (!reuse) {
+            const bool loaded = config.useR0Injection
+                ? ks::winapi_monitor::injectAgentR0(config.pid, path, &error, cancelEvent, creation)
+                : ks::winapi_monitor::injectAgent(config.pid, path, &error, cancelEvent, creation);
+            if (!loaded) { startupError = QString::fromStdWString(error); return false; }
+        }
         if (stop.load()) return false;
         startupSucceeded.store(true);
         return true;
@@ -311,6 +368,8 @@ void WinAPISessionBackend::enqueue(EventRow row)
     const std::lock_guard<std::mutex> lock(pendingMutex);
     record->sequence = ++nextEventSequence;
     const auto& value = record->value;
+    firstEventTime100ns = FirstWinAPIEventTime(firstEventTime100ns, value);
+    record->sessionBase100ns = firstEventTime100ns;
     if (value.agentStatus == QStringLiteral("EventsDropped"))
     {
         bool ok = false;
@@ -330,7 +389,9 @@ void WinAPISessionBackend::notice(const QString& api, const QString& detail, std
 {
     FILETIME now{}; ::GetSystemTimeAsFileTime(&now);
     EventRow row;
-    row.time100nsText = QString::number((static_cast<qulonglong>(now.dwHighDateTime) << 32) | now.dwLowDateTime);
+    row.timestamp100ns = (static_cast<qulonglong>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+    row.time100nsText = QString::number(row.timestamp100ns);
+    row.categoryCode = static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal);
     row.categoryText = QStringLiteral("内部"); row.apiText = api; row.resultText = QStringLiteral("OK");
     row.sourcePid = pid ? pid : config.pid; row.pidTidText = QStringLiteral("%1 / -").arg(row.sourcePid);
     row.detailText = detail; row.internalEvent = true;
@@ -368,6 +429,7 @@ void WinAPISessionBackend::startReader(std::uint32_t pid, const std::wstring& se
 
 void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool root)
 {
+    struct Finished { std::atomic_bool& flag; ~Finished() { flag.store(true); } } finished{reader->finished};
     try
     {
         const auto pipeName = ks::winapi_monitor::buildPipeNameForPid(reader->pid);
@@ -397,24 +459,58 @@ void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool 
             }
             // Only this reader ever closes its pipe; cleanup cancels synchronous IO.
             struct PipeOwner { HANDLE value; ~PipeOwner() { ::CloseHandle(value); } } pipeOwner{pipe};
+            // A connection is enriched only after server PID and creation identity match.
+            const auto callerIdentity = ks::winapi_monitor::VerifyCallerConnection(pipe, reader->pid, reader->creation);
+            const QString verifiedProcessName = QString::fromStdWString(callerIdentity.processName);
+            reader->connectedOnce.store(true);
             if (root) connected.store(true);
             notice(root ? QStringLiteral("管道已连接") : QStringLiteral("子进程管道已连接"),
                 QStringLiteral("已与 PID=%1 的 Agent 建立命名管道连接。").arg(reader->pid), reader->pid);
             ks::winapi_monitor::CoverageSnapshotReceiver receiver(reader->pid, reader->session);
-            while (!stop.load())
+            while (!forceReadStop.load())
             {
                 ks::winapi_monitor::ApiMonitorEventPacket packet{};
-                if (!ks::winapi_monitor::readEventPacket(pipe, &packet, stop)) break;
+                const auto read = ks::winapi_monitor::readDrainPacket(pipe, packet, forceReadStop);
+                if (read != ks::winapi_monitor::DrainReadResult::Packet) {
+                    if (read == ks::winapi_monitor::DrainReadResult::Truncated) {
+                        invalidPackets.fetch_add(1);
+                        drainIncomplete.store(true);
+                    }
+                    break;
+                }
                 if (packet.size != sizeof(packet) || packet.version != ks::winapi_monitor::kProtocolVersion
-                    || packet.sessionIdentity != reader->session) continue;
+                    || packet.sessionIdentity != reader->session || packet.pid != reader->pid) {
+                    invalidPackets.fetch_add(1); continue;
+                }
+                if (root && packet.category == static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal)
+                    && packetWideText(packet.moduleName) == QStringLiteral("Agent")) {
+                    const auto name = packetWideText(packet.apiName);
+                    if (name == QStringLiteral("PauseControlReady")) pauseControlReady.store(true, std::memory_order_release);
+                    if (name == QStringLiteral("HooksPaused")) pauseConfirmed.store(true, std::memory_order_release);
+                    if ((name == QStringLiteral("HooksResumed") || name == QStringLiteral("HooksInstalled"))
+                        && !pauseRequested.load(std::memory_order_acquire)) {
+                        pauseConfirmed.store(false, std::memory_order_release);
+                        eventsPaused.store(false, std::memory_order_release);
+                    }
+                }
+                // Decide at receipt, before the event can reach the archive or UI queue.
+                // Coverage and control packets must still drive the session while paused.
+                if (eventsPaused.load(std::memory_order_acquire)
+                    && !ks::winapi_monitor::isCoverageEvent(packet.eventKind)
+                    && packet.category != static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal)) {
+                    pausedDropped.fetch_add(1, std::memory_order_relaxed); continue;
+                }
                 // Control and coverage packets are never filtered: they drive session state.
                 if (!ks::winapi_monitor::isCoverageEvent(packet.eventKind)
                     && packet.category != static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal) && eventRules) {
                     const auto rules = eventRules->snapshot();
                     if ((!rules->preModules.isEmpty() || !rules->preFunctions.isEmpty())
-                        && rules->rejects(packetWideText(packet.moduleName), packetWideText(packet.apiName), true)) continue;
+                        && rules->rejects(packetWideText(packet.moduleName), packetWideText(packet.apiName), true)) {
+                        prefilteredPackets.fetch_add(1); continue;
+                    }
                 }
-                if (!diskArchive || !diskArchive->append(packet, reader->pid)) {
+                if (!diskArchive || !diskArchive->append(packet, reader->pid,
+                    callerIdentity.verified, reader->creation, verifiedProcessName)) {
                     requestStop(); break;
                 }
                 if (ks::winapi_monitor::isCoverageEvent(packet.eventKind))
@@ -422,6 +518,12 @@ void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool 
                     if (receiver.consume(packet)) queueCoverageSnapshot(reader->pid, reader->session, receiver.revision(), receiver.items(), false, config.generation);
                     else if (receiver.stale()) queueCoverageSnapshot(reader->pid, reader->session, receiver.revision(), {}, true, config.generation);
                     continue;
+                }
+                if (packet.category == static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal)
+                    && packetWideText(packet.moduleName) == QStringLiteral("Agent")
+                    && packetWideText(packet.apiName) == QStringLiteral("HooksRemoved")) {
+                    reader->requiredFinalRevision.store(packet.snapshotRevision);
+                    reader->removed.store(true);
                 }
                 std::uint32_t childPid = 0;
                 if (tryExtractAutoInjectChildPid(packet, &childPid) && !stop.load())
@@ -431,9 +533,20 @@ void WinAPISessionBackend::readPipe(const std::shared_ptr<Reader>& reader, bool 
                     ::GetPrivateProfileStringW(L"monitor", L"session_id", L"", childSession, 1024, path.c_str());
                     startReader(childPid, childSession, false);
                 }
-                enqueue(packetToEventRow(packet));
+                auto row = packetToEventRow(packet);
+                if (callerIdentity.verified && packet.pid == reader->pid) {
+                    row.sourceCreationTime100ns = reader->creation;
+                    row.sourceProcessName = verifiedProcessName;
+                }
+                enqueue(std::move(row));
             }
-            queueCoverageSnapshot(reader->pid, reader->session, receiver.revision(), {}, true, config.generation);
+            const auto finalRevision = reader->requiredFinalRevision.load();
+            const bool finalCoverageComplete = reader->removed.load() && !receiver.stale()
+                && finalRevision != 0 && receiver.revision() >= finalRevision && !forceReadStop.load();
+            reader->finalCoverageComplete.store(finalCoverageComplete);
+            if (stop.load() && !finalCoverageComplete) drainIncomplete.store(true);
+            if (!finalCoverageComplete)
+                queueCoverageSnapshot(reader->pid, reader->session, receiver.revision(), {}, true, config.generation);
             if (root) connected.store(false);
             if (!root || stop.load() || reconnect == 3) break;
             notice(QStringLiteral("管道短暂断开"), QStringLiteral("Agent 正在切换会话，正在重新连接命名管道。"));
@@ -516,16 +629,38 @@ bool WinAPISessionBackend::cleanup()
     std::vector<std::shared_ptr<Reader>> current;
     { const std::lock_guard<std::mutex> lock(readerMutex); current = readers; }
     for (const auto& reader : current)
-    {
         if (reader->pid != config.pid) participants.push_back({reader->pid, reader->creation});
-        if (reader->thread && reader->thread->joinable()) (void)::CancelSynchronousIo(reader->thread->native_handle());
-    }
     // Every known descendant is notified, including accepted broker loads that
     // never reached the event inbox. No page or UI queue is required to discover it.
     std::sort(participants.begin(), participants.end(), [](const auto& x, const auto& y) { return std::tie(x.pid, x.creation) < std::tie(y.pid, y.creation); });
     participants.erase(std::unique(participants.begin(), participants.end(), [](const auto& x, const auto& y) { return x.pid == y.pid && x.creation == y.creation; }), participants.end());
+    for (const auto& participant : participants) {
+        if (std::none_of(current.begin(), current.end(), [&](const auto& reader) {
+                return reader->pid == participant.pid && reader->creation == participant.creation;
+            })) drainIncomplete.store(true); // No reader existed to account for that child's events.
+    }
     if (configPublished) for (const auto& child : participants)
         if (!writeStop(child.pid, child.creation, false)) flagsOk = false;
+    // Keep draining until each connected Agent closes after sending its tail.
+    // An unavailable or hung peer must not block cleanup indefinitely.
+    const ULONGLONG drainDeadline = ::GetTickCount64() + 15000;
+    while (::GetTickCount64() < drainDeadline) {
+        const bool done = std::all_of(current.begin(), current.end(), [](const auto& reader) {
+            return reader->finished.load();
+        });
+        if (done) break;
+        ::Sleep(10);
+    }
+    for (const auto& reader : current) {
+        if ((!reader->connectedOnce.load() && configPublished && !config.stopOnly)
+            || (reader->connectedOnce.load() && (!reader->finished.load() || !reader->removed.load()
+                || !reader->finalCoverageComplete.load())))
+            drainIncomplete.store(true);
+    }
+    forceReadStop.store(true);
+    for (const auto& reader : current)
+        if (!reader->finished.load() && reader->thread && reader->thread->joinable())
+            (void)::CancelSynchronousIo(reader->thread->native_handle());
     for (const auto& reader : current)
         if (reader->thread && reader->thread->joinable()) reader->thread->join();
     if (diskArchive) diskArchive->finish();
@@ -540,6 +675,7 @@ bool WinAPISessionBackend::cleanup()
     {
         const std::lock_guard<std::mutex> lock(cancelMutex);
         if (cancelEvent) { ::CloseHandle(cancelEvent); cancelEvent = nullptr; }
+        if (pauseEvent) { ::CloseHandle(pauseEvent); pauseEvent = nullptr; }
     }
     { const std::lock_guard<std::mutex> lock(pendingMutex); cleanupError.clear(); }
     lease.reset();
@@ -555,7 +691,7 @@ void WinAPIDock::pollSessionBackend()
     {
         const std::lock_guard<std::mutex> source(backend->pendingMutex);
         const std::lock_guard<std::mutex> target(m_pendingMutex);
-        while (!backend->pendingRows.empty())
+        while (!backend->pendingRows.empty() && m_pendingRows.size() < kPendingRowCapacity)
         { m_pendingRows.push_back(std::move(backend->pendingRows.front())); backend->pendingRows.pop_front(); }
         for (auto& [pid, update] : backend->pendingCoverage)
         {
@@ -565,12 +701,6 @@ void WinAPIDock::pollSessionBackend()
             if (!update.complete && pending.complete)
             { pending.stale = true; continue; }
             pending = std::move(update);
-        }
-        while (m_pendingRows.size() > kPendingRowCapacity)
-        {
-            const auto ordinary = std::find_if(m_pendingRows.begin(), m_pendingRows.end(), [](const auto& row) { return !row->value.internalEvent; });
-            if (ordinary != m_pendingRows.end()) m_pendingRows.erase(ordinary); else m_pendingRows.pop_front();
-            ++m_pendingDroppedRows;
         }
         backend->pendingCoverage.clear();
         m_agentDroppedRows = backend->agentDroppedRows;
@@ -593,17 +723,21 @@ void WinAPIDock::pollSessionBackend()
             appendInternalEvent(QStringLiteral("内部"), QStringLiteral("会话已启动"), backend->reusedResident.load()
                 ? QStringLiteral("已原子写入配置并复用常驻 Agent，等待其重新创建命名管道。")
                 : QStringLiteral("已原子写入配置并完成 DLL 注入，等待 Agent 创建命名管道。"));
-            kPro.set(m_sessionProgressPid, "DLL 已注入，等待 Agent 握手", 0, 45.0f);
+            kPro.set(m_sessionProgressPid, backend->reusedResident.load()
+                ? "复用常驻 Agent，等待握手" : "DLL 已注入，等待 Agent 握手", 0, 45.0f);
         }
-        else if (!m_stopping)
+        else
         {
             const auto detail = backend->startupError;
             if (!detail.isEmpty())
             {
-                appendInternalEvent(QStringLiteral("内部"), QStringLiteral("InjectDllByPath"), detail);
-                if (!ks::ui::promptForPrivilegeFailure(this, QStringLiteral("注入 API 监控 DLL"), detail))
-                    QMessageBox::warning(this, QStringLiteral("WinAPI 监控"), QStringLiteral("DLL 注入失败：%1").arg(detail));
+                appendInternalEvent(QStringLiteral("内部"), QStringLiteral("监控启动失败"), detail, false);
+                if (!m_userRequestedStop && !ks::ui::promptForPrivilegeFailure(this, QStringLiteral("启动 API 监控"), detail))
+                    QMessageBox::warning(this, QStringLiteral("WinAPI 监控"), QStringLiteral("监控启动失败：%1").arg(detail));
             }
+            else if (!m_userRequestedStop)
+                appendInternalEvent(QStringLiteral("内部"), QStringLiteral("监控启动失败"),
+                    QStringLiteral("启动未完成，请检查目标进程和管道连接状态。"), false);
             m_stopping = true;
             backend->requestStop();
             if (!m_sessionCleanup->isCleanupRequested()) m_sessionCleanup->requestCleanup();
@@ -648,21 +782,31 @@ void WinAPIDock::pollSessionBackend()
                 appendInternalEvent(QStringLiteral("内部"), QStringLiteral("手动终止 Hook"), terminalError);
                 QMessageBox::warning(this, QStringLiteral("终止 Hook"), terminalError);
             }
-            else appendInternalEvent(QStringLiteral("内部"), QStringLiteral("停止监控"), QStringLiteral("已发出停止标记并回收本地管道线程。"));
+            else appendInternalEvent(QStringLiteral("内部"), QStringLiteral("停止监控"), !backend->configPublished
+                ? QStringLiteral("会话尚未发布配置，已回收本地资源。") : backend->drainIncomplete.load()
+                ? QStringLiteral("停止后尾部事件或最终覆盖状态未能确认完整。")
+                : QStringLiteral("已发出停止标记并回收本地管道线程。"));
         }
     }
     updateActionState();
 }
 
-void WinAPIDock::acceptPendingEventRows()
+void WinAPIDock::acceptPendingEventRows(const bool drainAll)
 {
     std::deque<WinAPIEventRef> accepted;
-    { const std::lock_guard<std::mutex> lock(m_pendingMutex); accepted.swap(m_pendingRows); }
+    {
+        const std::lock_guard<std::mutex> lock(m_pendingMutex);
+        if (drainAll) accepted.swap(m_pendingRows);
+        else for (std::size_t count = 0; count < kUiFlushRowLimit && !m_pendingRows.empty(); ++count) {
+            accepted.push_back(std::move(m_pendingRows.front())); m_pendingRows.pop_front();
+        }
+    }
     const bool visible = m_eventTable && m_eventTable->isVisible();
     if (!visible) { m_eventProjectionStale = true; m_eventProjectionQueue.clear(); }
     for (auto& record : accepted)
     {
         applyEventState(record->value);
+        if (m_apiTimeline) m_apiTimeline->appendRecord(record);
         m_eventArchive.append(record);
         if (visible && !m_eventProjectionStale) m_eventProjectionQueue.push_back(std::move(record));
     }
@@ -689,6 +833,12 @@ void WinAPIDock::flushPendingRows()
         m_restoreTopEvent = eventRecordAt(m_eventTable->indexAt(QPoint(0, 0)).row());
     }
     m_eventProjectionWasVisible = visible;
+    bool hasPending = false;
+    { const std::lock_guard<std::mutex> lock(m_pendingMutex); hasPending = !m_pendingRows.empty(); }
+    if (hasPending && !m_eventProjectionPumpScheduled) {
+        m_eventProjectionPumpScheduled = true;
+        QTimer::singleShot(16, this, [this]() { m_eventProjectionPumpScheduled = false; flushPendingRows(); });
+    }
     if (!visible) { updateActionState(); updateStatusLabel(); return; }
     const QPointer<WinAPIDock> guard(this);
     if (ks::ui::DeferTableUiCommitIfContextMenuOpen(this, QStringLiteral("winapi-event-flush"), {m_eventTable},
@@ -785,12 +935,13 @@ void WinAPIDock::projectEventRows()
     if (!m_eventProjectionQueue.empty() && !m_eventProjectionPumpScheduled)
     {
         m_eventProjectionPumpScheduled = true;
-        QTimer::singleShot(0, this, [this]() { m_eventProjectionPumpScheduled = false; flushPendingRows(); });
+        QTimer::singleShot(16, this, [this]() { m_eventProjectionPumpScheduled = false; flushPendingRows(); });
     }
 }
 
 void WinAPIDock::clearCanonicalEvents()
 {
+    if (m_apiTimeline) m_apiTimeline->resetTimeline();
     m_eventArchive.clear(); m_eventProjectionQueue.clear();
     m_restoreSelectedEvent.reset(); m_restoreTopEvent.reset(); m_eventProjectionStale = false;
     if (m_eventModel) m_eventModel->clear();
@@ -799,9 +950,12 @@ void WinAPIDock::clearCanonicalEvents()
 
 WinAPIDock::EventExportSnapshot WinAPIDock::freezeVisibleEventRowsForExport()
 {
-    pollSessionBackend(); acceptPendingEventRows();
+    pollSessionBackend(); acceptPendingEventRows(true);
+    // The bounded UI inbox may have left a full backend inbox behind.
+    pollSessionBackend(); acceptPendingEventRows(true);
     EventExportSnapshot snapshot;
     snapshot.rows = m_eventArchive.snapshot();
+    if (m_eventModel) { snapshot.timeRange = m_eventModel->timeRange(); snapshot.callerColumns = m_eventModel->callerColumns(); }
     snapshot.businessKeyword = m_eventFilterEdit ? m_eventFilterEdit->text().trimmed() : m_eventFilterKeyword;
     snapshot.eventRules = m_eventRules ? m_eventRules->snapshot() : nullptr;
     snapshot.search = ks::ui::CaptureTableSearchResultFilterSpec(m_eventTable);
@@ -834,9 +988,20 @@ void WinAPIDock::applyEventState(const EventRow& rowValue)
         }
         else if (rowValue.agentStatus == QStringLiteral("InstallHooksFailed")) m_hookState = HookState::Failed;
         else if (rowValue.agentStatus == QStringLiteral("HooksPartial")) m_hookState = HookState::Partial;
+        else if (rowValue.agentStatus == QStringLiteral("HooksPaused")) m_hookState = HookState::Paused;
+        else if (rowValue.agentStatus == QStringLiteral("HooksPauseFailed") || rowValue.agentStatus == QStringLiteral("PauseControlUnavailable")) m_hookState = HookState::PauseFailed;
+        else if (rowValue.agentStatus == QStringLiteral("HooksResumeFailed")) m_hookState = HookState::Failed;
+        else if (rowValue.agentStatus == QStringLiteral("HooksResumed")) {
+            if (m_hookState != HookState::Partial) m_hookState = HookState::Active;
+        }
         else if (rowValue.agentStatus == QStringLiteral("HooksInstalled"))
         {
             if (m_hookState != HookState::Partial) m_hookState = HookState::Active;
+            if (m_pauseEventsCheck && m_pauseEventsCheck->isChecked() && m_sessionBackend && !m_sessionBackend->pauseControlReady.load()) {
+                m_hookState = HookState::PauseFailed;
+                appendInternalEvent(QStringLiteral("内部"), QStringLiteral("暂停控制失败"),
+                    QStringLiteral("目标进程中的 Agent 不支持暂停控制；请重启目标进程以加载新版 Agent。"), false);
+            }
             kPro.set(m_sessionProgressPid, "WinAPI Hook 安装完成", 0, 100.0f);
         }
         else if (rowValue.agentStatus == QStringLiteral("HooksRemoved")) m_hookState = HookState::Removed;

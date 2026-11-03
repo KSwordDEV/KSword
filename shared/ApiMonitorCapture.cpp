@@ -1,6 +1,9 @@
 #include "ApiMonitorCapture.h"
 #include "ApiMonitorInjection.h"
 #include "ApiMonitorInjectionBroker.h"
+#ifdef _WIN64
+#include "ApiMonitorR0Injection.h"
+#endif
 #include <algorithm>
 #include <cstring>
 #include <cwchar>
@@ -134,7 +137,10 @@ bool Capture::start() {
     InjectionEndpoint endpoint;
     if (request.autoChildren) {
         broker = std::make_unique<InjectionBroker>();
-        if (!broker->start(request.pid, result.agentPath, result.sessionId, result.stopPath, &detail)) { error(detail); return false; }
+        InjectionBroker::Injector childInjector;
+        if (request.useR0Injection) childInjector = [](DWORD pid, const std::wstring& path, std::wstring* error,
+                std::uint64_t creation, HANDLE stop) { return injectAgentR0(pid, path, error, stop, creation); };
+        if (!broker->start(request.pid, result.agentPath, result.sessionId, result.stopPath, &detail, std::move(childInjector))) { error(detail); return false; }
         endpoint = broker->endpoint();
     }
     std::wstring sid;
@@ -159,7 +165,11 @@ bool Capture::start() {
         std::atomic_bool done{false};
         std::thread watcher([&] { while (!done.load()) { if (cancel.load()) { ::SetEvent(cancelEvent.value); break; } ::Sleep(10); } });
         bool injected = false;
-        try { injected = injectAgent(request.pid, result.agentPath, &detail, cancelEvent.value, readers.front()->evidence.creation); }
+        try {
+            injected = request.useR0Injection
+                ? injectAgentR0(request.pid, result.agentPath, &detail, cancelEvent.value, readers.front()->evidence.creation)
+                : injectAgent(request.pid, result.agentPath, &detail, cancelEvent.value, readers.front()->evidence.creation);
+        }
         catch (...) { done.store(true); watcher.join(); throw; }
         done.store(true); watcher.join();
         if (!injected) { error(detail); return false; }
@@ -207,6 +217,10 @@ void Capture::consume(Reader& reader, const ApiMonitorEventPacket& packet) {
             if (!value.empty() && end && !*end) state.agentDropped = std::max(state.agentDropped, count);
         }
     }
+    // Control was consumed above and cannot be excluded. Pre-filtering happens
+    // before the bounded event buffer and does not masquerade as packet loss.
+    if (request.preFilter.excludes(packet) || request.importedPreFilter.excludes(packet)) { ++result.preFiltered; return; }
+    if (request.collectTimeline) result.timeline.append(packet);
     if (result.events.size() == request.eventLimit) { result.events.pop_front(); ++result.bufferDropped; }
     result.events.push_back(packet);
 }
@@ -326,7 +340,7 @@ CaptureResult Capture::run() {
 }
 CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic_bool& cancel) {
     const std::set<std::wstring> allowed{L"enable_file",L"enable_registry",L"enable_network",L"enable_process",L"enable_loader",L"enable_clipboard",
-        L"enable_raw_fallback",L"raw_use_default_denylist",L"raw_modules",L"raw_denylist",L"fake_success_enabled",L"fake_success_raw_fallback",
+        L"capture_call_stack",L"enable_raw_fallback",L"raw_use_default_denylist",L"raw_modules",L"raw_denylist",L"fake_success_enabled",L"fake_success_raw_fallback",
         L"fake_success_rules",L"detail_limit",L"clipboard_read_action",L"clipboard_write_action",L"clipboard_enum_action"};
     bool valid = request.pid > 4 && request.pid != ::GetCurrentProcessId() && !request.agentPath.empty()
         && request.durationMs >= 100 && request.durationMs <= 120000 && request.eventLimit && request.eventLimit <= 100000

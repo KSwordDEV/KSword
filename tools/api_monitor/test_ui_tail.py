@@ -10,6 +10,7 @@ if not qt.exists():
     qt = Path("D:/Software/Qt/6.9.3/msvc2022_64")
 source = (root / "Ksword5.1/Ksword5.1/MonitorDock/WinAPIDock.Pipe.cpp").read_text(encoding="utf-8-sig")
 methods = "\n".join([
+    source[source.index("void WinAPIDock::acceptPendingEventRows("):source.index("WinAPIEventRef WinAPIDock::eventRecordAt(")],
     source[source.index("WinAPIEventRef WinAPIDock::eventRecordAt("):source.index("void WinAPIDock::flushPendingRows()")],
     source[source.index("void WinAPIDock::initializeEventTailFollow()"):source.index("void WinAPIDock::clearCanonicalEvents()")],
 ])

@@ -104,16 +104,23 @@ WinAPIParameterEditor::WinAPIParameterEditor(QWidget* parent)
 {
     m_validConfig = m_rules.load();
     auto* layout = new QVBoxLayout(this); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(6);
-    auto* modeRow = new QHBoxLayout(); modeRow->setContentsMargins(0, 0, 0, 0);
+    auto* modeGroup = new QWidget(this);
+    auto* modeRow = new QHBoxLayout(modeGroup); modeRow->setContentsMargins(0, 0, 0, 0);
     m_parameterMode = new QToolButton(this); m_parameterMode->setText(QStringLiteral("按函数参数")); m_parameterMode->setCheckable(true); m_parameterMode->setAutoExclusive(true);
     m_byteMode = new QToolButton(this); m_byteMode->setText(QStringLiteral("按连续字节")); m_byteMode->setCheckable(true); m_byteMode->setAutoExclusive(true);
     m_parameterMode->setToolTip(QStringLiteral("原始槽位不一定是有效参数；x86 快速调用的参数可能位于寄存器。"));
     m_byteMode->setToolTip(QStringLiteral("连续字节由已采集槽位按小端拼接，不读取指针指向的内存。"));
     modeRow->addWidget(m_parameterMode); modeRow->addWidget(m_byteMode);
     ks::ui::InstallSegmentedButtons(modeRow, {m_parameterMode, m_byteMode});
-    modeRow->addStretch(1); layout->addLayout(modeRow);
+    auto* modeActions = new ks::ui::FlowLayout(nullptr, 0, 8, 4);
+    modeActions->addWidget(modeGroup);
+    modeActions->addWidget(new QLabel(QStringLiteral("分配"), this));
+    m_byteCount = new QSpinBox(this); m_byteCount->setRange(1, 1024); m_byteCount->setValue(1);
+    m_byteCount->setToolTip(QStringLiteral("数组长度")); modeActions->addWidget(m_byteCount);
+    auto* undo = new QPushButton(QStringLiteral("撤销末尾分配"), this); m_addButtons.push_back(undo); modeActions->addWidget(undo);
+    connect(undo, &QPushButton::clicked, this, [this]() { if (!m_rule.allocations.isEmpty()) { auto next = m_rule; next.allocations.removeLast(); persist(std::move(next)); } });
+    ks::ui::NormalizeToolbarLayout(modeActions); layout->addLayout(modeActions);
     auto* actions = new ks::ui::FlowLayout(nullptr, 0, 8, 8); m_typeActions = actions;
-    auto* prefix = new QLabel(QStringLiteral("分配"), this); prefix->setProperty("ks_type_role", -2); actions->addWidget(prefix);
     const auto addType = [this, actions](const QString& label, RawParameterType type) {
         auto* button = new QPushButton(label, this); button->setProperty("ks_type_id", static_cast<int>(type)); m_addButtons.push_back(button); actions->addWidget(button);
         connect(button, &QPushButton::clicked, this, [this, type]() {
@@ -142,11 +149,6 @@ WinAPIParameterEditor::WinAPIParameterEditor(QWidget* parent)
     addType(QStringLiteral("HANDLE"), RawParameterType::Handle);
     addType(QStringLiteral("size_t"), RawParameterType::SizeT);
     addType(QStringLiteral("byte[]"), RawParameterType::Bytes);
-    m_byteCount = new QSpinBox(this); m_byteCount->setRange(1, 1024); m_byteCount->setValue(1);
-    m_byteCount->setProperty("ks_type_role", -1);
-    m_byteCount->setToolTip(QStringLiteral("数组长度")); actions->addWidget(m_byteCount);
-    auto* undo = new QPushButton(QStringLiteral("撤销末尾分配"), this); undo->setProperty("ks_type_role", 2); m_addButtons.push_back(undo); actions->addWidget(undo);
-    connect(undo, &QPushButton::clicked, this, [this]() { if (!m_rule.allocations.isEmpty()) { auto next = m_rule; next.allocations.removeLast(); persist(std::move(next)); } });
     ks::ui::NormalizeToolbarLayout(actions); layout->addLayout(actions);
     connect(m_byteCount, &QSpinBox::valueChanged, this, [this]() {
         QTimer::singleShot(0, this, [this]() { reorderTypeButtons(m_orderedSlotWidth); });
@@ -205,7 +207,32 @@ void WinAPIParameterEditor::reorderTypeButtons(int slotWidth)
 void WinAPIParameterEditor::setRecord(WinAPIEventRef record)
 {
     const QString previousKey = m_key;
+    const bool recordChanged = m_record != record;
     m_record = std::move(record); m_key.clear();
+    if (recordChanged) {
+        m_callerSnapshot.reset();
+        m_stackSnapshot.clear();
+        if (!m_stackAdapter) {
+            m_stackAdapter = new WinAPIStackSnapshotAdapter(this);
+            m_stackAdapter->finished = [this](const WinAPIEventRef& resolved,
+                const std::vector<ks::winapi_monitor::StackFrameSnapshot>& frames) {
+                if (resolved != m_record) return;
+                m_stackSnapshot = frames;
+                if (changed) changed();
+            };
+        }
+        (void)m_stackAdapter->select(m_record);
+        if (!m_callerAdapter) {
+            m_callerAdapter = new WinAPICallerSnapshotAdapter(this);
+            m_callerAdapter->finished = [this](const WinAPIEventRef& resolved,
+                const ks::winapi_monitor::CallerSnapshot& snapshot) {
+                if (resolved != m_record) return;
+                m_callerSnapshot = snapshot;
+                if (changed) changed();
+            };
+        }
+        (void)m_callerAdapter->select(m_record);
+    }
     if (m_record) {
         const QString name = m_record->value.apiText; const int separator = name.indexOf(QChar('!'));
         if (separator > 0 && separator < name.size() - 1 && ParseRawParameterData(m_record->value.detailText).slotBytes)
@@ -218,6 +245,22 @@ void WinAPIParameterEditor::setRecord(WinAPIEventRef record)
     m_rule = m_key.isEmpty() ? RawParameterRule{} : m_rules.rule(m_key);
     rebuild();
 }
+void WinAPIParameterEditor::setSignatureCatalog(std::shared_ptr<const WinAPISignatureCatalog> catalog)
+{
+    m_signatureCatalog = std::move(catalog);
+    if (changed && m_record) changed();
+}
+const WinAPISignature* WinAPIParameterEditor::signature() const
+{
+    if (!m_signatureCatalog || !m_record) return nullptr;
+    const auto api = m_record->value.apiText;
+    const int separator = api.indexOf(QChar('!'));
+    if (separator <= 0 || separator == api.size() - 1) return nullptr;
+    const auto module = api.left(separator); const auto function = api.mid(separator + 1);
+    const auto* result = m_signatureCatalog->find(module, function);
+    if (!result && !module.contains(QChar('.'))) result = m_signatureCatalog->find(module + QStringLiteral(".dll"), function);
+    return result;
+}
 RawDecodeResult WinAPIParameterEditor::decoded() const
 {
     return m_record ? DecodeRawParameters(ParseRawParameterData(m_record->value.detailText), m_rule.allocations, m_rule.mode) : RawDecodeResult{};
@@ -227,7 +270,7 @@ void WinAPIParameterEditor::persist(RawParameterRule next)
     if (!m_validConfig || m_key.isEmpty()) return;
     if (!m_rules.saveRule(m_key, next)) {
         rebuild();
-        m_status->setText(QStringLiteral("参数规则保存失败，请检查 config 目录权限。"));
+        m_status->setText(QStringLiteral("参数规则保存失败，请检查 config 目录权限。")); m_status->show();
         ks::ui::ApplyStatusRole(m_status, ks::ui::StatusRole::Error); return;
     }
     m_rule = std::move(next); rebuild(); if (changed) changed();
@@ -271,7 +314,8 @@ void WinAPIParameterEditor::rebuild()
     m_parameterMode->setEnabled(enabled); m_byteMode->setEnabled(enabled);
     m_byteCount->setEnabled(enabled); m_allocations->setEnabled(enabled);
     for (auto* button : m_addButtons) button->setEnabled(enabled);
-    m_status->setText(m_validConfig ? QStringLiteral("点击取消分配，拖动调整顺序") : QStringLiteral("参数规则文件无法读取，已停用编辑以保护原文件。"));
+    m_status->setText(m_validConfig ? QString() : QStringLiteral("参数规则文件无法读取，已停用编辑以保护原文件。"));
+    m_status->setVisible(!m_validConfig);
     ks::ui::ApplyStatusRole(m_status, m_validConfig ? ks::ui::StatusRole::Idle : ks::ui::StatusRole::Error);
 }
 

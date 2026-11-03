@@ -22,6 +22,15 @@ namespace apimon {
   ks::winapi_monitor::EventResultKind,ks::winapi_monitor::EventKind,std::uint64_t,std::uint32_t){return true;}
  namespace {
   class ScopedHookGuard{public:bool bypass()const{return false;}};
+  struct ApiCallClock {};
+  struct ApiCallDuration { bool valid = true; std::uint64_t ticks100ns = 1; };
+  ApiCallClock BeginApiCallClock(){return {};}
+  ApiCallDuration EndApiCallClock(const ApiCallClock&){return {};}
+  template<typename T> std::uint64_t ApiReturnBits(T value){std::uint64_t bits=0;memcpy(&bits,&value,sizeof(value));return bits;}
+  std::uint64_t observedReturn=0;std::uint32_t observedId=0;bool observedDuration=false,observedHasReturn=false;
+  bool SendRawEventWithMetrics(ks::winapi_monitor::EventCategory,const wchar_t*,const wchar_t*,long,
+      const wchar_t*,bool hasReturn,std::uint64_t bits,const ApiCallDuration& duration,std::uint32_t apiId=0){
+      observedReturn=bits;observedId=apiId;observedDuration=duration.valid;observedHasReturn=hasReturn;return true;}
   struct ExtensionContext;
   #include "ApiMonitorExtensionDeclarations.inc"
   SAFE
@@ -52,7 +61,8 @@ int main(){
  DiscoverExtension(accept,second);CHECK(g_extensions.size()==2&&g_extensions[1]->record.installed);
  OVERLAPPED ov{};DWORD bytes=0;char buffer[128]{};
  auto call=[&](void* pointer){return reinterpret_cast<AcceptExFn>(pointer)(1,2,buffer,3,4,5,&bytes,&ov);};
- CHECK(call(first)==21&&call(second)==22); // each dispatcher has its own immutable original
+ CHECK(call(first)==21&&observedHasReturn&&observedReturn==21&&observedId!=0&&observedDuration);
+ CHECK(call(second)==22&&observedReturn==22&&observedId!=0&&observedDuration); // immutable originals and actual return
  DiscoverExtension(connect,first);CHECK(g_extensions.size()==3&&!g_extensions[2]->record.installed&&g_extensions[2]->record.permanentlyDisabled);
  CHECK(call(first)==21);std::vector<ApiMonitorEventPacket> rows;AppendExtensionCoverage(rows);
  CHECK(std::count_if(rows.begin(),rows.end(),[](auto& r){return r.coverageState==static_cast<unsigned>(CoverageState::Installed);})==2);

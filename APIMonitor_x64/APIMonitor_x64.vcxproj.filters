@@ -131,5 +131,5 @@
   </ItemGroup>
   <ItemGroup><ClInclude Include="hook\NearAllocation.h" /><ClInclude Include="hook\ThreadPatchGuard.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="hook\CodePageAllocator.h" /></ItemGroup>
-<ItemGroup><ClInclude Include="hook\RawAbiSnapshot.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="hook\RawAbiSnapshot.h" /><ClInclude Include="hook\HookCallStack.h" /><ClInclude Include="..\shared\ApiMonitorCallStack.h" /></ItemGroup>
 </Project>

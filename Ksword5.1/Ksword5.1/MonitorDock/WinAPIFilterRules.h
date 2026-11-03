@@ -18,7 +18,17 @@ namespace ks::monitor {
 struct WinAPIFilterSnapshot {
     QSet<QString> preModules, preFunctions, postModules, postFunctions;
     QSet<QString> preAllowed, postAllowed;
-    static QString moduleKey(const QString& module) { return module.trimmed().toCaseFolded(); }
+    static QString moduleKey(const QString& module) {
+        QString key = module.trimmed().toCaseFolded();
+        // Strong Hook packets use names such as "KernelBase", whereas the
+        // catalog and Raw Hook packets use "KernelBase.dll". Only infer the
+        // suffix for bare extensionless names; paths and explicit extensions
+        // retain their exact identity.
+        if (!key.isEmpty() && !key.contains(QChar('.')) && !key.contains(QChar('/'))
+            && !key.contains(QChar('\\')) && !key.contains(QChar(':')))
+            key += QStringLiteral(".dll");
+        return key;
+    }
     static QString functionKey(const QString& module, const QString& function) {
         return moduleKey(module) + QChar(0x1f) + function.trimmed();
     }

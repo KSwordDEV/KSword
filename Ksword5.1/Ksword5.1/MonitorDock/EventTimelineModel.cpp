@@ -298,6 +298,7 @@ namespace ks::ui
         const std::uint64_t duration = end100ns - start100ns;
         for (const EventTimelinePoint& event : events)
         {
+            if (!event.weight) continue;
             if (event.categoryId == TimelineCategory::Unspecified)
             {
                 continue; // 未适配的旧输入不能装成 Other；Widget 会原子拒绝整批。
@@ -323,12 +324,13 @@ namespace ks::ui
             {
                 indexByBucket.emplace(key, buckets.size());
                 buckets.push_back({ tracks[static_cast<std::size_t>(lane->second)].categoryId,
-                    lane->second, column, 1, event.time100ns, event.time100ns });
+                    lane->second, column, event.weight, event.time100ns, event.time100ns });
             }
             else
             {
                 EventTimelineBucket& bucket = buckets[found->second];
-                ++bucket.count;
+                bucket.count = event.weight > std::numeric_limits<std::size_t>::max() - bucket.count
+                    ? std::numeric_limits<std::size_t>::max() : bucket.count + event.weight;
                 bucket.minTime100ns = std::min(bucket.minTime100ns, event.time100ns);
                 bucket.maxTime100ns = std::max(bucket.maxTime100ns, event.time100ns);
             }

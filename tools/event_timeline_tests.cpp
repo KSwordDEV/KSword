@@ -16,6 +16,10 @@
 #include <iostream>
 #include <limits>
 
+// The fixture does not install application button QSS; the timeline uses the
+// real MainControlSurfaceColor implementation for its paint path.
+namespace ks::ui { QString BuildSharedMainSurfaceButtonStyle() { return {}; } }
+
 namespace
 {
     unsigned checks = 0; // 断言计数，不以原始事件数量伪造通过数量。
@@ -118,6 +122,9 @@ namespace
         {
             track.label = QStringLiteral("translated display label");
         }
+        const auto weighted = ks::ui::AggregateTimelineEvents({{110, {}, Category::Process, 10},
+            {110, {}, Category::Process, 5}, {110, {}, Category::Process, 0}}, etw, 100, 120, 200);
+        require(weighted.size() == 1 && weighted[0].count == 15, "weighted density points preserve event counts and skip zero weights");
         const auto originalBuckets = ks::ui::AggregateTimelineEvents(points, etw, 100, 120, 200);
         const auto translatedBuckets = ks::ui::AggregateTimelineEvents(points, translated, 100, 120, 200);
         require(sameBuckets(originalBuckets, translatedBuckets), "display text changes never affect category buckets");
@@ -355,6 +362,28 @@ namespace
         require(widget.selectionEnd100ns() == maximum, "default range saturation cannot wrap to zero");
     }
 
+    void sevenLaneHitTesting()
+    {
+        ProcessTraceTimelineWidget widget;
+        widget.resize(480, 112); widget.setFixedHeight(112);
+        auto tracks = ks::ui::EtwTimelineTracks(); tracks.resize(7);
+        require(widget.setTracks(tracks), "seven category lanes accepted");
+        widget.setCaptureRange(1000, 2000);
+        std::vector<ProcessTraceTimelineEventPoint> points;
+        for (const auto& track : tracks) points.push_back({1500, {}, track.categoryId, 3});
+        widget.setEventPoints(points); widget.show(); QApplication::processEvents();
+        require(widget.height() == 112 && countEvents(widget.eventBuckets()) == 21,
+            "seven lanes have distinct 16 logical pixel bands and preserve weighted counts");
+        for (int lane = 0; lane < 7; ++lane) {
+            const QPoint position(240, lane * 16 + 8);
+            QHelpEvent help(QEvent::ToolTip, position, widget.mapToGlobal(position));
+            QApplication::sendEvent(&widget, &help);
+            require(QToolTip::text().contains(widget.trackLabel(tracks[lane].categoryId)),
+                "each 16px category band resolves to its own lane");
+            QToolTip::hideText();
+        }
+    }
+
     // rendering：真实 QPainter 体现桶密度、动态主题和两个配置的热语言显示。
     void rendering()
     {
@@ -401,6 +430,11 @@ int main(int argc, char** argv)
     application.setQuitOnLastWindowClosed(false);
     QString error;
     require(ks::i18n::LanguageManager::instance().initialize(QStringLiteral("zh-CN"), &error), "real language manager initializes");
+    if (argc > 1 && QString::fromLatin1(argv[1]) == QStringLiteral("lanes"))
+    {
+        sevenLaneHitTesting();
+        return 0;
+    }
     if (argc > 1 && QString::fromLatin1(argv[1]) == QStringLiteral("wheel"))
     {
         fullWidthZoom();
@@ -417,6 +451,7 @@ int main(int argc, char** argv)
     gestures();
     fullWidthZoom();
     callbackLifetime();
+    sevenLaneHitTesting();
     rendering();
     std::cout << "EVENT_TIMELINE_RESULT=SUCCESS\nEVENT_TIMELINE_CHECKS=" << checks << '\n';
     return 0;

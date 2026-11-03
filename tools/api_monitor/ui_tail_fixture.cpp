@@ -16,6 +16,7 @@
 // Only translation and the menu-open state are inert. Archive, model, proxy,
 // async workers, bounded filtering, row notifications and Qt layouts are real.
 namespace ks::i18n {
+QString SourceTextSnapshot::displayText(const QString& text) const { return text; }
 struct LanguageManager::State {};
 LanguageManager::LanguageManager() : m_state(std::make_unique<State>()) {}
 LanguageManager::~LanguageManager() = default;
@@ -32,6 +33,7 @@ bool DeferTableUiCommitIfContextMenuOpen(QObject*, const QString&, const QList<Q
     afterMenu = std::move(resume); return true;
 }
 }
+struct FakeTimeline { void appendRecord(const WinAPIEventRef&) {} };
 class WinAPIDock : public QWidget
 {
 public:
@@ -40,13 +42,19 @@ public:
     WinAPIEventTableModel* m_eventModel = nullptr;
     WinAPIEventFilterModel* m_eventProxy = nullptr;
     WinAPIEventArchive m_eventArchive{20000, WinAPIEventArchive::memoryCapacity};
+    std::mutex m_pendingMutex;
+    std::deque<WinAPIEventRef> m_pendingRows;
+    std::size_t m_evictedRows = 0;
+    FakeTimeline* m_apiTimeline = nullptr;
     std::deque<WinAPIEventRef> m_eventProjectionQueue;
     WinAPIEventRef m_restoreSelectedEvent, m_restoreTopEvent;
     bool m_eventProjectionStale = true, m_eventProjectionPumpScheduled = false;
     bool m_eventTailFollowScheduled = false;
-    static constexpr std::size_t kUiFlushRowLimit = 2048;
+    static constexpr std::size_t kUiFlushRowLimit = 512;
     static constexpr int kUiFlushBudgetMs = 4;
     WinAPIEventRef eventRecordAt(int) const;
+    void acceptPendingEventRows(bool drainAll = false);
+    void applyEventState(const WinAPIEventRow&) {}
     void projectEventRows();
     void initializeEventTailFollow();
     void scheduleEventTailFollow();
@@ -82,6 +90,160 @@ static bool settle(const std::function<bool()>& done)
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    {
+        WinAPIDock dock; QTableView table; dock.m_eventTable = &table;
+        for (std::uint64_t i = 1; i <= 12000; ++i) {
+            auto record = std::make_shared<WinAPIEventRecord>(); record->sequence = i;
+            dock.m_pendingRows.push_back(record);
+        }
+        dock.acceptPendingEventRows();
+        CHECK(dock.m_eventArchive.size() == 512 && dock.m_pendingRows.size() == 11488);
+        while (!dock.m_pendingRows.empty()) dock.acceptPendingEventRows();
+        CHECK(dock.m_eventArchive.size() == 12000 && dock.m_eventArchive.evictedCount() == 0);
+        for (std::uint64_t i = 12001; i <= 13000; ++i) {
+            auto record = std::make_shared<WinAPIEventRecord>(); record->sequence = i; dock.m_pendingRows.push_back(record);
+        }
+        dock.acceptPendingEventRows(true);
+        CHECK(dock.m_pendingRows.empty() && dock.m_eventArchive.size() == 13000);
+    }
+    {
+        WinAPIDock dock; QTableView table; QCheckBox follow;
+        WinAPIEventTableModel model(&table); WinAPIEventFilterModel proxy(&table);
+        proxy.setSourceModel(&model); table.setModel(&proxy); table.resize(900, 500); table.show();
+        dock.m_eventTable = &table; dock.m_eventModel = &model; dock.m_eventProxy = &proxy;
+        dock.m_eventKeepBottomCheck = &follow; follow.setChecked(true); dock.initializeEventTailFollow();
+        for (std::uint64_t i = 1; i <= 12000; ++i) {
+            auto record = std::make_shared<WinAPIEventRecord>(); record->sequence = i;
+            record->value.apiText = QStringLiteral("kernelbase.dll!GetFileAttributesW");
+            record->value.pidTidText = QStringLiteral("1 / 2"); dock.m_pendingRows.push_back(record);
+        }
+        qint64 maxBatchMs = 0;
+        while (!dock.m_pendingRows.empty() || !dock.m_eventProjectionQueue.empty() || dock.m_eventProjectionStale) {
+            QElapsedTimer tick; tick.start(); dock.acceptPendingEventRows(); dock.projectEventRows();
+            maxBatchMs = std::max(maxBatchMs, tick.elapsed()); QCoreApplication::processEvents();
+        }
+        CHECK(model.rowCount() == 12000 && dock.m_eventArchive.evictedCount() == 0);
+        std::cout << "12000-row bounded refresh: max batch " << maxBatchMs << " ms\n";
+    }
+    {
+        WinAPIEventTableModel source; WinAPIEventFilterModel proxy;
+        proxy.setSourceModel(&source);
+        std::vector<WinAPIEventRef> rows;
+        for (const auto sequence : {11ULL, 2ULL, 9ULL}) {
+            auto record = std::make_shared<WinAPIEventRecord>(); record->sequence = sequence; record->generation = 1;
+            record->value.sourcePid = 12; record->value.sourceCreationTime100ns = 42;
+            record->value.durationCaptured = sequence != 9;
+            record->value.duration100ns = sequence == 11 ? 0 : 12345;
+            record->value.time100nsText = QString::number(sequence);
+            record->value.apiText = QStringLiteral("user32.dll!Example");
+            record->searchText = record->value.apiText;
+            record->value.pidTidText = QStringLiteral("12 / 34");
+            record->value.detailText = sequence == 9 ? QStringLiteral("target=0x123 strongTyped=0 params=raw")
+                : QStringLiteral("target=0x123 caller=0xb strongTyped=0 params=raw");
+            rows.push_back(record);
+        }
+        source.append(rows);
+        CHECK(source.columnCount() == ks::monitor::ColumnCount);
+        CHECK(source.index(0, ks::monitor::Module).data().toString() == QStringLiteral("user32.dll"));
+        CHECK(source.index(0, ks::monitor::CallerAddress).data().toString() == QStringLiteral("0xb"));
+        CHECK(source.index(0, ks::monitor::ReturnValue).data().toString() == QStringLiteral("-"));
+        CHECK(source.index(0, ks::monitor::Duration).data().toString() == QStringLiteral("0.0000 ms"));
+        CHECK(source.index(1, ks::monitor::Duration).data().toString() == QStringLiteral("1.2345 ms"));
+        CHECK(source.index(2, ks::monitor::Duration).data().toString() == QStringLiteral("-"));
+        CHECK(ks::monitor::EventSortValue(rows[0], ks::monitor::Duration).toULongLong() == 0);
+        CHECK(!ks::monitor::EventSortValue(rows[2], ks::monitor::Duration).isValid());
+        ks::winapi_monitor::CallerSnapshot snap;
+        snap.status = ks::winapi_monitor::CallerSnapshotStatus::Available;
+        snap.request = {1, 11, 12, 42, 11}; snap.state = MEM_COMMIT; snap.type = MEM_IMAGE;
+        snap.mappedPath = L"\\Device\\HarddiskVolume1\\Windows\\example.dll";
+        auto wrong = snap; wrong.request.creationTime100ns = 43;
+        source.setCallerSnapshot(rows[0], wrong);
+        CHECK(source.index(0, ks::monitor::CallerModule).data().toString() == QStringLiteral("-"));
+        source.setCallerSnapshot(rows[0], snap);
+        CHECK(source.index(0, ks::monitor::CallerModule).data().toString() == QStringLiteral("example.dll [snapshot]"));
+        CHECK(source.index(0, ks::monitor::MemoryKind).data().toString() == QStringLiteral("image [snapshot]"));
+        CHECK(source.index(1, ks::monitor::CallerModule).data().toString() == QStringLiteral("-"));
+        auto newer = snap; newer.observedTime100ns = 20; newer.mappedPath = L"newer.dll";
+        auto older = snap; older.observedTime100ns = 10; older.mappedPath = L"older.dll";
+        source.setCallerSnapshot(rows[0], newer); source.setCallerSnapshot(rows[0], older);
+        CHECK(source.index(0, ks::monitor::CallerModule).data().toString() == QStringLiteral("newer.dll [snapshot]"));
+        proxy.sort(ks::monitor::Sequence, Qt::AscendingOrder);
+        CHECK(proxy.index(0, ks::monitor::Sequence).data().toString() == QStringLiteral("2"));
+        CHECK(proxy.index(2, ks::monitor::Sequence).data().toString() == QStringLiteral("11"));
+        WinAPIEventExportSnapshot exported; exported.rows = rows; exported.continuousSort = true;
+        exported.callerColumns = source.callerColumns();
+        CHECK(exported.displayedCells(rows[0])[ks::monitor::CallerModule] == source.index(0, ks::monitor::CallerModule).data().toString());
+        exported.sortColumn = ks::monitor::CallerAddress;
+        for (const auto order : {Qt::AscendingOrder, Qt::DescendingOrder}) {
+            proxy.sort(ks::monitor::CallerAddress, order); exported.sortOrder = order;
+            const auto sorted = exported.orderedRows();
+            for (int index = 0; index < proxy.rowCount(); ++index) {
+                CHECK(source.recordAt(proxy.mapToSource(proxy.index(index, 0)).row()) == sorted[static_cast<std::size_t>(index)]);
+            }
+        }
+        source.setKeyword(QStringLiteral("Example"));
+        source.setTimeRange(true, 2, 9);
+        CHECK(settle([&]() { return !source.filterPending(); }));
+        CHECK(proxy.rowCount() == 2);
+        auto later = std::make_shared<WinAPIEventRecord>(); later->sequence = 12;
+        later->value.apiText = QStringLiteral("user32.dll!Example"); later->searchText = later->value.apiText;
+        later->value.time100nsText = QStringLiteral("12"); source.append({later});
+        CHECK(proxy.rowCount() == 2);
+        source.setTimeRange(false, 0, 0);
+        CHECK(settle([&]() { return !source.filterPending(); }));
+        CHECK(proxy.rowCount() == 4);
+    }
+    {
+        WinAPIEventTableModel source;
+        std::vector<WinAPIEventRef> rows;
+        for (std::uint64_t i = 1; i <= 513; ++i) {
+            auto record = std::make_shared<WinAPIEventRecord>();
+            record->generation = 1; record->sequence = i;
+            record->value.sourcePid = 12; record->value.sourceCreationTime100ns = 42;
+            record->value.detailText = QStringLiteral("target=0x1 caller=0xb strongTyped=0 params=raw");
+            rows.push_back(record);
+        }
+        source.append(rows);
+        for (const auto& record : rows) {
+            ks::winapi_monitor::CallerSnapshot snap;
+            snap.status = ks::winapi_monitor::CallerSnapshotStatus::Available;
+            snap.request = {1, record->sequence, 12, 42, 11}; snap.state = MEM_COMMIT; snap.type = MEM_PRIVATE;
+            source.setCallerSnapshot(record, snap);
+        }
+        CHECK(source.callerColumns().size() == 513);
+        CHECK(source.index(0, ks::monitor::MemoryKind).data().toString() == QStringLiteral("private [snapshot]"));
+        CHECK(source.index(512, ks::monitor::MemoryKind).data().toString() == QStringLiteral("private [snapshot]"));
+        source.clear(); CHECK(source.callerColumns().empty());
+    }
+    {
+        WinAPIEventTableModel source;
+        FILETIME created{}, exited{}, kernel{}, user{};
+        CHECK(GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user));
+        const auto identity = (std::uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+        const auto address = reinterpret_cast<std::uintptr_t>(&GetCurrentProcessId);
+        std::vector<WinAPIEventRef> rows;
+        for (std::uint64_t i = 1; i <= 100000; ++i) {
+            auto record = std::make_shared<WinAPIEventRecord>();
+            record->generation = 7; record->sequence = i;
+            record->value.sourcePid = GetCurrentProcessId(); record->value.sourceCreationTime100ns = identity;
+            record->value.detailText = QStringLiteral("target=0x1 caller=0x%1 strongTyped=0 params=raw").arg(address, 0, 16);
+            rows.push_back(record);
+        }
+        WinAPIEventFilterModel proxy; proxy.setSourceModel(&source);
+        QElapsedTimer resolutionTime; resolutionTime.start();
+        source.append(rows);
+        CHECK(settle([&]() { return source.callerColumns().size() == rows.size(); }));
+        std::cout << "100000 automatic caller snapshots: " << resolutionTime.elapsed() << " ms\n";
+        CHECK(source.index(0, ks::monitor::CallerModule).data().toString() != QStringLiteral("-"));
+        CHECK(source.index(99999, ks::monitor::MemoryKind).data().toString() == QStringLiteral("image [snapshot]"));
+        CHECK(proxy.rowCount() == 100000);
+        source.trimFront(50000); CHECK(source.callerColumns().size() == 50000);
+        CHECK(ks::ui::AsyncCleanupRegistry::global().pending() > 0);
+        ks::ui::AsyncCleanupRegistry::global().beginShutdown();
+        CHECK(settle([]() { return ks::ui::AsyncCleanupRegistry::global().pending() == 0; }));
+        ks::ui::AsyncCleanupRegistry::global().cancelShutdown();
+        source.clear(); CHECK(source.callerColumns().empty());
+    }
     const bool filters = argc > 1 && QByteArray(argv[1]) == "filter";
     for (const auto mode : {QAbstractItemView::ScrollPerItem, QAbstractItemView::ScrollPerPixel})
     {

@@ -496,5 +496,9 @@
     <ClCompile Include="..\shared\ApiMonitorCapture.cpp" />
     <ClCompile Include="..\shared\ApiMonitorInjectionBroker.cpp" />
     <ClInclude Include="..\shared\ApiMonitorCapture.h" />
+    <ClInclude Include="..\shared\ApiMonitorR0Injection.h" />
+    <ClInclude Include="..\shared\ApiMonitorCliView.h" />
+    <ClInclude Include="ApiMonitorSignatureCatalog.h" />
+    <ClInclude Include="ApiMonitorFilterImport.h" />
   </ItemGroup>
 </Project>

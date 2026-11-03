@@ -111,10 +111,10 @@ namespace ks::monitor
                     case RawParameterType::Pointer: case RawParameterType::Handle: elementValue = QStringLiteral("0x%1").arg(static_cast<qulonglong>(number), data.slotBytes * 2, 16, QLatin1Char('0')); break;
                     case RawParameterType::Float:
                         elementValue = mode == RawDecodeMode::Parameters && data.slotBytes == 8
-                            ? QStringLiteral("未采集浮点寄存器") : QString::number(std::bit_cast<float>(static_cast<std::uint32_t>(number)), 'g', 9); break;
+                            ? QStringLiteral("-") : QString::number(std::bit_cast<float>(static_cast<std::uint32_t>(number)), 'g', 9); break;
                     case RawParameterType::Double:
                         elementValue = mode == RawDecodeMode::Parameters && data.slotBytes == 8
-                            ? QStringLiteral("未采集浮点寄存器") : QString::number(std::bit_cast<double>(number), 'g', 17); break;
+                            ? QStringLiteral("-") : QString::number(std::bit_cast<double>(number), 'g', 17); break;
                     case RawParameterType::Bytes: elementValue = QString::fromLatin1(parameter.bytes.toHex(' ').toUpper()); break;
                     }
                     elements.push_back(elementValue);

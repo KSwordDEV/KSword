@@ -306,6 +306,7 @@ namespace apimon
             L"stop_flag_path",
             ks::winapi_monitor::buildStopFlagPathForPid(configValue.targetPid).c_str());
         configValue.rootStopFlagPath = QueryIniText(configValue.configPath, L"root_stop_flag_path", L"");
+        configValue.pauseEventName = QueryIniText(configValue.configPath, L"pause_event_name", L"");
         configValue.sessionId = QueryIniText(
             configValue.configPath,
             L"session_id",
@@ -328,6 +329,7 @@ namespace apimon
         configValue.enableProcess = QueryIniBool(configValue.configPath, L"enable_process", true);
         configValue.enableLoader = QueryIniBool(configValue.configPath, L"enable_loader", true);
         configValue.autoInjectChild = QueryIniBool(configValue.configPath, L"auto_inject_child", false);
+        configValue.captureCallStack = QueryIniBool(configValue.configPath, L"capture_call_stack", false);
         configValue.enableRawFallback = QueryIniBool(configValue.configPath, L"enable_raw_fallback", false);
         configValue.rawUseDefaultDenyList = QueryIniBool(configValue.configPath, L"raw_use_default_denylist", true);
         configValue.rawModuleList = SplitIniList(QueryIniText(

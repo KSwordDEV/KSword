@@ -1,12 +1,14 @@
 #include "MonitorNavigationSchema.h"
 #include "WinAPIDock.h"
 #include "WinAPIEventTableModel.h"
+#include "WinAPIEventTimeline.h"
 #include "WinAPIParameterEditor.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/DetailLayoutHost.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/TablePresentation.h"
+#include "../UI/TableColumnAutoFit.h"
 #include <QSpinBox>
 #include <QSettings>
 #include <QStandardPaths>
@@ -17,6 +19,7 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/SegmentedControl.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -44,6 +47,8 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QSet>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSize>
@@ -90,8 +95,9 @@ namespace
         configureActionIcon(buttonPointer, resourcePath);
         buttonPointer->setText(QString());
         buttonPointer->setToolTip(toolTipText);
-        buttonPointer->setFixedWidth(34);
-        // 普通动作遵守共享字号和高度；图标方块随字体变化保持完整点击区域。
+        buttonPointer->setAccessibleName(toolTipText);
+        KswordTheme::ApplyCompactIconButtonMetrics(buttonPointer);
+        // 工具行按字体统一高度，图标动作随之保持方形。
         ks::ui::NormalizeToolbarControl(buttonPointer);
     }
 
@@ -129,12 +135,6 @@ void WinAPIDock::initializeUi()
     QLabel* const processTitleLabel = new QLabel(QStringLiteral("目标进程"), m_processPanel);
     ks::ui::StylePrimarySectionTitle(processTitleLabel);
 
-    m_processIconLabel = new QLabel(m_processPanel);
-    m_processIconLabel->setFixedSize(24, 24);
-    m_processIconLabel->setAlignment(Qt::AlignCenter);
-    m_processIconLabel->setPixmap(QIcon(QStringLiteral(":/Icon/process_main.svg")).pixmap(20, 20));
-    m_processIconLabel->setToolTip(QStringLiteral("当前匹配/选中进程图标。"));
-
     m_processCombo = new QComboBox(m_processPanel);
     m_processCombo->setEditable(true);
     m_processCombo->setInsertPolicy(QComboBox::NoInsert);
@@ -165,14 +165,12 @@ void WinAPIDock::initializeUi()
     m_processStatusLabel = new QLabel(QStringLiteral("● 输入进程名或刷新候选列表"), m_processPanel);
     ks::ui::ApplyStatusRole(m_processStatusLabel, ks::ui::StatusRole::Idle);
 
-    processPanelLayout->addWidget(processTitleLabel, 0, 0, 1, 3);
-    processPanelLayout->addWidget(m_processIconLabel, 1, 0);
-    processPanelLayout->addWidget(m_processCombo, 1, 1);
-    processPanelLayout->addWidget(m_processRefreshButton, 1, 2);
+    processPanelLayout->addWidget(processTitleLabel, 0, 0, 1, 2);
+    processPanelLayout->addWidget(m_processCombo, 1, 0);
+    processPanelLayout->addWidget(m_processRefreshButton, 1, 1);
     m_processStatusLabel->setWordWrap(true);
-    processPanelLayout->addWidget(m_processStatusLabel, 2, 0, 1, 3);
-    processPanelLayout->setColumnStretch(1, 1);
-    // 图标标签保留 24px，不作为按钮统一高度的目标。
+    processPanelLayout->addWidget(m_processStatusLabel, 2, 0, 1, 2);
+    processPanelLayout->setColumnStretch(0, 1);
     ks::ui::NormalizeToolbarControl(m_processCombo);
     ks::ui::NormalizeToolbarControl(m_processRefreshButton);
     workspace->parameters()->addWidget(m_processPanel);
@@ -239,6 +237,7 @@ void WinAPIDock::initializeUi()
     m_hookLoaderCheck = new QCheckBox(QStringLiteral("加载器 API"), categoryFrame);
     m_hookClipboardCheck = new QCheckBox(QStringLiteral("剪贴板 API"), categoryFrame);
     m_autoInjectChildCheck = new QCheckBox(QStringLiteral("自动注入子进程"), categoryFrame);
+    m_captureCallStackCheck = new QCheckBox(QStringLiteral("采集强类型调用栈"), categoryFrame);
     m_rawFallbackCheck = new QCheckBox(QStringLiteral("Raw 兜底 Hook（强类型优先）"), categoryFrame);
     m_rawDefaultDenyListCheck = new QCheckBox(QStringLiteral("启用默认高频/高风险黑名单"), categoryFrame);
     auto* rawConfigurationFrame = new QGroupBox(QStringLiteral("Raw 兜底配置"), m_sessionPanel);
@@ -266,6 +265,7 @@ void WinAPIDock::initializeUi()
     m_hookLoaderCheck->setChecked(false);
     m_hookClipboardCheck->setChecked(false);
     m_autoInjectChildCheck->setChecked(false);
+    m_captureCallStackCheck->setChecked(false);
     m_rawFallbackCheck->setChecked(true);
     m_rawDefaultDenyListCheck->setChecked(true);
     m_rawModuleListEdit->setPlainText(defaultRawHookModulesText());
@@ -284,6 +284,7 @@ void WinAPIDock::initializeUi()
     m_hookLoaderCheck->setToolTip(QStringLiteral("LoadLibraryW / LoadLibraryExW 等模块加载相关 API。该类 Hook 对 GUI 进程稳定性风险更高，默认关闭。"));
     m_hookClipboardCheck->setToolTip(QStringLiteral("OpenClipboard / GetClipboardData / SetClipboardData / OleGetClipboard 等剪贴板相关 API。独立于「进程 API」分类，也是「剪贴板保护」杂项页复用的同一套 Hook。"));
     m_autoInjectChildCheck->setToolTip(QStringLiteral("启用后，Agent 会在受支持的 CreateProcess 系列调用成功时自动注入子进程，并继续监控后代；支持 x86 与 x64 进程，自动选择对应 Agent。"));
+    m_captureCallStackCheck->setToolTip(QStringLiteral("可增加监控开销；仅采集强类型调用，最多 8 帧，可能含监控内部帧或因详情空间不足而缺失。"));
     m_rawFallbackCheck->setToolTip(QStringLiteral("对强类型表未覆盖的已加载模块导出安装 Raw ABI 入口 Hook。强类型 Hook 优先，Raw 只记录模块/函数/地址等兜底信息。"));
     m_rawDefaultDenyListCheck->setToolTip(QStringLiteral("Raw 黑名单只影响兜底 Hook；强类型 Hook 不受影响。建议长期保持开启，避免字符串、堆、锁、时间等高频基础 API 刷爆日志。关闭后，下方额外黑名单仍然生效。"));
     m_rawModuleListEdit->setToolTip(QStringLiteral("分号分隔模块名。Agent 只扫描已加载模块，后续 LoadLibrary 后会重试补装。"));
@@ -296,6 +297,7 @@ void WinAPIDock::initializeUi()
     categoryLayout->addWidget(m_hookLoaderCheck, 0);
     categoryLayout->addWidget(m_hookClipboardCheck, 0);
     categoryLayout->addWidget(m_autoInjectChildCheck, 0);
+    categoryLayout->addWidget(m_captureCallStackCheck, 0);
     categoryLayout->addWidget(m_rawFallbackCheck, 0);
     categoryLayout->addWidget(m_rawDefaultDenyListCheck, 0);
     sessionConfigurationLeftLayout->addWidget(categoryFrame, 0);
@@ -319,6 +321,19 @@ void WinAPIDock::initializeUi()
         QStringLiteral(":/Icon/process_start.svg"),
         QStringLiteral("启动 WinAPI 监控"));
 
+    m_r0InjectCheck = new QCheckBox(QStringLiteral("R0注入"), m_sessionPanel);
+    m_r0InjectCheck->setObjectName(QStringLiteral("win_api_r0_injection"));
+    m_r0InjectCheck->setToolTip(QStringLiteral("使用驱动为目标进程加载 Agent；需要可用的 R0 驱动。"));
+    const QString monitorSettingsRoot = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    m_r0InjectCheck->setChecked(false);
+    if (!monitorSettingsRoot.isEmpty()) {
+        QSettings monitorSettings(QDir(monitorSettingsRoot).filePath(QStringLiteral("api-monitor-view.ini")), QSettings::IniFormat);
+        m_r0InjectCheck->setChecked(monitorSettings.value(QStringLiteral("use_r0_injection"), false).toBool());
+    }
+
+    m_pauseEventsCheck = new QCheckBox(QStringLiteral("暂停"), m_sessionPanel);
+    m_pauseEventsCheck->setToolTip(QStringLiteral("暂停时停止接收事件，并由 Agent 暂时移除 Hook；恢复时重新安装 Hook。"));
+
     m_stopButton = new QPushButton(m_sessionPanel);
     configureIconButton(
         m_stopButton,
@@ -335,7 +350,7 @@ void WinAPIDock::initializeUi()
     configureIconButton(
         m_exportButton,
         QStringLiteral(":/Icon/log_export.svg"),
-        QStringLiteral("导出当前可见事件为 TSV"));
+        QStringLiteral("导出筛选事件为 CSV 或 TSV，包含 A/B 视图的全部列"));
 
     m_clearEventButton = new QPushButton(m_sessionPanel);
     configureIconButton(
@@ -344,6 +359,8 @@ void WinAPIDock::initializeUi()
         QStringLiteral("清空当前事件表"));
 
     sessionButtonLayout->addWidget(m_startButton, 0);
+    sessionButtonLayout->addWidget(m_r0InjectCheck, 0);
+    sessionButtonLayout->addWidget(m_pauseEventsCheck, 0);
     sessionButtonLayout->addWidget(m_stopButton, 0);
     sessionButtonLayout->addWidget(m_terminateHookButton, 0);
 
@@ -567,12 +584,23 @@ void WinAPIDock::initializeUi()
     m_eventTable->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     m_eventTable->verticalHeader()->setDefaultSectionSize(22);
     m_eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_eventTable->setColumnWidth(EventColumnTime100ns, 160);
+    // The event table has well-defined columns; sampling empty rows compresses B to unreadable widths.
+    ks::ui::SetTableColumnAutoFitEnabled(m_eventTable, false);
+    m_eventTable->setColumnWidth(EventColumnTime100ns,
+        m_eventTable->fontMetrics().horizontalAdvance(QStringLiteral("00:00:00.000")) + 24);
     m_eventTable->setColumnWidth(EventColumnCategory, 72);
     m_eventTable->setColumnWidth(EventColumnApi, 190);
     m_eventTable->setColumnWidth(EventColumnResult, 100);
     m_eventTable->setColumnWidth(EventColumnPidTid, 112);
     m_eventTable->setColumnWidth(EventColumnDetail, 440);
+    const auto widthFor = [this](const QString& sample) { return m_eventTable->fontMetrics().horizontalAdvance(sample) + 28; };
+    m_eventTable->setColumnWidth(ks::monitor::Pid, widthFor(QStringLiteral("4294967295")));
+    m_eventTable->setColumnWidth(ks::monitor::Tid, widthFor(QStringLiteral("4294967295")));
+    m_eventTable->setColumnWidth(ks::monitor::Duration, widthFor(QStringLiteral("99999.9999 ms")));
+    m_eventTable->setColumnWidth(ks::monitor::CallerModule, widthFor(QStringLiteral("combase.dll [snapshot]")));
+    m_eventTable->setColumnWidth(ks::monitor::CallerAddress, widthFor(QStringLiteral("0xFFFFFFFFFFFFFFFF")));
+    m_eventTable->setColumnWidth(ks::monitor::MemoryKind, widthFor(QStringLiteral("uncommitted [snapshot]")));
+    m_eventTable->setColumnWidth(ks::monitor::CaptureKind, widthFor(QStringLiteral("采集方式")));
     m_eventTable->setAutoFillBackground(false);
     m_eventTable->setAttribute(Qt::WA_StyledBackground, true);
     if (m_eventTable->viewport() != nullptr)
@@ -585,6 +613,8 @@ void WinAPIDock::initializeUi()
     auto* eventPage = new QWidget(m_resultTabs);
     auto* eventPageLayout = new QVBoxLayout(eventPage);
     eventPageLayout->setContentsMargins(0, 0, 0, 0); eventPageLayout->setSpacing(6);
+    m_apiTimeline = new WinAPIEventTimeline(eventPage, m_eventModel, m_eventProxy, m_eventTable, m_eventKeepBottomCheck);
+    eventPageLayout->addWidget(m_apiTimeline);
     auto* eventSplitter = new QSplitter(Qt::Vertical, eventPage);
     eventSplitter->addWidget(m_eventTable);
     auto* detailPane = new QWidget(eventSplitter);
@@ -609,8 +639,9 @@ void WinAPIDock::initializeUi()
         auto* tree = new QTreeWidget(pane);
         tree->setColumnCount(2); tree->setHeaderLabels({QStringLiteral("名称"), QStringLiteral("值")});
         tree->setRootIsDecorated(false); tree->setAlternatingRowColors(true);
-        tree->setMinimumWidth(0); tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        tree->setMinimumWidth(0); tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
         tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        tree->setColumnWidth(0, tree->fontMetrics().horizontalAdvance(QStringLiteral("调用者模块")) + 64);
         ks::ui::ApplyTablePresentation(tree);
         column->addWidget(tree, 1);
         return tree;
@@ -623,9 +654,11 @@ void WinAPIDock::initializeUi()
     hexLayout->addWidget(new QLabel(QStringLiteral("未分配 HEX / ASCII"), hexPane));
     m_eventHex = new ks::ui::HexView(hexPane);
     m_eventHex->setEditable(false); m_eventHex->setInspectorVisible(false);
+    m_eventHex->setBytesPerRow(8);
     m_eventHex->setStatusBarVisible(false); m_eventHex->setMinimumWidth(0);
     hexLayout->addWidget(m_eventHex, 1);
-    detailColumns->setStretchFactor(0, 2); detailColumns->setStretchFactor(1, 2); detailColumns->setStretchFactor(2, 3);
+    detailColumns->setStretchFactor(0, 4); detailColumns->setStretchFactor(1, 4); detailColumns->setStretchFactor(2, 3);
+    detailColumns->setSizes({420, 420, 340});
     detailLayout->addWidget(detailColumns, 1);
     eventSplitter->addWidget(detailPane);
     eventPageLayout->addWidget(eventSplitter, 1);
@@ -634,7 +667,47 @@ void WinAPIDock::initializeUi()
     m_eventDetailHost = ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_eventTable, m_eventDetails, eventPage, eventSplitter, m_eventTable, detailPane);
     if (m_eventDetailHost) m_eventDetailHost->setBottomDetailWeight(450);
-    m_eventTable->setColumnHidden(EventColumnDetail, true);
+    // The detail checkbox remains independent of the two column presets.
+    auto* viewA = new QToolButton(m_filterPanel); viewA->setText(QStringLiteral("A")); viewA->setCheckable(true);
+    auto* viewB = new QToolButton(m_filterPanel); viewB->setText(QStringLiteral("B")); viewB->setCheckable(true);
+    viewA->setToolTip(QStringLiteral("调用视图")); viewB->setToolTip(QStringLiteral("来源视图"));
+    ks::ui::NormalizeToolbarControl(viewA); ks::ui::NormalizeToolbarControl(viewB);
+    auto* columnModes = new QHBoxLayout(); columnModes->setContentsMargins(0, 0, 0, 0); columnModes->setSpacing(0);
+    columnModes->addWidget(viewA); columnModes->addWidget(viewB);
+    filterLayout->insertLayout(filterLayout->indexOf(m_eventFilterStatusLabel), columnModes);
+    ks::ui::InstallSegmentedButtons(columnModes, {viewA, viewB});
+    const auto applyColumns = [this, viewA, viewB](bool sourceView) {
+        const QSet<int> common{ks::monitor::Time, ks::monitor::Api,
+            ks::monitor::Pid, ks::monitor::Tid};
+        const QSet<int> calls{ks::monitor::Sequence, ks::monitor::Module, ks::monitor::Summary, ks::monitor::ReturnValue, ks::monitor::Status,
+            ks::monitor::ProcessName};
+        const QSet<int> origins{ks::monitor::CallerModule, ks::monitor::CallerAddress, ks::monitor::MemoryKind,
+            ks::monitor::Duration, ks::monitor::CaptureKind};
+        for (int column = 0; column < EventColumnCount; ++column) {
+            if (column == EventColumnDetail) continue;
+            m_eventTable->setColumnHidden(column, !common.contains(column)
+                && !(sourceView ? origins : calls).contains(column));
+        }
+        m_eventTable->setColumnHidden(EventColumnDetail, !m_showEventDetails->isChecked());
+        viewA->setChecked(!sourceView); viewB->setChecked(sourceView);
+    };
+    connect(viewA, &QToolButton::clicked, this, [applyColumns]() { applyColumns(false); });
+    connect(viewB, &QToolButton::clicked, this, [applyColumns]() { applyColumns(true); });
+    auto* eventHeader = m_eventTable->horizontalHeader();
+    eventHeader->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(eventHeader, &QHeaderView::customContextMenuRequested, this, [this, eventHeader, viewA, viewB](const QPoint& point) {
+        QMenu menu(this); menu.setStyleSheet(KswordTheme::ContextMenuStyle());
+        for (int column = 0; column < EventColumnCount; ++column) {
+            auto* action = menu.addAction(m_eventModel->headerData(column, Qt::Horizontal).toString());
+            action->setCheckable(true); action->setChecked(!m_eventTable->isColumnHidden(column)); action->setData(column);
+        }
+        if (auto* action = menu.exec(eventHeader->mapToGlobal(point))) {
+            const int column = action->data().toInt();
+            if (column == EventColumnDetail) m_showEventDetails->setChecked(action->isChecked());
+            else { m_eventTable->setColumnHidden(column, !action->isChecked()); viewA->setChecked(false); viewB->setChecked(false); }
+        }
+    });
+    applyColumns(false);
     ks::monitor::AddMonitorNavigationTab(m_resultTabs, eventPage, QStringLiteral("winapi-events"));
     QWidget* coveragePanel = new QWidget(m_resultTabs);
     auto* coverageLayout = new QVBoxLayout(coveragePanel);

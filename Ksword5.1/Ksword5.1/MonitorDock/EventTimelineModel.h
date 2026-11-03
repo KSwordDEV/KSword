@@ -49,6 +49,7 @@ namespace ks::ui
         std::uint64_t time100ns = 0;          // 原始绝对或会话相对 100ns，不由像素桶反推。
         QString typeText;                    // 兼容展示字段，聚合绝不读取或解析此文本。
         TimelineCategory categoryId = TimelineCategory::Unspecified; // 未明确适配的旧点不能进入新绘制路径。
+        std::size_t weight = 1; // 预聚合点可表示多个事件；普通事件默认为 1。
     };
 
     struct EventTimelineBucket

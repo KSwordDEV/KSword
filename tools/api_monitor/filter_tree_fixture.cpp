@@ -87,12 +87,15 @@ int main(int argc, char** argv) {
     CHECK(function->checkState(0) == Qt::Checked && !dock.m_eventRules->snapshot()->rejects(QStringLiteral("user32.dll"), QStringLiteral("GetMessageW"), true));
     dock.applyVisibleEventRules(true, true); CHECK(drain([&]() { return !dock.m_ruleStateScheduled && !dock.m_ruleCatalogPumpScheduled; }));
     CHECK(function->checkState(0) == Qt::Unchecked && dock.m_eventRules->snapshot()->rejects(QStringLiteral("user32.dll"), QStringLiteral("GetMessageW"), true));
+    CHECK(dock.m_eventRules->snapshot()->rejects(QStringLiteral("USER32"), QStringLiteral("GetMessageW"), true));
     CHECK(!dock.m_eventRules->snapshot()->rejects(QStringLiteral("user32.dll"), QStringLiteral("PeekMessageW"), true));
     rules = *dock.m_eventRules->snapshot(); rules.preModules.insert(QStringLiteral("user32.dll")); CHECK(dock.m_eventRules->save(rules));
     dock.refreshEventRulesPanel(); CHECK(drain([&]() { return !dock.m_ruleStateScheduled && !dock.m_ruleCatalogPumpScheduled; }));
     dock.applyVisibleEventRules(true, false); CHECK(drain([&]() { return !dock.m_ruleStateScheduled && !dock.m_ruleCatalogPumpScheduled; }));
     CHECK(!dock.m_eventRules->snapshot()->rejects(QStringLiteral("user32.dll"), QStringLiteral("GetMessageW"), true));
+    CHECK(!dock.m_eventRules->snapshot()->rejects(QStringLiteral("USER32"), QStringLiteral("GetMessageW"), true));
     CHECK(dock.m_eventRules->snapshot()->rejects(QStringLiteral("user32.dll"), QStringLiteral("PeekMessageW"), true));
+    CHECK(dock.m_eventRules->snapshot()->rejects(QStringLiteral("USER32"), QStringLiteral("PeekMessageW"), true));
     search.clear(); dock.scheduleEventRuleSearch(); CHECK(drain([&]() { return !dock.m_ruleSearchScheduled; }));
     CHECK(user->isExpanded() && !function->parent()->isExpanded() && !function->isHidden());
     auto late = std::make_shared<ks::monitor::WinAPIFilterCatalog>();

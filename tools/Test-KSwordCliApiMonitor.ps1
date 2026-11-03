@@ -39,11 +39,11 @@ function Assert-Clean($Result){
  }
 }
 $help=(& $Cli help monitor api capture|Out-String)
-Assert ($LASTEXITCODE -eq 0 -and $help.Contains('--auto-children') -and $help.Contains('--options-file')) 'Leaf help and options'
+Assert ($LASTEXITCODE -eq 0 -and $help.Contains('--auto-children') -and $help.Contains('--options-file') -and $help.Contains('--r0-inject')) 'Leaf help and options'
 Assert ((& $Cli monitor api capture --help|Out-String) -eq $help) 'Inline help matches leaf'
 foreach($bad in @(
  @('--pid','0','--confirm'),@('--pid','99'),@('--pid','99','--duration-ms','99','--confirm'),
- @('--pid','99','--raw','2','--confirm'),@('--pid','99','--categories','unknown','--confirm'),
+ @('--pid','99','--raw','2','--confirm'),@('--pid','99','--r0-inject','2','--confirm'),@('--pid','99','--categories','unknown','--confirm'),
  @('--pid','99','--limit','0','--confirm'),@('--pid','99','--stop-timeout-ms','999','--confirm'),
  @('--pid','99','--raw-modules',"bad`npipe_name=foreign",'--confirm')
 )){
@@ -63,7 +63,10 @@ try{
   Assert (!$target.HasExited -and (Test-Path -LiteralPath (Join-Path $root 'ready'))) "$arch fixture ready"
   $base=@('monitor','api','capture','--pid',$target.Id.ToString(),'--duration-ms','1600','--categories','file,registry','--limit','10000','--confirm','--json')
   $result=Invoke-Cli ($arch+'-capture') $base @(0,6);Assert-Clean $result
+  Assert ($result.data.injectionBackendRequested -eq 'r3') "$arch defaults to R3 injection"
   Assert ($result.data.completedRequestedInterval -and @($result.data.events|Where-Object {$_.api -eq 'WriteFile' -and $_.pid -eq $target.Id}).Count -gt 0) "$arch real WriteFile event"
+  $create=@($result.data.events|Where-Object {$_.api -eq 'CreateFileW' -and $_.pid -eq $target.Id -and $_.returnValueAvailable -and $_.durationAvailable})
+  Assert ($create.Count -gt 0 -and $create[0].returnValue -match '^0x[0-9a-f]+$' -and $create[0].duration100ns -match '^[0-9]+$') "$arch real CreateFileW return bits and duration"
   Assert ($result.data.agentPath.EndsWith(('APIMonitor_'+$arch+'.dll'),[StringComparison]::OrdinalIgnoreCase)) "$arch matching Agent chosen"
   $again=Invoke-Cli ($arch+'-repeat') $base @(0,6);Assert-Clean $again
   Assert ($again.data.reusedResident -and $again.data.sessionId -ne $result.data.sessionId) "$arch resident Agent accepts fresh session"
@@ -76,6 +79,7 @@ try{
   Assert ($raw.data.sessionId -ne 'foreign' -and !$raw.data.options.PSObject.Properties['pipe_name'] -and $raw.data.options.enable_raw_fallback -eq '1') "$arch imports business options without controller override"
   $entry=@($raw.data.events|Where-Object {$_.resultKind -eq 1 -and $_.api -eq 'GetFileVersionInfoSizeW'})
   Assert ($entry.Count -gt 0 -and $null -eq $entry[0].resultCode) "$arch real Raw entry preserves unknown return value"
+  Assert (!$entry[0].returnValueAvailable -and $null -eq $entry[0].returnValue -and !$entry[0].durationAvailable -and $null -eq $entry[0].duration100ns) "$arch Raw entry has no inferred return or duration"
   if($arch -eq 'x64'){
    $cancelPath=Join-Path $ReportRoot 'cancel.json'
    & $Fixture64 --cancel-controller $Cli $target.Id.ToString() $cancelPath

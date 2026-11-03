@@ -37,13 +37,15 @@ int main(){
  Case decoder[]={{{0x80,0xF9,0x90},3,false},{{0x80,0xF9},0,false},{{0x66,0x81,0xC0,1,0},5,false},
  {{0x66,0xC7,0xC0,1,0},5,false},{{0x66,0x48,0x81,0xC0,1,0,0,0},8,false},{{0x66,0x68,1,0},4,false},
  {{0x67,0x8B,0x05,1,0,0,0},0,false},{{0x48,0x8B,0x05,1,0,0,0},7,true},{{0xE8,0,0,0,0},5,false},
+ {{0x48,0xFF,0x15,1,0,0,0},7,true},{{0x48,0xFF,0x15,1,0,0},0,false},
+ {{0x48,0xFF,0x25,1,0,0,0},0,false},{{0x48,0xFF,0xD0},0,false},{{0xF3,0x48,0xFF,0x15,1,0,0,0},0,false},
  {{0xF6,0x04,0x25,8,3,0xFE,0x7F,1},8,false},{{0xF3,0x0F,0x1E,0xFA},4,false},{{0xC5,0xF8,0x77},0,false},
  {{0x0F,0x85,1,0,0,0},6,false},{{0x75,0},2,false},{{0xEB,0},2,false},{{0xE9,0,0,0,0},5,false}};
  for(const auto& c:decoder){auto d=apimon::DecodeInstruction(c.bytes.begin(),c.bytes.size());CHECK(d.length==c.length);CHECK(d.ripRelative==c.rip);}
  auto* block=static_cast<unsigned char*>(VirtualAlloc(nullptr,65536,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE));CHECK(block);
  unsigned char inspected[32]{};queryCount=0;CHECK(apimon::ReadCode(block,inspected,sizeof(inspected))==32&&queryCount==1);
  std::wstring error;
- for(int index=0;index<8;++index){
+ for(int index=0;index<9;++index){
   auto* p=block+index*1024;memset(p,0x90,1024);
   int expected=42;
   switch(index){
@@ -55,6 +57,11 @@ int main(){
    case 5: put(p,{0x31,0xC0,0x0F,0x84,0,0,0,0,0xB8,1,0,0,0,0xC3});rel(p+2,p+128,6,2);put(p+128,{0xB8,42,0,0,0,0xC3});break;
    case 6: put(p,{0xF3,0x0F,0x1E,0xFA,0xB8,42,0,0,0,0xC3});break;
    case 7: put(p,{0x31,0xC0,0xE9,0,0,0,0});rel(p+2,p+128,5,1);put(p+128,{0xB8,42,0,0,0,0xC3});break;
+   // RIP-relative indirect CALL is copied into the trampoline with its
+   // memory operand retargeted to the same import slot. The nested callee
+   // returns into the relocated continuation before the original function.
+   case 8: put(p,{0x48,0xFF,0x15,0,0,0,0,0x83,0xC0,1,0xC3});rel(p,p+128,7,3);
+    put(p+160,{0xB8,42,0,0,0,0xC3});{auto* target=p+160;memcpy(p+128,&target,sizeof(target));}expected=43;break;
   }
   CHECK(reinterpret_cast<Function>(p)()==expected);
   apimon::InlineHookRecord hook;
@@ -93,6 +100,23 @@ int main(){
  unsigned char rip[]={0x48,0x8B,0x05,0x80,0,0,0},out[64]{};size_t emitted=0,offset=0;const wchar_t* reason=nullptr;
  std::vector<apimon::InstructionDescription> descriptions{apimon::DecodeInstruction(rip,sizeof(rip))};
  CHECK(!apimon::BuildRelocatedCode(rip,0x100000000,7,out,0x200000000,descriptions,&emitted,&offset,&reason));
+ CHECK(wcsstr(reason,L"disp32"));
+ // An indirect-call import slot inside the overwritten patch must fail;
+ // callers must not execute a trampoline with a changed pointer value.
+ unsigned char callSlotOverlap[]={0x48,0xFF,0x15,0xF9,0xFF,0xFF,0xFF};
+ descriptions={apimon::DecodeInstruction(callSlotOverlap,sizeof(callSlotOverlap))};reason=nullptr;
+ CHECK(!apimon::BuildRelocatedCode(callSlotOverlap,0x100000000,7,out,0x100001000,descriptions,&emitted,&offset,&reason));
+ CHECK(wcsstr(reason,L"overlaps"));
+ // Slot begins four bytes before the patch but its eight-byte pointer ends
+ // inside the patch: this must be rejected too.
+ unsigned char callSlotTailOverlap[]={0x48,0xFF,0x15,0xF5,0xFF,0xFF,0xFF};
+ descriptions={apimon::DecodeInstruction(callSlotTailOverlap,sizeof(callSlotTailOverlap))};reason=nullptr;
+ CHECK(!apimon::BuildRelocatedCode(callSlotTailOverlap,0x100000000,7,out,0x100001000,descriptions,&emitted,&offset,&reason));
+ CHECK(wcsstr(reason,L"overlaps"));
+ // Also reject import slots that cannot be represented from the trampoline.
+ unsigned char farCall[]={0x48,0xFF,0x15,0x80,0,0,0};
+ descriptions={apimon::DecodeInstruction(farCall,sizeof(farCall))};reason=nullptr;
+ CHECK(!apimon::BuildRelocatedCode(farCall,0x100000000,7,out,0x200000000,descriptions,&emitted,&offset,&reason));
  CHECK(wcsstr(reason,L"disp32"));
  // Allocation fallback may only overwrite a verified 14-byte prologue.
  rejectNear=true;auto* distantEntry=block+10240;memset(distantEntry,0x90,14);put(distantEntry+14,{0xB8,42,0,0,0,0xC3});apimon::InlineHookRecord fallback;

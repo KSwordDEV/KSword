@@ -22,6 +22,21 @@ SIZE_TYPES = {"DWORD", "ULONG", "SIZE_T", "UINT", "int", "ULONG_PTR", "ULONGLONG
               "INT", "LONG", "WORD", "USHORT", "long", "unsigned int", "unsigned long", "DWORD_PTR"}
 SIZE_POINTER_TYPES = {"LPDWORD", "PULONG", "PSIZE_T", "int*", "DWORD*", "ULONG*", "UINT*", "LPINT", "LPLONG"}
 
+# Success-defined fixed-size output values only. Explicit names prevent generic
+# direction annotations from causing reads of async buffers or secrets.
+OUTPUT_SNAPSHOTS = {
+    'VirtualProtect': [('oldProtectPointer', 'PDWORD')],
+    'DuplicateHandle': [('targetHandlePointer', 'LPHANDLE')],
+    'OpenProcessToken': [('tokenHandlePointer', 'PHANDLE')],
+    'OpenThreadToken': [('tokenHandlePointer', 'PHANDLE')],
+    'DuplicateToken': [('newTokenHandlePointer', 'PHANDLE')],
+    'DuplicateTokenEx': [('newTokenHandlePointer', 'PHANDLE')],
+    'LogonUserA': [('tokenHandlePointer', 'PHANDLE')],
+    'LogonUserW': [('tokenHandlePointer', 'PHANDLE')],
+    'CreateRestrictedToken': [('newTokenHandlePointer', 'PHANDLE')],
+    'CreatePipe': [('readPipePointer', 'PHANDLE'), ('writePipePointer', 'PHANDLE')],
+}
+
 
 def require(condition, message):
     if not condition:
@@ -129,19 +144,70 @@ def wrapper(api):
         "ulong_status", "long_status", "security_status", "rpc_status", "lstatus", "ntstatus", "hresult"} else "resultValue"
     capture_args = "detailBuffer" + (", " + args if args else "") + (", " + result if ret != "void" else "")
     capture_params = "wchar_t (&detailBuffer)[ks::winapi_monitor::kMaxDetailChars]" + (", " + params if params else "") + (f", {ret} {result}" if ret != "void" else "")
+    outputs = OUTPUT_SNAPSHOTS.get(api['export'], [])
+    if outputs:
+        require(ret == 'BOOL' and policy == 'bool', f"output policy changed: {api['export']}")
+        for name, type_name in outputs:
+            require(any(p['name'] == name and p['type'] == type_name and p['direction'] == 'out'
+                        for p in api['parameters']), f"output signature changed: {api['export']}.{name}")
     # SEH boundary contains no C++ objects/destructors. Invalid output pointers cannot crash the target.
     code = f"void {w['capture_handler']}Checked({capture_params})\n{{\n"
     code += f"    __try {{ {w['capture_handler']}({capture_args}); }}\n"
     code += "    __except (EXCEPTION_EXECUTE_HANDLER) { wcscpy_s(detailBuffer, ks::winapi_monitor::kMaxDetailChars, L\"capture=unreadable\"); }\n}\n"
+    if outputs:
+        output_params = ', '.join(f'{type_name} {name}' for name, type_name in outputs)
+        code += f"void {w['capture_handler']}OutputChecked(wchar_t (&detailBuffer)[ks::winapi_monitor::kMaxDetailChars], BOOL success, {output_params})\n{{\n"
+        for name, _ in outputs:
+            code += f'    AppendWideText(detailBuffer, L" out_after.{name}=");\n'
+            code += f'    if (!success || !{name}) AppendWideText(detailBuffer, L"<unavailable>");\n'
+            code += f'    else {{ __try {{ AppendHexText(detailBuffer, ApiReturnBits(*{name})); }}\n'
+            code += '        __except (EXCEPTION_EXECUTE_HANDLER) { AppendWideText(detailBuffer, L"<unreadable>"); } }\n'
+        code += '}\n'
     code += f"{ret} {api['calling_convention']} {b['hook']}({params})\n{{\n    ScopedHookGuard guardValue;\n"
     call = f"{b['original']}({args})"
     code += f"    if (guardValue.bypass()) {{ {'return ' if ret != 'void' else ''}{call};{' return;' if ret == 'void' else ''} }}\n"
+    # These formatters already publish this path after the call. Snapshot it
+    # beforehand as well: the callee is allowed to modify/free caller memory.
+    # Do not infer permission to read arbitrary input strings from annotations:
+    # other APIs can carry secrets, non-NUL buffers, or opaque string-like data.
+    before_path = api['export'] in {'DeleteFileA', 'DeleteFileW', 'RemoveDirectoryA', 'RemoveDirectoryW'}
+    if before_path:
+        append = 'AppendWideText' if api['export'].endswith('W') else 'AppendAnsiText'
+        code += '    const DWORD entryError = ::GetLastError();\n'
+        code += '    wchar_t inputBefore[96] = {};\n'
+        code += '    AppendWideText(inputBefore, L" input_before.path=");\n'
+        code += f'    {append}(inputBefore, pathPointer, 72);\n'
+        code += '    ::SetLastError(entryError);\n'
+    # Snapshot argument *values*, never pointees. Even out parameters have an
+    # input address that remains useful; it is not an output value. REFIID and
+    # REFCLSID are C++ references and cannot safely be copied as ABI words.
+    # The packet has a bounded detail field, so preserve at most eight values;
+    # formatting below may truncate if a named formatter uses the whole field.
+    entry_values = [(i, p) for i, p in enumerate(api['parameters'][:8], 1)
+                    if p['type'] not in {'REFIID', 'REFCLSID'}]
+    for position, param in entry_values:
+        code += f"    const auto entryArg{position} = ApiReturnBits({param['name']});\n"
+    code += "    const auto callClock = BeginApiCallClock();\n"
     code += f"    {'' if ret == 'void' else f'const {ret} {result} = '}{call};\n"
     code += "    const DWORD savedError = ::GetLastError();\n"
     if uses_wsa_error:
         code += "    const int savedWsaError = ::WSAGetLastError();\n"
+    code += "    const auto duration = EndApiCallClock(callClock);\n"
     code += "    wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};\n"
     code += f"    {w['capture_handler']}Checked({capture_args});\n"
+    if outputs:
+        code += f"    {w['capture_handler']}OutputChecked(detailBuffer, {result}, " + ', '.join(name for name, _ in outputs) + ");\n"
+    if before_path:
+        code += '    AppendWideText(detailBuffer, inputBefore);\n'
+    for position, _ in entry_values:
+        code += f'    AppendWideText(detailBuffer, L" arg{position}=");\n'
+        code += f'    AppendHexText(detailBuffer, entryArg{position});\n'
+    # Append helpers cap writes; if full, reserve a marker so a clipped record
+    # cannot look like a complete set of captured parameters.
+    code += '    if (detailBuffer[ks::winapi_monitor::kMaxDetailChars - 2] != 0) {\n'
+    code += '        constexpr wchar_t marker[] = L"<possibly-truncated>";\n'
+    code += '        std::memcpy(detailBuffer + ks::winapi_monitor::kMaxDetailChars - (sizeof(marker) / sizeof(marker[0])), marker, sizeof(marker));\n'
+    code += '    }\n'
     success = {"bool": f"{result} != FALSE", "handle": f"{result} != nullptr",
                "dword_nonzero": f"{result} != 0", "uint_nonzero": f"{result} != 0",
                "int_positive": f"{result} > 0"}.get(policy)
@@ -151,7 +217,9 @@ def wrapper(api):
         success = f"{result} == 0" if w["success"] == "zero" else f"{result} != SOCKET_ERROR"
     status = "0" if ret == "void" else f"({success}) ? 0 : {'savedWsaError' if uses_wsa_error else 'savedError'}" if success else f"static_cast<std::int32_t>({result})"
     module = api["module"][:-4]
-    code += f"    SendRawEventWithStatus(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer);\n"
+    return_bits = '0' if ret == 'void' else f'ApiReturnBits({result})'
+    has_return = 'false' if ret == 'void' else 'true'
+    code += f"    SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer, {has_return}, {return_bits}, duration);\n"
     if uses_wsa_error:
         code += "    ::WSASetLastError(savedWsaError);\n"
     code += "    ::SetLastError(savedError);\n"
