@@ -1,5 +1,7 @@
 #include "../Ksword5.1/Ksword5.1/UI/MetricAreaCanvas.h"
 #include "../Ksword5.1/Ksword5.1/UI/MetricAreaWindow.h"
+#include "../Ksword5.1/Ksword5.1/UI/UiAnimationGate.h"
+#include "../Ksword5.1/Ksword5.1/theme.h"
 #include <QApplication>
 #include <QTest>
 #include <QStyle>
@@ -124,6 +126,19 @@ int main(int argc,char** argv){
     app.setFont(QFont(QStringLiteral("Microsoft YaHei"),10));
     testGenericWindow();
     MetricAreaCanvas canvas;canvas.resize(900,600);canvas.show();app.processEvents();
+    auto tinted=node(QStringLiteral("tinted"),1);tinted.background=QColor(32,120,220,48);
+    canvas.setNodes({tinted});
+    SetGlobalUiAnimationsEnabled(false);app.processEvents();
+    const auto sample=[&canvas](QPoint point){return canvas.grab().toImage().pixelColor(point * canvas.devicePixelRatioF());};
+    const QColor flat=KswordTheme::BlendColors(canvas.palette().color(QPalette::Base),tinted.background,tinted.background.alpha());
+    assert(sample(QPoint(200,300))==flat && sample(QPoint(650,450))==flat);
+    QTest::mouseMove(&canvas,QPoint(300,300));app.processEvents();
+    assert(sample(QPoint(200,300))==flat && sample(QPoint(650,450))==flat);
+    SetGlobalUiAnimationsEnabled(true);app.processEvents();
+    assert(sample(QPoint(200,300))!=flat);
+    SetGlobalUiAnimationsEnabled(false);app.processEvents();
+    assert(sample(QPoint(200,300))==flat);
+    SetGlobalUiAnimationsEnabled(true);app.processEvents();
     canvas.setNodes({node(QStringLiteral("group"),0,-1,true),node(QStringLiteral("A"),60,0),node(QStringLiteral("B"),40,0)});
     assert(std::fabs(area(canvas.nodeRect(1))/area(canvas.nodeRect(2))-1.5)<1e-6);
     canvas.setNodes({node(QStringLiteral("huge-a"),std::numeric_limits<double>::max()),node(QStringLiteral("huge-b"),std::numeric_limits<double>::max()/2)});

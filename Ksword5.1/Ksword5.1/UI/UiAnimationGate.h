@@ -1,4 +1,7 @@
 #pragma once
+#include <QEvent>
+
+class QObject;
 
 // 应用内界面动画总开关：
 // - 默认启用，由设置页“界面动画”下发，运行时即时生效；
@@ -9,4 +12,6 @@ namespace ks::ui
 {
     void SetGlobalUiAnimationsEnabled(bool enabled);
     bool AreUiAnimationsEnabled();
+    QEvent::Type UiAnimationsChangedEventType();
+    void ObserveUiAnimations(QObject* observer);
 }

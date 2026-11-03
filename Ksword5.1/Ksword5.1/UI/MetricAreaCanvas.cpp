@@ -1,4 +1,5 @@
 #include "MetricAreaCanvas.h"
+#include "UiAnimationGate.h"
 #include "../theme.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QPainter>
@@ -48,6 +49,9 @@ MetricAreaCanvas::MetricAreaCanvas(QWidget* parent):QWidget(parent){
     setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     setMinimumSize(80,80);
     m_renderer.attach(this);
+    m_animationsEnabled = AreUiAnimationsEnabled();
+    m_renderer.setLightEnabled(m_animationsEnabled);
+    ObserveUiAnimations(this);
 }
 void MetricAreaCanvas::setNodes(std::vector<MetricAreaNode> nodes){
     for(auto& node:nodes)if(!std::isfinite(node.weight)||node.weight<0)node.known=false;
@@ -142,14 +146,34 @@ void MetricAreaCanvas::paintBox(QPainter& body, const Box& box, bool hovered, QP
     const QRectF r = box.rect;
     if (r.isEmpty()) return;
     const auto& node = m_nodes[box.node];
-    const QColor color = boxColor(box.node);
-    QColor background = m_renderer.paintTile(body, r, color,
-        {box.container, hovered, false, hovered && box.container});
-    if (hovered && box.container) return;
+    QColor background;
+    if (m_animationsEnabled) {
+        background = m_renderer.paintTile(body, r, boxColor(box.node),
+            {box.container, hovered, false, hovered && box.container});
+        if (hovered && box.container) return;
+    } else {
+        background = node.background.isValid() ? node.background : palette().color(QPalette::AlternateBase);
+        if (background.alpha() < 255) {
+            background = KswordTheme::BlendColors(palette().color(QPalette::Base), background, background.alpha());
+            background.setAlpha(255);
+        }
+        const QRectF tile = r.adjusted(.5, .5, -.5, -.5);
+        body.save();
+        body.setClipRect(tile, Qt::IntersectClip);
+        if (!hovered || !box.container) body.fillRect(tile, background);
+        body.setPen(palette().color(QPalette::Mid));
+        body.drawRect(tile);
+        if (hovered) {
+            body.setPen(QPen(palette().color(QPalette::Highlight), 2));
+            body.drawRect(tile.adjusted(1, 1, -1, -1));
+        }
+        body.restore();
+        if (hovered && box.container) return;
+    }
     QPainter& p = labels ? *labels : body;
     p.save();
     p.setClipRect(r);
-    if (box.container) {
+    if (m_animationsEnabled && box.container) {
         // Group headers are opaque flat navigation surfaces, outside the lighting layer.
         p.fillRect(QRectF(r.left(), r.top(), r.width(),
             std::min<qreal>(r.height(), std::max(22, fontMetrics().height() + 8))), background);
@@ -170,7 +194,7 @@ void MetricAreaCanvas::paintBox(QPainter& body, const Box& box, bool hovered, QP
         const bool secondLine = !inlineIdentity && !box.container && !node.identity.isEmpty()
             && content.height() >= fontMetrics().height() * 2 + 4
             && content.width() >= fontMetrics().horizontalAdvance(node.identity);
-        if (!box.container) {
+        if (m_animationsEnabled && !box.container) {
             // Keep labels readable over both the highlight and the shadow, without framing the tile.
             background = MetricAreaRenderer::captionColor(background, palette());
             const int textWidth = std::max(fontMetrics().horizontalAdvance(title),
@@ -224,7 +248,7 @@ void MetricAreaCanvas::paintEvent(QPaintEvent*)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.drawPixmap(0, 0, m_surface);
     if (m_hover >= 0 && m_hover < static_cast<int>(m_boxes.size())) paintBox(p, m_boxes[m_hover], true);
-    m_renderer.paintLights(p);
+    if (m_animationsEnabled) m_renderer.paintLights(p);
     p.drawPixmap(0, 0, m_labels);
 }
 void MetricAreaCanvas::resizeEvent(QResizeEvent* e){QWidget::resizeEvent(e);rebuildLayout();}
@@ -241,6 +265,12 @@ void MetricAreaCanvas::resetRoot(){m_root=-1;rebuildLayout();update();const auto
 void MetricAreaCanvas::goBack(){if(m_root>=0&&m_root<static_cast<int>(m_parents.size())){m_root=m_parents[m_root];rebuildLayout();update();const auto cb=rootChanged;if(cb)cb();}}
 void MetricAreaCanvas::keyPressEvent(QKeyEvent* e){if(e->key()==Qt::Key_Escape||e->key()==Qt::Key_Backspace){goBack();e->accept();}else QWidget::keyPressEvent(e);}
 bool MetricAreaCanvas::event(QEvent* e){
+    if (e->type() == UiAnimationsChangedEventType()) {
+        m_animationsEnabled = AreUiAnimationsEnabled();
+        m_renderer.setLightEnabled(m_animationsEnabled);
+        m_surfaceDirty = true;
+        update();
+    }
     if(e->type()==QEvent::ToolTip){auto* help=static_cast<QHelpEvent*>(e);const int hit=nodeAt(help->pos());
         if(hit>=0)QToolTip::showText(help->globalPos(),m_nodes[hit].tooltip,this);else QToolTip::hideText();return true;}
     if(e->type()==QEvent::FontChange){rebuildLayout();update();}
