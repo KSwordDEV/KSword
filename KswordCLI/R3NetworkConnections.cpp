@@ -20,14 +20,15 @@ Json row(const ConnectionEntry& value) {
 Result enumerate(const Args& args) {
     const auto filter = args.get(L"--protocol", L"all");
     if (filter != L"all" && filter != L"tcp4" && filter != L"tcp6" && filter != L"udp4" && filter != L"udp6") throw std::invalid_argument("invalid --protocol");
-    const auto pid = args.u32(L"--pid"); const auto limit = args.u32(L"--limit", 100);
+    const auto pid = args.u32(L"--pid"); const auto limit = args.u32(L"--limit", 100), offset = args.u32(L"--offset", 0);
     const auto snapshot = EnumerateConnections(); std::vector<Json> rows; std::uint32_t matched = 0;
     for (const auto& value : snapshot.entries) {
         if ((args.has(L"--pid") && value.processId != pid) || (filter != L"all" && filter != protocol(value.protocol))) continue;
-        ++matched; if (rows.size() < limit) rows.push_back(row(value));
+        if (matched >= offset && rows.size() < limit) rows.push_back(row(value)); ++matched;
     }
     Result result{snapshot.success ? (snapshot.diagnosticText.empty() ? 0 : 6) : 3,
         Json::object({{L"matchedCount", Json::number(matched)}, {L"returnedCount", Json::number(static_cast<std::uint32_t>(rows.size()))},
+            {L"offset", Json::number(offset)}, {L"nextOffset", limit && static_cast<std::uint64_t>(offset) + rows.size() < matched ? Json::number(offset + static_cast<std::uint32_t>(rows.size())) : Json{}},
             {L"truncated", Json::boolean(rows.size() < matched)}, {L"entries", Json::array(rows)}}), {}};
     if (!snapshot.diagnosticText.empty()) result.diagnostics.push_back(snapshot.diagnosticText);
     return result;
@@ -58,9 +59,9 @@ Result close(const Args& args) {
 }
 }
 void registerNetworkConnections() {
-    addCommand({L"network connections enum", L"KswordCLI.exe network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--limit N] [--backend r3] [--json]",
-        L"Enumerate TCP/UDP endpoints through IP Helper.", L"Optional: --pid, --protocol defaults to all, --limit defaults to 100, --backend r3, --json.",
-        L"No driver required. UDP state is null; limit affects display only. JSON data: matchedCount, returnedCount, truncated, entries.", enumerate});
+    addCommand({L"network connections enum", L"KswordCLI.exe network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]",
+        L"Enumerate TCP/UDP endpoints through IP Helper.", L"Optional: --pid, --protocol defaults to all, --offset defaults to 0, --limit defaults to 100, --backend r3, --json.",
+        L"No driver required. UDP state is null; offset and limit affect display only. JSON data: matchedCount, returnedCount, offset, nextOffset, truncated, entries. Each call is a separate snapshot and rows may change between pages.", enumerate});
     addCommand({L"network connections close", L"KswordCLI.exe network connections close --pid PID --local-address IP --local-port N --remote-address IP --remote-port N --confirm [--backend r3] [--json]",
         L"Close one live IPv4 TCP connection by its exact tuple and owner.", L"Required: --pid, --local-address, --local-port, --remote-address, --remote-port, --confirm. Optional: --backend r3, --json.",
         L"Administrator required. IPv6/UDP/listeners are unsupported. Re-enumerates before closing and after success or failure. Output: target, native win32Error, requestSucceeded, postcheckPresent (null if incomplete), postcheckComplete. API failure returns 3 even if the tuple disappeared independently; error 317 alone does not prove disappearance. Success with absent tuple returns 0; incomplete/present postcheck returns 6.", close});

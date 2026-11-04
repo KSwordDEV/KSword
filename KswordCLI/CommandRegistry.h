@@ -115,6 +115,7 @@ void registerSystemEventLog();
 void registerSystemContextMenu();
 void registerSystemTime();
 void registerSystemIoctl();
+void registerHealth();
 void registerRawIoctl();
 void registerRxpfAtomicCommit();
 void registerRxpfExecProof();

@@ -55,7 +55,7 @@ KswordCLI.exe registry value rename --path PATH --old-name NAME --new-name NAME 
 所有修改都要求 confirm；创建可打开已有键，created 区分新建与已有。删除键递归删除非根键树，不支持删除预定义根。
 value set 三种载荷互斥。text 支持 SZ/EXPAND_SZ 字符串、分号分隔 MULTI_SZ、十进制／0x 前缀 DWORD 和 QWORD。
 hex 接受完整字节、可选单个 0x 前缀和空格；data-file 提供不转换的原始字节，沿用 CLI 64MiB 载荷上限。
-数字 type 保留原始 REG 类型。Binary/None 等原始类型使用 hex 或 data-file；空载荷可写入有效空值。
+type 不区分大小写，除短名外也接受 `REG_SZ`、`REG_EXPAND_SZ`、`REG_MULTI_SZ`、`REG_DWORD`、`REG_QWORD`、`REG_BINARY`、`REG_NONE` 或数值。Binary/None 等原始类型使用 hex 或 data-file；空载荷可写入有效空值。例如 `--type REG_SZ --text hello`，或 `--type REG_DWORD --text 0x2a`。
 省略 name 或指定空名称表示默认值。原始字符串字节以 UTF-16LE 提供，text 形式自动补充字符串终止符。
 
 结果含 requestSucceeded、win32Error、partial、unchanged、verified 和 result。

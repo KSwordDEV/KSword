@@ -620,6 +620,13 @@ Return Value:
             KSWORD_ARK_SECTION_MAPPING_ENTRY* entry = &Response->mappings[Response->returnedCount];
             RtlZeroMemory(entry, sizeof(*entry));
             entry->viewMapType = (ULONG)vad->ProcessUnion.ViewMapType;
+            /* 私有 VAD 布局不匹配时不可把无效范围发布为有效映射。 */
+            entry->startVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadStartAddress(vad);
+            entry->endVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadEndAddress(vad);
+            if (entry->startVa == 0ULL || entry->startVa >= entry->endVa) {
+                status = STATUS_DATA_ERROR;
+                break;
+            }
             if (vad->ProcessUnion.ViewMapType == KSWORD_ARK_SECTION_MAP_TYPE_PROCESS) {
                 PEPROCESS mappedProcess = (PEPROCESS)((ULONG_PTR)vad->ProcessUnion.VadsProcess & ~(ULONG_PTR)KSWORD_ARK_SECTION_MAP_TYPE_PROCESS);
                 if (KswordARKKernelProbeRangeIsResident(
@@ -628,8 +635,6 @@ Return Value:
                     entry->processId = HandleToULong(PsGetProcessId(mappedProcess));
                 }
             }
-            entry->startVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadStartAddress(vad);
-            entry->endVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadEndAddress(vad);
             Response->returnedCount += 1UL;
         }
 
@@ -734,6 +739,13 @@ Return Value:
             entry->sectionKind = SectionKind;
             entry->viewMapType = (ULONG)vad->ProcessUnion.ViewMapType;
             entry->controlAreaAddress = (ULONG64)(ULONG_PTR)ControlArea;
+            /* 可能是版本不匹配的私有 VAD 布局，拒绝不可能的地址范围。 */
+            entry->startVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadStartAddress(vad);
+            entry->endVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadEndAddress(vad);
+            if (entry->startVa == 0ULL || entry->startVa >= entry->endVa) {
+                status = STATUS_DATA_ERROR;
+                break;
+            }
             if (vad->ProcessUnion.ViewMapType == KSWORD_ARK_SECTION_MAP_TYPE_PROCESS) {
                 PEPROCESS mappedProcess = (PEPROCESS)((ULONG_PTR)vad->ProcessUnion.VadsProcess & ~(ULONG_PTR)KSWORD_ARK_SECTION_MAP_TYPE_PROCESS);
                 if (KswordARKKernelProbeRangeIsResident(
@@ -753,8 +765,6 @@ Return Value:
                     }
                 }
             }
-            entry->startVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadStartAddress(vad);
-            entry->endVa = (ULONG64)(ULONG_PTR)KswordARKSectionVadEndAddress(vad);
             Response->returnedCount += 1UL;
         }
 

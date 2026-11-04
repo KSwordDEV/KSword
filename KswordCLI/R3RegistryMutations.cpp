@@ -1,6 +1,7 @@
 #include "CommandRegistry.h"
 #include "../shared/usermode/backend/registry/RegistryBackend.h"
 #include <algorithm>
+#include <cwctype>
 #include <stdexcept>
 namespace ks::cli {
 namespace {
@@ -21,7 +22,11 @@ Result finish(const RegistryOperationResult& action, bool verified, Json data) {
 }
 std::uint32_t type(const Args& args) {
     const std::map<std::wstring,std::uint32_t> names{{L"none",REG_NONE},{L"sz",REG_SZ},{L"expand-sz",REG_EXPAND_SZ},{L"binary",REG_BINARY},{L"dword",REG_DWORD},{L"multi-sz",REG_MULTI_SZ},{L"qword",REG_QWORD}};
-    const auto requested=args.require(L"--type"); const auto named=names.find(requested);
+    auto requested=args.require(L"--type");
+    std::transform(requested.begin(),requested.end(),requested.begin(),[](wchar_t ch){return static_cast<wchar_t>(std::towlower(ch));});
+    if(requested.starts_with(L"reg_")) requested.erase(0,4);
+    std::replace(requested.begin(),requested.end(),L'_',L'-');
+    const auto named=names.find(requested);
     return named==names.end() ? args.u32(L"--type") : named->second;
 }
 Result mutate(const Args& args,const std::wstring& operation) {
@@ -75,7 +80,7 @@ Result mutate(const Args& args,const std::wstring& operation) {
 }
 }
 void registerRegistryMutations() {
-    const auto notes=L"R3 only, no driver. Every operation re-reads its target. Partial or unconfirmed effects return 6. Value rename copies then deletes and may overwrite an existing target; it is not atomic.";
+    const auto notes=L"R3 only, no driver. Every operation re-reads its target. Partial or unconfirmed effects return 6. Types accept sz/REG_SZ, expand-sz/REG_EXPAND_SZ, multi-sz/REG_MULTI_SZ, dword/REG_DWORD, qword/REG_QWORD, binary/REG_BINARY, none/REG_NONE, or numeric values. --text uses strings, semicolon-separated multi-sz, or decimal/0x integers; --hex and --data-file supply raw bytes. Value rename copies then deletes and may overwrite an existing target; it is not atomic.";
     for(const auto* operation:{L"create",L"delete"}) {
         const std::wstring word=operation;
         addCommand({L"registry key "+word,L"KswordCLI.exe registry key "+word+L" --path PATH --confirm [--backend r3] [--json]",L"Apply key "+word+L" and verify target presence.",L"Required: --path, --confirm. Optional: --backend r3, --json.",notes,[word](const Args& args){return mutate(args,L"key-"+word);}});

@@ -20,6 +20,7 @@ SOURCE = r'''
 static std::wstring mode;
 static unsigned reads;
 BOOL WINAPI FixtureRead(HANDLE file,LPVOID data,DWORD size,LPDWORD read,LPOVERLAPPED async) {
+    if(mode==L"normal") return ReadFile(file,data,size,read,async);
     if(++reads>1) {*read=0;if(mode==L"error"){SetLastError(ERROR_CRC);return FALSE;}return TRUE;}
     return ReadFile(file,data,size>4?4:size,read,async);
 }
@@ -53,6 +54,13 @@ def main():
             assert document['status'] == 'failed' and document['data']['win32Error'] == error
             assert document['data']['bytesRead'] == '4' and document['data']['snapshotSize'] == '64'
             assert not document['data']['deepAvailable'] and not document['data']['header']['available']
+        import os
+        system_dll = Path(os.environ['SystemRoot']) / 'System32' / 'kernel32.dll'
+        result = subprocess.run([str(binary), 'normal', 'file', 'pe', 'query', '--path', str(system_dll), '--json'], capture_output=True, timeout=30)
+        assert result.returncode in (0, 6), (result.returncode, result.stderr)
+        doc = json.loads(result.stdout)['data']
+        assert doc['deepAvailable'] and any(m['functions'] for m in doc['imports'])
+        assert doc['exportEvidenceState'] in ('named-only', 'partial') and any(e['name'] == 'Ordinal' for e in doc['exportEntries'])
         print('R3_PE_FIXTURE_PASS early EOF and failed read retain errors and reject false fallback success')
 
 

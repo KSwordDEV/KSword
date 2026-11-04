@@ -74,6 +74,7 @@ KswordARKStorageRetrieveBuffers(
     _In_ WDFREQUEST Request,
     _In_ size_t InputBufferLength,
     _In_ size_t OutputHeaderBytes,
+    _Out_ KSWORD_ARK_STORAGE_AUDIT_REQUEST* RequestSnapshot,
     _Outptr_result_maybenull_ KSWORD_ARK_STORAGE_AUDIT_REQUEST** QueryRequest,
     _Outptr_ PVOID* OutputBuffer,
     _Out_ size_t* ActualOutputLength
@@ -90,7 +91,8 @@ Arguments:
     Request - Current WDF IOCTL request.
     InputBufferLength - User-supplied input length.
     OutputHeaderBytes - Minimum output header bytes for the specific response.
-    QueryRequest - Receives NULL for default options or the caller request.
+    RequestSnapshot - Receives a copy of input before the shared output is cleared.
+    QueryRequest - Receives NULL for default options or the request snapshot.
     OutputBuffer - Receives the WDF output buffer.
     ActualOutputLength - Receives the WDF output buffer length.
 
@@ -105,7 +107,7 @@ Return Value:
     BOOLEAN hasInput = FALSE;
     NTSTATUS status;
 
-    if (QueryRequest == NULL || OutputBuffer == NULL || ActualOutputLength == NULL) {
+    if (RequestSnapshot == NULL || QueryRequest == NULL || OutputBuffer == NULL || ActualOutputLength == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -118,7 +120,9 @@ Return Value:
     }
     UNREFERENCED_PARAMETER(actualInputLength);
     if (hasInput) {
-        *QueryRequest = (KSWORD_ARK_STORAGE_AUDIT_REQUEST*)inputBuffer;
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(RequestSnapshot, inputBuffer, sizeof(*RequestSnapshot));
+        *QueryRequest = RequestSnapshot;
     }
     return KswordARKRetrieveRequiredOutputBuffer(Request, OutputHeaderBytes, OutputBuffer, ActualOutputLength);
 }
@@ -152,6 +156,8 @@ Return Value:
 
 --*/
 {
+    /* 保存 METHOD_BUFFERED 输入，避免输出初始化覆盖查询参数。 */
+    KSWORD_ARK_STORAGE_AUDIT_REQUEST requestSnapshot;
     KSWORD_ARK_STORAGE_AUDIT_REQUEST* queryRequest = NULL;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0U;
@@ -162,7 +168,7 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
     *BytesReturned = 0U;
-    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_VOLUME_STACK_RESPONSE_HEADER_SIZE, &queryRequest, &outputBuffer, &actualOutputLength);
+    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_VOLUME_STACK_RESPONSE_HEADER_SIZE, &requestSnapshot, &queryRequest, &outputBuffer, &actualOutputLength);
     if (!NT_SUCCESS(status)) {
         KswordARKStorageIoctlLog(Device, "Error", "R0 storage volume-stack ioctl buffer invalid, status=0x%08X.", (unsigned int)status);
         return status;
@@ -201,6 +207,8 @@ Return Value:
 
 --*/
 {
+    /* 保存 METHOD_BUFFERED 输入，避免输出初始化覆盖查询参数。 */
+    KSWORD_ARK_STORAGE_AUDIT_REQUEST requestSnapshot;
     KSWORD_ARK_STORAGE_AUDIT_REQUEST* queryRequest = NULL;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0U;
@@ -211,7 +219,7 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
     *BytesReturned = 0U;
-    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_BITLOCKER_RESPONSE_HEADER_SIZE, &queryRequest, &outputBuffer, &actualOutputLength);
+    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_BITLOCKER_RESPONSE_HEADER_SIZE, &requestSnapshot, &queryRequest, &outputBuffer, &actualOutputLength);
     if (!NT_SUCCESS(status)) {
         KswordARKStorageIoctlLog(Device, "Error", "R0 storage bitlocker ioctl buffer invalid, status=0x%08X.", (unsigned int)status);
         return status;
@@ -250,6 +258,8 @@ Return Value:
 
 --*/
 {
+    /* 保存 METHOD_BUFFERED 输入，避免输出初始化覆盖查询参数。 */
+    KSWORD_ARK_STORAGE_AUDIT_REQUEST requestSnapshot;
     KSWORD_ARK_STORAGE_AUDIT_REQUEST* queryRequest = NULL;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0U;
@@ -260,7 +270,7 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
     *BytesReturned = 0U;
-    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_MOUNTMGR_RESPONSE_HEADER_SIZE, &queryRequest, &outputBuffer, &actualOutputLength);
+    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_MOUNTMGR_RESPONSE_HEADER_SIZE, &requestSnapshot, &queryRequest, &outputBuffer, &actualOutputLength);
     if (!NT_SUCCESS(status)) {
         KswordARKStorageIoctlLog(Device, "Error", "R0 storage mountmgr ioctl buffer invalid, status=0x%08X.", (unsigned int)status);
         return status;
@@ -299,6 +309,8 @@ Return Value:
 
 --*/
 {
+    /* 保存 METHOD_BUFFERED 输入，避免输出初始化覆盖查询参数。 */
+    KSWORD_ARK_STORAGE_AUDIT_REQUEST requestSnapshot;
     KSWORD_ARK_STORAGE_AUDIT_REQUEST* queryRequest = NULL;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0U;
@@ -309,7 +321,7 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
     *BytesReturned = 0U;
-    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_FILESYSTEM_RESPONSE_HEADER_SIZE, &queryRequest, &outputBuffer, &actualOutputLength);
+    status = KswordARKStorageRetrieveBuffers(Request, InputBufferLength, KSW_STORAGE_FILESYSTEM_RESPONSE_HEADER_SIZE, &requestSnapshot, &queryRequest, &outputBuffer, &actualOutputLength);
     if (!NT_SUCCESS(status)) {
         KswordARKStorageIoctlLog(Device, "Error", "R0 storage filesystem ioctl buffer invalid, status=0x%08X.", (unsigned int)status);
         return status;

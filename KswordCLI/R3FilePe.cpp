@@ -28,7 +28,10 @@ Result hex(const Args& args) {
 }
 Result query(const Args& args) {
     const auto path = file::path(args, L"--path"); const auto result = backend::BuildPeStaticSummary(path); const auto& analysis = result.analysis;
-    std::vector<Json> sections, imports, notes; bool partial = result.partial || result.sectionsTruncated || result.importsTruncated;
+    std::vector<Json> sections, imports, exports, notes; bool partial = result.partial || result.sectionsTruncated || result.importsTruncated;
+    constexpr std::size_t maxImportFunctions = 4096;
+    std::size_t emittedFunctions = 0, totalFunctions = 0;
+    for (const auto& module : analysis.importModules) totalFunctions += module.imports.size();
     for (std::size_t i = 0; i < std::min<std::size_t>(analysis.sections.size(), 32); ++i) {
         const auto& s = analysis.sections[i]; sections.push_back(Json::object({{L"name", Json::string(backend::Utf8ToWide(s.name))},
             {L"virtualAddress", Json::hex(s.virtualAddress)}, {L"virtualSize", Json::count(s.virtualSize)}, {L"rawOffset", Json::hex(s.rawOffset)},
@@ -36,12 +39,37 @@ Result query(const Args& args) {
     }
     for (const auto& m : analysis.importModules) if (!m.diagnosticText.empty()) partial = true;
     for (std::size_t i = 0; i < std::min<std::size_t>(analysis.importModules.size(), 64); ++i) {
-        const auto& m = analysis.importModules[i]; imports.push_back(Json::object({{L"name", Json::string(backend::Utf8ToWide(m.dllName))},
+        const auto& m = analysis.importModules[i]; std::vector<Json> functions;
+        for (const auto& f : m.imports) {
+            if (emittedFunctions >= maxImportFunctions) break;
+            functions.push_back(Json::object({{L"name", f.importByOrdinal ? Json{} : Json::string(backend::Utf8ToWide(f.functionName))},
+                {L"byOrdinal", Json::boolean(f.importByOrdinal)}, {L"ordinal", f.importByOrdinal ? Json::number(f.ordinal) : Json{}},
+                {L"hint", f.importByOrdinal ? Json{} : Json::number(f.hint)}, {L"thunkRva", Json::hex(f.thunkRva)},
+                {L"nameRva", f.importByOrdinal ? Json{} : Json::hex(f.nameRva)}, {L"nameRvaMapped", Json::boolean(f.nameRvaMapped)}}));
+            ++emittedFunctions;
+        }
+        imports.push_back(Json::object({{L"name", Json::string(backend::Utf8ToWide(m.dllName))},
             {L"descriptorIndex", Json::number(m.descriptorIndex)}, {L"descriptorValid", Json::boolean(m.descriptorValid)},
             {L"originalFirstThunk", Json::hex(m.originalFirstThunk)}, {L"firstThunk", Json::hex(m.firstThunk)},
-            {L"parsedEntryCount", Json::number(static_cast<std::uint32_t>(m.imports.size()))}, {L"diagnostic", Json::string(backend::Utf8ToWide(m.diagnosticText))}}));
+            {L"parsedEntryCount", Json::number(static_cast<std::uint32_t>(m.imports.size()))}, {L"functions", Json::array(functions)}, {L"diagnostic", Json::string(backend::Utf8ToWide(m.diagnosticText))}}));
     }
-    for (const auto& entry : analysis.entries) if (entry.kind == ks::file::PeReportEntry::Kind::Note) notes.push_back(Json::string(entry.value));
+    bool inExports = false, hasExportSection = false, exportPartial = false, noExports = false;
+    for (const auto& entry : analysis.entries) {
+        if (entry.kind == ks::file::PeReportEntry::Kind::Section) {
+            inExports = entry.name == L"导出表";
+            hasExportSection = hasExportSection || inExports;
+        } else if (inExports) {
+            if (entry.kind == ks::file::PeReportEntry::Kind::Note) {
+                if (entry.value == L"无导出表。") noExports = true;
+                else exportPartial = true;
+            }
+            exports.push_back(Json::object({{L"kind", Json::string(entry.kind == ks::file::PeReportEntry::Kind::Note ? L"note" : L"field")},
+                {L"name", Json::string(entry.name)}, {L"value", Json::string(entry.value)}, {L"depth", Json::number(entry.depth)}}));
+        }
+        if (entry.kind == ks::file::PeReportEntry::Kind::Note) notes.push_back(Json::string(entry.value));
+    }
+    const bool functionsTruncated = emittedFunctions < totalFunctions;
+    partial = partial || functionsTruncated || exportPartial;
     int code = result.deepAvailable ? partial ? 6 : 0 : result.fallbackReason == backend::PeFallbackReason::InvalidPe ? 4 :
         result.fallbackReason == backend::PeFallbackReason::ReadFailure ? 3 : result.header.success ? 6 : 5;
     const wchar_t* reason = result.fallbackReason == backend::PeFallbackReason::None ? L"none" : result.fallbackReason == backend::PeFallbackReason::InvalidPe ? L"invalid-pe" :
@@ -57,6 +85,10 @@ Result query(const Args& args) {
         {L"entryPointFileOffset", analysis.entryPointFileOffsetValid ? Json::hex(analysis.entryPointFileOffset) : Json{}},
         {L"sectionCount", Json::number(static_cast<std::uint32_t>(analysis.sections.size()))}, {L"importModuleCount", Json::number(static_cast<std::uint32_t>(analysis.importModules.size()))},
         {L"sectionsTruncated", Json::boolean(result.sectionsTruncated)}, {L"importsTruncated", Json::boolean(result.importsTruncated)},
+        {L"importFunctionCount", Json::count(totalFunctions)}, {L"importFunctionsReturned", Json::count(emittedFunctions)},
+        {L"importFunctionsTruncated", Json::boolean(functionsTruncated)},
+        {L"exportEvidenceState", Json::string(!hasExportSection ? L"unavailable" : exportPartial ? L"partial" : noExports ? L"absent" : L"named-only")},
+        {L"exportEntries", Json::array(exports)},
         {L"sections", Json::array(sections)}, {L"imports", Json::array(imports)}, {L"notes", Json::array(notes)}});
     if (!result.deepAvailable) output.diagnostics.push_back(result.text);
     return output;
@@ -67,8 +99,8 @@ void registerFilePe() {
         L"Read a bounded prefix as bytes and a hex/ASCII preview.", L"Required: --path. Optional: --max-bytes 1..1048576 (default 256), --backend r3, --json.",
         L"Fields: dataHex, preview, returnedBytes, sizeBytes, limited, win32Error. A limited preview returns 6; valid empty files return 0.", hex});
     addCommand({L"file pe query", L"KswordCLI.exe file pe query --path PATH [--backend r3] [--json]",
-        L"Analyze a bounded PE snapshot with section and import module summaries.", L"Required: --path. Optional: --backend r3, --json.",
-        L"Fields: format, machine, subsystem, imageBase, entryPointRva, sections, imports, fallbackReason, header. Backend limits: 16 MiB, 32 displayed sections, 64 import modules. Partial results return 6; invalid PE returns 4; read failure returns 3. No import function/export table publication.", query});
+        L"Analyze a bounded PE snapshot with sections, imports and named export evidence.", L"Required: --path. Optional: --backend r3, --json.",
+        L"Fields: format, machine, subsystem, imageBase, entryPointRva, sections, imports with functions, exportEntries, fallbackReason, header. exportEntries retain the shared parser's field/note names and depth; only named exports are enumerated. Backend limits: 16 MiB, 32 displayed sections, 64 import modules, 4096 displayed import functions and 4096 named exports. Partial results return 6; invalid PE returns 4; read failure returns 3.", query});
     addCommand({L"file pe header query", L"KswordCLI.exe file pe header query --path PATH [--backend r3] [--json]",
         L"Read the lightweight DOS/NT/COFF header without loading the entire file.", L"Required: --path. Optional: --backend r3, --json.",
         L"Fields: machine, sectionCount, timestamp, characteristics, optionalMagic. Does not validate all directories or section contents.", headerQuery});

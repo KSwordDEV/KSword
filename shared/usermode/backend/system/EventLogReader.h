@@ -56,6 +56,10 @@ struct EventLogQueryRequest {
     EventLogChannel channel = EventLogChannel::System;
     EventLogLevelFilter level = EventLogLevelFilter::All;
     std::uint32_t maxCount = 500;
+    // Empty values retain the UI's channel and level defaults. A caller-provided
+    // XPath is passed directly to EvtQuery and replaces the level filter.
+    std::wstring channelPath;
+    std::wstring xpath;
 };
 
 // EventLogQueryResult carries the newest records first.

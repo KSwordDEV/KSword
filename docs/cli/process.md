@@ -304,6 +304,7 @@ Native 64 位／提升令牌可能拒绝或忽略虚拟化启用；运行中令�
 KswordCLI.exe process peb query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--backend r3] [--json]
 KswordCLI.exe process peb environment query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--name NAME] [--limit N] [--backend r3] [--json]
 KswordCLI.exe process memory regions query --pid PID [--creation-time FILETIME] [--address ADDRESS] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--backend r3] [--json]
 KswordCLI.exe process settings set-affinity --pid PID --mask MASK [--creation-time FILETIME] --confirm [--backend r3] [--json]
 ```
 
@@ -329,6 +330,8 @@ memory regions query 带 address 时调用共享 VirtualQueryEx 适配器读取�
 size 和统计计数用十进制字符串。预览有 complete、budgetLimited、regionCount、committedRegionCount、commitBytes、mappedBytes、imageBytes、privateBytes、returnedCount、truncated。
 遍历保持原后端 60000 个区域／8 秒上限，只有到达地址空间终点才称 complete；查询中断、预览截断或映射路径缺失返回 6。
 limit 范围 1..40，不代表增加后端预览能力；区域长度／范围无效返回 4，实际查询失败返回 3。累计区域与后续独立查询可能因目标映射变化而不同。
+
+memory regions page 通过共享 VirtualQueryEx 适配器枚举提交区域，默认从地址 0 开始；将返回的 nextAddress 传给下一次的 --start-address，直到 complete=true。limit 为 1..4096，默认 100；pageLimited 表示正常到达请求的页大小，返回 0，并不声称已扫描完整地址空间。输出扫描区域数、原生错误和 budgetLimited；每页最多扫描 60000 个区域或 8 秒，预算耗尽、部分读取失败或映射路径不可用返回 6，首项读取失败返回 3，区域格式无效返回 4。每次调用保留并验证进程身份，但分页不是原子快照：进程映射可能在调用间改变，可使用首次返回的 creationTime 约束后续调用。
 
 set-affinity 使用已实现的 SetProcessAffinityMask，输出 requestedMask、requestSucceeded、writeAttempted、verified、win32Error，以及 before／after 的 known、mask、systemMask、原始错误。
 mask 是正的十进制或十六进制值。保留身份并在原句柄上回读；成功请求但掩码未匹配返回 6，API 失败返回 3。

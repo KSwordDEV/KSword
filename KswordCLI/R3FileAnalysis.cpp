@@ -28,15 +28,16 @@ Result signature(const Args& args) {
     if (!target.present || target.directory()) return {3, Json::object({{L"path", Json::string(path)}, {L"target", target.json()}}), {L"Target file metadata is unavailable or the target is a directory."}};
     const auto result = backend::ReadEmbeddedSignature(path);
     const auto status = result.trustStatus;
-    const auto state = status == ERROR_SUCCESS ? L"trusted" : status == TRUST_E_NOSIGNATURE ? L"unsigned" : status == CERT_E_EXPIRED ? L"expired" :
+    const auto state = status == ERROR_SUCCESS ? L"trusted" : status == TRUST_E_NOSIGNATURE ? L"no-embedded-signature" : status == CERT_E_EXPIRED ? L"expired" :
         status == TRUST_E_BAD_DIGEST ? L"bad-digest" : L"not-trusted";
     const bool verdict = status == ERROR_SUCCESS || status == TRUST_E_NOSIGNATURE || status == CERT_E_EXPIRED || status == TRUST_E_BAD_DIGEST ||
         status == CERT_E_UNTRUSTEDROOT || status == CERT_E_CHAINING || status == TRUST_E_EXPLICIT_DISTRUST || status == TRUST_E_SUBJECT_NOT_TRUSTED;
-    const int code = !result.evaluated ? 3 : verdict ? 0 : status == TRUST_E_PROVIDER_UNKNOWN || status == TRUST_E_SUBJECT_FORM_UNKNOWN ? 5 : 3;
+    const int code = !result.evaluated ? 3 : status == TRUST_E_NOSIGNATURE ? 6 : verdict ? 0 : status == TRUST_E_PROVIDER_UNKNOWN || status == TRUST_E_SUBJECT_FORM_UNKNOWN ? 5 : 3;
     return {code, Json::object({{L"path", Json::string(path)}, {L"source", Json::string(L"WinVerifyTrust/Authenticode")},
-        {L"evaluated", Json::boolean(result.evaluated)}, {L"trusted", Json::boolean(result.evaluated && status == ERROR_SUCCESS)},
+        {L"evaluated", Json::boolean(result.evaluated)}, {L"trusted", !result.evaluated || status == TRUST_E_NOSIGNATURE ? Json{} : Json::boolean(status == ERROR_SUCCESS)},
         {L"signatureState", Json::string(state)}, {L"trustStatus", Json::hex(static_cast<DWORD>(status))}, {L"description", Json::string(result.message)},
-        {L"revocationChecked", Json::boolean(false)}, {L"networkRetrieval", Json::boolean(false)}})};
+        {L"catalogChecked", Json::boolean(false)}, {L"revocationChecked", Json::boolean(false)}, {L"networkRetrieval", Json::boolean(false)}}),
+        status == TRUST_E_NOSIGNATURE ? std::vector<std::wstring>{L"No embedded signature was found; catalog signatures were not checked, so overall trust is unknown."} : std::vector<std::wstring>{}};
 }
 }
 void registerFileAnalysis() {
@@ -48,6 +49,6 @@ void registerFileAnalysis() {
         L"Fields: bitsPerByte, sampledBytes, sizeBytes, limited, complete, win32Error. Budget-limited or partially read prefixes return 6; unreadable files return 3; empty files have entropy 0.", entropy});
     addCommand({L"file signature query", L"KswordCLI.exe file signature query --path PATH [--backend r3] [--json]",
         L"Query Authenticode trust with cached-only retrieval and no revocation check.", L"Required: --path. Optional: --backend r3, --json.",
-        L"Fields: evaluated, trusted, signatureState, trustStatus, revocationChecked, networkRetrieval. Query success is independent of trust; unsigned and untrusted files remain explicitly marked.", signature});
+        L"Fields: evaluated, trusted, signatureState, trustStatus, catalogChecked, revocationChecked, networkRetrieval. Only the embedded signature is checked. If absent, catalog trust is unknown and exit 6; untrusted embedded signatures remain explicitly marked.", signature});
 }
 }

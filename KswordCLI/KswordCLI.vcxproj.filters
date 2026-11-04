@@ -373,6 +373,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3SystemIoctl.cpp" />
+    <ClCompile Include="HealthCommand.cpp" />
     <ClCompile Include="RawIoctlCommand.cpp" />
     <ClCompile Include="RxpfAtomicCommitCommand.cpp" />
     <ClCompile Include="RxpfExecProofCommand.cpp" />

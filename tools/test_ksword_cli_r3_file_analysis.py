@@ -33,7 +33,7 @@ LONG WINAPI FixtureTrust(HWND,GUID*,LPVOID raw) {
     if(trust->dwStateAction==WTD_STATEACTION_CLOSE){++closed;return ERROR_SUCCESS;}
     ++verify;
     if(trust->dwUIChoice!=WTD_UI_NONE || trust->fdwRevocationChecks!=WTD_REVOKE_NONE || trust->dwProvFlags!=WTD_CACHE_ONLY_URL_RETRIEVAL)return E_INVALIDARG;
-    return mode==L"trusted" ? ERROR_SUCCESS : mode==L"digest" ? TRUST_E_BAD_DIGEST : mode==L"unsupported" ? TRUST_E_PROVIDER_UNKNOWN : E_INVALIDARG;
+    return mode==L"trusted" ? ERROR_SUCCESS : mode==L"no-signature" ? TRUST_E_NOSIGNATURE : mode==L"digest" ? TRUST_E_BAD_DIGEST : mode==L"unsupported" ? TRUST_E_PROVIDER_UNKNOWN : E_INVALIDARG;
 }
 int wmain(int argc,wchar_t* argv[]) {
     _setmode(_fileno(stdout),_O_U8TEXT);_setmode(_fileno(stderr),_O_U8TEXT);
@@ -69,6 +69,8 @@ def main():
         failed = run('unreadable', 'entropy', 3)
         assert failed['bitsPerByte'] is None and failed['sampledBytes'] == '0' and failed['win32Error'] == 23
         assert run('trusted', 'signature', 0)['trusted']
+        absent = run('no-signature', 'signature', 6)
+        assert absent['trusted'] is None and absent['signatureState'] == 'no-embedded-signature' and not absent['catalogChecked']
         bad = run('digest', 'signature', 0)
         assert not bad['trusted'] and bad['signatureState'] == 'bad-digest' and bad['trustStatus'] == '0x80096010'
         assert run('unsupported', 'signature', 5)['trustStatus'] == '0x800b0001'

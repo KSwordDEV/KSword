@@ -7,14 +7,14 @@
 ## TCP/UDP 连接（迁移项 01）
 
 ```powershell
-KswordCLI.exe network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--limit N] [--backend r3] [--json]
+KswordCLI.exe network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]
 KswordCLI.exe network connections close --pid PID --local-address IP --local-port N --remote-address IP --remote-port N --confirm [--backend r3] [--json]
 ```
 
 枚举通过 IP Helper 读取四种端点表。默认协议 `all`，显示上限 100；`--limit 0`
 只显示统计，不影响采集。每行包含协议、PID、进程名、本地／远程地址和端口、
 原始 TCP 状态编号与 `canClose`。UDP 的状态为 `null`，远端地址为空、端口为 0。
-JSON data 包含 `matchedCount`、`returnedCount`、`truncated`、`entries`。
+`--offset` 默认 0，在筛选后跳过指定行；有后续行时输出 `nextOffset`，可用于下一次查询。每次执行均为独立系统快照，连接增删或顺序变化可能导致跨页重复或遗漏。JSON data 包含 `matchedCount`、`returnedCount`、`offset`、`nextOffset`、`truncated`、`entries`。
 表读取失败时保留已采集的数据并返回部分完成 6；全部失败返回 3。
 
 关闭要求管理员权限，仅支持 IPv4 TCP 的活动 TCB，不支持监听端点、IPv6 或 UDP。

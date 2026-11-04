@@ -536,6 +536,19 @@ namespace ksword::ark
                 }
             }
             finalizeNetworkEndpointCompleteness(result);
+            // NSI runtime snapshots from older drivers may contain a state read
+            // with an unverified stride. Retain endpoints but not that field.
+            const bool tcpStateUnverified = ioctlCode == IOCTL_KSWORD_ARK_NETWORK_QUERY_TCP_ENDPOINTS &&
+                result.sourceFlags == KSWORD_ARK_NETWORK_AUDIT_SOURCE_RUNTIME_STATE && !result.entries.empty();
+            if (tcpStateUnverified)
+            {
+                for (KSWORD_ARK_NETWORK_ENDPOINT_ROW& entry : result.entries)
+                {
+                    entry.state = KSWORD_ARK_NETWORK_TCP_STATE_UNKNOWN;
+                    entry.flags |= KSWORD_ARK_NETWORK_AUDIT_ROW_FLAG_FIELD_MISSING;
+                }
+                result.partial = true;
+            }
             result.io.message = appendNetworkAuditState(
                 appendAuditSummary(operationName, result.totalCount, result.returnedCount, result.entries.size(), result.io.bytesReturned),
                 result.status,
@@ -548,6 +561,8 @@ namespace ksword::ark
                    result.totalCount == result.returnedCount
                     ? ", completeness=complete"
                     : ", completeness=unavailable, responseRowsDiscarded=true");
+            if (tcpStateUnverified)
+                result.io.message += ", tcpState=unavailable (unverified NSI layout)";
             return result;
         }
 

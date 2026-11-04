@@ -228,6 +228,125 @@ namespace
         }
     }
 
+    // The protocol strings are fixed-size arrays, and need not contain a NUL.
+    template <std::size_t N>
+    std::wstring boundedText(const wchar_t (&text)[N])
+    {
+        return std::wstring(text, std::find(text, text + N, L'\0'));
+    }
+
+    void printExtendedRows(const ksword::ark::IoctlRegistryQueryResult& result)
+    {
+        std::wcout << L"query_status=" << result.status << L" total=" << result.totalCount
+                   << L" returned=" << result.returnedCount << L" duplicates=" << result.duplicateCount
+                   << L" last_status=0x" << std::hex << static_cast<std::uint32_t>(result.lastStatus) << std::dec << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  ioctl=0x" << std::hex << row.ioControlCode << L" function=0x" << row.functionNumber
+                       << L" flags=0x" << row.flags << L" required_capability=0x" << row.requiredCapability
+                       << L" handler=0x" << row.handlerAddress << std::dec << L" method=" << row.method
+                       << L" access=" << row.access << L" name=" << utf8ToWide(row.name) << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::UnloadedDriverQueryResult& result)
+    {
+        std::wcout << L"source=" << result.source << L" query_status=" << result.queryStatus
+                   << L" response_flags=0x" << std::hex << result.responseFlags
+                   << L" last_status=0x" << static_cast<std::uint32_t>(result.lastStatus) << std::dec
+                   << L" total=" << result.totalRows << L" returned=" << result.entries.size()
+                   << L" skipped=" << result.skippedRows << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  source=" << row.source << L" flags=0x" << std::hex << row.flags
+                       << L" entry=0x" << row.entryAddress << L" base=0x" << row.baseAddress
+                       << L" size=0x" << row.imageSize << L" timestamp=0x" << row.timeDateStamp
+                       << L" load_status=0x" << static_cast<std::uint32_t>(row.loadStatus) << std::dec
+                       << L" unload_time=" << row.unloadTime << L" name=" << row.driverName << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::PlatformAuditResult& result)
+    {
+        std::wcout << L"query_status=" << result.status << L" response_flags=0x" << std::hex << result.responseFlags
+                   << L" last_status=0x" << static_cast<std::uint32_t>(result.lastStatus) << std::dec
+                   << L" total=" << result.totalCount << L" returned=" << result.returnedCount << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  scope=" << row.scope << L" kind=" << row.rowKind << L" index=" << row.entryIndex
+                       << L" status=" << row.status << L" hook_status=" << row.hookStatus << L" confidence=" << row.confidence
+                       << L" field_flags=0x" << std::hex << row.fieldFlags << L" live=0x" << row.liveAddress
+                       << L" original=0x" << row.originalAddress << L" table=0x" << row.tableAddress
+                       << L" module_base=0x" << row.moduleBase << L" last_status=0x" << static_cast<std::uint32_t>(row.lastStatus)
+                       << std::dec << L" detail_code=" << row.detailCode << L" name=" << boundedText(row.name)
+                       << L" module=" << boundedText(row.modulePath) << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::ObjectTypeTableAuditResult& result)
+    {
+        std::wcout << L"query_status=" << result.status << L" total=" << result.totalCount
+                   << L" returned=" << result.returnedCount << L" next_index=" << result.nextIndex
+                   << L" last_status=0x" << std::hex << static_cast<std::uint32_t>(result.lastStatus) << std::dec << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  index=" << row.typeIndex << L" status=" << row.status
+                       << L" field_flags=0x" << std::hex << row.fieldFlags << L" object_type=0x" << row.objectTypeAddress
+                       << L" identity_hash=0x" << row.identityHash << L" last_status=0x" << static_cast<std::uint32_t>(row.lastStatus)
+                       << std::dec << L" name=" << boundedText(row.typeName) << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::Win32kTimersResult& result)
+    {
+        std::wcout << L"query_status=" << result.status << L" total=" << result.totalCount << L" returned=" << result.returnedCount
+                   << L" capability=0x" << std::hex << result.capabilityMask << L" missing=0x" << result.missingCapabilityMask
+                   << L" last_status=0x" << static_cast<std::uint32_t>(result.lastStatus) << std::dec
+                   << L" visited=" << result.visitedNodeCount << L" read_failures=" << result.readFailureCount
+                   << L" corrupt_buckets=" << result.corruptBucketCount << L" detail=" << result.detail << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  pid=" << row.processId << L" tid=" << row.threadId << L" session=" << row.sessionId
+                       << L" status=" << row.status << L" field_flags=0x" << std::hex << row.fieldFlags
+                       << L" flags=0x" << row.flags << L" timer=0x" << row.timerObject << L" timer_id=0x" << row.timerId
+                       << L" callback=0x" << row.callbackAddress << L" window=0x" << row.windowObject
+                       << L" last_status=0x" << static_cast<std::uint32_t>(row.lastStatus) << std::dec
+                       << L" interval_ms=" << row.intervalMs << L" countdown_ms=" << row.countdownMs
+                       << L" tolerance_ms=" << row.toleranceMs << L" detail=" << boundedText(row.detail) << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::Win32kEventHooksResult& result)
+    {
+        std::wcout << L"query_status=" << result.status << L" total=" << result.totalCount << L" returned=" << result.returnedCount
+                   << L" capability=0x" << std::hex << result.capabilityMask << L" missing=0x" << result.missingCapabilityMask
+                   << L" last_status=0x" << static_cast<std::uint32_t>(result.lastStatus) << std::dec
+                   << L" visited=" << result.visitedNodeCount << L" read_failures=" << result.readFailureCount
+                   << L" corrupt_links=" << result.corruptLinkCount << L" detail=" << result.detail << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  pid=" << row.processId << L" tid=" << row.threadId << L" session=" << row.sessionId
+                       << L" target_pid=" << row.targetProcessId << L" target_tid=" << row.targetThreadId
+                       << L" status=" << row.status << L" field_flags=0x" << std::hex << row.fieldFlags
+                       << L" flags=0x" << row.flags << L" event_min=0x" << row.eventMin << L" event_max=0x" << row.eventMax
+                       << L" hook=0x" << row.hookObject << L" handle=0x" << row.hookHandle << L" callback=0x" << row.callbackAddress
+                       << L" last_status=0x" << static_cast<std::uint32_t>(row.lastStatus) << std::dec
+                       << L" detail=" << boundedText(row.detail) << L"\n";
+    }
+
+    void printExtendedRows(const ksword::ark::KernelTimerDpcEnumResult& result)
+    {
+        const wchar_t* state = L"unknown";
+        switch (result.queryStatus)
+        {
+        case KSWORD_ARK_TIMER_DPC_QUERY_STATUS_OK: state = L"complete"; break;
+        case KSWORD_ARK_TIMER_DPC_QUERY_STATUS_PARTIAL: state = L"partial"; break;
+        case KSWORD_ARK_TIMER_DPC_QUERY_STATUS_DYNDATA_MISSING: state = L"dyndata-missing"; break;
+        case KSWORD_ARK_TIMER_DPC_QUERY_STATUS_INVALID_LAYOUT: state = L"invalid-layout"; break;
+        case KSWORD_ARK_TIMER_DPC_QUERY_STATUS_NOT_SUPPORTED: state = L"unsupported"; break;
+        }
+        std::wcout << L"query_state=" << state << L" query_status=" << result.queryStatus
+                   << L" status_flags=0x" << std::hex << result.statusFlags
+                   << L" last_status=0x" << static_cast<std::uint32_t>(result.lastStatus) << std::dec
+                   << L" total=" << result.totalCount << L" returned=" << result.returnedCount
+                   << L" processors=" << result.processorCount << L" buckets_visited=" << result.bucketsVisited << L"\n";
+        for (const auto& row : result.entries)
+            std::wcout << L"  cpu=" << row.processorGroup << L":" << row.processorNumber << L" bucket=" << row.bucketIndex
+                       << L" flags=0x" << std::hex << row.flags << L" timer=0x" << row.timerAddress
+                       << L" dpc=0x" << row.dpcAddress << L" routine=0x" << row.deferredRoutine
+                       << L" context=0x" << row.deferredContext << std::dec << L" type=" << row.timerType
+                       << L" period=" << row.period << L" due_time=" << row.dueTime << L"\n";
+    }
+
     std::uint32_t parseUnloadedSource(const std::wstring& source)
     {
         if (source.empty() || source == L"mm") return KSWORD_ARK_UNLOADED_DRIVER_SOURCE_MM_UNLOADED_DRIVERS;
@@ -392,6 +511,31 @@ namespace
         if (status == 0xC00000BBU || status == 0xC0000002U || status == 0xC000007AU) return 5;
         return 3;
     }
+
+    template <typename Result>
+    int finishRows(const wchar_t* label, const Result& result)
+    {
+        const int rc = finishResult(label, result);
+        // Wrappers validate response bounds before exposing entries. Partial
+        // business failures may still carry useful validated rows.
+        if (result.io.ok) printExtendedRows(result);
+        // STATUS_BUFFER_OVERFLOW reports a bounded partial response, not a
+        // failed transport. Keep all other NTSTATUS failures unchanged.
+        if (result.io.ok && rc == 3 && static_cast<std::uint32_t>(result.io.ntStatus) == 0x80000005U)
+            return 6;
+        return rc;
+    }
+
+    int timerDpcResultCode(const ksword::ark::KernelTimerDpcEnumResult& result, const int transportRc)
+    {
+        if (transportRc != 0) return transportRc;
+        if (result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_DYNDATA_MISSING ||
+            result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_INVALID_LAYOUT ||
+            result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_NOT_SUPPORTED) return 5;
+        if (result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_PARTIAL ||
+            (result.statusFlags & (KSWORD_ARK_TIMER_DPC_STATUS_PARTIAL | KSWORD_ARK_TIMER_DPC_STATUS_TRUNCATED)) != 0U) return 6;
+        return result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_OK ? 0 : 3;
+    }
 }
 
 // commandArkDriverExtended implements the read-only R0 commands backed by
@@ -496,9 +640,14 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     if (subcommand == L"hvm-metrics") return finishResult(L"hvm-metrics", client.queryHvmMetrics());
     if (subcommand == L"hvm-platform") return finishResult(L"hvm-platform", client.hvmPlatform());
     if (subcommand == L"hvm-events") return finishResult(L"hvm-events", client.queryHvmEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", 128U), false));
-    if (subcommand == L"ioctl-registry") return finishResult(L"ioctl-registry", client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)));
-    if (subcommand == L"timer-dpc") return finishResult(L"timer-dpc", client.enumerateKernelTimerDpc(optionU32(args, L"--max-entries", KSWORD_ARK_TIMER_DPC_DEFAULT_MAX_ENTRIES), optionU32(args, L"--max-per-bucket", KSWORD_ARK_TIMER_DPC_DEFAULT_BUCKET_BUDGET)));
-    if (subcommand == L"unloaded") return finishResult(L"unloaded", client.queryUnloadedDrivers(parseUnloadedSource(optionValue(args, L"--source", L"mm")), optionU32(args, L"--max-rows", KSWORD_ARK_UNLOADED_DRIVER_DEFAULT_ROWS)));
+    if (subcommand == L"ioctl-registry") return finishRows(L"ioctl-registry", client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)));
+    if (subcommand == L"timer-dpc")
+    {
+        const auto result = client.enumerateKernelTimerDpc(optionU32(args, L"--max-entries", KSWORD_ARK_TIMER_DPC_DEFAULT_MAX_ENTRIES), optionU32(args, L"--max-per-bucket", KSWORD_ARK_TIMER_DPC_DEFAULT_BUCKET_BUDGET));
+        const int rc = finishRows(L"timer-dpc", result);
+        return timerDpcResultCode(result, rc);
+    }
+    if (subcommand == L"unloaded") return finishRows(L"unloaded", client.queryUnloadedDrivers(parseUnloadedSource(optionValue(args, L"--source", L"mm")), optionU32(args, L"--max-rows", KSWORD_ARK_UNLOADED_DRIVER_DEFAULT_ROWS)));
     if (subcommand == L"wfp-events") return finishResult(L"wfp-events", client.queryNetworkWfpEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_WFP_EVENT_DEFAULT_REQUESTED_ROWS)));
     if (subcommand == L"traffic") return finishResult(L"traffic", client.queryNetworkTrafficPackets(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_TRAFFIC_DEFAULT_REQUESTED_ROWS)));
     if (subcommand == L"piddb") return finishResult(L"piddb", client.queryPiDdb(optionU32(args, L"--max-rows", KSWORD_ARK_PIDDB_DEFAULT_ROWS)));
@@ -525,11 +674,11 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     }
     if (subcommand == L"system-time") return finishResult(L"system-time", client.querySystemTime());
     if (subcommand == L"slat-iommu") return finishResult(L"slat-iommu", client.querySlatIommuAudit(hasOption(args, L"--include-mmio")));
-    if (subcommand == L"platform") return finishResult(L"platform", client.queryPlatformAudit(optionU32(args, L"--scope", KSWORD_ARK_PLATFORM_AUDIT_SCOPE_ALL), optionU32(args, L"--max-rows", KSWORD_ARK_PLATFORM_DEFAULT_MAX_ROWS)));
+    if (subcommand == L"platform") return finishRows(L"platform", client.queryPlatformAudit(optionU32(args, L"--scope", KSWORD_ARK_PLATFORM_AUDIT_SCOPE_ALL), optionU32(args, L"--max-rows", KSWORD_ARK_PLATFORM_DEFAULT_MAX_ROWS)));
     if (subcommand == L"i8042") return finishResult(L"i8042", client.queryI8042Audit(optionU32(args, L"--max-rows", KSWORD_ARK_I8042_DEFAULT_MAX_ROWS)));
-    if (subcommand == L"object-types") return finishResult(L"object-types", client.enumObjectTypeTable(optionU32(args, L"--flags", KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_ALL), optionU32(args, L"--max-entries", 256U), optionU32(args, L"--start-index", 0U)));
-    if (subcommand == L"win32k-timers") return finishResult(L"win32k-timers", client.queryWin32kTimers(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
-    if (subcommand == L"win32k-events") return finishResult(L"win32k-events", client.queryWin32kEventHooks(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
+    if (subcommand == L"object-types") return finishRows(L"object-types", client.enumObjectTypeTable(optionU32(args, L"--flags", KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_ALL), optionU32(args, L"--max-entries", 256U), optionU32(args, L"--start-index", 0U)));
+    if (subcommand == L"win32k-timers") return finishRows(L"win32k-timers", client.queryWin32kTimers(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
+    if (subcommand == L"win32k-events") return finishRows(L"win32k-events", client.queryWin32kEventHooks(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
 
     std::wcerr << L"error: unknown r0 subcommand '" << subcommand << L"'\n";
     return 1;

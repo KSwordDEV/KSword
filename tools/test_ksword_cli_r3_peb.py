@@ -36,6 +36,12 @@ static BOOL WINAPI memoryRead(HANDLE h,LPCVOID address,LPVOID out,SIZE_T n,SIZE_
 }
 static SIZE_T WINAPI regionQuery(HANDLE h,LPCVOID address,PMEMORY_BASIC_INFORMATION data,SIZE_T n) {
  if(mode==L"short-region"){std::memset(data,0,n);return 8;}
+ if(mode==L"paged-region"){
+  const auto p=reinterpret_cast<std::uintptr_t>(address);
+  if(p>=0x5000){SetLastError(ERROR_ACCESS_DENIED);return 0;}
+  std::memset(data,0,n);data->BaseAddress=reinterpret_cast<void*>(p&~std::uintptr_t(0xfff));data->RegionSize=0x1000;
+  data->State=(p==0x1000||p==0x3000)?MEM_FREE:MEM_COMMIT;data->Type=MEM_PRIVATE;data->Protect=PAGE_READWRITE;return sizeof(*data);
+ }
  return VirtualQueryEx(h,address,data,n);
 }
 static BOOL WINAPI setAffinity(HANDLE,DWORD_PTR){if(mode==L"affinity-denied"){SetLastError(ERROR_ACCESS_DENIED);return FALSE;}return TRUE;}
@@ -96,6 +102,13 @@ def main():
         assert not environment['complete'] and environment['budgetLimited'] and environment['bytesRead']=='131072'
         region=run('short-region',['memory','regions','query'],4,['--address','self'])
         assert region['region'] is None and region['win32Error']==13
+        page=run('paged-region',['memory','regions','page'],0,['--limit','2'])
+        assert page['returnedCount']==2 and page['scannedRegionCount']=='3' and page['pageLimited'] and not page['complete'] and page['nextAddress']=='0x3000'
+        assert [r['base'] for r in page['regions']]==['0x0','0x2000']
+        later=run('paged-region',['memory','regions','page'],6,['--start-address','0x3000','--limit','2'])
+        assert later['returnedCount']==1 and later['regions'][0]['base']=='0x4000' and later['nextAddress']=='0x5000' and later['win32Error']==5
+        malformed=run('short-region',['memory','regions','page'],4)
+        assert malformed['win32Error']==13 and malformed['returnedCount']==0
         failed=run('affinity-denied',['settings','set-affinity'],3,['--mask','desired','--confirm'])
         assert not failed['requestSucceeded'] and failed['win32Error']==5 and not failed['verified']
         ignored=run('affinity-ignored',['settings','set-affinity'],6,['--mask','desired','--confirm'])

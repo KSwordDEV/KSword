@@ -70,7 +70,12 @@ KswordCLI.exe system event-log query --channel system --limit 100 --json
 KswordCLI.exe system event-log query --channel application --level information --messages on --json
 ```
 
-`system event-log query` 使用已有共享 wevtapi 后端，支持 `--channel system|application`（system）、`--level all|critical|error|warning|information`（all）、`--messages off|on`（off）、`--limit 1..5000`（100）、`--duration-ms 100..30000`（10000）、`--backend r3`、`--json`。级别条件直接用于原后端 XPath；information 包含原始 level 0 和 4，不把 level 0 数值改成 4。只读最新一页，按通道反向顺序读取；不发布尚未实现的 Security／自定义通道、任意 XPath、载荷／XML解析、清空／删除能力。
+`system event-log query` 使用已有共享 wevtapi 后端，支持 `--channel CHANNEL`（默认 system，也接受 Security 和自定义通道名）、`--xpath XPATH`、`--level all|critical|error|warning|information`（all）、`--messages off|on`（off）、`--limit 1..5000`（100）、`--duration-ms 100..30000`（10000）、`--backend r3`、`--json`。级别条件直接用于原后端 XPath；information 包含原始 level 0 和 4，不把 level 0 数值改成 4。自定义 XPath 原样交给 EvtQuery，不能与非 all 的 `--level` 同用，须在 XPath 中自行写入级别条件；系统返回的查询错误保留在 `queryWin32Error`，访问 Security 等受保护通道需要相应权限。只读最新一页，按通道反向顺序读取；不提供载荷／XML 解析和清空／删除能力。
+
+```powershell
+KswordCLI.exe system event-log query --channel Security --xpath '*[System[EventID=4624]]' --limit 10 --json
+KswordCLI.exe system event-log query --channel Microsoft-Windows-PowerShell/Operational --limit 10 --json
+```
 
 data 提供 channel/levelFilter/messages、requestedCount/returnedCount/examinedCount、pageComplete（请求页完整）、channelExhausted（实际 NO_MORE_ITEMS）、limited/cancelled/malformed/elapsedMs、queryAttempted/queryWin32Error、contextAttempted/contextWin32Error、nextWin32Error、renderFailedCount/lastRenderWin32Error、unresolvedMessageCount、closeAttemptedCount/closeFailedCount/closeWin32ErrorsFirst32、events。达到所请求行数可正常成功，不等于通道导出完整；短批次不直接冒充通道已读尽。
 

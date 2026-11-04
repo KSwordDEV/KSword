@@ -1,5 +1,6 @@
 #include "R3FileShared.h"
 #include "../shared/usermode/backend/file/FileOperations.h"
+#include <limits>
 
 namespace ks::cli {
 namespace {
@@ -8,9 +9,33 @@ Result action(const Args& args, const std::wstring& operation) {
     (void)args.require(L"--confirm");
     std::wstring source, target; backend::FileOperationResult outcome;
     file::Evidence before;
+    std::vector<std::uint8_t> contents;
+    bool namedCreate = false;
     if (operation == L"create" || operation == L"create-directory") {
-        source = file::path(args, L"--directory");
-        outcome = operation == L"create" ? backend::CreateEmptyFileResult(source) : backend::CreateNewDirectoryResult(source);
+        if (args.has(L"--path") == args.has(L"--directory")) throw std::invalid_argument("specify exactly one of --path or --directory");
+        const int payloads = static_cast<int>(args.has(L"--text")) + static_cast<int>(args.has(L"--hex")) + static_cast<int>(args.has(L"--data-file"));
+        if (payloads > 1 || (payloads && (operation != L"create" || !args.has(L"--path"))))
+            throw std::invalid_argument("file content requires --path and exactly one payload");
+        if (args.has(L"--hex")) contents = parseHexPayload(args.get(L"--hex"));
+        else if (args.has(L"--data-file")) {
+            auto input = readPayloadFile(args.get(L"--data-file"));
+            if (input.win32Error) return {3, Json::object({{L"dataFileWin32Error", Json::number(input.win32Error)}}), {L"Input payload could not be read; no file was created."}};
+            contents = std::move(input.bytes);
+        } else if (args.has(L"--text")) {
+            const auto text = args.get(L"--text");
+            if (text.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) throw std::invalid_argument("text too long");
+            if (!text.empty()) {
+                const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+                if (!size) throw std::invalid_argument("invalid UTF-16 text");
+                contents.resize(size);
+                if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), reinterpret_cast<char*>(contents.data()), size, nullptr, nullptr)) throw std::invalid_argument("cannot encode text as UTF-8");
+            }
+        }
+        if (contents.size() > 64U * 1024U * 1024U) throw std::invalid_argument("file content exceeds 64 MiB");
+        namedCreate = args.has(L"--path");
+        source = file::path(args, namedCreate ? L"--path" : L"--directory");
+        outcome = namedCreate ? backend::CreateNamedPathResult(source, operation == L"create-directory", contents) :
+            operation == L"create" ? backend::CreateEmptyFileResult(source) : backend::CreateNewDirectoryResult(source);
         target = outcome.target; outcome.errorCategory = "win32";
     } else {
         source = file::path(args, L"--path"); before = file::evidence(source);
@@ -29,7 +54,10 @@ Result action(const Args& args, const std::wstring& operation) {
     bool verified = false;
     if (outcome.success) {
         if (operation == L"delete" || operation == L"delete-directory") verified = sourceAfter.known && !sourceAfter.present;
-        else if (operation == L"create") verified = targetAfter.present && !targetAfter.directory() && targetAfter.size() == 0;
+        else if (operation == L"create") {
+            verified = targetAfter.present && !targetAfter.directory() && targetAfter.size() == contents.size();
+            if (verified && namedCreate) { const auto readback = readPayloadFile(target); verified = !readback.win32Error && readback.bytes == contents; }
+        }
         else if (operation == L"create-directory") verified = targetAfter.directory();
         else {
             verified = targetAfter.present && before.present && targetAfter.directory() == before.directory() &&
@@ -64,10 +92,10 @@ void registerFileOperations() {
     for (const auto& operation : {L"create", L"create-directory", L"copy", L"move", L"rename", L"delete", L"delete-directory"}) {
         const std::wstring op = operation;
         const std::wstring path = op == L"create-directory" ? L"file directory create" : op == L"delete-directory" ? L"file directory delete" : L"file " + op;
-        const auto params = op.starts_with(L"create") ? L"--directory PATH" : op == L"copy" || op == L"move" ? L"--path PATH --to-directory PATH" : op == L"rename" ? L"--path PATH --target PATH" : L"--path PATH";
+        const auto params = op == L"create" ? L"(--path PATH [--text TEXT | --hex HEX | --data-file PATH] | --directory PATH)" : op == L"create-directory" ? L"(--path PATH | --directory PATH)" : op == L"copy" || op == L"move" ? L"--path PATH --to-directory PATH" : op == L"rename" ? L"--path PATH --target PATH" : L"--path PATH";
         addCommand({path, L"KswordCLI.exe " + path + L" " + params + L" --confirm [--backend r3] [--json]",
             L"Perform " + op + L" using the shared R3 filesystem backend.", L"Required: " + std::wstring(params) + L", --confirm. Optional: --backend r3, --json.",
-            L"Fields: source, target, action, requestSucceeded, errorCode/errorCategory, verified, before/after. Create uses backend-generated collision-free names. Copy may overwrite; directory copy is recursive. Directory deletion requires empty directory. No rollback is implied.",
+            L"Fields: source, target, action, requestSucceeded, errorCode/errorCategory, verified, before/after. Create --directory uses an automatic name; --path creates exactly that name and fails if it exists. File content is UTF-8 text or raw hex/file bytes (file payload limit 64 MiB); named files are read back for verification. Copy may overwrite; directory copy is recursive. Directory deletion requires empty directory. No rollback is implied.",
             [op](const Args& args) { return action(args, op); }});
     }
     addCommand({L"file delete-path", L"KswordCLI.exe file delete-path --path PATH --confirm --backend r3 [--json]",
