@@ -18,6 +18,9 @@ Environment:
 
 #include <ntstrsafe.h>
 
+// 取得已引用进程对象的真实创建时间，不通过用户态句柄推断身份。
+NTKERNELAPI LONGLONG NTAPI PsGetProcessCreateTimeQuadPart(_In_ PEPROCESS Process);
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -645,11 +648,12 @@ Exit:
     return STATUS_SUCCESS;
 }
 
-NTSTATUS
-KswordARKDriverReadVirtualMemory(
+static NTSTATUS
+KswordARKDriverReadVirtualMemoryInternal(
     _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
     _In_ size_t OutputBufferLength,
     _In_ const KSWORD_ARK_READ_VIRTUAL_MEMORY_REQUEST* Request,
+    _In_ ULONGLONG ExpectedCreationTime100ns,
     _Out_ size_t* BytesWrittenOut
     )
 /*++
@@ -836,6 +840,16 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
+    // 独立校验读取在同一已引用对象上比较真实创建时间，失配不调用复制。
+    if (ExpectedCreationTime100ns != 0ULL &&
+        (ULONGLONG)PsGetProcessCreateTimeQuadPart(processObject) != ExpectedCreationTime100ns) {
+        response->lookupStatus = STATUS_INVALID_CID; // 保留可辨的身份失配状态。
+        response->readStatus = KSWORD_ARK_MEMORY_READ_STATUS_PROCESS_LOOKUP_FAILED; // 不发布任何数据。
+        ObDereferenceObject(processObject); // 释放刚引用的目标进程对象。
+        *BytesWrittenOut = KSWORD_ARK_MEMORY_READ_RESPONSE_HEADER_SIZE; // 只返回固定响应头。
+        return STATUS_SUCCESS; // 协议回执有效，读取本身失败。
+    }
+
     if (zeroFillUnreadable) {
         SIZE_T copyOffset = 0U;
         SIZE_T readableBytes = 0U;
@@ -919,6 +933,42 @@ Return Value:
 
     *BytesWrittenOut = KSWORD_ARK_MEMORY_READ_RESPONSE_HEADER_SIZE + bytesCopied;
     return STATUS_SUCCESS;
+}
+
+// 旧请求保留原有 PID 读取语义，确保已发布客户端兼容。
+NTSTATUS
+KswordARKDriverReadVirtualMemory(
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ size_t OutputBufferLength,
+    _In_ const KSWORD_ARK_READ_VIRTUAL_MEMORY_REQUEST* Request,
+    _Out_ size_t* BytesWrittenOut
+    )
+{
+    return KswordARKDriverReadVirtualMemoryInternal(OutputBuffer, OutputBufferLength, Request, 0ULL, BytesWrittenOut); // 旧协议不声明创建时间。
+}
+
+// 新协议只调用含真实进程创建时间的同对象读取路径。
+NTSTATUS
+KswordARKDriverReadVirtualMemoryVerified(
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ size_t OutputBufferLength,
+    _In_ const KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST* Request,
+    _Out_ size_t* BytesWrittenOut
+    )
+{
+    KSWORD_ARK_READ_VIRTUAL_MEMORY_REQUEST legacyRequest = { 0 }; // 复用原读取数据路径与响应。
+    if (Request == NULL || Request->size != sizeof(*Request) ||
+        Request->version != KSWORD_ARK_VERIFIED_MEMORY_READ_VERSION ||
+        Request->expectedCreationTime100ns == 0ULL || Request->bytesToRead == 0UL ||
+        (Request->flags & ~KSWORD_ARK_MEMORY_READ_FLAG_ZERO_FILL_UNREADABLE) != 0UL || Request->reserved != 0UL) {
+        return STATUS_INVALID_PARAMETER; // 拒绝不完整身份、空读、未知选项和内核地址模式。
+    }
+    legacyRequest.flags = Request->flags; // 只允许可选的零填充标记。
+    legacyRequest.processId = Request->processId; // 进程 PID 必须与创建时间一起验证。
+    legacyRequest.baseAddress = Request->baseAddress; // 用户地址范围由共享路径校验。
+    legacyRequest.bytesToRead = Request->bytesToRead; // 复制长度沿用既有上限。
+    return KswordARKDriverReadVirtualMemoryInternal(OutputBuffer, OutputBufferLength, &legacyRequest,
+        Request->expectedCreationTime100ns, BytesWrittenOut); // 在引用对象上检查后再复制。
 }
 
 NTSTATUS

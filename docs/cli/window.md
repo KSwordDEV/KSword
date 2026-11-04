@@ -125,3 +125,17 @@ KswordCLI.exe window capture set --help
 `window capture set` 接入现有后端的自身窗口设置：要求 hwnd、pid、tid、creation-time、thread-creation-time 及 `--mode none|monitor|exclude`，可选 `--backend r3`、`--json`。**SetWindowDisplayAffinity 必须在窗口所属进程中调用，且目标必须是顶层窗口。** 独立 CLI 不拥有其他应用程序的 HWND，跨进程目标会在写入前返回 5，不新增注入／R0 写入能力。相同进程的适配器消费者／测试夹具可设置并回读；此成功测试不代表独立 KswordCLI.exe 能更改其他进程的窗口。
 
 设置 data 保留 target、platform（RtlGetVersion 原始状态和版本）、requestedMode/requestedValue、callerOwnsWindow、topLevel、attempted、accepted、win32Error、before/after、ownerStillMatches、verified、display；后端添加结构化状态并保持 Light 原有显示文字。请求接受、实际回读值匹配且身份稳定才返回 0；API 失败为 3（明确未支持为 5），回读失败／降级／身份变化为 6。none=0、monitor=1、exclude=0x11；exclude 从 Windows 10 2004 起支持，旧系统可能按 monitor 处理，不能把降级当作请求完整成功；旧于 build 19041 或无法可靠查询版本时，exclude 在写入前返回 5。规则和拥有进程约束见 [SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity)。输出仅证明策略属性和回读，未进行像素捕获验证。全部 help 查询都不调用设置／查询 API。
+
+## 注册热键、窗口激活热键、快捷方式与 Band
+
+`window hotkeys registrations enum --pid PID [--creation-time FILETIME] [--limit N] [--backend r0] [--json]` 从当前调用线程所属 USER 会话读取 R0 注册热键 v4 快照，返回各行 processId/threadId/sessionId、object、snapshotHash、原始标志与明细。`complete` 代表采集完整，`displayTruncated` 只描述显示条数；不完整或不受支持的快照不能用于删除。SessionId 0 是合法值。菜单文本和 PE Accelerator 不是 RegisterHotKey 注册，不能据此发送删除。
+
+`window hotkeys registrations clear --pid PID --creation-time FILETIME --tid TID --session-id N --object VA --snapshot-hash HASH --confirm [--backend r0] [--json]` 使用枚举行的同一进程实例和身份；执行前重新枚举并要求完整 v4 快照、唯一匹配和 MAIN/MUTABLE，拒绝子项、占位与回调行。驱动在 USER 临界区再次验证；接受后重新枚举确认对象消失。`changed`、`readbackComplete`、`objectStillPresent` 与 `verified` 分别表达效果，超时/传输失败可能为未知，不能盲目重复。
+
+`window hotkeys activation query --hwnd HWND --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME [--backend r3] [--json]` 读取该窗口 `WM_GETHOTKEY` 的 `rawHotkey`，零表示未设置窗口激活热键。`window hotkeys activation clear` 使用同一身份，加 `--expected-hotkey N --confirm`，先比较当前值，再向同一窗口发送 `WM_SETHOTKEY` 并回读；超时或无法验证返回 6。调用者必须位于可操作的窗口站/桌面，权限和 UIPI 限制不被绕过。
+
+`window hotkeys shortcut query --path PATH [--backend r3] [--json]` 读取 `.lnk` 的文件身份、目标和快捷键；`window hotkeys shortcut clear --path PATH --pid PID --creation-time FILETIME --volume-serial N --file-id N --size N --last-write-time FILETIME --target PATH --expected-hotkey N --confirm [--backend r3] [--json]` 使用查询回执和进程创建时间。保存前核对进程映像、文件卷/ID/大小/时间以及快捷方式目标和原值；保存后复核同一文件和目标。回读只证明快捷方式文件配置，不证明 Explorer 已撤销内存中的活动注册；保存失败或回读失败时可能已有部分副作用。
+
+`window band probe [--backend r0] [--json]` 只读检查驱动对当前 win32k 映像的精确支持；`window band query --hwnd HWND --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME [--position top|bottom] [--backend r0] [--json]` 返回 Band、窗口内核对象和顺序校验。`window band set` 使用相同窗口身份并要求 `--expected-band 1|2 --new-band 1|2 --window-object VA --confirm`，可选 `--position`。操作前应查询并保存原 Band 和对象；恢复是另一次显式 set，不能假设 CLI 退出后自动恢复。驱动保留精确映像、同桌面、所有者和事务校验；未支持版本不会启用。回执区分 changed、rolledBack、verified 与 positionVerified，未确认效果为 6。
+
+`tools/test_ksword_cli_window_advanced.py` 的隔离夹具覆盖 v4 session 0、快照过期/不安全行、读取失败与动作超时、Band 参数及验证；同时对自建临时窗口执行真实激活热键清除和回读，并对临时 `.lnk` 做真实创建、身份失配拒绝、清除与重新读取。该夹具不替代目标 Windows 版本及真实交互桌面的 R0 带驱动验收。

@@ -98,6 +98,8 @@ KswordCLI.exe system file-holders query --path C:\Temp\fixture.bin --json
 KswordCLI.exe system file-holders query --path C:\Temp --recursive on --pid 1234 --creation-time 133000000000000000 --json
 ```
 
+每条 holder 额外提供系统句柄快照中的 `object` 地址，供 `handle close` 在关闭前复核；未知或系统屏蔽时为 null。该地址只用于身份比较，不能视为稳定租约。
+
 `system file-holders query` 要求 `--path`（非空，不包含字面包裹引号或末尾空格；shell 参数引号正常使用），支持 DOS／UNC／原生 `\Device\`／`\??\` 路径，Win32 相对路径先解析为绝对路径。可选 `--recursive off|on`（off）、`--pid`（正数）、`--creation-time`（正数，要求 pid）、`--duration-ms 250..30000`（10000）、`--max-handles 1..1000000`（1000000）、`--limit 1..100000`（1000）、`--backend r3`、`--json`。PID 筛选保留查询进程租约，校验创建时间和存活，扫描时按该创建时间检查；不匹配／已退出为 3。
 
 读取 SystemExtendedHandleInformation，按当前进程探针句柄定位 File 类型；复制外部句柄到本调用方，专用 helper 上排除 pipe／char 后执行 NtQueryObject 名称查询。已有 Win32 路径尝试用 GetLongPathName 展开 8.3 短名（例如 TEMP 的 ADMINI~1）；不能解析的路径保留映射尝试，不保证所有别名。Nt 快照最多 8 次增长／128 MiB，验证实际返回长度和句柄数量，不把截短表当完整结果。每个名称查询等待最多 250 ms；最多四次超时或等待失败，之后停止扫描。正常 helper 停止后 join；卡住的 helper 不强杀，独占复制句柄直到内核返回后自行释放或 CLI 退出。时间／条目预算在系统调用间检查，不能强制中断底层内核查询。`--limit` 只限制显示，max-handles 限制实际系统表扫描。

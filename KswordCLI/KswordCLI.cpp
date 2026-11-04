@@ -383,11 +383,12 @@ namespace ks::cli::legacy
         { L"callback", L"wait-event", L"KswordCLI.exe callback wait-event [--waiter-tag N]", L"Wait for one callback event packet.", L"Optional: --waiter-tag.", L"" },
         { L"callback", L"answer-event", L"KswordCLI.exe callback answer-event --event-guid GUID --decision N --source-session-id N [--answered-at UTC100NS]", L"Answer one pending callback event.", L"Required: --event-guid, --decision, --source-session-id. Optional: --answered-at.", L"" },
         { L"callback", L"cancel-pending", L"KswordCLI.exe callback cancel-pending", L"Cancel all pending callback decisions.", L"No options.", L"" },
-        { L"callback", L"remove", L"KswordCLI.exe callback remove --class N --callback VA [--flags 0xN] --confirm", L"Remove a callback through an address-based public API path.", L"Required: --class, --callback, --confirm. Object, Registry, and ETW classes are not supported by this legacy command.", L"" },
-        { L"callback", L"remove-ex", L"KswordCLI.exe callback remove-ex --class N --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN] --confirm", L"Remove an external callback with extended row identity.", L"Required: --class, --callback, --confirm. Object removal requires every identity field copied from one verified V3 enumeration row plus revalidation flags. Registry and ETW removal are disabled.", L"" },
+        { L"callback", L"remove", L"KswordCLI.exe callback remove --class CLASS --callback VA [--flags 0xN] --confirm", L"Remove a callback through an address-based public API path.", L"Required: --class, --callback, --confirm. Object, Registry, and ETW classes are not supported by this legacy command.", L"CLASS accepts a remove-type number or name; enum and remove numbers differ. Prefer remove-row for a complete enumerated identity." },
+        { L"callback", L"remove-ex", L"KswordCLI.exe callback remove-ex --class CLASS --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN] --confirm", L"Remove an external callback with extended row identity.", L"Required: --class, --callback, --confirm. Use all identity fields from one V3 row and revalidation flags.", L"CLASS accepts a remove-type number or name; Registry requires a calibrated cookie. ETW provider removal is unsupported. Prefer remove-row." },
+        { L"callback", L"remove-row", L"KswordCLI.exe callback remove-row --identity-hash N --confirm [--json]", L"Re-enumerate and remove one uniquely identified callback row.", L"Required: --identity-hash, --confirm. Optional: --json.", L"Requires one current V3 removable row; requests R0 revalidation. Thread/image/WFP may use the legacy public API path. A minifilter row unloads its entire owning filter." },
         { L"callback", L"set-minifilter-bypass-pids", L"KswordCLI.exe callback set-minifilter-bypass-pids --pids PID[,PID...] [--flags 0xN]", L"Set minifilter bypass PID list.", L"Required: --pids. Optional: --flags.", L"" },
         { L"callback", L"query-minifilter-bypass-pids", L"KswordCLI.exe callback query-minifilter-bypass-pids", L"Query minifilter bypass PID list.", L"No options.", L"" },
-        { L"callback", L"enum", L"KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N]", L"Enumerate callback inventory.", L"Optional: --flags, --max-entries, --limit.", L"" },
+        { L"callback", L"enum", L"KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N] [--json]", L"Enumerate callback inventory.", L"Optional: --flags, --max-entries, --limit, --json.", L"Rows include V3 identity, trust and remove behavior; enum and remove class numbers differ." },
         { L"dyn", L"status", L"KswordCLI.exe dyn status", L"Query DynData status.", L"No options.", L"" },
         { L"dyn", L"fields", L"KswordCLI.exe dyn fields [--limit N]", L"List DynData fields.", L"Optional: --limit.", L"" },
         { L"dyn", L"capabilities", L"KswordCLI.exe dyn capabilities", L"Query DynData capability mask.", L"No options.", L"" },
@@ -402,6 +403,7 @@ namespace ks::cli::legacy
         { L"dyn", L"apply-profile", L"KswordCLI.exe dyn apply-profile --blob PATH", L"Apply a raw legacy DynData profile packet.", L"Required: --blob.", L"" },
         { L"dyn", L"apply-profile-ex", L"KswordCLI.exe dyn apply-profile-ex --blob PATH", L"Apply a raw extended DynData profile packet.", L"Required: --blob.", L"" },
         { L"capability", L"query-driver-capabilities", L"KswordCLI.exe capability query-driver-capabilities [--limit N]", L"Query unified driver feature capability rows.", L"Optional: --limit.", L"If unsupported, inspect preflight query and r0 ioctl-registry; older drivers may reject the OS build before capability dispatch." },
+        { L"thread", L"r0", L"KswordCLI.exe thread r0 <identity|suspend|resume|terminate> [options]", L"Query or control a verified R0 thread identity.", L"See the individual subcommand help.", L"Backed by IOCTL_KSWORD_ARK_CONTROL_THREAD_VERIFIED." },
         { L"thread", L"enum", L"KswordCLI.exe thread enum [--flags 0xN] [--pid PID] [--limit N]", L"Enumerate threads.", L"Optional: --flags, --pid, --limit.", L"" },
         { L"thread", L"crossview", L"KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N] [--json]", L"Compare thread evidence across supported sources.", L"Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit, --json.", L"Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics." },
         { L"thread", L"detail", L"KswordCLI.exe thread detail --tid TID [--pid PID] [--flags 0xN]", L"Query fixed R0 ETHREAD/KTHREAD runtime detail.", L"Required: --tid. Optional: --pid, --flags defaults to include-all.", L"Backed by IOCTL_KSWORD_ARK_QUERY_THREAD_DETAIL." },
@@ -426,14 +428,20 @@ namespace ks::cli::legacy
         { L"r0", L"hvm-status", L"KswordCLI.exe r0 hvm-status", L"Query HVM v6 VMX/EPT or experimental SVM/NPT lifecycle and capability state.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_QUERY_HVM." },
         { L"r0", L"debugger-status", L"KswordCLI.exe r0 debugger-status", L"Query the reusable native debugger protocol and thread/memory capabilities.", L"No options.", L"Read-only QUERY through IOCTL_KSWORD_ARK_DEBUGGER; does not change a target or enter HVM." },
         { L"r0", L"hvm-metrics", L"KswordCLI.exe r0 hvm-metrics", L"Read current HVM metrics timing, resource counters and AMD raw exit evidence.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_HVM_METRICS. Full per-CPU, shadow EPT and AMD NPT cache JSON: hvm_ctl --json metrics." },
-        { L"r0", L"hvm-events", L"KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]", L"Read HVM event-ring evidence without clearing it.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_HVM_EVENTS." },
+        { L"r0", L"hvm-events", L"KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N] [--json]", L"Read HVM event-ring evidence without clearing it.", L"Optional: --after-sequence, --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_HVM_EVENTS." },
         { L"r0", L"hvm-platform", L"KswordCLI.exe r0 hvm-platform", L"Read CR4/CPUID/CET-MSR platform calibration without entering VMX.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_HVM_PLATFORM." },
         { L"r0", L"ioctl-registry", L"KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N] [--json]", L"Query the driver's registered IOCTL dispatch inventory.", L"Optional: --flags, --max-entries, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY." },
         { L"r0", L"timer-dpc", L"KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N] [--json]", L"Enumerate kernel timer and DPC evidence.", L"Optional: --max-entries, --max-per-bucket, --json.", L"Backed by IOCTL_KSWORD_ARK_ENUM_TIMER_DPC." },
         { L"r0", L"unloaded", L"KswordCLI.exe r0 unloaded [--source mm|piddb|hash] [--max-rows N] [--json]", L"Query unloaded-driver, PiDDB, or hash-bucket evidence.", L"Optional: --source defaults to mm; --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS." },
-        { L"r0", L"wfp-events", L"KswordCLI.exe r0 wfp-events [--after-sequence N] [--max-rows N]", L"Read bounded WFP event-ring metadata.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_WFP_EVENTS." },
-        { L"r0", L"traffic", L"KswordCLI.exe r0 traffic [--after-sequence N] [--max-rows N]", L"Read bounded traffic-capture metadata from the driver's existing ring.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_TRAFFIC_PACKETS; this command does not enable capture." },
-        { L"r0", L"piddb", L"KswordCLI.exe r0 piddb [--max-rows N]", L"Enumerate PiDDBCacheTable evidence without deleting entries.", L"Optional: --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PIDDB." },
+        { L"r0", L"wfp-events", L"KswordCLI.exe r0 wfp-events [--after-sequence N] [--max-rows N] [--json]", L"Read bounded WFP event-ring records.", L"Optional: --after-sequence, --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_WFP_EVENTS." },
+        { L"r0", L"traffic", L"KswordCLI.exe r0 traffic [--after-sequence N] [--max-rows N] [--json]", L"Read bounded traffic-capture records from the driver's existing ring.", L"Optional: --after-sequence, --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_TRAFFIC_PACKETS; this command does not enable capture." },
+        { L"r0", L"traffic-start", L"KswordCLI.exe r0 traffic-start --confirm [--json]", L"Start R0 traffic capture.", L"Required: --confirm. Optional: --json.", L"Controls the existing driver traffic capture." },
+        { L"r0", L"traffic-stop", L"KswordCLI.exe r0 traffic-stop --confirm [--json]", L"Stop R0 traffic capture.", L"Required: --confirm. Optional: --json.", L"Stopping clears the driver's captured traffic ring." },
+        { L"r0", L"piddb", L"KswordCLI.exe r0 piddb [--max-rows N] [--json]", L"Enumerate PiDDBCacheTable evidence without deleting entries.", L"Optional: --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PIDDB." },
+        { L"r0", L"piddb-detail", L"KswordCLI.exe r0 piddb-detail --entry ADDRESS [--max-rows N] [--json]", L"Query one PiDDB entry by address.", L"Required: --entry. Optional: --max-rows, --json.", L"Searches a bounded PiDDB snapshot." },
+        { L"r0", L"piddb-delete", L"KswordCLI.exe r0 piddb-delete --entry ADDRESS --name NAME --timestamp N --load-status N --confirm [--json]", L"Delete one revalidated PiDDB entry.", L"Required: --entry, --name, --timestamp, --load-status, --confirm. Optional: --json.", L"Runs identity preflight before the driver deletion request." },
+        { L"r0", L"kernel-modules", L"KswordCLI.exe r0 kernel-modules [--cursor INDEX] [--base VA] [--max-rows N] [--backend r0] [--json]", L"Enumerate loaded kernel modules through the driver.", L"Optional: --cursor, --base, --max-rows, --backend r0, --json.", L"Backed by IOCTL_KSWORD_ARK_ENUM_MODULES." },
+        { L"r0", L"process-modules", L"KswordCLI.exe r0 process-modules --pid PID [--creation-time FILETIME] [--cursor VA] [--base VA] [--max-rows N] [--backend r0] [--json]", L"Enumerate a process image-mapping view through the driver.", L"Required: --pid. Optional: --creation-time, --cursor, --base, --max-rows, --backend r0, --json.", L"Backed by IOCTL_KSWORD_ARK_ENUM_MODULES; continuing a cursor requires the process creation time." },
         { L"r0", L"cpu-power", L"KswordCLI.exe r0 cpu-power", L"Query CPU power-management state and raw capability evidence.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_QUERY_CPU_POWER." },
         { L"r0", L"process-protect", L"KswordCLI.exe r0 process-protect", L"Query the driver process-protection configuration and counters.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PROCESS_PROTECT_STATE." },
         { L"r0", L"clipboard-policy", L"KswordCLI.exe r0 clipboard-policy", L"Query the driver's stored clipboard access policy rule table.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_QUERY_CLIPBOARD_POLICY; the driver only stores/echoes this table, enforcement happens in the injected Agent DLL." },
@@ -623,6 +631,23 @@ namespace ks::cli::legacy
             ks::cli::registerProcessBasic();
             ks::cli::registerProcessThreads();
             ks::cli::registerProcessModules();
+            ks::cli::registerR0ThreadControl();
+            ks::cli::registerProcessMemoryDump();
+            ks::cli::registerThreadStack();
+            ks::cli::registerFileMetadata();
+            ks::cli::registerNetworkPolicy();
+            ks::cli::registerHandleClose();
+            ks::cli::registerWindowAdvanced();
+            ks::cli::registerR0Modules();
+            ks::cli::registerFirewallActions();
+            ks::cli::registerFileIrp();
+            ks::cli::registerApplicationControl();
+            ks::cli::registerSystemTimeControl();
+            ks::cli::registerVirtualLocation();
+            ks::cli::registerLowlevelCommands();
+            ks::cli::registerPfnCommands();
+            ks::cli::registerShadowSsdtRestore();
+            ks::cli::registerDebuggerSession();
             ks::cli::registerProcessToken();
             ks::cli::registerTokenSwitches();
             ks::cli::registerProcessPeb();
@@ -4892,12 +4917,121 @@ namespace ks::cli::legacy
         dumpWideText(L"ruleName", fixedWide(packet.ruleName, KSWORD_ARK_CALLBACK_EVENT_MAX_NAME_CHARS));
     }
 
+    struct CallbackClassName { unsigned long enumeration; unsigned long removal; const wchar_t* name; };
+    constexpr CallbackClassName callbackClassNames[] = {
+        {1,5,L"registry"}, {2,1,L"process"}, {3,2,L"thread"}, {4,3,L"image"}, {5,4,L"object"},
+        {6,6,L"minifilter"}, {7,7,L"wfp-callout"}, {8,8,L"etw-provider"}, {9,9,L"generic-kernel"},
+        {10,10,L"bugcheck"}, {11,11,L"bugcheck-reason"}, {12,12,L"shutdown"}, {13,13,L"file-system"},
+        {14,14,L"logon-session"}, {15,15,L"image-verification"}, {16,16,L"nmi"}, {17,0,L"legacy-fs-filter"},
+        {18,18,L"power-setting"}, {19,19,L"coalescing"}, {20,20,L"priority"}, {21,21,L"debug-print"},
+        {22,0,L"emp"}, {23,23,L"plug-play"}
+    };
+
+    const CallbackClassName* callbackClassForEnumeration(unsigned long value)
+    {
+        for (const auto& item : callbackClassNames) if (item.enumeration == value) return &item;
+        return nullptr;
+    }
+
+    std::uint32_t callbackRemoveClass(const NamedArgs& args)
+    {
+        const auto& value = requireOptionText(args, L"--class");
+        const std::wstring name = lowerWide(value);
+        for (const auto& item : callbackClassNames)
+            if (name == item.name && item.removal != 0U) return item.removal;
+        return requireOptionU32(args, L"--class");
+    }
+
+    struct CallbackInventorySnapshot
+    {
+        std::vector<KSWORD_ARK_CALLBACK_ENUM_ENTRY> rows;
+        std::uint32_t total = 0, pages = 0, flags = 0;
+        std::uint64_t hash = 0, generation = 0;
+        long lastStatus = 0;
+        bool more = false;
+    };
+
+    int callbackJsonFailure(const wchar_t* command, bool json, int code, const wchar_t* detail, const IoctlResult* io = nullptr)
+    {
+        if (json) std::wcout << Json::object({{L"schemaVersion", Json::number(1)}, {L"command", Json::string(command)},
+            {L"backend", Json::string(L"r0")}, {L"status", Json::string(code == 5 ? L"unavailable" : L"failed")},
+            {L"data", Json::object({{L"win32Error", io ? Json::number(io->win32Error) : Json{}}})},
+            {L"diagnostics", Json::strings({detail})}}).text << L"\n";
+        return code;
+    }
+
+    // Consume a consistent V3 snapshot. No action may use a row from an incomplete scan.
+    int collectCallbackInventory(std::uint32_t flags, std::uint32_t maxEntries,
+                                 std::size_t limit, CallbackInventorySnapshot& snapshot)
+    {
+        KSWORD_ARK_ENUM_CALLBACKS_REQUEST request{};
+        request.size = sizeof(request);
+        request.version = KSWORD_ARK_CALLBACK_ENUM_PROTOCOL_VERSION;
+        request.flags = flags;
+        request.maxEntries = maxEntries;
+        std::vector<std::uint8_t> buffer(kLargeResponseBytes, 0U);
+        constexpr std::size_t headerSize = offsetof(KSWORD_ARK_ENUM_CALLBACKS_RESPONSE, entries);
+        std::uint32_t startIndex = 0;
+        while (snapshot.rows.size() < limit)
+        {
+            IoctlResult io{};
+            std::fill(buffer.begin(), buffer.end(), std::uint8_t{0});
+            request.startIndex = startIndex;
+            request.expectedSnapshotHash = snapshot.hash;
+            request.expectedTotalCount = snapshot.total;
+            request.snapshotPolicy = snapshot.hash == 0 ? KSWORD_ARK_CALLBACK_SNAPSHOT_POLICY_NONE : KSWORD_ARK_CALLBACK_SNAPSHOT_POLICY_REQUIRE_MATCH;
+            const int rc = sendRawIoctl(L"IOCTL_KSWORD_ARK_ENUM_CALLBACKS", IOCTL_KSWORD_ARK_ENUM_CALLBACKS,
+                &request, sizeof(request), buffer, io);
+            if (rc != 0) return normalizeIoctlRc(L"callback inventory", io, rc);
+            if (io.bytesReturned < headerSize) { std::wcerr << L"error: callback inventory response too small\n"; return 4; }
+            const auto* response = reinterpret_cast<const KSWORD_ARK_ENUM_CALLBACKS_RESPONSE*>(buffer.data());
+            if (response->version != KSWORD_ARK_CALLBACK_ENUM_PROTOCOL_VERSION ||
+                (response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_SNAPSHOT_CHANGED) ||
+                !(response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_SNAPSHOT_HASH_VALID) || !response->snapshotHash)
+            { std::wcerr << L"error: callback inventory has incompatible or changed snapshot metadata\n"; return 4; }
+            if (startIndex > response->totalCount || response->returnedCount > response->totalCount - startIndex ||
+                response->nextIndex != startIndex + response->returnedCount)
+            { std::wcerr << L"error: callback inventory page indices are inconsistent\n"; return 4; }
+            if (!snapshot.pages) {
+                snapshot.hash = response->snapshotHash; snapshot.total = response->totalCount;
+                snapshot.generation = response->enumerationGeneration; snapshot.flags = response->flags;
+                snapshot.lastStatus = response->lastStatus;
+            } else if (snapshot.hash != response->snapshotHash || snapshot.total != response->totalCount) {
+                std::wcerr << L"error: callback inventory snapshot changed during pagination\n"; return 4;
+            }
+            if (!(response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_IDENTITY_HASH_VALID))
+                snapshot.flags &= ~KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_IDENTITY_HASH_VALID;
+            if (operationStatusRc(response->lastStatus) != 0) snapshot.lastStatus = response->lastStatus;
+            std::size_t available = 0;
+            try { available = validateVariable(io.bytesReturned, headerSize, response->entrySize,
+                    sizeof(KSWORD_ARK_CALLBACK_ENUM_ENTRY), L"callback enum"); }
+            catch (...) { return 4; }
+            if (available < response->returnedCount) { std::wcerr << L"error: callback inventory rows are truncated\n"; return 4; }
+            const std::size_t count = responseCountLimit(response->returnedCount, available, limit - snapshot.rows.size());
+            for (std::size_t i = 0; i < count; ++i) {
+                KSWORD_ARK_CALLBACK_ENUM_ENTRY row{};
+                std::memcpy(&row, buffer.data() + headerSize + i * response->entrySize, sizeof(row));
+                snapshot.rows.push_back(row);
+            }
+            ++snapshot.pages;
+            snapshot.more = count < response->returnedCount ||
+                (response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_MORE_DATA) != 0;
+            if (!snapshot.more || snapshot.rows.size() >= limit) break;
+            if (!response->returnedCount || response->nextIndex <= startIndex || snapshot.pages >= 128U)
+            { std::wcerr << L"error: callback inventory pagination did not make progress\n"; return 4; }
+            startIndex = response->nextIndex;
+        }
+        return 0;
+    }
+
     // queryCallbackInventory：分页打印只读 callback/hook/filter 证据，绝不调用移除控制。
     // 输入：flags、每页最大条目数以及控制台可见条目上限。
     // 处理：依据 nextIndex 连续请求，直到达到可见上限或驱动明确返回末页。
     // 返回：成功返回 0；协议或 IOCTL 失败返回对应 CLI 错误码。
     int queryCallbackInventory(const NamedArgs& args)
     {
+        const bool json = getOptionBool(args, L"--json");
+        std::vector<Json> jsonRows;
         KSWORD_ARK_ENUM_CALLBACKS_REQUEST request{};
         request.size = sizeof(request);
         request.version = KSWORD_ARK_CALLBACK_ENUM_PROTOCOL_VERSION;
@@ -4905,12 +5039,15 @@ namespace ks::cli::legacy
         request.maxEntries = getOptionU32(args, L"--max-entries", 512U);
         const std::size_t visibleLimit = getOptionU32(args, L"--limit", 128U);
         std::vector<std::uint8_t> buffer(kLargeResponseBytes, 0U);
-        constexpr std::size_t headerSize = sizeof(KSWORD_ARK_ENUM_CALLBACKS_RESPONSE) - sizeof(KSWORD_ARK_CALLBACK_ENUM_ENTRY);
+        constexpr std::size_t headerSize = offsetof(KSWORD_ARK_ENUM_CALLBACKS_RESPONSE, entries);
         std::size_t printedCount = 0U;
         std::uint32_t pageCount = 0U;
         std::uint32_t startIndex = 0U;
         std::uint64_t snapshotHash = 0U;
         std::uint32_t snapshotTotalCount = 0U;
+        std::uint64_t snapshotGeneration = 0U;
+        long snapshotStatus = 0;
+        bool displayTruncated = visibleLimit == 0U;
 
         while (printedCount < visibleLimit)
         {
@@ -4932,32 +5069,42 @@ namespace ks::cli::legacy
                 io);
             if (rc != 0)
             {
-                return normalizeIoctlRc(L"callback inventory", io, rc);
+                return callbackJsonFailure(L"callback enum", json, normalizeIoctlRc(L"callback inventory", io, rc), L"Callback inventory transport failed.", &io);
             }
 
+            if (io.bytesReturned < headerSize) { std::wcerr << L"error: callback inventory response too small\n"; return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory response too small."); }
             const auto* response = reinterpret_cast<const KSWORD_ARK_ENUM_CALLBACKS_RESPONSE*>(buffer.data());
-            if ((response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_SNAPSHOT_CHANGED) != 0UL)
+            if (response->version != KSWORD_ARK_CALLBACK_ENUM_PROTOCOL_VERSION ||
+                (response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_SNAPSHOT_CHANGED) != 0UL)
             {
                 std::wcerr << L"error: callback inventory changed during pagination; rerun the command\n";
-                return 4;
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory version or snapshot changed.");
             }
             if ((response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_SNAPSHOT_HASH_VALID) == 0UL ||
                 response->snapshotHash == 0ULL)
             {
                 std::wcerr << L"error: callback enum v3 response omitted snapshot metadata\n";
-                return 4;
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory lacks snapshot metadata.");
+            }
+            if (startIndex > response->totalCount || response->returnedCount > response->totalCount - startIndex ||
+                response->nextIndex != startIndex + response->returnedCount) {
+                std::wcerr << L"error: callback inventory page indices are inconsistent\n";
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory page indices are inconsistent.");
             }
             if (snapshotHash == 0U)
             {
                 snapshotHash = response->snapshotHash;
                 snapshotTotalCount = response->totalCount;
+                snapshotGeneration = response->enumerationGeneration;
+                snapshotStatus = response->lastStatus;
             }
             else if (snapshotHash != response->snapshotHash ||
                 snapshotTotalCount != response->totalCount)
             {
                 std::wcerr << L"error: callback inventory snapshot metadata is inconsistent\n";
-                return 4;
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory snapshot metadata changed.");
             }
+            if (operationStatusRc(response->lastStatus) != 0) snapshotStatus = response->lastStatus;
             std::size_t available = 0U;
             try
             {
@@ -4970,10 +5117,11 @@ namespace ks::cli::legacy
             }
             catch (...)
             {
-                return 4;
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory row layout is invalid.");
             }
+            if (available < response->returnedCount) { std::wcerr << L"error: callback inventory rows are truncated\n"; return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory rows are truncated."); }
 
-            if (pageCount == 0U)
+            if (pageCount == 0U && !json)
             {
                 printResponseBanner(response->version, response->flags, response->lastStatus, io.bytesReturned);
                 printCountHeader(
@@ -4998,11 +5146,37 @@ namespace ks::cli::legacy
             {
                 const auto* entry = reinterpret_cast<const KSWORD_ARK_CALLBACK_ENUM_ENTRY*>(
                     buffer.data() + headerSize + (i * response->entrySize));
+                const auto* classInfo = callbackClassForEnumeration(entry->callbackClass);
+                if (json) {
+                    std::vector<Json> detailArgs;
+                    for (const auto value : entry->detailArgs) detailArgs.push_back(Json::hex(value));
+                    jsonRows.push_back(Json::object({{L"index", Json::number(static_cast<std::uint32_t>(startIndex + i))},
+                        {L"size", Json::number(entry->size)}, {L"class", Json::number(entry->callbackClass)}, {L"className", classInfo ? Json::string(classInfo->name) : Json{}},
+                        {L"removeClass", classInfo && classInfo->removal ? Json::number(classInfo->removal) : Json{}},
+                        {L"registrationType", Json::number(entry->registrationType)}, {L"source", Json::number(entry->source)},
+                        {L"status", Json::number(entry->status)}, {L"lastStatus", Json::hex(static_cast<std::uint32_t>(entry->lastStatus))},
+                        {L"fieldFlags", Json::hex(entry->fieldFlags)}, {L"callback", Json::hex(entry->callbackAddress)},
+                        {L"context", Json::hex(entry->contextAddress)}, {L"registration", Json::hex(entry->registrationAddress)},
+                        {L"rawStorage", Json::hex(entry->rawStorageValue)}, {L"generation", Json::hex(entry->enumerationGeneration)},
+                        {L"identityHash", Json::hex(entry->identityHash)}, {L"trustFlags", Json::hex(entry->trustFlags)},
+                        {L"removeBehavior", Json::hex(entry->removeBehavior)}, {L"operationMask", Json::hex(entry->operationMask)},
+                        {L"objectTypeMask", Json::hex(entry->objectTypeMask)}, {L"moduleBase", Json::hex(entry->moduleBase)},
+                        {L"moduleSize", Json::number(entry->moduleSize)}, {L"ownerRangeState", Json::number(entry->ownerRangeState)},
+                        {L"name", Json::string(fixedWide(entry->name, KSWORD_ARK_CALLBACK_ENUM_NAME_CHARS))},
+                        {L"altitude", Json::string(fixedWide(entry->altitude, KSWORD_ARK_CALLBACK_ENUM_ALTITUDE_CHARS))},
+                        {L"modulePath", Json::string(fixedWide(entry->modulePath, KSWORD_ARK_CALLBACK_ENUM_MODULE_PATH_CHARS))},
+                        {L"detail", Json::string(fixedWide(entry->detail, KSWORD_ARK_CALLBACK_ENUM_DETAIL_CHARS))},
+                        {L"detailCode", Json::number(entry->detailCode)}, {L"detailArgs", Json::array(detailArgs)}}));
+                    continue;
+                }
                 std::wcout << L"  [" << (static_cast<std::size_t>(startIndex) + i)
                            << L"] class=" << entry->callbackClass
+                           << L" className=" << (classInfo ? classInfo->name : L"unknown")
+                           << L" removeClass=" << (classInfo ? classInfo->removal : 0U)
                            << L" registrationType=" << entry->registrationType
                            << L" source=" << entry->source
                            << L" status=" << entry->status
+                           << L" lastStatus=" << hex64(static_cast<std::uint32_t>(entry->lastStatus))
                            << L" fields=0x" << std::hex << entry->fieldFlags
                            << L" callback=" << hex64(entry->callbackAddress)
                            << L" context=" << hex64(entry->contextAddress)
@@ -5010,17 +5184,23 @@ namespace ks::cli::legacy
                            << L" rawStorage=" << hex64(entry->rawStorageValue)
                            << L" generation=" << hex64(entry->enumerationGeneration)
                            << L" identityHash=" << hex64(entry->identityHash)
+                           << L" trustFlags=" << hex64(entry->trustFlags)
+                           << L" removeBehavior=" << hex64(entry->removeBehavior)
                            << L" moduleBase=" << hex64(entry->moduleBase)
+                           << L" moduleSize=" << std::dec << entry->moduleSize
+                           << L" ownerRangeState=" << entry->ownerRangeState
                            << std::dec << L" operationMask=0x" << std::hex << entry->operationMask
                            << L" objectTypeMask=0x" << entry->objectTypeMask
                            << std::dec << L" name='" << fixedWide(entry->name, KSWORD_ARK_CALLBACK_ENUM_NAME_CHARS)
                            << L"' altitude='" << fixedWide(entry->altitude, KSWORD_ARK_CALLBACK_ENUM_ALTITUDE_CHARS)
+                           << L"' modulePath='" << fixedWide(entry->modulePath, KSWORD_ARK_CALLBACK_ENUM_MODULE_PATH_CHARS)
                            << L"' detail='" << fixedWide(entry->detail, KSWORD_ARK_CALLBACK_ENUM_DETAIL_CHARS) << L"'\n";
             }
             printedCount += parsed;
             ++pageCount;
 
             const bool hasMore = (response->flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_MORE_DATA) != 0UL;
+            displayTruncated = hasMore || parsed < response->returnedCount;
             if (!hasMore || printedCount >= visibleLimit)
             {
                 break;
@@ -5028,14 +5208,24 @@ namespace ks::cli::legacy
             if (response->returnedCount == 0UL || response->nextIndex <= startIndex || pageCount >= 128U)
             {
                 std::wcerr << L"error: callback enum pagination did not make forward progress\n";
-                return 4;
+                return callbackJsonFailure(L"callback enum", json, 4, L"Callback inventory pagination did not advance.");
             }
             startIndex = response->nextIndex;
         }
-        std::wcout << L"pages=" << pageCount
-                   << L" snapshotHash=" << hex64(snapshotHash)
-                   << L" rowsPrinted=" << printedCount << L"\n";
-        return 0;
+        const int snapshotFailure = operationStatusRc(snapshotStatus);
+        if (json) {
+            std::wcout << Json::object({{L"schemaVersion", Json::number(1)}, {L"command", Json::string(L"callback enum")},
+                {L"backend", Json::string(L"r0")}, {L"status", Json::string(snapshotFailure ? L"partial" : L"success")},
+                {L"data", Json::object({{L"queried", Json::boolean(pageCount != 0)}, {L"totalCount", pageCount ? Json::number(snapshotTotalCount) : Json{}}, {L"returnedCount", Json::number(static_cast<std::uint32_t>(printedCount))},
+                    {L"pages", Json::number(pageCount)}, {L"snapshotHash", Json::hex(snapshotHash)}, {L"snapshotGeneration", Json::hex(snapshotGeneration)},
+                    {L"lastStatus", pageCount ? Json::hex(static_cast<std::uint32_t>(snapshotStatus)) : Json{}},
+                    {L"displayTruncated", Json::boolean(displayTruncated)}, {L"rows", Json::array(jsonRows)}})},
+                {L"diagnostics", Json::strings({L"Candidate removal requires a current uniquely identified row; R0 revalidation depends on callback class."})}}).text << L"\n";
+        } else {
+            std::wcout << L"pages=" << pageCount << L" snapshotHash=" << hex64(snapshotHash)
+                       << L" rowsPrinted=" << printedCount << L"\n";
+        }
+        return snapshotFailure;
     }
 
     // commandCallbackFamily implements callback rule/control IOCTLs.
@@ -5118,7 +5308,7 @@ namespace ks::cli::legacy
             KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_RESPONSE response{};
             request.size = sizeof(request);
             request.version = KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_PROTOCOL_VERSION;
-            request.callbackClass = requireOptionU32(args, L"--class");
+            request.callbackClass = callbackRemoveClass(args);
             request.flags = getOptionU32(args, L"--flags", 0U);
             request.callbackAddress = requireOptionU64(args, L"--callback");
             if (!sendFixedRequestResponse(IOCTL_KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK, L"IOCTL_KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK", request, response, io, GENERIC_READ | GENERIC_WRITE)) return 3;
@@ -5139,7 +5329,7 @@ namespace ks::cli::legacy
             KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX_RESPONSE response{};
             request.size = sizeof(request);
             request.version = KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_PROTOCOL_VERSION;
-            request.callbackClass = requireOptionU32(args, L"--class");
+            request.callbackClass = callbackRemoveClass(args);
             request.flags = getOptionU32(args, L"--flags", 0U);
             request.callbackAddress = requireOptionU64(args, L"--callback");
             request.registrationAddress = getOptionU64(args, L"--registration", 0ULL);
@@ -5170,6 +5360,85 @@ namespace ks::cli::legacy
             dumpWideText(L"serviceName", fixedWide(response.serviceName, KSWORD_ARK_EXTERNAL_CALLBACK_SERVICE_NAME_MAX_CHARS));
             dumpWideText(L"message", fixedWide(response.message, KSWORD_ARK_CALLBACK_ENUM_DETAIL_CHARS));
             return 0;
+        }
+        if (sub == L"remove-row")
+        {
+            const bool json = getOptionBool(args, L"--json");
+            requireConfirmOption(args, "callback remove-row requires --confirm");
+            const std::uint64_t selectedHash = requireOptionU64(args, L"--identity-hash");
+            if (!selectedHash) throw std::invalid_argument("--identity-hash must be nonzero");
+            CallbackInventorySnapshot snapshot;
+            const int scan = collectCallbackInventory(KSWORD_ARK_ENUM_CALLBACK_FLAG_INCLUDE_ALL, 256U,
+                (std::numeric_limits<std::size_t>::max)(), snapshot);
+            if (scan != 0) return callbackJsonFailure(L"callback remove-row", json, scan, L"Inventory failed; no removal was attempted.");
+            if (snapshot.more || snapshot.rows.size() != snapshot.total || !(snapshot.flags & KSWORD_ARK_ENUM_CALLBACK_RESPONSE_FLAG_IDENTITY_HASH_VALID)) {
+                std::wcerr << L"error: callback inventory is incomplete; no removal attempted\n"; return callbackJsonFailure(L"callback remove-row", json, 6, L"Incomplete inventory; no removal was attempted.");
+            }
+            const KSWORD_ARK_CALLBACK_ENUM_ENTRY* selected = nullptr;
+            for (const auto& row : snapshot.rows) {
+                if (row.identityHash != selectedHash) continue;
+                if (selected) { std::wcerr << L"error: callback identity is ambiguous; no removal attempted\n"; return callbackJsonFailure(L"callback remove-row", json, 4, L"Ambiguous identity; no removal was attempted."); }
+                selected = &row;
+            }
+            if (!selected) { std::wcerr << L"error: callback identity not found; refresh inventory\n"; return callbackJsonFailure(L"callback remove-row", json, 3, L"Identity not found; no removal was attempted."); }
+            const auto* classInfo = callbackClassForEnumeration(selected->callbackClass);
+            const unsigned long requiredFields = KSWORD_ARK_CALLBACK_ENUM_FIELD_IDENTITY_HASH | KSWORD_ARK_CALLBACK_ENUM_FIELD_ENUMERATION_GENERATION;
+            // Notify-array and WFP candidate rows can have no row behavior bit;
+            // the GUI selects the public API explicitly in the EX request too.
+            const bool legacyCandidate = selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_PROCESS ||
+                selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_THREAD ||
+                selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_IMAGE ||
+                selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_WFP_CALLOUT;
+            if (!classInfo || !classInfo->removal || selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_ETW_PROVIDER ||
+                selected->status != KSWORD_ARK_CALLBACK_ENUM_STATUS_OK ||
+                (selected->fieldFlags & requiredFields) != requiredFields || !selected->enumerationGeneration ||
+                !(selected->fieldFlags & (KSWORD_ARK_CALLBACK_ENUM_FIELD_REMOVABLE_CANDIDATE | KSWORD_ARK_CALLBACK_ENUM_FIELD_VERIFIED_REMOVE)) ||
+                (!legacyCandidate && !(selected->removeBehavior & KSWORD_ARK_CALLBACK_REMOVE_BEHAVIOR_PUBLIC_API))) {
+                std::wcerr << L"error: callback row lacks a supported, revalidatable public removal path\n"; return callbackJsonFailure(L"callback remove-row", json, 5, L"Unsupported row; no removal was attempted.");
+            }
+            std::uint64_t callback = selected->callbackAddress;
+            if (!callback && (selected->fieldFlags & KSWORD_ARK_CALLBACK_ENUM_FIELD_IDENTIFIER)) callback = selected->registrationAddress;
+            if (!callback) { std::wcerr << L"error: callback row has no removal identifier\n"; return callbackJsonFailure(L"callback remove-row", json, 5, L"Removal identifier unavailable."); }
+            KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX_REQUEST request{};
+            request.size = sizeof(request); request.version = KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_PROTOCOL_VERSION;
+            request.callbackClass = classInfo->removal;
+            request.flags = KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_FLAG_REQUIRE_REVALIDATION;
+            request.callbackAddress = callback; request.registrationAddress = selected->registrationAddress;
+            request.rawStorageValue = selected->rawStorageValue;
+            if (selected->callbackClass == KSWORD_ARK_CALLBACK_ENUM_CLASS_MINIFILTER && selected->callbackAddress) {
+                if (!selected->contextAddress || !selected->registrationAddress) {
+                    std::wcerr << L"error: minifilter owner or operation identity unavailable\n";
+                    return callbackJsonFailure(L"callback remove-row", json, 5, L"Minifilter identity unavailable; no removal was attempted.");
+                }
+                request.registrationAddress = selected->contextAddress;
+                request.rawStorageValue = selected->registrationAddress;
+            }
+            request.enumerationGeneration = selected->enumerationGeneration; request.identityHash = selected->identityHash;
+            request.source = selected->source; request.operationMask = selected->operationMask;
+            request.objectTypeMask = selected->objectTypeMask; request.trustFlags = selected->trustFlags;
+            request.removeBehavior = KSWORD_ARK_CALLBACK_REMOVE_BEHAVIOR_PUBLIC_API | KSWORD_ARK_CALLBACK_REMOVE_BEHAVIOR_REQUIRE_REVALIDATION;
+            KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX_RESPONSE response{};
+            if (!sendFixedRequestResponse(IOCTL_KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX,
+                    L"IOCTL_KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX", request, response, io, GENERIC_READ | GENERIC_WRITE))
+                return callbackJsonFailure(L"callback remove-row", json, normalizeIoctlRc(L"callback remove-row", io, 3), L"Removal transport failed; inspect driver state before retrying.", &io);
+            const int result = operationStatusRc(response.ntstatus);
+            if (json) {
+                std::wcout << Json::object({{L"schemaVersion", Json::number(1)}, {L"command", Json::string(L"callback remove-row")},
+                    {L"backend", Json::string(L"r0")}, {L"status", Json::string(result == 0 ? L"success" : result == 5 ? L"unavailable" : L"failed")},
+                    {L"data", Json::object({{L"className", Json::string(classInfo->name)}, {L"callback", Json::hex(response.callbackAddress)},
+                        {L"registration", Json::hex(response.registrationAddress)}, {L"identityHash", Json::hex(response.identityHash)},
+                        {L"ntstatus", Json::hex(static_cast<std::uint32_t>(response.ntstatus))},
+                        {L"revalidationStatus", Json::hex(static_cast<std::uint32_t>(response.revalidationStatus))},
+                        {L"message", Json::string(fixedWide(response.message, KSWORD_ARK_CALLBACK_ENUM_DETAIL_CHARS))}})},
+                    {L"diagnostics", Json::strings({})}}).text << L"\n";
+            } else {
+                printResponseBanner(response.version, response.callbackClass, response.ntstatus, io.bytesReturned);
+                std::wcout << L"className=" << classInfo->name << L" callback=" << hex64(response.callbackAddress)
+                           << L" registration=" << hex64(response.registrationAddress) << L" identityHash=" << hex64(response.identityHash)
+                           << L" revalidationStatus=" << hex64(static_cast<std::uint32_t>(response.revalidationStatus)) << L"\n";
+                dumpWideText(L"message", fixedWide(response.message, KSWORD_ARK_CALLBACK_ENUM_DETAIL_CHARS));
+            }
+            return result;
         }
         if (sub == L"set-minifilter-bypass-pids")
         {
@@ -5674,7 +5943,13 @@ namespace ks::cli::legacy
                            << L" object=" << hex64(entry->objectAddress)
                            << L" dyn=0x" << entry->dynDataCapabilityMask
                            << std::dec << L" typeIndex=" << entry->objectTypeIndex
-                           << L" decodeStatus=" << entry->decodeStatus << L"\n";
+                           << L" decodeStatus=" << entry->decodeStatus;
+                if (response->entrySize >= offsetof(KSWORD_ARK_HANDLE_ENTRY, processCreationTime100ns) + sizeof(entry->processCreationTime100ns) &&
+                    entry->processCreationTime100ns != 0ULL)
+                    std::wcout << L" creationTime=" << entry->processCreationTime100ns;
+                else
+                    std::wcout << L" creationTime=unavailable";
+                std::wcout << L"\n";
             }
             return 0;
         }
@@ -8034,6 +8309,12 @@ namespace ks::cli::legacy
         if (family == L"ddma") return commandDdmaFamily(argc, argv);
         if (family == L"r0")
         {
+#ifndef KSWORD_CLI_LEGACY_FIXTURE
+            if (argc >= 3 && argv[2] != nullptr && std::wstring(argv[2]) == L"piddb-detail")
+                return commandPiDdbDetail(argc, argv);
+            if (argc >= 3 && argv[2] != nullptr && std::wstring(argv[2]) == L"piddb-delete")
+                return commandPiDdbDelete(argc, argv);
+#endif
             // object-type-procedures 走本文件里的裸 IOCTL 实现（要逐行打印证据并按布局自验证结果定退出码），
             // 其余 r0 子命令仍交给复用 ArkDriverClient 的 commandArkDriverExtended。
             if (argc >= 3 && argv[2] != nullptr && std::wstring(argv[2]) == L"object-type-procedures")

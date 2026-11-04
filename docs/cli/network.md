@@ -1,8 +1,22 @@
 # 网络 R3 命令
 
+## Windows 防火墙规则详情与管理
+
+```powershell
+KswordCLI.exe network firewall rule query --name NAME [--fingerprint SHA256] [--json]
+KswordCLI.exe network firewall rule create --name NAME --direction in|out --action allow|block --protocol any|tcp|udp|N --profiles all|MASK --enabled on|off [规则字段] --confirm [--json]
+KswordCLI.exe network firewall rule update --name NAME --fingerprint SHA256 [--new-name NAME] [规则字段] --confirm [--json]
+KswordCLI.exe network firewall rule enable|disable|delete --name NAME --fingerprint SHA256 --confirm [--json]
+```
+
+规则字段为 `--description`、`--grouping`、`--application`、`--service`、`--local-ports`、`--remote-ports`、`--local-addresses`、`--remote-addresses`、`--interface-types`、`--icmp-types`、`--direction`、`--action`、`--protocol`、`--profiles`、`--enabled` 和 `--edge-traversal`。profiles 的域/专用/公用位分别为 1/2/4，也接受 `all`。空文本用于清空指定的字符串字段；端口和 ICMP 字段由 Windows 按协议校验。
+
+查询使用 R3 Windows Firewall COM，返回共同枚举字段、字段可用位和每个同名候选的 SHA-256 快照指纹；`--fingerprint` 可进一步选出其中一项，具有相同完整字段的重复项仍视为歧义。修改前须提供指纹并重新枚举匹配，成功后再次查询核验；同名规则可用指纹选择来更新。Windows 删除 API 以名称操作，因此同名规则不能通过本命令删除。创建要求名称当前不存在；每次写入均要求 `--confirm`。查询/写入保留 HRESULT、前后快照、是否尝试和是否确认等字段；规则属性逐个调用系统 setter，失败可能已经修改部分字段，并非事务或自动回滚。重枚举和写入之间仍存在并发变化窗口。
+
+`tools/test_ksword_cli_r3_firewall_actions.py` 使用模拟数据核对重复名称、过期指纹、缺失确认与回执；`tools/Test-KSwordCliFirewallCanary.ps1 -Cli PATH` 可在隔离测试环境创建唯一名称的临时规则，验证创建、详情、修改、启停和清理。
+
 使用 `help network` 查看直属命令，`help network connections` 查看连接操作，
-`help network connections close` 查看精确语法。除末节明确列出的 R0 托管策略查询外，以下命令默认为 R3，不需要驱动；
-`--backend r3` 可以显式指定，`--backend r0` 不适用于这些新增命令。
+`help network connections close` 查看精确语法。网络诊断命令默认为 R3；文末托管策略命令分别支持 R3 Windows 防火墙和 R0 驱动后端，具体能力和参数见各命令帮助。
 
 ## TCP/UDP 连接（迁移项 01）
 
@@ -120,3 +134,19 @@ KswordCLI.exe network managed-policies [--limit N]
 
 查询成功返回 0；驱动或 WFP 不可用返回 3/5；响应结构或字段无效返回 4。
 通用驱动功能矩阵仅执行此查询，托管控制 IOCTL 始终排除，避免改变宿主网络策略。
+## 托管网络策略和 QoS
+
+```text
+KswordCLI.exe network policy enum [--backend r3|r0] [--json]
+KswordCLI.exe network policy query --id ID [--backend r3|r0] [--json]
+KswordCLI.exe network policy create --scope image|process|all [--path PATH] [--pid PID] [--creation-time FILETIME] [--remote PREFIXES] [--direction in|out|both] --confirm [--backend r3|r0] [--json]
+KswordCLI.exe network policy enable|disable|remove --id ID --confirm [--backend r3|r0] [--json]
+KswordCLI.exe network qos enum [--json]
+KswordCLI.exe network qos query --id ID [--json]
+KswordCLI.exe network qos save --scope image|all [--path PATH] [--id ID] [--rate BYTES_PER_SEC] [--dscp N] [--priority N] [--protocol any|tcp|udp|tcp-udp] [--source-prefix PREFIX] [--destination-prefix PREFIX] [--source-port-start N] [--source-port-end N] [--destination-port-start N] [--destination-port-end N] [--precedence N] [--enabled on|off] --confirm [--json]
+KswordCLI.exe network qos enable|disable|remove --id ID --confirm [--json]
+```
+
+`network policy` 默认 `--backend r3`：管理 KSword 拥有的 Windows 防火墙规则，支持映像路径或指定远端地址的全局范围；映像规则作用于该映像的所有实例。`--backend r0` 操作驱动托管策略，支持进程实例或指定远端地址的全局范围；进程实例必须同时提供 PID 和创建时间。两种策略使用各自的身份和能力，不自动切换。`--remote` 用分号分隔数字 IPv4/IPv6 地址或 CIDR；全局范围必须明确指定远端地址。R3 映像范围可选地提供 PID 与创建时间，让后端在创建时复核路径和进程身份。成功后查询同源策略并回读；请求成功但回读不可用或不匹配返回 6。失败可能留下部分效果，应根据返回的策略 ID 与回执复查。
+
+`network qos` 使用 Windows Policy QoS，覆盖 ActiveStore 和 KSword 保存的禁用定义；只对拥有的策略执行修改。QoS 只支持映像或全局范围的**出站**匹配，不支持进程实例或入站限速；ActiveStore 在重启后失效。`--rate` 单位是字节/秒，DSCP 为 0..63、802.1p priority 为 0..7；保存需要至少一个动作。更新时应提供全部期望字段。读取结果直接包含策略的速率、匹配条件、启用状态及归属，不另建重复详情数据。操作回读确认身份存在性和启用状态；实际接受的参数及限制由共享 QoS 后端验证。以上操作都不自动提升权限。

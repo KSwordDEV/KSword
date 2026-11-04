@@ -19,6 +19,8 @@
 
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_VIRTUAL_MEMORY 0x813UL
 #define KSWORD_ARK_IOCTL_FUNCTION_READ_VIRTUAL_MEMORY 0x814UL
+// 独立功能号保证旧驱动不会忽略创建时间后执行普通 PID 读取。
+#define KSWORD_ARK_IOCTL_FUNCTION_READ_VIRTUAL_MEMORY_VERIFIED 0x936UL
 #define KSWORD_ARK_IOCTL_FUNCTION_WRITE_VIRTUAL_MEMORY 0x81DUL
 #define KSWORD_ARK_IOCTL_FUNCTION_READ_PHYSICAL_MEMORY 0x82BUL
 #define KSWORD_ARK_IOCTL_FUNCTION_WRITE_PHYSICAL_MEMORY 0x82CUL
@@ -38,6 +40,13 @@
     CTL_CODE( \
         KSWORD_ARK_IOCTL_DEVICE_TYPE, \
         KSWORD_ARK_IOCTL_FUNCTION_READ_VIRTUAL_MEMORY, \
+        METHOD_BUFFERED, \
+        FILE_WRITE_ACCESS)
+
+#define IOCTL_KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED \
+    CTL_CODE( \
+        KSWORD_ARK_IOCTL_DEVICE_TYPE, \
+        KSWORD_ARK_IOCTL_FUNCTION_READ_VIRTUAL_MEMORY_VERIFIED, \
         METHOD_BUFFERED, \
         FILE_WRITE_ACCESS)
 
@@ -473,6 +482,20 @@ typedef struct _KSWORD_ARK_READ_VIRTUAL_MEMORY_REQUEST
     unsigned long bytesToRead;
     unsigned long reserved;
 } KSWORD_ARK_READ_VIRTUAL_MEMORY_REQUEST;
+
+// V1 校验读取只允许用户地址和真实非零进程创建时间。
+#define KSWORD_ARK_VERIFIED_MEMORY_READ_VERSION 1UL
+typedef struct _KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST
+{
+    unsigned long size;
+    unsigned long version;
+    unsigned long flags;
+    unsigned long processId;
+    unsigned long long expectedCreationTime100ns;
+    unsigned long long baseAddress;
+    unsigned long bytesToRead;
+    unsigned long reserved;
+} KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST;
 
 typedef struct _KSWORD_ARK_READ_VIRTUAL_MEMORY_RESPONSE
 {

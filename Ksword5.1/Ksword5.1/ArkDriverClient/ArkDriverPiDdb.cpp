@@ -56,12 +56,13 @@ namespace ksword::ark
             static_cast<unsigned long>(responseBuffer.size()));
         result.unsupported = !result.io.ok &&
             unsupportedError(result.io.win32Error);
-        if (result.io.bytesReturned <
-            KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE)
+        if (result.io.bytesReturned < KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE ||
+            result.io.bytesReturned > responseBuffer.size())
         {
+            if (result.io.ok) { result.io.ok = false; result.io.win32Error = ERROR_INVALID_DATA; }
             if (result.io.message.empty())
             {
-                result.io.message = "PiDDB response header unavailable";
+                result.io.message = "PiDDB response length is invalid";
             }
             return result;
         }
@@ -69,15 +70,27 @@ namespace ksword::ark
         const auto* response =
             reinterpret_cast<const KSWORD_ARK_QUERY_PIDDB_RESPONSE*>(
                 responseBuffer.data());
+        const std::size_t availableRows =
+            (result.io.bytesReturned - KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE) /
+            sizeof(KSWORD_ARK_PIDDB_ROW);
+        if (response->version != KSWORD_ARK_PIDDB_PROTOCOL_VERSION ||
+            response->rowSize != sizeof(KSWORD_ARK_PIDDB_ROW) ||
+            response->size < KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE ||
+            response->size > result.io.bytesReturned ||
+            response->returnedRows > response->totalRows ||
+            response->returnedRows > availableRows ||
+            response->returnedRows > request.maxRows ||
+            response->returnedRows > (response->size - KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE) / sizeof(KSWORD_ARK_PIDDB_ROW))
+        {
+            if (result.io.ok) { result.io.ok = false; result.io.win32Error = ERROR_INVALID_DATA; }
+            result.io.message = "PiDDB response version, stride, size or row count is invalid";
+            return result;
+        }
         result.queryStatus = response->queryStatus;
         result.responseFlags = response->responseFlags;
         result.totalRows = response->totalRows;
         result.lastStatus = response->lastStatus;
         result.io.ntStatus = response->lastStatus;
-        const std::size_t availableRows =
-            (result.io.bytesReturned -
-                KSWORD_ARK_QUERY_PIDDB_RESPONSE_HEADER_SIZE) /
-            sizeof(KSWORD_ARK_PIDDB_ROW);
         const std::size_t returnedRows = std::min<std::size_t>(
             response->returnedRows,
             availableRows);
@@ -145,6 +158,17 @@ namespace ksword::ark
             sizeof(response));
         result.unsupported = !result.io.ok &&
             unsupportedError(result.io.win32Error);
+        if (!result.io.ok) return result;
+        if (result.io.bytesReturned < sizeof(response) ||
+            result.io.bytesReturned > sizeof(response) ||
+            response.version != KSWORD_ARK_PIDDB_PROTOCOL_VERSION ||
+            response.size != sizeof(response))
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = "PiDDB delete response version or size is invalid";
+            return result;
+        }
         result.status = response.status;
         result.remainingRows = response.remainingRows;
         result.lastStatus = response.lastStatus;

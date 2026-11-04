@@ -33,7 +33,22 @@ KswordCLI.exe network connections help
 网络关闭的 API 状态与回读存在性分别输出；错误 317 不推导为目标消失，详见 [网络文档](cli/network.md)。
 `network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]` 支持显示偏移与下一页位置；不同调用是各自的网络快照。
 `process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--json]` 以地址游标分页读取进程的已提交区域；正常页大小限制不代表采集失败。分页快照可能随进程映射变化，详见 [进程文档](cli/process.md)。
+`process memory dump` 与 `process module dump` 支持 R3/R0 分块转储并报告来源、身份与完整性；`process thread stack query` 捕获受验证线程的调用栈，详见 [进程文档](cli/process.md)。
+`thread r0` 与 `thread driver` 提供独立的驱动线程控制入口，详见 [R0 线程命令](cli/thread-r0.md)。
+`handle close` 对同一目标提供 R3/R0 关闭及独立状态回执，详见 [句柄命令](cli/handle.md)。
+`network policy` 提供按各自后端实现的 R0 托管策略与 R3 防火墙策略操作；`network qos` 提供 R3 QoS 操作，详见 [网络命令](cli/network.md)。
+`network firewall rule` 提供单项详情与规则增改、启停和删除，按名称和指纹重验；详见 [网络命令](cli/network.md)。
+`file metadata` 提供文件属性、时间、命名流、扩展属性和安全描述符的 R3 查询与操作，详见 [文件元数据命令](cli/file-metadata.md)。
+`service config set`、`service recovery set`、`service delete` 提供服务配置及删除操作，详见 [服务命令](cli/service.md)。
+`startup location query --id` 直接返回对应单项的详细字段，详见 [启动项命令](cli/startup.md)。
+`r0 traffic-start`、`r0 traffic-stop` 和事件记录读取的行为与清理语义见 [R0 事件命令](cli/r0-events.md)；PiDDB 单项详情与删除见 [PiDDB 命令](cli/piddb.md)。
+`r0 kernel-modules` 和 `r0 process-modules` 提供驱动模块快照与进程映像映射视图，详情与来源边界见 [R0 模块命令](cli/r0-modules.md)；窗口热键与 Band 入口见 [窗口命令](cli/window.md)。
+`r0 io-timer`、`r0 platform-edit`、`r0 debug-output-control`、`r0 research-topic`、`r0 token-privilege` 和 `r0 process-protect` 控制及查询说明见 [R0 底层命令](../KswordCLI/R0LowlevelCommands.md)。
+`file irp submit` 提交文件 IRP，参数和状态见 [文件 IRP 命令](cli/file-irp.md)；`pfn` 提供物理页查询，详见 [PFN 命令](cli/pfn.md)。
+虚拟位置与应用控制操作分别见 [虚拟位置命令](cli/location.md) 和 [应用控制命令](cli/application-control.md)；Shadow SSDT 基线和恢复见 [Shadow SSDT 命令](cli/shadow-ssdt.md)。
+`debugger session --pid PID --creation-time FILETIME --confirm [--backend r3|r0] --json` 启动逐行交互会话。输入 `wait`、`continue`、`threads`、`context`、`read`、`write`、`break` 或 `detach`；完整参数见 `help debugger session`。仅支持原生 x64 目标和按线程设置的硬件执行断点，不支持 HVM 或软件断点。
 `system health [--json]` 只读汇总驱动服务、能力、动态数据和跨视图字段证据；各查询独立报告状态与限制，详见 [系统工具文档](cli/system.md)。
+`system time speed` 提供 R0 时间倍率查询、设置与恢复，`system time resync` 使用 R3 时间服务重同步，详见 [时间控制命令](cli/system-time-control.md)。
 新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
 
 默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、
@@ -238,11 +253,12 @@ Manage callback rules, pending decisions, callback inventory, and bypass PIDs.
 | `callback wait-event` | `KswordCLI.exe callback wait-event [--waiter-tag N]` | Wait for one callback event packet. | Optional: --waiter-tag. |  |
 | `callback answer-event` | `KswordCLI.exe callback answer-event --event-guid GUID --decision N --source-session-id N [--answered-at UTC100NS]` | Answer one pending callback event. | Required: --event-guid, --decision, --source-session-id. Optional: --answered-at. |  |
 | `callback cancel-pending` | `KswordCLI.exe callback cancel-pending` | Cancel all pending callback decisions. | No options. |  |
-| `callback remove` | `KswordCLI.exe callback remove --class N --callback VA [--flags 0xN]` | Remove a callback through an address-based public API path. | Required: --class, --callback. Object, Registry, and ETW classes are not supported by this legacy command. |  |
-| `callback remove-ex` | `KswordCLI.exe callback remove-ex --class N --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN]` | Remove an external callback with extended row identity. | Object removal requires every identity field copied from one verified V3 enumeration row plus revalidation flags. Registry and ETW removal are disabled. |  |
+| `callback remove` | `KswordCLI.exe callback remove --class CLASS --callback VA [--flags 0xN] --confirm` | Remove a callback through an address-based public API path. | Required: --class, --callback, --confirm. Object, Registry, and ETW classes are not supported by this legacy command. | CLASS accepts a removal type number or name. |
+| `callback remove-ex` | `KswordCLI.exe callback remove-ex --class CLASS --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN] --confirm` | Remove an external callback with extended row identity. | Use the complete V3 row identity. Registry requires a calibrated cookie; ETW removal is unsupported. | CLASS accepts a removal type number or name. |
+| `callback remove-row` | `KswordCLI.exe callback remove-row --identity-hash N --confirm [--json]` | Re-enumerate and remove a uniquely identified current row. | Required: --identity-hash, --confirm. Optional: --json. | Minifilter child removal unloads its entire owning filter; thread/image/WFP may use legacy public API removal. |
 | `callback set-minifilter-bypass-pids` | `KswordCLI.exe callback set-minifilter-bypass-pids --pids PID[,PID...] [--flags 0xN]` | Set minifilter bypass PID list. | Required: --pids. Optional: --flags. |  |
 | `callback query-minifilter-bypass-pids` | `KswordCLI.exe callback query-minifilter-bypass-pids` | Query minifilter bypass PID list. | No options. |  |
-| `callback enum` | `KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N]` | Enumerate callback inventory. | Optional: --flags, --max-entries, --limit. | Uses protocol v3; prints snapshot generation/hash and per-row identity hashes, and stops if a continuation page no longer matches the first-page snapshot. |
+| `callback enum` | `KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N] [--json]` | Enumerate callback inventory. | Optional: --flags, --max-entries, --limit, --json. | Includes row identity, trustFlags and removeBehavior; enum and removal class numbers differ. |
 
 ### `dyn`
 

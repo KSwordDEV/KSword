@@ -24,11 +24,12 @@ struct PfnQueryTrace {
     long driverStatus = 0, driverTransportStatus = 0;
     bool driverAvailable = false, driverInvoked = false;
 };
+enum class PfnBackend { Auto, NativeOnly, DriverOnly };
 // Native query first; the driver supplies the same bounded identity ABI when
 // Windows denies the user-mode query. A thread-local token is restored on exit.
 class PfnQueryClient final {
 public:
-    PfnQueryClient();
+    explicit PfnQueryClient(PfnBackend backend = PfnBackend::Auto);
     ~PfnQueryClient();
     PfnQueryClient(const PfnQueryClient&) = delete;
     PfnQueryClient& operator=(const PfnQueryClient&) = delete;
@@ -53,6 +54,7 @@ private:
     bool m_impersonating = false;
     bool m_driverPages = false;
     bool m_nativeLayoutSupported = false;
+    PfnBackend m_backend = PfnBackend::Auto;
     mutable PfnQueryTrace m_trace;
 };
 }

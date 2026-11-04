@@ -85,6 +85,34 @@ std::wstring ProfileStateText(INetFwPolicy2& policy, const NET_FW_PROFILE_TYPE2 
 }
 
 } // namespace
+bool ReadFirewallRule(INetFwRule* rule, FirewallRuleEntry& entry) {
+    entry = {};
+    if (!rule) return false;
+    entry.name = ReadStringProperty(&INetFwRule::get_Name, *rule, entry.fieldFlags, 0);
+    entry.description = ReadStringProperty(&INetFwRule::get_Description, *rule, entry.fieldFlags, 1);
+    entry.grouping = ReadStringProperty(&INetFwRule::get_Grouping, *rule, entry.fieldFlags, 2);
+    entry.applicationName = ReadStringProperty(&INetFwRule::get_ApplicationName, *rule, entry.fieldFlags, 3);
+    entry.serviceName = ReadStringProperty(&INetFwRule::get_ServiceName, *rule, entry.fieldFlags, 4);
+    entry.localPorts = ReadStringProperty(&INetFwRule::get_LocalPorts, *rule, entry.fieldFlags, 5);
+    entry.remotePorts = ReadStringProperty(&INetFwRule::get_RemotePorts, *rule, entry.fieldFlags, 6);
+    entry.localAddresses = ReadStringProperty(&INetFwRule::get_LocalAddresses, *rule, entry.fieldFlags, 7);
+    entry.remoteAddresses = ReadStringProperty(&INetFwRule::get_RemoteAddresses, *rule, entry.fieldFlags, 8);
+    entry.interfaceTypes = ReadStringProperty(&INetFwRule::get_InterfaceTypes, *rule, entry.fieldFlags, 9);
+    entry.icmpTypesAndCodes = ReadStringProperty(&INetFwRule::get_IcmpTypesAndCodes, *rule, entry.fieldFlags, 16);
+    NET_FW_RULE_DIRECTION direction = NET_FW_RULE_DIR_IN;
+    if (SUCCEEDED(rule->get_Direction(&direction))) { entry.fieldFlags |= 1u << 10; entry.direction = static_cast<std::int32_t>(direction); }
+    NET_FW_ACTION action = NET_FW_ACTION_BLOCK;
+    if (SUCCEEDED(rule->get_Action(&action))) { entry.fieldFlags |= 1u << 11; entry.action = static_cast<std::int32_t>(action); }
+    LONG protocol = 0;
+    if (SUCCEEDED(rule->get_Protocol(&protocol))) { entry.fieldFlags |= 1u << 12; entry.protocol = static_cast<std::int32_t>(protocol); }
+    long profiles = 0;
+    if (SUCCEEDED(rule->get_Profiles(&profiles))) { entry.fieldFlags |= 1u << 13; entry.profiles = static_cast<std::int32_t>(profiles); }
+    VARIANT_BOOL enabled = VARIANT_FALSE;
+    if (SUCCEEDED(rule->get_Enabled(&enabled))) { entry.fieldFlags |= 1u << 14; entry.enabled = enabled != VARIANT_FALSE; }
+    VARIANT_BOOL edgeTraversal = VARIANT_FALSE;
+    if (SUCCEEDED(rule->get_EdgeTraversal(&edgeTraversal))) { entry.fieldFlags |= 1u << 15; entry.edgeTraversal = edgeTraversal != VARIANT_FALSE; }
+    return (entry.fieldFlags & 1u) != 0;
+}
 FirewallEnumerationResult EnumerateFirewallRules() {
     FirewallEnumerationResult result{};
 
@@ -138,47 +166,7 @@ FirewallEnumerationResult EnumerateFirewallRules() {
                             const auto ruleStatus = item.pdispVal->QueryInterface(__uuidof(INetFwRule), rule.putVoid());
                             if (SUCCEEDED(ruleStatus) && rule) {
                                 FirewallRuleEntry entry{};
-                                entry.name = ReadStringProperty(&INetFwRule::get_Name, *rule.get(), entry.fieldFlags, 0);
-                                entry.description = ReadStringProperty(&INetFwRule::get_Description, *rule.get(), entry.fieldFlags, 1);
-                                entry.grouping = ReadStringProperty(&INetFwRule::get_Grouping, *rule.get(), entry.fieldFlags, 2);
-                                entry.applicationName = ReadStringProperty(&INetFwRule::get_ApplicationName, *rule.get(), entry.fieldFlags, 3);
-                                entry.serviceName = ReadStringProperty(&INetFwRule::get_ServiceName, *rule.get(), entry.fieldFlags, 4);
-                                entry.localPorts = ReadStringProperty(&INetFwRule::get_LocalPorts, *rule.get(), entry.fieldFlags, 5);
-                                entry.remotePorts = ReadStringProperty(&INetFwRule::get_RemotePorts, *rule.get(), entry.fieldFlags, 6);
-                                entry.localAddresses = ReadStringProperty(&INetFwRule::get_LocalAddresses, *rule.get(), entry.fieldFlags, 7);
-                                entry.remoteAddresses = ReadStringProperty(&INetFwRule::get_RemoteAddresses, *rule.get(), entry.fieldFlags, 8);
-                                entry.interfaceTypes = ReadStringProperty(&INetFwRule::get_InterfaceTypes, *rule.get(), entry.fieldFlags, 9);
-
-                                NET_FW_RULE_DIRECTION direction = NET_FW_RULE_DIR_IN;
-                                if (SUCCEEDED(rule->get_Direction(&direction))) {
-                                    entry.fieldFlags |= 1u << 10;
-                                    entry.direction = static_cast<std::int32_t>(direction);
-                                }
-                                NET_FW_ACTION action = NET_FW_ACTION_BLOCK;
-                                if (SUCCEEDED(rule->get_Action(&action))) {
-                                    entry.fieldFlags |= 1u << 11;
-                                    entry.action = static_cast<std::int32_t>(action);
-                                }
-                                LONG protocol = 0;
-                                if (SUCCEEDED(rule->get_Protocol(&protocol))) {
-                                    entry.fieldFlags |= 1u << 12;
-                                    entry.protocol = static_cast<std::int32_t>(protocol);
-                                }
-                                long profiles = 0;
-                                if (SUCCEEDED(rule->get_Profiles(&profiles))) {
-                                    entry.fieldFlags |= 1u << 13;
-                                    entry.profiles = static_cast<std::int32_t>(profiles);
-                                }
-                                VARIANT_BOOL enabled = VARIANT_FALSE;
-                                if (SUCCEEDED(rule->get_Enabled(&enabled))) {
-                                    entry.fieldFlags |= 1u << 14;
-                                    entry.enabled = enabled != VARIANT_FALSE;
-                                }
-                                VARIANT_BOOL edgeTraversal = VARIANT_FALSE;
-                                if (SUCCEEDED(rule->get_EdgeTraversal(&edgeTraversal))) {
-                                    entry.fieldFlags |= 1u << 15;
-                                    entry.edgeTraversal = edgeTraversal != VARIANT_FALSE;
-                                }
+                                ReadFirewallRule(rule.get(), entry);
                                 result.entries.push_back(std::move(entry));
                             } else {
                                 result.hresult = static_cast<std::uint32_t>(FAILED(ruleStatus) ? ruleStatus : E_NOINTERFACE);

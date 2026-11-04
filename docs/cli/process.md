@@ -1,5 +1,7 @@
 # 进程命令（R3）
 
+`process thread stack query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--limit N] [--json]` 对经过身份核验的 x64 线程短暂挂起、复制用户栈并恢复，然后使用 DbgHelp 展开与符号化。输出地址、可用符号、原始状态、原挂起计数及恢复状态。只支持 R3 x64 到 x64，WOW64 明确返回不支持；栈快照上限 16 MiB，帧数上限 128。栈外的展开元数据仍为实时读取；符号解析尽力而为，恢复失败必须核查目标状态。
+
 ## 进程身份采样（迁移项 66）
 
 ```powershell
@@ -362,3 +364,11 @@ limit 默认 1000，范围 1..10000，限制输出而非证明完整库存；输
 COM 和文件系统调用不被强制中断。源不完整、窗口挂起或达到边界返回 6；资源结构无效返回 4，所选来源全部无法取得时返回 3。
 有效空的所选来源可以成功。COM 在当前线程初始化／释放；借用已有 apartment 时不替调用者 CoUninitialize，资源映射与 ShellLink 接口按所有权释放。
 目标身份不符或期间退出返回 3，候选数据不用于推断 UI 提示中的成功文字。
+
+## 进程内存与模块 Dump
+
+`process memory dump --pid PID --address VA --size BYTES --output PATH [--creation-time FILETIME] [--backend r0|r3] [--json]` 按 64 KiB 分块读取目标范围；`process module dump --pid PID --base VA --output PATH [--creation-time FILETIME] [--module-path PATH] [--image-size N] [--backend r0|r3] [--json]` 读取选定模块范围。两项默认 R3；R0 使用 KswordARK 的身份校验读取，每块均在引用的内核进程对象上核对创建时间，不自动回退旧驱动或 R3。可正常打开的进程会自动取得创建时间；R0-only 目标须提供 R0 枚举所得真实 `--creation-time`。
+
+模块范围在 R3 模式来自进程模块快照，在 R0 模式来自指定基址的 `MEM_IMAGE` 映射范围。R0 的 `--image-size` 核对观测到的映射跨度，不代表 PE `SizeOfImage` 或 PEB 加载器链表成员。读前后分别以同一创建时间查询并比较基址、路径和范围；缺失、截断或变化不发布文件。不同查询并非同一原子快照。
+
+仅当每块均完整读取、文件刷写关闭和进程／模块身份复核成功时，将同目录临时文件发布至 `--output`；已存在的目标文件不会被替换。读入的字节按原样保存，不重建 PE，也不对不可读区域补零；失败或取消不发布部分文件，输出回执的 `writtenBytes` 是临时文件中已经写入的字节数。临时文件清理失败时会报告路径和原始错误。读取过程并非进程内存原子快照；模块可能在读期间改变，复核只能发现可观测的身份变化。权限不足、进程退出、短读、写入或目标已存在均通过状态和原始错误报告。

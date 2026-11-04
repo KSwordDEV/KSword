@@ -200,6 +200,7 @@
     <ClCompile Include="src\features\kernel\ssdt_fallback.c" />
     <ClCompile Include="src\features\kernel\hook_scan.c" />
     <ClCompile Include="src\features\kernel\hook_scan_support.c" />
+    <ClCompile Include="src\features\kernel\module_inventory.c" />
     <ClCompile Include="src\features\file\file_actions.c" />
     <ClCompile Include="src\features\file\file_delete_recursive.c" />
     <ClCompile Include="src\features\file\file_directory_query.c" />
@@ -444,6 +445,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\driver\KswordArkPfnIoctl.h" />
+    <ClInclude Include="..\shared\driver\KswordArkModuleIoctl.h" />
     <ClInclude Include="..\third_party\systeminformer_dyn\PfnNative.h" />
     <ClInclude Include="Device.h" />
     <ClInclude Include="Driver.h" />

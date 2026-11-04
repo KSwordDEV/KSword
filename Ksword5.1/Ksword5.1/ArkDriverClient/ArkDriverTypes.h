@@ -78,6 +78,14 @@ namespace ksword::ark
         bool deviceOpenFailed = false;
     };
 
+    struct HandleCloseResult
+    {
+        IoResult io;
+        bool responseValid = false;
+        long closeStatus = 0;
+        long resumeStatus = 0;
+    };
+
     struct WindowBandResult
     {
         IoResult io;

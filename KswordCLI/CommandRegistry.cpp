@@ -32,14 +32,15 @@ std::set<std::wstring> options(const Command& command) {
 }
 int emit(const Command& command, const Args& args, const Result& result) {
     const wchar_t* status = result.code == 0 ? L"success" : result.code == 6 ? L"partial" : result.code == 5 ? L"unsupported" : L"failed";
+    const auto backend = args.get(L"--backend", command.defaultBackend);
     std::vector<Json> diagnostic;
     for (const auto& value : result.diagnostics) diagnostic.push_back(Json::string(value));
     if (args.has(L"--json")) {
         std::wcout << Json::object({{L"schemaVersion", Json::number(1)}, {L"command", Json::string(command.path)},
-            {L"backend", Json::string(L"r3")}, {L"status", Json::string(status)}, {L"data", result.data},
+            {L"backend", Json::string(backend)}, {L"status", Json::string(status)}, {L"data", result.data},
             {L"diagnostics", Json::array(diagnostic)}}).text << L"\n";
     } else {
-        std::wcout << L"command=" << command.path << L" backend=r3 status=" << status << L"\n"
+        std::wcout << L"command=" << command.path << L" backend=" << backend << L" status=" << status << L"\n"
                    << result.data.display << L"\n";
         for (const auto& value : result.diagnostics) std::wcout << L"diagnostic: " << value << L"\n";
     }
@@ -110,7 +111,7 @@ std::uint32_t Args::u32(const std::wstring& key, std::uint32_t fallback) const {
 void addFamily(const std::wstring& name, const std::wstring& summary) { families.emplace(name, summary); }
 void addCommand(Command command) {
     for (auto& existing : entries) if (existing.path == command.path) {
-        if (!existing.run) { command.legacyDefault = true; command.legacySyntax = existing.syntax; command.legacyOptions = existing.options; }
+        if (!existing.run && !command.supportsR0) { command.legacyDefault = true; command.legacySyntax = existing.syntax; command.legacyOptions = existing.options; }
         existing = std::move(command); return;
     }
     entries.push_back(std::move(command));
@@ -200,7 +201,10 @@ std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
             if (++i >= argc || std::wstring(argv[i]).starts_with(L"--")) throw std::invalid_argument("missing value for option " + narrowOption(key));
             args.values[key] = argv[i];
         }
-        if (args.get(L"--backend", L"r3") != L"r3") throw std::invalid_argument("this command supports --backend r3 only");
+        const auto backend = args.get(L"--backend", found->defaultBackend);
+        if ((backend == L"r0" && !found->supportsR0) || (backend == L"r3" && !found->supportsR3) ||
+            (backend != L"r0" && backend != L"r3"))
+            throw std::invalid_argument("unsupported backend for this command");
         return emit(*found, args, found->run(args));
     } catch (const std::invalid_argument& e) {
         const std::string message = e.what(); const std::wstring wide(message.begin(), message.end());

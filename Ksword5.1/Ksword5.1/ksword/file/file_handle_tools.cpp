@@ -215,10 +215,13 @@ namespace ks::file
                 : m_processHandle(processHandle), m_resumeFunction(resumeFunction) {}
             ~ScopedProcessResume()
             {
-                if (m_processHandle != nullptr && m_resumeFunction != nullptr)
-                {
-                    (void)m_resumeFunction(m_processHandle);
-                }
+                if (m_processHandle != nullptr && m_resumeFunction != nullptr) (void)resume();
+            }
+            NTSTATUS resume()
+            {
+                const auto process = m_processHandle;
+                m_processHandle = nullptr;
+                return m_resumeFunction(process);
             }
             ScopedProcessResume(const ScopedProcessResume&) = delete;
             ScopedProcessResume& operator=(const ScopedProcessResume&) = delete;
@@ -1583,21 +1586,21 @@ namespace ks::file
         return true;
     }
 
-    bool CloseRemoteHandleByObjectIdentity(
+    RemoteHandleCloseResult CloseRemoteHandleByObjectIdentityDetailed(
         const std::uint32_t processId,
         const std::uint64_t handleValue,
         const std::uint64_t expectedProcessCreationTime,
-        const std::uint64_t expectedObjectAddress,
-        std::string& detailTextOut)
+        const std::uint64_t expectedObjectAddress)
     {
-        detailTextOut.clear();
+        RemoteHandleCloseResult result{};
+        auto& detailTextOut = result.detail;
         if (processId <= 4U
             || processId == static_cast<std::uint32_t>(::GetCurrentProcessId())
             || handleValue == 0U
             || expectedObjectAddress == 0U)
         {
             detailTextOut = "invalid, protected, or unverifiable handle identity";
-            return false;
+            return result;
         }
 
         HANDLE rawProcessHandle = nullptr;
@@ -1608,7 +1611,7 @@ namespace ks::file
                 rawProcessHandle,
                 detailTextOut))
         {
-            return false;
+            return result;
         }
         UniqueHandle processHandle(rawProcessHandle);
 
@@ -1622,20 +1625,23 @@ namespace ks::file
         if (suspendProcess == nullptr || resumeProcess == nullptr)
         {
             detailTextOut = "NtSuspendProcess/NtResumeProcess is unavailable";
-            return false;
+            return result;
         }
 
+        result.suspendAttempted = true;
         const NTSTATUS suspendStatus = suspendProcess(processHandle.get());
+        result.suspendStatus = suspendStatus;
         if (suspendStatus < 0)
         {
             std::ostringstream stream;
             stream << "NtSuspendProcess failed, status=0x"
                    << std::hex << std::uppercase << static_cast<std::uint32_t>(suspendStatus);
             detailTextOut = stream.str();
-            return false;
+            return result;
         }
-        const ScopedProcessResume resumeGuard(processHandle.get(), resumeProcess);
+        ScopedProcessResume resumeGuard(processHandle.get(), resumeProcess);
 
+        const auto closeWhileSuspended = [&]() -> bool {
         const NtApiSet apiSet = QueryNtApis();
         std::vector<RawSystemHandle> currentHandles;
         std::wstring queryDiagnostic;
@@ -1667,6 +1673,7 @@ namespace ks::file
         }
 
         HANDLE rawClosedHandle = nullptr;
+        result.closeAttempted = true;
         const BOOL closeOk = ::DuplicateHandle(
             processHandle.get(),
             reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(handleValue)),
@@ -1682,8 +1689,35 @@ namespace ks::file
             return false;
         }
 
+        result.closeSucceeded = true;
         detailTextOut = "process, handle value, and object address verified; CloseSource success";
         return true;
+        };
+        const bool closed = closeWhileSuspended();
+        result.resumeAttempted = true;
+        result.resumeStatus = resumeGuard.resume();
+        if (result.resumeStatus < 0)
+        {
+            std::ostringstream stream;
+            stream << detailTextOut << "; NtResumeProcess failed, status=0x"
+                   << std::hex << std::uppercase << static_cast<std::uint32_t>(result.resumeStatus);
+            detailTextOut = stream.str();
+        }
+        result.success = closed && result.resumeStatus >= 0;
+        return result;
+    }
+
+    bool CloseRemoteHandleByObjectIdentity(
+        const std::uint32_t processId,
+        const std::uint64_t handleValue,
+        const std::uint64_t expectedProcessCreationTime,
+        const std::uint64_t expectedObjectAddress,
+        std::string& detailTextOut)
+    {
+        auto result = CloseRemoteHandleByObjectIdentityDetailed(
+            processId, handleValue, expectedProcessCreationTime, expectedObjectAddress);
+        detailTextOut = std::move(result.detail);
+        return result.success;
     }
 
     HandleSnapshotResult BuildHandleSnapshot(const HandleSnapshotOptions& options)

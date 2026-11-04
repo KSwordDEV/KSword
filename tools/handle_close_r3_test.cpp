@@ -94,8 +94,10 @@ int wmain(int argc, wchar_t* argv[]) {
         target->handleValue, target->processCreationTime + 1U, target->objectAddress, detail);
     const bool staleObjectRejected = !ks::file::CloseRemoteHandleByObjectIdentity(target->processId,
         target->handleValue, target->processCreationTime, target->objectAddress + 8U, detail);
-    const bool closed = ks::file::CloseRemoteHandleByObjectIdentity(target->processId,
-        target->handleValue, target->processCreationTime, target->objectAddress, detail);
+    const auto receipt = ks::file::CloseRemoteHandleByObjectIdentityDetailed(target->processId,
+        target->handleValue, target->processCreationTime, target->objectAddress);
+    const bool closed = receipt.success && receipt.suspendAttempted && receipt.closeAttempted &&
+        receipt.closeSucceeded && receipt.resumeAttempted && receipt.resumeStatus >= 0;
     HANDLE probe = nullptr;
     const bool disappeared = !DuplicateHandle(child.hProcess, reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(target->handleValue)),
         GetCurrentProcess(), &probe, 0, FALSE, DUPLICATE_SAME_ACCESS);

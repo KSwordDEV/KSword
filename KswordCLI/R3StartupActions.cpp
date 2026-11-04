@@ -16,7 +16,8 @@ Result apply(const Args& args, const std::wstring& operation) {
     for (const auto& entry : before.entries) if (startup::id(entry, caller.sid) == wanted) matches.push_back(entry);
     if (matches.size() != 1) return {3, Json::object({{L"id", Json::string(wanted)}, {L"matchCount", Json::count(matches.size())}, {L"sourceErrors", startup::errors(before)}}), {L"Startup identifier must match exactly one current entry; refresh the enumeration."}};
     const auto entry = matches.front();
-    if (operation == L"location") return {before.sourceErrors.empty() ? 0 : 6, startup::row(entry, caller.sid), {}};
+    if (operation == L"location") return {before.success && before.sourceErrors.empty() ? 0 : 6, startup::row(entry, caller.sid),
+        before.success ? std::vector<std::wstring>{} : std::vector<std::wstring>{L"The source snapshot did not report success; the matched entry may be incomplete."}};
     const auto action = operation == L"enable" ? SetStartupEntryEnabled(entry, true) : operation == L"disable" ? SetStartupEntryEnabled(entry, false) : DeleteStartupEntry(entry);
     const auto after = EnumerateStartupSnapshot();
     std::vector<Json> observed;

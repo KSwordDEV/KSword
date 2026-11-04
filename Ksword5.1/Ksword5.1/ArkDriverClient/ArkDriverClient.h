@@ -186,6 +186,7 @@ namespace ksword::ark
         HandleEnumResult enumerateProcessHandles(std::uint32_t processId, unsigned long flags = KSWORD_ARK_ENUM_HANDLE_FLAG_INCLUDE_ALL) const;
         // Close the enumerated PID/creation-time/object identity; never fall back to R3.
         IoResult closeHandle(std::uint32_t processId, std::uint64_t handleValue, std::uint64_t expectedCreateTime100ns, std::uint64_t expectedObjectAddress) const;
+        HandleCloseResult closeHandleDetailed(std::uint32_t processId, std::uint64_t handleValue, std::uint64_t expectedCreateTime100ns, std::uint64_t expectedObjectAddress) const;
         HandleObjectQueryResult queryHandleObject(std::uint32_t processId, std::uint64_t handleValue, unsigned long flags = KSWORD_ARK_QUERY_OBJECT_FLAG_INCLUDE_ALL, unsigned long requestedAccess = 0) const;
         AlpcPortQueryResult queryAlpcPort(std::uint32_t processId, std::uint64_t handleValue, unsigned long flags = KSWORD_ARK_ALPC_QUERY_FLAG_INCLUDE_ALL) const;
         ProcessSectionQueryResult queryProcessSection(std::uint32_t processId, unsigned long flags = KSWORD_ARK_SECTION_QUERY_FLAG_INCLUDE_ALL, unsigned long maxMappings = KSWORD_ARK_SECTION_MAPPING_LIMIT_DEFAULT) const;
@@ -224,6 +225,14 @@ namespace ksword::ark
             std::uint64_t baseAddress,
             std::uint32_t bytesToRead,
             unsigned long flags = KSWORD_ARK_MEMORY_READ_FLAG_ZERO_FILL_UNREADABLE,
+            DriverHandle* existingHandle = nullptr) const;
+        // 独立协议在驱动引用的 EPROCESS 上验证真实创建时间，旧驱动不回退。
+        VirtualMemoryReadResult readVirtualMemoryVerified(
+            std::uint32_t processId,
+            std::uint64_t expectedCreationTime100ns,
+            std::uint64_t baseAddress,
+            std::uint32_t bytesToRead,
+            unsigned long flags = 0UL,
             DriverHandle* existingHandle = nullptr) const;
         VirtualMemoryWriteResult writeVirtualMemory(
             std::uint32_t processId,

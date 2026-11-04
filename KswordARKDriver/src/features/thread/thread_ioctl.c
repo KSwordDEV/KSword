@@ -42,6 +42,12 @@ PsLookupThreadByThreadId(
     _Outptr_ PETHREAD* Thread
     );
 
+// The referenced thread keeps its owning process object alive during identity checks.
+NTSYSAPI
+PEPROCESS
+NTAPI
+PsGetThreadProcess(_In_ PETHREAD Thread);
+
 NTKERNELAPI
 NTSTATUS
 ObOpenObjectByPointer(
@@ -545,6 +551,112 @@ Return Value:
         *BytesReturned = sizeof(KSWORD_ARK_SET_THREAD_SUSPENDED_REQUEST);
     }
     return status;
+}
+
+// New IOCTL never falls back to the legacy PID/TID-only operations. The
+// METHOD_BUFFERED request is copied before its shared output is initialized.
+NTSTATUS
+KswordARKThreadIoctlControlVerified(
+    _In_ WDFDEVICE Device, _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned)
+{
+    KSWORD_ARK_CONTROL_THREAD_VERIFIED_REQUEST input; // Private request snapshot.
+    KSWORD_ARK_CONTROL_THREAD_VERIFIED_RESPONSE* response = NULL; // Caller receipt.
+    PVOID inputBuffer = NULL; // METHOD_BUFFERED request storage.
+    PVOID outputBuffer = NULL; // METHOD_BUFFERED response storage.
+    size_t actualInput = 0U, actualOutput = 0U; // Validated buffer lengths.
+    PETHREAD thread = NULL; // Referenced ETHREAD held through the action.
+    PEPROCESS owner = NULL; // Owner remains alive through the thread reference.
+    HANDLE threadHandle = NULL; // Kernel handle for suspend/resume.
+    KSWORD_ZW_OR_NT_THREAD_SUSPEND_FN routine = NULL; // Native control routine.
+    NTSTATUS status = STATUS_SUCCESS; // Business status in the fixed receipt.
+    ULONG previousCount = 0UL; // Count returned by Zw/Nt suspend/resume.
+    BOOLEAN mutate = FALSE; // Query needs no action identity or confirmation.
+    UNREFERENCED_PARAMETER(InputBufferLength); // WDF checks the actual length.
+    UNREFERENCED_PARAMETER(OutputBufferLength); // WDF checks the actual length.
+    if (BytesReturned == NULL) return STATUS_INVALID_PARAMETER; // Require a completion length.
+    *BytesReturned = 0U; // No output exists before both buffers validate.
+    status = KswordARKRetrieveRequiredInputBuffer(Request, sizeof(input), &inputBuffer, &actualInput); // Validate before reading.
+    if (!NT_SUCCESS(status)) return status; // Never act on a short input.
+    RtlCopyMemory(&input, inputBuffer, sizeof(input)); // Preserve input before touching output.
+    status = KswordARKRetrieveRequiredOutputBuffer(Request, sizeof(*response), &outputBuffer, &actualOutput); // Require a full receipt.
+    if (!NT_SUCCESS(status)) return status; // Never act without a receipt buffer.
+    UNREFERENCED_PARAMETER(actualInput); // Retrieval already established the minimum.
+    UNREFERENCED_PARAMETER(actualOutput); // Retrieval already established the minimum.
+    response = (KSWORD_ARK_CONTROL_THREAD_VERIFIED_RESPONSE*)outputBuffer; // Use the fixed wire layout.
+    RtlZeroMemory(response, sizeof(*response)); // Never return uninitialized kernel data.
+    response->size = sizeof(*response); // Publish exact response size.
+    response->version = KSWORD_ARK_THREAD_VERIFIED_VERSION; // Publish protocol version.
+    response->processId = input.processId; // Echo requested process identity.
+    response->threadId = input.threadId; // Echo requested thread identity.
+    response->action = input.action; // Echo requested action.
+    *BytesReturned = sizeof(*response); // Every business outcome carries the receipt.
+    mutate = input.action != KSWORD_ARK_THREAD_VERIFIED_QUERY; // Distinguish read-only identity query.
+    if (input.size != sizeof(input) || input.version != KSWORD_ARK_THREAD_VERIFIED_VERSION ||
+        input.reserved != 0UL || input.processId == 0UL || input.threadId == 0UL ||
+        input.action > KSWORD_ARK_THREAD_VERIFIED_TERMINATE ||
+        (mutate && (input.flags != KSWORD_ARK_THREAD_VERIFIED_CONFIRMED ||
+            input.processId <= 4UL || input.expectedProcessCreationTime100ns == 0ULL ||
+            input.expectedThreadCreationTime100ns == 0ULL)) ||
+        (!mutate && input.flags != 0UL)) { // Reject malformed or unconfirmed requests.
+        response->status = STATUS_INVALID_PARAMETER; // Retain a meaningful failure status.
+        return STATUS_SUCCESS; // Transport succeeded; no action was attempted.
+    }
+    status = PsLookupThreadByThreadId(ULongToHandle(input.threadId), &thread); // Reference the actual target.
+    if (!NT_SUCCESS(status)) goto CompleteVerifiedThread; // Do not infer identity on lookup failure.
+    owner = PsGetThreadProcess(thread); // The referenced thread pins its owner.
+    if (owner == NULL || HandleToULong(PsGetThreadProcessId(thread)) != input.processId ||
+        HandleToULong(PsGetProcessId(owner)) != input.processId) { // Check both ownership identities.
+        status = STATUS_NOT_FOUND; // Never apply an action to another process.
+        goto CompleteVerifiedThread; // Preserve the mismatch.
+    }
+    response->processCreationTime100ns = (ULONG64)PsGetProcessCreateTimeQuadPart(owner); // Read actual process birth.
+    response->threadCreationTime100ns = (ULONG64)PsGetThreadCreateTime(thread); // Read actual thread birth.
+    if (response->processCreationTime100ns == 0ULL || response->threadCreationTime100ns == 0ULL) { // Both identities must exist.
+        status = STATUS_NOT_SUPPORTED; // Do not publish or use an unverifiable identity.
+        goto CompleteVerifiedThread; // Retain the precise failure.
+    }
+    if (mutate && (response->processCreationTime100ns != input.expectedProcessCreationTime100ns ||
+        response->threadCreationTime100ns != input.expectedThreadCreationTime100ns)) { // Compare while holding the objects.
+        status = STATUS_RETRY; // A stale identity must be refreshed, never retried blindly.
+        goto CompleteVerifiedThread; // Do not execute the requested action.
+    }
+    response->fieldFlags |= KSWORD_ARK_THREAD_VERIFIED_FIELD_IDENTITY; // Both identities were checked.
+    if (!mutate) goto CompleteVerifiedThread; // Query is complete without changing the target.
+    if (thread == PsGetCurrentThread() && input.action != KSWORD_ARK_THREAD_VERIFIED_RESUME) { // Avoid blocking the IOCTL itself.
+        status = STATUS_INVALID_DEVICE_STATE; // Report the protected self-target.
+        goto CompleteVerifiedThread; // No action is permitted.
+    }
+    if (input.action != KSWORD_ARK_THREAD_VERIFIED_RESUME) { // Preserve the existing safety policy gates.
+        KSWORD_ARK_SAFETY_CONTEXT safetyContext; // Local policy request.
+        RtlZeroMemory(&safetyContext, sizeof(safetyContext)); // Initialize all policy fields.
+        safetyContext.Operation = input.action == KSWORD_ARK_THREAD_VERIFIED_TERMINATE ?
+            KSWORD_ARK_SAFETY_OPERATION_PROCESS_TERMINATE : KSWORD_ARK_SAFETY_OPERATION_PROCESS_SUSPEND; // Select the matching policy.
+        safetyContext.TargetProcessId = input.processId; // Bind policy to the target owner.
+        safetyContext.ContextFlags = KSWORD_ARK_SAFETY_CONTEXT_FLAG_UI_CONFIRMED; // Preserve explicit confirmation.
+        status = KswordARKSafetyEvaluate(Device, &safetyContext); // Check current driver policy.
+        if (!NT_SUCCESS(status)) goto CompleteVerifiedThread; // Never bypass a rejection.
+    }
+    if (input.action == KSWORD_ARK_THREAD_VERIFIED_TERMINATE) { // Use the already referenced ETHREAD.
+        status = KswordARKDriverTerminateReferencedThread(thread, (NTSTATUS)input.exitStatus); // Preserve backend status.
+        goto CompleteVerifiedThread; // No PID/TID lookup is repeated.
+    }
+    routine = KswordARKResolveThreadSuspendRoutine(input.action == KSWORD_ARK_THREAD_VERIFIED_SUSPEND); // Resolve the existing API.
+    if (routine == NULL) { status = STATUS_PROCEDURE_NOT_FOUND; goto CompleteVerifiedThread; } // Fail if unavailable.
+    status = ObOpenObjectByPointer(thread, OBJ_KERNEL_HANDLE, NULL, THREAD_SUSPEND_RESUME, *PsThreadType,
+        KernelMode, &threadHandle); // Obtain a handle to the same referenced object.
+    if (!NT_SUCCESS(status)) goto CompleteVerifiedThread; // Never use an invalid handle.
+    status = routine(threadHandle, &previousCount); // Apply exactly one count change.
+    if (status == STATUS_SUCCESS) { // Count is valid only when the native call succeeded.
+        response->previousSuspendCount = previousCount; // Publish the API's original count.
+        response->fieldFlags |= KSWORD_ARK_THREAD_VERIFIED_FIELD_PREVIOUS_COUNT; // Mark the field valid.
+    }
+CompleteVerifiedThread:
+    if (threadHandle != NULL) ZwClose(threadHandle); // Release any temporary kernel handle.
+    if (thread != NULL) ObDereferenceObject(thread); // Release the same referenced target.
+    response->status = status; // Separate transport success from business status.
+    return STATUS_SUCCESS; // A complete fixed receipt is available.
 }
 
 static NTSTATUS

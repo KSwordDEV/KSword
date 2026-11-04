@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -652,6 +653,166 @@ namespace
         if (result.io.ok && rc == 3 && static_cast<std::uint32_t>(result.io.ntStatus) == 0x80000005U) rc = 6;
         return finishRowsJson(label, result, rc, total);
     }
+
+    // Incremental ring responses are pages: a truncated page can be resumed,
+    // whereas a cursor gap means that evidence is already irrecoverably lost.
+    static_assert(KSWORD_ARK_NETWORK_WFP_EVENT_RESPONSE_FLAG_TRUNCATED == KSWORD_ARK_NETWORK_TRAFFIC_RESPONSE_FLAG_TRUNCATED);
+    static_assert(KSWORD_ARK_NETWORK_WFP_EVENT_RESPONSE_FLAG_CURSOR_RESET == KSWORD_ARK_NETWORK_TRAFFIC_RESPONSE_FLAG_CURSOR_RESET);
+    std::wstring networkAddress(const unsigned char* address, bool ipv6)
+    {
+        std::wostringstream out;
+        if (!ipv6) {
+            out << static_cast<unsigned>(address[0]) << L'.' << static_cast<unsigned>(address[1])
+                << L'.' << static_cast<unsigned>(address[2]) << L'.' << static_cast<unsigned>(address[3]);
+        } else {
+            out << std::hex;
+            for (unsigned i = 0; i < 16; i += 2) {
+                if (i) out << L':';
+                out << ((static_cast<unsigned>(address[i]) << 8) | address[i + 1]);
+            }
+        }
+        return out.str();
+    }
+
+    Json eventJson(const KSWORD_ARK_NETWORK_WFP_EVENT_ROW& r)
+    {
+        return Json::object({{L"sequence",Json::count(r.sequence)}, {L"timestamp100ns",Json::count(r.timestamp100ns)},
+            {L"direction",Json::number(r.direction)}, {L"protocol",Json::number(r.protocol)}, {L"processId",Json::number(r.processId)},
+            {L"flags",Json::hex(r.flags)}, {L"localAddress",Json::string(networkAddress(r.localAddress,false))},
+            {L"localPort",Json::number(r.localPort)}, {L"remoteAddress",Json::string(networkAddress(r.remoteAddress,false))},
+            {L"remotePort",Json::number(r.remotePort)}});
+    }
+    Json eventJson(const KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW& r)
+    {
+        const bool ipv6 = (r.flags & KSWORD_ARK_NETWORK_TRAFFIC_PACKET_FLAG_IPV6) != 0;
+        const auto length = (std::min)(static_cast<std::size_t>(r.capturedLength), sizeof(r.capturedBytes));
+        const std::vector<std::uint8_t> bytes(r.capturedBytes, r.capturedBytes + length);
+        return Json::object({{L"sequence",Json::count(r.sequence)}, {L"timestamp100ns",Json::count(r.timestamp100ns)},
+            {L"addressFamily",Json::number(r.addressFamily)}, {L"direction",Json::number(r.direction)},
+            {L"protocol",Json::number(r.protocol)}, {L"processId",Json::number(r.processId)}, {L"flags",Json::hex(r.flags)},
+            {L"localAddress",Json::string(networkAddress(r.localAddress,ipv6))}, {L"localPort",Json::number(r.localPort)},
+            {L"remoteAddress",Json::string(networkAddress(r.remoteAddress,ipv6))}, {L"remotePort",Json::number(r.remotePort)},
+            {L"totalPacketLength",Json::number(r.totalPacketLength)}, {L"capturedLength",Json::number(r.capturedLength)},
+            {L"payloadOffset",Json::number(r.payloadOffset)}, {L"payloadLength",Json::number(r.payloadLength)},
+            {L"capturedHex",Json::bytes(bytes,bytes.size())}});
+    }
+    Json eventJson(const ksword::ark::PiDdbEntry& r)
+    {
+        return Json::object({{L"entryAddress",Json::hex(r.entryAddress)}, {L"timeDateStamp",Json::hex(r.timeDateStamp)},
+            {L"loadStatus",Json::hex(static_cast<std::uint32_t>(r.loadStatus))}, {L"driverName",Json::string(r.driverName)}});
+    }
+    Json eventJson(const KSWORD_ARK_HVM_EVENT_ROW& r)
+    {
+        return Json::object({{L"sequence",Json::count(r.sequence)}, {L"timestamp",Json::count(r.timestamp)},
+            {L"guestPhysicalAddress",Json::hex(r.guestPhysicalAddress)},
+            {L"guestLinearAddress",(r.eventFlags & KSWORD_ARK_HVM_EVENT_FLAG_GLA_VALID) ? Json::hex(r.guestLinearAddress) : Json{}},
+            {L"guestRip",Json::hex(r.guestRip)}, {L"qualification",Json::hex(r.qualification)},
+            {L"processorGroup",Json::number(r.processorGroup)}, {L"processorNumber",Json::number(r.processorNumber)},
+            {L"type",Json::number(r.type)}, {L"exitReason",Json::number(r.exitReason)}, {L"access",Json::hex(r.access)},
+            {L"ruleId",Json::number(r.ruleId)}, {L"status",Json::hex(static_cast<std::uint32_t>(r.status))},
+            {L"guestRsp",Json::hex(r.guestRsp)}, {L"guestCr3",Json::hex(r.guestCr3)},
+            {L"watchState",Json::number(r.watchState)}, {L"eventFlags",Json::hex(r.eventFlags)}});
+    }
+
+    template <typename Result>
+    int emitEventPage(const wchar_t* label, const Result& result, const std::vector<Json>& rows,
+                      JsonFields fields, int code, bool json)
+    {
+        fields.push_back({L"entries",Json::array(rows)});
+        fields.push_back({L"transport",Json::object({{L"ok",Json::boolean(result.io.ok)},
+            {L"deviceOpenFailed",Json::boolean(result.io.deviceOpenFailed)}, {L"win32Error",Json::number(result.io.win32Error)},
+            {L"bytesReturned",Json::number(result.io.bytesReturned)},
+            {L"ntStatus",!result.io.ok && result.io.ntStatus == 0 ? Json{} : Json::hex(static_cast<std::uint32_t>(result.io.ntStatus))}})});
+        fields.push_back({L"unsupported",Json::boolean(result.unsupported)});
+        if (json) {
+            const wchar_t* state = code == 0 ? L"success" : code == 6 ? L"partial" : code == 5 ? L"unsupported" : L"failed";
+            std::wcout << Json::object({{L"schemaVersion",Json::number(1)}, {L"command",Json::string(std::wstring(L"r0 ") + label)},
+                {L"backend",Json::string(L"r0")}, {L"status",Json::string(state)}, {L"data",Json::object(fields)},
+                {L"diagnostics",result.io.message.empty() ? Json::array({}) : Json::strings({utf8ToWide(result.io.message)})}}).text << L"\n";
+        } else {
+            printResultState(label,result);
+            for (const auto& field : fields) if (field.first != L"entries" && field.first != L"transport")
+                std::wcout << field.first << L'=' << field.second.text << L' ';
+            std::wcout << L"\n";
+            for (std::size_t i = 0; i < rows.size(); ++i) std::wcout << L"  [" << i << L"] " << rows[i].text << L"\n";
+        }
+        return code;
+    }
+
+    template <typename Result>
+    int networkRingCode(const Result& r)
+    {
+        int rc = resultExitCode(r);
+        if (r.io.ok && rc == 3 && static_cast<std::uint32_t>(r.io.ntStatus) == 0x80000005U) rc = 6;
+        if (r.io.ok && r.status == KSWORD_ARK_NETWORK_STATUS_WFP_UNAVAILABLE) return 5;
+        if (rc != 0) return rc;
+        if (r.status == KSWORD_ARK_NETWORK_STATUS_OPERATION_FAILED) return 3;
+        if (r.status != KSWORD_ARK_NETWORK_STATUS_APPLIED || r.cursorGapCount != 0 ||
+            (r.flags & KSWORD_ARK_NETWORK_TRAFFIC_RESPONSE_FLAG_CURSOR_RESET) != 0) return 6;
+        return 0;
+    }
+
+    template <typename Result>
+    int emitNetworkRing(const wchar_t* label, const Result& result, std::uint64_t dropped, bool json)
+    {
+        std::vector<Json> rows;
+        if (result.io.ok) for (const auto& entry : result.entries) rows.push_back(eventJson(entry));
+        const int code = networkRingCode(result);
+        return emitEventPage(label, result, rows, {{L"queryStatus",result.io.ok ? Json::number(result.status) : Json{}},
+            {L"flags",result.io.ok ? Json::hex(result.flags) : Json{}}, {L"availableCount",result.io.ok ? Json::number(result.totalCount) : Json{}},
+            {L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))}, {L"capacity",result.io.ok ? Json::number(result.capacity) : Json{}},
+            {L"oldestSequence",result.io.ok ? Json::count(result.oldestSequence) : Json{}}, {L"newestSequence",result.io.ok ? Json::count(result.newestSequence) : Json{}},
+            {L"nextSequence",result.io.ok ? Json::count(result.nextSequence) : Json{}}, {L"droppedCount",result.io.ok ? Json::count(dropped) : Json{}},
+            {L"cursorGapCount",result.io.ok ? Json::count(result.cursorGapCount) : Json{}},
+            {L"pageTruncated",result.io.ok ? Json::boolean((result.flags & KSWORD_ARK_NETWORK_TRAFFIC_RESPONSE_FLAG_TRUNCATED) != 0) : Json{}},
+            {L"lastStatus",result.io.ok ? Json::hex(static_cast<std::uint32_t>(result.lastStatus)) : Json{}}}, code, json);
+    }
+
+    int emitPiDdb(const ksword::ark::PiDdbQueryResult& result, bool json)
+    {
+        std::vector<Json> rows;
+        if (result.io.ok) for (const auto& entry : result.entries) rows.push_back(eventJson(entry));
+        int rc = resultExitCode(result);
+        if (result.io.ok && result.queryStatus == KSWORD_ARK_PIDDB_QUERY_STATUS_DYNDATA_MISSING) rc = 5;
+        else if (result.io.ok && result.queryStatus == KSWORD_ARK_PIDDB_QUERY_STATUS_PARTIAL) rc = 6;
+        else if (result.io.ok && result.queryStatus != KSWORD_ARK_PIDDB_QUERY_STATUS_OK) rc = 3;
+        if (rc == 0 && ((result.responseFlags & KSWORD_ARK_PIDDB_RESPONSE_FLAG_TRUNCATED) || result.totalRows > rows.size())) rc = 6;
+        return emitEventPage(L"piddb",result,rows,{{L"queryStatus",result.io.ok ? Json::number(result.queryStatus) : Json{}},
+            {L"totalCount",result.io.ok ? Json::number(result.totalRows) : Json{}}, {L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))},
+            {L"responseFlags",result.io.ok ? Json::hex(result.responseFlags) : Json{}},
+            {L"lastStatus",result.io.ok ? Json::hex(static_cast<std::uint32_t>(result.lastStatus)) : Json{}}},rc,json);
+    }
+
+    int emitHvmEvents(const ksword::ark::HvmEventResult& result, bool json)
+    {
+        const auto& response = result.response;
+        int rc = resultExitCode(result);
+        if (rc == 0 && (result.io.bytesReturned != sizeof(response) || response.size != sizeof(response) ||
+            response.version != KSWORD_ARK_HVM_PROTOCOL_VERSION || response.returnedRows > KSWORD_ARK_HVM_MAX_EVENT_ROWS ||
+            response.returnedRows > response.availableRows)) rc = 4;
+        std::vector<Json> rows;
+        if (rc == 0) for (unsigned long i = 0; i < response.returnedRows; ++i) rows.push_back(eventJson(response.rows[i]));
+        if (rc == 0 && response.droppedRows != 0) rc = 6;
+        const bool valid = result.io.ok && (rc == 0 || rc == 6);
+        return emitEventPage(L"hvm-events",result,rows,{{L"availableCount",valid ? Json::number(response.availableRows) : Json{}},
+            {L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))}, {L"droppedCount",valid ? Json::number(response.droppedRows) : Json{}},
+            {L"newestSequence",valid ? Json::count(response.newestSequence) : Json{}},
+            {L"nextSequence",valid && response.returnedRows ? Json::count(response.rows[response.returnedRows-1].sequence) : Json{}},
+            {L"pageTruncated",valid ? Json::boolean(response.returnedRows < response.availableRows) : Json{}}},rc,json);
+    }
+
+    int emitTrafficControl(const wchar_t* label, const ksword::ark::NetworkTrafficCaptureControlResult& result, bool enable, bool json)
+    {
+        int rc = resultExitCode(result);
+        if (result.io.ok && result.response.status == KSWORD_ARK_NETWORK_STATUS_WFP_UNAVAILABLE) rc = 5;
+        else if (rc == 0 && (result.response.status != (enable ? KSWORD_ARK_NETWORK_STATUS_APPLIED : KSWORD_ARK_NETWORK_STATUS_DISABLED) ||
+            result.response.enabled != (enable ? 1UL : 0UL))) rc = 3;
+        return emitEventPage(label,result,{},{{L"queryStatus",result.io.ok ? Json::number(result.response.status) : Json{}},
+            {L"enabled",result.io.ok ? Json::boolean(result.response.enabled != 0) : Json{}},
+            {L"generation",result.io.ok ? Json::number(result.response.generation) : Json{}},
+            {L"lastStatus",result.io.ok ? Json::hex(static_cast<std::uint32_t>(result.response.lastStatus)) : Json{}},
+            {L"stopClearsRing",Json::boolean(true)}},rc,json);
+    }
 }
 
 // commandArkDriverExtended implements the read-only R0 commands backed by
@@ -755,7 +916,7 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     if (subcommand == L"hvm-status") return finishResult(L"hvm-status", client.queryHvmStatus());
     if (subcommand == L"hvm-metrics") return finishResult(L"hvm-metrics", client.queryHvmMetrics());
     if (subcommand == L"hvm-platform") return finishResult(L"hvm-platform", client.hvmPlatform());
-    if (subcommand == L"hvm-events") return finishResult(L"hvm-events", client.queryHvmEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", 128U), false));
+    if (subcommand == L"hvm-events") return emitHvmEvents(client.queryHvmEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", 128U), false), hasOption(args,L"--json"));
     if (subcommand == L"ioctl-registry") { const auto r=client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)); return finishRowsSelected(L"ioctl-registry", r, hasOption(args,L"--json"), r.totalCount); }
     if (subcommand == L"timer-dpc")
     {
@@ -768,9 +929,20 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
         return timerDpcResultCode(result, finishRows(L"timer-dpc", result));
     }
     if (subcommand == L"unloaded") { const auto r=client.queryUnloadedDrivers(parseUnloadedSource(optionValue(args, L"--source", L"mm")), optionU32(args, L"--max-rows", KSWORD_ARK_UNLOADED_DRIVER_DEFAULT_ROWS)); return finishRowsSelected(L"unloaded", r, hasOption(args,L"--json"), r.totalRows); }
-    if (subcommand == L"wfp-events") return finishResult(L"wfp-events", client.queryNetworkWfpEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_WFP_EVENT_DEFAULT_REQUESTED_ROWS)));
-    if (subcommand == L"traffic") return finishResult(L"traffic", client.queryNetworkTrafficPackets(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_TRAFFIC_DEFAULT_REQUESTED_ROWS)));
-    if (subcommand == L"piddb") return finishResult(L"piddb", client.queryPiDdb(optionU32(args, L"--max-rows", KSWORD_ARK_PIDDB_DEFAULT_ROWS)));
+    if (subcommand == L"wfp-events") {
+        const auto result = client.queryNetworkWfpEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_WFP_EVENT_DEFAULT_REQUESTED_ROWS));
+        return emitNetworkRing(L"wfp-events", result, result.droppedEventCount, hasOption(args,L"--json"));
+    }
+    if (subcommand == L"traffic") {
+        const auto result = client.queryNetworkTrafficPackets(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_TRAFFIC_DEFAULT_REQUESTED_ROWS));
+        return emitNetworkRing(L"traffic", result, result.droppedPacketCount, hasOption(args,L"--json"));
+    }
+    if (subcommand == L"traffic-start" || subcommand == L"traffic-stop") {
+        if (!hasOption(args,L"--confirm")) throw std::invalid_argument("traffic capture control requires --confirm");
+        const bool enable = subcommand == L"traffic-start";
+        return emitTrafficControl(subcommand.c_str(), client.controlNetworkTrafficCapture(enable), enable, hasOption(args,L"--json"));
+    }
+    if (subcommand == L"piddb") return emitPiDdb(client.queryPiDdb(optionU32(args, L"--max-rows", KSWORD_ARK_PIDDB_DEFAULT_ROWS)), hasOption(args,L"--json"));
     if (subcommand == L"cpu-power") return finishResult(L"cpu-power", client.queryCpuPowerState());
     if (subcommand == L"process-protect") return finishResult(L"process-protect", client.queryProcessProtectState());
     if (subcommand == L"clipboard-policy") return finishResult(L"clipboard-policy", client.queryClipboardPolicyState());

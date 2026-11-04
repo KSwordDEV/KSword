@@ -65,7 +65,7 @@ LONG NtApi::querySystemInformation(SystemInformationClass cls,void* buffer,ULONG
  if(mode==L"snapshot-budget"){*needed=MAXDWORD;return static_cast<LONG>(0xc0000004UL);}
  const auto count=mode==L"empty"?0:sources.size()+1+(mode==L"protected"||mode==L"open-denied"?1:0);*needed=static_cast<ULONG>(offsetof(Table,entries)+count*sizeof(Entry));assert(*needed<=size);auto* info=static_cast<Table*>(buffer);info->count=mode==L"bad-count"?count+1:count;info->reserved=0;
  if(mode==L"short-header"){*needed=1;return 0;}if(!count)return 0;info->entries[0]={nullptr,GetCurrentProcessId(),reinterpret_cast<ULONG_PTR>(probe),FILE_READ_ATTRIBUTES,0,37,0,0};
- for(std::size_t i=0;i<sources.size();++i)info->entries[i+1]={nullptr,GetCurrentProcessId(),reinterpret_cast<ULONG_PTR>(sources[i]),0x120089,0,37,0,0};
+ for(std::size_t i=0;i<sources.size();++i)info->entries[i+1]={reinterpret_cast<void*>(0xffff800000001000ULL+i*0x100),GetCurrentProcessId(),reinterpret_cast<ULONG_PTR>(sources[i]),0x120089,0,37,0,0};
  if(count>sources.size()+1)info->entries[count-1]={nullptr,mode==L"protected"?4u:MAXDWORD,123,0,0,37,0,0};return 0;
 }
 }
@@ -85,7 +85,7 @@ def main():
             result=subprocess.run([str(binary),mode,'system','file-holders','query','--path',str(target),'--json',*extra],capture_output=True,timeout=10)
             assert result.returncode==code,(mode,result.returncode,result.stdout[:2000],result.stderr);return json.loads(result.stdout)['data']
         valid=run('valid',0);assert valid['matchedCount']=='2' and valid['complete'] and valid['timeoutCount']=='0'
-        assert all(row['processCreationTime'] and row['processAlive'] and row['grantedAccess']=='0x120089' for row in valid['holders'])
+        assert all(row['processCreationTime'] and row['processAlive'] and row['grantedAccess']=='0x120089' and row['object'].startswith('0xffff8') for row in valid['holders'])
         assert run('empty',0)['matchedCount']=='0'
         assert run('pipe',0)['nonDiskCount']=='2'
         for mode in ('api-missing','snapshot-api-missing'):assert run(mode,5)['snapshotNtStatus'] is None

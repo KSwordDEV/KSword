@@ -61,6 +61,11 @@ struct Command {
     bool legacyDefault = false;
     std::wstring legacySyntax, legacyOptions;
     bool acceptsTail = false;
+    // New commands can explicitly support either or both backends. Legacy
+    // aliases retain their existing default and dispatch behavior.
+    bool supportsR0 = false;
+    bool supportsR3 = true;
+    std::wstring defaultBackend = L"r3";
 };
 void addCommand(Command command);
 void addFamily(const std::wstring& name, const std::wstring& summary);
@@ -93,6 +98,23 @@ void registerProcessControls();
 void registerProcessBasic();
 void registerProcessThreads();
 void registerProcessModules();
+void registerR0ThreadControl();
+void registerProcessMemoryDump();
+void registerThreadStack();
+void registerFileMetadata();
+void registerNetworkPolicy();
+void registerHandleClose();
+void registerWindowAdvanced();
+void registerR0Modules();
+void registerFirewallActions();
+void registerFileIrp();
+void registerApplicationControl();
+void registerSystemTimeControl();
+void registerVirtualLocation();
+void registerLowlevelCommands();
+void registerPfnCommands();
+void registerShadowSsdtRestore();
+void registerDebuggerSession();
 void registerProcessToken();
 void registerTokenSwitches();
 void registerProcessPeb();
