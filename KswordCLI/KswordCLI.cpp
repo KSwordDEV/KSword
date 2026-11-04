@@ -305,11 +305,11 @@ namespace ks::cli::legacy
         { L"file", L"set-integrity", L"KswordCLI.exe file set-integrity --path PATH (--rid RID | --level untrusted|low|medium|medium-plus|high|system) [--directory] [--flags 0xN] [--confirm]", L"Set a file or directory mandatory integrity label through R0.", L"Required: --path and one integrity selector. Optional: --directory, --flags, --confirm adds UI-confirmed protocol bit.", L"Win32/UNC paths are normalized to the driver NT path convention before IOCTL_KSWORD_ARK_SET_FILE_INTEGRITY." },
         { L"file", L"fileobject", L"KswordCLI.exe file fileobject --path PATH [--flags 0xN]", L"Alias for file query-info.", L"Required: --path. Optional: --flags.", L"Accepts Win32, UNC and native NT paths; prints an alias banner." },
         { L"file", L"minifilter", L"KswordCLI.exe file minifilter [--flags 0xN] [--max-rows N] [--limit N]", L"Enumerate minifilter inventory rows.", L"Optional: --flags, --max-rows, --limit.", L"" },
-        { L"file", L"section", L"KswordCLI.exe file section", L"Report that the file section alias is unsupported.", L"No options.", L"Use section query-file-mappings --path PATH for the implemented section protocol." },
-        { L"file", L"bitlocker", L"KswordCLI.exe file bitlocker [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query BitLocker/FVE storage audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"" },
-        { L"file", L"storage", L"KswordCLI.exe file storage [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query volume stack audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"" },
-        { L"file", L"mountmgr", L"KswordCLI.exe file mountmgr [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query MountMgr mapping audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"" },
-        { L"file", L"filesystem", L"KswordCLI.exe file filesystem [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query filesystem integrity audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"" },
+        { L"file", L"section", L"KswordCLI.exe file section --path PATH [--flags 0xN] [--max-mappings N] [--limit N]", L"Alias for section query-file-mappings.", L"Required: --path. Optional: --flags, --max-mappings, --limit.", L"Uses the same read-only protocol and unverified mapping evidence semantics." },
+        { L"file", L"bitlocker", L"KswordCLI.exe file bitlocker [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query BitLocker/FVE storage audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"Volume accepts a drive such as C: or an NT device path." },
+        { L"file", L"storage", L"KswordCLI.exe file storage [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query volume stack audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"Volume accepts a drive such as C: or an NT device path." },
+        { L"file", L"mountmgr", L"KswordCLI.exe file mountmgr [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query MountMgr mapping audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"Volume accepts a drive such as C: or an NT device path." },
+        { L"file", L"filesystem", L"KswordCLI.exe file filesystem [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]", L"Query filesystem integrity audit rows.", L"Optional: --flags, --max-rows, --max-depth, --volume, --limit.", L"Volume accepts a drive such as C: or an NT device path." },
         { L"file", L"monitor-control", L"KswordCLI.exe file monitor-control --action ACTION [--operation-mask 0xN] [--pid PID] [--flags 0xN]", L"Control file monitor runtime state.", L"Required: --action. Optional: --operation-mask, --pid, --flags.", L"" },
         { L"file", L"monitor-drain", L"KswordCLI.exe file monitor-drain [--max-events N] [--flags 0xN]", L"Drain file monitor events.", L"Optional: --max-events, --flags.", L"" },
         { L"file", L"monitor-status", L"KswordCLI.exe file monitor-status", L"Query file monitor runtime status.", L"No options.", L"" },
@@ -2521,8 +2521,9 @@ namespace ks::cli::legacy
         request.maxDepth = getOptionU32(args, L"--max-depth", KSWORD_ARK_STORAGE_DEFAULT_STACK_DEPTH);
         if (const std::wstring* volume = getOptionText(args, L"--volume"))
         {
-            request.volumePathLengthChars = boundedPathLength(*volume, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS);
-            copyWideToFixed(request.volumePath, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS, *volume);
+            const std::wstring nativeVolume = normalizeFilePathForDriver(*volume);
+            request.volumePathLengthChars = boundedPathLength(nativeVolume, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS);
+            copyWideToFixed(request.volumePath, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS, nativeVolume);
         }
         return request;
     }
@@ -2590,8 +2591,8 @@ namespace ks::cli::legacy
         {
             const auto* row = reinterpret_cast<const KSWORD_ARK_BITLOCKER_FVE_ROW*>(buffer.data() + headerSize + (i * response->rowSize));
             const std::wstring volume = fixedWide(row->volumeDeviceName, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS);
-            const std::wstring* requestedVolume = getOptionText(args, L"--volume");
-            const bool volumeKnown = requestedVolume != nullptr && volume == *requestedVolume &&
+            const bool volumeKnown = request.volumePathLengthChars != 0 &&
+                volume == fixedWide(request.volumePath, KSWORD_ARK_STORAGE_VOLUME_PATH_CHARS) &&
                 (row->fieldFlags & KSWORD_ARK_STORAGE_FIELD_NT_DEVICE_PATH_PRESENT) != 0UL;
             std::wcout << L"  [" << i << L"] fields=0x" << std::hex << row->fieldFlags
                        << L" risk=0x" << row->riskFlags
@@ -4013,6 +4014,8 @@ namespace ks::cli::legacy
     // Inputs: argc/argv from wmain.
     // Processing: handles delete/query and monitor control/status/drain.
     // Returns: process exit code.
+    int commandSectionFamily(int argc, wchar_t* argv[]);
+
     int commandFileFamily(int argc, wchar_t* argv[])
     {
         if (argc < 3) { std::wcerr << L"error: file requires a subcommand\n"; return 1; }
@@ -4094,7 +4097,10 @@ namespace ks::cli::legacy
         }
         if (sub == L"section")
         {
-            return commandUnsupported(L"file section", L"use section query-file-mappings --path <path> for the existing read-only Section protocol");
+            std::vector<wchar_t*> sectionArgs(argv, argv + argc);
+            wchar_t query[] = L"query-file-mappings";
+            sectionArgs[2] = query;
+            return commandSectionFamily(argc, sectionArgs.data());
         }
         if (sub == L"bitlocker")
         {
@@ -5671,8 +5677,7 @@ namespace ks::cli::legacy
                        << L" sectionObject=" << hex64(response->sectionObjectAddress)
                        << L" controlArea=" << hex64(response->controlAreaAddress)
                        << L" dyn=0x" << response->dynDataCapabilityMask << std::dec << L"\n";
-            if (response->returnedCount != 0)
-                std::wcout << L"mappingEvidence=unverified (private VAD layout is not calibrated for this target)\n";
+            std::wcout << L"mappingEvidence=unverified (private VAD layout is not calibrated for this target)\n";
             const std::size_t parsed = responseCountLimit(response->returnedCount, available, getOptionU32(args, L"--limit", 128U));
             for (std::size_t i = 0; i < parsed; ++i)
             {
@@ -5708,8 +5713,7 @@ namespace ks::cli::legacy
                        << L" dataControlArea=" << hex64(response->dataControlAreaAddress)
                        << L" imageControlArea=" << hex64(response->imageControlAreaAddress)
                        << L" dyn=0x" << response->dynDataCapabilityMask << std::dec << L"\n";
-            if (response->returnedCount != 0)
-                std::wcout << L"mappingEvidence=unverified (private VAD layout is not calibrated for this target)\n";
+            std::wcout << L"mappingEvidence=unverified (private VAD layout is not calibrated for this target)\n";
             const std::size_t parsed = responseCountLimit(response->returnedCount, available, getOptionU32(args, L"--limit", 128U));
             bool invalidRange = false;
             for (std::size_t i = 0; i < responseCountLimit(response->returnedCount, available, response->returnedCount); ++i)

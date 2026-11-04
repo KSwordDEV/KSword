@@ -73,6 +73,8 @@ def main():
         assert rc == 6 and "completeR0=0 partial=1" in out and "state=unknown" in out and "state=5" not in out, (rc, out, err)
         rc, out, err = run("section", "query-file-mappings", "--path", r"C:\a.txt")
         assert rc == 6 and "mappingEvidence=unverified" in out and "invalid range" in out and "start=0x" not in out, (rc, out, err)
+        alias_rc, alias_out, alias_err = run("file", "section", "--path", r"C:\a.txt")
+        assert (alias_rc, alias_out, alias_err) == (rc, out, err), (alias_rc, alias_out, alias_err)
         rc, out, err = run("file", "bitlocker")
         assert "volume='<unavailable>'" in out and "protection=unknown" in out and "\x01" not in out, (rc, out, err)
         print("protocol response fixture passed")

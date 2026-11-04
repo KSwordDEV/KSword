@@ -7852,6 +7852,7 @@
     "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
+    ", tcpState=unavailable (unverified NSI layout)": "，TCP 状态不可用（NSI 布局未经验证）",
     "DLL path or target LoadLibraryW address is empty": "DLL 路径或目标进程 LoadLibraryW 地址为空",
     "R0注入": "R0注入",
     "使用驱动为目标进程加载 Agent；需要可用的 R0 驱动。": "使用驱动为目标进程加载 Agent；需要可用的 R0 驱动。",

@@ -53,3 +53,12 @@
 - R3 CLI 自动来宾测试必须同时复制统一 Release 中的 `MSVCP140.dll`、`VCRUNTIME140.dll`、`VCRUNTIME140_1.dll`，并核对 EXE 和 DLL 哈希；`tools/test_ksword_cli_r3_vm.py` 已落实。旧 Win10 来宾系统库 14.28.29913 与 HostX64 14.44.35211 构建的 `std::mutex` 不匹配，曾发生 C0000005；本地 dump 的栈和已加载模块确认来源，应用目录使用匹配运行库后消失，不应通过改写锁实现掩盖部署错误。
 - 测试脚本与可复现夹具随功能提交；运行报告、dump、编译日志与临时生成的夹具产物放在仓库之外。生产构建不可并行写同一 CLI 工程；曾因重叠构建出现 C1041，正确恢复是串行构建，不是加 `/FS` 隐藏调度问题。
 - 令牌后端原始报告可包含查询失败后仍显示“刷新完成”的情况；CLI 使用逐信息类结构化状态。`TokenLinkedToken` 查询返回的句柄由调用方拥有，记录数值后必须关闭；不能把其原始数值当作后续有效操作句柄。
+
+## 2026-11-03 CLI 协议与能力回归
+
+- Win10 20H2 x64 build 19042 的旧驱动和当前 CLI 复现预检字段截断、NSI TCP 状态错位、BitLocker 卷名污染、section 异常地址及 R0 列表缺行。预检尾数组实际从 `offsetof(..., checks)` 开始；`sizeof(response)-sizeof(entry)` 会被结构尾部对齐填充影响。
+- NSI TCP 动态表步长未得到可靠校准，驱动、共享客户端和 CLI 不发布其状态；端点仍可用，但结果标 partial，状态对照使用 IP Helper。section 的私有 VAD 布局也未校准，旧驱动的行仅为未验证证据，异常区间不可作为有效范围；新驱动拒绝不可能的范围。不能把非零且递增的区间当作已校准结果。
+- 存储审计是 METHOD_BUFFERED，四个 handler 在初始化输出前必须复制输入请求。来宾用新构建驱动查询 `--volume C:`，返回规范化卷名 `\??\C:` 和真实栈中 fvevol 存在；加密、转换和锁定私有状态仍为 unknown。
+- 在同一来宾先测试原驱动，再用独立临时服务加载新构建的 SYS；完成后临时服务与测试文件/注册表键清除，原服务恢复停止。验证预检完整名称、TCP 降级、R0 IOCTL/对象类型/平台明细、文件 DOS 路径、section 边界、SSDT 和进程跨视图降级、健康检查、PE 导入/具名导出、签名边界、System XPath 和 Security 日志、R3 网络与内存分页续读、文件创建防覆盖和 REG_SZ 写入回读。具名导出受限制时可返回 partial；目录签名未检查，不能推断文件无签名。未实测 GUI 会话、高风险写操作或其他 Windows 版本。
+- CLI 与驱动 Release/x64 构建通过；WDK ApiValidator/Inf2Cat 通过。驱动测试签名链在宿主机验证不受信任，来宾测试签名模式能加载不代表发行签名有效。R0 列表仍未统一 JSON；ETW 语义解码、目录签名、仅序号 PE 导出以及全部 R3 功能覆盖仍有缺口，不应将本次审查称作全面覆盖。
+- `file section` 已作为 `section query-file-mappings` 的实际别名，复用全部参数与降级语义；Win10 20H2 原驱动实测可调用，返回 unverified 和 partial，测试后服务恢复停止。
