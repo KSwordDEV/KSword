@@ -186,6 +186,52 @@ namespace ks::cli::legacy
                status == KSWORD_ARK_CROSSVIEW_STATUS_OK && missingMask == 0;
     }
 
+    Json crossviewOffsets(const KSWORD_ARK_CROSSVIEW_FIELD_OFFSETS& f)
+    {
+        return Json::object({{L"epUniqueProcessId",Json::number(f.epUniqueProcessId)}, {L"epActiveProcessLinks",Json::number(f.epActiveProcessLinks)},
+            {L"epThreadListHead",Json::number(f.epThreadListHead)}, {L"epImageFileName",Json::number(f.epImageFileName)},
+            {L"etCid",Json::number(f.etCid)}, {L"etThreadListEntry",Json::number(f.etThreadListEntry)},
+            {L"etStartAddress",Json::number(f.etStartAddress)}, {L"etWin32StartAddress",Json::number(f.etWin32StartAddress)},
+            {L"ktProcess",Json::number(f.ktProcess)}, {L"htTableCode",Json::number(f.htTableCode)},
+            {L"hteLowValue",Json::number(f.hteLowValue)}, {L"pspCidTableRva",Json::number(f.pspCidTableRva)},
+            {L"pspCidTableAddress",Json::hex(f.pspCidTableAddress)},
+            {L"epUniqueProcessIdSource",Json::number(f.epUniqueProcessIdSource)}, {L"epActiveProcessLinksSource",Json::number(f.epActiveProcessLinksSource)},
+            {L"epThreadListHeadSource",Json::number(f.epThreadListHeadSource)}, {L"epImageFileNameSource",Json::number(f.epImageFileNameSource)},
+            {L"etCidSource",Json::number(f.etCidSource)}, {L"etThreadListEntrySource",Json::number(f.etThreadListEntrySource)},
+            {L"etStartAddressSource",Json::number(f.etStartAddressSource)}, {L"etWin32StartAddressSource",Json::number(f.etWin32StartAddressSource)},
+            {L"ktProcessSource",Json::number(f.ktProcessSource)}, {L"htTableCodeSource",Json::number(f.htTableCodeSource)},
+            {L"hteLowValueSource",Json::number(f.hteLowValueSource)}, {L"pspCidTableSource",Json::number(f.pspCidTableSource)}});
+    }
+
+    Json crossviewSourceState(bool requested, bool missing)
+    {
+        return Json::string(!requested ? L"not-requested" : missing ? L"capability-missing" : L"requested-completion-unreported");
+    }
+
+    Json crossviewRowStatus(std::uint32_t mask, std::uint32_t bit, long status)
+    {
+        return (mask & bit) ? Json::hex(static_cast<std::uint32_t>(status)) : Json{};
+    }
+
+    int crossviewExit(std::uint32_t status, std::uint64_t missingMask, long lastStatus)
+    {
+        const int failure = operationStatusRc(lastStatus);
+        if (failure != 0) responseFailureRc = failure;
+        if (status == KSWORD_ARK_CROSSVIEW_STATUS_CAPABILITY_MISSING) return 5;
+        if (status == KSWORD_ARK_CROSSVIEW_STATUS_READ_FAILED) return failure ? failure : 3;
+        if (status != KSWORD_ARK_CROSSVIEW_STATUS_OK || missingMask != 0) return failure ? failure : 6;
+        return failure;
+    }
+
+    int crossviewJsonFailure(const wchar_t* command, int code, const IoctlResult& io)
+    {
+        std::wcout << Json::object({{L"schemaVersion",Json::number(1)}, {L"command",Json::string(command)},
+            {L"backend",Json::string(L"r0")}, {L"status",Json::string(L"unavailable")},
+            {L"data",Json::object({{L"win32Error",Json::number(io.win32Error)}, {L"bytesReturned",Json::number(io.bytesReturned)}})},
+            {L"diagnostics",Json::strings({L"Cross-view transport or response failed; no comparison was completed."})}}).text << L"\n";
+        return code;
+    }
+
     void printCrossviewSource(const wchar_t* name, bool requested, bool missing)
     {
         std::wcout << L" " << name << L"="
@@ -283,7 +329,7 @@ namespace ks::cli::legacy
         { L"process", L"set-visibility", L"KswordCLI.exe process set-visibility --action ACTION [--pid PID] [--flags 0xN]", L"Apply a process visibility action.", L"Required: --action. Optional: --pid defaults to 0, --flags.", L"" },
         { L"process", L"set-special-flags", L"KswordCLI.exe process set-special-flags --pid PID --action ACTION [--flags 0xN]", L"Apply special process flags.", L"Required: --pid, --action. Optional: --flags.", L"" },
         { L"process", L"dkom", L"KswordCLI.exe process dkom --pid PID [--action ACTION] [--flags 0xN]", L"Run the configured process DKOM action.", L"Required: --pid. Optional: --action, --flags.", L"" },
-        { L"process", L"crossview", L"KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N]", L"Compare process evidence across supported sources.", L"Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit.", L"Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics." },
+        { L"process", L"crossview", L"KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N] [--json]", L"Compare process evidence across supported sources.", L"Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit, --json.", L"Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics." },
         { L"process", L"detail", L"KswordCLI.exe process detail --pid PID [--flags 0xN]", L"Query fixed R0 process runtime detail.", L"Required: --pid. Optional: --flags defaults to include-all.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PROCESS_DETAIL." },
         { L"process", L"runtime-fields", L"KswordCLI.exe process runtime-fields --pid PID --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]", L"Sample bounded EPROCESS runtime fields by checked offsets.", L"Required: --pid, --items. Optional: --flags, --hexdump, --limit.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PROCESS_RUNTIME_FIELDS; each item is bounded by KSWORD_ARK_RUNTIME_FIELD_SAMPLE_MAX_VALUE_BYTES." },
         { L"memory", L"query-va", L"KswordCLI.exe memory query-va --pid PID --address VA [--flags 0xN]", L"Query virtual memory metadata for one address.", L"Required: --pid, --address. Optional: --flags.", L"" },
@@ -357,7 +403,7 @@ namespace ks::cli::legacy
         { L"dyn", L"apply-profile-ex", L"KswordCLI.exe dyn apply-profile-ex --blob PATH", L"Apply a raw extended DynData profile packet.", L"Required: --blob.", L"" },
         { L"capability", L"query-driver-capabilities", L"KswordCLI.exe capability query-driver-capabilities [--limit N]", L"Query unified driver feature capability rows.", L"Optional: --limit.", L"If unsupported, inspect preflight query and r0 ioctl-registry; older drivers may reject the OS build before capability dispatch." },
         { L"thread", L"enum", L"KswordCLI.exe thread enum [--flags 0xN] [--pid PID] [--limit N]", L"Enumerate threads.", L"Optional: --flags, --pid, --limit.", L"" },
-        { L"thread", L"crossview", L"KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N]", L"Compare thread evidence across supported sources.", L"Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit.", L"Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics." },
+        { L"thread", L"crossview", L"KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N] [--json]", L"Compare thread evidence across supported sources.", L"Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit, --json.", L"Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics." },
         { L"thread", L"detail", L"KswordCLI.exe thread detail --tid TID [--pid PID] [--flags 0xN]", L"Query fixed R0 ETHREAD/KTHREAD runtime detail.", L"Required: --tid. Optional: --pid, --flags defaults to include-all.", L"Backed by IOCTL_KSWORD_ARK_QUERY_THREAD_DETAIL." },
         { L"thread", L"runtime-fields", L"KswordCLI.exe thread runtime-fields --tid TID [--pid PID] --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]", L"Sample bounded ETHREAD/KTHREAD runtime fields by checked offsets.", L"Required: --tid, --items. Optional: --pid, --flags, --hexdump, --limit.", L"Backed by IOCTL_KSWORD_ARK_QUERY_THREAD_RUNTIME_FIELDS; each item is bounded by KSWORD_ARK_RUNTIME_FIELD_SAMPLE_MAX_VALUE_BYTES." },
         { L"handle", L"enum", L"KswordCLI.exe handle enum --pid PID [--flags 0xN] [--limit N]", L"Enumerate handles in one process.", L"Required: --pid. Optional: --flags, --limit.", L"Alias: handle object-table." },
@@ -382,9 +428,9 @@ namespace ks::cli::legacy
         { L"r0", L"hvm-metrics", L"KswordCLI.exe r0 hvm-metrics", L"Read current HVM metrics timing, resource counters and AMD raw exit evidence.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_HVM_METRICS. Full per-CPU, shadow EPT and AMD NPT cache JSON: hvm_ctl --json metrics." },
         { L"r0", L"hvm-events", L"KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]", L"Read HVM event-ring evidence without clearing it.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_HVM_EVENTS." },
         { L"r0", L"hvm-platform", L"KswordCLI.exe r0 hvm-platform", L"Read CR4/CPUID/CET-MSR platform calibration without entering VMX.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_HVM_PLATFORM." },
-        { L"r0", L"ioctl-registry", L"KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]", L"Query the driver's registered IOCTL dispatch inventory.", L"Optional: --flags, --max-entries.", L"Backed by IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY." },
-        { L"r0", L"timer-dpc", L"KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]", L"Enumerate kernel timer and DPC evidence.", L"Optional: --max-entries, --max-per-bucket.", L"Backed by IOCTL_KSWORD_ARK_ENUM_TIMER_DPC." },
-        { L"r0", L"unloaded", L"KswordCLI.exe r0 unloaded [--source mm|piddb|hash] [--max-rows N]", L"Query unloaded-driver, PiDDB, or hash-bucket evidence.", L"Optional: --source defaults to mm; --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS." },
+        { L"r0", L"ioctl-registry", L"KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N] [--json]", L"Query the driver's registered IOCTL dispatch inventory.", L"Optional: --flags, --max-entries, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY." },
+        { L"r0", L"timer-dpc", L"KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N] [--json]", L"Enumerate kernel timer and DPC evidence.", L"Optional: --max-entries, --max-per-bucket, --json.", L"Backed by IOCTL_KSWORD_ARK_ENUM_TIMER_DPC." },
+        { L"r0", L"unloaded", L"KswordCLI.exe r0 unloaded [--source mm|piddb|hash] [--max-rows N] [--json]", L"Query unloaded-driver, PiDDB, or hash-bucket evidence.", L"Optional: --source defaults to mm; --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS." },
         { L"r0", L"wfp-events", L"KswordCLI.exe r0 wfp-events [--after-sequence N] [--max-rows N]", L"Read bounded WFP event-ring metadata.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_WFP_EVENTS." },
         { L"r0", L"traffic", L"KswordCLI.exe r0 traffic [--after-sequence N] [--max-rows N]", L"Read bounded traffic-capture metadata from the driver's existing ring.", L"Optional: --after-sequence, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_NETWORK_QUERY_TRAFFIC_PACKETS; this command does not enable capture." },
         { L"r0", L"piddb", L"KswordCLI.exe r0 piddb [--max-rows N]", L"Enumerate PiDDBCacheTable evidence without deleting entries.", L"Optional: --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PIDDB." },
@@ -396,12 +442,12 @@ namespace ks::cli::legacy
         { L"r0", L"raw-disk-read", L"KswordCLI.exe r0 raw-disk-read --length N [--disk N] [--backend N] [--offset N] [--flags 0xN] [--hexdump]", L"Read a bounded raw-disk range for forensic inspection.", L"Required: --length. Optional: --disk, --backend, --offset, --flags, --hexdump.", L"Backed by IOCTL_KSWORD_ARK_READ_RAW_DISK; default display is capped at 256 bytes." },
         { L"r0", L"system-time", L"KswordCLI.exe r0 system-time", L"Query system-time virtualization and conflict state.", L"No options.", L"Backed by IOCTL_KSWORD_ARK_QUERY_SYSTEM_TIME." },
         { L"r0", L"slat-iommu", L"KswordCLI.exe r0 slat-iommu [--include-mmio]", L"Query SLAT and IOMMU firmware/runtime evidence.", L"Optional: --include-mmio.", L"Backed by IOCTL_KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT." },
-        { L"r0", L"platform", L"KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N]", L"Query HAL and WDF platform-audit evidence.", L"Optional: --scope defaults to all, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT." },
+        { L"r0", L"platform", L"KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N] [--json]", L"Query HAL and WDF platform-audit evidence.", L"Optional: --scope defaults to all, --max-rows, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT." },
         { L"r0", L"i8042", L"KswordCLI.exe r0 i8042 [--max-rows N]", L"Query i8042prt callback and stack evidence without reading input data.", L"Optional: --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_I8042_AUDIT." },
-        { L"r0", L"object-types", L"KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N]", L"Enumerate the kernel object-type table.", L"Optional: --flags, --max-entries, --start-index.", L"Backed by IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE." },
+        { L"r0", L"object-types", L"KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N] [--json]", L"Enumerate the kernel object-type table.", L"Optional: --flags, --max-entries, --start-index, --json.", L"Backed by IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE." },
         { L"r0", L"object-type-procedures", L"KswordCLI.exe r0 object-type-procedures [--start-index N] [--max-entries N]", L"Audit the eight method pointers (Dump/Open/Close/Delete/Parse/Security/QueryName/OkayToClose) embedded in every OBJECT_TYPE.", L"Optional: --start-index, --max-entries (object types per page, 0 = driver default).", L"Backed by IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES. Prints the layout self-verification state; exit code 5 means the layout was not verified on this machine, so rows are reference only and do not prove the absence of hooks; exit code 6 means the layout was verified but the scan was incomplete (truncated, or some object types could not be read)." },
-        { L"r0", L"win32k-timers", L"KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]", L"Query PDB-backed win32k timer evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS." },
-        { L"r0", L"win32k-events", L"KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]", L"Query PDB-backed WinEvent-hook evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS." },
+        { L"r0", L"win32k-timers", L"KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]", L"Query PDB-backed win32k timer evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS." },
+        { L"r0", L"win32k-events", L"KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]", L"Query PDB-backed WinEvent-hook evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries, --json.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS." },
         { L"trust", L"query-image", L"KswordCLI.exe trust query-image --path PATH [--flags 0xN]", L"Query image trust and signing evidence.", L"Required: --path. Optional: --flags.", L"" },
         { L"safety", L"query-policy", L"KswordCLI.exe safety query-policy [--flags 0xN]", L"Query safety policy state.", L"Optional: --flags.", L"" },
         { L"safety", L"set-policy", L"KswordCLI.exe safety set-policy [--set-flags 0xN] [--clear-flags 0xN] [--expected-generation N]", L"Update safety policy flags.", L"Optional: --set-flags, --clear-flags, --expected-generation.", L"" },
@@ -1826,13 +1872,51 @@ namespace ks::cli::legacy
             const std::uint32_t limit = getOptionU32(args, L"--limit", 128U);
             std::vector<std::uint8_t> buffer(kHugeResponseBytes, 0U);
             const int rc = sendRawIoctl(L"IOCTL_KSWORD_ARK_QUERY_PROCESS_CROSSVIEW", IOCTL_KSWORD_ARK_QUERY_PROCESS_CROSSVIEW, &request, sizeof(request), buffer, io);
-            if (rc != 0) return normalizeIoctlRc(L"process crossview", io, rc);
+            if (rc != 0) {
+                const int failure = normalizeIoctlRc(L"process crossview", io, rc);
+                return getOptionBool(args,L"--json") ? crossviewJsonFailure(L"process crossview",failure,io) : failure;
+            }
             constexpr std::size_t headerSize = sizeof(KSWORD_ARK_PROCESS_CROSSVIEW_RESPONSE) - sizeof(KSWORD_ARK_PROCESS_CROSSVIEW_ROW);
-            if (io.bytesReturned < headerSize) { std::wcerr << L"error: process crossview response too small\n"; return 4; }
+            if (io.bytesReturned < headerSize) { std::wcerr << L"error: process crossview response too small\n"; return getOptionBool(args,L"--json") ? crossviewJsonFailure(L"process crossview",4,io) : 4; }
             const auto* response = reinterpret_cast<const KSWORD_ARK_PROCESS_CROSSVIEW_RESPONSE*>(buffer.data());
             std::size_t available = 0U;
             try { available = validateVariable(io.bytesReturned, headerSize, response->entrySize, sizeof(KSWORD_ARK_PROCESS_CROSSVIEW_ROW), L"process crossview"); }
-            catch (...) { return 4; }
+            catch (...) { return getOptionBool(args,L"--json") ? crossviewJsonFailure(L"process crossview",4,io) : 4; }
+            if (getOptionBool(args, L"--json"))
+            {
+                const auto parsed = responseCountLimit(response->returnedCount, available, limit);
+                std::vector<Json> rows;
+                for (std::size_t i = 0; i < parsed; ++i) {
+                    const auto* r = reinterpret_cast<const KSWORD_ARK_PROCESS_CROSSVIEW_ROW*>(buffer.data() + headerSize + i * response->entrySize);
+                    rows.push_back(Json::object({{L"pid",Json::number(r->processId)}, {L"parentPid",Json::number(r->parentProcessId)},
+                        {L"objectAddress",Json::hex(r->objectAddress)}, {L"startAddress",Json::hex(r->startAddress)},
+                        {L"sourceMask",Json::hex(r->sourceMask)}, {L"anomalyFlags",Json::hex(r->anomalyFlags)},
+                        {L"dynDataCapabilityMask",Json::hex(r->dynDataCapabilityMask)}, {L"fieldOffsets",crossviewOffsets(r->fieldOffsets)},
+                        {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r->lastStatus))}, {L"confidence",Json::number(r->confidence)},
+                        {L"imageName",Json::string(fixedAnsiWide(r->imageName,sizeof(r->imageName)))}, {L"detail",Json::string(fixedAnsiWide(r->detail,sizeof(r->detail)))},
+                        {L"publicProcessId",Json::number(r->publicProcessId)}, {L"activeListProcessId",Json::number(r->activeListProcessId)}, {L"cidTableProcessId",Json::number(r->cidTableProcessId)},
+                        {L"publicWalkStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_PUBLIC_WALK,r->publicWalkStatus)},
+                        {L"activeListStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_ACTIVE_LIST,r->activeListStatus)},
+                        {L"cidTableStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_CID_TABLE,r->cidTableStatus)},
+                        {L"detailStatus",Json::number(r->detailStatus)}, {L"denoiseFlags",Json::hex(r->denoiseFlags)}}));
+                }
+                const int code = crossviewExit(response->status,response->missingCapabilityMask,response->lastStatus);
+                std::wcout << Json::object({{L"schemaVersion",Json::number(1)}, {L"command",Json::string(L"process crossview")}, {L"backend",Json::string(L"r0")},
+                    {L"status",Json::string(code == 0 ? L"success" : code == 6 ? L"partial" : L"unavailable")},
+                    {L"data",Json::object({{L"protocolVersion",Json::number(response->version)}, {L"queryStatus",Json::number(response->status)},
+                        {L"lastStatus",Json::hex(static_cast<std::uint32_t>(response->lastStatus))}, {L"bytesReturned",Json::number(io.bytesReturned)},
+                        {L"totalCount",Json::number(response->totalCount)}, {L"returnedCount",Json::number(response->returnedCount)}, {L"displayedCount",Json::number(static_cast<std::uint32_t>(parsed))},
+                        {L"availableCount",Json::number(static_cast<std::uint32_t>(available))}, {L"responseTruncated",Json::boolean(available < response->returnedCount)},
+                        {L"collectionTruncated",Json::boolean(response->returnedCount < response->totalCount)}, {L"displayTruncated",Json::boolean(parsed < (std::min)(available,static_cast<std::size_t>(response->returnedCount)))}, {L"entrySize",Json::number(response->entrySize)},
+                        {L"requestedFlags",Json::hex(request.flags)}, {L"dynDataCapabilityMask",Json::hex(response->dynDataCapabilityMask)}, {L"missingCapabilityMask",Json::hex(response->missingCapabilityMask)},
+                        {L"comparisonComplete",Json::boolean(crossviewComparisonComplete(request.flags,KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_ALL,response->status,response->missingCapabilityMask))},
+                        {L"sourceStates",Json::object({{L"publicWalk",crossviewSourceState((request.flags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_PUBLIC_WALK)!=0,false)},
+                            {L"activeList",crossviewSourceState((request.flags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_ACTIVE_LIST)!=0,(response->missingCapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS)!=0)},
+                            {L"cidTable",crossviewSourceState((request.flags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_CID_TABLE)!=0,(response->missingCapabilityMask & KSW_CAP_CID_TABLE_WALK)!=0)}})},
+                        {L"fieldOffsets",crossviewOffsets(response->fieldOffsets)}, {L"rows",Json::array(rows)}})},
+                    {L"diagnostics",Json::strings({L"Anomaly flags are raw candidates, not hidden-process verdicts. Missing sources make comparisons incomplete."})}}).text << L"\n";
+                return code;
+            }
             printResponseBanner(response->version, response->status, response->lastStatus, io.bytesReturned);
             printCountHeader(response->version, response->totalCount, response->returnedCount, response->entrySize, io.bytesReturned);
             std::wcout << L"dynMask=0x" << std::hex << response->dynDataCapabilityMask
@@ -5413,12 +5497,54 @@ namespace ks::cli::legacy
             request.maxNodes = getOptionU32(args, L"--max-nodes", KSWORD_ARK_CROSSVIEW_DEFAULT_MAX_NODES);
             std::vector<std::uint8_t> buffer(kHugeResponseBytes, 0U);
             const int rc = sendRawIoctl(L"IOCTL_KSWORD_ARK_QUERY_THREAD_CROSSVIEW", IOCTL_KSWORD_ARK_QUERY_THREAD_CROSSVIEW, &request, sizeof(request), buffer, io);
-            if (rc != 0) return normalizeIoctlRc(L"thread crossview", io, rc);
+            if (rc != 0) {
+                const int failure = normalizeIoctlRc(L"thread crossview", io, rc);
+                return getOptionBool(args,L"--json") ? crossviewJsonFailure(L"thread crossview",failure,io) : failure;
+            }
             constexpr std::size_t headerSize = sizeof(KSWORD_ARK_THREAD_CROSSVIEW_RESPONSE) - sizeof(KSWORD_ARK_THREAD_CROSSVIEW_ROW);
             const auto* response = reinterpret_cast<const KSWORD_ARK_THREAD_CROSSVIEW_RESPONSE*>(buffer.data());
             std::size_t available = 0U;
             try { available = validateVariable(io.bytesReturned, headerSize, response->entrySize, sizeof(KSWORD_ARK_THREAD_CROSSVIEW_ROW), L"thread crossview"); }
-            catch (...) { return 4; }
+            catch (...) { return getOptionBool(args,L"--json") ? crossviewJsonFailure(L"thread crossview",4,io) : 4; }
+            if (getOptionBool(args, L"--json"))
+            {
+                const auto parsed = responseCountLimit(response->returnedCount, available, getOptionU32(args,L"--limit",128U));
+                std::vector<Json> rows;
+                for (std::size_t i = 0; i < parsed; ++i) {
+                    const auto* r = reinterpret_cast<const KSWORD_ARK_THREAD_CROSSVIEW_ROW*>(buffer.data() + headerSize + i * response->entrySize);
+                    rows.push_back(Json::object({{L"pid",Json::number(r->processId)}, {L"tid",Json::number(r->threadId)},
+                        {L"objectAddress",Json::hex(r->objectAddress)}, {L"processObjectAddress",Json::hex(r->processObjectAddress)}, {L"startAddress",Json::hex(r->startAddress)},
+                        {L"sourceMask",Json::hex(r->sourceMask)}, {L"anomalyFlags",Json::hex(r->anomalyFlags)},
+                        {L"dynDataCapabilityMask",Json::hex(r->dynDataCapabilityMask)}, {L"fieldOffsets",crossviewOffsets(r->fieldOffsets)},
+                        {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r->lastStatus))}, {L"confidence",Json::number(r->confidence)},
+                        {L"imageName",Json::string(fixedAnsiWide(r->imageName,sizeof(r->imageName)))}, {L"detail",Json::string(fixedAnsiWide(r->detail,sizeof(r->detail)))},
+                        {L"publicThreadId",Json::number(r->publicThreadId)}, {L"threadListThreadId",Json::number(r->threadListThreadId)}, {L"cidTableThreadId",Json::number(r->cidTableThreadId)},
+                        {L"publicProcessId",Json::number(r->publicProcessId)}, {L"threadListProcessId",Json::number(r->threadListProcessId)}, {L"cidTableProcessId",Json::number(r->cidTableProcessId)},
+                        {L"publicWalkStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_PUBLIC_WALK,r->publicWalkStatus)},
+                        {L"threadListStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_THREAD_LIST,r->threadListStatus)},
+                        {L"cidTableStatus",crossviewRowStatus(r->sourceMask,KSWORD_ARK_CROSSVIEW_SOURCE_CID_TABLE,r->cidTableStatus)},
+                        {L"startAddressStatus",Json::hex(static_cast<std::uint32_t>(r->startAddressStatus))},
+                        {L"detailStatus",Json::number(r->detailStatus)}, {L"denoiseFlags",Json::hex(r->denoiseFlags)}}));
+                }
+                constexpr std::uint32_t sourceFlags = KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_PUBLIC_WALK |
+                    KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_THREAD_LIST | KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_CID_TABLE;
+                const int code = crossviewExit(response->status,response->missingCapabilityMask,response->lastStatus);
+                std::wcout << Json::object({{L"schemaVersion",Json::number(1)}, {L"command",Json::string(L"thread crossview")}, {L"backend",Json::string(L"r0")},
+                    {L"status",Json::string(code == 0 ? L"success" : code == 6 ? L"partial" : L"unavailable")},
+                    {L"data",Json::object({{L"protocolVersion",Json::number(response->version)}, {L"queryStatus",Json::number(response->status)},
+                        {L"lastStatus",Json::hex(static_cast<std::uint32_t>(response->lastStatus))}, {L"bytesReturned",Json::number(io.bytesReturned)},
+                        {L"totalCount",Json::number(response->totalCount)}, {L"returnedCount",Json::number(response->returnedCount)}, {L"displayedCount",Json::number(static_cast<std::uint32_t>(parsed))},
+                        {L"availableCount",Json::number(static_cast<std::uint32_t>(available))}, {L"responseTruncated",Json::boolean(available < response->returnedCount)},
+                        {L"collectionTruncated",Json::boolean(response->returnedCount < response->totalCount)}, {L"displayTruncated",Json::boolean(parsed < (std::min)(available,static_cast<std::size_t>(response->returnedCount)))}, {L"entrySize",Json::number(response->entrySize)},
+                        {L"requestedFlags",Json::hex(request.flags)}, {L"dynDataCapabilityMask",Json::hex(response->dynDataCapabilityMask)}, {L"missingCapabilityMask",Json::hex(response->missingCapabilityMask)},
+                        {L"comparisonComplete",Json::boolean(crossviewComparisonComplete(request.flags,sourceFlags,response->status,response->missingCapabilityMask))},
+                        {L"sourceStates",Json::object({{L"publicWalk",crossviewSourceState((request.flags & KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_PUBLIC_WALK)!=0,false)},
+                            {L"threadList",crossviewSourceState((request.flags & KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_THREAD_LIST)!=0,(response->missingCapabilityMask & KSW_CAP_THREAD_LIST_FIELDS)!=0)},
+                            {L"cidTable",crossviewSourceState((request.flags & KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_CID_TABLE)!=0,(response->missingCapabilityMask & KSW_CAP_CID_TABLE_WALK)!=0)}})},
+                        {L"fieldOffsets",crossviewOffsets(response->fieldOffsets)}, {L"rows",Json::array(rows)}})},
+                    {L"diagnostics",Json::strings({L"Anomaly flags are raw candidates, not hidden-thread verdicts. Missing sources make comparisons incomplete."})}}).text << L"\n";
+                return code;
+            }
             printResponseBanner(response->version, response->status, response->lastStatus, io.bytesReturned);
             printCountHeader(response->version, response->totalCount, response->returnedCount, response->entrySize, io.bytesReturned);
             std::wcout << L"dynDataCapabilityMask=0x" << std::hex << response->dynDataCapabilityMask

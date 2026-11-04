@@ -84,6 +84,11 @@ void EtwSessionController::setEventCallback(EventCallback callback) {
     eventCallback_ = std::move(callback);
 }
 
+void EtwSessionController::setRawEventCallback(RawEventCallback callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rawEventCallback_ = std::move(callback);
+}
+
 void EtwSessionController::setStatusCallback(StatusCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     statusCallback_ = std::move(callback);
@@ -242,12 +247,17 @@ void EtwSessionController::handleEventRecord(EVENT_RECORD* record) {
     eventRow.summary = BuildEventSummary(*record);
 
     EventCallback callback;
+    RawEventCallback rawCallback;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         callback = eventCallback_;
+        rawCallback = rawEventCallback_;
     }
     if (callback) {
         try {callback(eventRow);}catch (...) {std::lock_guard<std::mutex> lock(mutex_);evidence_.callbackFailed = true;}
+    }
+    if (rawCallback) {
+        try {rawCallback(eventRow, *record);}catch (...) {std::lock_guard<std::mutex> lock(mutex_);evidence_.callbackFailed = true;}
     }
 }
 

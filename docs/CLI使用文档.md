@@ -33,6 +33,7 @@ KswordCLI.exe network connections help
 网络关闭的 API 状态与回读存在性分别输出；错误 317 不推导为目标消失，详见 [网络文档](cli/network.md)。
 `network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]` 支持显示偏移与下一页位置；不同调用是各自的网络快照。
 `process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--json]` 以地址游标分页读取进程的已提交区域；正常页大小限制不代表采集失败。分页快照可能随进程映射变化，详见 [进程文档](cli/process.md)。
+`system health [--json]` 只读汇总驱动服务、能力、动态数据和跨视图字段证据；各查询独立报告状态与限制，详见 [系统工具文档](cli/system.md)。
 新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
 
 默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、
@@ -40,6 +41,8 @@ KswordCLI.exe network connections help
 参数错误仍返回 1 并提供语法；已识别的 R3 命令在 JSON 模式下同时输出结构化失败。
 
 R3 文件创建可使用 `file create --path PATH [--text TEXT | --hex HEX | --data-file PATH] --confirm` 或 `file directory create --path PATH --confirm` 指定最终名称；原有 `--directory` 自动命名仍可用。R3 注册表 `--type` 支持 `REG_SZ`、`REG_DWORD` 等名称，详见 [文件](cli/file.md)与[注册表](cli/registry.md)命令。
+`file signature query` 分别检查嵌入式签名和已安装驱动子系统目录的 SHA256/SHA1 目录签名；来源、验证状态、搜索边界和错误各自输出，详见 [文件命令](cli/file.md)。
+`file pe query --path PATH --json` 的 `exportSymbols` 覆盖非零 EAT 槽，包括仅序号导出、多个名称和转发目标；损坏或超过 4096 槽／名称上限时标记 partial，详见 [文件命令](cli/file.md)。
 
 既有 R0 `registry` 命令的 `--key` 使用原生路径，例如 `\Registry\Machine\SOFTWARE`；当前用户配置单元使用 `\Registry\User\<调用者 SID>\...`，可用同一调用者的 `whoami /user` 获取 SID。R3 命令支持 `HKLM`、`HKCU` 等简称；R0 的 `set-value --type` 仍使用数字类型和原始 `--data-file`。
 地址和句柄为十六进制字符串，大于安全整数范围的计数为十进制字符串。部分完成返回 6。
@@ -51,6 +54,8 @@ R3 文件创建可使用 `file create --path PATH [--text TEXT | --hex HEX | --d
 通过 `--call-stack 0|1` 或 `--options-file` 导入 `[monitor]` 节中的 `capture_call_stack=1` 可选采集强类型调用栈；事件 JSON 的 `callStackAvailable` 与 `callStack` 分别表示是否采到和最多 8 个地址。该栈可能包含监控内部帧，Raw 调用或详情空间不足时可能缺失；命令行选项优先于 INI。
 
 可用 `--filter-file PATH` 导入界面的前后置筛选配置；`--pre-exclude-modules`、`--pre-exclude-apis`、`--post-exclude-modules`、`--post-exclude-apis` 按分号分隔的模块或 `模块!函数` 身份追加排除，优先于导入配置中的允许例外。前置在接收后入缓冲前拒收，后置只隐藏已保留结果；控制和覆盖事件不受影响。模块名不区分大小写，无路径且无扩展名时按 `.dll` 匹配；函数名区分大小写。`--timeline 1` 输出最多 2048 个自适应时间桶，计入前置保留的普通调用（含后置隐藏和缓冲淘汰），不包含丢失或前置拒收事件；详见 [监控命令](cli/monitor.md)。
+
+`monitor etw capture --decode 1` 可按 TDH 读取有界的顶层载荷与原始前缀；`--target-pid` 只匹配明确载荷目标字段，未知目标单独计数，不把事件头 PID 当作目标。解码不完整和事件丢失会返回部分结果；边界和性能说明见 [监控命令](cli/monitor.md)。
 
 事件中的 `rawAbi` 列出实际采集的 Raw 寄存器和栈槽，不推断参数类型。`--signatures 1` 读取同目录的项目声明文件，只有文件 SHA-256 与 Agent 事件定义哈希一致时才附加声明，并标识项目、SDK 已核对或未核验参考来源；不读取目标指针。
 
@@ -72,7 +77,7 @@ R3 文件创建可使用 `file create --path PATH [--text TEXT | --hex HEX | --d
 
 IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计结论统一写入 stderr，保证合并重定向时先原因、后结论；成功数据继续写入 stdout。
 
-退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。所有未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态统一返回 `5`，包括固定响应、变长审计和 `r0`/Callback Monitor 命令。个别命令另以 `6` 表示扫描不完整或完整卸载尚未确认，见该命令说明。
+退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用，`6` 部分结果或完整动作尚未确认。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态返回 `5`。`file hex query`、`driver modules enum` 和 `process module enum` 的 `complete` 表示请求的采集证据完整，`displayTruncated` 表示有意限制的显示内容；仅显示受限返回 0，采集缺失仍返回 6。其他命令的限制与退出码见各自 help，不能假定已全部统一。
 
 若所有只读命令连同 `capability query-driver-capabilities` 都返回 `win32=50`，不能仅凭 IOCTL 名称判断驱动缺少实现。请运行 `preflight query` 和 `r0 ioctl-registry`，核对 `sc qc KswordARK` 的实际加载路径及配套版本。2026-10-01 的旧驱动会在 OS build 高于 26100 时拦截包括能力查询在内的请求；该上限已于 2026-10-03 移除，仍须使用匹配的内核 profile。
 
@@ -80,7 +85,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 - 缺少必填参数会指出参数名，例如 `missing option --pid`；有参数但无值会显示 `missing value for option --pid`。参数错误同时显示该命令的语法及内置 help 的参数说明。
 - 未知选项在发送请求前报 `unknown option --name`；`driver detail` 使用 `--driver`，不接受 `--name`。允许的选项与该命令的 help 语法一致。
 - `--flags 0xN` 是按位标志；具体含义以 `shared/driver/` 中对应协议头为准。
-- `--limit N` 只限制 CLI 打印行数；`--max-*` 通常控制传给驱动的查询预算。
+- `--limit N` 通常限制 CLI 显示行数；`--max-*` 通常控制查询预算。各命令的限制与退出码以对应 help 为准。
 - `--hex`/`--*-hex` 接收十六进制字节串；`--data-file`/`--*-file` 从文件读取原始字节；同一 payload 的 hex 和 file 形式互斥。
 - `--hexdump` 会把返回字节按十六进制展开打印。
 
@@ -149,7 +154,7 @@ Inspect and control process visibility, PPL, DKOM, and cross-view state.
 | `process set-visibility` | `KswordCLI.exe process set-visibility --action ACTION [--pid PID] [--flags 0xN]` | Apply a process visibility action. | Required: --action. Optional: --pid defaults to 0, --flags. |  |
 | `process set-special-flags` | `KswordCLI.exe process set-special-flags --pid PID --action ACTION [--flags 0xN]` | Apply special process flags. | Required: --pid, --action. Optional: --flags. |  |
 | `process dkom` | `KswordCLI.exe process dkom --pid PID [--action ACTION] [--flags 0xN]` | Run the configured process DKOM action. | Required: --pid. Optional: --action, --flags. |  |
-| `process crossview` | `KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N]` | Compare process evidence across supported sources. | Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
+| `process crossview` | `KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N] [--json]` | Compare process evidence across supported sources. | Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit, --json. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
 | `process detail` | `KswordCLI.exe process detail --pid PID [--flags 0xN]` | Query fixed R0 EPROCESS runtime detail. | Required: --pid. Optional: --flags defaults to include-all. | Uses `IOCTL_KSWORD_ARK_QUERY_PROCESS_DETAIL`. |
 | `process runtime-fields` | `KswordCLI.exe process runtime-fields --pid PID --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]` | Sample bounded EPROCESS runtime fields by checked offsets. | Required: --pid, --items. Optional: --flags, --hexdump, --limit. | Uses `IOCTL_KSWORD_ARK_QUERY_PROCESS_RUNTIME_FIELDS`; each sample is capped by the shared protocol. |
 
@@ -266,7 +271,7 @@ Enumerate threads and compare R0/R3 thread evidence.
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
 | `thread enum` | `KswordCLI.exe thread enum [--flags 0xN] [--pid PID] [--limit N]` | Enumerate threads. | Optional: --flags, --pid, --limit. |  |
-| `thread crossview` | `KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N]` | Compare thread evidence across supported sources. | Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
+| `thread crossview` | `KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N] [--json]` | Compare thread evidence across supported sources. | Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit, --json. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
 | `thread detail` | `KswordCLI.exe thread detail --tid TID [--pid PID] [--flags 0xN]` | Query fixed R0 ETHREAD/KTHREAD runtime detail. | Required: --tid. Optional: --pid, --flags defaults to include-all. | Uses `IOCTL_KSWORD_ARK_QUERY_THREAD_DETAIL`. |
 | `thread runtime-fields` | `KswordCLI.exe thread runtime-fields --tid TID [--pid PID] --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]` | Sample bounded ETHREAD/KTHREAD runtime fields by checked offsets. | Required: --tid, --items. Optional: --pid, --flags, --hexdump, --limit. | Uses `IOCTL_KSWORD_ARK_QUERY_THREAD_RUNTIME_FIELDS`; each sample is capped by the shared protocol. |
 
@@ -498,9 +503,9 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 | `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v10；完整逐核 JSON：`hvm_ctl --json metrics`，包括 Intel 影子 EPT 与 AMD NPT 缓存计数。 |
 | `r0 hvm-events` | `KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]` | 读取 HVM 事件环，不清空事件。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_HVM_EVENTS`。 |
 | `r0 hvm-platform` | `KswordCLI.exe r0 hvm-platform` | 查询 CR4、CPUID 与 CET MSR 平台校准证据。 | 无。 | `IOCTL_KSWORD_ARK_HVM_PLATFORM`；不进入 VMX。 |
-| `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
-| `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
-| `r0 unloaded` | `KswordCLI.exe r0 unloaded [--source mm\|piddb\|hash] [--max-rows N]` | 查询已卸载驱动、PiDDB 或哈希桶证据。 | 可选：--source 默认 `mm`，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS`。 |
+| `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N] [--json]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
+| `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N] [--json]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
+| `r0 unloaded` | `KswordCLI.exe r0 unloaded [--source mm\|piddb\|hash] [--max-rows N] [--json]` | 查询已卸载驱动、PiDDB 或哈希桶证据。 | 可选：--source 默认 `mm`，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS`。 |
 | `r0 wfp-events` | `KswordCLI.exe r0 wfp-events [--after-sequence N] [--max-rows N]` | 读取 WFP 事件环元数据。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_NETWORK_QUERY_WFP_EVENTS`。 |
 | `r0 traffic` | `KswordCLI.exe r0 traffic [--after-sequence N] [--max-rows N]` | 读取现有流量捕获环的元数据。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_NETWORK_QUERY_TRAFFIC_PACKETS`，不启动捕获。 |
 | `r0 piddb` | `KswordCLI.exe r0 piddb [--max-rows N]` | 枚举 PiDDBCacheTable 证据。 | 可选：--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PIDDB`，不删除条目。 |
@@ -512,14 +517,14 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 | `r0 raw-disk-read` | `KswordCLI.exe r0 raw-disk-read --length N [--disk N] [--backend N] [--offset N] [--flags 0xN] [--hexdump]` | 读取受协议长度上限约束的原始磁盘范围。 | 必填：--length。可选：--disk、--backend、--offset、--flags、--hexdump。 | `IOCTL_KSWORD_ARK_READ_RAW_DISK`。 |
 | `r0 system-time` | `KswordCLI.exe r0 system-time` | 查询系统时间虚拟化和冲突状态。 | 无。 | `IOCTL_KSWORD_ARK_QUERY_SYSTEM_TIME`。 |
 | `r0 slat-iommu` | `KswordCLI.exe r0 slat-iommu [--include-mmio]` | 查询 SLAT、IOMMU 固件及运行时证据。 | 可选：--include-mmio。 | `IOCTL_KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT`。 |
-| `r0 platform` | `KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N]` | 查询 HAL 和 WDF 平台审计证据。 | 可选：--scope 默认全量，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT`。 |
+| `r0 platform` | `KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N] [--json]` | 查询 HAL 和 WDF 平台审计证据。 | 可选：--scope 默认全量，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT`。 |
 | `r0 i8042` | `KswordCLI.exe r0 i8042 [--max-rows N]` | 查询 i8042prt 回调和栈证据，不读取输入数据。 | 可选：--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_I8042_AUDIT`。 |
-| `r0 object-types` | `KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N]` | 枚举内核对象类型表。 | 可选：--flags、--max-entries、--start-index。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE`。 |
+| `r0 object-types` | `KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N] [--json]` | 枚举内核对象类型表。 | 可选：--flags、--max-entries、--start-index。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE`。 |
 | `r0 object-type-procedures` | `KswordCLI.exe r0 object-type-procedures [--start-index N] [--max-entries N]` | 逐个对象类型核对 Dump/Open/Close/Delete/Parse/Security/QueryName/OkayToClose 八个方法指针的归属模块；方法指针块布局在运行时自验证，验证不过如实报告 UNVERIFIED 而不给结论。核心类型（Process/Thread/Driver/File）按地址范围硬判；非核心类型另有一条"类型内一致性"判据：同一类型里 >=3 个槽落在 ntoskrnl 内、又恰好 1 个槽落在别处时判隐藏行为，汇总行的 `judged_types=N/M` 说明这条判据能覆盖 70 个类型里的多少个——不在这个数里的类型不代表"干净"，只是本版本给不出硬判据。退出码：0=已验证且干净，5=布局未验证，6=已验证但扫描不完整。 | 可选：--start-index、--max-entries。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES`。 |
-| `r0 win32k-timers` | `KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]` | 查询基于 PDB 的 win32k 定时器证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS`。 |
-| `r0 win32k-events` | `KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]` | 查询基于 PDB 的 WinEvent Hook 证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS`。 |
+| `r0 win32k-timers` | `KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]` | 查询基于 PDB 的 win32k 定时器证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS`。 |
+| `r0 win32k-events` | `KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]` | 查询基于 PDB 的 WinEvent Hook 证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS`。 |
 
-`r0 ioctl-registry`、`unloaded`、`platform`、`object-types`、`win32k-timers`、`win32k-events` 和 `timer-dpc` 输出已解析的逐行文本及响应状态。结合 `total`、`returned`、状态和标志判断结果完整性；`--max-rows` 或 `--max-entries` 设置上限不意味着结果完整。`object-types` 的 `next_index` 可用于后续 `--start-index` 查询。字段有效性以各协议定义的 `field_flags` 或 `flags` 为准，未标记的值不应被解释成已确认的证据。已解析响应若返回 `STATUS_BUFFER_OVERFLOW`，退出码为 6（部分结果）。这些命令当前不支持 JSON。
+`r0 ioctl-registry`、`unloaded`、`platform`、`object-types`、`win32k-timers`、`win32k-events` 和 `timer-dpc` 输出已解析的逐行文本及响应状态，也支持 `--json`。JSON 使用 `schemaVersion`、`command`、`backend`、`status`、`data` 和 `diagnostics`；`data` 包含传输状态、协议状态、总数、返回行和截断信息，地址与位掩码使用十六进制字符串。`complete=false` 表示已知不完整，`null` 表示无法仅凭这些回执确认采集完整。结合总数、状态和标志判断结果；`--max-rows` 或 `--max-entries` 设置上限不意味着结果完整。`object-types` 的 `next_index`（JSON 为 `nextIndex`）可用于后续 `--start-index` 查询。字段有效性以各协议定义的 `field_flags` 或 `flags` 为准，未标记的值不应被解释成已确认的证据。已解析响应若返回 `STATUS_BUFFER_OVERFLOW`，退出码为 6（部分结果）。
 
 `r0 timer-dpc` 的 `query_state` 将缺少动态数据、无效布局和不支持与成功空结果区分开：上述不可用状态返回 5，部分或截断返回 6，完整结果返回 0；传输错误保留对应错误退出码。
 

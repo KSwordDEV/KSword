@@ -1,4 +1,5 @@
 #include "ArkDriverExtended.h"
+#include "CommandRegistry.h"
 
 #include "../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 #include "../shared/driver/KswordArkDebuggerIoctl.h"
@@ -153,6 +154,24 @@ namespace
 
     template <typename T>
     struct HasEntries<T, std::void_t<decltype(std::declval<const T&>().entries)>> : std::true_type {};
+
+    template <typename Result>
+    int resultExitCode(const Result& result)
+    {
+        if (result.io.ok && result.io.ntStatus >= 0)
+        {
+            if constexpr (HasUnsupported<Result>::value) { if (result.unsupported) return 5; }
+            return 0;
+        }
+        if (result.io.deviceOpenFailed || result.io.message.rfind("CreateFileW", 0U) == 0U) return 2;
+        const auto error = result.io.win32Error;
+        if (error == ERROR_INVALID_FUNCTION || error == ERROR_NOT_SUPPORTED ||
+            error == ERROR_CALL_NOT_IMPLEMENTED || error == ERROR_PROC_NOT_FOUND) return 5;
+        if constexpr (HasUnsupported<Result>::value) { if (result.unsupported) return 5; }
+        const auto status = static_cast<std::uint32_t>(result.io.ntStatus);
+        if (status == 0xC00000BBU || status == 0xC0000002U || status == 0xC000007AU) return 5;
+        return 3;
+    }
 
     template <typename Result>
     bool printResultState(const wchar_t* label, const Result& result)
@@ -491,25 +510,8 @@ namespace
     template <typename Result>
     int finishResult(const wchar_t* label, const Result& result)
     {
-        if (printResultState(label, result))
-        {
-            if constexpr (HasUnsupported<Result>::value)
-            {
-                if (result.unsupported) return 5;
-            }
-            return 0;
-        }
-        if (result.io.deviceOpenFailed || result.io.message.rfind("CreateFileW", 0U) == 0U) return 2;
-        const auto error = result.io.win32Error;
-        if (error == ERROR_INVALID_FUNCTION || error == ERROR_NOT_SUPPORTED ||
-            error == ERROR_CALL_NOT_IMPLEMENTED || error == ERROR_PROC_NOT_FOUND) return 5;
-        if constexpr (HasUnsupported<Result>::value)
-        {
-            if (result.unsupported) return 5;
-        }
-        const auto status = static_cast<std::uint32_t>(result.io.ntStatus);
-        if (status == 0xC00000BBU || status == 0xC0000002U || status == 0xC000007AU) return 5;
-        return 3;
+        (void)printResultState(label, result);
+        return resultExitCode(result);
     }
 
     template <typename Result>
@@ -535,6 +537,120 @@ namespace
         if (result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_PARTIAL ||
             (result.statusFlags & (KSWORD_ARK_TIMER_DPC_STATUS_PARTIAL | KSWORD_ARK_TIMER_DPC_STATUS_TRUNCATED)) != 0U) return 6;
         return result.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_OK ? 0 : 3;
+    }
+
+    using ks::cli::Json;
+    using JsonFields = std::vector<std::pair<std::wstring, Json>>;
+
+    Json rowJson(const ksword::ark::IoctlRegistryEntry& r)
+    {
+        return Json::object({{L"ioctl",Json::hex(r.ioControlCode)}, {L"function",Json::hex(r.functionNumber)},
+            {L"flags",Json::hex(r.flags)}, {L"requiredCapability",Json::hex(r.requiredCapability)},
+            {L"handler",Json::hex(r.handlerAddress)}, {L"method",Json::number(r.method)},
+            {L"access",Json::number(r.access)}, {L"name",Json::string(utf8ToWide(r.name))}});
+    }
+    Json rowJson(const ksword::ark::UnloadedDriverEntry& r)
+    {
+        return Json::object({{L"source",Json::number(r.source)}, {L"flags",Json::hex(r.flags)},
+            {L"entryAddress",Json::hex(r.entryAddress)}, {L"baseAddress",Json::hex(r.baseAddress)},
+            {L"imageSize",Json::hex(r.imageSize)}, {L"timestamp",Json::hex(r.timeDateStamp)},
+            {L"loadStatus",Json::hex(static_cast<std::uint32_t>(r.loadStatus))},
+            {L"unloadTime",Json::count(r.unloadTime)}, {L"name",Json::string(r.driverName)}});
+    }
+    Json rowJson(const KSWORD_ARK_PLATFORM_AUDIT_ENTRY& r)
+    {
+        return Json::object({{L"scope",Json::number(r.scope)}, {L"kind",Json::number(r.rowKind)},
+            {L"index",Json::number(r.entryIndex)}, {L"status",Json::number(r.status)},
+            {L"hookStatus",Json::number(r.hookStatus)}, {L"confidence",Json::number(r.confidence)},
+            {L"fieldFlags",Json::hex(r.fieldFlags)}, {L"liveAddress",Json::hex(r.liveAddress)},
+            {L"originalAddress",Json::hex(r.originalAddress)}, {L"tableAddress",Json::hex(r.tableAddress)},
+            {L"moduleBase",Json::hex(r.moduleBase)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))},
+            {L"detailCode",Json::number(r.detailCode)}, {L"name",Json::string(boundedText(r.name))},
+            {L"module",Json::string(boundedText(r.modulePath))}});
+    }
+    Json rowJson(const KSWORD_ARK_OBJECT_TYPE_TABLE_ENTRY& r)
+    {
+        return Json::object({{L"index",Json::number(r.typeIndex)}, {L"status",Json::number(r.status)},
+            {L"fieldFlags",Json::hex(r.fieldFlags)}, {L"objectType",Json::hex(r.objectTypeAddress)},
+            {L"identityHash",Json::hex(r.identityHash)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))},
+            {L"name",Json::string(boundedText(r.typeName))}});
+    }
+    Json rowJson(const KSWORD_ARK_WIN32K_TIMER_ENTRY& r)
+    {
+        return Json::object({{L"pid",Json::number(r.processId)}, {L"tid",Json::number(r.threadId)},
+            {L"session",Json::number(r.sessionId)}, {L"status",Json::number(r.status)},
+            {L"fieldFlags",Json::hex(r.fieldFlags)}, {L"flags",Json::hex(r.flags)},
+            {L"timer",Json::hex(r.timerObject)}, {L"timerId",Json::hex(r.timerId)},
+            {L"callback",Json::hex(r.callbackAddress)}, {L"window",Json::hex(r.windowObject)},
+            {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))},
+            {L"intervalMs",Json::number(r.intervalMs)}, {L"countdownMs",Json::number(r.countdownMs)},
+            {L"toleranceMs",Json::number(r.toleranceMs)}, {L"detail",Json::string(boundedText(r.detail))}});
+    }
+    Json rowJson(const KSWORD_ARK_WIN32K_EVENT_HOOK_ENTRY& r)
+    {
+        return Json::object({{L"pid",Json::number(r.processId)}, {L"tid",Json::number(r.threadId)},
+            {L"session",Json::number(r.sessionId)}, {L"targetPid",Json::number(r.targetProcessId)},
+            {L"targetTid",Json::number(r.targetThreadId)}, {L"status",Json::number(r.status)},
+            {L"fieldFlags",Json::hex(r.fieldFlags)}, {L"flags",Json::hex(r.flags)},
+            {L"eventMin",Json::hex(r.eventMin)}, {L"eventMax",Json::hex(r.eventMax)},
+            {L"hook",Json::hex(r.hookObject)}, {L"handle",Json::hex(r.hookHandle)},
+            {L"callback",Json::hex(r.callbackAddress)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))},
+            {L"detail",Json::string(boundedText(r.detail))}});
+    }
+    Json rowJson(const ksword::ark::KernelTimerDpcEntry& r)
+    {
+        return Json::object({{L"processorGroup",Json::number(r.processorGroup)}, {L"processorNumber",Json::number(r.processorNumber)},
+            {L"bucket",Json::number(r.bucketIndex)}, {L"flags",Json::hex(r.flags)}, {L"timer",Json::hex(r.timerAddress)},
+            {L"dpc",Json::hex(r.dpcAddress)}, {L"routine",Json::hex(r.deferredRoutine)},
+            {L"context",Json::hex(r.deferredContext)}, {L"type",Json::number(r.timerType)},
+            {L"period",Json::signedNumber(r.period)}, {L"dueTime",Json::string(std::to_wstring(r.dueTime))}});
+    }
+
+    JsonFields rowMetadata(const ksword::ark::IoctlRegistryQueryResult& r) { return {{L"queryStatus",Json::number(r.status)}, {L"totalCount",Json::number(r.totalCount)}, {L"duplicateCount",Json::number(r.duplicateCount)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}}; }
+    JsonFields rowMetadata(const ksword::ark::UnloadedDriverQueryResult& r) { return {{L"source",Json::number(r.source)}, {L"queryStatus",Json::number(r.queryStatus)}, {L"totalCount",Json::number(r.totalRows)}, {L"skippedRows",Json::number(r.skippedRows)}, {L"responseFlags",Json::hex(r.responseFlags)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}}; }
+    JsonFields rowMetadata(const ksword::ark::PlatformAuditResult& r) { return {{L"queryStatus",Json::number(r.status)}, {L"totalCount",Json::number(r.totalCount)}, {L"responseFlags",Json::hex(r.responseFlags)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}}; }
+    JsonFields rowMetadata(const ksword::ark::ObjectTypeTableAuditResult& r) { return {{L"queryStatus",Json::number(r.status)}, {L"totalCount",Json::number(r.totalCount)}, {L"nextIndex",Json::number(r.nextIndex)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}}; }
+    JsonFields rowMetadata(const ksword::ark::Win32kTimersResult& r) { return {{L"queryStatus",Json::number(r.status)}, {L"totalCount",Json::number(r.totalCount)}, {L"capability",Json::hex(r.capabilityMask)}, {L"missingCapability",Json::hex(r.missingCapabilityMask)}, {L"visited",Json::number(r.visitedNodeCount)}, {L"readFailures",Json::number(r.readFailureCount)}, {L"corruptBuckets",Json::number(r.corruptBucketCount)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}, {L"detail",Json::string(r.detail)}}; }
+    JsonFields rowMetadata(const ksword::ark::Win32kEventHooksResult& r) { return {{L"queryStatus",Json::number(r.status)}, {L"totalCount",Json::number(r.totalCount)}, {L"capability",Json::hex(r.capabilityMask)}, {L"missingCapability",Json::hex(r.missingCapabilityMask)}, {L"visited",Json::number(r.visitedNodeCount)}, {L"readFailures",Json::number(r.readFailureCount)}, {L"corruptLinks",Json::number(r.corruptLinkCount)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}, {L"detail",Json::string(r.detail)}}; }
+    JsonFields rowMetadata(const ksword::ark::KernelTimerDpcEnumResult& r) { return {{L"queryStatus",Json::number(r.queryStatus)}, {L"totalCount",Json::number(r.totalCount)}, {L"statusFlags",Json::hex(r.statusFlags)}, {L"processors",Json::number(r.processorCount)}, {L"bucketsVisited",Json::number(r.bucketsVisited)}, {L"lastStatus",Json::hex(static_cast<std::uint32_t>(r.lastStatus))}}; }
+
+    template <typename Result>
+    bool rowsTruncated(const Result&, std::uint32_t total, std::size_t returned) { return total > returned; }
+    bool rowsTruncated(const ksword::ark::ObjectTypeTableAuditResult& r, std::uint32_t, std::size_t) { return r.nextIndex < KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS; }
+    bool rowsTruncated(const ksword::ark::KernelTimerDpcEnumResult& r, std::uint32_t total, std::size_t returned) { return total > returned || (r.statusFlags & KSWORD_ARK_TIMER_DPC_STATUS_TRUNCATED) != 0; }
+
+    template <typename Result>
+    int finishRowsJson(const wchar_t* label, const Result& result, int rc, std::uint32_t total)
+    {
+        std::vector<Json> rows;
+        if (result.io.ok) for (const auto& entry : result.entries) rows.push_back(rowJson(entry));
+        const bool truncated = result.io.ok && rowsTruncated(result, total, rows.size());
+        auto fields = result.io.ok ? rowMetadata(result) : JsonFields{{L"totalCount",Json{}}};
+        fields.push_back({L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))});
+        fields.push_back({L"truncated",result.io.ok ? Json::boolean(truncated) : Json{}});
+        // A zero transport exit does not prove every private source was available.
+        fields.push_back({L"complete",!result.io.ok || rc != 0 || truncated ? Json::boolean(false) : Json{}});
+        fields.push_back({L"transport",Json::object({{L"ok",Json::boolean(result.io.ok)},
+            {L"deviceOpenFailed",Json::boolean(result.io.deviceOpenFailed)}, {L"win32Error",Json::number(result.io.win32Error)},
+            {L"bytesReturned",Json::number(result.io.bytesReturned)},
+            {L"ntStatus",!result.io.ok && result.io.ntStatus == 0 ? Json{} : Json::hex(static_cast<std::uint32_t>(result.io.ntStatus))}})});
+        fields.push_back({L"unsupported",Json::boolean(result.unsupported)});
+        fields.push_back({L"entries",Json::array(rows)});
+        const wchar_t* state = rc == 0 ? (truncated ? L"partial" : L"success") : rc == 6 ? L"partial" : rc == 5 ? L"unsupported" : L"failed";
+        std::vector<std::wstring> diagnostics;
+        if (!result.io.message.empty()) diagnostics.push_back(utf8ToWide(result.io.message));
+        std::wcout << Json::object({{L"schemaVersion",Json::number(1)}, {L"command",Json::string(std::wstring(L"r0 ") + label)},
+            {L"backend",Json::string(L"r0")}, {L"status",Json::string(state)}, {L"data",Json::object(fields)},
+            {L"diagnostics",Json::strings(diagnostics)}}).text << L"\n";
+        return rc;
+    }
+    template <typename Result>
+    int finishRowsSelected(const wchar_t* label, const Result& result, bool json, std::uint32_t total)
+    {
+        if (!json) return finishRows(label, result);
+        int rc = resultExitCode(result);
+        if (result.io.ok && rc == 3 && static_cast<std::uint32_t>(result.io.ntStatus) == 0x80000005U) rc = 6;
+        return finishRowsJson(label, result, rc, total);
     }
 }
 
@@ -640,14 +756,18 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     if (subcommand == L"hvm-metrics") return finishResult(L"hvm-metrics", client.queryHvmMetrics());
     if (subcommand == L"hvm-platform") return finishResult(L"hvm-platform", client.hvmPlatform());
     if (subcommand == L"hvm-events") return finishResult(L"hvm-events", client.queryHvmEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", 128U), false));
-    if (subcommand == L"ioctl-registry") return finishRows(L"ioctl-registry", client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)));
+    if (subcommand == L"ioctl-registry") { const auto r=client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)); return finishRowsSelected(L"ioctl-registry", r, hasOption(args,L"--json"), r.totalCount); }
     if (subcommand == L"timer-dpc")
     {
         const auto result = client.enumerateKernelTimerDpc(optionU32(args, L"--max-entries", KSWORD_ARK_TIMER_DPC_DEFAULT_MAX_ENTRIES), optionU32(args, L"--max-per-bucket", KSWORD_ARK_TIMER_DPC_DEFAULT_BUCKET_BUDGET));
-        const int rc = finishRows(L"timer-dpc", result);
-        return timerDpcResultCode(result, rc);
+        if (hasOption(args,L"--json")) {
+            int rc=resultExitCode(result);
+            if (result.io.ok && rc==3 && static_cast<std::uint32_t>(result.io.ntStatus)==0x80000005U) rc=6;
+            return finishRowsJson(L"timer-dpc", result, timerDpcResultCode(result, rc), result.totalCount);
+        }
+        return timerDpcResultCode(result, finishRows(L"timer-dpc", result));
     }
-    if (subcommand == L"unloaded") return finishRows(L"unloaded", client.queryUnloadedDrivers(parseUnloadedSource(optionValue(args, L"--source", L"mm")), optionU32(args, L"--max-rows", KSWORD_ARK_UNLOADED_DRIVER_DEFAULT_ROWS)));
+    if (subcommand == L"unloaded") { const auto r=client.queryUnloadedDrivers(parseUnloadedSource(optionValue(args, L"--source", L"mm")), optionU32(args, L"--max-rows", KSWORD_ARK_UNLOADED_DRIVER_DEFAULT_ROWS)); return finishRowsSelected(L"unloaded", r, hasOption(args,L"--json"), r.totalRows); }
     if (subcommand == L"wfp-events") return finishResult(L"wfp-events", client.queryNetworkWfpEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_WFP_EVENT_DEFAULT_REQUESTED_ROWS)));
     if (subcommand == L"traffic") return finishResult(L"traffic", client.queryNetworkTrafficPackets(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", KSWORD_ARK_NETWORK_TRAFFIC_DEFAULT_REQUESTED_ROWS)));
     if (subcommand == L"piddb") return finishResult(L"piddb", client.queryPiDdb(optionU32(args, L"--max-rows", KSWORD_ARK_PIDDB_DEFAULT_ROWS)));
@@ -674,11 +794,11 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     }
     if (subcommand == L"system-time") return finishResult(L"system-time", client.querySystemTime());
     if (subcommand == L"slat-iommu") return finishResult(L"slat-iommu", client.querySlatIommuAudit(hasOption(args, L"--include-mmio")));
-    if (subcommand == L"platform") return finishRows(L"platform", client.queryPlatformAudit(optionU32(args, L"--scope", KSWORD_ARK_PLATFORM_AUDIT_SCOPE_ALL), optionU32(args, L"--max-rows", KSWORD_ARK_PLATFORM_DEFAULT_MAX_ROWS)));
+    if (subcommand == L"platform") { const auto r=client.queryPlatformAudit(optionU32(args, L"--scope", KSWORD_ARK_PLATFORM_AUDIT_SCOPE_ALL), optionU32(args, L"--max-rows", KSWORD_ARK_PLATFORM_DEFAULT_MAX_ROWS)); return finishRowsSelected(L"platform", r, hasOption(args,L"--json"), r.totalCount); }
     if (subcommand == L"i8042") return finishResult(L"i8042", client.queryI8042Audit(optionU32(args, L"--max-rows", KSWORD_ARK_I8042_DEFAULT_MAX_ROWS)));
-    if (subcommand == L"object-types") return finishRows(L"object-types", client.enumObjectTypeTable(optionU32(args, L"--flags", KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_ALL), optionU32(args, L"--max-entries", 256U), optionU32(args, L"--start-index", 0U)));
-    if (subcommand == L"win32k-timers") return finishRows(L"win32k-timers", client.queryWin32kTimers(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
-    if (subcommand == L"win32k-events") return finishRows(L"win32k-events", client.queryWin32kEventHooks(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
+    if (subcommand == L"object-types") { const auto r=client.enumObjectTypeTable(optionU32(args, L"--flags", KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_ALL), optionU32(args, L"--max-entries", 256U), optionU32(args, L"--start-index", 0U)); return finishRowsSelected(L"object-types", r, hasOption(args,L"--json"), r.totalCount); }
+    if (subcommand == L"win32k-timers") { const auto r=client.queryWin32kTimers(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)); return finishRowsSelected(L"win32k-timers", r, hasOption(args,L"--json"), r.totalCount); }
+    if (subcommand == L"win32k-events") { const auto r=client.queryWin32kEventHooks(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)); return finishRowsSelected(L"win32k-events", r, hasOption(args,L"--json"), r.totalCount); }
 
     std::wcerr << L"error: unknown r0 subcommand '" << subcommand << L"'\n";
     return 1;

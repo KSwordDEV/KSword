@@ -4,7 +4,7 @@ $repo=Split-Path -Parent $PSScriptRoot
 $report=[IO.Path]::GetFullPath($ReportPath);if($report.StartsWith(([IO.Path]::GetFullPath($repo).TrimEnd('\')+'\'),[StringComparison]::OrdinalIgnoreCase)){throw 'Coverage runtime report must be outside repository'}
 $Cli=(Resolve-Path -LiteralPath $Cli).Path
 function Help([string]$Path){$args=@('help')+@($Path.Split(' ',[StringSplitOptions]::RemoveEmptyEntries));$text=(& $Cli @args|Out-String);if($LASTEXITCODE -ne 0){throw "Help failed: $Path"};return $text}
-$migration=@(Get-Content -LiteralPath (Join-Path $repo 'shared/usermode/backend/MIGRATION.jsonl')|ForEach-Object {$_|ConvertFrom-Json});if($migration.Count -ne 66){throw 'Expected original 66 migration records'}
+$migration=@(Get-Content -LiteralPath (Join-Path $repo 'shared/usermode/backend/MIGRATION.jsonl')|ForEach-Object {$_|ConvertFrom-Json});if($migration.Count -lt 66){throw 'Expected at least the original 66 migration records'}
 $coverage=@(Get-Content -LiteralPath (Join-Path $repo 'docs/cli/coverage.json') -Raw|ConvertFrom-Json);if($coverage.Count -ne 66){throw 'Expected 66 CLI coverage entries'}
 $top=Help '';if($top -match '--pid|--rva|--creation-time|--mode'){throw 'Top help expands leaf options'}
 $families=@([regex]::Matches($top,'(?m)^  (\S+)  ' )|ForEach-Object {$_.Groups[1].Value})

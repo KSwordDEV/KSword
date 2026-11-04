@@ -42,17 +42,20 @@ Result enumeration(const Args& args) {
     for (const auto& t : threads) partial = partial || !t.identityKnown || !t.startAddressKnown;
     for (const auto& r : snapshot.modules) {
         if (args.has(L"--base") && r.moduleHandle != base) continue;
-        if (args.has(L"--name") && (!r.pathKnown || _wcsicmp(r.moduleName.c_str(),args.get(L"--name").c_str()) != 0)) continue;
-        ++matched;if (rows.size() >= limit) continue;
+        if (args.has(L"--name") && !r.pathKnown) { partial = true; continue; }
+        if (args.has(L"--name") && _wcsicmp(r.moduleName.c_str(),args.get(L"--name").c_str()) != 0) continue;
+        ++matched;
         partial = partial || !r.infoKnown || !r.pathKnown;
+        if (rows.size() >= limit) continue;
         rows.push_back(module(r));
     }
     const bool truncated = matched > rows.size();
-    return {partial || truncated ? 6 : 0,Json::object({{L"target",lease.json()}, {L"source",Json::string(L"shared R3 PSAPI module snapshot / native thread starts")},
+    return {partial ? 6 : 0,Json::object({{L"target",lease.json()}, {L"source",Json::string(L"shared R3 PSAPI module snapshot / native thread starts")},
         {L"enumeration",snapshot.json()}, {L"threadEnumeration",Json::object({{L"complete",Json::boolean(threadsOk && threadState.complete)},
             {L"win32Error",Json::number(threadState.win32Error)}, {L"skippedCount",Json::number(threadState.skippedCount)}})},
-        {L"matchedCount",Json::number(matched)}, {L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))}, {L"truncated",Json::boolean(truncated)},
-        {L"modules",Json::array(rows)}}), partial || truncated ? std::vector<std::wstring>{L"Some module or representative-thread evidence is missing, or output was limited."} : std::vector<std::wstring>{}};
+        {L"matchedCount",Json::number(matched)}, {L"returnedCount",Json::number(static_cast<std::uint32_t>(rows.size()))}, {L"complete",Json::boolean(!partial)},
+        {L"truncated",Json::boolean(truncated)}, {L"displayTruncated",Json::boolean(truncated)},
+        {L"modules",Json::array(rows)}}), partial ? std::vector<std::wstring>{L"Some module or representative-thread evidence is missing."} : std::vector<std::wstring>{}};
 }
 void validateSelection(const Args& args) {
     const auto base = args.integer(L"--base");(void)args.require(L"--base");
@@ -118,7 +121,7 @@ Result threadAction(const Args& args,const std::wstring& verb) {
 void registerProcessModules() {
     addCommand({L"process module enum",L"KswordCLI.exe process module enum --pid PID [--creation-time FILETIME] [--base ADDRESS] [--name NAME] [--limit N] [--backend r3] [--json]",
         L"Enumerate R3 modules and representative threads.",L"Required: --pid. Optional: --creation-time, --base, --name (exact case-insensitive module name), --limit (1000), --backend r3, --json.",
-        L"Output: target, enumeration/threadEnumeration, counts, modules with handle/name/path/base/imageSize, per-query evidence and representativeThread. Missing metadata is null. Truncation or incomplete evidence returns 6; malformed module counts return 4. Requires QUERY_INFORMATION and VM_READ. No driver or R0 fallback.",enumeration});
+        L"Output: target, enumeration/threadEnumeration, complete, displayTruncated, counts, modules with handle/name/path/base/imageSize, per-query evidence and representativeThread. Missing metadata is null. --limit limits displayed rows only; displayTruncated alone returns 0. Incomplete evidence returns 6; malformed module counts return 4. Requires QUERY_INFORMATION and VM_READ. No driver or R0 fallback.",enumeration});
     addCommand({L"process module unload",L"KswordCLI.exe process module unload --pid PID --base ADDRESS [--creation-time FILETIME] [--module-path PATH] [--image-size N] --confirm [--backend r3] [--json]",
         L"Invoke shared remote FreeLibrary and verify module disappearance.",L"Required: --pid, --base, --confirm. Optional: --creation-time, --module-path and --image-size expected snapshot identity, --backend r3, --json.",
         L"Output: target, module, requestSucceeded, verified, remoteThreadCreated, waitResult, freeLibraryResult, win32Error and observed.basePresent. Waits up to 10 seconds. Remaining references or unavailable readback return 6. Cross-bitness or unresolved remote function module returns 5 before execution. A timed-out remote thread may continue after CLI exits; it is not forcibly killed. Unloading in-use modules can destabilize the target.",unload});

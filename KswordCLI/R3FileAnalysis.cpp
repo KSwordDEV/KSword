@@ -27,17 +27,45 @@ Result signature(const Args& args) {
     const auto path = file::path(args, L"--path"); const auto target = file::evidence(path);
     if (!target.present || target.directory()) return {3, Json::object({{L"path", Json::string(path)}, {L"target", target.json()}}), {L"Target file metadata is unavailable or the target is a directory."}};
     const auto result = backend::ReadEmbeddedSignature(path);
+    const auto catalog = backend::ReadCatalogSignature(path);
     const auto status = result.trustStatus;
-    const auto state = status == ERROR_SUCCESS ? L"trusted" : status == TRUST_E_NOSIGNATURE ? L"no-embedded-signature" : status == CERT_E_EXPIRED ? L"expired" :
+    const auto embeddedState = status == ERROR_SUCCESS ? L"trusted" : status == TRUST_E_NOSIGNATURE ? L"no-embedded-signature" : status == CERT_E_EXPIRED ? L"expired" :
         status == TRUST_E_BAD_DIGEST ? L"bad-digest" : L"not-trusted";
     const bool verdict = status == ERROR_SUCCESS || status == TRUST_E_NOSIGNATURE || status == CERT_E_EXPIRED || status == TRUST_E_BAD_DIGEST ||
         status == CERT_E_UNTRUSTEDROOT || status == CERT_E_CHAINING || status == TRUST_E_EXPLICIT_DISTRUST || status == TRUST_E_SUBJECT_NOT_TRUSTED;
-    const int code = !result.evaluated ? 3 : status == TRUST_E_NOSIGNATURE ? 6 : verdict ? 0 : status == TRUST_E_PROVIDER_UNKNOWN || status == TRUST_E_SUBJECT_FORM_UNKNOWN ? 5 : 3;
+    const bool trusted = status == ERROR_SUCCESS || catalog.trusted;
+    const auto known = [](LONG value) { return value == ERROR_SUCCESS || value == TRUST_E_NOSIGNATURE || value == CERT_E_EXPIRED ||
+        value == TRUST_E_BAD_DIGEST || value == CERT_E_UNTRUSTEDROOT || value == CERT_E_CHAINING ||
+        value == TRUST_E_EXPLICIT_DISTRUST || value == TRUST_E_SUBJECT_NOT_TRUSTED; };
+    bool catalogKnownVerdict = catalog.evaluated;
+    std::vector<Json> candidates;
+    for (const auto& candidate : catalog.candidates) {
+        const bool knownStatus = known(candidate.trustStatus);
+        catalogKnownVerdict = catalogKnownVerdict && knownStatus;
+        candidates.push_back(Json::object({{L"path",Json::string(candidate.catalogPath)}, {L"hashAlgorithm",Json::string(candidate.hashAlgorithm)},
+            {L"trustStatus",Json::hex(static_cast<DWORD>(candidate.trustStatus))},
+            {L"trusted",knownStatus ? Json::boolean(candidate.trustStatus == ERROR_SUCCESS) : Json{}}}));
+    }
+    const bool evidenceComplete = (catalog.complete || catalog.trusted) && result.evaluated && verdict && (!catalog.evaluated || catalogKnownVerdict || catalog.trusted);
+    const bool effectiveKnown = trusted || (evidenceComplete && (status != TRUST_E_NOSIGNATURE || catalog.evaluated));
+    const auto state = trusted ? L"trusted" : status == TRUST_E_NOSIGNATURE ?
+        (catalog.evaluated && catalogKnownVerdict ? L"catalog-not-trusted" : L"no-embedded-signature") : embeddedState;
+    const int code = evidenceComplete && effectiveKnown ? 0 :
+        !trusted && catalog.complete && !catalog.evaluated && !verdict ?
+            (status == TRUST_E_PROVIDER_UNKNOWN || status == TRUST_E_SUBJECT_FORM_UNKNOWN ? 5 : 3) : 6;
     return {code, Json::object({{L"path", Json::string(path)}, {L"source", Json::string(L"WinVerifyTrust/Authenticode")},
-        {L"evaluated", Json::boolean(result.evaluated)}, {L"trusted", !result.evaluated || status == TRUST_E_NOSIGNATURE ? Json{} : Json::boolean(status == ERROR_SUCCESS)},
+        {L"evaluated", Json::boolean(result.evaluated)}, {L"trusted", effectiveKnown ? Json::boolean(trusted) : Json{}},
         {L"signatureState", Json::string(state)}, {L"trustStatus", Json::hex(static_cast<DWORD>(status))}, {L"description", Json::string(result.message)},
-        {L"catalogChecked", Json::boolean(false)}, {L"revocationChecked", Json::boolean(false)}, {L"networkRetrieval", Json::boolean(false)}}),
-        status == TRUST_E_NOSIGNATURE ? std::vector<std::wstring>{L"No embedded signature was found; catalog signatures were not checked, so overall trust is unknown."} : std::vector<std::wstring>{}};
+        {L"embedded", Json::object({{L"evaluated",Json::boolean(result.evaluated)}, {L"state",Json::string(embeddedState)},
+            {L"trustStatus",Json::hex(static_cast<DWORD>(status))}, {L"trusted",result.evaluated && verdict && status != TRUST_E_NOSIGNATURE ? Json::boolean(status == ERROR_SUCCESS) : Json{}}})},
+        {L"catalog", Json::object({{L"evaluated",Json::boolean(catalog.evaluated)}, {L"trusted",catalog.trusted || catalogKnownVerdict ? Json::boolean(catalog.trusted) : Json{}},
+            {L"trustStatus",catalog.evaluated ? Json::hex(static_cast<DWORD>(catalog.trustStatus)) : Json{}},
+            {L"path",catalog.catalogPath.empty() ? Json{} : Json::string(catalog.catalogPath)},
+            {L"hashAlgorithm",catalog.hashAlgorithm.empty() ? Json{} : Json::string(catalog.hashAlgorithm)},
+            {L"catalogsExamined",Json::number(catalog.catalogsExamined)}, {L"searchComplete",Json::boolean(catalog.complete)},
+            {L"candidates",Json::array(candidates)}, {L"win32Error",Json::number(catalog.errorCode)}})},
+        {L"catalogChecked", Json::boolean(catalog.complete || catalog.trusted)}, {L"revocationChecked", Json::boolean(false)}, {L"networkRetrieval", Json::boolean(false)}}),
+        {L"Catalog lookup covers installed driver-subsystem SHA256/SHA1 catalogs only. Cached-only trust does not check revocation; file contents can change during the separate checks."}};
 }
 }
 void registerFileAnalysis() {
@@ -49,6 +77,6 @@ void registerFileAnalysis() {
         L"Fields: bitsPerByte, sampledBytes, sizeBytes, limited, complete, win32Error. Budget-limited or partially read prefixes return 6; unreadable files return 3; empty files have entropy 0.", entropy});
     addCommand({L"file signature query", L"KswordCLI.exe file signature query --path PATH [--backend r3] [--json]",
         L"Query Authenticode trust with cached-only retrieval and no revocation check.", L"Required: --path. Optional: --backend r3, --json.",
-        L"Fields: evaluated, trusted, signatureState, trustStatus, catalogChecked, revocationChecked, networkRetrieval. Only the embedded signature is checked. If absent, catalog trust is unknown and exit 6; untrusted embedded signatures remain explicitly marked.", signature});
+        L"Reports embedded and installed driver-subsystem SHA256/SHA1 catalog evidence independently. trusted is true if either verifies; absent or incomplete evidence is unknown and returns 6. trustStatus retains the embedded status; catalog includes its own status, path, searchComplete and errors. Cached-only; no revocation or atomic file snapshot.", signature});
 }
 }

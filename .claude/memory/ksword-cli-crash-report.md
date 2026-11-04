@@ -62,3 +62,12 @@
 - 在同一来宾先测试原驱动，再用独立临时服务加载新构建的 SYS；完成后临时服务与测试文件/注册表键清除，原服务恢复停止。验证预检完整名称、TCP 降级、R0 IOCTL/对象类型/平台明细、文件 DOS 路径、section 边界、SSDT 和进程跨视图降级、健康检查、PE 导入/具名导出、签名边界、System XPath 和 Security 日志、R3 网络与内存分页续读、文件创建防覆盖和 REG_SZ 写入回读。具名导出受限制时可返回 partial；目录签名未检查，不能推断文件无签名。未实测 GUI 会话、高风险写操作或其他 Windows 版本。
 - CLI 与驱动 Release/x64 构建通过；WDK ApiValidator/Inf2Cat 通过。驱动测试签名链在宿主机验证不受信任，来宾测试签名模式能加载不代表发行签名有效。R0 列表仍未统一 JSON；ETW 语义解码、目录签名、仅序号 PE 导出以及全部 R3 功能覆盖仍有缺口，不应将本次审查称作全面覆盖。
 - `file section` 已作为 `section query-file-mappings` 的实际别名，复用全部参数与降级语义；Win10 20H2 原驱动实测可调用，返回 unverified 和 partial，测试后服务恢复停止。
+
+## 2026-11-03 CLI 第二轮能力回归
+
+- 七项 R0 列表与进程/线程 crossview 增加 JSON；已在 19042 来宾实测 IOCTL、对象类型、平台及两类 crossview。跨视图缺能力时仍以 unavailable/原始候选行报告，不将异常候选当作隐藏结论。显示预览受限与实际采集不完整分开：hex 的 `complete` 只指请求前缀；驱动和进程模块保留采集完整性及 `displayTruncated`。
+- `file signature query` 现分别检查嵌入签名与已安装驱动子系统 SHA256/SHA1 catalog，缓存模式不检查吊销，找不到目录不能证明无签名。来宾 kernel32 的目录签名实测为可信。进程扩展字段仍只检查嵌入签名，不可把这一结论扩大到 catalog。
+- PE 结构化导出增加具名、仅序号、别名和转发项；HostX64 真实 DLL 夹具覆盖异常与上限，来宾 kernel32 因导入显示上限返回 partial。ETW 可选 TDH 有界解码与目标 PID 筛选；来宾捕获已得到真实解码字段并清理会话，目标字段不明时计数并返回 partial，不以事件头 PID 推断。持续流式输出尚未实现。
+- `system health` 的 v4 缺项与 legacyCrossviewFields 是不同证据。旧版进程、线程、CID 组逐项报告可用、缺失或未知；`dyn fields`、能力回执和其他运行条件是独立快照，不能把空 v4 缺项解释为全部跨视图可用。
+- 两台 1904x 系统的用户态 NSI 16 字节步长对照正确，24 字节会错位。独立临时 WDM 只读探针进一步在 Win10 19042 的内核 NSI 16 字节查询上，对 17 条前后快照稳定的 IPv4 五元组/PID 与 IP Helper 逐项一致（含自建监听与已建立连接）；临时服务及文件已清理。两个 API 同源，运行中 netio/tcpip 映像精确身份、IPv6 及其他系统尚未校准，生产 R0 TCP 继续标记 unknown。
+- `Test-KSwordCliR3Coverage.ps1` 原来要求迁移记录恰好 66 条，后续追加记录导致误报；现校验至少保留前 66 条，并逐项对照原有覆盖目录。HostX64 实测 66 项、606 个 help 节点通过；不能据此声称全部 R3 后端均已审查。

@@ -52,6 +52,7 @@ list 返回可选择的字段名。默认选择 command-line,user,architecture,e
 命名覆盖名称／路径、命令行、用户、架构、描述、提升状态、效率模式、运行状态、签名、PPL、程序包、作业、
 UAC 虚拟化、DEP、CFG、硬件栈保护、DPI、企业上下文、GPU 利用率／引擎／显存，以及累计 CPU、内存、I/O 字段。
 字段名未知、重复或逗号空项返回 1。R0 EPROCESS 字段和没有真实采样的 CPU／网络速率不在本组发布。
+签名字段沿用进程共享后端的嵌入式 WinVerifyTrust，未检查目录签名或吊销；未找到嵌入式签名时整体信任状态不可用，保留原始状态而不判为无签名。需要目录签名证据时使用 `file signature query`。
 发行与虚拟机部署应同时复制 Release 中的 MSVCP140.dll、VCRUNTIME140.dll、VCRUNTIME140_1.dll；
 新工具链构建的标准库代码不能依赖来宾系统里更旧的 VC 运行库。测试通道校验 EXE 与这些 DLL 的哈希。
 
@@ -205,11 +206,11 @@ KswordCLI.exe process module thread terminate --pid PID --base ADDRESS --tid TID
 使用 `help process module`、`help process module thread` 和叶子 help 逐层发现；本组默认 R3，无 R0 回退。
 枚举保留进程身份句柄，需要 PROCESS_QUERY_INFORMATION 与 PROCESS_VM_READ；权限失败返回 3，后端入口不可用返回 5。
 name 按完整模块文件名忽略大小写筛选，base 按模块句柄筛选，limit 默认 1000。
-输出 target、source、enumeration、threadEnumeration、matchedCount、returnedCount、truncated、modules。
+输出 target、source、enumeration、threadEnumeration、matchedCount、returnedCount、complete、displayTruncated、truncated、modules。
 模块行含 handle、name、path、base、imageSize、infoEvidence、pathEvidence、representativeThread。
 地址为十六进制字符串；不可用的路径／映像信息为 null，并保留原始 Win32 错误。
 关联线程按真实起始地址是否位于映像范围选取，提供 tid 与创建时间；没有关联线程可以是有效结果。
-路径截断、代表线程证据缺失或输出截断返回 6，结构字节数不对齐返回 4。
+路径截断、代表线程证据缺失返回 6，结构字节数不对齐返回 4。仅因 limit 减少显示行时 complete 为 true、displayTruncated 为 true，返回 0；truncated 保留为兼容字段。
 模块表增长时最多重试四次，持续增长只处理实际已填入的容量并标记不完整，避免空槽位冒充模块。
 
 unload 在完整模块快照上核对 base，可附 module-path 和 image-size 约束预期模块。

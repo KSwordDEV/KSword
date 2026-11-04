@@ -312,6 +312,126 @@ namespace ks::file
             return false;
         }
 
+        // Map one contiguous file-backed RVA span; callers must not read into
+        // virtual-only tails or across a section boundary.
+        bool ExportRvaSpan(const std::vector<std::uint8_t>& bytes, std::uint32_t rva,
+            std::uint32_t headers, const std::vector<IMAGE_SECTION_HEADER>& sections,
+            std::size_t& offset, std::size_t& span)
+        {
+            for (const auto& section : sections)
+            {
+                if (rva < section.VirtualAddress) continue;
+                const std::uint32_t delta = rva - section.VirtualAddress;
+                if (delta >= section.SizeOfRawData) continue;
+                const std::uint64_t raw = static_cast<std::uint64_t>(section.PointerToRawData) + delta;
+                if (raw >= bytes.size()) return false;
+                offset = static_cast<std::size_t>(raw);
+                span = std::min<std::size_t>(section.SizeOfRawData - delta, bytes.size() - offset);
+                return true;
+            }
+            if (rva >= headers || rva >= bytes.size()) return false;
+            offset = rva;
+            span = std::min<std::size_t>(headers - rva, bytes.size() - offset);
+            return true;
+        }
+
+        template <typename T>
+        bool ReadExportRva(const std::vector<std::uint8_t>& bytes, std::uint64_t rva,
+            std::uint32_t headers, const std::vector<IMAGE_SECTION_HEADER>& sections, T& value)
+        {
+            if (rva > std::numeric_limits<std::uint32_t>::max()) return false;
+            std::size_t offset = 0, span = 0;
+            if (!ExportRvaSpan(bytes, static_cast<std::uint32_t>(rva), headers, sections, offset, span) || span < sizeof(T)) return false;
+            std::memcpy(&value, bytes.data() + offset, sizeof(T));
+            return true;
+        }
+
+        bool ReadExportString(const std::vector<std::uint8_t>& bytes, std::uint32_t rva,
+            std::uint32_t headers, const std::vector<IMAGE_SECTION_HEADER>& sections,
+            std::size_t maxBytes, std::wstring& value)
+        {
+            std::size_t offset = 0, span = 0;
+            if (!ExportRvaSpan(bytes, rva, headers, sections, offset, span)) return false;
+            const std::size_t limit = std::min<std::size_t>({span, maxBytes, 4096});
+            const auto* begin = reinterpret_cast<const char*>(bytes.data() + offset);
+            const auto* end = static_cast<const char*>(std::memchr(begin, 0, limit));
+            if (!end || end == begin) return false;
+            value = ks::str::Utf8ToUtf16(std::string(begin, end));
+            return true;
+        }
+
+        // Decode EAT slots independently of the optional name table. Keep names
+        // as aliases of an ordinal and preserve missing/unreadable evidence.
+        PeExportSummary DecodeExportSymbols(const std::vector<std::uint8_t>& bytes,
+            std::uint32_t headers, const std::vector<IMAGE_SECTION_HEADER>& sections,
+            const IMAGE_DATA_DIRECTORY& directory)
+        {
+            PeExportSummary result;
+            if (!directory.VirtualAddress && !directory.Size) { result.complete = true; return result; }
+            result.present = true;
+            IMAGE_EXPORT_DIRECTORY info{};
+            if (!directory.VirtualAddress || directory.Size < sizeof(info) ||
+                !ReadExportRva(bytes, directory.VirtualAddress, headers, sections, info))
+            {
+                result.malformed = true;
+                return result;
+            }
+            result.ordinalBase = info.Base;
+            result.functionCount = info.NumberOfFunctions;
+            result.nameCount = info.NumberOfNames;
+            const auto slots = std::min<std::uint32_t>(info.NumberOfFunctions, kMaxExportNames);
+            const auto names = std::min<std::uint32_t>(info.NumberOfNames, kMaxExportNames);
+            result.truncated = slots != info.NumberOfFunctions || names != info.NumberOfNames;
+            result.namesComplete = names == info.NumberOfNames;
+            std::vector<std::vector<std::wstring>> aliases(slots);
+            if (info.NumberOfNames && (!info.AddressOfNames || !info.AddressOfNameOrdinals))
+            { result.malformed = true; result.namesComplete = false; }
+            else
+            {
+                for (std::uint32_t i = 0; i < names; ++i)
+                {
+                    CheckPeAnalysisCancelled();
+                    std::uint32_t nameRva = 0;
+                    std::uint16_t index = 0;
+                    if (!ReadExportRva(bytes, static_cast<std::uint64_t>(info.AddressOfNames) + i * sizeof(nameRva), headers, sections, nameRva) ||
+                        !ReadExportRva(bytes, static_cast<std::uint64_t>(info.AddressOfNameOrdinals) + i * sizeof(index), headers, sections, index))
+                    { result.malformed = true; result.namesComplete = false; break; }
+                    if (index >= info.NumberOfFunctions) { result.malformed = true; result.namesComplete = false; continue; }
+                    std::wstring name;
+                    if (!nameRva || !ReadExportString(bytes, nameRva, headers, sections, 4096, name))
+                    { result.malformed = true; result.namesComplete = false; continue; }
+                    if (index < slots) aliases[index].push_back(std::move(name));
+                }
+            }
+            if (info.NumberOfFunctions && !info.AddressOfFunctions) result.malformed = true;
+            else
+            {
+                const std::uint64_t directoryEnd = static_cast<std::uint64_t>(directory.VirtualAddress) + directory.Size;
+                for (std::uint32_t i = 0; i < slots; ++i)
+                {
+                    CheckPeAnalysisCancelled();
+                    std::uint32_t rva = 0;
+                    if (!ReadExportRva(bytes, static_cast<std::uint64_t>(info.AddressOfFunctions) + i * sizeof(rva), headers, sections, rva))
+                    { result.malformed = true; break; }
+                    if (!rva) { if (!aliases[i].empty()) result.malformed = true; continue; }
+                    PeExportSymbol symbol;
+                    symbol.ordinal = static_cast<std::uint64_t>(info.Base) + i;
+                    symbol.rva = rva;
+                    symbol.names = std::move(aliases[i]);
+                    symbol.isForwarder = rva >= directory.VirtualAddress && static_cast<std::uint64_t>(rva) < directoryEnd;
+                    if (symbol.isForwarder)
+                    {
+                        symbol.forwarderKnown = ReadExportString(bytes, rva, headers, sections,
+                            static_cast<std::size_t>(directoryEnd - rva), symbol.forwarder);
+                        if (!symbol.forwarderKnown) result.malformed = true;
+                    }
+                    result.symbols.push_back(std::move(symbol));
+                }
+            }
+            result.complete = !result.malformed && !result.truncated;
+            return result;
+        }
+
         // CalculateSectionEntropy computes Shannon entropy over the raw section bytes.
         // Raw size is truncated to the file length so damaged headers remain safe.
         double CalculateSectionEntropy(
@@ -681,8 +801,8 @@ namespace ks::file
             report.Field(L"FunctionCount", std::to_wstring(exportInfo.NumberOfFunctions));
             report.Field(L"NameCount", std::to_wstring(exportInfo.NumberOfNames));
 
-
-
+            // A legal ordinal-only image has no name or name-ordinal arrays.
+            if (exportInfo.NumberOfNames == 0) return;
             std::uint32_t functionArrayOffset = 0;
             std::uint32_t nameArrayOffset = 0;
             std::uint32_t ordinalArrayOffset = 0;
@@ -1378,6 +1498,7 @@ namespace ks::file
         AppendDataDirectories(report, dataDirectoryList);
         AppendImportEntries(report, result.importModules);
         AppendExportTable(report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_EXPORT]);
+        result.exports = DecodeExportSymbols(fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_EXPORT]);
         AppendTlsDirectory(report, fileBytes, isPe64, imageBaseValue, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_TLS]);
         AppendResourceDirectory(report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_RESOURCE]);
         AppendBaseRelocDirectory(report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_BASERELOC]);

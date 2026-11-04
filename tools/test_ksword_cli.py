@@ -4,6 +4,7 @@ No driver is loaded and no service or target process is changed. Run from an
 x64 VS developer shell: python tools/test_ksword_cli.py.
 """
 import argparse
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -163,6 +164,17 @@ def main():
                 result = subprocess.run([str(binary), "--evidence-unavailable", family, "crossview"], capture_output=True)
                 assert result.returncode == 6 and b"comparison=incomplete" in result.stdout, (family, result.returncode, result.stdout, result.stderr)
                 assert missing in result.stdout and b"anomaly=0x1(raw-candidate)" in result.stdout and b"publicStatus=not-observed" in result.stdout
+                result = subprocess.run([str(binary), "--evidence-unavailable", family, "crossview", "--json"], capture_output=True)
+                assert result.returncode == 6, (family, result.returncode, result.stdout, result.stderr)
+                data = json.loads(result.stdout)["data"]
+                assert data["comparisonComplete"] is False and data["returnedCount"] == 1 and data["displayTruncated"] is False
+                assert data["rows"][0]["anomalyFlags"] == "0x1" and data["rows"][0]["publicWalkStatus"] is None
+                key = "activeList" if family == "process" else "threadList"
+                assert data["sourceStates"][key] == "capability-missing"
+                limited = subprocess.run([str(binary), "--evidence-unavailable", family, "crossview", "--limit", "0", "--json"], capture_output=True)
+                assert limited.returncode == 6 and json.loads(limited.stdout)["data"]["displayTruncated"] is True
+                missing_driver = subprocess.run([str(binary), "--missing-device", family, "crossview", "--json"], capture_output=True)
+                assert missing_driver.returncode == 2 and json.loads(missing_driver.stdout)["status"] == "unavailable"
             protocol = subprocess.run([str(binary), "--protocol"], capture_output=True, check=True)
             assert protocol.stdout.decode().split() == [str(0x222014), str(0x222028)], protocol.stdout
             overview = subprocess.run([str(binary), "help"], capture_output=True, check=True).stdout.decode()

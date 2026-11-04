@@ -10,4 +10,4 @@ with tempfile.TemporaryDirectory(prefix="ksword-health-") as temporary:
                     str(root / "tools/ksword_cli_health_test.cpp"), str(root / "KswordCLI/CommandRegistry.cpp"),
                     "/Fe:" + str(binary)], cwd=temporary, check=True)
     subprocess.run([str(binary)], check=True, timeout=10)
-print("CLI_HEALTH_TEST_PASS: healthy, missing driver, malformed list, degraded feature, unsupported v4")
+print("CLI_HEALTH_TEST_PASS: healthy, missing driver, malformed list, degraded feature, unsupported v4, missing and truncated legacy fields")

@@ -1,5 +1,11 @@
 # 系统工具 R3 命令
 
+## 驱动只读健康检查
+
+`system health [--json]` 查询服务状态、驱动能力、DynData 状态、v4 缺项以及独立的旧版进程链表、线程链表和 CID 表字段证据。`legacyCrossviewFields.groups` 中 `reportedAvailable` 来自旧版能力位；字段 `present` 根据 `dyn fields` 的实际回执标为 true、false 或未知 null。`fieldEvidenceComplete=false` 表示回复截断、格式不兼容或该版本没有返回全部所需描述符，不能把未知当成缺失。
+
+v4 缺项清单只覆盖 v4 profile，空列表不能证明旧版字段或 win32k 能力可用。各查询是独立快照，跨视图还依赖运行时对象类型和其他条件；即使字段全部存在也不保证对应跨视图操作可用。`window win32k` 需要在目标会话分别检查，不将其位掩码与 DynData 旧版位掩码混用。字段缺失时可检查匹配的内核 profile 身份，并使用 `dyn fields` 获取全部描述符；命令不会修改驱动、下发 profile 或加载服务。
+
 ## IOCTL 编码解析（迁移项 46）
 
 ```powershell
