@@ -10,13 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--source-ref'); args=parser.parse_args()
-    path='Ksword5.1/Ksword5.1/FileDock/NtfsSearchPage.cpp'
+    path='Ksword5.1/Ksword5.1/FileDock/DiskSpacePage.cpp'
     page=subprocess.check_output(['git','show',f'{args.source_ref}:{path}'],cwd=ROOT).decode('utf-8-sig') if args.source_ref else (ROOT/path).read_text(encoding='utf-8-sig')
     backend=(ROOT/'Ksword5.1/Ksword5.1/FileDock/NtfsFastIndex.cpp').read_text(encoding='utf-8-sig')
     signature='[](const Request& request, const ks::ui::AsyncOperationToken& token)'
-    worker=function(function(page,'void NtfsSearchPage::showDirectory('),signature)
-    split='void NtfsSearchPage::loadDirectoryExtensions(' in page
-    extension_worker=function(function(page,'void NtfsSearchPage::loadDirectoryExtensions('),signature) if split else ''
+    worker=function(function(page,'void DiskSpacePage::showDirectory('),signature)
+    split='void DiskSpacePage::loadDirectoryExtensions(' in page
+    extension_worker=function(function(page,'void DiskSpacePage::loadDirectoryExtensions('),signature) if split else ''
     work=ROOT/'.codex-build-logs/ntfs-first-result'; work.mkdir(parents=True,exist_ok=True)
     code=r'''
 #include "FileDock/NtfsFastIndex.h"

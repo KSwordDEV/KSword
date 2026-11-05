@@ -3,7 +3,7 @@
 #include <QWidget>
 #include <memory>
 
-// Shared read-only MFT snapshot powers both search and disk-space views.
+// Read-only MFT snapshot and USN refresh power the independent file-search page.
 class NtfsSearchPage final : public QWidget
 {
     Q_OBJECT
@@ -24,11 +24,8 @@ private:
     void startIndex(bool incremental);
     void startSearch();
     bool hasSelectedVolumeIndex() const;
-    void showDirectory(quint64 reference);
-    void loadDirectoryExtensions(quint64 reference, bool allocated);
     void updateButtons();
     void updateUnavailableResults(const char* message);
     void cancelOperations();
-    void restoreSpaceDirectory();
     void locateSelected();
 };

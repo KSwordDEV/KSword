@@ -1,6 +1,7 @@
 #include "FileDock.h"
 #include "FilePropertyTableModel.h"
 #include "NtfsSearchPage.h"
+#include "DiskSpacePage.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
@@ -14672,10 +14673,14 @@ const std::vector<FileDock::NavigationPageDefinition>& FileDock::navigationPageD
               QStringLiteral("选中: 0"),
               QStringLiteral("磁盘: -"),
               QStringLiteral("解析器: Windows API") }, &FileDock::m_fileManagerPage, &FileDock::initializeManagerPage },
-        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("快速搜索与空间分布"),
+        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("快速文件搜索"),
           { QStringLiteral("快速文件搜索"), QStringLiteral("USN 增量更新"),
-            QStringLiteral("文件空间分布"), QStringLiteral("WinDirStat"), QStringLiteral("NTFS") },
+            QStringLiteral("MFT"), QStringLiteral("NTFS") },
           &FileDock::m_ntfsIndexPage, &FileDock::initializeNtfsIndexPage },
+        { QStringLiteral("file.tab.disk_space"), QString(), QStringLiteral("file.tab.disk_space"), QStringLiteral("空间分布"),
+          { QStringLiteral("文件空间分布"), QStringLiteral("WinDirStat"), QStringLiteral("扫描文件夹"),
+            QStringLiteral("普通文件遍历"), QStringLiteral("MFT") },
+          &FileDock::m_diskSpacePage, &FileDock::initializeDiskSpacePage },
         { QStringLiteral("file.tab.storage_controller"), QString(), QStringLiteral("file.tab.storage_controller"), QStringLiteral("存储控制器"),
           { QStringLiteral("KSword Controller / 存储控制器"),
               QStringLiteral("持续风险提示：此页直接驱动专用控制器的 BAR、DMA/队列或 IDE task-file。写入可立即破坏文件系统、分区表和启动数据；控制器重置可使设备离线。仅允许手动绑定的非启动、无挂载卷控制器。expected-hash 条件比较与写后复读不是硬件原子操作，不能消除设备并发写、固件缓存或掉电风险。"),
@@ -15168,18 +15173,28 @@ void FileDock::initializeNtfsIndexPage()
 {
     auto* page = new NtfsSearchPage(m_rootTabWidget);
     m_ntfsIndexPage = page;
-    connect(page, &NtfsSearchPage::locatePathRequested, this, [this](const QString& path) {
-        const QString target = QDir::cleanPath(QDir::fromNativeSeparators(path));
-        if (target.isEmpty()) return;
-        // QFileInfo path decomposition does not query the filesystem. Native existence
-        // probing remains in the existing asynchronous navigation worker.
-        const QString parent = QFileInfo(target).absolutePath();
-        m_rootTabWidget->setCurrentWidget(m_fileManagerPage);
-        m_leftPanel.filterEdit->clear();
-        m_leftPanel.showHiddenCheck->setChecked(true);
-        m_leftPanel.showSystemCheck->setChecked(true);
-        navigateToPath(m_leftPanel, parent, true, target);
-    });
+    connect(page, &NtfsSearchPage::locatePathRequested, this, &FileDock::locateIndexedPath);
+}
+
+void FileDock::initializeDiskSpacePage()
+{
+    auto* page = new DiskSpacePage(m_rootTabWidget);
+    m_diskSpacePage = page;
+    connect(page, &DiskSpacePage::locatePathRequested, this, &FileDock::locateIndexedPath);
+}
+
+void FileDock::locateIndexedPath(const QString& path)
+{
+    const QString target = QDir::cleanPath(QDir::fromNativeSeparators(path));
+    if (target.isEmpty()) return;
+    // QFileInfo path decomposition does not query the filesystem. Native existence
+    // probing remains in the existing asynchronous navigation worker.
+    const QString parent = QFileInfo(target).absolutePath();
+    m_rootTabWidget->setCurrentWidget(m_fileManagerPage);
+    m_leftPanel.filterEdit->clear();
+    m_leftPanel.showHiddenCheck->setChecked(true);
+    m_leftPanel.showSystemCheck->setChecked(true);
+    navigateToPath(m_leftPanel, parent, true, target);
 }
 
 void FileDock::initializeStorageControllerPage()
@@ -16386,6 +16401,17 @@ void FileDock::selectPendingPath(FilePanelWidgets& panel)
 void FileDock::applyPanelFilterAndSort(FilePanelWidgets& panel)
 {
     const bool manualMode = currentModeIsManual(panel);
+    if (auto* modes = qobject_cast<QStandardItemModel*>(panel.viewModeCombo->model())) {
+        if (auto* treeMode = modes->item(3)) {
+            treeMode->setEnabled(!manualMode);
+            treeMode->setToolTip(manualMode ? ks::i18n::sourceText(QStringLiteral(
+                "当前解析方式只提供当前目录列表；树形视图需要 Windows API 模式。")) : QString());
+        }
+    }
+    if (manualMode && panel.viewModeCombo->currentIndex() == 3) {
+        const QSignalBlocker blocker(panel.viewModeCombo);
+        panel.viewModeCombo->setCurrentIndex(2);
+    }
     const int modeIndex = panel.viewModeCombo->currentIndex();
     const QString filterText = panel.filterEdit->text().trimmed();
 

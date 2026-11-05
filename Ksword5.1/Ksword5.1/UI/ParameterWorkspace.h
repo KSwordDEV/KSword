@@ -20,6 +20,9 @@ namespace ks::ui
         QHBoxLayout* actions() const { return m_actions; }
         // 多组参数共用的标题/管理动作固定在滚动正文上方；按需创建。
         QVBoxLayout* parameterHeader();
+        // 目录选择器等已有内部滚动的正文使用独立视口，避免外层表单滚动再次包树。
+        // 构造期间、添加 parameters() 内容之前调用一次；动作栏与自适应分栏继续由框架拥有。
+        void setParameterViewport(QWidget* viewport);
         // 明确需要并排比较的参数列保留最小宽度，由同一正文视口承担横纵滚动。
         void enableHorizontalParameterScroll();
         void revealParameter(QWidget* target);
@@ -33,6 +36,7 @@ namespace ks::ui
         QSplitter* m_splitter = nullptr; // 宽窗口左右排列，窄窗口上下排列。
         QScrollArea* m_scroll = nullptr; // 只有参数正文参与滚动，底部动作不滚走。
         QWidget* m_parameterPanel = nullptr;
+        QWidget* m_parameterViewport = nullptr;
         QWidget* m_resultPanel = nullptr;
         QVBoxLayout* m_parameters = nullptr;
         QVBoxLayout* m_parameterHeader = nullptr;

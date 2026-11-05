@@ -9,7 +9,6 @@
 
 #define private public
 #include "FileDock/NtfsSearchPage.h"
-#include "FileDock/NtfsSpaceMapWidget.h"
 #undef private
 #include "ntfs_search_page_source.inc"
 #include "ntfs_path_source.inc"
@@ -204,7 +203,7 @@ void runPage(bool dark)
     FirstPaint first;
     first.geometry = [&] {
         const auto& state = *page->m_state;
-        return QVector<QRect>{state.tabs->geometry(), state.results->geometry(),
+        return QVector<QRect>{state.results->geometry(),
             state.results->viewport()->geometry(), state.results->horizontalHeader()->geometry(),
             state.indexStatus->parentWidget()->geometry(), state.searchStatus->parentWidget()->geometry()};
     };
@@ -223,20 +222,16 @@ void runPage(bool dark)
     QWidget* toolbar = s.searchStatus->parentWidget();
     const QColor expected = ks::ui::MainWindowSurfaceColors().toolbar;
     check(sample(toolbar, QPoint(toolbar->width() / 2, 1)) == expected, "search toolbar paints shared surface without black strip");
-    check(s.tabs->property("ksword_joined_result_tabs").toBool(), "MFT result tabs use shared joined relationship");
-    check(s.tabs->property("ksword_page_tabs_content_inset").toInt() == 0, "MFT result pages have no repeated side inset");
+    check(page->findChildren<QTabWidget*>().isEmpty(), "independent search does not retain a redundant or hidden space tab");
     check(header->property("ksword_primary_toolbar").toBool(), "shared index state owns joined header surface");
     check(toolbar->property("ksword_primary_toolbar").toBool(), "search state/actions own shared toolbar surface");
     check(dynamic_cast<ks::ui::TableActionTableView*>(s.results), "search results use shared table chrome reservation");
-    check(dynamic_cast<ks::ui::TableActionTableView*>(s.extensions), "extension results use shared table chrome reservation");
     check(ks::ui::ResultTableHost::ensure(s.results)->capabilities().actionBar == ks::ui::TableActionBarMode::Compact,
         "search result keeps compact shared action mode");
     check(sample(header, QPoint(header->width() / 2, 1)) == expected, "joined result header paints shared surface");
-    check(sample(s.tabs, QPoint(s.tabs->width() - 12, s.tabs->tabBar()->height() / 2)) == expected,
-        "full tab rail joins the shared toolbar surface");
     check(sample(s.results->horizontalHeader(), QPoint(12, 1)) == ks::ui::MainWindowSurfaceColors().header,
         "result table header keeps shared header surface");
-    check(s.query->isEnabled() && s.search->isEnabled() && !s.up->isEnabled() && !s.locate->isEnabled(),
+    check(s.query->isEnabled() && s.search->isEnabled() && !s.locate->isEnabled(),
         "first-time search is available while result-dependent actions remain unavailable");
     check(s.search->text() == QStringLiteral("扫描并搜索"), "first-time primary action explains the complete scan-and-search workflow");
     check(s.search->parentWidget() == s.cancel->parentWidget() && s.search->isVisibleTo(page),
@@ -253,25 +248,20 @@ void runPage(bool dark)
     check(s.build->text().contains(QStringLiteral("正在")), "build busy text responds immediately");
     check(s.searchStatus->text().contains(QStringLiteral("正在准备")), "search area explains initial file-list preparation");
     until([&] { return !s.indexOperation->isBusy(); }, "controlled build failure returns");
-    check(!s.projection && s.search->isEnabled(), "failed first-time scan restores primary retry without inventing a usable index");
+    check(!s.snapshot && s.search->isEnabled(), "failed first-time scan restores primary retry without inventing a usable index");
     check(s.indexStatus->text().contains(QStringLiteral("Controlled Win32 error 5")), "real backend error is visible in common result header");
-    check(s.searchStatus->text().contains(QStringLiteral("未能加载")) && s.spaceStatus->text().contains(QStringLiteral("未能加载")),
-        "both result tabs explain index failure");
+    check(s.searchStatus->text().contains(QStringLiteral("未能加载")),
+        "search result explains index failure");
     check(s.build->isEnabled() && s.search->text() == QStringLiteral("扫描并搜索"), "failure leaves an explicit enabled scan-and-search retry");
     check(!s.cancel->isEnabled() && s.progress->isHidden(), "failure settles cancel and progress state");
     backendMode = 3; s.build->click();
     until([&] { return !s.indexOperation->isBusy(); }, "backend exception settles");
-    check(!s.projection && s.build->isEnabled() && !s.cancel->isEnabled() && s.progress->isHidden(),
+    check(!s.snapshot && s.build->isEnabled() && !s.cancel->isEnabled() && s.progress->isHidden(),
         "backend exception restores retry controls without claiming a usable index");
     backendMode = 4; s.build->click();
     until([&] { return !s.indexOperation->isBusy(); }, "missing backend result settles");
-    check(!s.projection && s.indexStatus->text().contains(QStringLiteral("未能加载")),
+    check(!s.snapshot && s.indexStatus->text().contains(QStringLiteral("未能加载")),
         "missing backend result is a failure rather than a fake user cancellation");
-    s.tabs->setCurrentIndex(1); drain();
-    check(s.spaceStatus->parentWidget()->property("ksword_primary_toolbar").toBool(), "space state/actions share toolbar surface");
-    check(sample(s.spaceStatus->parentWidget(), QPoint(s.spaceStatus->parentWidget()->width() / 2, 1)) == expected,
-        "space toolbar paints shared surface without black strip");
-
     backendMode = 2; releaseBackend = false; s.build->click();
     until([&] { return s.indexOperation->isInFlight(); }, "cancellable backend starts");
     s.cancel->click();
@@ -283,44 +273,20 @@ void runPage(bool dark)
     backendMode = 1; s.query->clear();
     const int beforeEnter = entered.load();
     pressEnter(s.query);
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "successful fixture index/search/space settle");
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy(); }, "successful fixture index and search settle");
     check(entered.load() > beforeEnter, "Enter before an index exists starts automatic preparation");
-    check(s.projection && s.search->isEnabled() && s.refresh->isEnabled(), "usable index enables search and USN refresh");
+    check(s.snapshot && s.search->isEnabled() && s.refresh->isEnabled(), "usable index enables search and USN refresh");
     check(s.search->text() == QStringLiteral("搜索") && visibleLabels(page).contains(QStringLiteral("T:\\")),
         "ready workflow names the indexed volume and exposes direct search");
-    check(s.searchModel->rowCount() == 3 && s.extensionModel->rowCount() == 1, "automatic search and extension projections populate real models");
-    check(s.map->m_data->items.size() == 1, "space map receives prepared direct-directory data");
-    const auto rootMap = s.map->m_data;
+    check(s.searchModel->rowCount() == 3, "automatic search populates the real result model");
     auto* commits = ks::ui::UiCommitCoordinator::forApplication();
-    commits->beginContextMenu(s.extensions);
-    page->showDirectory(7);
-    until([&] { return commits->pendingCount() > 0; }, "space navigation reaches real deferred table commit barrier");
-    check(s.currentDirectory == 7 && s.map->m_data == rootMap, "in-progress space navigation keeps last committed map");
-    s.cancel->click();
-    check(s.currentDirectory == 5 && s.mapPath->text() == QStringLiteral("T:\\") && s.map->m_data == rootMap,
-        "space cancellation restores matching committed directory identity/path/map");
-    commits->endContextMenu(s.extensions);
-    until([&] { return commits->pendingCount() == 0; }, "cancelled deferred space commit drains");
-    check(s.currentDirectory == 5 && s.map->m_data == rootMap && !s.up->isEnabled(),
-        "cancelled deferred action cannot replace restored result or parent navigation");
-    page->showDirectory(7);
-    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "directory navigation retry settles");
-    check(s.currentDirectory == 7 && s.up->isEnabled() && s.mapPath->text() == QStringLiteral("T:\\folder"),
-        "directory navigation retry commits correct identity and parent action");
-    s.up->click();
-    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "parent navigation button settles");
-    check(s.currentDirectory == 5 && !s.up->isEnabled(), "parent navigation returns to indexed volume root");
-    s.mapMetric->setCurrentIndex(1);
-    until([&] { return !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "logical-size mode settles");
-    check(s.map->m_data->items.size() == 1 && s.map->m_data->items.front().bytes == 100,
-        "space metric preserves actual logical/allocated size semantics");
-    s.tabs->setCurrentIndex(0); s.query->setText(QStringLiteral("folder")); s.search->click();
+    s.query->setText(QStringLiteral("folder")); s.search->click();
     s.cancel->click();
     check(s.searchStatus->text().contains(QStringLiteral("已停止")) && s.search->isEnabled() && s.searchModel->rowCount() == 3,
         "search cancellation keeps committed result and restores enabled search");
     until([&] { return !s.searchOperation->isInFlight(); }, "cancelled search worker returns through async gate");
     check(s.searchModel->rowCount() == 3, "cancelled search cannot later overwrite retained model");
-    s.tabs->setCurrentIndex(0); s.query->setText(QStringLiteral("sample")); s.search->click();
+    s.query->setText(QStringLiteral("sample")); s.search->click();
     check(s.searchOperation->isBusy() && !s.search->isEnabled() && s.cancel->isEnabled(), "search click has cancellable busy feedback");
     until([&] { return !s.searchOperation->isBusy(); }, "search query settles");
     check(s.searchModel->rowCount() == 1, "search preserves query semantics");
@@ -349,17 +315,17 @@ void runPage(bool dark)
     QObject::connect(page, &NtfsSearchPage::locatePathRequested, page, [&](const QString& path) { located = path; });
     s.locate->click();
     check(located == QStringLiteral("T:\\folder\\sample.txt"), "locate emits the real projected selected path");
-    const auto old = s.projection;
+    const auto old = s.snapshot;
     backendMode = 0; s.refresh->click();
     until([&] { return !s.indexOperation->isBusy(); }, "failed refresh settles");
-    check(s.projection == old && s.searchModel->rowCount() == 1, "failed refresh preserves usable snapshot and search results");
+    check(s.snapshot == old && s.searchModel->rowCount() == 1, "failed refresh preserves usable snapshot and search results");
     check(s.search->isEnabled() && s.indexStatus->text().contains(QStringLiteral("保留")), "failed refresh explains retained usable index");
     backendMode = 5; s.refresh->click();
     until([&] { return !s.indexOperation->isBusy(); }, "invalid journal refresh settles");
-    check(s.projection == old && !s.refresh->isEnabled() && s.build->isEnabled(),
+    check(s.snapshot == old && !s.refresh->isEnabled() && s.build->isEnabled(),
         "invalid journal retains usable snapshot and requires full rebuild");
     backendMode = 1; s.build->click();
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); }, "full rebuild after invalid journal settles");
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy(); }, "full rebuild after invalid journal settles");
     check(s.refresh->isEnabled(), "successful full rebuild restores incremental refresh availability");
     s.discovering = true; page->updateButtons();
     const int beforeDiscovery = entered.load();
@@ -367,7 +333,7 @@ void runPage(bool dark)
     page->startIndex(true);
     check(!s.indexing && entered.load() == beforeDiscovery, "index entry rejects overlapping volume discovery");
     s.discovering = false; page->updateButtons();
-    const auto previousVolume = s.projection;
+    const auto previousVolume = s.snapshot;
     const int retainedRows = s.searchModel->rowCount();
     commits->beginContextMenu(s.results);
     s.query->setText(QStringLiteral("folder")); page->startSearch();
@@ -379,32 +345,27 @@ void runPage(bool dark)
         "target-volume change retires the old deferred search");
     check(s.searchModel->rowCount() == retainedRows,
         "an old-volume deferred search cannot overwrite retained results after target selection changes");
-    check(s.search->isEnabled() && !s.refresh->isEnabled() && !s.mapMetric->isEnabled()
-        && !s.directories->isEnabled() && !s.map->isEnabled() && !s.locate->isEnabled() && !s.up->isEnabled(),
+    check(s.search->isEnabled() && !s.refresh->isEnabled() && !s.locate->isEnabled(),
         "switching target volume leaves search available and disables actions on the retained old-volume snapshot");
     check(visibleLabels(page).contains(QStringLiteral("T:\\")) && visibleLabels(page).contains(QStringLiteral("U:\\")),
         "volume mismatch visibly distinguishes retained result volume from the selected target");
     located.clear(); page->locateSelected();
     check(located.isEmpty(), "direct locate cannot act on a retained snapshot from a different selected volume");
-    const auto previousDirectory = s.currentDirectory;
-    page->showDirectory(7);
-    check(s.currentDirectory == previousDirectory && !s.spaceOperation->isBusy(),
-        "direct space navigation cannot run against a retained mismatching volume");
     backendMode = 0; s.search->click();
     until([&] { return !s.indexOperation->isBusy(); }, "selected-volume scan failure settles");
-    check(s.projection == previousVolume && s.searchModel->rowCount() == retainedRows && s.search->isEnabled(),
+    check(s.snapshot == previousVolume && s.searchModel->rowCount() == retainedRows && s.search->isEnabled(),
         "failed selected-volume preparation preserves old results for retry without searching the old snapshot");
-    check(!s.map->isEnabled() && !s.locate->isEnabled(), "failed preparation keeps old-volume navigation unavailable");
+    check(!s.locate->isEnabled(), "failed preparation keeps old-volume navigation unavailable");
     backendMode = 1; s.query->setText(QStringLiteral("sample")); pressEnter(s.query);
-    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy() && !s.extensionOperation->isBusy(); },
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy(); },
         "Enter prepares and searches the selected replacement volume");
-    check(s.projection != previousVolume && s.projection->snapshot->volumeRoot == QStringLiteral("U:\\")
+    check(s.snapshot != previousVolume && s.snapshot->volumeRoot == QStringLiteral("U:\\")
         && s.searchModel->rowCount() == 1 && s.searchModel->row(0)->path == QStringLiteral("U:\\folder\\sample.txt"),
         "a selected-volume search builds the selected volume instead of querying retained old results");
-    check(previousVolume->snapshot->volumeRoot == QStringLiteral("T:\\") && s.map->isEnabled(),
-        "new-volume commit preserves immutable old identity and re-enables matching space actions");
+    check(previousVolume->volumeRoot == QStringLiteral("T:\\") && s.search->isEnabled(),
+        "new-volume commit preserves immutable old identity and enables matching search");
     root.resize(680, 650); drain();
-    check(s.tabs->width() > 200 && s.results->width() == toolbar->width(), "narrow workspace keeps result toolbar and table aligned");
+    check(s.results->width() > 200 && s.results->width() == toolbar->width(), "narrow workspace keeps result toolbar and table aligned");
     root.close();
 }
 void closeDuringIndex()

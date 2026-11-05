@@ -574,6 +574,21 @@ namespace ks::ui
         setMinimumSize(0, 0);
     }
 
+    void ParameterWorkspace::setParameterViewport(QWidget* viewport)
+    {
+        if (!viewport || m_parameterViewport || m_parameters->count() != 0) return;
+        auto* layout = static_cast<QVBoxLayout*>(m_parameterPanel->layout());
+        viewport->setParent(m_parameterPanel);
+        viewport->setMinimumWidth(0);
+        viewport->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+        viewport->setProperty("ksword_parameter_body", true);
+        bindWorkspaceSurface(viewport, false, true);
+        delete layout->replaceWidget(m_scroll, viewport);
+        m_scroll->hide();
+        layout->setStretch(layout->indexOf(viewport), 1);
+        m_parameterViewport = viewport;
+    }
+
     QVBoxLayout* ParameterWorkspace::parameterHeader()
     {
         if (!m_parameterHeader)
@@ -652,11 +667,12 @@ namespace ks::ui
 
     void ParameterWorkspace::finish()
     {
-        StyleParameterFields(m_scroll->widget());
-        StyleWorkspaceTextViews(m_scroll->widget());
+        auto* body = m_parameterViewport ? m_parameterViewport : m_scroll->widget();
+        StyleParameterFields(body);
+        StyleWorkspaceTextViews(body);
         StyleWorkspaceTextViews(m_resultPanel);
         // 参数区按内容自然高度排列，禁止多行表单把剩余高度摊成巨大行间空白。
-        for (auto* section : m_scroll->widget()->findChildren<QGroupBox*>())
+        for (auto* section : body->findChildren<QGroupBox*>())
         {
             if (section->property("ksword_parameter_section").toBool())
             {

@@ -172,6 +172,9 @@
     <ClCompile Include="FileDock\NtfsFastIndex.cpp" />
     <ClCompile Include="FileDock\NtfsIndexRecord.cpp" />
     <ClCompile Include="FileDock\NtfsSearchPage.cpp" />
+    <ClCompile Include="FileDock\DiskSpacePage.cpp" />
+    <ClCompile Include="FileDock\DirectorySpaceScanner.cpp" />
+    <ClCompile Include="FileDock\DirectoryScopePicker.cpp" />
     <ClCompile Include="FileDock\NtfsSpaceMapWidget.cpp" />
     <ClCompile Include="FileDock\FileDock.cpp" />
     <ClCompile Include="FileDock\FileDock.HandleUsage.cpp" />
@@ -904,6 +907,8 @@
     <ClInclude Include="FileDock\NtfsFastIndex.h" />
     <ClInclude Include="FileDock\NtfsIndexRecord.h" />
     <ClInclude Include="FileDock\NtfsSpaceMapWidget.h" />
+    <ClInclude Include="FileDock\DirectorySpaceScanner.h" />
+    <ClInclude Include="FileDock\DirectoryScopePicker.h" />
     <ClInclude Include="FileDock\ManualFileSystemParser.h" />
     <ClInclude Include="FileDock\NtfsRunListDecode.h" />
     <ClInclude Include="FileDock\DriverFileSystemParser.h" />
@@ -1100,6 +1105,7 @@
     <ClInclude Include="DriverDock\DriverDock.Internal.h" />
     <ClInclude Include="DriverDock\DriverDock.ModuleDumpFile.h" />
     <QtMoc Include="FileDock\NtfsSearchPage.h" />
+    <QtMoc Include="FileDock\DiskSpacePage.h" />
     <QtMoc Include="FileDock\FileDock.h" />
     <ClInclude Include="ScannerDock\ScannerDock.h" />
     <QtMoc Include="句柄\HandleDock.h" />

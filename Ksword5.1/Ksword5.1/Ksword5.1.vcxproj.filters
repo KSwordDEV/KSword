@@ -29,6 +29,24 @@
     <ClCompile Include="FileDock\NtfsSearchPage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FileDock\DiskSpacePage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FileDock\DirectorySpaceScanner.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FileDock\DirectoryScopePicker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="FileDock\DirectoryScopePicker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FileDock\DirectorySpaceScanner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <QtMoc Include="FileDock\DiskSpacePage.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
     <ClCompile Include="FileDock\NtfsSpaceMapWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

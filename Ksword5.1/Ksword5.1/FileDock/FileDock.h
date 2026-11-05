@@ -232,6 +232,8 @@ private:
     void initializeManagerPage();
     void initializeStorageControllerPage();
     void initializeNtfsIndexPage();
+    void initializeDiskSpacePage();
+    void locateIndexedPath(const QString& path);
 
     // initializeRecoveryPage：
     // - 作用：初始化“文件恢复”竖排 Tab 页面。
@@ -624,7 +626,8 @@ private:
     QVBoxLayout* m_rootLayout = nullptr;       // FileDock 根布局。
     QTabWidget* m_rootTabWidget = nullptr;     // 竖排根 Tab（文件管理 / 文件恢复 / IRP 构造）。
     QWidget* m_fileManagerPage = nullptr;      // 文件管理页容器。
-    QWidget* m_ntfsIndexPage = nullptr;        // MFT/USN search and shared space distribution.
+    QWidget* m_ntfsIndexPage = nullptr;        // MFT/USN quick search.
+    QWidget* m_diskSpacePage = nullptr;        // Independent folder/volume space analysis.
     QWidget* m_storageControllerPage = nullptr; // 直接从文件侧边栏打开的控制器页。
     QWidget* m_fileRecoveryPage = nullptr;     // 文件恢复页容器。
     QWidget* m_irpBuilderPage = nullptr;       // IRP 构造页容器。
