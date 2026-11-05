@@ -8,6 +8,7 @@
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：元数据编辑子页的页内滚动壳
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/ParameterWorkspace.h"
 #include "../UI/AsyncOperation.h"
@@ -10701,7 +10702,14 @@ namespace
         QWidget* buildMetadataNameAndFilesystemPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // 参数/编辑子页统一接入共享 ParameterWorkspace：参数正文独立滚动、
+            // 暂存动作固定在底部动作栏；只读结果显示在结果栏（AGENTS.md 强制接入规则）。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QFormLayout* form = new QFormLayout();
 
             QCheckBox* renameCheck = new QCheckBox(QStringLiteral("暂存重命名"), page);
@@ -10761,7 +10769,8 @@ namespace
             hardLinkQueryLayout->addWidget(queryHardLinksButton);
             hardLinkQueryLayout->addWidget(hardLinkQueryResult, 1);
             ks::ui::NormalizeToolbarRow(hardLinkQueryLayout);
-            layout->addLayout(hardLinkQueryLayout);
+            workspace->results()->addLayout(hardLinkQueryLayout);
+            workspace->results()->addStretch(1);
 
             QLabel* hint = new QLabel(QStringLiteral(
                 "压缩、稀疏、EFS、Integrity Stream、Object ID 均通过公开 Win32/FSCTL 在 R3 完成。"
@@ -10770,8 +10779,8 @@ namespace
             layout->addWidget(hint);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存名称与文件系统修改"), page);
             ks::ui::NormalizeToolbarControl(stageButton);
-            layout->addWidget(stageButton, 0, Qt::AlignRight);
-            layout->addStretch(1);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
 
             connect(queryHardLinksButton, &QPushButton::clicked, this,
                 [this, queryHardLinksButton, hardLinkQueryResult]()
@@ -10835,16 +10844,21 @@ namespace
                     }
                     updatePendingSaveUi();
                 });
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataShellPropertyPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // Shell 属性页接入共享 ParameterWorkspace：六行输入独立滚动，读取/暂存固定。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QGridLayout* grid = new QGridLayout();
             struct ShellRow
             {
@@ -10879,16 +10893,13 @@ namespace
 
             QLabel* status = new QLabel(QStringLiteral("可从第一个目标读取当前 Shell 属性。"), page);
             status->setWordWrap(true);
-            QHBoxLayout* actions = new QHBoxLayout();
             QPushButton* loadButton = new QPushButton(QStringLiteral("读取当前值"), page);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存 Shell 属性"), page);
-            actions->addWidget(loadButton);
-            actions->addStretch(1);
-            actions->addWidget(stageButton);
-            layout->addWidget(status);
-            layout->addLayout(actions);
-            ks::ui::NormalizeToolbarRow(actions);
-            layout->addStretch(1);
+            workspace->actions()->addWidget(loadButton);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
+            workspace->results()->addWidget(status);
+            workspace->results()->addStretch(1);
 
             connect(loadButton, &QPushButton::clicked, this, [this, rows, ratingSpin, status]()
                 {
@@ -10956,16 +10967,22 @@ namespace
                     status->setText(QStringLiteral("● Shell 属性已暂存。"));
                     updatePendingSaveUi();
                 });
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataAdsPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // ADS 页接入共享 ParameterWorkspace：数据流列表在结果栏，
+            // 编辑参数独立滚动，刷新/读取/暂存固定在动作栏。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QTableView* table = createPropertyTable(page, QStringList{
                 QStringLiteral("目标"), QStringLiteral("数据流"), QStringLiteral("字节数") }, QStringLiteral("file-detail-ads"));
             ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
@@ -10973,7 +10990,7 @@ namespace
             table->setSelectionMode(QAbstractItemView::SingleSelection);
             table->setEditTriggers(QAbstractItemView::NoEditTriggers);
             installValueTableCopyMenu(table);
-            layout->addWidget(table, 1);
+            workspace->results()->addWidget(table, 1);
 
             QGridLayout* editorLayout = new QGridLayout();
             QLineEdit* nameEdit = new QLineEdit(page);
@@ -11004,16 +11021,13 @@ namespace
             zoneLayout->addRow(QString(), buildZoneButton);
             layout->addWidget(zoneGroup);
 
-            QHBoxLayout* actions = new QHBoxLayout();
             QPushButton* refreshButton = new QPushButton(QStringLiteral("刷新数据流"), page);
             QPushButton* loadButton = new QPushButton(QStringLiteral("读取选中流"), page);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存 ADS 操作"), page);
-            actions->addWidget(refreshButton);
-            actions->addWidget(loadButton);
-            actions->addStretch(1);
-            actions->addWidget(stageButton);
-            layout->addLayout(actions);
-            ks::ui::NormalizeToolbarRow(actions);
+            workspace->actions()->addWidget(refreshButton);
+            workspace->actions()->addWidget(loadButton);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
             ks::ui::NormalizeToolbarControl(buildZoneButton);
 
             connect(refreshButton, &QPushButton::clicked, this,
@@ -11110,16 +11124,22 @@ namespace
                 });
             QMetaObject::invokeMethod(page, [this, table]() { refreshMetadataStreamTable(table); },
                 Qt::QueuedConnection);
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataEaPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // EA 页接入共享 ParameterWorkspace：EA 列表在结果栏，
+            // 编辑参数独立滚动，刷新/读取/暂存固定在动作栏。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QTableView* table = createPropertyTable(page, QStringList{
                 QStringLiteral("目标"), QStringLiteral("EA 名称"),
                 QStringLiteral("字节数"), QStringLiteral("值预览") }, QStringLiteral("file-detail-ea"));
@@ -11128,7 +11148,7 @@ namespace
             table->setSelectionMode(QAbstractItemView::SingleSelection);
             table->setEditTriggers(QAbstractItemView::NoEditTriggers);
             installValueTableCopyMenu(table);
-            layout->addWidget(table, 1);
+            workspace->results()->addWidget(table, 1);
 
             QLineEdit* nameEdit = new QLineEdit(page);
             nameEdit->setPlaceholderText(QStringLiteral("EA 名称，最长 255 字节"));
@@ -11147,16 +11167,13 @@ namespace
             layout->addLayout(header);
             layout->addWidget(dataEdit);
 
-            QHBoxLayout* actions = new QHBoxLayout();
             QPushButton* refreshButton = new QPushButton(QStringLiteral("刷新 EA"), page);
             QPushButton* loadButton = new QPushButton(QStringLiteral("读取选中 EA"), page);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存 EA 操作"), page);
-            actions->addWidget(refreshButton);
-            actions->addWidget(loadButton);
-            actions->addStretch(1);
-            actions->addWidget(stageButton);
-            layout->addLayout(actions);
-            ks::ui::NormalizeToolbarRow(actions);
+            workspace->actions()->addWidget(refreshButton);
+            workspace->actions()->addWidget(loadButton);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
             connect(refreshButton, &QPushButton::clicked, this,
                 [this, table]() { refreshMetadataEaTable(table); });
             connect(loadButton, &QPushButton::clicked, this,
@@ -11246,16 +11263,22 @@ namespace
                 });
             QMetaObject::invokeMethod(page, [this, table]() { refreshMetadataEaTable(table); },
                 Qt::QueuedConnection);
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataSecurityPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // 安全描述符页接入共享 ParameterWorkspace：SDDL 与作用域独立滚动，
+            // 读取/暂存固定在动作栏，权限检查与状态放结果栏。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QLabel* hint = new QLabel(QStringLiteral(
                 "可编辑 Owner、Primary Group、DACL、SACL、Mandatory Integrity 与继承保护。"
                 "SDDL 会在保存事务中通过 Windows 安全 API 写入。"), page);
@@ -11298,16 +11321,13 @@ namespace
             layout->addLayout(effectiveLayout);
             QLabel* status = new QLabel(QStringLiteral("可从第一个目标读取 Owner、Group 与 DACL SDDL。"), page);
             status->setWordWrap(true);
-            layout->addWidget(status);
-            QHBoxLayout* actions = new QHBoxLayout();
             QPushButton* loadButton = new QPushButton(QStringLiteral("读取当前 SDDL"), page);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存安全描述符"), page);
-            actions->addWidget(loadButton);
-            actions->addStretch(1);
-            actions->addWidget(stageButton);
-            layout->addLayout(actions);
-            // 编辑器保持多行高度，只对动作行应用等高指标。
-            ks::ui::NormalizeToolbarRow(actions);
+            workspace->actions()->addWidget(loadButton);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
+            workspace->results()->addWidget(status);
+            workspace->results()->addStretch(1);
             connect(loadButton, &QPushButton::clicked, this, [this, sddlEdit, status]()
                 {
                     status->setText(QStringLiteral("● 正在后台读取安全描述符..."));
@@ -11399,16 +11419,22 @@ namespace
                     status->setText(QStringLiteral("● 安全描述符已暂存。"));
                     updatePendingSaveUi();
                 });
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataPeAndReparsePage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // 重解析点/PE/签名页接入共享 ParameterWorkspace：编辑区独立滚动，
+            // 风险说明放结果栏，暂存动作固定在动作栏。
+            QVBoxLayout* pageLayout = new QVBoxLayout(page);
+            pageLayout->setContentsMargins(6, 6, 6, 6);
+            pageLayout->setSpacing(6);
+            auto* workspace = new ks::ui::ParameterWorkspace(page, 500);
+            pageLayout->addWidget(workspace, 1);
+            QVBoxLayout* layout = workspace->parameters();
             QGroupBox* reparseGroup = new QGroupBox(QStringLiteral("重解析点原始缓冲"), page);
             QVBoxLayout* reparseLayout = new QVBoxLayout(reparseGroup);
             QHBoxLayout* reparseActions = new QHBoxLayout();
@@ -11471,11 +11497,12 @@ namespace
                 "原始重解析点、PE 资源和签名清除属于高风险操作，必须启用底部备份选项。"
                 "VERSIONINFO 可用原始十六进制编辑，Manifest 可用 UTF-8 文本编辑，其它资源支持原始字节。"), page);
             warning->setWordWrap(true);
-            layout->addWidget(warning);
+            workspace->results()->addWidget(warning);
+            workspace->results()->addStretch(1);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存重解析点 / PE / 签名操作"), page);
             ks::ui::NormalizeToolbarControl(stageButton);
-            layout->addWidget(stageButton, 0, Qt::AlignRight);
-            layout->addStretch(1);
+            workspace->actions()->addStretch(1);
+            workspace->actions()->addWidget(stageButton);
 
             connect(resourcePreset, &QComboBox::currentIndexChanged, this,
                 [resourceTypeEdit, resourceNameEdit, resourceFormatCombo](const int index)
@@ -11611,16 +11638,19 @@ namespace
                     }
                     updatePendingSaveUi();
                 });
-            // 此页是明确的编辑参数区，共享输入负责网格字段和长选项，保留原暂存事务。
-            ks::ui::StyleParameterFields(page);
-            ks::ui::StyleWorkspaceTextViews(page);
+            // 参数、结果与固定动作栏由共享工作区统一完成底色、行高与圆角。
+            workspace->finish();
             return page;
         }
 
         QWidget* buildMetadataBasicPropertiesPage(QWidget* parent)
         {
             QWidget* page = new QWidget(parent);
-            QVBoxLayout* layout = new QVBoxLayout(page);
+            // content：页内滚动容器。基础属性页包含四组时间与六项属性，
+            // 在低分辨率或高 DPI 下会高于详情窗口；由共享滚动壳承接后，
+            // 只滚动本页，不再把页面的最小高度传给外层 Tab 窗口。
+            QWidget* const content = ks::ui::EnablePageInnerScroll(page);
+            QVBoxLayout* layout = new QVBoxLayout(content);
             layout->setSpacing(10);
 
             QLabel* targetLabel = new QLabel(
@@ -11732,6 +11762,9 @@ namespace
         {
             QTabWidget* tabs = new QTabWidget(parent);
             ks::ui::StylePageTabs(tabs);
+            // 子页都已带页内滚动壳；再隔离一次 Tab 自身的最小高度，
+            // 防止懒加载页首次构造时把外层详情窗口撑大（issue #176）。
+            ks::ui::IsolateMinimumSize(tabs);
             tabs->addTab(
                 buildMetadataBasicPropertiesPage(tabs),
                 ks::i18n::sourceText(QStringLiteral("基础属性")));
