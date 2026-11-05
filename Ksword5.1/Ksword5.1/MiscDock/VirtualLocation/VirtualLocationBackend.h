@@ -84,6 +84,7 @@ namespace ks::misc::virtual_location
         bool locationAllowed = false;     // locationAllowed：系统位置总开关是否为 Allow。
         bool desktopAppAllowed = false;   // desktopAppAllowed：桌面应用（NonPackaged）是否被放行。
         bool providerDisabledByPolicy = false; // providerDisabledByPolicy：组策略是否禁用了 Windows 位置提供程序。
+        bool providerPolicyReadable = false; // 缺省值可读；访问/类型错误不能当成未禁用。
         bool locationDisabledByPolicy = false; // locationDisabledByPolicy：组策略是否整体关闭了定位。
         QString policyDetailText;         // policyDetailText：策略项的原样取值描述。
     };

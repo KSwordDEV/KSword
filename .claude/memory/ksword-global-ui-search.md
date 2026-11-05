@@ -2,6 +2,8 @@
 
 主程序标题栏中间输入框是“搜索 / CMD”双模式（默认搜索），实现分三层：
 
+- 操作心智模型审查后，搜索模式按钮持续显示当前范围（长表名省略并保留完整提示），输入框提示具体用途；范围选项与“仅显示搜索结果”分两行，宿主缩放时单独重新计算弹层尺寸，不重新搜索或重写主题。命中激活前再次核对表格持久索引、模型及业务过滤；失效目标显示原因和重新搜索入口，撤销旧过滤并作废旧搜索代次。当前范围没有可搜索表格与真正无命中分别提示。这些变化只经源码核对和构建，用户禁止窗口自动化后的版本未做GUI验收。
+
 - `Framework/CustomTitleBar`：输入组 `ksTitleInputGroup`（QToolButton 模式按钮 + QLineEdit 一体外观）。
   模式按钮 InstantPopup 菜单切换；搜索模式发 `searchTextEdited`，CMD 模式回车发 `commandSubmitted`
   （cmd /K 新控制台，MainWindow::executeCommandInNewConsole）。模式切换发 `inputModeChanged`。

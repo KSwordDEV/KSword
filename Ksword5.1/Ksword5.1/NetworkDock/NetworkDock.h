@@ -390,6 +390,7 @@ private:
         int taskId = 0; // taskId：任务编号。
         QString urlText; // urlText：任务原始下载URL。
         QString savePathText; // savePathText：任务最终输出文件路径。
+        QString requestedDirectoryText; // 不可变原始保存范围，失败任务可载入为新草稿。
         QString fileNameText; // fileNameText：任务文件名。
         int requestedThreadCount = 1; // requestedThreadCount：用户配置线程数。
         int actualThreadCount = 1; // actualThreadCount：实际执行线程数（按服务端能力调整）。
@@ -422,6 +423,7 @@ private:
     void synchronizeVisiblePacketProjection();
     void synchronizeVisibleNidsProjection();
     void loadHostsFileEditor();
+    void updateAliveScanSource();
 
     // initializeTrafficMonitorTab：
     // - 作用：构建“流量监控”页（控制栏 + 组合过滤栏 + 报文表）。
@@ -1094,6 +1096,7 @@ private:
     // - 参数 taskId：任务编号。
     // - 返回：找到时返回共享指针，否则返回空。
     std::shared_ptr<MultiThreadDownloadTaskState> findMultiThreadDownloadTaskById(int taskId) const;
+    void loadMultiThreadDownloadTaskDraft(int taskId);
 
     // setMultiThreadDownloadTaskPaused：
     // - 作用：按任务编号暂停或继续一个仍在运行的多线程下载任务；
@@ -1504,6 +1507,7 @@ private:
     QPushButton* m_multiDownloadBrowseDirButton = nullptr; // 选择下载目录按钮。
     QPushButton* m_multiDownloadStartButton = nullptr; // 启动下载按钮。
     QLabel* m_multiDownloadStatusLabel = nullptr;      // 下载状态标签。
+    QLabel* m_multiDownloadDraftLabel = nullptr;       // 恢复草稿提示，不被周期任务进度覆盖。
     QTableView* m_multiDownloadTaskTable = nullptr;  // 下载任务总览表。
     QTableWidget* m_multiDownloadSegmentTable = nullptr; // 当前任务分段进度表。
     MultiThreadDownloadSegmentBarWidget* m_multiDownloadSegmentBar = nullptr; // 断节式总进度条控件。
@@ -1583,6 +1587,10 @@ private:
     QPushButton* m_stopAliveScanButton = nullptr;  // 停止扫描按钮。
     QProgressBar* m_aliveScanProgressBar = nullptr; // 扫描进度条。
     QLabel* m_aliveScanStatusLabel = nullptr;     // 扫描状态标签。
+    QLabel* m_aliveScanSourceLabel = nullptr;    // 已提交范围与当前编辑参数分别呈现。
+    quint32 m_aliveScanSubmittedStart = 0, m_aliveScanSubmittedEnd = 0;
+    int m_aliveScanSubmittedTimeout = 0;
+    QString m_aliveScanStartedAt;
     QTableWidget* m_aliveScanTable = nullptr;     // 存活主机结果表。
 
     // ========================= Tab9：HTTPS解析 ====================

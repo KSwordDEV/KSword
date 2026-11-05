@@ -11,6 +11,7 @@
 #include "../Framework.h"
 
 #include <QWidget>
+#include <QDateTime>
 
 #include <atomic> // std::atomic_bool：后台刷新互斥。
 #include <vector> // std::vector：保存设备快照并支持树重建。
@@ -79,6 +80,15 @@ public:
         bool isPresent = true;        // isPresent：是否当前存在。
     };
 
+    struct DeviceSnapshot
+    {
+        std::vector<DeviceEntry> devices;
+        bool complete = false;
+        QString error;
+        QDateTime sampledAt;
+        unsigned long skippedDevices = 0;
+    };
+
 private:
     // initializeUi 作用：
     // - 创建顶部工具栏、设备树和详情面板；
@@ -102,7 +112,7 @@ private:
     // - 在 GUI 线程原子替换设备缓存并重建树；
     // - 设备树右键菜单打开时延迟完整快照，避免旧 item 持有失效缓存指针。
     void applyDeviceSnapshot(
-        std::vector<DeviceEntry> deviceList,
+        DeviceSnapshot snapshot,
         bool includeAllDevices);
 
     // rebuildDeviceTree 作用：
@@ -169,7 +179,7 @@ private:
     // - 输入：includeAllDevices 为 true 时枚举历史/非当前设备；
     // - 处理：调用 SetupAPI/CfgMgr 读取设备属性；
     // - 返回：可直接渲染的设备快照。
-    static std::vector<DeviceEntry> enumerateDevicesSnapshot(bool includeAllDevices);
+    static DeviceSnapshot enumerateDevicesSnapshot(bool includeAllDevices);
 
 private:
     QVBoxLayout* m_rootLayout = nullptr;      // m_rootLayout：页面根布局。
@@ -182,5 +192,9 @@ private:
     QTreeWidget* m_deviceTree = nullptr;      // m_deviceTree：System Informer 风格设备树。
     ks::ui::StructuredFieldView* m_detailEditor = nullptr; // m_detailEditor：选中设备详情。
     std::vector<DeviceEntry> m_deviceList;    // m_deviceList：最近一次完整快照。
+    bool m_hasDeviceSnapshot = false;
+    bool m_snapshotIncludeAll = false;
+    bool m_snapshotIncomplete = false;
+    QDateTime m_snapshotAt;
     std::atomic_bool m_refreshing{ false };   // m_refreshing：刷新互斥标记。
 };

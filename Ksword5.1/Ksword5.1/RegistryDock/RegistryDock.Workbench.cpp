@@ -249,6 +249,14 @@ void RegistryDock::initializeWorkbenchControls()
     registryResultsLayout->setSpacing(0);
     m_registryEditorLayout->removeWidget(m_mainSplitter);
     registryResultsLayout->addWidget(searchPanel);
+    m_searchRequestLabel = new QLabel(registryResults);
+    m_searchRequestLabel->setObjectName(QStringLiteral("registry_search_request"));
+    m_searchRequestLabel->setTextFormat(Qt::PlainText);
+    m_searchRequestLabel->setWordWrap(true);
+    m_searchRequestLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_searchRequestLabel->setMinimumWidth(0);
+    m_searchRequestLabel->hide();
+    registryResultsLayout->addWidget(m_searchRequestLabel);
     registryResultsLayout->addWidget(m_mainSplitter, 1);
     m_registryEditorLayout->insertWidget(3, registryResults, 1);
     ks::ui::StyleJoinedResultTabs(m_rightTabWidget, searchPanel);
@@ -366,6 +374,12 @@ void RegistryDock::initializeWorkbenchControls()
     });
     connect(restoreChanges, &QPushButton::clicked, this, &RegistryDock::restoreLastChanges);
     connect(m_filterEdit, &QLineEdit::textChanged, this, &RegistryDock::filterCurrentValues);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this] { updateSearchRequestSummary(); });
+    for (auto* combo : {m_searchScopeCombo, m_searchTypeCombo})
+        connect(combo, &QComboBox::currentIndexChanged, this, [this] { updateSearchRequestSummary(); });
+    for (auto* check : {m_matchKeysCheck, m_matchNamesCheck, m_matchDataCheck, m_matchCaseCheck, m_matchExactCheck})
+        connect(check, &QCheckBox::toggled, this, [this] { updateSearchRequestSummary(); });
+    connect(m_rightTabWidget, &QTabWidget::currentChanged, this, [this] { updateSearchRequestSummary(); });
     connect(m_viewCombo, &QComboBox::currentIndexChanged, this, [this]() {
         if (!preserveEditorDraft())
         {

@@ -359,8 +359,32 @@ void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, con
         return;
     }
 
-    m_moduleStatusLabel->setText(statusText);
-    m_moduleStatusLabel->setToolTip(statusText);
+    // Theme/language refresh passes the already rendered label back here.
+    // Keep its base status separate so the action receipt is appended once.
+    if (m_moduleRefreshStatusText.isEmpty() || statusText != m_moduleStatusLabel->text())
+        m_moduleRefreshStatusText = statusText;
+    QString rendered = m_moduleRefreshStatusText;
+    if (m_moduleActionFeedback)
+    {
+        const auto& feedback = *m_moduleActionFeedback;
+        QString target = ks::i18n::sourceText(QStringLiteral("PID=%1；模块 %2；基址 %3"))
+            .arg(feedback.processId).arg(QString::fromStdString(feedback.module.modulePath),
+                formatHexText(feedback.module.moduleBaseAddress));
+        if (feedback.threadAction)
+            target += ks::i18n::sourceText(QStringLiteral("；代表线程 TID=%1"))
+                .arg(feedback.module.representativeThreadId);
+        const QString detail = feedback.detailText.isEmpty()
+            ? ks::i18n::sourceText(QStringLiteral("无附加信息"))
+            : ks::i18n::LanguageManager::instance().displayText(feedback.detailText);
+        rendered += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("最近操作 %1：%2；%3\n%4"))
+            .arg(ks::i18n::sourceText(feedback.titleSource),
+                ks::i18n::sourceText(feedback.ok ? QStringLiteral("成功") : QStringLiteral("失败")), target, detail);
+        if (!feedback.ok)
+            rendered += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("可刷新模块列表，核对目标后重试。"));
+    }
+    m_moduleStatusLabel->setTextFormat(Qt::PlainText);
+    m_moduleStatusLabel->setText(rendered);
+    m_moduleStatusLabel->setToolTip(rendered);
 
     // 状态标签更新日志：输出文本与刷新状态。
     kLogEvent moduleStatusEvent;
@@ -371,7 +395,11 @@ void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, con
         << statusText.toStdString()
         << eol;
 
-    if (refreshing)
+    if (m_moduleActionFeedback && !m_moduleActionFeedback->ok)
+    {
+        m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(statusErrorColor(), 700));
+    }
+    else if (refreshing)
     {
         m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(KswordTheme::PrimaryBlueColor, 700));
     }
@@ -379,6 +407,21 @@ void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, con
     {
         m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(statusIdleColor(), 600));
     }
+}
+
+void ProcessDetailWindow::reportModuleActionResult(const QString& titleSource,
+    const ks::process::ProcessModuleRecord& module, const std::uint32_t processId,
+    const bool actionOk, const std::string& detailText, const kLogEvent& actionEvent,
+    const bool threadAction)
+{
+    if (m_moduleStatusLabel && m_moduleRefreshStatusText.isEmpty())
+        m_moduleRefreshStatusText = m_moduleStatusLabel->text();
+    m_moduleActionFeedback = std::make_unique<ModuleActionFeedback>(ModuleActionFeedback{
+        titleSource, QString::fromStdString(detailText), module, processId, actionOk, threadAction});
+    updateModuleStatusLabel(m_moduleRefreshStatusText, m_moduleRefreshing);
+    // Keep the existing privilege-recovery and logging behavior local to this
+    // module action; other detail pages keep their existing feedback contract.
+    showActionResultMessage(ks::i18n::sourceText(titleSource), actionOk, detailText, actionEvent);
 }
 
 void ProcessDetailWindow::showModuleContextMenu(const QPoint& localPosition)
@@ -440,8 +483,10 @@ void ProcessDetailWindow::showModuleContextMenu(const QPoint& localPosition)
         "process.detail.module.copy_base", QStringLiteral("复制基址"), QStringLiteral("复制所选模块的加载基址"));
     QAction* copyPathAction = addAction(&contextMenu, ":/Icon/process_copy_row.svg",
         "process.detail.module.copy_path", QStringLiteral("复制路径"), QStringLiteral("复制所选模块的完整文件路径"));
-    copyBaseAction->setEnabled(validRange);
+    copyBaseAction->setEnabled(module.moduleBaseAddress != 0);
     copyPathAction->setEnabled(!modulePath.isEmpty());
+    if (module.moduleBaseAddress == 0)
+        copyBaseAction->setToolTip(ks::i18n::sourceText(QStringLiteral("模块基址不可用。")));
     contextMenu.addSeparator();
     QAction* gotoModuleAction = contextMenu.addAction(QIcon(":/Icon/process_details.svg"), "查看模块详情");
     QAction* openMemoryAction = addAction(&contextMenu, ":/Icon/memwb_tab_hex.svg",
@@ -489,7 +534,7 @@ void ProcessDetailWindow::showModuleContextMenu(const QPoint& localPosition)
     if (!validRange)
     {
         const QString reason = ks::i18n::sourceText(QStringLiteral("模块地址范围或进程身份无效。")); // 共享依赖说明。
-        for (QAction* action : {copyBaseAction, openMemoryAction, regionsAction, searchAction, dumpR3Action, dumpR0Action})
+        for (QAction* action : {openMemoryAction, regionsAction, searchAction, dumpR3Action, dumpR0Action})
         {
             action->setToolTip(reason);
         }
@@ -502,9 +547,24 @@ void ProcessDetailWindow::showModuleContextMenu(const QPoint& localPosition)
     QAction* openFolderAction = contextMenu.addAction(QIcon(":/Icon/process_open_folder.svg"), "打开文件夹");
     contextMenu.addSeparator();
     QAction* unloadAction = contextMenu.addAction(QIcon(":/Icon/process_terminate.svg"), "卸载");
-    QAction* suspendThreadAction = contextMenu.addAction(QIcon(":/Icon/process_suspend.svg"), "挂起线程");
-    QAction* resumeThreadAction = contextMenu.addAction(QIcon(":/Icon/process_resume.svg"), "恢复线程");
-    QAction* terminateThreadAction = contextMenu.addAction(QIcon(":/Icon/process_terminate.svg"), "结束线程");
+    const bool validThreadIdentity = processId != 0 && creationTime != 0
+        && module.representativeThreadId != 0 && module.representativeThreadCreationTime100ns != 0;
+    const auto addThreadAction = [&](const char* icon, const char* key, const QString& pattern)
+    {
+        auto* action = contextMenu.addAction(QIcon(QString::fromLatin1(icon)),
+            ks::i18n::contextText(QString::fromLatin1(key), pattern).arg(module.representativeThreadId));
+        action->setEnabled(validThreadIdentity);
+        action->setToolTip(ks::i18n::sourceText(validThreadIdentity
+            ? QStringLiteral("仅操作此模块行的代表线程；如需选择其它线程，请进入进程详情的“线程”页。")
+            : QStringLiteral("代表线程或进程实例身份不可用；请刷新模块列表后重试。")));
+        return action;
+    };
+    QAction* suspendThreadAction = addThreadAction(":/Icon/process_suspend.svg",
+        "process.detail.module.suspend_representative_thread", QStringLiteral("挂起代表线程 TID=%1"));
+    QAction* resumeThreadAction = addThreadAction(":/Icon/process_resume.svg",
+        "process.detail.module.resume_representative_thread", QStringLiteral("恢复代表线程 TID=%1"));
+    QAction* terminateThreadAction = addThreadAction(":/Icon/process_terminate.svg",
+        "process.detail.module.terminate_representative_thread", QStringLiteral("结束代表线程 TID=%1"));
 
     QAction* selectedAction = contextMenu.exec(m_moduleTable->viewport()->mapToGlobal(localPosition));
     if (!owner || selectedAction == nullptr || m_baseRecord.pid != processId
@@ -546,11 +606,11 @@ void ProcessDetailWindow::showModuleContextMenu(const QPoint& localPosition)
         }
     }
     if (selectedAction == gotoModuleAction) { showCurrentModuleDetailDialog(); return; }
-    if (selectedAction == openFolderAction) { openCurrentModuleFolder(); return; }
-    if (selectedAction == unloadAction) { unloadCurrentModule(); return; }
-    if (selectedAction == suspendThreadAction) { suspendCurrentModuleThread(); return; }
-    if (selectedAction == resumeThreadAction) { resumeCurrentModuleThread(); return; }
-    if (selectedAction == terminateThreadAction) { terminateCurrentModuleThread(); return; }
+    if (selectedAction == openFolderAction) { openModuleFolder(module, processId, creationTime); return; }
+    if (selectedAction == unloadAction) { unloadModule(module, processId, creationTime); return; }
+    if (selectedAction == suspendThreadAction) { suspendModuleThread(module, processId, creationTime); return; }
+    if (selectedAction == resumeThreadAction) { resumeModuleThread(module, processId, creationTime); return; }
+    if (selectedAction == terminateThreadAction) { terminateModuleThread(module, processId, creationTime); return; }
 }
 
 // requestModuleMemoryAction：保存菜单值快照并打开内嵌内存页，不等待固定时间猜测加载完成。
@@ -741,14 +801,12 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
     detailDialog.exec();
 }
 
-void ProcessDetailWindow::openCurrentModuleFolder()
+void ProcessDetailWindow::openModuleFolder(const ks::process::ProcessModuleRecord& module,
+    const std::uint32_t processId, const std::uint64_t creationTime)
 {
-    const ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
-    if (moduleRecord == nullptr)
-    {
-        return;
-    }
+    const auto* moduleRecord = &module;
 
+    Q_UNUSED(creationTime);
     std::string detailText;
     const bool actionOk = ks::process::OpenFolderByPath(moduleRecord->modulePath, &detailText);
     kLogEvent openModuleFolderEvent;
@@ -758,21 +816,18 @@ void ProcessDetailWindow::openCurrentModuleFolder()
         << ", actionOk="
         << (actionOk ? "true" : "false")
         << eol;
-    showActionResultMessage("打开模块所在目录", actionOk, detailText, openModuleFolderEvent);
+    reportModuleActionResult(QStringLiteral("打开模块所在目录"), module, processId, actionOk, detailText, openModuleFolderEvent);
 }
 
-void ProcessDetailWindow::unloadCurrentModule()
+void ProcessDetailWindow::unloadModule(const ks::process::ProcessModuleRecord& module,
+    const std::uint32_t processId, const std::uint64_t creationTime)
 {
-    const ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
-    if (moduleRecord == nullptr)
-    {
-        return;
-    }
+    const auto* moduleRecord = &module;
 
     std::string detailText;
     const bool actionOk = ks::process::UnloadModuleByBaseAddressIfIdentityMatches(
-        m_baseRecord.pid,
-        m_baseRecord.creationTime100ns,
+        processId,
+        creationTime,
         moduleRecord->moduleBaseAddress,
         &detailText);
     kLogEvent unloadModuleEvent;
@@ -782,37 +837,35 @@ void ProcessDetailWindow::unloadCurrentModule()
         << ", actionOk="
         << (actionOk ? "true" : "false")
         << eol;
-    showActionResultMessage("卸载模块", actionOk, detailText, unloadModuleEvent);
+    reportModuleActionResult(QStringLiteral("卸载模块"), module, processId, actionOk, detailText, unloadModuleEvent);
     if (actionOk)
     {
         requestAsyncModuleRefresh(true);
     }
 }
 
-void ProcessDetailWindow::suspendCurrentModuleThread()
+void ProcessDetailWindow::suspendModuleThread(const ks::process::ProcessModuleRecord& module,
+    const std::uint32_t processId, const std::uint64_t creationTime)
 {
-    const ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
-    if (moduleRecord == nullptr)
-    {
-        return;
-    }
+    const auto* moduleRecord = &module;
     // 挂起线程动作：同一动作链统一复用 actionEvent，避免离散 GUID。
     kLogEvent actionEvent;
-    if (moduleRecord->representativeThreadId == 0)
+    if (processId == 0 || creationTime == 0 || moduleRecord->representativeThreadId == 0
+        || moduleRecord->representativeThreadCreationTime100ns == 0)
     {
-        const std::string errorDetailText = "当前模块行没有可用 ThreadID。";
+        const std::string errorDetailText = "代表线程或进程实例身份不可用；请刷新模块列表后重试。";
         warn << actionEvent
             << "[ProcessDetailWindow] suspendCurrentModuleThread: 缺少 ThreadID。"
             << eol;
-        showActionResultMessage("挂起线程", false, errorDetailText, actionEvent);
+        reportModuleActionResult(QStringLiteral("挂起线程"), module, processId, false, errorDetailText, actionEvent, true);
         return;
     }
 
     std::string detailText;
     const bool actionOk = ks::process::SuspendThreadIfProcessAndThreadIdentityMatches(
         moduleRecord->representativeThreadId,
-        m_baseRecord.pid,
-        m_baseRecord.creationTime100ns,
+        processId,
+        creationTime,
         moduleRecord->representativeThreadCreationTime100ns,
         &detailText);
     (actionOk ? info : err) << actionEvent
@@ -821,33 +874,32 @@ void ProcessDetailWindow::suspendCurrentModuleThread()
         << ", actionOk="
         << (actionOk ? "true" : "false")
         << eol;
-    showActionResultMessage("挂起线程", actionOk, detailText, actionEvent);
+    reportModuleActionResult(QStringLiteral("挂起线程"), module, processId, actionOk, detailText, actionEvent, true);
+    if (actionOk) requestAsyncModuleRefresh(true);
 }
 
-void ProcessDetailWindow::resumeCurrentModuleThread()
+void ProcessDetailWindow::resumeModuleThread(const ks::process::ProcessModuleRecord& module,
+    const std::uint32_t processId, const std::uint64_t creationTime)
 {
-    const ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
-    if (moduleRecord == nullptr)
-    {
-        return;
-    }
+    const auto* moduleRecord = &module;
     // 恢复线程动作：同一动作链统一复用 actionEvent，避免离散 GUID。
     kLogEvent actionEvent;
-    if (moduleRecord->representativeThreadId == 0)
+    if (processId == 0 || creationTime == 0 || moduleRecord->representativeThreadId == 0
+        || moduleRecord->representativeThreadCreationTime100ns == 0)
     {
-        const std::string errorDetailText = "当前模块行没有可用 ThreadID。";
+        const std::string errorDetailText = "代表线程或进程实例身份不可用；请刷新模块列表后重试。";
         warn << actionEvent
             << "[ProcessDetailWindow] resumeCurrentModuleThread: 缺少 ThreadID。"
             << eol;
-        showActionResultMessage("恢复线程", false, errorDetailText, actionEvent);
+        reportModuleActionResult(QStringLiteral("恢复线程"), module, processId, false, errorDetailText, actionEvent, true);
         return;
     }
 
     std::string detailText;
     const bool actionOk = ks::process::ResumeThreadIfProcessAndThreadIdentityMatches(
         moduleRecord->representativeThreadId,
-        m_baseRecord.pid,
-        m_baseRecord.creationTime100ns,
+        processId,
+        creationTime,
         moduleRecord->representativeThreadCreationTime100ns,
         &detailText);
     (actionOk ? info : err) << actionEvent
@@ -856,33 +908,32 @@ void ProcessDetailWindow::resumeCurrentModuleThread()
         << ", actionOk="
         << (actionOk ? "true" : "false")
         << eol;
-    showActionResultMessage("恢复线程", actionOk, detailText, actionEvent);
+    reportModuleActionResult(QStringLiteral("恢复线程"), module, processId, actionOk, detailText, actionEvent, true);
+    if (actionOk) requestAsyncModuleRefresh(true);
 }
 
-void ProcessDetailWindow::terminateCurrentModuleThread()
+void ProcessDetailWindow::terminateModuleThread(const ks::process::ProcessModuleRecord& module,
+    const std::uint32_t processId, const std::uint64_t creationTime)
 {
-    const ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
-    if (moduleRecord == nullptr)
-    {
-        return;
-    }
+    const auto* moduleRecord = &module;
     // 结束线程动作：同一动作链统一复用 actionEvent，避免离散 GUID。
     kLogEvent actionEvent;
-    if (moduleRecord->representativeThreadId == 0)
+    if (processId == 0 || creationTime == 0 || moduleRecord->representativeThreadId == 0
+        || moduleRecord->representativeThreadCreationTime100ns == 0)
     {
-        const std::string errorDetailText = "当前模块行没有可用 ThreadID。";
+        const std::string errorDetailText = "代表线程或进程实例身份不可用；请刷新模块列表后重试。";
         warn << actionEvent
             << "[ProcessDetailWindow] terminateCurrentModuleThread: 缺少 ThreadID。"
             << eol;
-        showActionResultMessage("结束线程", false, errorDetailText, actionEvent);
+        reportModuleActionResult(QStringLiteral("结束线程"), module, processId, false, errorDetailText, actionEvent, true);
         return;
     }
 
     std::string detailText;
     const bool actionOk = ks::process::TerminateThreadIfProcessAndThreadIdentityMatches(
         moduleRecord->representativeThreadId,
-        m_baseRecord.pid,
-        m_baseRecord.creationTime100ns,
+        processId,
+        creationTime,
         moduleRecord->representativeThreadCreationTime100ns,
         &detailText);
     (actionOk ? info : err) << actionEvent
@@ -891,7 +942,7 @@ void ProcessDetailWindow::terminateCurrentModuleThread()
         << ", actionOk="
         << (actionOk ? "true" : "false")
         << eol;
-    showActionResultMessage("结束线程", actionOk, detailText, actionEvent);
+    reportModuleActionResult(QStringLiteral("结束线程"), module, processId, actionOk, detailText, actionEvent, true);
     if (actionOk)
     {
         requestAsyncModuleRefresh(true);

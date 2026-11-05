@@ -667,6 +667,12 @@ void RegistryDock::initializeConnections()
     connect(m_keyTree, &QTreeWidget::itemClicked, this, [this]() { m_valuesActive = false; });
     connect(m_valueTable, &QTableWidget::itemClicked, this, [this]() { m_valuesActive = true; });
     connect(m_keyTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) { ensureTreeItemLoaded(item); });
+    connect(m_keyTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+        if (item && item->data(0, kRolePlaceholder).toBool() && item->parent()
+            && !item->parent()->data(0, kRoleLoaded).toBool()
+            && item->parent()->data(0, kRoleLoadToken).toULongLong() == 0)
+            ensureTreeItemLoaded(item->parent());
+    });
     connect(m_keyTree, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* item, QTreeWidgetItem*) {
         if (item == nullptr || item->data(0, kRolePlaceholder).toBool()) return;
         const QString path = item->data(0, kRolePath).toString();
@@ -826,6 +832,7 @@ QString RegistryDock::rootKeyToText(HKEY rootKey)
 void RegistryDock::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);
+    if (event->type() == QEvent::LanguageChange) updateSearchRequestSummary();
     if ((event->type() != QEvent::ApplicationPaletteChange && event->type() != QEvent::PaletteChange) || !m_pathEdit) return;
     // Qt caches the palette used by a locally styled widget. Rebuild those
     // small local styles after a global theme change so contrast stays valid.
@@ -963,6 +970,7 @@ void RegistryDock::navigateToPath(const QString& path, bool recordHistory)
     m_editorReady = false;
     m_valueEditor->hide();
     m_currentPath = normalized;
+    updateSearchRequestSummary();
     m_pathEdit->setText(normalized);
     if (m_locationTabs && m_locationTabs->currentIndex() >= 0)
     {
@@ -1172,8 +1180,18 @@ void RegistryDock::ensureTreeItemLoaded(QTreeWidgetItem* item)
                                 << eol;
                         }
                         targetItem->setData(0, kRoleLoadToken, static_cast<qulonglong>(0));
-                        targetItem->setData(0, kRoleLoaded, true);
-                        targetItem->setChildIndicatorPolicy(QTreeWidgetItem::DontShowIndicatorWhenChildless);
+                        targetItem->setData(0, kRoleLoaded, false);
+                        targetItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+                        auto* failed = new QTreeWidgetItem(targetItem);
+                        failed->setData(0, kRolePlaceholder, true);
+                        failed->setFlags(Qt::ItemIsEnabled);
+                        const QString message = ks::i18n::sourceText(QStringLiteral("读取子键失败；双击重试"));
+                        failed->setText(0, message);
+                        failed->setToolTip(0, ks::i18n::packedSourceText(error));
+                        targetItem->setToolTip(0, ks::i18n::packedSourceText(error));
+                        if (guardedSelf) guardedSelf->updateStatusBar(
+                            ks::i18n::sourceText(QStringLiteral("读取子键失败：%1；双击失败提示重试，或点击刷新。"))
+                                .arg(ks::i18n::packedSourceText(error)));
                         return;
                     }
 
@@ -1731,6 +1749,7 @@ void RegistryDock::stopSearch(const bool invalidateResults)
         m_searchButton->setEnabled(true);
         m_stopSearchButton->setEnabled(false);
         if (m_searchFlushTimer) m_searchFlushTimer->stop();
+        updateSearchRequestSummary();
         return;
     }
     m_stopSearchButton->setEnabled(false);
@@ -1746,6 +1765,7 @@ void RegistryDock::enqueuePendingSearchRow(const std::shared_ptr<SearchSession>&
 
 void RegistryDock::flushPendingSearchRows()
 {
+    updateSearchRequestSummary();
     const auto session = m_searchSession;
     if (!session || session->generation != m_searchGeneration || session->uiFinalized) return;
     // 搜索线程只负责入队；菜单打开时不消费队列，

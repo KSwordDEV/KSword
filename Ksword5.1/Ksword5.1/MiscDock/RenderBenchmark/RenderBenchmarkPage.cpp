@@ -865,6 +865,8 @@ namespace ks::misc
         m_runCompositionButton->setEnabled(enabled);
         m_runResponseButton->setEnabled(enabled);
         m_refreshTargetsButton->setEnabled(enabled);
+        for (auto* input : std::initializer_list<QWidget*>{m_targetWindowCombo, m_responseFrameSpin,
+                 m_repaintIterationSpin, m_dragFrameSpin, m_dragRowSpin}) input->setEnabled(enabled);
         m_progressBar->setVisible(busy);
         if (!statusText.isEmpty())
         {
@@ -1286,6 +1288,8 @@ namespace ks::misc
             appendReportLine(QStringLiteral("  没有可用的目标窗口，请先刷新窗口列表。"));
             return;
         }
+        const QString targetText = m_targetWindowCombo->currentText();
+        const int frameCount = m_responseFrameSpin->value();
         const quint64 handleValue = m_targetWindowCombo->currentData().toULongLong();
         HWND targetHandle = reinterpret_cast<HWND>(handleValue);
         if (targetHandle == nullptr || ::IsWindow(targetHandle) == FALSE)
@@ -1307,7 +1311,6 @@ namespace ks::misc
         }
 
         setBusy(true, QStringLiteral("正在探测窗口响应..."));
-        const int frameCount = m_responseFrameSpin->value();
         const int originX = originRect.left;
         const int originY = originRect.top;
 
@@ -1355,7 +1358,7 @@ namespace ks::misc
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-        appendReportLine(QStringLiteral("  目标: %1").arg(m_targetWindowCombo->currentText()));
+        appendReportLine(QStringLiteral("  目标: %1").arg(targetText));
         appendSummaryLine(QStringLiteral("静止基线"), summarizeSamples(idleSamples));
         appendSummaryLine(QStringLiteral("移动期间"), summarizeSamples(movingSamples));
         appendReportLine(QStringLiteral("  含义: 往返耗时即目标窗口 UI 线程被阻塞的时长；"

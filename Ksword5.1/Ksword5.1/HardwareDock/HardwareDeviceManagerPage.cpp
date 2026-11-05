@@ -4,6 +4,7 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
+#include "../Internationalization/LanguageManager.h"
 
 // ============================================================
 // HardwareDeviceManagerPage.cpp
@@ -926,6 +927,8 @@ void HardwareDeviceManagerPage::initializeUi()
     headerLayout->addWidget(titleLabel, 0);
 
     m_statusLabel = new QLabel(QStringLiteral("正在枚举当前设备..."), this);
+    m_statusLabel->setTextFormat(Qt::PlainText);
+    m_statusLabel->setWordWrap(true);
     m_statusLabel->setStyleSheet(
         QStringLiteral("font-size:13px;color:%1;").arg(KswordTheme::TextSecondaryHex()));
     headerLayout->addWidget(m_statusLabel, 1);
@@ -1088,6 +1091,16 @@ void HardwareDeviceManagerPage::refreshDevicesAsync(const bool forceRefresh)
         m_statusLabel->setText(includeAllDevices
             ? QStringLiteral("正在枚举全部设备...")
             : QStringLiteral("正在枚举当前设备..."));
+        if (m_hasDeviceSnapshot)
+        {
+            m_statusLabel->setText(m_statusLabel->text() + QLatin1Char('\n')
+                + ks::i18n::sourceText(QStringLiteral("仍显示%1设备的上次结果（%2）。"))
+                    .arg(ks::i18n::sourceText(m_snapshotIncludeAll ? QStringLiteral("全部") : QStringLiteral("当前")),
+                        m_snapshotAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))));
+            if (m_snapshotIncomplete)
+                m_statusLabel->setText(m_statusLabel->text() + QLatin1Char('\n')
+                    + ks::i18n::sourceText(QStringLiteral("显示的结果不完整。")));
+        }
     }
     if (m_refreshButton != nullptr)
     {
@@ -1101,7 +1114,9 @@ void HardwareDeviceManagerPage::refreshDevicesAsync(const bool forceRefresh)
     QPointer<HardwareDeviceManagerPage> safeThis(this);
     std::thread([safeThis, includeAllDevices]()
     {
-        std::vector<DeviceEntry> deviceList = enumerateDevicesSnapshot(includeAllDevices);
+        DeviceSnapshot snapshot;
+        try { snapshot = enumerateDevicesSnapshot(includeAllDevices); }
+        catch (...) { snapshot.error = QStringLiteral("设备枚举任务异常；请刷新重试。"); }
         if (safeThis.isNull())
         {
             return;
@@ -1109,7 +1124,7 @@ void HardwareDeviceManagerPage::refreshDevicesAsync(const bool forceRefresh)
 
         const bool invokeOk = QMetaObject::invokeMethod(
             safeThis.data(),
-            [safeThis, deviceList = std::move(deviceList), includeAllDevices]() mutable
+            [safeThis, snapshot = std::move(snapshot), includeAllDevices]() mutable
             {
                 if (safeThis.isNull())
                 {
@@ -1117,7 +1132,7 @@ void HardwareDeviceManagerPage::refreshDevicesAsync(const bool forceRefresh)
                 }
 
                 safeThis->applyDeviceSnapshot(
-                    std::move(deviceList),
+                    std::move(snapshot),
                     includeAllDevices);
             },
             Qt::QueuedConnection);
@@ -1130,7 +1145,7 @@ void HardwareDeviceManagerPage::refreshDevicesAsync(const bool forceRefresh)
 }
 
 void HardwareDeviceManagerPage::applyDeviceSnapshot(
-    std::vector<DeviceEntry> deviceList,
+    DeviceSnapshot snapshot,
     const bool includeAllDevices)
 {
     if (ks::ui::IsItemViewUiCommitBlockedByContextMenu({m_deviceTree}))
@@ -1141,21 +1156,29 @@ void HardwareDeviceManagerPage::applyDeviceSnapshot(
             QStringLiteral("hardware-device-tree-snapshot-apply"),
             {m_deviceTree},
             [safeThis,
-                deviceList = std::move(deviceList),
+                snapshot = std::move(snapshot),
                 includeAllDevices]() mutable
             {
                 if (!safeThis.isNull())
                 {
                     safeThis->applyDeviceSnapshot(
-                        std::move(deviceList),
+                        std::move(snapshot),
                         includeAllDevices);
                 }
             });
         return;
     }
 
-    m_deviceList = std::move(deviceList);
-    rebuildDeviceTree(m_deviceList);
+    const bool failed = !snapshot.complete && snapshot.devices.empty();
+    if (!failed)
+    {
+        m_deviceList = std::move(snapshot.devices);
+        m_hasDeviceSnapshot = true;
+        m_snapshotIncludeAll = includeAllDevices;
+        m_snapshotIncomplete = !snapshot.complete;
+        m_snapshotAt = snapshot.sampledAt;
+        rebuildDeviceTree(m_deviceList);
+    }
 
     int problemCount = 0;
     for (const DeviceEntry& entry : m_deviceList)
@@ -1167,12 +1190,34 @@ void HardwareDeviceManagerPage::applyDeviceSnapshot(
     }
     if (m_statusLabel != nullptr)
     {
-        m_statusLabel->setText(
-            QStringLiteral("%1设备：%2 项，异常：%3，刷新：%4")
-            .arg(includeAllDevices ? QStringLiteral("全部") : QStringLiteral("当前"))
-            .arg(static_cast<int>(m_deviceList.size()))
-            .arg(problemCount)
-            .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))));
+        QString status;
+        if (failed)
+        {
+            status = ks::i18n::sourceText(QStringLiteral("%1设备读取失败：%2。点击刷新重试。"))
+                .arg(ks::i18n::sourceText(includeAllDevices ? QStringLiteral("全部") : QStringLiteral("当前")),
+                    ks::i18n::packedSourceText(snapshot.error));
+            if (m_hasDeviceSnapshot)
+            {
+                status += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("仍显示%1设备的上次结果（%2）。"))
+                    .arg(ks::i18n::sourceText(m_snapshotIncludeAll ? QStringLiteral("全部") : QStringLiteral("当前")),
+                        m_snapshotAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+                if (m_snapshotIncomplete) status += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("显示的结果不完整。"));
+            }
+            else if (m_detailEditor)
+                m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(status));
+        }
+        else
+        {
+            status = ks::i18n::sourceText(QStringLiteral("%1设备：%2 项，异常：%3，采集于：%4"))
+                .arg(ks::i18n::sourceText(m_snapshotIncludeAll ? QStringLiteral("全部") : QStringLiteral("当前")))
+                .arg(static_cast<int>(m_deviceList.size())).arg(problemCount)
+                .arg(m_snapshotAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+            if (m_snapshotIncomplete)
+                status += QLatin1Char('\n') + ks::i18n::sourceText(QStringLiteral("结果不完整：%1；无法识别的设备 %2 项。点击刷新重试。"))
+                    .arg(ks::i18n::packedSourceText(snapshot.error)).arg(snapshot.skippedDevices);
+        }
+        m_statusLabel->setText(status);
+        m_statusLabel->setToolTip(status);
     }
     if (m_refreshButton != nullptr)
     {
@@ -1786,17 +1831,21 @@ void HardwareDeviceManagerPage::deleteSelectedDeviceDriverPackage()
     }).detach();
 }
 
-std::vector<HardwareDeviceManagerPage::DeviceEntry>
+HardwareDeviceManagerPage::DeviceSnapshot
 HardwareDeviceManagerPage::enumerateDevicesSnapshot(const bool includeAllDevices)
 {
-    std::vector<DeviceEntry> resultList;
+    DeviceSnapshot result;
+    auto& resultList = result.devices;
 
     const DWORD flags = DIGCF_ALLCLASSES | (includeAllDevices ? 0U : DIGCF_PRESENT);
     HDEVINFO deviceInfoSet = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, flags);
     if (deviceInfoSet == INVALID_HANDLE_VALUE)
     {
-        return resultList;
+        result.error = QStringLiteral("SetupDiGetClassDevsW 失败：%1").arg(formatWin32Error(GetLastError()));
+        result.sampledAt = QDateTime::currentDateTime();
+        return result;
     }
+    struct DeviceSetGuard { HDEVINFO value; ~DeviceSetGuard() { SetupDiDestroyDeviceInfoList(value); } } deviceSetGuard{deviceInfoSet};
 
     for (DWORD index = 0;; ++index)
     {
@@ -1804,6 +1853,10 @@ HardwareDeviceManagerPage::enumerateDevicesSnapshot(const bool includeAllDevices
         deviceInfoData.cbSize = sizeof(deviceInfoData);
         if (!SetupDiEnumDeviceInfo(deviceInfoSet, index, &deviceInfoData))
         {
+            const DWORD error = GetLastError();
+            result.complete = error == ERROR_NO_MORE_ITEMS;
+            if (!result.complete)
+                result.error = QStringLiteral("SetupDiEnumDeviceInfo 失败：%1").arg(formatWin32Error(error));
             break;
         }
 
@@ -1871,9 +1924,14 @@ HardwareDeviceManagerPage::enumerateDevicesSnapshot(const bool includeAllDevices
         {
             resultList.push_back(std::move(entry));
         }
+        else ++result.skippedDevices;
     }
 
-    SetupDiDestroyDeviceInfoList(deviceInfoSet);
+    if (result.skippedDevices)
+    {
+        result.complete = false;
+        if (result.error.isEmpty()) result.error = QStringLiteral("部分设备未能读取 Instance ID。");
+    }
     std::sort(
         resultList.begin(),
         resultList.end(),
@@ -1881,5 +1939,6 @@ HardwareDeviceManagerPage::enumerateDevicesSnapshot(const bool includeAllDevices
         {
             return QString::localeAwareCompare(left.nameText, right.nameText) < 0;
         });
-    return resultList;
+    result.sampledAt = QDateTime::currentDateTime();
+    return result;
 }

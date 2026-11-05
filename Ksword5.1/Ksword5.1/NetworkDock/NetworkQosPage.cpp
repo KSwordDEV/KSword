@@ -15,12 +15,14 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -241,7 +243,16 @@ NetworkQosPage::NetworkQosPage(QWidget *parent) : QWidget(parent)
     m_scope->addItems({L("指定应用映像（所有实例）"), L("全部应用")});
     fields->addRow(label("network.qos.scope", "应用范围："), m_scope);
     m_path = new QLineEdit(section);
-    fields->addRow(label("network.qos.path", "应用完整路径："), m_path);
+    auto* pathRow = new QHBoxLayout;
+    pathRow->addWidget(m_path, 1);
+    m_browse = new QPushButton(section); bind(m_browse, "network.qos.browse_program", "选择程序…");
+    pathRow->addWidget(m_browse); ks::ui::NormalizeToolbarRow(pathRow);
+    fields->addRow(label("network.qos.path", "应用完整路径："), pathRow);
+    connect(m_browse, &QPushButton::clicked, this, [this] {
+        const QPointer<NetworkQosPage> owner(this);
+        const QString path = QFileDialog::getOpenFileName(this, L("选择 QoS 应用程序"), m_path->text(), L("程序文件 (*.exe);;所有文件 (*)"));
+        if (owner && !path.isEmpty()) m_path->setText(QDir::toNativeSeparators(path));
+    });
     m_rate = new ByteRateSpinBox(section);
     m_rate->setRange(0, 1000000000);
     m_rate->setDecimals(10);
@@ -321,6 +332,9 @@ NetworkQosPage::NetworkQosPage(QWidget *parent) : QWidget(parent)
     m_refresh = new QPushButton(this);
     m_remove = new QPushButton(this);
     m_toggle = new QPushButton(this);
+    m_edit = new QPushButton(this); bind(m_edit, "network.qos.load_selected", "载入所选策略");
+    m_edit->setToolTip(L("将所选策略载入编辑区并替换当前草稿；载入不会应用策略。"));
+    fresh->setToolTip(L("清空编辑区并新建草稿；保存后才会应用。"));
     bind(m_refresh, "network.qos.refresh", "刷新策略");
     bind(m_remove, "network.qos.remove", "删除所选");
     bind(m_toggle, "network.qos.toggle", "启用 / 禁用");
@@ -330,7 +344,7 @@ NetworkQosPage::NetworkQosPage(QWidget *parent) : QWidget(parent)
     bind(exportButton, "network.qos.export", "导出策略");
     auto *importButton = new QPushButton(this);
     bind(importButton, "network.qos.import", "导入为草稿");
-    for (auto *b : {m_refresh, m_toggle, m_remove, area, exportButton, importButton})
+    for (auto *b : {m_refresh, m_edit, m_toggle, m_remove, area, exportButton, importButton})
     {
         tools->addWidget(b);
         ks::ui::NormalizeToolbarControl(b);
@@ -367,6 +381,7 @@ NetworkQosPage::NetworkQosPage(QWidget *parent) : QWidget(parent)
             importPolicy();
     });
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { selected(); });
+    connect(m_edit, &QPushButton::clicked, this, [this] { if (const auto* policy = selectedPolicy()) setForm(*policy); });
     connect(m_scope, &QComboBox::currentIndexChanged, this, [this] { updateButtons(); });
     connect(area, &QPushButton::clicked, this, [this] {
         if (!m_area)
@@ -390,7 +405,9 @@ void NetworkQosPage::updateButtons()
 {
     const bool idle = !m_operation->isBusy();
     m_save->setEnabled(idle && m_managed);
-    m_remove->setEnabled(idle && m_managed && !m_editingId.isEmpty());
+    const auto* selected = selectedPolicy();
+    m_edit->setEnabled(idle && selected);
+    m_remove->setEnabled(idle && selected && selected->managed);
     m_toggle->setEnabled(m_remove->isEnabled());
     m_refresh->setEnabled(idle);
     m_new->setEnabled(idle);
@@ -400,6 +417,7 @@ void NetworkQosPage::updateButtons()
                                           m_precedence, m_sourceStart, m_sourceEnd, m_destStart, m_destEnd, m_enabled})
         w->setEnabled(idle && m_managed);
     m_path->setEnabled(idle && m_managed && m_scope->currentIndex() == 0);
+    m_browse->setEnabled(m_path->isEnabled());
 }
 void NetworkQosPage::reset()
 {
@@ -425,7 +443,7 @@ void NetworkQosPage::reset()
         p->setValue(0);
     m_protocol->setCurrentIndex(0);
     m_enabled->setChecked(true);
-    m_identity->setText(L("新建 QoS 策略"));
+    m_identity->setText(L("新建 QoS 策略草稿；保存后才会应用。"));
     updateButtons();
 }
 QosPolicy NetworkQosPage::form() const
@@ -454,12 +472,18 @@ QosPolicy NetworkQosPage::form() const
 }
 void NetworkQosPage::selected()
 {
-    const auto identity = m_table->currentIndex().data(Qt::UserRole).toString();
+    // Selection targets row actions. Loading an editable draft is explicit.
+    updateButtons();
+}
+const QosPolicy* NetworkQosPage::selectedPolicy() const
+{
+    const auto selection = m_table->selectionModel()->selectedRows(0);
+    if (selection.size() != 1) return nullptr;
+    const auto identity = selection.first().data(Qt::UserRole).toString();
     const auto found = std::find_if(m_policies.cbegin(), m_policies.cend(), [&](const auto &policy) {
         return QString::fromStdWString(policy.policyId) == identity;
     });
-    if (!identity.isEmpty() && found != m_policies.cend())
-        setForm(*found);
+    return !identity.isEmpty() && found != m_policies.cend() ? &*found : nullptr;
 }
 void NetworkQosPage::setForm(const QosPolicy &p)
 {
@@ -488,7 +512,8 @@ void NetworkQosPage::setForm(const QosPolicy &p)
     m_destStart->setValue(p.destinationPortStart);
     m_destEnd->setValue(p.destinationPortEnd);
     m_enabled->setChecked(p.enabled);
-    m_identity->setText(m_managed ? m_editingId : L("系统 / 提供者策略（只读）") + QStringLiteral("\n") + m_editingId);
+    m_identity->setText(m_managed ? L("编辑策略草稿：%1；保存后才会应用。").arg(m_editingId)
+                                : L("系统 / 提供者策略（只读）") + QStringLiteral("\n") + m_editingId);
     updateButtons();
 }
 void NetworkQosPage::importPolicy()
@@ -539,9 +564,11 @@ void NetworkQosPage::refresh()
     if (m_operation->isBusy())
         return;
     m_status->setText(L("正在读取 QoS 策略…"));
+    const auto* selection = selectedPolicy();
+    const QString selectedId = selection ? QString::fromStdWString(selection->policyId) : QString();
     m_operation->submit<int, QosPolicyList>(
         0, [](int, const ks::ui::AsyncOperationToken &) { return ListQosPolicies(); },
-        [this](const QosPolicyList &r, std::uint64_t generation) {
+        [this, selectedId](const QosPolicyList &r, std::uint64_t generation) {
             if (!r.success)
             {
                 m_status->setText(policyMessage(r.diagnostic));
@@ -550,10 +577,10 @@ void NetworkQosPage::refresh()
             const auto snapshot = std::make_shared<const QosPolicyList>(r);
             const auto submission = ks::ui::ResultTableHost::submitGroup(
                 this, QStringLiteral("network-qos"), {ks::ui::ResultTableHost::ensure(m_table)},
-                [this, snapshot, generation] {
+                [this, snapshot, generation, selectedId] {
                     if (!m_operation->isCurrent(generation))
                         return;
-                    publishPolicies(snapshot->entries, m_editingId);
+                    publishPolicies(snapshot->entries, selectedId);
                     m_status->setText(L("QoS 策略：%1 项").arg(m_policies.size()));
                     m_operation->completeDeferred(generation);
                 });
@@ -561,7 +588,7 @@ void NetworkQosPage::refresh()
         },
         [this](std::exception_ptr) { m_status->setText(L("QoS 策略读取失败")); });
 }
-void NetworkQosPage::mutate(std::function<NetworkPolicyResult()> operation)
+void NetworkQosPage::mutate(std::function<NetworkPolicyResult()> operation, bool updateEditor)
 {
     if (m_operation->isBusy())
         return;
@@ -580,8 +607,8 @@ void NetworkQosPage::mutate(std::function<NetworkPolicyResult()> operation)
                 r.list = ListQosPolicies();
             return r;
         },
-        [this](const Result &r, std::uint64_t generation) {
-            if (!r.action.policyId.empty()) {
+        [this, updateEditor](const Result &r, std::uint64_t generation) {
+            if (updateEditor && r.action.success && !r.action.policyId.empty()) {
                 m_editingId = QString::fromStdWString(r.action.policyId);
                 m_identity->setText(m_editingId);
             }
@@ -593,17 +620,21 @@ void NetworkQosPage::mutate(std::function<NetworkPolicyResult()> operation)
                     const auto snapshot = std::make_shared<const Result>(r);
                     const auto submission = ks::ui::ResultTableHost::submitGroup(
                         this, QStringLiteral("network-qos"), {ks::ui::ResultTableHost::ensure(m_table)},
-                        [this, snapshot, generation] {
+                        [this, snapshot, generation, updateEditor] {
                             if (!m_operation->isCurrent(generation))
                                 return;
                             publishPolicies(snapshot->list.entries, QString::fromStdWString(snapshot->action.policyId));
+                            if (updateEditor) {
+                                const auto found = std::find_if(m_policies.cbegin(), m_policies.cend(), [&](const auto& policy) { return policy.policyId == snapshot->action.policyId; });
+                                if (found != m_policies.cend()) setForm(*found);
+                            }
                             m_operation->completeDeferred(generation);
                         });
                     return submission != ks::ui::UiCommitSubmission::Deferred;
                 }
                 else
                 {
-                    if (!r.action.policyId.empty())
+                    if (updateEditor && !r.action.policyId.empty())
                         m_editingId = QString::fromStdWString(r.action.policyId);
                     m_status->setText(L("操作已执行，但策略列表刷新失败：%1")
                                           .arg(ks::i18n::LanguageManager::instance().displayText(
@@ -647,13 +678,15 @@ void NetworkQosPage::publishPolicies(std::vector<QosPolicy> policies, const QStr
                 if (!owner)
                     return;
             }
-            setForm(*found);
         }
-        else
-            reset();
     }
     if (owner)
     {
+        if (m_managed && !m_editingId.isEmpty() && std::none_of(m_policies.cbegin(), m_policies.cend(),
+                [this](const auto& policy) { return QString::fromStdWString(policy.policyId) == m_editingId; })) {
+            m_editingId.clear();
+            m_identity->setText(L("原策略已不在列表；编辑内容保留为新建草稿，保存后创建新策略。"));
+        }
         updateButtons();
         if (owner)
             refreshArea();
@@ -664,25 +697,20 @@ void NetworkQosPage::save()
     if (!m_managed)
         return;
     const auto p = form();
-    mutate([p] { return SaveQosPolicy(p); });
+    mutate([p] { return SaveQosPolicy(p); }, true);
 }
 void NetworkQosPage::remove()
 {
-    if (m_editingId.isEmpty() || !m_managed)
-        return;
-    const auto id = m_editingId.toStdWString();
+    const auto* selected = selectedPolicy();
+    if (!selected || !selected->managed) return;
+    const auto id = selected->policyId;
     mutate([id] { return RemoveQosPolicy(id); });
 }
 void NetworkQosPage::toggle()
 {
-    if (m_editingId.isEmpty() || !m_managed)
-        return;
-    for (const auto &p : m_policies)
-        if (QString::fromStdWString(p.policyId) == m_editingId)
-        {
-            mutate([id = p.policyId, enabled = p.enabled] { return SetQosPolicyEnabled(id, !enabled); });
-            break;
-        }
+    const auto* selected = selectedPolicy();
+    if (!selected || !selected->managed) return;
+    mutate([id = selected->policyId, enabled = selected->enabled] { return SetQosPolicyEnabled(id, !enabled); });
 }
 void NetworkQosPage::refreshArea()
 {

@@ -67,7 +67,7 @@ namespace ks::misc
         void applyVirtualLocation();
         // clearVirtualLocation：删除默认位置的五个值，把系统恢复成未设置状态。
         void clearVirtualLocation();
-        // toggleProviderPolicy：按复选框状态写入或删除 DisableWindowsLocationProvider。
+        // toggleProviderPolicy：显式操作按钮写入或删除 DisableWindowsLocationProvider。
         void toggleProviderPolicy(bool disabled);
         // restartLocationService：停掉 lfsvc 丢弃缓存，让下一次定位重新取默认位置。
         void restartLocationService();
@@ -112,7 +112,8 @@ namespace ks::misc
         QDoubleSpinBox* m_longitudeSpin = nullptr; // m_longitudeSpin：经度输入。
         QDoubleSpinBox* m_altitudeSpin = nullptr;  // m_altitudeSpin：海拔输入。
         QDoubleSpinBox* m_accuracySpin = nullptr;  // m_accuracySpin：误差半径输入。
-        QCheckBox* m_forceProviderCheck = nullptr; // m_forceProviderCheck：是否禁用 Windows 位置提供程序。
+        QLabel* m_providerStateLabel = nullptr; // 只读的已查询策略状态。
+        QPushButton* m_providerButton = nullptr; // 显式禁用/恢复，独立于坐标应用。
         QPushButton* m_refreshButton = nullptr;    // m_refreshButton：重新读取系统状态。
         QPushButton* m_liveFixButton = nullptr;    // m_liveFixButton：读一次系统实况定位。
         QPushButton* m_useLiveFixButton = nullptr; // m_useLiveFixButton：读一次实况定位并回填输入。
@@ -129,6 +130,8 @@ namespace ks::misc
         bool m_liveFixRunning = false;             // m_liveFixRunning：后台实况定位进行中。
         bool m_updatingInputs = false;             // m_updatingInputs：正在程序化回填数值框。
         bool m_defaultLocationPresent = false;     // m_defaultLocationPresent：系统当前是否已有默认位置。
+        bool m_providerStateLoaded = false;
+        bool m_providerStateQueried = false;
         bool m_providerDisabled = false;           // m_providerDisabled：组策略当前是否已禁用位置提供程序。
     };
 }

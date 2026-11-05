@@ -66,7 +66,7 @@ namespace
         {"ks_virtual_location_altitude_label", "misc.virtual_location.input.altitude", "海拔：", false},
         {"ks_virtual_location_accuracy_label", "misc.virtual_location.input.accuracy", "误差半径：", false},
         {"ks_virtual_location_action", "misc.virtual_location.action.title", "操作", false},
-        {"ks_virtual_location_force_provider", "misc.virtual_location.action.force_provider", "同时禁用 Windows 位置提供程序，强制定位回落到默认位置（影响全系统）", true},
+        {"ks_virtual_location_provider_state", "misc.virtual_location.action.provider_state", "Windows 位置提供程序：尚未查询", false},
         {"ks_virtual_location_apply", "misc.virtual_location.action.apply", "应用虚拟定位", true},
         {"ks_virtual_location_clear", "misc.virtual_location.action.clear", "清除虚拟定位", true},
         {"ks_virtual_location_use_live_fix", "misc.virtual_location.action.use_livefix", "用实况定位填入", true},
@@ -335,6 +335,7 @@ namespace ks::misc
         {
             applyScopeBannerStyle();
         }
+        if (event->type() == QEvent::LanguageChange && m_providerButton) updateButtons();
     }
 
     // applyScopeBannerStyle 作用：
@@ -568,15 +569,16 @@ namespace ks::misc
         auto* actionLayout = new QVBoxLayout(actionGroup);
         actionLayout->setSpacing(8);
 
-        m_forceProviderCheck = new QCheckBox(actionGroup);
-        bindVirtualLocationBody(m_forceProviderCheck, VirtualLocationBodyText::ForceProvider);
-        language.bindToolTip(
-            m_forceProviderCheck,
-            QStringLiteral("misc.virtual_location.action.force_provider.tooltip"),
-            QStringLiteral(
-                "写入组策略 DisableWindowsLocationProvider=1，关掉 Windows 自带的网络定位。"
-                "关掉之后依赖真实定位的程序（地图、天气、查找我的设备）都会失去精确位置，取消勾选即可还原。"));
-        actionLayout->addWidget(m_forceProviderCheck);
+        m_providerStateLabel = new QLabel(actionGroup);
+        m_providerStateLabel->setObjectName(virtualLocationBodyTarget(VirtualLocationBodyText::ForceProvider));
+        m_providerStateLabel->setTextFormat(Qt::PlainText);
+        m_providerStateLabel->setWordWrap(true);
+        actionLayout->addWidget(m_providerStateLabel);
+        m_providerButton = new QPushButton(actionGroup);
+        m_providerButton->setObjectName(QStringLiteral("ks_virtual_location_provider_action"));
+        m_providerButton->setToolTip(ks::i18n::sourceText(QStringLiteral(
+            "这是独立的系统策略操作，不随坐标应用。禁用会影响所有使用 Windows 位置服务的程序；恢复可撤销此策略。")));
+        actionLayout->addWidget(m_providerButton);
 
         auto* buttonLayout = new QHBoxLayout();
         m_applyButton = new QPushButton(
@@ -664,10 +666,10 @@ namespace ks::misc
             this,
             [this]() { restartLocationService(); });
         connect(
-            m_forceProviderCheck,
-            &QCheckBox::toggled,
+            m_providerButton,
+            &QPushButton::clicked,
             this,
-            [this](const bool checked) { toggleProviderPolicy(checked); });
+            [this]() { toggleProviderPolicy(!m_providerDisabled); });
         connect(
             m_presetCombo,
             &QComboBox::currentIndexChanged,
@@ -779,10 +781,8 @@ namespace ks::misc
                     serviceSnapshot.locationDisabledByPolicy
                         ? QStringLiteral("（定位已被策略整体关闭，虚拟坐标同样读不到）")
                         : QString()));
-        {
-            const QSignalBlocker blocker(m_forceProviderCheck);
-            m_forceProviderCheck->setChecked(m_providerDisabled);
-        }
+        m_providerStateQueried = true;
+        m_providerStateLoaded = serviceSnapshot.providerPolicyReadable;
 
         m_defaultLocationPresent = locationSnapshot.present;
         if (!locationSnapshot.readable) {
@@ -880,9 +880,7 @@ namespace ks::misc
 
     void VirtualLocationPage::toggleProviderPolicy(const bool disabled)
     {
-        if (m_updatingInputs) {
-            return;
-        }
+        if (m_busy || m_liveFixRunning || !m_providerStateLoaded) return;
         if (disabled == m_providerDisabled) {
             return;
         }
@@ -898,9 +896,7 @@ namespace ks::misc
                     QStringLiteral(
                         "将写入组策略 DisableWindowsLocationProvider=1，关闭 Windows 自带的网络定位。\n\n"
                         "关闭后所有依赖真实定位的程序都只能拿到默认位置，部分系统功能（天气、地图、查找我的设备）"
-                        "会失去精确位置。取消勾选即可还原。\n\n确定继续吗？")))) {
-            const QSignalBlocker blocker(m_forceProviderCheck);
-            m_forceProviderCheck->setChecked(false);
+                        "会失去精确位置。点击“恢复位置提供程序”可撤销此策略。\n\n确定继续吗？")))) {
             return;
         }
 
@@ -911,8 +907,6 @@ namespace ks::misc
                     setResultText(
                         QStringLiteral("组策略修改失败：%1").arg(policyResult.detailText),
                         true);
-                    const QSignalBlocker blocker(m_forceProviderCheck);
-                    m_forceProviderCheck->setChecked(m_providerDisabled);
                     return;
                 }
 
@@ -1140,6 +1134,13 @@ namespace ks::misc
         m_liveFixButton->setEnabled(idle);
         m_useLiveFixButton->setEnabled(idle);
         m_restartServiceButton->setEnabled(idle);
-        m_forceProviderCheck->setEnabled(idle);
+        m_providerButton->setEnabled(idle && m_providerStateLoaded);
+        m_providerButton->setText(ks::i18n::sourceText(m_providerDisabled
+            ? QStringLiteral("恢复位置提供程序") : QStringLiteral("禁用位置提供程序")));
+        m_providerStateLabel->setText(ks::i18n::sourceText(!m_providerStateQueried
+            ? QStringLiteral("Windows 位置提供程序：尚未查询")
+            : !m_providerStateLoaded ? QStringLiteral("Windows 位置提供程序：策略读取失败，请刷新状态。")
+            : m_providerDisabled ? QStringLiteral("Windows 位置提供程序：已被此策略禁用")
+                                 : QStringLiteral("Windows 位置提供程序：未被此策略禁用")));
     }
 }

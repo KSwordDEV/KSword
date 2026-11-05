@@ -1075,13 +1075,20 @@ namespace ks::ui
         m_commandModeAction->setChecked(!m_searchInputModeActive);
         if (m_searchInputModeActive)
         {
+            // Keep scope visible even while a query occupies the input. The
+            // full table name remains in the tooltip; long names cannot take
+            // over the title bar's command/search editing space.
+            const int scopeWidth = m_inputModeButton->fontMetrics().horizontalAdvance(
+                ks::i18n::sourceText(QStringLiteral("当前表格")))
+                + m_inputModeButton->fontMetrics().height() * 2;
             m_inputModeButton->setText(
-                ks::i18n::sourceText(QStringLiteral("搜索")) + QStringLiteral(" ▾"));
+                m_inputModeButton->fontMetrics().elidedText(m_searchScopeDisplayText,
+                    Qt::ElideRight, scopeWidth) + QStringLiteral(" ▾"));
             m_inputModeButton->setToolTip(
                 ks::i18n::sourceText(QStringLiteral("搜索范围：%1。聚焦输入框后按 Tab/Shift+Tab 循环切换全局、当前页面、当前表格和 CMD。"))
                     .arg(m_searchScopeDisplayText));
             m_commandLineEdit->setPlaceholderText(
-                ks::i18n::sourceText(QStringLiteral("搜索")));
+                ks::i18n::sourceText(QStringLiteral("在%1中搜索功能或内容")).arg(m_searchScopeDisplayText));
         }
         else
         {

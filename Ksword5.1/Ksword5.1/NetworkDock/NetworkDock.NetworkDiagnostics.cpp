@@ -1025,6 +1025,13 @@ void NetworkDock::initializeAliveHostScanTab()
     m_aliveScanStatusLabel = new QLabel(QStringLiteral("状态：待机"), m_aliveScanPage);
     m_aliveScanStatusLabel->setWordWrap(true);
     workspace->results()->addWidget(m_aliveScanStatusLabel);
+    m_aliveScanSourceLabel = new QLabel(m_aliveScanPage);
+    m_aliveScanSourceLabel->setTextFormat(Qt::PlainText);
+    m_aliveScanSourceLabel->setWordWrap(true);
+    workspace->results()->addWidget(m_aliveScanSourceLabel);
+    connect(m_aliveScanStartIpEdit, &QLineEdit::textChanged, this, [this] { updateAliveScanSource(); });
+    connect(m_aliveScanEndIpEdit, &QLineEdit::textChanged, this, [this] { updateAliveScanSource(); });
+    connect(m_aliveScanTimeoutSpin, &QSpinBox::valueChanged, this, [this] { updateAliveScanSource(); });
 
     m_aliveScanTable = new ks::ui::VisibleTableWidget(m_aliveScanPage);
     // 单次发现结果需要导出，不需要每个结果表的冻结/对比操作。
@@ -1737,6 +1744,24 @@ void NetworkDock::flushDnsCache()
     refreshDnsCacheTable();
 }
 
+void NetworkDock::updateAliveScanSource()
+{
+    if (!m_aliveScanSourceLabel) return;
+    m_aliveScanSourceLabel->setVisible(!m_aliveScanStartedAt.isEmpty());
+    if (m_aliveScanStartedAt.isEmpty()) return;
+    std::uint32_t start = 0, end = 0;
+    const bool valid = tryParseIpv4Text(m_aliveScanStartIpEdit->text().trimmed(), start)
+        && tryParseIpv4Text(m_aliveScanEndIpEdit->text().trimmed(), end);
+    const bool same = valid && (std::min)(start, end) == m_aliveScanSubmittedStart
+        && (std::max)(start, end) == m_aliveScanSubmittedEnd
+        && m_aliveScanTimeoutSpin->value() == m_aliveScanSubmittedTimeout;
+    QString source = ks::i18n::sourceText(QStringLiteral("结果范围：%1 — %2；超时 %3 ms；开始于 %4。"))
+        .arg(formatIpv4HostOrder(m_aliveScanSubmittedStart), formatIpv4HostOrder(m_aliveScanSubmittedEnd))
+        .arg(m_aliveScanSubmittedTimeout).arg(m_aliveScanStartedAt);
+    if (!same) source += ks::i18n::sourceText(QStringLiteral(" 新参数尚未扫描。"));
+    m_aliveScanSourceLabel->setText(source);
+}
+
 void NetworkDock::startAliveHostScan()
 {
     if (m_aliveScanRunning.load())
@@ -1779,6 +1804,12 @@ void NetworkDock::startAliveHostScan()
         return;
     }
 
+    const int timeoutMs = m_aliveScanTimeoutSpin->value();
+    m_aliveScanSubmittedStart = startIpHostOrder; m_aliveScanSubmittedEnd = endIpHostOrder;
+    m_aliveScanSubmittedTimeout = timeoutMs;
+    m_aliveScanStartedAt = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    updateAliveScanSource();
+    m_aliveScanStartIpEdit->setEnabled(false); m_aliveScanEndIpEdit->setEnabled(false); m_aliveScanTimeoutSpin->setEnabled(false);
     m_aliveScanTable->setRowCount(0);
     m_aliveScanProgressBar->setValue(0);
     m_aliveScanStatusLabel->setText(QString("状态：正在扫描 %1 个主机").arg(hostCount));
@@ -1797,7 +1828,6 @@ void NetworkDock::startAliveHostScan()
     taskState->cancelRequested.store(false);
     if (!m_aliveScanDispatcher) m_aliveScanDispatcher = std::make_shared<ks::ui::AsyncUiDispatcher>(this);
     const auto dispatcher = m_aliveScanDispatcher;
-    const int timeoutMs = m_aliveScanTimeoutSpin->value();
 
     {
         kLogEvent event;
@@ -1946,6 +1976,10 @@ void NetworkDock::startAliveHostScan()
                     guardThis->m_aliveScanRunning.store(false);
                     guardThis->m_startAliveScanButton->setEnabled(true);
                     guardThis->m_stopAliveScanButton->setEnabled(false);
+                    guardThis->m_aliveScanStartIpEdit->setEnabled(true);
+                    guardThis->m_aliveScanEndIpEdit->setEnabled(true);
+                    guardThis->m_aliveScanTimeoutSpin->setEnabled(true);
+                    guardThis->updateAliveScanSource();
                     const bool canceled = taskState->cancelRequested.load() || guardThis->m_aliveScanCancel.load();
                     const int progressValue = ks::network::CalculateIntegerProgressPercent(
                         finishedCountValue,
@@ -1960,10 +1994,10 @@ void NetworkDock::startAliveHostScan()
                     }
                     else if (canceled)
                     {
-                        statusText = QString("状态：已停止，已探测 %1/%2，存活 %3")
+                        statusText = ks::i18n::sourceText(QStringLiteral("状态：已停止，已探测 %1/%2；已发现 %3，当前显示 %4。以下为部分结果。"))
                             .arg(finishedCountValue)
                             .arg(totalCount)
-                            .arg(aliveCountValue);
+                            .arg(aliveCountValue).arg(guardThis->m_aliveScanTable->rowCount());
                     }
                     else
                     {
