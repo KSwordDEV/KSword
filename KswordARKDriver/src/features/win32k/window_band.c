@@ -226,6 +226,9 @@ NTSTATUS KswordARKWindowBandIoctl(WDFDEVICE Device, WDFREQUEST Request,
     size_t bytes;
     KSWORD_WIN32K_PS_GET_THREAD_WIN32_THREAD_FN getGuiThread;
     UNREFERENCED_PARAMETER(InputLength); UNREFERENCED_PARAMETER(OutputLength);
+    if (BytesReturned == NULL) { // The dispatch layer supplies it today; keep the handler contract safe.
+        return STATUS_INVALID_PARAMETER;
+    }
     *BytesReturned = 0;
     if (KeGetCurrentIrql() != PASSIVE_LEVEL || WdfRequestGetRequestorMode(Request) != UserMode)
         return STATUS_INVALID_DEVICE_STATE;

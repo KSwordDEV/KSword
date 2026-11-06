@@ -62,6 +62,7 @@ KswordARKKeyboardRetrieveRequest(
     _In_ WDFREQUEST Request,
     _In_ size_t InputBufferLength,
     _In_ ULONG DefaultFlags,
+    _Out_ KSWORD_ARK_ENUM_KEYBOARD_REQUEST* RequestSnapshot,
     _Out_ KSWORD_ARK_ENUM_KEYBOARD_REQUEST** RequestOut,
     _Out_ KSWORD_ARK_ENUM_KEYBOARD_REQUEST* DefaultRequest
     )
@@ -71,7 +72,7 @@ KswordARKKeyboardRetrieveRequest(
     BOOLEAN hasInput = FALSE;
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (RequestOut == NULL || DefaultRequest == NULL) {
+    if (RequestSnapshot == NULL || RequestOut == NULL || DefaultRequest == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -88,7 +89,9 @@ KswordARKKeyboardRetrieveRequest(
     }
 
     if (hasInput) {
-        *RequestOut = (KSWORD_ARK_ENUM_KEYBOARD_REQUEST*)inputBuffer;
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(RequestSnapshot, inputBuffer, sizeof(*RequestSnapshot));
+        *RequestOut = RequestSnapshot;
     }
     else {
         KswordARKKeyboardFillDefaultRequest(DefaultRequest, DefaultFlags);
@@ -108,6 +111,7 @@ KswordARKKeyboardIoctlEnumHotkeys(
     )
 {
     KSWORD_ARK_ENUM_KEYBOARD_REQUEST* enumRequest = NULL;
+    KSWORD_ARK_ENUM_KEYBOARD_REQUEST requestSnapshot;
     KSWORD_ARK_ENUM_KEYBOARD_REQUEST defaultRequest;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0;
@@ -124,6 +128,7 @@ KswordARKKeyboardIoctlEnumHotkeys(
         Request,
         InputBufferLength,
         KSWORD_ARK_KEYBOARD_ENUM_FLAG_INCLUDE_SYSTEM | KSWORD_ARK_KEYBOARD_ENUM_FLAG_INCLUDE_DIAGNOSTICS,
+        &requestSnapshot,
         &enumRequest,
         &defaultRequest);
     if (!NT_SUCCESS(status)) {
@@ -172,6 +177,7 @@ KswordARKKeyboardIoctlEnumHooks(
     )
 {
     KSWORD_ARK_ENUM_KEYBOARD_REQUEST* enumRequest = NULL;
+    KSWORD_ARK_ENUM_KEYBOARD_REQUEST requestSnapshot;
     KSWORD_ARK_ENUM_KEYBOARD_REQUEST defaultRequest;
     PVOID outputBuffer = NULL;
     size_t actualOutputLength = 0;
@@ -190,6 +196,7 @@ KswordARKKeyboardIoctlEnumHooks(
         KSWORD_ARK_KEYBOARD_ENUM_FLAG_INCLUDE_THREAD_HOOKS |
             KSWORD_ARK_KEYBOARD_ENUM_FLAG_INCLUDE_GLOBAL_HOOKS |
             KSWORD_ARK_KEYBOARD_ENUM_FLAG_INCLUDE_DIAGNOSTICS,
+        &requestSnapshot,
         &enumRequest,
         &defaultRequest);
     if (!NT_SUCCESS(status)) {
