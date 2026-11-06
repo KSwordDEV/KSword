@@ -4897,6 +4897,21 @@ namespace
                 coverTargetRectFor(m_sourceImage.size()),
                 m_sourceImage,
                 QRectF(QPointF(0, 0), m_sourceImage.size()));
+
+            // 背景图可能带透明像素；SourceOver 叠图会把底层 1/255 的命中底色
+            // 再乘成 0，分层窗口在该处又会丢失鼠标命中。这里用 DestinationOver
+            // 补回最低命中 alpha：只抬高透明像素，已有不透明内容保持不变，
+            // 视觉上不可分辨。绘制前先恢复不透明度，避免 1/255 被图片透明度再缩小。
+            /* 传入：无；传出：无；调用方式：本控件透明模式且绘制了背景图时执行。 */
+            if (m_translucentMode)
+            {
+                painter.setOpacity(1.0);
+                QColor hitTestFloorColor = m_baseColor;
+                hitTestFloorColor.setAlpha(1);
+                painter.setCompositionMode(QPainter::CompositionMode_DestinationOver);
+                painter.fillRect(rect(), hitTestFloorColor);
+                painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+            }
         }
 
     private:
@@ -7364,6 +7379,22 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
             }
         }
 
+        // 直透桌面（WA_TranslucentBackground）下，Dock 的普通页根和数据面按设计
+        // 不绘制实底，客户端大面积像素只剩根容器 1/255 的命中底色。系统对分层
+        // 窗口的默认命中测试会把这类近透明区域当作透明像素，鼠标点击/滚轮直接
+        // 落给后方窗口；内存工作台正是以透明页根为主的专业页，因此表现为整页
+        // 无法选中或滚动。窗口透明只服务于视觉，主窗口内容区必须始终可交互，
+        // 所以这里对客户端矩形内、未被缩放边和标题栏命中的点显式返回 HTCLIENT，
+        // 覆盖系统按分层 alpha 得出的穿透结果。非透明窗口继续走原有默认命中。
+        if (testAttribute(Qt::WA_TranslucentBackground))
+        {
+            const QPoint clientPoint = mapFromGlobal(screenQPoint);
+            if (rect().contains(clientPoint))
+            {
+                *result = HTCLIENT;
+                return true;
+            }
+        }
     }
 #endif
 
