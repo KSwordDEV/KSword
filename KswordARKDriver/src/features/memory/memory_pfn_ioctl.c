@@ -42,6 +42,9 @@ NTSTATUS KswordARKMemoryIoctlQueryPfnBatch(
     ULONG nativeBytes = 0; // Bounded native request size.
     NTSTATUS status; // Preserve errors as explicit query evidence.
     UNREFERENCED_PARAMETER(Device); // No device-specific state is changed.
+    if (BytesReturned == NULL) { // The dispatch layer supplies it today; keep the handler contract safe.
+        return STATUS_INVALID_PARAMETER;
+    }
     *BytesReturned = 0; // Failed packets expose no uninitialized output.
     if (KeGetCurrentIrql() != PASSIVE_LEVEL) { // Native enumeration can block.
         return STATUS_INVALID_DEVICE_STATE; // Never issue this query at elevated IRQL.

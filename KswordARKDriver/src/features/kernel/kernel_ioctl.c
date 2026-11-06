@@ -817,6 +817,7 @@ Return Value:
 --*/
 {
     KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST* scanRequest = NULL;
+    KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST requestSnapshot = { 0 };
     KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST defaultRequest = { 0 };
     PVOID inputBuffer = NULL;
     PVOID outputBuffer = NULL;
@@ -844,9 +845,14 @@ Return Value:
         return status;
     }
 
-    scanRequest = hasInput ?
-        (KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST*)inputBuffer :
-        &defaultRequest;
+    if (hasInput) {
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(requestSnapshot));
+        scanRequest = &requestSnapshot;
+    }
+    else {
+        scanRequest = &defaultRequest;
+    }
 
     status = KswordARKRetrieveRequiredOutputBuffer(
         Request,
@@ -1028,6 +1034,7 @@ Return Value:
 --*/
 {
     KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST* scanRequest = NULL;
+    KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST requestSnapshot = { 0 };
     KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST defaultRequest = { 0 };
     PVOID inputBuffer = NULL;
     PVOID outputBuffer = NULL;
@@ -1059,9 +1066,14 @@ Return Value:
         return status;
     }
 
-    scanRequest = hasInput ?
-        (KSWORD_ARK_SCAN_KERNEL_HOOKS_REQUEST*)inputBuffer :
-        &defaultRequest;
+    if (hasInput) {
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(requestSnapshot));
+        scanRequest = &requestSnapshot;
+    }
+    else {
+        scanRequest = &defaultRequest;
+    }
 
     status = KswordARKRetrieveRequiredOutputBuffer(
         Request,

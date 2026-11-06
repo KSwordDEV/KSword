@@ -160,6 +160,7 @@ Return Value:
 --*/
 {
     KSWORD_ARK_FILE_MONITOR_DRAIN_REQUEST* drainRequest = NULL;
+    KSWORD_ARK_FILE_MONITOR_DRAIN_REQUEST requestSnapshot = { 0 };
     KSWORD_ARK_FILE_MONITOR_DRAIN_REQUEST defaultRequest = { 0 };
     PVOID inputBuffer = NULL;
     PVOID outputBuffer = NULL;
@@ -186,7 +187,14 @@ Return Value:
         KswordARKFileMonitorIoctlLog(Device, "Error", "R0 file-monitor drain: input invalid, status=0x%08X.", (unsigned int)status);
         return status;
     }
-    drainRequest = hasInput ? (KSWORD_ARK_FILE_MONITOR_DRAIN_REQUEST*)inputBuffer : &defaultRequest;
+    if (hasInput) {
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(requestSnapshot));
+        drainRequest = &requestSnapshot;
+    }
+    else {
+        drainRequest = &defaultRequest;
+    }
 
     status = KswordARKRetrieveRequiredOutputBuffer(
         Request,
