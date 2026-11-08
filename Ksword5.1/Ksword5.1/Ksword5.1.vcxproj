@@ -828,6 +828,7 @@
     <ClCompile Include="ArkDriverClient\ArkRuntimeDynData.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCapabilities.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcessProtect.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverClipboardPolicy.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverWorkQueue.cpp" />

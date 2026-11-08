@@ -17087,9 +17087,11 @@ void ProcessDock::continueHvmProcessDispositionAction(const unsigned long operat
      * 一句，那段等待期看起来和"没生效"完全一样，而两者要做的事相反：一个是
      * 等，一个是换一页重下。
      */
-    const QString successAdvice = freezing
-        ? translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程可能不会立刻停住——正卡在等待或睡眠中的进程要等它再次运行到那里。若长时间没有反应，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"))
-        : translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程退出可能有延迟——正卡在等待或睡眠中的进程要等它再次运行到那里，期间它会继续留在列表里。若长时间没有退出，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"));
+    const QString successAdvice = armed
+        ? (freezing
+            ? translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程可能不会立刻停住——正卡在等待或睡眠中的进程要等它再次运行到那里。若长时间没有反应，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"))
+            : translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程退出可能有延迟——正卡在等待或睡眠中的进程要等它再次运行到那里，期间它会继续留在列表里。若长时间没有退出，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。")))
+        : QString();
     return HvmActionResult{armed, result.io.message, result.response.status, successAdvice};
     });
 }

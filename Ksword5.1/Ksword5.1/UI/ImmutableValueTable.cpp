@@ -285,7 +285,11 @@ namespace ks::ui
             try
             {
                 const auto values = formatting && factory ? factory(translator) : source;
-                if (formatting && factory && !values) result->error = QStringLiteral("后台任务发生异常。");
+                if (formatting && factory && !values)
+                {
+                    // 工厂主动返回空数据源与后台异常分开报告，避免伪装成通用异常。
+                    result->error = QStringLiteral("表格数据源工厂返回空数据源。");
+                }
                 else
                 {
                     // A prepared source may be reused even if only the query became obsolete.

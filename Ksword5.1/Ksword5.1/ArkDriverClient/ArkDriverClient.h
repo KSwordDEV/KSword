@@ -179,6 +179,14 @@ namespace ksword::ark
 
         ProcessEnumResult enumerateProcesses(unsigned long flags) const;
         ProcessEnumResult enumerateProcesses(unsigned long flags, DriverHandle* existingHandle) const;
+        // enumerateProcessModules：按协议读取一页进程 MEM_IMAGE 映像，并返回续扫游标。
+        // 输入为 PID、期望创建时间、源类型、游标和本页最大条目；输出保留 R0 原始条目与状态。
+        ProcessModuleEnumResult enumerateProcessModules(
+            std::uint32_t processId,
+            std::uint64_t expectedCreateTime100ns = 0,
+            std::uint64_t cursor = 0,
+            unsigned long maxRows = KSWORD_ARK_MODULE_DEFAULT_ROWS,
+            unsigned long source = KSWORD_ARK_MODULE_SOURCE_PROCESS_IMAGE_MAP) const;
         ThreadEnumResult enumerateThreads(unsigned long flags, std::uint32_t processId = 0) const;
         WorkQueueEnumResult enumerateWorkQueues(
             unsigned long flags = KSWORD_ARK_WORK_QUEUE_FLAG_INCLUDE_ALL,

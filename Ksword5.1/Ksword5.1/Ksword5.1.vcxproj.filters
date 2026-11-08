@@ -2131,6 +2131,9 @@
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverProcessProtect.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>

@@ -8,6 +8,7 @@
 #include "../UI/ThemeAccentIcon.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/PrimaryPageStyle.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/ToolbarMetrics.h"
 
@@ -315,6 +316,9 @@ void LogDockWidget::initializeUi()
     m_detailCheck = new QCheckBox("详细信息", this);
     m_autoScrollCheck = new QCheckBox("保持滚动到最底端", this);
     m_visibleLimitSpin = new QSpinBox(this);
+    m_textFilterEdit = new QLineEdit(this);
+    m_textFilterEdit->setClearButtonEnabled(true);
+    m_textFilterEdit->setMaximumWidth(240);
 
     // 最近日志条数：
     // - 只限制 QTableView 中实际渲染的行数，避免日志风暴时图形界面被成千上万行拖死；
@@ -342,6 +346,8 @@ void LogDockWidget::initializeUi()
     languageManager.bindText(m_fatalCheck, QStringLiteral("log.level.fatal"), QStringLiteral("Fatal"));
     languageManager.bindText(m_detailCheck, QStringLiteral("log.detail"), QStringLiteral("详细信息"));
     languageManager.bindText(m_autoScrollCheck, QStringLiteral("log.autoscroll"), QStringLiteral("保持滚动到最底端"));
+    languageManager.bindPlaceholder(m_textFilterEdit,
+        QStringLiteral("log.filter.placeholder"), QStringLiteral("筛选日志文本"));
     languageManager.bindSuffix(
         m_visibleLimitSpin,
         QStringLiteral("log.suffix.entries"),
@@ -351,6 +357,8 @@ void LogDockWidget::initializeUi()
     languageManager.bindToolTip(m_copyVisibleButton, QStringLiteral("log.tooltip.copy_visible"), QStringLiteral("复制当前可见列表内容（支持追踪过滤状态）"));
     languageManager.bindToolTip(m_detailCheck, QStringLiteral("log.tooltip.detail"), QStringLiteral("显示文件列和函数列"));
     languageManager.bindToolTip(m_autoScrollCheck, QStringLiteral("log.tooltip.autoscroll"), QStringLiteral("开启后表格刷新将自动滚动到最后一行"));
+    languageManager.bindToolTip(m_textFilterEdit,
+        QStringLiteral("log.tooltip.filter"), QStringLiteral("按日志内容、文件路径或函数名筛选当前日志列表"));
     languageManager.bindToolTip(m_visibleLimitSpin, QStringLiteral("log.tooltip.visible_limit"), QStringLiteral("限制界面显示的最近日志条数；提高上限可显示更早记录。"));
 
     // 图标尺寸与按钮尺寸统一，保证工具栏视觉紧凑并保持纯图标风格。
@@ -383,6 +391,7 @@ void LogDockWidget::initializeUi()
         });
     }
     ks::ui::StyleStandaloneInput(m_visibleLimitSpin);
+    ks::ui::StyleSearchField(m_textFilterEdit);
 
     // Debug 默认关闭：避免日志输出 Dock 首次打开时被调试级别噪声淹没。
     m_debugCheck->setChecked(false);
@@ -408,6 +417,7 @@ void LogDockWidget::initializeUi()
     visibleLimitLabel->setToolTip(m_visibleLimitSpin->toolTip());
     m_actionLayout->addWidget(visibleLimitLabel);
     m_actionLayout->addWidget(m_visibleLimitSpin);
+    m_actionLayout->addWidget(m_textFilterEdit, 1);
     m_actionLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_actionLayout);
 
@@ -527,6 +537,10 @@ void LogDockWidget::initializeConnections()
         // 因此这里强制刷新，即使日志 revision 没有变化也要重建可见快照。
         refreshTableFromManager(true);
     });
+    // 文本条件变化时强制重取当前等级/GUID投影，再应用文本过滤。
+    connect(m_textFilterEdit, &QLineEdit::textChanged, this, [this](const QString&) {
+        refreshTableFromManager(true);
+    });
 
     // 右键菜单连接。
     connect(m_logTable, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
@@ -613,11 +627,26 @@ void LogDockWidget::refreshTableFromManager(const bool forceRefresh)
     }
 
     // filteredEvents 之后交给模型持有；复制与追踪逻辑通过 visibleEvents()/visibleEventAt() 读取模型快照。
+    // query 用途：保存用户当前输入的文本条件，空值表示不启用文本筛选。
+    const QString query = m_textFilterEdit != nullptr
+        ? m_textFilterEdit->text().trimmed() : QString();
+    // queryUtf8 用途：把筛选条件编码为日志快照令牌可保存的稳定字节串。
+    const std::string queryUtf8 = query.toUtf8().toStdString();
+    // matchesText 用途：在日志内容、源文件路径和函数名三个字段中执行不区分大小写的匹配。
+    const auto matchesText = [&query](const kEvent& logItem)
+        {
+            if (query.isEmpty()) return true;
+            return QString::fromStdString(logItem.content).contains(query, Qt::CaseInsensitive) ||
+                QString::fromStdString(logItem.fileLocation).contains(query, Qt::CaseInsensitive) ||
+                QString::fromStdString(logItem.functionName).contains(query, Qt::CaseInsensitive);
+        };
     ks::log::RecentSnapshot snapshot = KswordARKEventEntry.SnapshotRecentIfChanged(
         static_cast<std::size_t>(visibleLogLimit()),
         enabledLevelMask,
         m_isTracking ? &m_trackingGuid : nullptr,
-        forceRefresh ? nullptr : &m_recentSnapshotToken);
+        forceRefresh ? nullptr : &m_recentSnapshotToken,
+        query.isEmpty() ? std::function<bool(const kEvent&)>() : matchesText,
+        queryUtf8);
     m_recentSnapshotToken = snapshot.token;
     if (snapshot.changed)
     {

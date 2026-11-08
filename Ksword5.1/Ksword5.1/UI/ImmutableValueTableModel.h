@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace ks::ui
@@ -37,7 +38,15 @@ namespace ks::ui
         for (int row = 0; row < source->rows.size(); ++row)
         {
             const auto& key = source->rows[row].key;
-            if (key.isEmpty() || source->byKey.contains(key)) return {};
+            if (key.isEmpty())
+            {
+                throw std::invalid_argument(QStringLiteral("第 %1 行的行键为空。").arg(row).toStdString());
+            }
+            if (source->byKey.contains(key))
+            {
+                throw std::invalid_argument(
+                    QStringLiteral("第 %1 行的行键重复：%2").arg(row).arg(key).toStdString());
+            }
             source->byKey.insert(key, row);
         }
         return source;
