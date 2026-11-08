@@ -518,7 +518,8 @@ def allows_han_in_english_source(source_text: str) -> bool:
     return (
         source_text
         == "Mapleleaf,存钱买油条（云舟API）,Estrella_Explore,NtKrnl64,一花一树叶,hzh"
-        or source_text in {"ACH@流星", "嗯呢呗"}
+        # 捐赠者姓名属于身份信息，英文界面保留本人使用的原始名称。
+        or source_text in {"ACH@流星", "嗯呢呗", "耀扬", "碳硕", "文"}
         # 开发者自述是展示身份的一部分，英文界面也按本人要求保留中文原文。
         or source_text == "一个臭写C++的"
         or "$verdict = if($lower -match 'audit|审计|" in source_text
