@@ -17,7 +17,7 @@ public:
     static constexpr std::uint64_t ticksPerMillisecond = 10000ULL;
     static constexpr std::uint64_t initialWidthTicks = 10 * ticksPerMillisecond;
     static constexpr std::size_t maxBuckets = 2048;
-    static constexpr std::size_t categoryCount = 7;
+    static constexpr std::size_t categoryCount = 15;
     struct DensityCell { std::size_t count = 0; std::uint64_t first = 0, last = 0; };
     using Counts = std::array<DensityCell, categoryCount>;
     void clear() { m_buckets.clear(); m_first = m_last = m_count = 0; m_widthTicks = initialWidthTicks; }
@@ -37,6 +37,14 @@ public:
             ks::ui::TimelineCategory::File, ks::ui::TimelineCategory::Registry,
             ks::ui::TimelineCategory::Network, ks::ui::TimelineCategory::Process,
             ks::ui::TimelineCategory::Image, ks::ui::TimelineCategory::Thread,
+            ks::ui::TimelineCategory::ApiMemory,
+            ks::ui::TimelineCategory::ApiThread,
+            ks::ui::TimelineCategory::ApiService,
+            ks::ui::TimelineCategory::ApiSecurity,
+            ks::ui::TimelineCategory::ApiCrypto,
+            ks::ui::TimelineCategory::ApiCom,
+            ks::ui::TimelineCategory::ApiWindow,
+            ks::ui::TimelineCategory::ApiGui,
             ks::ui::TimelineCategory::Other };
         std::vector<ks::ui::EventTimelinePoint> out;
         out.reserve(m_buckets.size() * categoryCount);

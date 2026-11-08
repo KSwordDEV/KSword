@@ -41,6 +41,7 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernelBaseline.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKeyboard.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMemory.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverModule.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverRegistry.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverNetworkTraffic.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPiDdb.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>

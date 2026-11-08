@@ -32,17 +32,24 @@ int main(int argc, char** argv) {
     CHECK(initialSum==5);
     density.clear(); CHECK(!density.count() && density.widthMilliseconds()==10 && density.points().empty());
     const auto start=std::chrono::steady_clock::now();
-    for (std::uint64_t i=0;i<1000000;++i) density.append(base + (i%500000)*unit, i%7);
+    for (std::uint64_t i=0;i<1000000;++i) density.append(base + (i%500000)*unit, i%WinAPITimelineDensity::categoryCount);
     const auto appended=std::chrono::steady_clock::now();
     CHECK(density.count()==1000000 && density.bucketCount()<=WinAPITimelineDensity::maxBuckets);
     const auto points=density.points(); std::size_t count=0; for(const auto& p:points) count+=p.weight;
-    CHECK(count==1000000 && points.size()<=WinAPITimelineDensity::maxBuckets*7);
+    CHECK(count==1000000 && points.size()<=WinAPITimelineDensity::maxBuckets*WinAPITimelineDensity::categoryCount);
     const std::vector<ks::ui::EventTimelineTrack> tracks={{ks::ui::TimelineCategory::File,{},KswordTheme::TimelineRole::File},
         {ks::ui::TimelineCategory::Registry,{},KswordTheme::TimelineRole::Registry},
         {ks::ui::TimelineCategory::Network,{},KswordTheme::TimelineRole::Network},
         {ks::ui::TimelineCategory::Process,{},KswordTheme::TimelineRole::Process},
         {ks::ui::TimelineCategory::Image,{},KswordTheme::TimelineRole::Image},
         {ks::ui::TimelineCategory::Thread,{},KswordTheme::TimelineRole::Thread},
+        {ks::ui::TimelineCategory::ApiMemory,{},KswordTheme::TimelineRole::Storage},
+        {ks::ui::TimelineCategory::ApiThread,{},KswordTheme::TimelineRole::Thread},
+        {ks::ui::TimelineCategory::ApiService,{},KswordTheme::TimelineRole::Wmi},
+        {ks::ui::TimelineCategory::ApiSecurity,{},KswordTheme::TimelineRole::Security},
+        {ks::ui::TimelineCategory::ApiCrypto,{},KswordTheme::TimelineRole::PowerShell},
+        {ks::ui::TimelineCategory::ApiCom,{},KswordTheme::TimelineRole::Dns},
+        {ks::ui::TimelineCategory::ApiWindow,{},KswordTheme::TimelineRole::Image},
         {ks::ui::TimelineCategory::Other,{},KswordTheme::TimelineRole::Kernel}};
     const auto projected=ks::ui::AggregateTimelineEvents(points,tracks,density.first(),density.last(),1200);
     std::size_t aggregateCount=0; for(const auto& b:projected) aggregateCount+=b.count;
@@ -53,7 +60,7 @@ int main(int argc, char** argv) {
         WinAPITimelineDensity replay;
         std::uint64_t timestamp = 0; unsigned category = 0; std::size_t replayCount = 0;
         while (input >> timestamp >> category) {
-            const std::size_t lane = category >= 1 && category <= 5 ? category - 1 : category == 7 ? 5 : 6;
+            const std::size_t lane = category >= 1 && category <= 5 ? category - 1 : category == 7 ? 5 : category >= 8 && category <= 14 ? category - 2 : 13;
             replay.append(timestamp, lane); ++replayCount;
         }
         CHECK(input.eof() && replayCount && replay.last() > replay.first());
@@ -70,7 +77,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i=0;i<1000000;++i) {
         bool ok=false; const auto timestamp=timestampText[i%timestampText.size()].toULongLong(&ok);
         if (!ok) return 1;
-        textDensity.append(timestamp, i%7);
+        textDensity.append(timestamp, i%WinAPITimelineDensity::categoryCount);
     }
     const auto textEnd=std::chrono::steady_clock::now();
     CHECK(textDensity.count()==1000000);

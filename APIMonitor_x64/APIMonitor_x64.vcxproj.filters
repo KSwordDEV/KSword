@@ -132,4 +132,18 @@
   <ItemGroup><ClInclude Include="hook\NearAllocation.h" /><ClInclude Include="hook\ThreadPatchGuard.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="hook\CodePageAllocator.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="hook\RawAbiSnapshot.h" /><ClInclude Include="hook\HookCallStack.h" /><ClInclude Include="..\shared\ApiMonitorCallStack.h" /></ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="hook\ApiWindowCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiMemoryThreadCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiServiceSecurityCaptureFormatters.inc" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="hook\ApiWindowExtraCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiMemoryThreadExtraCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiServiceSecurityExtraCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiGuiObjectCaptureFormatters.inc" />
+    <ClInclude Include="hook\ApiGuiDrawingCaptureFormatters.inc" />
+  </ItemGroup>
 </Project>

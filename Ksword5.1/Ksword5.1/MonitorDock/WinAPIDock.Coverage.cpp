@@ -44,6 +44,13 @@ QString filterCategoryLabel(const QString& category)
     if (category == QStringLiteral("Registry")) return QStringLiteral("注册表");
     if (category == QStringLiteral("Network")) return QStringLiteral("网络");
     if (category == QStringLiteral("Process")) return QStringLiteral("进程");
+    if (category == QStringLiteral("Memory")) return QStringLiteral("内存");
+    if (category == QStringLiteral("Thread")) return QStringLiteral("线程");
+    if (category == QStringLiteral("Service")) return QStringLiteral("服务");
+    if (category == QStringLiteral("Security")) return QStringLiteral("权限");
+    if (category == QStringLiteral("Crypto")) return QStringLiteral("加密");
+    if (category == QStringLiteral("Com")) return QStringLiteral("COM");
+    if (category == QStringLiteral("Window")) return QStringLiteral("窗口");
     if (category == QStringLiteral("Loader")) return QStringLiteral("加载器");
     if (category == QStringLiteral("Clipboard")) return QStringLiteral("剪贴板");
     if (category.startsWith(QStringLiteral("Raw/"))) return QStringLiteral("Raw / %1").arg(category.mid(4));

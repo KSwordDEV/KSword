@@ -525,6 +525,14 @@ namespace ks::misc
         outputStream << "enable_registry=0\n";
         outputStream << "enable_network=0\n";
         outputStream << "enable_process=0\n";
+        outputStream << "enable_memory=0\n";
+        outputStream << "enable_thread=0\n";
+        outputStream << "enable_service=0\n";
+        outputStream << "enable_security=0\n";
+        outputStream << "enable_crypto=0\n";
+        outputStream << "enable_com=0\n";
+        outputStream << "enable_window=0\n";
+        outputStream << "enable_gui=0\n";
         outputStream << "enable_loader=0\n";
         outputStream << "enable_raw_fallback=0\n";
         outputStream << "fake_success_enabled=0\n";

@@ -148,7 +148,15 @@ namespace ks::winapi_monitor
         // Clipboard：剪贴板保护专用分类，独立于 Process 之外，方便"剪贴板保护"
         // 页面按 category 过滤自己的事件，不用跟通用进程类事件混在一起。
         // 只追加不改已有数值，保持旧 Agent/旧 UI 组合的协议兼容。
-        Clipboard = 7
+        Clipboard = 7,
+        Memory = 8,
+        Thread = 9,
+        Service = 10,
+        Security = 11,
+        Crypto = 12,
+        Com = 13,
+        Window = 14,
+        Gui = 15,
     };
 
     enum class EventKind : std::uint32_t
@@ -523,6 +531,22 @@ namespace ks::winapi_monitor
             return L"内部";
         case EventCategory::Clipboard:
             return L"剪贴板";
+        case EventCategory::Memory:
+            return L"内存";
+        case EventCategory::Thread:
+            return L"线程";
+        case EventCategory::Service:
+            return L"服务";
+        case EventCategory::Security:
+            return L"安全";
+        case EventCategory::Crypto:
+            return L"加密";
+        case EventCategory::Com:
+            return L"COM";
+        case EventCategory::Window:
+            return L"窗口";
+        case EventCategory::Gui:
+            return L"GUI";
         default:
             break;
         }

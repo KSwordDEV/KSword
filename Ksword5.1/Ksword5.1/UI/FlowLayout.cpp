@@ -175,9 +175,15 @@ namespace ks::ui
                 spaceY = 0;
             }
 
-            const QSize itemHint = item->sizeHint();
+            QSize itemHint = item->sizeHint();
             const bool expanding = widget && m_expandingMinimumWidths.contains(widget);
             if (expanding && item->isEmpty()) continue;
+            // ParameterWorkspace deliberately ignores a choice's horizontal
+            // hint in ordinary forms so its label can wrap. QWidgetItem then
+            // reports width zero; a flow must still choose a natural cell width.
+            if (widget && !expanding && !item->isEmpty()
+                && widget->sizePolicy().horizontalPolicy() == QSizePolicy::Ignored)
+                itemHint.setWidth(qBound(0, widget->sizeHint().width(), qMax(1, effective.width())));
             const int minimumWidth = expanding
                 ? std::max(m_expandingMinimumWidths.value(widget), item->minimumSize().width())
                 : itemHint.width();

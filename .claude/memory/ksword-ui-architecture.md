@@ -233,6 +233,8 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - `UI/PageControlStyle.h` 提供页面明确调用的搜索和普通 Tab 外观，不扫描所有字段。搜索色面使用既有 ThemeBinding，几何 marker 随局部主题重建恢复；普通 Tab 绑定自身栏，避免替换整个页面已有主题回调。自绘 HexViewSegmented 必须同步实际绘制配方。
 - `NormalizeToolbarRow(row, spacing)` 只统一直接单行控件，不固定内容视图和多行说明；普通间距8，A/B/C显式0。图标方形判断依据明确图标工具或既有固定方形，不能因文字按钮尚未翻译而误锁成方块。后续局部 QSS 重建时补回登记几何。
 - `FlowLayout::addExpandingWidget` 用于工具行最后一个目录组合或状态说明：宽窗占满剩余行宽，放不下最小宽度时整体换行，换行标签按实际宽度计算高度；隐藏的扩展项不占位。C 伪代码页的高级 Ghidra 目录和动作后状态共用此入口，不能把长状态重新放到独立大行或让输入框挤掉动作文字。
+- 2026-11-08：`ParameterChoiceWrap` 为普通参数表单设置 `QSizePolicy::Ignored`，其 `QWidgetItem` 的自然宽度会变为0；放入 `FlowLayout` 时必须对非扩展、非隐藏项回退到控件本身的 `sizeHint()` 并按行宽限制，不能直接使用布局项的零宽。API分类曾因此13项全消失；生产类离屏回归覆盖12种配色/字号/栏宽和标签点击，旧源码负控复现13项零宽，真实整页仍需人工视觉验收。
+- 同日用户截图复核发现短标签 `API` 的 `I` 全部断行：`ParameterChoiceWrap` 硬编码7px间距，与主程序QSS的6px不一致，`sizeHint()` 足宽但自绘正文少1px。`labelRect()` 必须复用主题 `SE_CheckBoxContents` / `SE_RadioButtonContents`，不能自行拼指示器宽度和间距。配色不等于主题，几何回归需加载实际QSS并检查短标签单行；本次原生/主程序主题共24组通过，既有参数首帧与交互245项通过，真实整页仍待人工查看。
 - 表格在构建入口逐用途登记 Full/Compact/None，禁止改全局默认后当作完成。现场清单保留快照对比，静态导出结果精简为复制导出，属性/目标选择/已有业务工作流隐藏重复操作条。逐页记录见 `docs/UI控件逐页整理-20261010.md`。
 
 ### 配置与工具二级窗口

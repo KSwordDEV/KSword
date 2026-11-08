@@ -75,6 +75,14 @@ namespace apimon
         bool enableRegistry = true;             // enableRegistry：是否启用注册表 API Hook。
         bool enableNetwork = true;              // enableNetwork：是否启用网络 API Hook。
         bool enableProcess = true;              // enableProcess：是否启用进程 API Hook。
+        bool enableMemory = true;
+        bool enableThread = true;
+        bool enableService = true;
+        bool enableSecurity = true;
+        bool enableCrypto = true;
+        bool enableCom = true;
+        bool enableWindow = true;
+        bool enableGui = false;
         bool enableLoader = true;               // enableLoader：是否启用加载器 API Hook。
         bool autoInjectChild = false;           // autoInjectChild：CreateProcessW 成功后是否自动注入新子进程。
         bool captureCallStack = false;           // Optional bounded strong-hook stack; off by default.

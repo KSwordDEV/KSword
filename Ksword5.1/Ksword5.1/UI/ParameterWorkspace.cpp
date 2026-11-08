@@ -274,12 +274,14 @@ namespace
         }
         QRect labelRect() const
         {
-            const QStyleOptionButton option = styleOption();
-            const int indicator = m_button->style()->pixelMetric(isRadio()
-                ? QStyle::PM_ExclusiveIndicatorWidth : QStyle::PM_IndicatorWidth, &option, m_button);
-            return m_button->layoutDirection() == Qt::RightToLeft
-                ? m_button->rect().adjusted(0, 3, -indicator - 7, -3)
-                : m_button->rect().adjusted(indicator + 7, 3, 0, -3);
+            QStyleOptionButton option = styleOption();
+            option.text = m_button->text();
+            // Match the same styled content area used by the native size hint.
+            // A fixed indicator gap can make a naturally sized choice one pixel
+            // too narrow and wrap the final letter under the main-window QSS.
+            return m_button->style()->subElementRect(isRadio()
+                ? QStyle::SE_RadioButtonContents : QStyle::SE_CheckBoxContents, &option, m_button)
+                .adjusted(0, 3, 0, -3);
         }
         void schedule()
         {

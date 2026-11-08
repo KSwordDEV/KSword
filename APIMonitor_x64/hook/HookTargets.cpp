@@ -1,5 +1,9 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "HookTargets.h"
+#include <enclaveapi.h>
+#include <processtopologyapi.h>
+#include <memoryapi.h>
+#include <realtimeapiset.h>
 #include "HookEngine.h"
 #include "ClipboardGuardHook.h"
 #include "ClipboardGuardVTableHook.h"
@@ -1278,11 +1282,29 @@ namespace apimon
                 return configValue.enableNetwork;
             case ks::winapi_monitor::EventCategory::Process:
                 return configValue.enableProcess;
+            case ks::winapi_monitor::EventCategory::Memory:
+                return configValue.enableMemory;
+            case ks::winapi_monitor::EventCategory::Thread:
+                return configValue.enableThread;
+            case ks::winapi_monitor::EventCategory::Service:
+                return configValue.enableService;
+            case ks::winapi_monitor::EventCategory::Security:
+                return configValue.enableSecurity;
+            case ks::winapi_monitor::EventCategory::Crypto:
+                return configValue.enableCrypto;
+            case ks::winapi_monitor::EventCategory::Com:
+                return configValue.enableCom;
+            case ks::winapi_monitor::EventCategory::Window:
+                return configValue.enableWindow;
+            case ks::winapi_monitor::EventCategory::Gui:
+                return configValue.enableGui;
             case ks::winapi_monitor::EventCategory::Loader:
                 // Loader hook 还承担“后加载模块补装”职责：
                 // - enableLoader 控制是否上报 LoadLibrary 事件；
                 // - 注册表/网络/Shell32 进程启动模块可能晚于 Agent 注入加载，因此启用这些分类时也要安装加载器 hook。
                 return configValue.enableLoader || configValue.enableRegistry || configValue.enableNetwork || configValue.enableProcess
+                    || configValue.enableMemory || configValue.enableThread || configValue.enableService
+                    || configValue.enableSecurity || configValue.enableCrypto || configValue.enableCom || configValue.enableWindow || configValue.enableGui
                     || configValue.autoInjectChild || configValue.enableClipboard || configValue.enableRawFallback || configValue.fakeSuccessEnabled;
             case ks::winapi_monitor::EventCategory::Clipboard:
                 // 剪贴板 hook 默认关闭：必须显式 enableClipboard，
@@ -1416,13 +1438,15 @@ namespace apimon
         bool SendRawEventWithMetrics(const ks::winapi_monitor::EventCategory categoryValue,
             const wchar_t* moduleName, const wchar_t* apiName, const long statusValue,
             const wchar_t* detailText, const bool hasReturn, const std::uint64_t returnBits,
-            const ApiCallDuration& duration, const std::uint32_t apiId = 0, const std::uint64_t operationId = 0)
+            const ApiCallDuration& duration, const std::uint32_t apiId = 0, const std::uint64_t operationId = 0,
+            const ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode)
         {
-            if (categoryValue == ks::winapi_monitor::EventCategory::File && !ActiveConfig().enableFile) return false;
+            if (!CategoryEnabled(categoryValue)
+                || (categoryValue == ks::winapi_monitor::EventCategory::Loader && !ActiveConfig().enableLoader)) return false;
             return SendMonitorEventRawWithMetrics(categoryValue, moduleName, apiName,
                 static_cast<std::int32_t>(statusValue), detailText,
                 hasReturn, returnBits, duration.valid, duration.ticks100ns, apiId,
-                ks::winapi_monitor::EventResultKind::StatusCode, operationId);
+                resultKind, operationId);
         }
 
         bool SendFileEventWithReturn(const wchar_t* apiName, const long status,
@@ -2166,6 +2190,14 @@ namespace apimon
                 L"enable_registry=" + std::to_wstring(configValue.enableRegistry ? 1 : 0) + L"\r\n"
                 L"enable_network=" + std::to_wstring(configValue.enableNetwork ? 1 : 0) + L"\r\n"
                 L"enable_process=" + std::to_wstring(configValue.enableProcess ? 1 : 0) + L"\r\n"
+                L"enable_memory=" + std::to_wstring(configValue.enableMemory ? 1 : 0) + L"\r\n"
+                L"enable_thread=" + std::to_wstring(configValue.enableThread ? 1 : 0) + L"\r\n"
+                L"enable_service=" + std::to_wstring(configValue.enableService ? 1 : 0) + L"\r\n"
+                L"enable_security=" + std::to_wstring(configValue.enableSecurity ? 1 : 0) + L"\r\n"
+                L"enable_crypto=" + std::to_wstring(configValue.enableCrypto ? 1 : 0) + L"\r\n"
+                L"enable_com=" + std::to_wstring(configValue.enableCom ? 1 : 0) + L"\r\n"
+                L"enable_window=" + std::to_wstring(configValue.enableWindow ? 1 : 0) + L"\r\n"
+                L"enable_gui=" + std::to_wstring(configValue.enableGui ? 1 : 0) + L"\r\n"
                 L"enable_loader=" + std::to_wstring(configValue.enableLoader ? 1 : 0) + L"\r\n"
                 L"enable_clipboard=" + std::to_wstring(configValue.enableClipboard ? 1 : 0) + L"\r\n"
                 L"clipboard_read_action=" + std::to_wstring(static_cast<unsigned>(configValue.clipboardReadAction)) + L"\r\n"
@@ -2983,7 +3015,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -3009,7 +3041,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateRemoteThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateRemoteThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -3024,7 +3056,7 @@ namespace apimon
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, resultPointer != nullptr ? resultPointer : addressPointer, static_cast<std::uint64_t>(sizeValue), allocationType, protectValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualAllocEx", resultPointer != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultPointer), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualAllocEx", resultPointer != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultPointer), duration);
             ::SetLastError(lastError);
             return resultPointer;
         }
@@ -3039,7 +3071,7 @@ namespace apimon
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, addressPointer, static_cast<std::uint64_t>(sizeValue), freeType, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualFreeEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualFreeEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3054,7 +3086,7 @@ namespace apimon
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, addressPointer, static_cast<std::uint64_t>(sizeValue), oldProtectPointer != nullptr ? *oldProtectPointer : 0, newProtect);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualProtectEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualProtectEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3071,7 +3103,7 @@ namespace apimon
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" written=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(bytesWrittenPointer != nullptr ? *bytesWrittenPointer : 0));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WriteProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"WriteProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3088,7 +3120,7 @@ namespace apimon
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" read=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(bytesReadPointer != nullptr ? *bytesReadPointer : 0));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ReadProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"ReadProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3114,7 +3146,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, inheritHandle != FALSE ? 1 : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"OpenThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"OpenThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -3136,7 +3168,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, resultValue == static_cast<DWORD>(-1) ? 0 : resultValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"SuspendThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SuspendThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3158,7 +3190,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, resultValue == static_cast<DWORD>(-1) ? 0 : resultValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ResumeThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"ResumeThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3182,7 +3214,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" data=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(dataValue));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"QueueUserAPC", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"QueueUserAPC", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3204,7 +3236,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"GetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3230,7 +3262,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" rip=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
 #endif
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"SetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -4740,7 +4772,7 @@ namespace apimon
             AppendHexText(detailBuffer, desiredAccess);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtOpenThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4822,7 +4854,7 @@ namespace apimon
             AppendHexText(detailBuffer, createFlags);
             AppendWideText(detailBuffer, L" thread=");
             AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtCreateThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4835,7 +4867,7 @@ namespace apimon
             const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, allocationType, protectValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtAllocateVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtAllocateVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4848,7 +4880,7 @@ namespace apimon
             const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, freeType, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtFreeVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtFreeVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4861,7 +4893,7 @@ namespace apimon
             const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, oldProtectPointer != nullptr ? *oldProtectPointer : 0, newProtect);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtProtectVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtProtectVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4876,7 +4908,7 @@ namespace apimon
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" written=");
             AppendUnsignedText(detailBuffer, bytesWrittenPointer != nullptr ? static_cast<unsigned long long>(*bytesWrittenPointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtWriteVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtWriteVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4891,7 +4923,7 @@ namespace apimon
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" read=");
             AppendUnsignedText(detailBuffer, bytesReadPointer != nullptr ? static_cast<unsigned long long>(*bytesReadPointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtReadVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtReadVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4913,7 +4945,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, viewSizePointer != nullptr ? static_cast<unsigned long long>(*viewSizePointer) : 0);
             AppendWideText(detailBuffer, L" protect=");
             AppendHexText(detailBuffer, protectValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtMapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtMapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4926,7 +4958,7 @@ namespace apimon
             const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, 0, 0, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtUnmapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtUnmapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5011,7 +5043,7 @@ namespace apimon
             const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(returnLengthPointer != nullptr ? *returnLengthPointer : memoryInformationLength), memoryInformationClass, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueryVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtQueryVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5037,7 +5069,7 @@ namespace apimon
             AppendHexText(detailBuffer, allocationAttributes);
             AppendWideText(detailBuffer, L" file=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtCreateSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5059,7 +5091,7 @@ namespace apimon
             AppendHexText(detailBuffer, desiredAccess);
             AppendWideText(detailBuffer, L" section=");
             AppendHexText(detailBuffer, sectionHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*sectionHandlePointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtOpenSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5081,7 +5113,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueueApcThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5105,7 +5137,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5125,7 +5157,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, previousSuspendCountPointer != nullptr ? *previousSuspendCountPointer : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSuspendThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSuspendThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5145,7 +5177,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, previousSuspendCountPointer != nullptr ? *previousSuspendCountPointer : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtResumeThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtResumeThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5165,7 +5197,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtGetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtGetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5189,7 +5221,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" rip=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
 #endif
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -6252,7 +6284,7 @@ namespace apimon
             g_coUninitializeOriginal();
             const DWORD savedError = ::GetLastError();
             const auto duration = EndApiCallClock(callClock);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Ole32", L"CoUninitialize", 0, L"", false, 0, duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Com, L"Ole32", L"CoUninitialize", 0, L"", false, 0, duration);
             ::SetLastError(savedError);
         }
 
@@ -6368,7 +6400,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, millisecondsValue);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WaitForSingleObject", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"WaitForSingleObject", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -6390,7 +6422,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, millisecondsValue);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WaitForMultipleObjects", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"WaitForMultipleObjects", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -6803,6 +6835,14 @@ namespace apimon
         // - 处理：InstallConfiguredHooks 遍历该表安装 inline hook，LoadLibrary/LdrLoadDll 后会重试延迟模块；
         // - 返回：本表本身无返回值，是所有已支持 API 覆盖面的权威来源。
         #include "ApiCaptureFormatters.inc"
+        #include "ApiWindowCaptureFormatters.inc"
+        #include "ApiMemoryThreadCaptureFormatters.inc"
+        #include "ApiServiceSecurityCaptureFormatters.inc"
+        #include "ApiWindowExtraCaptureFormatters.inc"
+        #include "ApiMemoryThreadExtraCaptureFormatters.inc"
+        #include "ApiServiceSecurityExtraCaptureFormatters.inc"
+        #include "ApiGuiObjectCaptureFormatters.inc"
+        #include "ApiGuiDrawingCaptureFormatters.inc"
 #include "ApiMonitorWrappers.inc"
 #include "ApiMonitorBindings.inc"
 
@@ -6960,6 +7000,28 @@ namespace apimon
         {
             const std::wstring moduleLower = ToLowerWide(moduleName);
             const std::string procLower = ToLowerAnsi(procName);
+            // Graphics has an explicit opt-in category. Resolve known graphics
+            // providers before the legacy name guesses (e.g. GetFontFileData
+            // must not become a file API, nor SetBkColor a process API).
+            std::wstring provider = moduleLower;
+            const auto separator = provider.find_last_of(L"\\/");
+            if (separator != std::wstring::npos) provider.erase(0, separator + 1);
+            if (provider.find(L'.') == std::wstring::npos) provider += L".dll";
+            static const std::unordered_set<std::wstring> graphicsProviders{
+                L"gdi32.dll", L"gdi32full.dll", L"gdiplus.dll", L"msimg32.dll", L"opengl32.dll",
+                L"dwmapi.dll", L"d2d1.dll", L"dwrite.dll", L"dxgi.dll", L"d3d9.dll", L"d3d10.dll",
+                L"d3d10_1.dll", L"d3d11.dll", L"d3d12.dll", L"uxtheme.dll", L"usp10.dll"};
+            static const std::unordered_set<std::string> userDrawingExports{
+                "beginpaint", "endpaint", "getdc", "getdcex", "getwindowdc", "releasedc", "windowfromdc",
+                "getsyscolor", "getsyscolorbrush", "drawtexta", "drawtextw", "drawtextexa", "drawtextexw",
+                "fillrect", "framerect", "invertrect", "drawedge", "drawframecontrol", "drawstatea", "drawstatew",
+                "drawicon", "drawiconex", "drawanimatedrects", "paintdesktop", "getupdaterect", "getupdatergn",
+                "excludeupdatergn", "invalidaterect", "validaterect", "invalidatergn", "validatergn",
+                "redrawwindow", "updatewindow", "printwindow"};
+            if (graphicsProviders.count(provider)
+                || (provider == L"user32.dll" && userDrawingExports.count(procLower))
+                || (provider == L"win32u.dll" && procLower.rfind("ntgdi", 0) == 0))
+                return ks::winapi_monitor::EventCategory::Gui;
             if (moduleLower == L"ws2_32.dll" || moduleLower == L"wininet.dll" || moduleLower == L"winhttp.dll"
                 || moduleLower == L"iphlpapi.dll" || moduleLower == L"dnsapi.dll" || moduleLower == L"netapi32.dll"
                 || moduleLower == L"urlmon.dll" || moduleLower == L"wldap32.dll")
@@ -7124,6 +7186,13 @@ namespace apimon
                             IsStrongTypedExport(moduleName, exportName) ? L"Strong definition owns this export; see its actual installation state" : L"export excluded by Raw/Fake rules");
                         continue;
                     }
+                    const auto rawCategory = InferRawHookCategory(moduleName, exportName);
+                    if (!CategoryEnabled(rawCategory))
+                    {
+                        g_rawCoverageObservations[observationKey] = MakeCoverageRow(moduleName.c_str(), observationApi.c_str(),
+                            HookKind::Raw, CoverageState::CategoryDisabled, L"Raw category disabled");
+                        continue;
+                    }
                     if (IsNativeRuntimeHookTarget(reinterpret_cast<void*>(::GetProcAddress(moduleHandle, exportName.c_str()))))
                     {
                         g_rawCoverageObservations[observationKey] = MakeCoverageRow(moduleName.c_str(), observationApi.c_str(),
@@ -7149,7 +7218,7 @@ namespace apimon
                     bindingPointer->moduleName = moduleName;
                     bindingPointer->procName = exportName;
                     bindingPointer->procNameWide = AnsiToWide(exportName.c_str());
-                    bindingPointer->categoryValue = InferRawHookCategory(moduleName, exportName);
+                    bindingPointer->categoryValue = rawCategory;
                     bindingPointer->apiId = RuntimeApiId(moduleName.c_str(), bindingPointer->procNameWide.c_str());
                     rawKeySet.insert(rawKey);
                     rawBindingList.push_back(std::move(bindingPointer));

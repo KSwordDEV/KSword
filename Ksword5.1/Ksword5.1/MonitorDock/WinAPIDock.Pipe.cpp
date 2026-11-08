@@ -91,6 +91,22 @@ namespace
             return QStringLiteral("网络");
         case ks::winapi_monitor::EventCategory::Process:
             return QStringLiteral("进程");
+        case ks::winapi_monitor::EventCategory::Memory:
+            return QStringLiteral("内存");
+        case ks::winapi_monitor::EventCategory::Thread:
+            return QStringLiteral("线程");
+        case ks::winapi_monitor::EventCategory::Service:
+            return QStringLiteral("服务");
+        case ks::winapi_monitor::EventCategory::Security:
+            return QStringLiteral("权限");
+        case ks::winapi_monitor::EventCategory::Crypto:
+            return QStringLiteral("加密");
+        case ks::winapi_monitor::EventCategory::Com:
+            return QStringLiteral("COM");
+        case ks::winapi_monitor::EventCategory::Window:
+            return QStringLiteral("窗口");
+        case ks::winapi_monitor::EventCategory::Gui:
+            return QStringLiteral("GUI");
         case ks::winapi_monitor::EventCategory::Loader:
             return QStringLiteral("加载器");
         case ks::winapi_monitor::EventCategory::Clipboard:

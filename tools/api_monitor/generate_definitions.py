@@ -14,6 +14,28 @@ SUPPORTED_TYPES = set(['ACCESS_MASK', 'ALG_ID', 'BCRYPT_ALG_HANDLE', 'BCRYPT_ALG
 SUPPORTED_TYPES.update(['BIND_OPTS*', 'KS_ALPC_MESSAGE_ATTRIBUTES*', 'KS_ALPC_PORT_ATTRIBUTES*', 'KS_PORT_MESSAGE*', 'MEM_EXTENDED_PARAMETER*', 'QUEUE_USER_APC_FLAGS', 'THREADINFOCLASS', 'const UNICODE_STRING*', 'void**'])
 SUPPORTED_TYPES.update(["LPOVERLAPPED_COMPLETION_ROUTINE", "PULONG_PTR", "LPOVERLAPPED*", "LPOVERLAPPED_ENTRY"])
 SUPPORTED_TYPES.update(["LPWSAMSG", "LPTRANSMIT_FILE_BUFFERS", "LPTRANSMIT_PACKETS_ELEMENT", "sockaddr**"])
+SUPPORTED_TYPES.update({
+    "BYTE", "COLORREF", "COLORREF*", "HICON", "HMONITOR", "HRGN", "LPMONITORINFO", "LPPOINT", "LPRECT",
+    "LPTRACKMOUSEEVENT", "PCURSORINFO", "PGUITHREADINFO", "PICONINFO", "PLASTINPUTINFO", "PWINDOWINFO",
+    "WINDOWPLACEMENT*", "const RECT*", "const WINDOWPLACEMENT*", "THREAD_INFORMATION_CLASS", "PPROCESSOR_NUMBER",
+    "PGROUP_AFFINITY", "const GROUP_AFFINITY*", "const ULONG*", "PWSTR*", "ULONG_PTR*", "LPSTREAM", "HRESULT*",
+    "BCRYPT_HANDLE", "BCRYPT_SECRET_HANDLE", "BCRYPT_SECRET_HANDLE*", "PSID_IDENTIFIER_AUTHORITY", "PSID*",
+    "PSECURITY_DESCRIPTOR_CONTROL", "PACL*",
+})
+SUPPORTED_TYPES.update({
+    "HMENU", "LPCMENUINFO", "LPCMENUITEMINFOA", "LPCMENUITEMINFOW", "LPMENUINFO", "LPMENUITEMINFOA",
+    "LPMENUITEMINFOW", "UINT_PTR", "WIN32_MEMORY_INFORMATION_CLASS", "OFFER_PRIORITY", "PPROCESS_MEMORY_COUNTERS",
+    "PIO_COUNTERS", "PROCESS_INFORMATION_CLASS", "PROCESS_MITIGATION_POLICY", "PULONG64", "APTTYPE*",
+    "APTTYPEQUALIFIER*", "HGLOBAL", "HGLOBAL*", "LPBC*", "LPCLSID", "LPCOLESTR", "LPIID", "LPMALLOC*",
+    "LPOLESTR*", "LPRUNNINGOBJECTTABLE*", "LPSTREAM*", "PACL", "SECURITY_DESCRIPTOR_CONTROL",
+})
+SUPPORTED_TYPES.update({
+    "HBRUSH", "HFONT", "HPALETTE", "HPEN", "LPABC", "LPSIZE", "TEXTMETRICA*", "TEXTMETRICW*",
+    "const BITMAP*", "const BITMAPINFO*", "const BITMAPINFOHEADER*", "const DWORD*", "const LOGBRUSH*",
+    "const LOGFONTA*", "const LOGFONTW*", "const LOGPALETTE*", "const LOGPEN*", "const PALETTEENTRY*",
+    "const POINT*", "LPTEXTMETRICA", "LPTEXTMETRICW", "LPOUTLINETEXTMETRICA", "LPOUTLINETEXTMETRICW",
+    "LPRASTERIZER_STATUS", "LPGLYPHSET",
+})
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*$")
 POLICIES = {"bool", "handle", "dword_nonzero", "uint_nonzero", "int_positive",
             "ulong_status", "long_status", "security_status", "rpc_status",
@@ -60,7 +82,8 @@ def validate(catalog, handlers):
         require(isinstance(api["architectures"], list) and bool(api["architectures"])
                 and set(api["architectures"]) <= {"x86", "x64"}
                 and len(set(api["architectures"])) == len(api["architectures"]), f"unsupported architecture: {name}")
-        require(api["category"] in {"File", "Registry", "Network", "Process", "Loader", "Clipboard"}, f"bad category: {name}")
+        require(api["category"] in {"File", "Registry", "Network", "Process", "Loader", "Clipboard",
+                                    "Memory", "Thread", "Service", "Security", "Crypto", "Com", "Window", "Gui"}, f"bad category: {name}")
         require(api["calling_convention"] in {"WINAPI", "NTAPI", "WSAAPI", "RPC_ENTRY"}, f"bad convention: {name}")
         require(api["return_type"] in SUPPORTED_TYPES, f"invalid return type: {name}")
         binding = api["binding"]
@@ -109,13 +132,16 @@ def validate(catalog, handlers):
         require(handler in handlers, f"unknown C++ handler: {name}: {handler}")
         if wrapper["kind"] == "generated":
             require(wrapper["policy"] in POLICIES, f"unknown return policy: {name}")
+            if api["return"]["error_source"] == "none":
+                require(wrapper["policy"] in {"bool", "handle", "dword_nonzero", "uint_nonzero", "int_positive"},
+                        f"unsupported unknown-error policy: {name}")
             if wrapper["policy"] == "handle":
                 require(api["return"]["success"] in {"handle", "not_invalid_handle"}, f"bad handle success condition: {name}")
             if wrapper["policy"] == "wsa_int":
                 require(wrapper["success"] in {"zero", "not_socket_error"}, f"bad WSA success rule: {name}")
         else:
             require(handler == binding["hook"], f"special handler/binding mismatch: {name}")
-        require(api["return"]["error_source"] in {"handler", "wsa_last_error", "return_status", "win32_last_error"}, f"bad error source: {name}")
+        require(api["return"]["error_source"] in {"handler", "wsa_last_error", "return_status", "win32_last_error", "none"}, f"bad error source: {name}")
         require(api["return"]["success"] in POLICIES | {"handler", "zero", "not_socket_error", "not_invalid_handle", "nonnegative"}, f"bad success rule: {name}")
 
 
@@ -215,11 +241,18 @@ def wrapper(api):
         success = f"{result} != nullptr && {result} != INVALID_HANDLE_VALUE"
     if policy == "wsa_int":
         success = f"{result} == 0" if w["success"] == "zero" else f"{result} != SOCKET_ERROR"
-    status = "0" if ret == "void" else f"({success}) ? 0 : {'savedWsaError' if uses_wsa_error else 'savedError'}" if success else f"static_cast<std::int32_t>({result})"
+    unknown_error = api['return']['error_source'] == 'none'
+    status = "0" if ret == "void" or unknown_error else f"({success}) ? 0 : {'savedWsaError' if uses_wsa_error else 'savedError'}" if success else f"static_cast<std::int32_t>({result})"
     module = api["module"][:-4]
     return_bits = '0' if ret == 'void' else f'ApiReturnBits({result})'
     has_return = 'false' if ret == 'void' else 'true'
-    code += f"    SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer, {has_return}, {return_bits}, duration);\n"
+    if unknown_error:
+        code += f'    if (!({success})) AppendWideText(detailBuffer, L" call_failed=1 error=unavailable");\n'
+        kind = f'({success}) ? ks::winapi_monitor::EventResultKind::StatusCode : ks::winapi_monitor::EventResultKind::StatusUnknown'
+        extra = f', 0, 0, {kind}'
+    else:
+        extra = ''
+    code += f"    SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer, {has_return}, {return_bits}, duration{extra});\n"
     if uses_wsa_error:
         code += "    ::WSASetLastError(savedWsaError);\n"
     code += "    ::SetLastError(savedError);\n"

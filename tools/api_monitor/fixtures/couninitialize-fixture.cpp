@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <cstdio>
 struct ScopedHookGuard { bool bypass(){return false;} };
-namespace ks::winapi_monitor { enum class EventCategory{Process}; }
+namespace ks::winapi_monitor { enum class EventCategory{Com=13}; }
 void WINAPI mock(){SetLastError(777);}
 auto g_coUninitializeOriginal=&mock;
 int BeginApiCallClock(){return 0;} int EndApiCallClock(int){SetLastError(888);return 0;}
@@ -15,6 +15,6 @@ void SendRawEventWithMetrics(ks::winapi_monitor::EventCategory,const wchar_t*,co
             g_coUninitializeOriginal();
             const DWORD savedError = ::GetLastError();
             const auto duration = EndApiCallClock(callClock);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Ole32", L"CoUninitialize", 0, L"", false, 0, duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Com, L"Ole32", L"CoUninitialize", 0, L"", false, 0, duration);
             ::SetLastError(savedError);
         }int main(){SetLastError(123);HookedCoUninitialize();if(GetLastError()!=777)return 1;puts("PASS CoUninitialize restores last error");return 0;}

@@ -30,7 +30,15 @@ std::size_t categoryFor(std::uint32_t category) {
     case C::Process: return 3;
     case C::Loader: return 4;
     case C::Clipboard: return 5;
-    default: return 6;
+    case C::Memory: return 6;
+    case C::Thread: return 7;
+    case C::Service: return 8;
+    case C::Security: return 9;
+    case C::Crypto: return 10;
+    case C::Com: return 11;
+    case C::Window: return 12;
+    case C::Gui: return 13;
+    default: return 14;
     }
 }
 std::vector<ks::ui::EventTimelineTrack> tracks() {
@@ -41,6 +49,14 @@ std::vector<ks::ui::EventTimelineTrack> tracks() {
         {C::Process, QStringLiteral("进程"), R::Process},
         {C::Image, QStringLiteral("加载器"), R::Image},
         {C::Thread, QStringLiteral("剪贴板"), R::Thread},
+        {C::ApiMemory, QStringLiteral("内存"), R::Storage},
+        {C::ApiThread, QStringLiteral("线程"), R::Thread},
+        {C::ApiService, QStringLiteral("服务"), R::Wmi},
+        {C::ApiSecurity, QStringLiteral("权限"), R::Security},
+        {C::ApiCrypto, QStringLiteral("加密"), R::PowerShell},
+        {C::ApiCom, QStringLiteral("COM"), R::Dns},
+        {C::ApiWindow, QStringLiteral("窗口"), R::Image},
+        {C::ApiGui, QStringLiteral("GUI"), R::Image},
         {C::Other, QStringLiteral("其他"), R::Kernel}};
 }
 }
@@ -51,7 +67,7 @@ WinAPIEventTimeline::WinAPIEventTimeline(QWidget* parent, WinAPIEventTableModel*
     auto* timelineRow = new QHBoxLayout(); timelineRow->setContentsMargins(0, 0, 0, 0);
     auto* reset = new QPushButton(QStringLiteral("显示全部时间"), this);
     m_timeline = new ProcessTraceTimelineWidget(this); m_timeline->setTracks(tracks());
-    m_timeline->setFixedHeight(84); // Seven distinct lanes in a compact timeline.
+    m_timeline->setFixedHeight(154); // Fourteen distinct lanes.
     m_timeline->setToolTip(QStringLiteral("时间轴：等待事件"));
     timelineRow->addWidget(m_timeline, 1);
     timelineRow->addWidget(reset, 0, Qt::AlignVCenter);

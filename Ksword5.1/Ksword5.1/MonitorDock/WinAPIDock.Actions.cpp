@@ -1288,6 +1288,14 @@ QString WinAPIDock::freezeSessionOptions() const
     outputStream << "enable_registry=" << ((m_hookRegistryCheck != nullptr && m_hookRegistryCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_network=" << ((m_hookNetworkCheck != nullptr && m_hookNetworkCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_process=" << ((m_hookProcessCheck != nullptr && m_hookProcessCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_memory=" << ((m_hookMemoryCheck != nullptr && m_hookMemoryCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_thread=" << ((m_hookThreadCheck != nullptr && m_hookThreadCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_service=" << ((m_hookServiceCheck != nullptr && m_hookServiceCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_security=" << ((m_hookSecurityCheck != nullptr && m_hookSecurityCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_crypto=" << ((m_hookCryptoCheck != nullptr && m_hookCryptoCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_com=" << ((m_hookComCheck != nullptr && m_hookComCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_window=" << ((m_hookWindowCheck != nullptr && m_hookWindowCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_gui=" << ((m_hookGuiCheck != nullptr && m_hookGuiCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_loader=" << ((m_hookLoaderCheck != nullptr && m_hookLoaderCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_clipboard=" << ((m_hookClipboardCheck != nullptr && m_hookClipboardCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "auto_inject_child=" << ((m_autoInjectChildCheck != nullptr && m_autoInjectChildCheck->isChecked()) ? 1 : 0) << '\n';

@@ -339,7 +339,7 @@ CaptureResult Capture::run() {
 }
 }
 CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic_bool& cancel) {
-    const std::set<std::wstring> allowed{L"enable_file",L"enable_registry",L"enable_network",L"enable_process",L"enable_loader",L"enable_clipboard",
+    const std::set<std::wstring> allowed{L"enable_file",L"enable_registry",L"enable_network",L"enable_process",L"enable_memory",L"enable_thread",L"enable_service",L"enable_security",L"enable_crypto",L"enable_com",L"enable_window",L"enable_gui",L"enable_loader",L"enable_clipboard",
         L"capture_call_stack",L"enable_raw_fallback",L"raw_use_default_denylist",L"raw_modules",L"raw_denylist",L"fake_success_enabled",L"fake_success_raw_fallback",
         L"fake_success_rules",L"detail_limit",L"clipboard_read_action",L"clipboard_write_action",L"clipboard_enum_action"};
     bool valid = request.pid > 4 && request.pid != ::GetCurrentProcessId() && !request.agentPath.empty()

@@ -19,10 +19,12 @@
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/SegmentedControl.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeAccentIcon.h"
+#include "../UI/ThemeBinding.h"
 #include <QGridLayout>
 #include <QGroupBox>
 #include "../UI/ThemeStatusRole.h"
@@ -50,6 +52,7 @@
 #include <QMenu>
 #include <QSet>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QSize>
 #include <QSplitter>
@@ -234,10 +237,20 @@ void WinAPIDock::initializeUi()
     m_hookRegistryCheck = new QCheckBox(QStringLiteral("注册表 API"), categoryFrame);
     m_hookNetworkCheck = new QCheckBox(QStringLiteral("网络 API"), categoryFrame);
     m_hookProcessCheck = new QCheckBox(QStringLiteral("进程 API"), categoryFrame);
+    m_hookMemoryCheck = new QCheckBox(QStringLiteral("内存 API"), categoryFrame);
+    m_hookThreadCheck = new QCheckBox(QStringLiteral("线程 API"), categoryFrame);
+    m_hookServiceCheck = new QCheckBox(QStringLiteral("服务 API"), categoryFrame);
+    m_hookSecurityCheck = new QCheckBox(QStringLiteral("权限 API"), categoryFrame);
+    m_hookCryptoCheck = new QCheckBox(QStringLiteral("加密 API"), categoryFrame);
+    m_hookComCheck = new QCheckBox(QStringLiteral("COM API"), categoryFrame);
+    m_hookWindowCheck = new QCheckBox(QStringLiteral("窗口 API"), categoryFrame);
+    m_hookGuiCheck = new QCheckBox(QStringLiteral("GUI API"), categoryFrame);
+    m_hookGuiCheck->setToolTip(QStringLiteral("GDI、绘图与 DC 调用单独采集，默认关闭；窗口生命周期、消息和菜单属于窗口 API。"));
     m_hookLoaderCheck = new QCheckBox(QStringLiteral("加载器 API"), categoryFrame);
     m_hookClipboardCheck = new QCheckBox(QStringLiteral("剪贴板 API"), categoryFrame);
     m_autoInjectChildCheck = new QCheckBox(QStringLiteral("自动注入子进程"), categoryFrame);
-    m_captureCallStackCheck = new QCheckBox(QStringLiteral("采集强类型调用栈"), categoryFrame);
+    auto* callStackOptionsRow = new QWidget(categoryFrame);
+    m_captureCallStackCheck = new QCheckBox(QStringLiteral("采集强类型调用栈"), callStackOptionsRow);
     m_rawFallbackCheck = new QCheckBox(QStringLiteral("Raw 兜底 Hook（强类型优先）"), categoryFrame);
     m_rawDefaultDenyListCheck = new QCheckBox(QStringLiteral("启用默认高频/高风险黑名单"), categoryFrame);
     auto* rawConfigurationFrame = new QGroupBox(QStringLiteral("Raw 兜底配置"), m_sessionPanel);
@@ -262,6 +275,14 @@ void WinAPIDock::initializeUi()
     m_hookRegistryCheck->setChecked(true);
     m_hookNetworkCheck->setChecked(true);
     m_hookProcessCheck->setChecked(true);
+    m_hookMemoryCheck->setChecked(true);
+    m_hookThreadCheck->setChecked(true);
+    m_hookServiceCheck->setChecked(true);
+    m_hookSecurityCheck->setChecked(true);
+    m_hookCryptoCheck->setChecked(true);
+    m_hookComCheck->setChecked(true);
+    m_hookWindowCheck->setChecked(true);
+    m_hookGuiCheck->setChecked(false);
     m_hookLoaderCheck->setChecked(false);
     m_hookClipboardCheck->setChecked(false);
     m_autoInjectChildCheck->setChecked(false);
@@ -290,14 +311,41 @@ void WinAPIDock::initializeUi()
     m_rawModuleListEdit->setToolTip(QStringLiteral("分号分隔模块名。Agent 只扫描已加载模块，后续 LoadLibrary 后会重试补装。"));
     m_rawDenyListEdit->setToolTip(QStringLiteral("用户额外黑名单，分号分隔函数名，支持 prefix*。内置默认黑名单由上方复选框控制，不需要复制到这里。当前内置默认：%1").arg(defaultRawHookDenyListText()));
 
-    categoryLayout->addWidget(m_hookFileCheck, 0);
-    categoryLayout->addWidget(m_hookRegistryCheck, 0);
-    categoryLayout->addWidget(m_hookNetworkCheck, 0);
-    categoryLayout->addWidget(m_hookProcessCheck, 0);
-    categoryLayout->addWidget(m_hookLoaderCheck, 0);
-    categoryLayout->addWidget(m_hookClipboardCheck, 0);
+    auto* categoryChoices = new QWidget(categoryFrame);
+    categoryChoices->setObjectName(QStringLiteral("winapi_hook_category_choices"));
+    auto* categoryFlow = new ks::ui::FlowLayout(categoryChoices, 0, 12, 6);
+    categoryFlow->addWidget(m_hookFileCheck);
+    categoryFlow->addWidget(m_hookRegistryCheck);
+    categoryFlow->addWidget(m_hookNetworkCheck);
+    categoryFlow->addWidget(m_hookProcessCheck);
+    categoryFlow->addWidget(m_hookMemoryCheck);
+    categoryFlow->addWidget(m_hookThreadCheck);
+    categoryFlow->addWidget(m_hookServiceCheck);
+    categoryFlow->addWidget(m_hookSecurityCheck);
+    categoryFlow->addWidget(m_hookCryptoCheck);
+    categoryFlow->addWidget(m_hookComCheck);
+    categoryFlow->addWidget(m_hookWindowCheck);
+    categoryFlow->addWidget(m_hookGuiCheck);
+    categoryFlow->addWidget(m_hookLoaderCheck);
+    categoryFlow->addWidget(m_hookClipboardCheck);
+    categoryLayout->addWidget(categoryChoices, 0);
     categoryLayout->addWidget(m_autoInjectChildCheck, 0);
-    categoryLayout->addWidget(m_captureCallStackCheck, 0);
+    auto* callStackOptionsLayout = new ks::ui::FlowLayout(callStackOptionsRow, 0, 6, 6);
+    callStackOptionsLayout->addWidget(m_captureCallStackCheck);
+    auto* captureModeHelp = new QLabel(callStackOptionsRow);
+    captureModeHelp->setObjectName(QStringLiteral("winapi_capture_mode_help"));
+    captureModeHelp->setAlignment(Qt::AlignCenter);
+    captureModeHelp->setFixedSize(KswordTheme::CompactIconButtonSize());
+    captureModeHelp->setAccessibleName(QStringLiteral("强类型与 Raw 的区别"));
+    captureModeHelp->setToolTip(QStringLiteral("<qt><p>这里的“强类型”是本项目的采集方式约定，不是 Windows 官方的 API 分类。</p><p><b>强类型：</b>项目已明确该 API 的函数签名，并实现生成或专用包装器；按接口实现记录有语义的参数或指针地址、返回值和耗时，部分接口还可解析字符串等内容。</p><p><b>Raw：</b>对强类型定义表之外的导出使用通用入口钩子，记录函数、地址及原始寄存器/栈槽。槽位不等于已知参数，不自动读取指针内容，也不采集返回值或耗时。</p><p><b>本开关：</b>仅为强类型调用额外采集最多 8 帧调用栈；可能包含监控内部帧，也可能受详情容量限制而缺失。Raw 只有入口调用位置，不提供此调用栈。</p><p>实际安装情况请查看“API 覆盖”；勾选分类不代表该类所有 API 都已覆盖。</p></qt>"));
+    const QPointer<QLabel> helpTarget(captureModeHelp);
+    ks::ui::BindWidgetTheme(captureModeHelp, [helpTarget]() {
+        if (helpTarget)
+            helpTarget->setPixmap(ks::ui::MakeThemeAccentIcon(QIcon(QStringLiteral(":/Icon/winapi_capture_help.svg")))
+                .pixmap(KswordTheme::CompactIconSize()));
+    });
+    callStackOptionsLayout->addWidget(captureModeHelp);
+    categoryLayout->addWidget(callStackOptionsRow, 0);
     categoryLayout->addWidget(m_rawFallbackCheck, 0);
     categoryLayout->addWidget(m_rawDefaultDenyListCheck, 0);
     sessionConfigurationLeftLayout->addWidget(categoryFrame, 0);

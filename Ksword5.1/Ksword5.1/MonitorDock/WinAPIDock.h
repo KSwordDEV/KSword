@@ -219,6 +219,14 @@ private:
     QCheckBox* m_hookRegistryCheck = nullptr;          // m_hookRegistryCheck：是否启用注册表 API 监控。
     QCheckBox* m_hookNetworkCheck = nullptr;           // m_hookNetworkCheck：是否启用网络 API 监控。
     QCheckBox* m_hookProcessCheck = nullptr;           // m_hookProcessCheck：是否启用进程 API 监控。
+    QCheckBox* m_hookMemoryCheck = nullptr;
+    QCheckBox* m_hookThreadCheck = nullptr;
+    QCheckBox* m_hookServiceCheck = nullptr;
+    QCheckBox* m_hookSecurityCheck = nullptr;
+    QCheckBox* m_hookCryptoCheck = nullptr;
+    QCheckBox* m_hookComCheck = nullptr;
+    QCheckBox* m_hookWindowCheck = nullptr;
+    QCheckBox* m_hookGuiCheck = nullptr;
     QCheckBox* m_hookLoaderCheck = nullptr;            // m_hookLoaderCheck：是否启用加载器 API 监控。
     QCheckBox* m_hookClipboardCheck = nullptr;         // m_hookClipboardCheck：是否启用剪贴板 API 监控（独立分类，不随"进程 API"一起装）。
     QCheckBox* m_autoInjectChildCheck = nullptr;       // m_autoInjectChildCheck：是否在 CreateProcessW 成功后自动注入子进程。

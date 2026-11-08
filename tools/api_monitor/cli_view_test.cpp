@@ -34,6 +34,13 @@ int main() {
         bool rejected=false;try { CliEventFilter t;t.addList(bad,true); } catch(const std::invalid_argument&) { rejected=true; }
         check(rejected);
     }
+    CliTimeline splitTimeline;
+    constexpr EventCategory splitCategories[]={EventCategory::Memory,EventCategory::Thread,EventCategory::Service,
+        EventCategory::Security,EventCategory::Crypto,EventCategory::Com,EventCategory::Window,EventCategory::Gui};
+    for (const auto category : splitCategories) splitTimeline.append(event(L"a",L"x",100000,category));
+    auto splitRow=splitTimeline.buckets.begin()->second;
+    for (std::size_t i=6;i<14;++i) check(splitRow[i].count==1);
+    check(splitRow[14].count==0);
     CliTimeline timeline;
     constexpr std::uint64_t base=134381074585576380ULL;
     p=event(L"a",L"x",base,EventCategory::File);timeline.append(p);

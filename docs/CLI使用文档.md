@@ -74,7 +74,7 @@ R3 文件创建可使用 `file create --path PATH [--text TEXT | --hex HEX | --d
 
 事件中的 `rawAbi` 列出实际采集的 Raw 寄存器和栈槽，不推断参数类型。`--signatures 1` 读取同目录的项目声明文件，只有文件 SHA-256 与 Agent 事件定义哈希一致时才附加声明，并标识项目、SDK 已核对或未核验参考来源；不读取目标指针。
 
-支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard`（逗号分隔）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--r0-inject 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard,memory,thread,service,security,crypto,com,window,gui`（逗号分隔；gui 默认关闭，包含 GDI、绘图及 DC 调用；窗口生命周期、消息和菜单属于 window）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--r0-inject 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
 
 采集事件的 `returnValueAvailable`、`durationAvailable` 分别表示是否实际采到返回位模式和调用耗时；对应的 `returnValue` 是十六进制字符串、`duration100ns` 是以 100 纳秒为单位的十进制字符串，缺失时为 `null`。旧 Agent 和 Raw 入口不会推断未采集值。详见 [monitor 命令](cli/monitor.md)。
 

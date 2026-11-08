@@ -3,14 +3,14 @@ param(
     [Parameter(Mandatory=$true)][string]$Fixture64,
     [Parameter(Mandatory=$true)][string]$Fixture32,
     [Parameter(Mandatory=$true)][string]$LocalReportRoot,
-    [ValidateSet('parity','sdkraw')][string]$Mode='parity'
+    [ValidateSet('parity','sdkraw','category','perapi','guicategory')][string]$Mode='parity'
 )
 $ErrorActionPreference='Stop'
 $expectedGuest='DESKTOP-D2161R7'
 $vmx='E:\VMs\Windows10-20H2\Windows 10 x64.vmx'
 $vmrun='D:\Software\Vmware\vmrun.exe'
 $credentialFile='C:\Users\Administrator\AppData\Local\CodexVm\Windows10-20H2.credential.xml'
-$guestScriptName=if($Mode -eq 'sdkraw'){'Invoke-SdkRawGuest.ps1'}else{'Invoke-CliParityGuest.ps1'}
+$guestScriptName=if($Mode -eq 'sdkraw'){'Invoke-SdkRawGuest.ps1'}elseif($Mode -eq 'category'){'Invoke-CategoryGuest.ps1'}elseif($Mode -eq 'perapi'){'Invoke-PerApiGuest.ps1'}elseif($Mode -eq 'guicategory'){'Invoke-GuiCategoryGuest.ps1'}else{'Invoke-CliParityGuest.ps1'}
 $guestScript=Join-Path $PSScriptRoot $guestScriptName
 $inputs=@(
     @{ Local=(Join-Path $ReleaseDir 'KswordCLI.exe'); Relative='KswordCLI.exe' },

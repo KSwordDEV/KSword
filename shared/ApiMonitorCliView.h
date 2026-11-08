@@ -142,7 +142,7 @@ public:
     static constexpr std::size_t maxBuckets = 2048;
     static constexpr std::uint64_t initialWidth = 100000; // 10 ms, FILETIME ticks
     struct Cell { std::uint64_t count = 0, first = 0, last = 0; };
-    using Cells = std::array<Cell,7>;
+    using Cells = std::array<Cell,15>;
     void append(const ApiMonitorEventPacket& packet) {
         if (packet.eventKind != static_cast<std::uint32_t>(EventKind::ApiCall)
             || packet.category == static_cast<std::uint32_t>(EventCategory::Internal)) return;
@@ -150,11 +150,19 @@ public:
         if (!t) { ++missing; return; }
         if (!count) first=last=t; else { first=(std::min)(first,t); last=(std::max)(last,t); }
         while (last/width-first/width>=maxBuckets) coarsen();
-        std::size_t c=6;
+        std::size_t c=14;
         switch (static_cast<EventCategory>(packet.category)) {
         case EventCategory::File:c=0;break; case EventCategory::Registry:c=1;break;
         case EventCategory::Network:c=2;break; case EventCategory::Process:c=3;break;
         case EventCategory::Loader:c=4;break; case EventCategory::Clipboard:c=5;break;
+        case EventCategory::Memory:c=6;break;
+        case EventCategory::Thread:c=7;break;
+        case EventCategory::Service:c=8;break;
+        case EventCategory::Security:c=9;break;
+        case EventCategory::Crypto:c=10;break;
+        case EventCategory::Com:c=11;break;
+        case EventCategory::Window:c=12;break;
+        case EventCategory::Gui:c=13;break;
         default:break;
         }
         auto& cell=buckets[t/width][c];

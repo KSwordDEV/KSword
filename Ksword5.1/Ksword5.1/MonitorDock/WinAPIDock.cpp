@@ -236,7 +236,7 @@ void WinAPIDock::updateActionState()
     const bool hasPid = currentSelectedPid(&currentPidValue);
     const bool running = m_pipeRunning.load() || (m_sessionOperation && m_sessionOperation->isBusy());
     for (QCheckBox* check : {m_hookFileCheck, m_hookRegistryCheck, m_hookNetworkCheck,
-            m_hookProcessCheck, m_hookLoaderCheck, m_hookClipboardCheck, m_autoInjectChildCheck, m_r0InjectCheck})
+            m_hookProcessCheck, m_hookMemoryCheck, m_hookThreadCheck, m_hookServiceCheck, m_hookSecurityCheck, m_hookCryptoCheck, m_hookComCheck, m_hookWindowCheck, m_hookGuiCheck, m_hookLoaderCheck, m_hookClipboardCheck, m_autoInjectChildCheck, m_r0InjectCheck})
         if (check) check->setEnabled(!running);
     const bool hasEvents = m_eventArchive.size() > 0;
 

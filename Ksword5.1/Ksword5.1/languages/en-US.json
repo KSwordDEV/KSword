@@ -8,6 +8,15 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "内存 API": "Memory API",
+    "线程 API": "Thread API",
+    "服务 API": "Service API",
+    "权限 API": "Security API",
+    "加密 API": "Crypto API",
+    "COM API": "COM API",
+    "窗口 API": "Window API",
+    "加密": "Crypto",
+    "COM": "COM",
     "window.picker.process_unknown": "Process name unavailable",
     "window.picker.title": "Choose target window",
     "window.picker.loading_image": "Capturing static preview…",
@@ -7867,6 +7876,18 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "GUI API": "GUI API",
+    "GDI、绘图与 DC 调用单独采集，默认关闭；窗口生命周期、消息和菜单属于窗口 API。": "Collect GDI, drawing and DC calls separately (disabled by default); window lifecycle, messages and menus belong to Window API.",
+    "内存 API": "Memory API",
+    "线程 API": "Thread API",
+    "服务 API": "Service API",
+    "权限 API": "Security API",
+    "加密 API": "Crypto API",
+    "COM API": "COM API",
+    "窗口 API": "Window API",
+    "加密": "Crypto",
+    "Com": "Com",
+    "Crypto": "Crypto",
     "悬停查看窗口，左键选择；滚轮滚动，Ctrl+滚轮缩放；F11 切换全屏；Esc 退出全屏或取消，右键取消。": "Hover to inspect; left-click to select. Scroll to browse, Ctrl+wheel to zoom. F11 toggles full screen. Esc exits full screen or cancels; right-click cancels.",
     "进程名不可用": "Process name unavailable",
     "  |  PID %1": "  |  PID %1",
@@ -44440,6 +44461,8 @@
     "enumerateProcessModules received invalid request parameters": "enumerateProcessModules received invalid request parameters",
     "non-standard exception": "Non-standard exception",
     "按日志内容、文件路径或函数名筛选当前日志列表": "Filter by log content, file path, or function name in the current log list",
+    "强类型与 Raw 的区别": "Typed vs Raw capture",
+    "<qt><p>这里的“强类型”是本项目的采集方式约定，不是 Windows 官方的 API 分类。</p><p><b>强类型：</b>项目已明确该 API 的函数签名，并实现生成或专用包装器；按接口实现记录有语义的参数或指针地址、返回值和耗时，部分接口还可解析字符串等内容。</p><p><b>Raw：</b>对强类型定义表之外的导出使用通用入口钩子，记录函数、地址及原始寄存器/栈槽。槽位不等于已知参数，不自动读取指针内容，也不采集返回值或耗时。</p><p><b>本开关：</b>仅为强类型调用额外采集最多 8 帧调用栈；可能包含监控内部帧，也可能受详情容量限制而缺失。Raw 只有入口调用位置，不提供此调用栈。</p><p>实际安装情况请查看“API 覆盖”；勾选分类不代表该类所有 API 都已覆盖。</p></qt>": "<qt><p>Here, “typed” is this project's capture convention, not an official Windows API category.</p><p><b>Typed:</b> The project defines the API's exact signature and provides a generated or dedicated wrapper. Depending on the implementation, it records meaningful argument values or pointer addresses, return values and duration. Some APIs also decode strings or other content.</p><p><b>Raw:</b> Generic entry hooks cover exports outside the typed definition catalog, recording the function, addresses and raw register/stack slots. Slots are not known parameters. Raw does not dereference pointers or collect return values or duration.</p><p><b>This option:</b> Adds up to 8 call-stack frames for typed calls only. Frames may include monitor internals or be missing due to detail capacity limits. Raw has only the entry caller location, not this call stack.</p><p>Check “API coverage” for actual installation status. Selecting a category does not mean every API in that category is covered.</p></qt>",
     "筛选日志文本": "Filter log text"
   }
 }
