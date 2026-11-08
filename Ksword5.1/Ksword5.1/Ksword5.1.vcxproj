@@ -754,6 +754,8 @@
     <ClCompile Include="UI\UiCommitCoordinator.cpp" />
     <ClCompile Include="UI\AsyncOperation.cpp" />
     <ClCompile Include="UI\WindowPickerButton.cpp" />
+    <ClCompile Include="UI\WindowTargetPicker.cpp" />
+    <ClInclude Include="UI\WindowTargetPicker.h" />
     <ClCompile Include="UI\TableSearchSupport.cpp" />
     <ClCompile Include="UI\TextSearchReplaceSupport.cpp" />
     <ClCompile Include="UI\TableSnapshotCompare.cpp" />

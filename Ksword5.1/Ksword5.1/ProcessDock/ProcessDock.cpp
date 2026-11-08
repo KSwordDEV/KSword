@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include "ProcessActivitySeriesCache.h"
 #include "../UI/TableContextMenu.h"
+#include "../UI/WindowTargetPicker.h"
 #include "../UI/RetainedCleanupJob.h"
 #include "../UI/FlatButtonTheme.h"
 #include "ProcessAffinityUtils.h"
@@ -1535,120 +1536,6 @@ namespace
         bool m_preserveSourceOrder = false; // m_preserveSourceOrder：树状模式下按源模型顺序返回。
     };
 
-    // ProcessWindowPickerDragButton：
-    // - 作用：复用窗口页“准星拖拽拾取”的输入模型；
-    // - 按住按钮拖到任意窗口后松开，向宿主回调全局屏幕坐标；
-    // - 只负责输入捕获，不直接读取 HWND/PID，避免 UI 控件承担业务逻辑。
-    class ProcessWindowPickerDragButton final : public QPushButton
-    {
-    public:
-        using ReleaseCallback = std::function<void(const QPoint&)>;
-
-        // 构造函数：
-        // - parent：Qt 父控件；
-        // - 处理：启用鼠标追踪，允许拖拽过程中持续计算距离；
-        // - 返回：无返回值。
-        explicit ProcessWindowPickerDragButton(QWidget* parent = nullptr)
-            : QPushButton(parent)
-        {
-            setMouseTracking(true);
-        }
-
-        // setReleaseCallback：
-        // - callback：鼠标释放时接收全局坐标的函数；
-        // - 处理：保存到成员变量，供 mouseReleaseEvent 调用；
-        // - 返回：无返回值。
-        void setReleaseCallback(ReleaseCallback callback)
-        {
-            m_releaseCallback = std::move(callback);
-        }
-
-    protected:
-        // mousePressEvent：
-        // - 输入：Qt 鼠标按下事件；
-        // - 处理：记录左键起点并抓取鼠标，光标切换成准星；
-        // - 返回：无返回值。
-        void mousePressEvent(QMouseEvent* eventPointer) override
-        {
-            if (eventPointer != nullptr && eventPointer->button() == Qt::LeftButton)
-            {
-                m_dragTracking = true;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                m_pressGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                m_pressGlobalPos = eventPointer->globalPos();
-#endif
-                m_hasReachedDragThreshold = false;
-                grabMouse(QCursor(Qt::CrossCursor));
-            }
-            QPushButton::mousePressEvent(eventPointer);
-        }
-
-        // mouseMoveEvent：
-        // - 输入：Qt 鼠标移动事件；
-        // - 处理：超过系统拖拽阈值后才允许释放触发，避免普通点击误拾取；
-        // - 返回：无返回值。
-        void mouseMoveEvent(QMouseEvent* eventPointer) override
-        {
-            if (m_dragTracking && eventPointer != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                const QPoint currentGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                const QPoint currentGlobalPos = eventPointer->globalPos();
-#endif
-                const int moveDistance = (currentGlobalPos - m_pressGlobalPos).manhattanLength();
-                if (moveDistance >= QApplication::startDragDistance())
-                {
-                    m_hasReachedDragThreshold = true;
-                }
-            }
-            QPushButton::mouseMoveEvent(eventPointer);
-        }
-
-        // mouseReleaseEvent：
-        // - 输入：Qt 鼠标释放事件；
-        // - 处理：释放鼠标抓取，并在有效拖拽时回调释放坐标；
-        // - 返回：无返回值。
-        void mouseReleaseEvent(QMouseEvent* eventPointer) override
-        {
-            const bool shouldDispatch =
-                m_dragTracking &&
-                m_hasReachedDragThreshold &&
-                eventPointer != nullptr &&
-                eventPointer->button() == Qt::LeftButton;
-
-            if (m_dragTracking)
-            {
-                releaseMouse();
-                m_dragTracking = false;
-            }
-            m_hasReachedDragThreshold = false;
-
-            QPoint releaseGlobalPos;
-            if (eventPointer != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                releaseGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                releaseGlobalPos = eventPointer->globalPos();
-#endif
-            }
-
-            QPushButton::mouseReleaseEvent(eventPointer);
-
-            if (shouldDispatch && m_releaseCallback)
-            {
-                m_releaseCallback(releaseGlobalPos);
-            }
-        }
-
-    private:
-        bool m_dragTracking = false;             // m_dragTracking：当前是否处于准星拖拽链路。
-        bool m_hasReachedDragThreshold = false;  // m_hasReachedDragThreshold：是否达到系统拖拽阈值。
-        QPoint m_pressGlobalPos;                 // m_pressGlobalPos：左键按下时的全局坐标。
-        ReleaseCallback m_releaseCallback;       // m_releaseCallback：释放后通知宿主处理 PID 过滤。
-    };
 
 }
 
@@ -6045,19 +5932,19 @@ void ProcessDock::initializeProcessActivityPanel()
     // 准星按钮放在“网络/GPU”等时间轴指标按钮右侧：
     // - 交互与窗口页拾取按钮一致，必须按住拖到目标窗口后松开；
     // - 释放后不打开窗口详情，而是按目标窗口所属 PID 过滤进程列表并打开进程详情。
-    ProcessWindowPickerDragButton* processPickerButton = new ProcessWindowPickerDragButton(m_activityPanelWidget);
+    auto* processPickerButton = new ks::ui::WindowTargetPickerButton(m_activityPanelWidget);
     processPickerButton->setIcon(QIcon(IconWindowPickerTarget));
     KswordTheme::ApplyCompactIconButtonMetrics(processPickerButton);
     // 拾取属于工具栏独立动作，不能使用透明常态把图标直接压在工具面上。
     ks::ui::ApplyFlatButtonTheme(processPickerButton,
         ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    processPickerButton->setToolTip(QStringLiteral("按住并拖拽准星到目标窗口，松开后按该窗口 PID 筛选进程并打开进程详细信息"));
+    processPickerButton->setToolTip(QStringLiteral("拖拽准星定位进程；按住 Ctrl 松开可预览并选择该位置的窗口"));
     languageManager.bindToolTip(
         processPickerButton,
         QStringLiteral("process.activity.tooltip.picker"),
-        QStringLiteral("按住并拖拽准星到目标窗口，松开后按该窗口 PID 筛选进程并打开进程详细信息"));
-    processPickerButton->setReleaseCallback([this](const QPoint& globalPos) {
-        handleProcessWindowPickerRelease(globalPos);
+        QStringLiteral("拖拽准星定位进程；按住 Ctrl 松开可预览并选择该位置的窗口"));
+    processPickerButton->setPickCallback([this](quintptr hwndValue) {
+        handleProcessWindowPicked(hwndValue);
     });
     m_activityProcessPickerButton = processPickerButton;
 
@@ -6119,25 +6006,10 @@ void ProcessDock::initializeProcessActivityPanel()
     m_processPageLayout->addWidget(m_activityPanelWidget, 0);
 }
 
-void ProcessDock::handleProcessWindowPickerRelease(const QPoint& globalPos)
+void ProcessDock::handleProcessWindowPicked(quintptr hwndValue)
 {
-    // 该函数是进程页准星拾取的业务入口：
-    // - 命中逻辑与窗口页保持一致，先拿鼠标下窗口，再回退到根窗口；
-    // - 结果不进入窗口详情，而是转成 PID 过滤和进程详情。
     kLogEvent pickEvent;
-    info << pickEvent
-        << "[ProcessDock] 进程准星拾取释放, x="
-        << globalPos.x()
-        << ", y="
-        << globalPos.y()
-        << eol;
-
-    POINT nativePoint{};
-    nativePoint.x = globalPos.x();
-    nativePoint.y = globalPos.y();
-
-    // rawWindowHandle 是鼠标下最细粒度窗口；rootWindowHandle 用于顶级窗口回退。
-    HWND rawWindowHandle = ::WindowFromPoint(nativePoint);
+    HWND rawWindowHandle = reinterpret_cast<HWND>(hwndValue);
     HWND rootWindowHandle = rawWindowHandle != nullptr ? ::GetAncestor(rawWindowHandle, GA_ROOT) : nullptr;
     HWND targetWindowHandle = rawWindowHandle != nullptr ? rawWindowHandle : rootWindowHandle;
     if (targetWindowHandle == nullptr || ::IsWindow(targetWindowHandle) == FALSE)

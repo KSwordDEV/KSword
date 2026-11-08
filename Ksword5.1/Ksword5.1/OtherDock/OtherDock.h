@@ -196,12 +196,8 @@ private:
     void sendTestMessagesForWindows(const std::vector<WindowInfo>& windows);
     void submitWindowTransaction(const std::vector<WindowInfo>& windows, bool protection, bool testMessage);
 
-    // handleWindowPickerRelease：
-    // - 作用：处理“准星拖拽拾取”释放事件，定位鼠标下窗口并弹出详情；
-    // - 调用：由窗口列表顶部拾取按钮在鼠标松开时触发；
-    // - 传入 globalPos：鼠标松开时的全局屏幕坐标；
-    // - 传出：无，成功时直接打开窗口详情对话框。
-    void handleWindowPickerRelease(const QPoint& globalPos);
+    // Shared direct/preview selection; hwndValue is already a native window identity.
+    void handleWindowPicked(quintptr hwndValue);
 
 private:
     // 顶层布局与工具栏。
