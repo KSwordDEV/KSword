@@ -226,6 +226,8 @@ private:
     QPushButton* m_protectCaptureButton = nullptr; // 对选中窗口启用防截图保护按钮。
     QPushButton* m_unprotectCaptureButton = nullptr; // 对选中窗口取消防截图保护按钮。
     QPushButton* m_windowInputButton = nullptr;   // 单个窗口的输入与顺序设置入口。
+    QPushButton* m_expandWindowsButton = nullptr; // 展开窗口分组。
+    QPushButton* m_collapseWindowsButton = nullptr; // 折叠窗口分组。
     QLabel* m_windowPickerHintLabel = nullptr;    // 准星按钮旁提示文案，说明拖拽用法。
 
     // 窗口列表页：左树右预览。

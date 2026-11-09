@@ -1350,6 +1350,7 @@ namespace ks::windowlist
             if (role == Qt::UserRole + 2) return value.processId;
             if (role == Qt::UserRole + 3) return value.threadId;
             if (role == Qt::UserRole + 4) return QVariant::fromValue<qulonglong>(value.processCreationTime100ns);
+            if (role == Qt::UserRole + 5) return node->key;
             if (!node->group && role == Qt::ForegroundRole && !value.valid) return QBrush(KswordTheme::ExitedRowForegroundColor());
             if (!node->group && role == Qt::BackgroundRole)
             {
@@ -3851,6 +3852,31 @@ void OtherDock::initializeUi()
         const auto windows = selectedWindowSnapshots();
         if (windows.size() == 1) openWindowDetailDialog(windows.front(), true);
     });
+    m_expandWindowsButton = new QPushButton(
+        QIcon(QStringLiteral(":/Icon/detail_node_expanded.svg")), QString(), m_windowListToolWidget);
+    m_expandWindowsButton->setObjectName(QStringLiteral("ks_window_list_expand_all"));
+    ks::i18n::LanguageManager::instance().bindToolTip(m_expandWindowsButton,
+        QStringLiteral("window.list.expand_all"), QStringLiteral("全部展开"));
+    ks::ui::ApplyFlatButtonTheme(m_expandWindowsButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    KswordTheme::ApplyCompactIconButtonMetrics(m_expandWindowsButton);
+    m_windowListToolLayout->addWidget(m_expandWindowsButton, 0);
+    connect(m_expandWindowsButton, &QPushButton::clicked, this, [this] {
+        if (m_windowTree) m_windowTree->expandAll();
+    });
+
+    m_collapseWindowsButton = new QPushButton(
+        QIcon(QStringLiteral(":/Icon/detail_node_collapsed.svg")), QString(), m_windowListToolWidget);
+    m_collapseWindowsButton->setObjectName(QStringLiteral("ks_window_list_collapse_all"));
+    ks::i18n::LanguageManager::instance().bindToolTip(m_collapseWindowsButton,
+        QStringLiteral("window.list.collapse_all"), QStringLiteral("全部折叠"));
+    ks::ui::ApplyFlatButtonTheme(m_collapseWindowsButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    KswordTheme::ApplyCompactIconButtonMetrics(m_collapseWindowsButton);
+    m_windowListToolLayout->addWidget(m_collapseWindowsButton, 0);
+    connect(m_collapseWindowsButton, &QPushButton::clicked, this, [this] {
+        if (m_windowTree) m_windowTree->collapseAll();
+    });
     m_windowListToolLayout->addWidget(m_windowPickerHintLabel, 0);
     m_windowListToolLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_windowListToolLayout);
@@ -3858,6 +3884,8 @@ void OtherDock::initializeUi()
 
     // 窗口列表页：左树右预览。
     m_mainSplitter = new QSplitter(Qt::Horizontal, m_windowListPage);
+    // 预览正文允许忽略尺寸提示，但外层分栏必须保留两侧可用空间。
+    m_mainSplitter->setChildrenCollapsible(false);
     m_windowListPageLayout->addWidget(m_mainSplitter, 1);
 
     m_windowTree = new QTreeView(m_mainSplitter);
@@ -3892,6 +3920,8 @@ void OtherDock::initializeUi()
     ks::window::configureWindowListColumnSizing(m_windowTree);
 
     m_previewWidget = new QWidget(m_mainSplitter);
+    // 搜索工具栏在窄列内换行；最小列宽不再依赖初始隐藏的缩略图。
+    m_previewWidget->setMinimumWidth(280);
     m_previewLayout = new QVBoxLayout(m_previewWidget);
     m_previewLayout->setContentsMargins(0, 0, 0, 0);
     m_previewLayout->setSpacing(6);
@@ -3921,6 +3951,8 @@ void OtherDock::initializeUi()
     // 默认把左侧窗口列表区域放宽，避免窗口标题被截断。
     m_mainSplitter->setStretchFactor(0, 4);
     m_mainSplitter->setStretchFactor(1, 1);
+    // 显式提供首次分配基准，避免右侧零尺寸提示使分栏初始宽度归零。
+    m_mainSplitter->setSizes({800, 280});
     m_navigationTabs.add(kWindowNavigation[0], m_contentTabWidget, m_windowListPage);
 
     // 桌面管理页：列出窗口站与桌面，并补充 SessionId / SID / 权限状态等上下文。
@@ -4537,14 +4569,16 @@ void OtherDock::updatePreviewPanel(const WindowInfo* info)
     {
         if (m_thumbnailLabel->margin() != 0) m_thumbnailLabel->setMargin(0);
         m_thumbnailLabel->show();
+        // previewHeight：沿用原有高度预算；固定纵向策略让布局实际为图片预留空间。
+        // Ignored 会让后续字段工具栏按零高度图片排布，覆盖仍有最小高度的 QLabel。
         const int previewHeight = std::clamp(m_previewWidget->height() / 3, 120, 220);
-        if (m_thumbnailLabel->minimumHeight() != previewHeight || m_thumbnailLabel->maximumHeight() != 220)
+        if (m_thumbnailLabel->minimumHeight() != previewHeight ||
+            m_thumbnailLabel->maximumHeight() != previewHeight)
         {
-            m_thumbnailLabel->setMaximumHeight(220);
-            m_thumbnailLabel->setMinimumHeight(previewHeight);
+            m_thumbnailLabel->setFixedHeight(previewHeight);
         }
-        if (m_thumbnailLabel->sizePolicy().verticalPolicy() != QSizePolicy::Ignored)
-            m_thumbnailLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        if (m_thumbnailLabel->sizePolicy().verticalPolicy() != QSizePolicy::Fixed)
+            m_thumbnailLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         if (!m_thumbnailLabel->text().isEmpty()) m_thumbnailLabel->setText(QString());
         m_previewLayout->activate();
         const QSize targetSize = m_thumbnailLabel->contentsRect().size();

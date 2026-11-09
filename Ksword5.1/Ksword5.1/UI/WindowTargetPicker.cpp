@@ -270,13 +270,12 @@ namespace ks::ui
             }
         }
 
-        constexpr qreal PreviewOpacity = .60;
         QTransform planeProjection(bool active = false)
         {
             // Upper edge leans right; keep the projected left bound at zero.
-            // The depth axis stays half length at both 45 and 60 degrees.
-            const qreal horizontal = active ? .25 : .353553390593;
-            const qreal vertical = active ? .433012701892 : .353553390593;
+            // The depth axis stays half length at both 60 and 75 degrees.
+            const qreal horizontal = active ? .129409522551 : .25;
+            const qreal vertical = active ? .482962913145 : .433012701892;
             return QTransform(1, 0, -horizontal, vertical, 440 * horizontal, 0);
         }
         QPointF layerPosition(std::size_t index)
@@ -316,7 +315,10 @@ namespace ks::ui
                     host->highlight(nullptr);
             }
             QRectF informationRect() const
-            { return QRectF(m_polygon.boundingRect().right() + 24, 38, 300, 80); }
+            {
+                const QRectF preview = m_polygon.boundingRect();
+                return QRectF(preview.right() + 24, preview.center().y() - 40, 300, 80);
+            }
             QRectF previewRect() const { return m_polygon.boundingRect(); }
             bool highlighted() const
             {
@@ -352,7 +354,7 @@ namespace ks::ui
                 const QPolygonF& polygon = active ? m_activePolygon : m_polygon;
                 painter->save();
                 painter->setTransform(planeProjection(active), true);
-                painter->setOpacity(active ? 1.0 : PreviewOpacity);
+                painter->setOpacity(1.0);
                 if (!snapshot.image.isNull())
                 {
                     const QSizeF fitted = QSizeF(snapshot.image.size()).scaled(QSizeF(680, 440), Qt::KeepAspectRatio);
@@ -360,8 +362,7 @@ namespace ks::ui
                     QPainterPath backing, content;
                     backing.addRect(QRectF(0, 0, 680, 440));
                     content.addRect(imageRect);
-                    // Do not put a second translucent fill under image pixels:
-                    // two 60% layers would become 84% opaque.
+                    // Keep the letterbox fill outside screenshot pixels.
                     painter->fillPath(backing.subtracted(content), KswordTheme::SurfaceColor());
                     painter->drawImage(imageRect, snapshot.image);
                 }

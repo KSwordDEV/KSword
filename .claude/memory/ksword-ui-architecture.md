@@ -125,6 +125,9 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 ## 通用表格交互
 
+- 2026-11-07 窗口 Dock → 窗口列表的右侧预览有两处尺寸陷阱：隐藏缩略图、零边距及 `StructuredFieldView` 的 Ignored 外壳会令整个 splitter 子面板的尺寸提示归零，仅设 stretch factor 不保证右侧初始宽度；`OtherDock` 显式设 `setSizes({800, 280})`、预览最小宽 280 并禁止子面板折叠。有效图片纵向不能继续使用 Ignored：即使 QLabel 有最小/固定高度，Qt 仍可能按零高度为后续字段区分配位置，使搜索栏覆盖图片。有效图片使用 Fixed 纵向策略及 `clamp(容器高度/3, 120, 220)` 固定高度；不可用提示恢复 minHeight=0/maxHeight=QWIDGETSIZE_MAX 与 Maximum，未选中时隐藏图片。独立 Qt 6.9.3 几何夹具 36 项通过，覆盖旧策略复现、两种列宽、三种高度及图片/提示往返；只模拟字段外壳，不替代真实 StructuredFieldView 或主程序验收。主程序最新 Release 编译和双语/主题门禁通过，链接因运行中的 exe 占用报 LNK1104（`.codex-build-logs/ksword-build-check-20261107-231607.raw.log`），未更新主程序 exe，实际 GUI、深浅主题/DPI/背景模式及完整页面规范核对仍待完成。
+- 2026-11-07 窗口列表分组树由周期采样触发的模型 reset 会保存/恢复选择；分组索引不能沿用 HWND/PID/TID 键，模型对所有节点暴露自身投影 key 于 `Qt::UserRole + 5`，`WindowListInteraction::windowItemIdentity(QModelIndex)` 优先读该键，选择快照也包含分组行。窗口动作仍由 `selectedWindowHandles` 排除 `UserRole + 1` 分组节点。全部展开/折叠工具放在窗口列表工具行“窗口输入与顺序”按钮右侧，使用共享详情节点箭头图标、CompactIconButtonMetrics、共享中性按钮主题和双语 tooltip；`expandToDepth(0)` 加逐根恢复继续保留按钮设定的展开状态。
+
 - Issue #220 的复制菜单能力统一由 `UI/TableContextMenu` 管理。业务 QAction 创建后用 `SetTableContextActionRole` 声明 CopyCell/CopyRows/ExportRows；检查递归包含已创建子菜单，不依赖翻译标题。共享层只补缺失能力，复用菜单时重绑实际来源与右键单元格，表头菜单不追加正文复制项。覆盖和验证记录见 [表格复制菜单核对](../../docs/Issue-220-表格复制菜单核对.md)。
 
 - 2026-10-07：窗口列表由 `WindowDock` 内嵌的 `OtherDock` 实现，默认筛选“所有窗口”，仍叠加外部 PID 与关键字过滤，包含退出保留一轮的无效窗口。自动刷新默认开启、间隔 1000 ms；在信号连接完成后勾选以实际启动定时器。定时采样调用 `refreshWindowListAsync(false)`，不注册或更新全局 `kPro` 任务，手动刷新保留进度通知。

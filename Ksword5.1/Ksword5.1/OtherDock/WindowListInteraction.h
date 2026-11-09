@@ -99,6 +99,8 @@ namespace ks::window
 
     inline QString windowItemIdentity(const QModelIndex& index)
     {
+        const QString stableKey = index.data(Qt::UserRole + 5).toString();
+        if (!stableKey.isEmpty()) return stableKey;
         return windowIdentityKey(index.data(Qt::UserRole).toULongLong(),
             index.data(Qt::UserRole + 2).toULongLong(), index.data(Qt::UserRole + 3).toULongLong(),
             index.data(Qt::UserRole + 4).toULongLong());
@@ -108,9 +110,9 @@ namespace ks::window
         WindowTreeSelection selection;
         if (!tree->selectionModel()) return selection;
         for (const auto& index : tree->selectionModel()->selectedRows())
-            if (!index.data(Qt::UserRole + 1).toBool()) selection.identities.insert(windowItemIdentity(index));
+            selection.identities.insert(windowItemIdentity(index));
         const auto current = tree->currentIndex();
-        if (current.isValid() && !current.data(Qt::UserRole + 1).toBool()) selection.current = windowItemIdentity(current);
+        if (current.isValid()) selection.current = windowItemIdentity(current);
         return selection;
     }
     inline void selectContextWindow(QTreeView* tree, const QModelIndex& index)

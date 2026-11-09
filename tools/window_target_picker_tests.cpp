@@ -188,9 +188,9 @@ int main(int argc, char** argv)
         const auto angle = [](const QTransform& transform) {
             return std::atan2(transform.m22(), -transform.m21()) * 180 / std::acos(-1.0);
         };
-        require(std::abs(angle(planeProjection()) - 45) < .0001
-            && std::abs(angle(planeProjection(true)) - 60) < .0001,
-            "inspection changes the depth axis from 45 to 60 degrees");
+        require(std::abs(angle(planeProjection()) - 60) < .0001
+            && std::abs(angle(planeProjection(true)) - 75) < .0001,
+            "inspection changes the depth axis from 60 to 75 degrees");
         require(upper->sceneBoundingRect().left() == lower->sceneBoundingRect().left()
             && layerPosition(12).x() == 0, "all Z layers share the same horizontal alignment");
         require(upper->informationRect().left() > upper->previewRect().right()
@@ -228,15 +228,15 @@ int main(int argc, char** argv)
         }
         const QPoint middle = planeProjection().map(QPointF(340, 220)).toPoint();
         const QPoint bottom = planeProjection().map(QPointF(300, 400)).toPoint();
-        require(rendered.pixelColor(middle).alpha() >= 145 && rendered.pixelColor(middle).alpha() <= 160,
-            "screenshot opacity is 60 percent without a second backing fill");
-        require(rendered.pixelColor(bottom).alpha() >= 145 && rendered.pixelColor(bottom).alpha() <= 160,
-            "opaque metadata no longer covers the bottom of the screenshot");
+        require(rendered.pixelColor(middle).alpha() == 255,
+            "ordinary screenshot is fully opaque");
+        require(rendered.pixelColor(bottom).alpha() == 255,
+            "the bottom of the screenshot remains fully opaque");
         const auto bounds = upper->boundingRect();
         scene.highlight(upper);
         require(upper->boundingRect() == bounds, "inspection does not resize the scene's layout bounds");
         const QPointF entryPoint = planeProjection().map(QPointF(660, 20));
-        require(upper->contains(entryPoint), "60-degree inspection retains the original hover entry footprint");
+        require(upper->contains(entryPoint), "75-degree inspection retains the original hover entry footprint");
         const QPointF tiltedPoint = planeProjection(true).map(QPointF(340, 420));
         require(upper->contains(tiltedPoint), "the extended inspected screenshot remains clickable");
         rendered.fill(Qt::transparent);
