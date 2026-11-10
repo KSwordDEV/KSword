@@ -1,5 +1,6 @@
 #include "WindowGuiHandleTab.h"
 #include "WindowSnapshotSupport.h"
+#include "WindowFailureLog.h"
 #include "../UI/TableCompleteExport.h"
 #include "WindowImmutableTableSupport.h"
 #include "../UI/AsyncOperation.h"
@@ -215,32 +216,10 @@ namespace
         return handles;
     }
 
-    std::uint32_t selectHandleCount(
-        const std::array<std::uint32_t, 2U>& candidates,
-        const std::vector<std::uint32_t>& windowHandles)
+    // trace 为本轮采集事件；stage/detail 分别为失败阶段和现场数据，写日志后返回。
+    void logGuiHandleFailure(kLogEvent& trace, const char* stage, const QString& detail)
     {
-        std::uint32_t largestKnownIndex = 0U;
-        for (const std::uint32_t handleValue : windowHandles)
-        {
-            largestKnownIndex = (std::max)(largestKnownIndex, handleValue & 0xFFFFU);
-        }
-        std::uint32_t selected = 0U;
-        for (const std::uint32_t candidate : candidates)
-        {
-            if (candidate == 0U || candidate > kMaxUserHandles || candidate <= largestKnownIndex)
-            {
-                continue;
-            }
-            // SERVERINFO has used both the first and second DWORD for the
-            // handle count across Windows generations. If both look numeric,
-            // prefer the smaller safe bound instead of mistaking flags for a
-            // larger table length and crossing the shared mapping boundary.
-            if (selected == 0U || candidate < selected)
-            {
-                selected = candidate;
-            }
-        }
-        return selected;
+        ks::window::LogWindowFailure(trace, "GUI_HANDLE", stage, detail);
     }
 
     HandleEntryLayout detectHandleEntryLayout(
@@ -339,7 +318,8 @@ namespace
         return { QFileInfo(pathText).fileName(), pathText };
     }
 
-    GuiHandleSnapshot collectGuiHandles(const ks::window::SnapshotTexts& texts)
+    // 工作线程传入冻结文本与操作 trace，返回只含值的快照；失败同时记录对应阶段。
+    GuiHandleSnapshot collectGuiHandles(const ks::window::SnapshotTexts& texts, kLogEvent& trace)
     {
         GuiHandleSnapshot snapshot;
 #if !defined(_WIN64)
@@ -350,12 +330,15 @@ namespace
         if (user32Module == nullptr)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.user32_missing"), QStringLiteral("状态：user32.dll 未加载"));
+            logGuiHandleFailure(trace, "USER32_MODULE", QString::number(GetLastError()));
             return snapshot;
         }
         const FARPROC sharedInfoExport = GetProcAddress(user32Module, "gSharedInfo");
         if (sharedInfoExport == nullptr)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.export_missing"), QStringLiteral("状态：当前 user32.dll 未导出 gSharedInfo"));
+            logGuiHandleFailure(trace, "SHAREDINFO_EXPORT", QStringList{
+                hex64(reinterpret_cast<std::uintptr_t>(user32Module)), QString::number(GetLastError())}.join(QLatin1Char('|')));
             return snapshot;
         }
         SharedInfoPrefix sharedInfo{};
@@ -365,30 +348,53 @@ namespace
                 sizeof(sharedInfo)))
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.shared_read_failed"), QStringLiteral("状态：读取 gSharedInfo 失败"));
+            logGuiHandleFailure(trace, "SHAREDINFO_READ", QStringList{
+                hex64(reinterpret_cast<std::uintptr_t>(sharedInfoExport)), QString::number(sizeof(sharedInfo)), QString::number(GetLastError())}.join(QLatin1Char('|')));
             return snapshot;
         }
         if (sharedInfo.serverInfo == 0U || sharedInfo.handleEntries == 0U ||
             sharedInfo.handleEntrySize < 20U || sharedInfo.handleEntrySize > 0x100U)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.shared_invalid"), QStringLiteral("状态：gSharedInfo 指针或 HandleEntrySize 无效"));
+            logGuiHandleFailure(trace, "SHAREDINFO_INVALID", QStringList{
+                hex64(sharedInfo.serverInfo), hex64(sharedInfo.handleEntries),
+                QString::number(sharedInfo.handleEntrySize), hex64(sharedInfo.sharedDelta)}.join(QLatin1Char('|')));
             return snapshot;
         }
-        std::array<std::uint32_t, 2U> serverInfoPrefix{};
+        // x64 SERVERINFO 在 DWORD flags 后按指针自然对齐，容量字段位于 +8。
+        struct ServerInfoPrefix
+        {
+            std::uint32_t flags = 0U; // 服务器标志，不能当作句柄数量。
+            std::uintptr_t handleCount = 0U; // USER 句柄表容量，x64 自然对齐至 +8。
+        };
+        static_assert(offsetof(ServerInfoPrefix, handleCount) == 8U);
+        ServerInfoPrefix serverInfoPrefix{}; // 只读取容量所需的最小前缀。
         if (!readCurrentProcessMemory(
                 sharedInfo.serverInfo,
-                serverInfoPrefix.data(),
+                &serverInfoPrefix,
                 sizeof(serverInfoPrefix)))
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.server_read_failed"), QStringLiteral("状态：读取 SERVERINFO 失败"));
+            logGuiHandleFailure(trace, "SERVERINFO_READ", QStringList{
+                hex64(sharedInfo.serverInfo), QString::number(sizeof(serverInfoPrefix)), QString::number(GetLastError())}.join(QLatin1Char('|')));
             return snapshot;
         }
         const std::vector<std::uint32_t> windowHandles = knownWindowHandles();
-        const std::uint32_t handleCount = selectHandleCount(serverInfoPrefix, windowHandles);
-        if (handleCount == 0U)
+        std::uint32_t largestKnownIndex = 0U; // 已知有效 HWND 的最大表索引，用于容量校验。
+        for (const std::uint32_t handleValue : windowHandles)
+        {
+            largestKnownIndex = (std::max)(largestKnownIndex, handleValue & 0xFFFFU);
+        }
+        const std::uintptr_t rawHandleCount = serverInfoPrefix.handleCount; // 保留原始宽度，先校验再收窄。
+        if (rawHandleCount == 0U || rawHandleCount > kMaxUserHandles || rawHandleCount <= largestKnownIndex)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.count_invalid"), QStringLiteral("状态：SERVERINFO Handle 数量无效"));
+            logGuiHandleFailure(trace, "SERVERINFO_COUNT", QStringList{
+                hex32(serverInfoPrefix.flags), hex64(rawHandleCount), QString::number(largestKnownIndex),
+                hex64(sharedInfo.serverInfo), hex64(sharedInfo.handleEntries), QString::number(sharedInfo.handleEntrySize)}.join(QLatin1Char('|')));
             return snapshot;
         }
+        const std::uint32_t handleCount = static_cast<std::uint32_t>(rawHandleCount); // 校验后的安全遍历上限。
         const std::size_t totalBytes = static_cast<std::size_t>(handleCount) * sharedInfo.handleEntrySize;
         std::vector<std::uint8_t> handleTable(totalBytes, 0U);
         std::uint32_t readableEntryCount = 0U;
@@ -410,7 +416,16 @@ namespace
         if (readableEntryCount == 0U)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.table_read_failed"), QStringLiteral("状态：读取 USER Handle 共享表失败"));
+            logGuiHandleFailure(trace, "HANDLE_TABLE_READ", QStringList{
+                hex64(sharedInfo.handleEntries), QString::number(sharedInfo.handleEntrySize),
+                QString::number(handleCount), QString::number(GetLastError())}.join(QLatin1Char('|')));
             return snapshot;
+        }
+        if (readableEntryCount != handleCount)
+        {
+            logGuiHandleFailure(trace, "HANDLE_TABLE_PARTIAL", QStringList{
+                hex64(sharedInfo.handleEntries), QString::number(sharedInfo.handleEntrySize),
+                QString::number(handleCount), QString::number(readableEntryCount), QString::number(GetLastError())}.join(QLatin1Char('|')));
         }
         const HandleEntryLayout layout = detectHandleEntryLayout(
             handleTable,
@@ -420,6 +435,8 @@ namespace
         if (layout.name.isEmpty())
         {
             snapshot.statusText = texts.value(QStringLiteral("window.gui_handle.status.layout_failed"), QStringLiteral("状态：无法识别 USER HandleEntry 布局"));
+            logGuiHandleFailure(trace, "HANDLE_LAYOUT", QStringList{
+                QString::number(sharedInfo.handleEntrySize), QString::number(handleCount), QString::number(readableEntryCount)}.join(QLatin1Char('|')));
             return snapshot;
         }
 
@@ -640,7 +657,12 @@ void WindowGuiHandleTab::reconcileRefreshState()
     const QPointer<WindowGuiHandleTab> alive(this);
     m_refreshing = false;
     m_refreshButton->setEnabled(true);
-    if (alive && !m_refreshOperation->isBusy() && !m_refreshOperation->isInFlight()) m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+    if (alive && !m_refreshOperation->isBusy() && !m_refreshOperation->isInFlight())
+    {
+        kLogEvent trace; // 投递丢失的恢复事件，不属于任何仍在运行的 worker。
+        logGuiHandleFailure(trace, "ASYNC_STATE", QString::number(m_refreshOperation->generation()));
+        m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+    }
 }
 
 void WindowGuiHandleTab::refreshAsync()
@@ -661,22 +683,27 @@ void WindowGuiHandleTab::refreshAsync()
         "window.gui_handle.status.refreshing",
         QStringLiteral("状态：正在读取 gSharedInfo 与 USER Handle 共享表...")));
     if (!alive) return;
+    const auto trace = std::make_shared<kLogEvent>(); // 本轮 worker 与异常回调共享同一事件身份。
     m_refreshOperation->submit<ks::window::SnapshotTexts, std::shared_ptr<const GuiHandleSnapshot>>(
         freezeSnapshotTexts(),
-        [](const ks::window::SnapshotTexts& texts, const ks::ui::AsyncOperationToken&) {
-            auto snapshot = collectGuiHandles(texts);
+        [trace](const ks::window::SnapshotTexts& texts, const ks::ui::AsyncOperationToken&) {
+            auto snapshot = collectGuiHandles(texts, *trace);
             snapshot.tableValues = ks::window::makeWindowTableSource(std::move(snapshot.rows), {ColumnHandle, ColumnTypeId, ColumnUnique, ColumnObjectRaw});
             return ks::window::makeSnapshotValue<GuiHandleSnapshot>(std::move(snapshot));
         },
         [this](const std::shared_ptr<const GuiHandleSnapshot>& snapshot, std::uint64_t ticket) {
             return applySnapshot(snapshot->tableValues, snapshot->statusText, ticket);
         },
-        [this](std::exception_ptr) {
+        [this, trace](std::exception_ptr failure) {
             const QPointer<WindowGuiHandleTab> alive(this);
             const auto failedGeneration = m_refreshOperation->generation();
             m_refreshing = false;
             m_refreshButton->setEnabled(true);
-            if (alive && m_refreshOperation->isCurrent(failedGeneration)) m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+            if (alive && m_refreshOperation->isCurrent(failedGeneration))
+            {
+                ks::window::LogWindowException(*trace, "GUI_HANDLE", failure);
+                m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+            }
         });
 }
 

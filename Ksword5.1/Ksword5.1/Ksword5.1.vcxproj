@@ -772,6 +772,7 @@
     <ClCompile Include="WindowDock\WindowEventHookTab.cpp" />
     <ClCompile Include="WindowDock\WindowGlobalHotkeyTab.cpp" />
     <ClCompile Include="WindowDock\WindowGuiHandleTab.cpp" />
+    <ClCompile Include="WindowDock\WindowFailureLog.cpp" />
     <ClCompile Include="WindowDock\WindowTimerTab.cpp" />
     <ClCompile Include="ksword\log\log.cpp">
       <ObjectFileName>$(IntDir)ksword_log.obj</ObjectFileName>
@@ -890,6 +891,7 @@
     <ClInclude Include="UI\CompleteExport.h" />
     <ClInclude Include="MonitorDock\ProcessTraceEventMetadata.h" />
     <ClInclude Include="WindowDock\WindowSnapshotSupport.h" />
+    <ClInclude Include="WindowDock\WindowFailureLog.h" />
     <ClInclude Include="MonitorDock\WmiEventArchive.h" />
     <ClInclude Include="..\..\shared\evidence\memory_workbench\MemoryWriteOperation.h" />
     <ClInclude Include="UI\BudgetedPlainTextTransfer.h" />

@@ -179,6 +179,9 @@
     <ClInclude Include="WindowDock\WindowSnapshotSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WindowDock\WindowFailureLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MonitorDock\WmiEventArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2063,6 +2066,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WindowDock\WindowGuiHandleTab.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WindowDock\WindowFailureLog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WindowDock\WindowEventHookTab.cpp">
