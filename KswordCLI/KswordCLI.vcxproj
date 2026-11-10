@@ -677,4 +677,7 @@
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R0ProcessTokenCopy.cpp" />
+  </ItemGroup>
 </Project>

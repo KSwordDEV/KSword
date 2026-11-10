@@ -13874,6 +13874,16 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         integrityAction->setData(static_cast<unsigned int>(preset.rid));
     }
 
+    QAction* copyTokenAction = contextMenu.addAction(
+        blueTintedIcon(":/Icon/process_critical.svg"),
+        ks::i18n::sourceText(QStringLiteral("复制进程令牌（R0）…")));
+    const bool tokenCopyTargetsValid = !contextActionTargets.empty() &&
+        std::all_of(contextActionTargets.begin(), contextActionTargets.end(), [](const ProcessActionTarget& target) {
+            return target.record.pid > 4U && target.record.creationTime100ns != 0ULL;
+        });
+    copyTokenAction->setEnabled(tokenCopyTargetsValid);
+    copyTokenAction->setToolTip(ks::i18n::sourceText(QStringLiteral("从指定 PID 复制主令牌；目标必须具有真实创建时间且不能是系统进程。")));
+
     QAction* detailsAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_details.svg"),
         processContextText("process.menu.details", QStringLiteral("进程详细信息")));
@@ -14039,6 +14049,7 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         }
         else if (selectedAction == injectionPageAction) { openSelectedProcessInjectionPage(); }
         else if (selectedAction == scanHotkeyAction) { openSelectedProcessHotkeyScanner(); }
+        else if (selectedAction == copyTokenAction) { executeCopyProcessTokenAction(); }
         else if (selectedAction == detailsAction) { openProcessDetailsPlaceholder(); }
         else if (selectedAction->parent() == prioritySubMenu)
         {
@@ -18486,6 +18497,98 @@ void ProcessDock::executeSetProcessIntegrityAction(
         false,
         false,
         true);
+}
+
+void ProcessDock::executeCopyProcessTokenAction()
+{
+    // Freeze the exact menu targets before opening a modal dialog or yielding to refresh events.
+    const auto targets = selectedActionTargets();
+    if (targets.empty() || std::any_of(targets.begin(), targets.end(), [](const ProcessActionTarget& target) {
+        return target.record.pid <= 4U || target.record.creationTime100ns == 0ULL;
+    })) return;
+
+    const QString title = ks::i18n::sourceText(QStringLiteral("复制进程令牌（R0）"));
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    ks::ui::StyleSecondaryWindow(&dialog);
+    auto* layout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryContentLayout(layout);
+    auto* body = new QWidget(&dialog);
+    auto* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    bodyLayout->setSpacing(16);
+    QStringList targetNames;
+    for (const auto& target : targets)
+        targetNames << QStringLiteral("%1 (%2)").arg(QString::fromStdString(target.record.processName)).arg(target.record.pid);
+    auto* summary = new QLabel(ks::i18n::sourceText(QStringLiteral("目标进程：%1")).arg(targetNames.join(QStringLiteral(", "))), body);
+    summary->setTextFormat(Qt::PlainText);
+    summary->setWordWrap(true);
+    bodyLayout->addWidget(summary);
+    auto* section = new QGroupBox(ks::i18n::sourceText(QStringLiteral("令牌来源")), body);
+    ks::ui::StyleSecondarySection(section);
+    auto* form = new QFormLayout(section);
+    auto* sourceEdit = new QLineEdit(section);
+    sourceEdit->setMaximumWidth(280);
+    form->addRow(ks::i18n::sourceText(QStringLiteral("来源进程 PID")), sourceEdit);
+    ks::ui::StyleSecondaryForm(form, 120);
+    bodyLayout->addWidget(section);
+    auto* hint = new QLabel(ks::i18n::sourceText(QStringLiteral("目标将与来源共享主令牌，后续令牌修改可能影响双方。已有句柄和线程模拟令牌不会随之更新；此操作不会自动恢复原令牌。")), body);
+    hint->setWordWrap(true);
+    bodyLayout->addWidget(hint);
+    layout->addWidget(ks::ui::CreateSecondaryFormScroll(body, &dialog));
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    auto* apply = buttons->addButton(ks::i18n::sourceText(QStringLiteral("复制令牌")), QDialogButtonBox::AcceptRole);
+    ks::ui::StyleSecondaryButtonBox(buttons);
+    ks::ui::ApplyFlatButtonTheme(apply, ks::ui::FlatButtonTone::Danger);
+    layout->addWidget(buttons);
+    const auto validate = [sourceEdit, apply, targets]() {
+        bool valid = false;
+        const auto pid = parseUInt32WithDefault(sourceEdit->text(), 0U, &valid);
+        valid = valid && pid != 0U && std::none_of(targets.begin(), targets.end(), [pid](const ProcessActionTarget& target) {
+            return target.record.pid == pid;
+        });
+        apply->setEnabled(valid);
+        apply->setToolTip(valid ? QString() : ks::i18n::sourceText(QStringLiteral("来源 PID 必须有效，且不能与目标进程相同。")));
+    };
+    connect(sourceEdit, &QLineEdit::textChanged, &dialog, validate);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    validate();
+    dialog.resize(520, 320);
+    sourceEdit->setFocus();
+    if (dialog.exec() != QDialog::Accepted) return;
+    const auto sourcePid = parseUInt32WithDefault(sourceEdit->text(), 0U);
+
+    // Prefer the real enumeration identity so R0-only sources need no user-mode query handle.
+    std::uint64_t sourceCreationTime = 0ULL;
+    for (const auto& entry : m_cacheByIdentity)
+    {
+        const auto& cached = entry.second;
+        if (cached.record.pid == sourcePid && !cached.isExitedInLatestRound &&
+            cached.record.creationTime100ns > sourceCreationTime)
+            sourceCreationTime = cached.record.creationTime100ns;
+    }
+    std::string identityError;
+    if (!sourceCreationTime && !ks::process::QueryProcessCreationTimeByPid(sourcePid, &sourceCreationTime, &identityError))
+    {
+        QMessageBox::warning(this, title, ks::i18n::sourceText(QStringLiteral("无法取得来源进程的真实创建时间，请刷新进程列表后重试。")));
+        return;
+    }
+    // Reuse the existing async action/result path; the driver verifies both referenced identities.
+    dispatchProcessActionTargetsInParallel(title, targets,
+        [sourcePid, sourceCreationTime](const ProcessActionTarget& target, std::string* detailText) {
+            const auto result = ksword::ark::DriverClient().copyProcessToken(sourcePid, sourceCreationTime,
+                target.record.pid, target.record.creationTime100ns);
+            QString summaryText;
+            if (result.verified)
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌已复制，回读验证成功。"));
+            else if (result.applied)
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌已替换，但回读未确认；目标可能已经改变，请勿自动重试。"));
+            else
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌复制失败，请检查驱动状态、偏移配置和进程身份。"));
+            if (detailText != nullptr) *detailText = summaryText.toStdString() + "\n" + result.io.message;
+            return result.verified;
+        }, true, true, false);
 }
 
 void ProcessDock::executeSetEfficiencyModeAction(const bool enableEfficiencyMode)

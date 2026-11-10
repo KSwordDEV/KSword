@@ -649,6 +649,7 @@ namespace ks::cli::legacy
             ks::cli::registerShadowSsdtRestore();
             ks::cli::registerDebuggerSession();
             ks::cli::registerProcessToken();
+            ks::cli::registerProcessTokenCopy();
             ks::cli::registerTokenSwitches();
             ks::cli::registerProcessPeb();
             ks::cli::registerProcessHotkeys();

@@ -134,6 +134,10 @@ namespace ksword::ark
         //   必要时由 R0 DynData/PDB 私有 Token 字段兜底；
         // - 返回：ProcessIntegrityResult；io.ok 与 status/lastStatus 分别表示通信和语义结果。
         ProcessIntegrityResult setProcessIntegrity(std::uint32_t processId, unsigned long integrityRid) const;
+        // Both creation identities are mandatory; only verified readback reports completion.
+        ProcessTokenCopyResult copyProcessToken(std::uint32_t sourceProcessId,
+            std::uint64_t sourceCreationTime100ns, std::uint32_t targetProcessId,
+            std::uint64_t targetCreationTime100ns) const;
         // queryProcessTokenPrivileges：通过 R0 查询目标主令牌的完整 LUID/属性列表。
         ProcessTokenPrivilegeResult queryProcessTokenPrivileges(
             std::uint32_t processId,

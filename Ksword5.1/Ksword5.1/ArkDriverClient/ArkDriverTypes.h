@@ -244,6 +244,16 @@ namespace ksword::ark
         long lastStatus = 0;                 // lastStatus：Zw* token API 或 R0 DynData Token 兜底路径 NTSTATUS。
     };
 
+    // Token-copy transport, mutation and readback are separate outcomes.
+    struct ProcessTokenCopyResult
+    {
+        IoResult io;
+        KSWORD_ARK_COPY_PROCESS_TOKEN_RESPONSE response{};
+        bool responseValid = false;
+        bool applied = false;
+        bool verified = false;
+    };
+
     // ProcessTokenPrivilegeEntry is shared by both unified and legacy token privilege flows.
     struct ProcessTokenPrivilegeEntry
     {

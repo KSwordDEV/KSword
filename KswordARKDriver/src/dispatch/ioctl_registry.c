@@ -97,6 +97,8 @@ NTSTATUS KswordARKProcessIoctlSetIntegrity(_In_ WDFDEVICE Device, _In_ WDFREQUES
 NTSTATUS KswordARKProcessIoctlTokenPrivileges(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessIoctlQueryTokenPrivileges(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessIoctlAdjustTokenPrivilege(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+// Token-copy requests are dispatched to their process-owned handler.
+NTSTATUS KswordARKProcessIoctlCopyToken(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessIoctlEnumProcess(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessIoctlSetVisibility(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessIoctlSetSpecialFlags(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -327,6 +329,8 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_PROCESS_TOKEN_PRIVILEGES, KswordARKProcessIoctlTokenPrivileges, "IOCTL_KSWORD_ARK_PROCESS_TOKEN_PRIVILEGES", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_PROCESS_TOKEN_PRIVILEGES, KswordARKProcessIoctlQueryTokenPrivileges, "IOCTL_KSWORD_ARK_QUERY_PROCESS_TOKEN_PRIVILEGES", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
     { IOCTL_KSWORD_ARK_ADJUST_PROCESS_TOKEN_PRIVILEGE, KswordARKProcessIoctlAdjustTokenPrivilege, "IOCTL_KSWORD_ARK_ADJUST_PROCESS_TOKEN_PRIVILEGE", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    // Token-copy dispatch uses the shared unique function number and existing logging policy.
+    { IOCTL_KSWORD_ARK_COPY_PROCESS_TOKEN, KswordARKProcessIoctlCopyToken, "IOCTL_KSWORD_ARK_COPY_PROCESS_TOKEN", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_ENUM_PROCESS, KswordARKProcessIoctlEnumProcess, "IOCTL_KSWORD_ARK_ENUM_PROCESS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_SET_PROCESS_VISIBILITY, KswordARKProcessIoctlSetVisibility, "IOCTL_KSWORD_ARK_SET_PROCESS_VISIBILITY", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_SET_PROCESS_SPECIAL_FLAGS, KswordARKProcessIoctlSetSpecialFlags, "IOCTL_KSWORD_ARK_SET_PROCESS_SPECIAL_FLAGS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },

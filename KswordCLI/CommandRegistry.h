@@ -116,6 +116,7 @@ void registerPfnCommands();
 void registerShadowSsdtRestore();
 void registerDebuggerSession();
 void registerProcessToken();
+void registerProcessTokenCopy();
 void registerTokenSwitches();
 void registerProcessPeb();
 void registerProcessHotkeys();

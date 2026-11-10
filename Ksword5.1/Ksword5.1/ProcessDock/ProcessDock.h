@@ -1053,6 +1053,8 @@ private:
     // - 处理：R0 内核 API 优先写 TokenIntegrityLevel，驱动不可用/旧驱动时回退 R3；
     // - 返回：无返回值，执行结果写入统一动作日志。
     void executeSetProcessIntegrityAction(unsigned long integrityRid, const QString& levelDisplayText);
+    // Source PID is selected in a shared secondary dialog; targets retain the menu snapshot.
+    void executeCopyProcessTokenAction();
     // executeSetEfficiencyModeAction 作用：开启/关闭 Windows 进程效率模式。
     void executeSetEfficiencyModeAction(bool enableEfficiencyMode);
     void executeOpenFolderAction();

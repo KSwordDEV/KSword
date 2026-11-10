@@ -547,4 +547,7 @@
     <ClInclude Include="ApiMonitorSignatureCatalog.h" />
     <ClInclude Include="ApiMonitorFilterImport.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R0ProcessTokenCopy.cpp" />
+  </ItemGroup>
 </Project>

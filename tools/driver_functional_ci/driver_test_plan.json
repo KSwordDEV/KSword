@@ -34,6 +34,7 @@
       "^DELETE_PIDDB$",
       "^HWID_DISPATCH_CONTROL$",
       "^SET_PROCESS_VISIBILITY$",
+      "^COPY_PROCESS_TOKEN$",
       "^WINDOW_BAND$"
     ],
     "patternWaivers": {},
@@ -2987,6 +2988,11 @@
       "ioctl": "ADJUST_PROCESS_TOKEN_PRIVILEGE",
       "reason": "no-cli-path",
       "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+    },
+    {
+      "ioctl": "COPY_PROCESS_TOKEN",
+      "reason": "primary-token-replacement",
+      "detail": "替换现存进程的主令牌会改变其安全主体、访问检查、会话/完整性上下文和后续行为；通用 CI 不执行该安全敏感副作用。仅在隔离 VM 中对自建目标进程人工验收，并记录目标存活与崩溃证据。"
     },
     {
       "ioctl": "ANSWER_CALLBACK_EVENT",

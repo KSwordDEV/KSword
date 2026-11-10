@@ -1210,4 +1210,9 @@
     <ClCompile Include="src\features\storage\storage_forensics_capture.c" />
     <ClInclude Include="src\features\storage\storage_forensics_internal.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\features\process\process_token_copy.c" />
+    <ClCompile Include="src\features\process\process_token_copy_ioctl.c" />
+    <ClInclude Include="src\features\process\process_token_copy.h" />
+  </ItemGroup>
 </Project>

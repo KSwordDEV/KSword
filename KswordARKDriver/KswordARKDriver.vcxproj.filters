@@ -1809,4 +1809,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\features\process\process_token_copy.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\process\process_token_copy_ioctl.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="src\features\process\process_token_copy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>
