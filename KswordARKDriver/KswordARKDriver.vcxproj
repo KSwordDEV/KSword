@@ -326,6 +326,10 @@
     <ClCompile Include="src\features\file\file_irp_ioctl.c" />
     <ClCompile Include="src\features\kernel\kernel_ioctl.c" />
     <ClCompile Include="src\features\kernel\timer_dpc_query.c" />
+    <ClCompile Include="src\features\kernel\timer_dpc_decode.c">
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+    </ClCompile>
     <ClCompile Include="src\features\callback\callback_ioctl.c" />
     <ClCompile Include="src\features\process_protect\process_protect_runtime.c" />
     <ClCompile Include="src\features\process_protect\process_protect_kernel.c" />
@@ -578,6 +582,7 @@
     <ClInclude Include="src\features\kernel\driver_integrity.h" />
     <ClInclude Include="src\features\kernel\kernel_unloaded_drivers.h" />
     <ClInclude Include="src\features\kernel\kernel_unloaded_layout.h" />
+    <ClInclude Include="src\features\kernel\timer_dpc_decode.h" />
     <ClInclude Include="src\features\kernel\ci_hash_fallback.h" />
     <ClInclude Include="src\features\kernel\ssdt_fallback.h" />
     <ClInclude Include="src\features\kernel\driver_blind_internal.h" />
