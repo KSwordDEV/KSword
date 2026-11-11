@@ -48,6 +48,7 @@ namespace apimon
             std::size_t displacementOffset = 0;
             unsigned displacementSize = 0;
             bool ripRelative = false;
+            bool indirectCall = false;
             ControlFlow flow = ControlFlow::Linear;
             unsigned condition = 0;
             std::int64_t relativeDisplacement = 0;
@@ -63,6 +64,21 @@ namespace apimon
             size = (std::min)(size, std::size_t(15));
             if (size >= 4 && code[0] == 0xF3 && code[1] == 0x0F && code[2] == 0x1E && code[3] == 0xFA)
             { d.length = 4; d.flow = ControlFlow::LandingPad; return d; }
+            // Windows x64 commonly begins with a stack adjustment followed by
+            // `48 FF 15 disp32` (CALL through a RIP-relative import slot).
+            // This exact form is linear from the trampoline's point of view:
+            // the callee returns to the next relocated instruction. Reuse the
+            // existing bounded RIP-relative relocation; do not accept other FF
+            // groups, prefixes or indirect jumps by guessing their semantics.
+            if (size >= 3 && code[0] == 0x48 && code[1] == 0xFF && code[2] == 0x15)
+            {
+                if (size < 7) return d;
+                std::int32_t displacement{};
+                std::memcpy(&displacement, code + 3, sizeof(displacement));
+                d.length = 7; d.displacementOffset = 3; d.displacementSize = 4;
+                d.ripRelative = true; d.indirectCall = true; d.relativeDisplacement = displacement;
+                return d;
+            }
             std::size_t offset = 0;
             bool operand16 = false, rexW = false, seenRex = false;
             while (offset < size)
@@ -250,7 +266,13 @@ namespace apimon
                     if (instruction.ripRelative)
                     {
                         const auto target = source + from + instruction.length + instruction.relativeDisplacement;
-                        if (target >= source && target < source + patchSize)
+                        // An indirect CALL reads a full pointer from its slot,
+                        // so a slot starting immediately before the patch can
+                        // also overlap bytes that will be overwritten.
+                        const bool overlapsStart = target >= source && target < source + patchSize;
+                        const bool overlapsPointerTail = instruction.indirectCall && target < source
+                            && source - target < sizeof(std::uintptr_t);
+                        if (overlapsStart || overlapsPointerTail)
                         { *reason = L"RIP-relative data overlaps the entry patch"; return false; }
                         const auto delta = static_cast<std::int64_t>(target) - static_cast<std::int64_t>(destination + to + instruction.length);
                         if (!FitsRel32(delta)) { *reason = L"RIP-relative operand exceeds disp32 range"; return false; }

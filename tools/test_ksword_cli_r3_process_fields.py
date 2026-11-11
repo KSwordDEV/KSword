@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = r'''
 #include "REGISTRY"
 #include "ENRICHMENT"
+#include <wintrust.h>
 #include <fcntl.h>
 #include <io.h>
 static std::wstring mode;
@@ -19,6 +20,8 @@ void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,const std::ve
     for(const auto id:columns)rows[0].detailTexts[static_cast<std::uint8_t>(id)]=L"success / enabled / Personal";
     if(mode==L"partial" || mode==L"false")e.record.isAdminKnown=true;
     if(mode==L"empty")e.record.packageNameKnown=true;
+    if(mode==L"unsigned") {e.record.signatureEvaluated=true;e.record.signatureTrustStatus=TRUST_E_NOSIGNATURE;e.record.signatureState="Unsigned";}
+    if(mode==L"trusted") {e.record.signatureEvaluated=true;e.record.signatureTrustStatus=ERROR_SUCCESS;e.record.signatureTrusted=true;}
     observe(e);
 }
 }
@@ -58,6 +61,11 @@ def main():
         assert unknown['fields'][3]['nativeStatus'] == '0x80004001'
         assert run('false', 'elevated', 0)['fields'][0]['value'] is False
         assert run('empty', 'package', 0)['fields'][0]['value'] == ''
+        unsigned = run('unsigned', 'signature', 5)['fields'][0]
+        assert unsigned['value'] is None and unsigned['available'] is False and unsigned['nativeStatus'] == '0x800b0100'
+        assert 'catalog trust not checked' in unsigned['display'] and 'Unsigned' not in unsigned['display']
+        trusted = run('trusted', 'signature', 0)['fields'][0]['value']
+        assert trusted['trusted'] is True and trusted['catalogChecked'] is False and trusted['revocationChecked'] is False
         print('R3_PROCESS_FIELDS_FIXTURE_PASS UI text cannot determine availability, known false/empty remain valid')
 
 

@@ -699,6 +699,7 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
         }
         match.pathKnown = !match.processPath.empty();if (!match.pathKnown) match.pathError = processPathErrors[processId];
         match.handleValue = static_cast<std::uint64_t>(entry.HandleValue);
+        match.objectAddress = static_cast<std::uint64_t>(reinterpret_cast<ULONG_PTR>(entry.Object));
         match.grantedAccess = entry.GrantedAccess;
         match.accessText = FormatAccessMask(entry.GrantedAccess);
         match.objectName = objectName;

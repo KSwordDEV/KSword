@@ -197,6 +197,9 @@
     <ClInclude Include="WindowDock\WindowSnapshotSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WindowDock\WindowFailureLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MonitorDock\WmiEventArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -925,6 +928,10 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MonitorDock\WinAPIEventTimeline.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\WinAPIDock.Ui.cpp">
@@ -1929,6 +1936,12 @@
     <ClCompile Include="UI\AsyncOperation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\WindowTargetPicker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="UI\WindowTargetPicker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="UI\WindowPickerButton.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2073,6 +2086,9 @@
     <ClCompile Include="WindowDock\WindowGuiHandleTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="WindowDock\WindowFailureLog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="WindowDock\WindowEventHookTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2143,6 +2159,9 @@
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverProcessProtect.cpp">
@@ -3769,7 +3788,22 @@
     <ClInclude Include="MonitorDock\EventTimelineModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventTimeline.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPITimelineDensity.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPISignatureCatalog.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPICallerSnapshotAdapter.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIStackSnapshotAdapter.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorStackSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorExportSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorCallerSnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorDrain.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventColumns.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MonitorDock\WinAPIEventTableModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\WinAPISessionBackend.h">
@@ -4032,7 +4066,7 @@
     <ClInclude Include="..\..\shared\ApiMonitorCoverage.h" />
   </ItemGroup>
   <ItemGroup><ClCompile Include="MonitorDock\WinAPIDock.Coverage.cpp" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\..\shared\ApiMonitorInjection.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\..\shared\ApiMonitorInjection.h" /><ClInclude Include="..\..\shared\ApiMonitorR0Injection.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\shared\ApiMonitorInjectionProtocol.h" />
@@ -4227,4 +4261,10 @@
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIDiskArchive.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterDecode.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterRules.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterEditor.h"><Filter>Header Files</Filter></ClInclude><ClCompile Include="MonitorDock\WinAPIParameterEditor.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterRules.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterCatalog.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
 </Project>

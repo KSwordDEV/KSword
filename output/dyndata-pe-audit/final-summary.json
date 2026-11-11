@@ -1,0 +1,200 @@
+{
+  "pe_files": 1955,
+  "totals": {
+    "compared": 1950,
+    "published_reference": 1950,
+    "match": 41078,
+    "reference_missing": 207,
+    "candidate_unavailable": 9395,
+    "both_missing": 20,
+    "no_unique_profile": 5
+  },
+  "fields": {
+    "EpUniqueProcessId": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpImageFileName": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpCreateTime": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpExitStatus": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpPeb": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpWin32Process": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpWow64Process": {
+      "reference_missing": 127,
+      "candidate_unavailable": 1819,
+      "both_missing": 4
+    },
+    "EpInheritedFromUniqueProcessId": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpSectionBaseAddress": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpJob": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpDebugPort": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpPriorityClass": {
+      "candidate_unavailable": 1946,
+      "both_missing": 4
+    },
+    "EpActiveThreads": {
+      "candidate_unavailable": 1446,
+      "both_missing": 4,
+      "match": 500
+    },
+    "EpWin32WindowStation": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpSecurityPort": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "KtProcess": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EtStartAddress": {
+      "candidate_unavailable": 1946,
+      "both_missing": 4
+    },
+    "EtWin32StartAddress": {
+      "candidate_unavailable": 1946,
+      "both_missing": 4
+    },
+    "EtCid": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "KtInitialStack": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "KtStackLimit": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "KtStackBase": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpProtection": {
+      "match": 1946,
+      "reference_missing": 4
+    },
+    "EpSignatureLevel": {
+      "match": 1800,
+      "reference_missing": 4,
+      "candidate_unavailable": 146
+    },
+    "EpSectionSignatureLevel": {
+      "match": 1800,
+      "reference_missing": 4,
+      "candidate_unavailable": 146
+    },
+    "PsLoadedModuleList": {
+      "match": 1950
+    }
+  },
+  "mismatches": [],
+  "published_vs_corpus_changes": [],
+  "uncompared": [
+    {
+      "path": "F:\\KswordPDB\\PDB\\pe-store\\amd64\\ntoskrnl.exe\\ntoskrnl.exe.10.0.26100.8309\\483f14bce87af1bede2f85cc084e8b99a9c84d7ff518c5fec136d16350e74090\\ntoskrnl.exe",
+      "results": {},
+      "sha256": "483f14bce87af1bede2f85cc084e8b99a9c84d7ff518c5fec136d16350e74090",
+      "identity": [
+        34404,
+        1751942774,
+        21299200,
+        "2613293324B2E04EBFA0A9ECC2F955E4",
+        1
+      ],
+      "identity_profiles": 0,
+      "sha_profiles": 0,
+      "status": "no_unique_profile"
+    },
+    {
+      "path": "F:\\KswordPDB\\PDB\\pe-store\\amd64\\ntoskrnl.exe\\ntoskrnl.exe.10.0.26100.8575\\7933a9c9e110b785b1665f67028e55e03d437ad4333e51c6fe0fdbec6e305d29\\ntoskrnl.exe",
+      "results": {},
+      "sha256": "7933a9c9e110b785b1665f67028e55e03d437ad4333e51c6fe0fdbec6e305d29",
+      "identity": [
+        34404,
+        1456582391,
+        21299200,
+        "2BB177C4E09533B040984E34CCB47462",
+        1
+      ],
+      "identity_profiles": 0,
+      "sha_profiles": 0,
+      "status": "no_unique_profile"
+    },
+    {
+      "path": "F:\\KswordPDB\\PDB\\pe-store\\amd64\\ntoskrnl.exe\\ntoskrnl.exe.10.0.26100.9201\\264b0f22d6515522612fb709d3d530ea7d5907c46ee298d4a5094fcb3dfe8da9\\ntoskrnl.exe",
+      "results": {},
+      "sha256": "264b0f22d6515522612fb709d3d530ea7d5907c46ee298d4a5094fcb3dfe8da9",
+      "identity": [
+        34404,
+        1883894796,
+        21299200,
+        "8F14CBEED6DDB4956A6411DC2AAF11B8",
+        1
+      ],
+      "identity_profiles": 0,
+      "sha_profiles": 0,
+      "status": "no_unique_profile"
+    },
+    {
+      "path": "F:\\KswordPDB\\PDB\\pe-store\\amd64\\ntoskrnl.exe\\ntoskrnl.exe.10.0.28000.1812\\b4f2e9233dfcaff50c9c76c4a3923dc6571b8461e74931c433a1d8d0390327a7\\ntoskrnl.exe",
+      "results": {},
+      "sha256": "b4f2e9233dfcaff50c9c76c4a3923dc6571b8461e74931c433a1d8d0390327a7",
+      "identity": [
+        34404,
+        983529095,
+        21336064,
+        "5CF5D5A9B32C6AB1D313D2A2ED9A7795",
+        1
+      ],
+      "identity_profiles": 0,
+      "sha_profiles": 0,
+      "status": "no_unique_profile"
+    },
+    {
+      "path": "F:\\KswordPDB\\PDB\\pe-store\\amd64\\ntoskrnl.exe\\ntoskrnl.exe.10.0.28000.1896\\89cdaee934c5f0cb4edf15e4ba36ffd4d564c8cc983df375628958f23a772eb6\\ntoskrnl.exe",
+      "results": {},
+      "sha256": "89cdaee934c5f0cb4edf15e4ba36ffd4d564c8cc983df375628958f23a772eb6",
+      "identity": [
+        34404,
+        1054056259,
+        21336064,
+        "7356280553D43F8D46840F133A8B371C",
+        1
+      ],
+      "identity_profiles": 0,
+      "sha_profiles": 0,
+      "status": "no_unique_profile"
+    }
+  ]
+}

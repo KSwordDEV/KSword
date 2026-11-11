@@ -169,13 +169,14 @@ namespace ksword::ark
         return enumResult;
     }
 
-    IoResult DriverClient::closeHandle(
+    HandleCloseResult DriverClient::closeHandleDetailed(
         const std::uint32_t processId,
         const std::uint64_t handleValue,
         const std::uint64_t expectedCreateTime100ns,
         const std::uint64_t expectedObjectAddress) const
     {
-        IoResult result{};
+        HandleCloseResult receipt{};
+        IoResult& result = receipt.io;
         if (processId <= 4U || processId == ::GetCurrentProcessId() ||
             handleValue == 0U || handleValue >= 0x80000000ULL ||
             expectedCreateTime100ns == 0U || expectedObjectAddress == 0U)
@@ -183,7 +184,7 @@ namespace ksword::ark
             result.win32Error = ERROR_INVALID_PARAMETER;
             result.ntStatus = kNtStatusInvalidParameter;
             result.message = "invalid, protected, or unverifiable handle identity";
-            return result;
+            return receipt;
         }
         KSWORD_ARK_CLOSE_HANDLE_REQUEST request{};
         KSWORD_ARK_CLOSE_HANDLE_RESPONSE response{};
@@ -199,7 +200,7 @@ namespace ksword::ark
         if (!result.ok)
         {
             result.message = "R0 close transport failed, error=" + std::to_string(result.win32Error);
-            return result;
+            return receipt;
         }
         if (result.bytesReturned != sizeof(response) || response.size != sizeof(response) ||
             response.version != KSWORD_ARK_CLOSE_HANDLE_VERSION)
@@ -207,8 +208,11 @@ namespace ksword::ark
             result.ok = false;
             result.win32Error = ERROR_INVALID_DATA;
             result.message = "R0 close response invalid";
-            return result;
+            return receipt;
         }
+        receipt.responseValid = true;
+        receipt.closeStatus = response.closeStatus;
+        receipt.resumeStatus = response.resumeStatus;
         result.ntStatus = response.closeStatus;
         result.ok = response.closeStatus >= 0 && response.resumeStatus >= 0;
         std::ostringstream detail;
@@ -220,7 +224,16 @@ namespace ksword::ark
             detail << "; handle closed, but process resume failed";
         }
         result.message = detail.str();
-        return result;
+        return receipt;
+    }
+
+    IoResult DriverClient::closeHandle(
+        const std::uint32_t processId,
+        const std::uint64_t handleValue,
+        const std::uint64_t expectedCreateTime100ns,
+        const std::uint64_t expectedObjectAddress) const
+    {
+        return closeHandleDetailed(processId, handleValue, expectedCreateTime100ns, expectedObjectAddress).io;
     }
 
     HandleObjectQueryResult DriverClient::queryHandleObject(

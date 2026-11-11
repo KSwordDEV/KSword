@@ -27,20 +27,31 @@ namespace apimon
         bool EventCurrent(const IoToken& op)
         { return op && op->session == CurrentMonitorSessionIdentity() && !StopRequested(); }
         void SendIo(const IoToken& op, ks::winapi_monitor::EventKind kind, DWORD error, DWORD bytes,
-            const wchar_t* observation = L"")
+            const wchar_t* observation = L"", bool bytesKnown = true)
         {
             if (!EventCurrent(op)) return;
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
             wchar_t output[ks::winapi_monitor::kMaxDetailChars]{};
-            if (kind == ks::winapi_monitor::EventKind::IoComplete && op->completionDetail)
-                op->completionDetail(op, output, std::size(output));
+            if (kind == ks::winapi_monitor::EventKind::IoComplete && op->completionDetail) {
+                if (error == ERROR_SUCCESS) op->completionDetail(op, output, std::size(output));
+                else wcscpy_s(output, L"completion_detail=unknown");
+            }
+            wchar_t bytesText[32]{};
+            if (bytesKnown) _snwprintf_s(bytesText, _TRUNCATE, L"%lu", bytes);
+            else wcscpy_s(bytesText, L"unknown");
             _snwprintf_s(detail, _TRUNCATE,
-                L"resource=0x%llX resourceIdentity=%llu overlapped=0x%llX completionKey=0x%llX requested=%llu bytes=%lu %s %s",
+                L"resource=0x%llX resourceIdentity=%llu overlapped=0x%llX completionKey=0x%llX requested=%llu bytes=%s %s %s",
                 static_cast<unsigned long long>(op->resource), op->resourceIdentity,
                 reinterpret_cast<unsigned long long>(op->overlapped), static_cast<unsigned long long>(op->completionKey),
-                op->requested, bytes, observation, output);
+                op->requested, bytesText, observation, output);
+            // A zero-error wait observation means the operation is still
+            // pending, not that its eventual completion succeeded. Nonzero
+            // wait errors describe the actual observation and stay visible.
+            const auto resultKind = kind == ks::winapi_monitor::EventKind::IoWait && error == ERROR_SUCCESS
+                ? ks::winapi_monitor::EventResultKind::StatusUnknown
+                : ks::winapi_monitor::EventResultKind::StatusCode;
             SendMonitorEventRaw(op->category, op->module, op->api, static_cast<std::int32_t>(error), detail,
-                ks::winapi_monitor::EventResultKind::StatusCode, kind, op->id, op->apiId);
+                resultKind, kind, op->id, op->apiId);
         }
         void NotTracked()
         {
@@ -49,13 +60,19 @@ namespace apimon
             _snwprintf_s(detail, _TRUNCATE, L"untracked=%llu capacity=8192; original call/callback retained", count);
             SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"IoUntracked", 0, detail);
         }
-        bool CompleteLocked(const IoToken& op, DWORD error, DWORD bytes)
+        bool CompleteLocked(const IoToken& op, DWORD error, DWORD bytes, bool bytesKnown = true)
         {
             if (!op || op->completed) return false;
-            if (!op->submitted) { op->earlyCompletion = true; op->completionError = error; op->completionBytes = bytes; return false; }
+            if (!op->submitted) {
+                // Preserve the first actual completion observation; later calls
+                // can race and may refer to the same reused OVERLAPPED.
+                if (!op->earlyCompletion) { op->earlyCompletion = true; op->completionError = error;
+                    op->completionBytes = bytes; op->completionBytesKnown = bytesKnown; }
+                return false;
+            }
             op->completed = true;
-            op->completionError = error; op->completionBytes = bytes;
-            SendIo(op, ks::winapi_monitor::EventKind::IoComplete, error, bytes);
+            op->completionError = error; op->completionBytes = bytes; op->completionBytesKnown = bytesKnown;
+            SendIo(op, ks::winapi_monitor::EventKind::IoComplete, error, bytes, L"", bytesKnown);
             return true;
         }
         void NotifyCompletion(const IoToken& op)
@@ -110,7 +127,7 @@ namespace apimon
         catch (...) { ++g_untracked; }
         return {};
     }
-    void FinishIo(const IoToken& op, bool accepted, bool pending, DWORD error, DWORD bytes) noexcept
+    void FinishIo(const IoToken& op, bool accepted, bool pending, DWORD error, DWORD bytes, bool bytesKnown) noexcept
     {
         try
         {
@@ -121,14 +138,14 @@ namespace apimon
                 std::lock_guard lock(g_mutex);
                 op->submitted = true;
                 SendIo(op, ks::winapi_monitor::EventKind::IoSubmit, error, bytes,
-                    accepted ? (pending ? L"asynchronous=pending" : L"synchronous=completed") : L"submission=rejected");
+                    accepted ? (pending ? L"asynchronous=pending" : L"synchronous=completed") : L"submission=rejected", bytesKnown);
                 if (!accepted) { op->completed = true; op->portExpected = false; op->callbackExpected = false; return; }
                 const auto resource = g_resources.find(op->resource);
                 if (!pending && resource != g_resources.end() && (resource->second.mode & FILE_SKIP_COMPLETION_PORT_ON_SUCCESS))
                     op->portExpected = false;
-                if (op->earlyCompletion) notify = CompleteLocked(op, op->completionError, op->completionBytes);
-                else if (!pending && !op->callbackExpected) notify = CompleteLocked(op, 0, bytes);
-                else SendIo(op, ks::winapi_monitor::EventKind::IoWait, 0, bytes, L"completion=pending");
+                if (op->earlyCompletion) notify = CompleteLocked(op, op->completionError, op->completionBytes, op->completionBytesKnown);
+                else if (!pending && !op->callbackExpected) notify = CompleteLocked(op, 0, bytes, bytesKnown);
+                else SendIo(op, ks::winapi_monitor::EventKind::IoWait, 0, bytes, L"completion=pending", false);
             }
             if (notify) NotifyCompletion(op);
         }
@@ -144,11 +161,14 @@ namespace apimon
         { std::lock_guard lock(g_mutex); notify = CompleteLocked(op, error, bytes); }
         if (notify) NotifyCompletion(op);
     } catch (...) {} }
-    void ObserveIoResult(std::uintptr_t resource, LPOVERLAPPED ov, bool completed, DWORD error, DWORD bytes) noexcept
+    void ObserveIoResult(std::uintptr_t resource, LPOVERLAPPED ov, bool completed, DWORD error, DWORD bytes, bool bytesKnown) noexcept
     {
         try { ScopedInlineHookInternalBypass bypass; bool notify = false; IoToken op;
             { std::lock_guard lock(g_mutex); op = FindLocked(resource, ov);
-            if (completed) notify = CompleteLocked(op, error, bytes); else SendIo(op, ks::winapi_monitor::EventKind::IoWait, error, bytes); }
+            // A completed OVERLAPPED may already be reused by an untracked call.
+            // Its later observed bytes cannot safely be attributed to this token.
+            if (completed) notify = CompleteLocked(op, error, bytes, bytesKnown);
+            else SendIo(op, ks::winapi_monitor::EventKind::IoWait, error, bytes, L"", bytesKnown); }
             if (notify) NotifyCompletion(op);
         }
         catch (...) {}

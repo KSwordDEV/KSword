@@ -13,14 +13,14 @@ static_assert(offsetof(KSW_PF_QUERY, Pages) == 192);
 static_assert(sizeof(KSW_PF_PRIVATE_INFO) == 96);
 }
 
-PfnQueryClient::PfnQueryClient()
+PfnQueryClient::PfnQueryClient(PfnBackend backend) : m_backend(backend)
 {
     // Check the native kernel before token changes or either query route.
     // Native/R0 provenance cannot make an unsupported architecture compatible.
     SYSTEM_INFO nativeSystem{};
     GetNativeSystemInfo(&nativeSystem);
     m_nativeLayoutSupported = pfnNativeLayoutSupported(nativeSystem.wProcessorArchitecture, nativeSystem.dwPageSize);
-    if (!m_nativeLayoutSupported) { return; }
+    if (!m_nativeLayoutSupported || m_backend == PfnBackend::DriverOnly) { return; }
     // Enable required privileges on a temporary impersonation token, never on
     // the GUI process token or another worker's token.
     if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY | TOKEN_IMPERSONATE, TRUE, &m_previousToken)
@@ -116,6 +116,13 @@ long PfnQueryClient::ranges(std::vector<KSWORD_ARK_PFN_RANGE>& result)
 {
     m_trace = {};
     result.clear();
+    if (m_backend == PfnBackend::DriverOnly) {
+        result.resize(KSWORD_ARK_PFN_MAX_RANGES);
+        unsigned long count = 0;
+        const long status = driverQuery(KSWORD_ARK_PFN_RANGES, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_RANGES, sizeof(result[0]), count);
+        result.resize(count);
+        return status;
+    }
     const auto bytes = static_cast<unsigned long>(offsetof(KSW_PF_RANGES_V2, Ranges)
         + KSWORD_ARK_PFN_MAX_RANGES * sizeof(KSW_PF_RANGE));
     std::vector<std::uint64_t> storage((bytes + 7) / 8);
@@ -141,6 +148,7 @@ long PfnQueryClient::ranges(std::vector<KSWORD_ARK_PFN_RANGE>& result)
     result.resize(KSWORD_ARK_PFN_MAX_RANGES);
     unsigned long count = 0;
     const long nativeStatus = status < 0 ? status : invalidData;
+    if (m_backend == PfnBackend::NativeOnly) { result.clear(); return nativeStatus; }
     const long driverStatus = driverQuery(KSWORD_ARK_PFN_RANGES, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_RANGES, sizeof(result[0]), count);
     result.resize(count);
     // An absent/old driver must not hide the original privilege or ABI error.
@@ -151,6 +159,13 @@ long PfnQueryClient::owners(std::vector<KSWORD_ARK_PFN_OWNER>& result)
 {
     m_trace = {};
     result.clear();
+    if (m_backend == PfnBackend::DriverOnly) {
+        result.resize(KSWORD_ARK_PFN_MAX_OWNERS);
+        unsigned long count = 0;
+        const long status = driverQuery(KSWORD_ARK_PFN_OWNERS, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_OWNERS, sizeof(result[0]), count);
+        result.resize(count);
+        return status;
+    }
     const auto bytes = static_cast<unsigned long>(offsetof(KSW_PF_PRIVATE_QUERY, Sources)
         + KSWORD_ARK_PFN_MAX_OWNERS * sizeof(KSW_PF_PRIVATE_INFO));
     std::vector<std::uint64_t> storage((bytes + 7) / 8);
@@ -175,6 +190,7 @@ long PfnQueryClient::owners(std::vector<KSWORD_ARK_PFN_OWNER>& result)
     result.resize(KSWORD_ARK_PFN_MAX_OWNERS);
     unsigned long count = 0;
     const long nativeStatus = status < 0 ? status : invalidData;
+    if (m_backend == PfnBackend::NativeOnly) { result.clear(); return nativeStatus; }
     const long driverStatus = driverQuery(KSWORD_ARK_PFN_OWNERS, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_OWNERS, sizeof(result[0]), count);
     result.resize(count);
     return driverStatus == unsupported ? nativeStatus : driverStatus;
@@ -186,7 +202,7 @@ long PfnQueryClient::pages(std::uint64_t first, std::uint32_t count, std::vector
     result.clear();
     if (count == 0 || count > KSWORD_ARK_PFN_MAX_PAGES || first > (1ULL << 40) - count) { return invalidData; }
     long status = unsupported;
-    if (!m_driverPages) {
+    if (!m_driverPages && m_backend != PfnBackend::DriverOnly) {
         const auto bytes = static_cast<unsigned long>(offsetof(KSW_PF_QUERY, Pages) + count * sizeof(KSW_PF_IDENTITY));
         std::vector<std::uint64_t> storage((bytes + 7) / 8);
         auto* query = reinterpret_cast<KSW_PF_QUERY*>(storage.data());
@@ -200,6 +216,7 @@ long PfnQueryClient::pages(std::uint64_t first, std::uint32_t count, std::vector
             ++nativeBatches;
         }
     }
+    if (result.empty() && m_backend == PfnBackend::NativeOnly) { return status < 0 ? status : invalidData; }
     if (result.empty()) {
         result.resize(count);
         unsigned long returned = 0;
@@ -230,11 +247,13 @@ long PfnQueryClient::identities(const std::vector<std::uint64_t>& pfns, std::vec
     query->Version = 1;
     query->Count = count;
     for (ULONG i = 0; i < count; ++i) { query->Pages[i] = {~0ULL, pfns[i], 0}; }
-    long status = m_driverPages ? unsupported : nativeQuery(6, query, bytes);
+    long status = (m_driverPages || m_backend == PfnBackend::DriverOnly) ? unsupported : nativeQuery(6, query, bytes);
     if (status >= 0 && query->Count == count) {
         result.resize(count);
         std::memcpy(result.data(), query->Pages, count * sizeof(KSW_PF_IDENTITY));
         ++nativeBatches;
+    } else if (m_backend == PfnBackend::NativeOnly) {
+        return status < 0 ? status : invalidData;
     } else {
         result.resize(count);
         unsigned long returned = 0;
@@ -251,7 +270,7 @@ long PfnQueryClient::identities(const std::vector<std::uint64_t>& pfns, std::vec
 
 bool PfnQueryClient::mappingAvailable()
 {
-    if (!m_nativeLayoutSupported) { return false; }
+    if (!m_nativeLayoutSupported || m_backend == PfnBackend::NativeOnly) { return false; }
     if (!m_driver.isValid()) { m_driver = m_client.openSilently(); }
     return m_driver.isValid();
 }
@@ -259,9 +278,11 @@ bool PfnQueryClient::mappingAvailable()
 long PfnQueryClient::mappings(std::uint32_t pid, std::uint64_t created,
     const std::vector<std::uint64_t>& addresses, std::vector<KSWORD_ARK_PFN_MAPPING>& result)
 {
+    m_trace = {};
     result.clear();
-    if (addresses.empty() || addresses.size() > KSWORD_ARK_PFN_MAX_MAPPINGS) { return invalidData; }
-    if (!mappingAvailable()) { return unsupported; }
+    if (pid == 0 || created == 0 || addresses.empty() || addresses.size() > KSWORD_ARK_PFN_MAX_MAPPINGS) { return invalidData; }
+    m_trace.driverAvailable = mappingAvailable();
+    if (!m_trace.driverAvailable) { m_trace.driverStatus = unsupported; return unsupported; }
     KSWORD_ARK_PFN_MAPPING_REQUEST request{};
     request.version = KSWORD_ARK_PFN_VERSION;
     request.processId = pid;
@@ -271,10 +292,13 @@ long PfnQueryClient::mappings(std::uint32_t pid, std::uint64_t created,
     KSWORD_ARK_PFN_MAPPING_RESPONSE response{};
     auto io = m_client.deviceIoControl(IOCTL_KSWORD_ARK_QUERY_PFN_MAPPINGS, &request, sizeof(request),
         &response, sizeof(response), &m_driver);
-    if (!io.ok) { return io.ntStatus < 0 ? io.ntStatus : unsupported; }
+    m_trace.driverInvoked = true;
+    m_trace.driverTransportStatus = io.ntStatus;
+    if (!io.ok) { m_trace.driverStatus = io.ntStatus < 0 ? io.ntStatus : unsupported; return m_trace.driverStatus; }
     if (io.bytesReturned != sizeof(response) || response.version != KSWORD_ARK_PFN_VERSION
-        || response.count == 0 || response.count > addresses.size()) { return invalidData; }
+        || response.count == 0 || response.count > addresses.size()) { m_trace.driverStatus = invalidData; return invalidData; }
     result.assign(response.entries, response.entries + response.count);
+    m_trace.driverStatus = 0;
     return 0;
 }
 }

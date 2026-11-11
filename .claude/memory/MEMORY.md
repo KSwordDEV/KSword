@@ -1,6 +1,7 @@
 # Memory Index
 
 - [操作心智模型与结果身份](../../docs/操作心智模型审查.md) — 按任务选择控件、选择与执行分离、批量动作、草稿保护、结果来源和失败恢复；含本轮实际覆盖入口及手动验收边界
+- [进程/窗口准星与 Ctrl 预览](ksword-window-picker.md) — 原生物理坐标、全不透明与默认60°/悬停75°、外部进程信息、全屏、176 项缩放回归及实机验证边界
 
 - [进程列表矩形面积视图与选择保留](ksword-process-metric-area.md) — 度量表头入口、主列表快照同步、树/友好嵌套、聚合行选区、原进程菜单与零值语义
 
@@ -25,7 +26,7 @@
 
 - [ETW 解析与进程归属](ksword-etw-decoding.md) — 事件头与关联身份、映像枚举、数组/结构体布局、网络端口和 TraceLogging 缓存
 
-- [API Monitor 生命周期与事件协议](ksword-api-monitor.md) — x86/x64 工程与自动注入、JSON 定义、异步/覆盖协议、会话互斥、退役 Hook 保留与回归证据
+- [API Monitor 生命周期与事件协议](ksword-api-monitor.md) — GUI/GDI分类与Raw门禁、898项强类型、x86/x64逐项实测、自动注入、异步/覆盖协议、会话互斥与退役Hook保留
 - [Syscall 监控与 SysWhispers 兼容形态](ksword-syscall-monitor.md) — QPC 栈关联、进入/退出布局、系统映像信任、静态调用号边界与有界离线回归
 
 - [欢迎页采样与 GPU 遥测蓝屏](ksword-welcome-gpu-telemetry.md) — 首页采样范围、GetNodePerfData 空指针现场、17763 系列禁用与 WDDM 2.4 门槛

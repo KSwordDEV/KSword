@@ -9,6 +9,7 @@
 #include "../UI/MetricAreaWindow.h"
 #include "../MemoryDock/MemoryDock.h"
 #include <Shellapi.h>
+#include <QSet>
 
 using namespace process_detail_window_internal;
 
@@ -68,6 +69,16 @@ void ProcessDetailWindow::requestAsyncModuleRefresh(const bool forceRefresh)
     }
     const int progressPid = firstRefresh ? m_moduleRefreshProgressPid : 0; // 值化收尾资源。
     updateModuleStatusLabel("● 正在刷新模块列表...", true);
+
+    // 刷新开始日志：记录本轮身份、选项和触发来源，区分自动首刷与用户强制刷新。
+    kLogEvent moduleRefreshStartEvent;
+    info << moduleRefreshStartEvent
+        << "[ProcessDetailWindow] 模块刷新开始, pid=" << request.processId
+        << ", creationTime100ns=" << request.creationTime
+        << ", includeSignature=" << (request.includeSignature ? "true" : "false")
+        << ", forceRefresh=" << (forceRefresh ? "true" : "false")
+        << ", firstRefresh=" << (firstRefresh ? "true" : "false")
+        << eol;
 
     m_moduleRefreshTicket = m_moduleOperation->submit<ModuleRequest, std::shared_ptr<const ModuleRefreshResult>>(request,
         [](const ModuleRequest& snapshot, const ks::ui::AsyncOperationToken& token)
@@ -134,9 +145,35 @@ void ProcessDetailWindow::requestAsyncModuleRefresh(const bool forceRefresh)
         {
             return tryApplyModuleRefreshResult(ticket, request.processId, request.creationTime, result);
         },
-        [this](std::exception_ptr)
+        [this](const std::exception_ptr exception)
         {
+            // 异常回调补写完整原因，避免异步 worker 失败只剩固定 UI 文案。
+            std::string detail = "unknown exception";
+            if (exception != nullptr)
+            {
+                try
+                {
+                    std::rethrow_exception(exception);
+                }
+                catch (const std::exception& error)
+                {
+                    detail = error.what();
+                }
+                catch (...)
+                {
+                    detail = "non-standard exception";
+                }
+            }
+            kLogEvent errorEvent;
+            err << errorEvent
+                << "[ProcessDetailWindow] module refresh worker failed, pid="
+                << m_baseRecord.pid << ", creationTime100ns=" << m_baseRecord.creationTime100ns
+                << ", detail=" << detail << eol;
             updateModuleStatusLabel(QStringLiteral("● 模块刷新失败。"), false);
+            if (m_moduleStatusLabel != nullptr)
+            {
+                m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(statusErrorColor(), 700));
+            }
         },
         [progressPid](const ks::ui::AsyncOperationOutcome outcome)
         {
@@ -205,10 +242,25 @@ void ProcessDetailWindow::applyModuleRefreshResult(const std::shared_ptr<const M
         alive->finishModuleRefreshPresentation(summary);
         if (alive && alive->m_moduleOperation) alive->m_moduleOperation->completeDeferred(ticket);
     };
-    m_moduleTable->preparationFailed = [alive, ticket](const QString&)
+    m_moduleTable->preparationFailed = [alive, ticket](const QString& error)
     {
         if (!alive || !alive->m_moduleOperation || !alive->m_moduleOperation->isCurrent(ticket)) return;
+
+        // 表格投影失败日志：保留后台准备阶段返回的原始错误，区分枚举失败和前端投影失败。
+        kLogEvent preparationFailedEvent;
+        err << preparationFailedEvent
+            << "[ProcessDetailWindow] module table preparation failed, pid="
+            << alive->m_baseRecord.pid
+            << ", creationTime100ns=" << alive->m_baseRecord.creationTime100ns
+            << ", ticket=" << ticket
+            << ", moduleRows=" << (alive->m_moduleRecords ? alive->m_moduleRecords->size() : 0U)
+            << ", detail=" << error.toStdString()
+            << eol;
         alive->updateModuleStatusLabel(QStringLiteral("● 模块刷新失败。"), false);
+        if (alive->m_moduleStatusLabel != nullptr)
+        {
+            alive->m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(statusErrorColor(), 700));
+        }
         if (alive && alive->m_moduleOperation) alive->m_moduleOperation->completeDeferred(ticket);
     };
     rebuildModuleTable();
@@ -251,12 +303,13 @@ void ProcessDetailWindow::finishModuleRefreshPresentation(
         << ", diagnostic=" << refreshResult.moduleSnapshot.diagnosticText
         << eol;
 
-    // 模块数为 0 时额外输出告警日志，便于快速定位权限/跨位数问题。
+    // 两种枚举后端均未取得模块时输出错误级别和完整诊断，避免 warn 过滤掩盖失败。
     if (refreshResult.moduleCount == 0U)
     {
-        kLogEvent warnEvent;
-        warn << warnEvent
-            << "[ProcessDetailWindow] 模块列表为空, pid=" << m_baseRecord.pid
+        kLogEvent errorEvent;
+        err << errorEvent
+            << "[ProcessDetailWindow] R3/R0 module enumeration produced no modules, pid=" << m_baseRecord.pid
+            << ", moduleCount=" << refreshResult.moduleCount
             << ", diagnostic=" << refreshResult.moduleSnapshot.diagnosticText
             << eol;
     }
@@ -273,6 +326,8 @@ void ProcessDetailWindow::rebuildModuleTable()
     m_moduleTable->setSourceFactory([rows, trusted, secondary, untrusted, placeholder](const ks::i18n::SourceTextSnapshot& translator)
     {
         QVector<ks::ui::ImmutableTableRow> values;
+        QSet<QString> usedKeys; // 已发布的行键集合，用于保证不可变数据源的身份唯一。
+        int keyCollisionCount = 0; // 本轮因重复身份而补齐的行数。
         if (rows) values.reserve(static_cast<qsizetype>(rows->size()));
         if (rows) for (const auto& value : *rows)
         {
@@ -282,7 +337,19 @@ void ProcessDetailWindow::rebuildModuleTable()
             const QString size = kb < 1024.0 ? QStringLiteral("%1 KB").arg(QString::number(kb, 'f', 1))
                 : QStringLiteral("%1 MB").arg(QString::number(kb / 1024.0, 'f', 2));
             ks::ui::ImmutableTableRow row;
-            row.key = QString::number(record.moduleBaseAddress) + QChar('|') + path;
+            const QString baseKey = QString::number(record.moduleBaseAddress) + QChar('|') + path;
+            row.key = baseKey;
+            if (usedKeys.contains(row.key))
+            {
+                // R0 映像映射或异常枚举可能出现重复基址/路径，不能丢弃整张表。
+                ++keyCollisionCount;
+                int duplicateIndex = 1;
+                do
+                {
+                    row.key = baseKey + QStringLiteral("|duplicate=") + QString::number(duplicateIndex++);
+                } while (usedKeys.contains(row.key));
+            }
+            usedKeys.insert(row.key);
             row.cells = {path, size, translator.sourceText(QString::fromStdString(record.signatureState)),
                 (QStringLiteral("0x") + QString::number(record.entryPointRva, 16).toUpper()),
                 translator.sourceText(QString::fromStdString(record.runningState)), QString::fromStdString(record.threadIdText)};
@@ -297,6 +364,15 @@ void ProcessDetailWindow::rebuildModuleTable()
             row.columnRoles[toModuleColumnIndex(ModuleColumn::Signature)].insert(Qt::ForegroundRole,
                 record.signatureTrusted ? trusted : (record.signatureState == "Pending" || record.signatureState == "Unknown") ? secondary : untrusted);
             values.push_back(std::move(row));
+        }
+        if (keyCollisionCount > 0)
+        {
+            // 记录数据身份修复次数，便于确认枚举结果是否包含重复映射。
+            kLogEvent keyCollisionEvent;
+            warn << keyCollisionEvent
+                << "[ProcessDetailWindow] module table row keys normalized, count="
+                << keyCollisionCount
+                << eol;
         }
         return ks::ui::MakeImmutableTableSource(std::move(values));
     });
@@ -402,6 +478,11 @@ void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, con
     else if (refreshing)
     {
         m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(KswordTheme::PrimaryBlueColor, 700));
+    }
+    else if (statusText.contains(QStringLiteral("失败"))
+        || statusText.contains(QStringLiteral("failed"), Qt::CaseInsensitive))
+    {
+        m_moduleStatusLabel->setStyleSheet(buildStateLabelStyle(statusErrorColor(), 700));
     }
     else
     {

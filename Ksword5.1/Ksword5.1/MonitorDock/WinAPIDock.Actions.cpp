@@ -1,10 +1,21 @@
 #include "MonitorCanonicalExport.h"
 #include <QPushButton>
 #include "../UI/StructuredFieldView.h"
+#include "../UI/MemoryWorkbench/HexView.h"
+#include <QTreeWidget>
 #include "../UI/TableContextMenu.h"
 #include "../UI/DetailDialogChrome.h"
 #include "WinAPIDock.h"
-#include "MonitorEventFilterProjection.h"
+#include "WinAPIEventTableModel.h"
+#include "WinAPIDiskArchive.h"
+#include "WinAPIParameterEditor.h"
+#include "../UI/DetailLayoutHost.h"
+#include <QDesktopServices>
+#include <QStandardPaths>
+#include <QSettings>
+#include <QSpinBox>
+#include <QUrl>
+#include <QItemSelectionModel>
 #include "../UI/CodeEditorWidget.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -229,8 +240,8 @@ namespace
     class ProcessSelectorIconLoader final : public QObject
     {
     public:
-        explicit ProcessSelectorIconLoader(QComboBox* combo, QLabel* selectedIcon)
-            : QObject(combo), m_combo(combo), m_selectedIcon(selectedIcon), m_dispatcher(std::make_shared<ks::ui::AsyncUiDispatcher>(this))
+        explicit ProcessSelectorIconLoader(QComboBox* combo)
+            : QObject(combo), m_combo(combo), m_dispatcher(std::make_shared<ks::ui::AsyncUiDispatcher>(this))
         {
             setObjectName(QStringLiteral("winapi-process-icon-loader"));
             m_timer.setSingleShot(true);
@@ -325,8 +336,6 @@ namespace
                         m_combo->model()->setData(index, *cached, Qt::DecorationRole);
                 }
             }
-            if (m_selectedIcon != nullptr && m_combo->currentIndex() >= 0)
-                m_selectedIcon->setPixmap(m_combo->itemIcon(m_combo->currentIndex()).pixmap(20, 20));
             for (QString key = m_state.takeNext(); !key.isEmpty(); key = m_state.takeNext())
             {
                 const auto cleanupLease = ks::ui::AsyncCleanupRegistry::global().acquire();
@@ -347,7 +356,6 @@ namespace
         }
 
         QComboBox* m_combo;
-        QPointer<QLabel> m_selectedIcon;
         QTimer m_timer;
         ProcessIconDemandState m_state;
         std::vector<std::shared_ptr<Completion>> m_completions;
@@ -355,10 +363,10 @@ namespace
         std::shared_ptr<ks::ui::AsyncUiDispatcher> m_dispatcher;
     };
 
-    ProcessSelectorIconLoader* processIconLoader(QComboBox* combo, QLabel* selectedIcon)
+    ProcessSelectorIconLoader* processIconLoader(QComboBox* combo)
     {
         auto* existing = combo->findChild<QObject*>(QStringLiteral("winapi-process-icon-loader"), Qt::FindDirectChildrenOnly);
-        return existing != nullptr ? static_cast<ProcessSelectorIconLoader*>(existing) : new ProcessSelectorIconLoader(combo, selectedIcon);
+        return existing != nullptr ? static_cast<ProcessSelectorIconLoader*>(existing) : new ProcessSelectorIconLoader(combo);
     }
 
     // processDisplayName：
@@ -541,6 +549,36 @@ void WinAPIDock::initializeConnections()
             updateActionState();
         });
     }
+    if (m_r0InjectCheck != nullptr)
+    {
+        connect(m_r0InjectCheck, &QCheckBox::toggled, this, [](bool enabled) {
+            const QString root = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+            if (!root.isEmpty() && QDir().mkpath(root)) {
+                QSettings settings(QDir(root).filePath(QStringLiteral("api-monitor-view.ini")), QSettings::IniFormat);
+                settings.setValue(QStringLiteral("use_r0_injection"), enabled);
+            }
+        });
+    }
+    if (m_pauseEventsCheck != nullptr)
+    {
+        connect(m_pauseEventsCheck, &QCheckBox::toggled, this, [this](bool paused) {
+            if (m_sessionBackend) {
+                m_sessionBackend->setEventsPaused(paused);
+                const auto error = m_sessionBackend->pauseControlError.load();
+                if (error) {
+                    m_hookState = HookState::PauseFailed;
+                    appendInternalEvent(QStringLiteral("内部"), QStringLiteral("暂停控制失败"),
+                        QStringLiteral("设置暂停控制失败（错误码 %1）。").arg(error), false);
+                } else if (paused && m_pipeConnected.load() && !m_sessionBackend->pauseControlReady.load()
+                    && (m_hookState == HookState::Active || m_hookState == HookState::Partial)) {
+                    m_hookState = HookState::PauseFailed;
+                    appendInternalEvent(QStringLiteral("内部"), QStringLiteral("暂停控制失败"),
+                        QStringLiteral("目标进程中的 Agent 不支持暂停控制；请重启目标进程以加载新版 Agent。"), false);
+                }
+            }
+            updateStatusLabel();
+        });
+    }
     if (m_manualPidEdit != nullptr)
     {
         connect(m_manualPidEdit, &QLineEdit::textChanged, this, [this]() {
@@ -651,12 +689,22 @@ void WinAPIDock::initializeConnections()
     }
     if (m_eventTable != nullptr)
     {
-        connect(m_eventTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        connect(m_eventTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& position) {
             showEventContextMenu(position);
         });
-        connect(m_eventTable, &QTableWidget::cellDoubleClicked, this, [this](const int row, const int) {
-            showEventDetailDialog(row);
+        connect(m_eventTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
+            showEventDetailDialog(index.row());
         });
+        connect(m_eventTable->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex&, const QModelIndex&) {
+                if (m_eventDetailsUpdateScheduled) return;
+                m_eventDetailsUpdateScheduled = true;
+                QTimer::singleShot(0, this, [this]() { m_eventDetailsUpdateScheduled = false; updateEventDetails(); });
+            });
+        connect(m_showEventDetails, &QCheckBox::toggled, this, [this](bool enabled) {
+            m_eventTable->setColumnHidden(EventColumnDetail, !enabled);
+        });
+        m_parameterEditor->changed = [this]() { updateEventDetails(); };
     }
     if (m_resultTabs)
     {
@@ -786,7 +834,7 @@ void WinAPIDock::populateProcessSelector(const std::vector<ks::process::ProcessR
         m_processStatusLabel->setText(QStringLiteral("● 已刷新 %1 个进程").arg(m_processList.size()));
         ks::ui::ApplyStatusRole(m_processStatusLabel, ks::ui::StatusRole::Success);
     }
-    processIconLoader(m_processCombo, m_processIconLabel)->schedule();
+    processIconLoader(m_processCombo)->schedule();
     updateProcessSelectorStatus();
 }
 
@@ -800,20 +848,6 @@ void WinAPIDock::updateProcessSelectorStatus()
     std::uint32_t pidValue = 0;
     const bool hasPid = currentSelectedPid(&pidValue);
     const int selectedIndex = comboIndexForPid(m_processCombo, pidValue);
-    if (m_processIconLabel != nullptr)
-    {
-        QIcon displayIcon(QStringLiteral(":/Icon/process_main.svg"));
-        if (selectedIndex >= 0)
-        {
-            const QIcon itemIcon = m_processCombo->itemIcon(selectedIndex);
-            if (!itemIcon.isNull())
-            {
-                displayIcon = itemIcon;
-            }
-        }
-        m_processIconLabel->setPixmap(displayIcon.pixmap(20, 20));
-    }
-
     if (m_processStatusLabel == nullptr)
     {
         return;
@@ -1254,9 +1288,18 @@ QString WinAPIDock::freezeSessionOptions() const
     outputStream << "enable_registry=" << ((m_hookRegistryCheck != nullptr && m_hookRegistryCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_network=" << ((m_hookNetworkCheck != nullptr && m_hookNetworkCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_process=" << ((m_hookProcessCheck != nullptr && m_hookProcessCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_memory=" << ((m_hookMemoryCheck != nullptr && m_hookMemoryCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_thread=" << ((m_hookThreadCheck != nullptr && m_hookThreadCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_service=" << ((m_hookServiceCheck != nullptr && m_hookServiceCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_security=" << ((m_hookSecurityCheck != nullptr && m_hookSecurityCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_crypto=" << ((m_hookCryptoCheck != nullptr && m_hookCryptoCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_com=" << ((m_hookComCheck != nullptr && m_hookComCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_window=" << ((m_hookWindowCheck != nullptr && m_hookWindowCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "enable_gui=" << ((m_hookGuiCheck != nullptr && m_hookGuiCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_loader=" << ((m_hookLoaderCheck != nullptr && m_hookLoaderCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_clipboard=" << ((m_hookClipboardCheck != nullptr && m_hookClipboardCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "auto_inject_child=" << ((m_autoInjectChildCheck != nullptr && m_autoInjectChildCheck->isChecked()) ? 1 : 0) << '\n';
+    outputStream << "capture_call_stack=" << ((m_captureCallStackCheck != nullptr && m_captureCallStackCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_raw_fallback=" << ((m_rawFallbackCheck != nullptr && m_rawFallbackCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "raw_use_default_denylist=" << ((m_rawDefaultDenyListCheck != nullptr && m_rawDefaultDenyListCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "raw_modules=" << normalizeRawListForSessionConfig(
@@ -1270,13 +1313,15 @@ QString WinAPIDock::freezeSessionOptions() const
     return options;
 }
 
-void WinAPIDock::appendInternalEvent(const QString& categoryText, const QString& apiText, const QString& detailText)
+void WinAPIDock::appendInternalEvent(const QString& categoryText, const QString& apiText, const QString& detailText, const bool success)
 {
     EventRow rowValue;
     rowValue.time100nsText = now100nsText();
+    rowValue.timestamp100ns = rowValue.time100nsText.toULongLong();
     rowValue.categoryText = categoryText;
+    rowValue.categoryCode = static_cast<std::uint32_t>(ks::winapi_monitor::EventCategory::Internal);
     rowValue.apiText = apiText;
-    rowValue.resultText = QStringLiteral("OK");
+    rowValue.resultText = success ? QStringLiteral("OK") : QStringLiteral("失败");
     rowValue.pidTidText = m_currentSessionPid == 0 ? QStringLiteral("-") : QStringLiteral("%1 / -").arg(m_currentSessionPid);
     rowValue.detailText = detailText;
     rowValue.internalEvent = true;
@@ -1286,7 +1331,7 @@ void WinAPIDock::appendInternalEvent(const QString& categoryText, const QString&
         auto record = std::make_shared<WinAPIEventRecord>();
         record->searchText = WinAPIEventFields(rowValue).join(QStringLiteral(" | "));
         record->value = std::move(rowValue);
-        if (m_eventArchive.append(std::move(record))) ++m_evictedRows;
+        m_eventArchive.append(std::move(record)); m_evictedRows = m_eventArchive.evictedCount();
         m_eventProjectionStale = true;
     }
     updateActionState();
@@ -1295,49 +1340,119 @@ void WinAPIDock::appendInternalEvent(const QString& categoryText, const QString&
 
 void WinAPIDock::showEventDetailDialog(const int rowValue)
 {
-    // showEventDetailDialog 作用：
-    // - 输入：rowValue 为事件表中的物理行号；
-    // - 处理：读取该行所有列，拼成可复制的多行详情文本并用模态窗口展示；
-    // - 返回：无返回值，行号无效或表格不存在时直接返回。
-    if (m_eventTable == nullptr || rowValue < 0 || rowValue >= m_eventTable->rowCount())
-    {
-        return;
+    if (!m_eventTable || rowValue < 0 || rowValue >= m_eventTable->model()->rowCount()) return;
+    updateEventDetails();
+    if (m_eventDetailHost) m_eventDetailHost->showDetailsForIndex(m_eventTable->currentIndex());
+}
+
+void WinAPIDock::updateEventDetails()
+{
+    if (!m_eventDetails || !m_parameterEditor) return;
+    const auto record = eventRecordAt(m_eventTable->currentIndex().row());
+    m_parameterEditor->setRecord(record);
+    ks::ui::FieldDocument document;
+    if (!record) {
+        m_eventDetails->setDocument(document); m_parameterEditor->hide();
+        m_eventProperties->clear(); m_eventParameters->clear(); m_eventHex->clearBuffer(); return;
     }
-
-    const auto columnText = [this, rowValue](const int columnValue) -> QString {
-        QTableWidgetItem* const itemPointer = m_eventTable->item(rowValue, columnValue);
-        return itemPointer != nullptr ? itemPointer->text() : QString();
-    };
-
-    ks::ui::FieldDocument detailText;
-    detailText.field(QStringLiteral("时间(100ns)"), QStringLiteral("%1").arg(columnText(EventColumnTime100ns)));
-    detailText.field(QStringLiteral("分类"), QStringLiteral("%1").arg(columnText(EventColumnCategory)));
-    detailText.field(QStringLiteral("API"), QStringLiteral("%1").arg(columnText(EventColumnApi)));
-    detailText.field(QStringLiteral("结果"), QStringLiteral("%1").arg(columnText(EventColumnResult)));
-    detailText.field(QStringLiteral("PID/TID"), QStringLiteral("%1").arg(columnText(EventColumnPidTid)));
-    detailText.field(QStringLiteral("详情"), QStringLiteral("%1").arg(columnText(EventColumnDetail)));
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("WinAPI 事件详情"));
-    dialog.resize(760, 420);
-
-    QVBoxLayout* const layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(10, 10, 10, 10);
-    layout->setSpacing(8);
-
-    // 事件详情由本页拼装，使用统一编辑器以便英语模式即时重绘固定字段名。
-    ks::ui::StructuredFieldView* const detailEdit = new ks::ui::StructuredFieldView(&dialog);
-
-    detailEdit->setDocument(detailText);
-    layout->addWidget(detailEdit, 1);
-
-    QDialogButtonBox* const buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
-    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("关闭"));
-    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    layout->addWidget(buttonBox, 0);
-
-    ks::ui::ApplyDetailDialogChrome(&dialog);
-    dialog.exec();
+    const auto& value = record->value;
+    if (const auto* snapshot = m_parameterEditor->callerSnapshot()) {
+        if (m_eventModel) m_eventModel->setCallerSnapshot(record, *snapshot);
+    }
+    const auto* callerColumns = m_eventModel ? &m_eventModel->callerColumns() : nullptr;
+    document.field(QStringLiteral("时间(100ns)"), value.time100nsText);
+    document.field(QStringLiteral("分类"), value.categoryText);
+    document.field(QStringLiteral("API"), value.apiText);
+    document.field(QStringLiteral("结果"), ks::monitor::EventColumnText(record, ks::monitor::Status));
+    if (m_eventModel) {
+        constexpr int columns[] = {ks::monitor::Time, ks::monitor::Sequence, ks::monitor::Module,
+            ks::monitor::Pid, ks::monitor::Tid, ks::monitor::ProcessName, ks::monitor::Summary,
+            ks::monitor::ReturnValue, ks::monitor::Duration, ks::monitor::CallerAddress,
+            ks::monitor::CallerModule, ks::monitor::MemoryKind, ks::monitor::Phase,
+            ks::monitor::OperationId, ks::monitor::CaptureKind};
+        for (const int column : columns) {
+            document.field(m_eventModel->headerData(column, Qt::Horizontal).toString(),
+                ks::i18n::sourceText(ks::monitor::EventColumnText(record, column, callerColumns)));
+        }
+    }
+    if (!value.capturedCallStack.isEmpty()) document.field(QStringLiteral("调用时堆栈（含内部帧，最多 8 帧）"), value.capturedCallStack);
+    const auto& stackSnapshot = m_parameterEditor->stackSnapshot();
+    if (!stackSnapshot.empty()) {
+        QStringList frames, nearestExports;
+        for (std::size_t i = 0; i < stackSnapshot.size(); ++i) {
+            const auto& frame = stackSnapshot[i];
+            QString text = QLatin1Char('#') + QString::number(i) + QLatin1StringView(" 0x") + QString::number(frame.address, 16);
+            if (frame.imageOffsetAvailable) {
+                const auto path = QString::fromStdWString(frame.mappedPath);
+                const auto module = path.section(QLatin1Char('\\'), -1).section(QLatin1Char('/'), -1);
+                text += QLatin1Char(' ') + module + QLatin1StringView("+0x") + QString::number(frame.imageOffset, 16)
+                    + QLatin1StringView(" @") + QString::number(frame.observedTime100ns);
+            } else text += QLatin1StringView(" ?");
+            frames.push_back(std::move(text));
+            if (!frame.nearestExportName.empty()) {
+                const auto path = QString::fromStdWString(frame.mappedPath);
+                const auto module = path.section(QLatin1Char('\\'), -1).section(QLatin1Char('/'), -1);
+                nearestExports.push_back(QLatin1Char('#') + QString::number(i) + QLatin1Char(' ') + module
+                    + QLatin1Char('!') + QString::fromLatin1(frame.nearestExportName.data(), static_cast<qsizetype>(frame.nearestExportName.size()))
+                    + QLatin1StringView("+0x") + QString::number(frame.nearestExportDisplacement, 16)
+                    + QLatin1StringView(" @") + QString::number(frame.nearestExportObservedTime100ns));
+            }
+        }
+        document.field(QStringLiteral("堆栈映像及偏移（查询时快照；@后为查询时刻 100ns）"), frames.join(QLatin1Char('\n')));
+        if (!nearestExports.isEmpty()) document.field(QStringLiteral("堆栈最近导出（查询时快照，非精确函数符号；@后为查询时刻 100ns）"),
+            nearestExports.join(QLatin1Char('\n')));
+    }
+    document.field(QStringLiteral("PID/TID"), value.pidTidText);
+    if (const auto* snapshot = m_parameterEditor->callerSnapshot()) {
+        if (snapshot->status == ks::winapi_monitor::CallerSnapshotStatus::Available) {
+            QString kind = QStringLiteral("未知");
+            if (snapshot->state != MEM_COMMIT) kind = QStringLiteral("未提交");
+            else if (snapshot->type == MEM_IMAGE) kind = QStringLiteral("映像");
+            else if (snapshot->type == MEM_PRIVATE) kind = QStringLiteral("私有内存");
+            else if (snapshot->type == MEM_MAPPED) kind = QStringLiteral("映射内存");
+            document.field(QStringLiteral("调用者内存归属（查询时快照）"), kind);
+            document.field(QStringLiteral("查询时刻(100ns)"), QString::number(snapshot->observedTime100ns));
+            if (!snapshot->mappedPath.empty())
+                document.field(QStringLiteral("映像路径（查询时快照）"), QString::fromStdWString(snapshot->mappedPath));
+        } else {
+            document.field(QStringLiteral("调用者内存归属（查询时快照）"), QStringLiteral("查询失败"));
+        }
+    }
+    const auto decoded = m_parameterEditor->decoded();
+    if (const auto* signature = m_parameterEditor->signature()) {
+        document.field(QStringLiteral("函数声明"), ks::monitor::FormatWinAPISignature(*signature));
+        if (signature->referenceOnly)
+            document.field(QStringLiteral("声明来源"), (signature->sdkAbiVerified
+                ? QStringLiteral("API Monitor 第三方声明；函数原型已按 Windows SDK 核验，参数方向未核验")
+                : QStringLiteral("API Monitor 第三方声明，尚未核验；未自动映射参数"))
+                + QStringLiteral(" — ") + signature->referenceSource);
+        if (decoded.valid) {
+            const auto raw = ks::monitor::ParseRawParameterData(value.detailText);
+            const auto arguments = ks::monitor::MapWinAPIRawArguments(*signature, raw);
+            for (qsizetype i = 0; i < arguments.size(); ++i) {
+                const auto& argument = arguments[i];
+                const auto label = signature->referenceOnly && !signature->sdkAbiVerified ? QStringLiteral("Para%1 %2 (%3) [Raw, ?]")
+                    : QStringLiteral("Para%1 %2 (%3) [Raw]");
+                document.field(label.arg(i + 1).arg(argument.name, argument.type), argument.available ? argument.rawHex
+                    : (signature->referenceOnly && !signature->sdkAbiVerified ? QStringLiteral("未核验") : QStringLiteral("-")));
+            }
+        }
+    }
+    if (decoded.valid) {
+        document.field(QStringLiteral("详情"), value.detailText.section(QStringLiteral(" strongTyped=0 params=raw"), 0, 0));
+        for (qsizetype i = 0; i < decoded.values.size(); ++i)
+            document.field(QStringLiteral("Para%1").arg(i + 1), decoded.values[i].available ? decoded.values[i].value : QStringLiteral("数据不足"));
+        document.field(QStringLiteral("未分配 HEX / ASCII"), ks::monitor::FormatRawHex(decoded.unallocated));
+    } else document.field(QStringLiteral("详情"), value.detailText);
+    m_eventDetails->setDocument(document);
+    m_eventProperties->clear(); m_eventParameters->clear();
+    for (const auto& node : document.nodes) {
+        if (node.kind != ks::ui::FieldNode::Kind::Field || node.name == QStringLiteral("未分配 HEX / ASCII")) continue;
+        auto* target = node.name.startsWith(QLatin1StringView("Para")) ? m_eventParameters : m_eventProperties;
+        new QTreeWidgetItem(target, {node.name, node.value});
+    }
+    m_eventHex->setBuffer(0, decoded.valid ? decoded.unallocated : QByteArray{});
+    m_parameterEditor->setVisible(decoded.valid);
 }
 
 void WinAPIDock::startMonitoring()
@@ -1359,18 +1474,24 @@ void WinAPIDock::startMonitoring()
     config.generation = m_sessionGeneration.load() + 1;
     config.requestedAgentPath = m_agentDllPathEdit->text().trimmed();
     config.sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString archiveRoot = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (archiveRoot.isEmpty()) archiveRoot = QCoreApplication::applicationDirPath();
+    config.archiveDirectory = QDir(archiveRoot).filePath(QStringLiteral("api_monitor_archive/%1").arg(config.sessionId));
     config.options = freezeSessionOptions(); // Last GUI access; workers receive only values.
     config.residentPid = m_residentAgentPid;
     config.residentCreation = m_residentAgentCreationTime100ns;
     config.autoInjectChildren = m_autoInjectChildCheck && m_autoInjectChildCheck->isChecked();
+    config.useR0Injection = m_r0InjectCheck && m_r0InjectCheck->isChecked();
     auto backend = std::make_shared<WinAPISessionBackend>(std::move(config));
+    backend->eventRules = m_eventRules;
+    backend->setEventsPaused(m_pauseEventsCheck && m_pauseEventsCheck->isChecked());
     auto cleanup = ks::ui::RetainedCleanupJob::create([backend]() { return backend->cleanup(); }, 0,
         [backend]() { backend->requestStop(); });
     if (!cleanup || cleanup->isCleanupRequested()) return; // An old shutdown epoch is never reopened.
     m_sessionBackend = backend; m_sessionCleanup = cleanup;
     m_currentSessionPid = pid; m_currentSessionId = backend->config.sessionId;
     m_sessionGeneration.store(backend->config.generation);
-    m_startupReported = false; m_stopReported = false; m_stopping = false; m_reportedCleanupAttempt = 0;
+    m_startupReported = false; m_stopReported = false; m_stopping = false; m_userRequestedStop = false; m_reportedCleanupAttempt = 0;
     clearCanonicalEvents();
     {
         const std::lock_guard<std::mutex> lock(m_pendingMutex);
@@ -1406,7 +1527,7 @@ void WinAPIDock::startMonitoring()
     if (!ticket) { backend->requestStop(); if (!cleanup->isCleanupRequested()) cleanup->requestCleanup(); m_stopping = true; }
 }
 
-void WinAPIDock::stopMonitoring() { stopMonitoringInternal(false); }
+void WinAPIDock::stopMonitoring() { m_userRequestedStop = true; stopMonitoringInternal(false); }
 
 void WinAPIDock::stopMonitoringInternal(const bool ownerClosing)
 {
@@ -1450,30 +1571,57 @@ void WinAPIDock::terminateHooksForSelectedProcess()
 
 void WinAPIDock::initializeEventProjection()
 {
-    m_eventFilterProjection = new ks::monitor::EventFilterProjection(m_eventTable,
-        [this](int row) {
-            const auto item = m_eventTable->item(row, EventColumnTime100ns);
-            return ks::monitor::EventFilterRow{{item ? item->data(Qt::UserRole).toString() : QString()}, {}, 0};
-        },
-        [this](int visible, int total, bool pending) {
-            m_visibleEventCount = visible;
-            if (m_eventFilterStatusLabel)
-            {
-                m_eventFilterStatusLabel->setText(QStringLiteral("筛选结果：%1 / %2").arg(visible).arg(total));
-                ks::ui::ApplyStatusRole(m_eventFilterStatusLabel, pending ? ks::ui::StatusRole::Warning
-                    : visible > 0 ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Idle);
+    initializeEventTailFollow();
+    m_eventModel->setEventRules(m_eventRules->snapshot());
+    connect(m_eventMemoryBudget, &QSpinBox::editingFinished, this, [this]() {
+        const int mib = m_eventMemoryBudget->value();
+        m_eventArchive.setMemoryCapacity(static_cast<std::size_t>(mib) * 1024 * 1024);
+        m_evictedRows = m_eventArchive.evictedCount(); m_eventProjectionStale = true;
+        const QString root = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+        if (QDir().mkpath(root)) {
+            QSettings settings(QDir(root).filePath(QStringLiteral("api-monitor-view.ini")), QSettings::IniFormat);
+            settings.setValue(QStringLiteral("memoryMiB"), mib); settings.sync();
+        }
+        flushPendingRows();
+    });
+    connect(m_openDiskArchiveButton, &QPushButton::clicked, this, [this]() {
+        if (m_sessionBackend && m_sessionBackend->startupTerminal.load() && m_sessionBackend->diskArchive)
+            QDesktopServices::openUrl(QUrl::fromLocalFile(m_sessionBackend->diskArchive->directory()));
+    });
+    m_filterProgressTimer = new QTimer(this);
+    m_filterProgressTimer->setInterval(350);
+    connect(m_filterProgressTimer, &QTimer::timeout, this, [this]() {
+        if (!m_eventModel || !m_eventModel->filterPending()) return;
+        if (!m_filterProgressPid) m_filterProgressPid = kPro.addReusable(this, "WinAPI 筛选", "筛选事件");
+        m_filterProgressActive = true;
+        kPro.set(m_filterProgressPid, "筛选事件", 0, m_eventModel->filterProgress());
+    });
+    m_eventModel->filterStateChanged = [this]() {
+        if (m_eventModel->filterPending()) {
+            if (!m_filterProgressTimer->isActive()) m_filterProgressTimer->start();
+        } else {
+            m_filterProgressTimer->stop();
+            if (m_filterProgressActive) {
+                kPro.set(m_filterProgressPid, m_eventModel->filterFailed() ? "事件筛选失败" : "事件筛选完成", 0, 100.0f);
+                m_filterProgressActive = false;
             }
-        });
+        }
+        m_visibleEventCount = m_eventProxy->rowCount();
+        if (m_eventFilterStatusLabel) {
+            m_eventFilterStatusLabel->setText(QStringLiteral("筛选结果：%1 / %2").arg(m_visibleEventCount).arg(m_eventModel->rowCount()));
+            ks::ui::ApplyStatusRole(m_eventFilterStatusLabel, (m_eventModel->filterPending() || m_eventModel->filterFailed()) ? ks::ui::StatusRole::Warning
+                : m_visibleEventCount > 0 ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Idle);
+        }
+    };
     applyEventFilter();
 }
 
 void WinAPIDock::applyEventFilter()
 {
     m_eventFilterKeyword = m_eventFilterEdit ? m_eventFilterEdit->text().trimmed() : QString();
-    if (!m_eventFilterProjection || !m_eventTable || !m_eventTable->isVisible()) return;
-    ks::monitor::EventFilterSpec spec;
-    spec.patterns = {m_eventFilterKeyword}; spec.fieldIndexes = {0};
-    m_eventFilterProjection->setFilter(std::move(spec));
+    if (!m_eventModel) return;
+    m_eventModel->setKeyword(m_eventFilterKeyword);
+    if (m_eventModel->filterStateChanged) m_eventModel->filterStateChanged();
 }
 
 void WinAPIDock::clearEventFilter()
@@ -1495,7 +1643,7 @@ void WinAPIDock::updateEventExportAction()
     m_exportButton->setToolTip(preparing
         ? language.text(QStringLiteral("monitor.export.preparing_hint"), QStringLiteral("正在准备完整导出；再次点击可取消准备。"))
         : busy ? language.text(QStringLiteral("monitor.export.in_progress"), QStringLiteral("导出进行中"))
-        : ks::i18n::sourceText(QStringLiteral("导出当前可见事件为 TSV")));
+        : ks::i18n::sourceText(QStringLiteral("导出筛选事件为 CSV 或 TSV，包含 A/B 视图的全部列")));
 }
 
 void WinAPIDock::exportVisibleRowsToTsv()
@@ -1505,11 +1653,14 @@ void WinAPIDock::exportVisibleRowsToTsv()
     if (!guard) return;
     if (m_eventExport && m_eventExport->isPreparing()) { m_eventExport->cancelPreparation(); return; }
     if (m_eventExport && m_eventExport->isBusy()) return;
-    const QString defaultFileName = QStringLiteral("winapi_events_%1.tsv")
+    const QString defaultFileName = QStringLiteral("winapi_events_%1.csv")
         .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
-    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出 WinAPI 事件"), defaultFileName,
-        QStringLiteral("TSV 文件 (*.tsv);;文本文件 (*.txt)"));
+    QString selectedFilter;
+    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("导出 WinAPI 事件"), defaultFileName,
+        QStringLiteral("CSV 文件 (*.csv);;TSV 文件 (*.tsv);;文本文件 (*.txt)"), &selectedFilter);
     if (!guard || path.trimmed().isEmpty() || (m_eventExport && m_eventExport->isBusy())) return;
+    if (QFileInfo(path).suffix().isEmpty())
+        path += selectedFilter.startsWith(QStringLiteral("CSV")) ? QStringLiteral(".csv") : QStringLiteral(".tsv");
     try {
         const auto snapshot = ks::monitor::MakeCanonicalExportSnapshot(freezeVisibleEventRowsForExport());
         if (!guard) return;
@@ -1520,7 +1671,8 @@ void WinAPIDock::exportVisibleRowsToTsv()
             m_eventExport = new ks::monitor::MonitorCanonicalExport(this);
             m_eventExport->setStateChangedCallback([guard]() { if (guard) guard->updateEventExportAction(); });
         }
-        const bool started = m_eventExport->start(snapshot, QStringLiteral("monitor/winapi/session-%1/pid-%2/retained-events").arg(snapshot->sessionGeneration).arg(snapshot->targetPid), path, QStringLiteral("# 仅导出当前表格中的可见记录；这不是完整调用轨迹。%1").arg(snapshot->lossSummary),
+        const bool csv = path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive);
+        const bool started = m_eventExport->start(snapshot, QStringLiteral("monitor/winapi/session-%1/pid-%2/retained-events").arg(snapshot->sessionGeneration).arg(snapshot->targetPid), path, csv ? QString() : QStringLiteral("# 仅导出当前表格中的可见记录；这不是完整调用轨迹。%1").arg(snapshot->lossSummary),
             [guard](const ks::monitor::CanonicalExportOutcome& result) {
                 if (!guard || result.kind == ks::monitor::CanonicalExportOutcomeKind::Canceled) return;
                 auto& language = ks::i18n::LanguageManager::instance();
@@ -1538,7 +1690,7 @@ void WinAPIDock::exportVisibleRowsToTsv()
                 }
                 if (!receipt.succeeded()) QMessageBox::warning(guard, QStringLiteral("导出 WinAPI 事件"),
                     language.text(QStringLiteral("monitor.export.write_failed"), QStringLiteral("导出失败：%1")).arg(receipt.nativeError));
-            });
+            }, csv ? ks::monitor::CanonicalExportFormat::QuotedCsv : ks::monitor::CanonicalExportFormat::Tsv);
         if (!guard) return;
         if (!started) QMessageBox::information(this, QStringLiteral("导出 WinAPI 事件"),
             ks::i18n::LanguageManager::instance().text(QStringLiteral("monitor.export.not_accepted"), QStringLiteral("未开始写入文件，请重试导出。")));
@@ -1573,13 +1725,24 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
     QAction* copyRowAction = menu.addAction(QStringLiteral("复制整行"));
     // 声明业务菜单已提供此能力，避免共享表格菜单追加重复项。
     ks::ui::SetTableContextActionRole(copyRowAction, ks::ui::TableContextActionRole::CopyRows);
-    const QTableWidgetItem* processIdItem = m_eventTable->item(row, EventColumnPidTid);
+    const QString processIdText = indexValue.siblingAtColumn(EventColumnPidTid).data().toString();
     std::uint32_t processId = 0;
-    const bool hasProcessId = processIdItem != nullptr &&
-        ks::online_scan::tryParsePidFromText(processIdItem->text(), &processId) &&
+    const bool hasProcessId = ks::online_scan::tryParsePidFromText(processIdText, &processId) &&
         processId != 0U;
     QAction* openProcessDetailAction = menu.addAction(QStringLiteral("转到进程详细信息"));
     openProcessDetailAction->setEnabled(hasProcessId);
+    const auto selectedRecord = eventRecordAt(row);
+    const QString api = selectedRecord ? selectedRecord->value.apiText : QString();
+    const int apiSplit = api.indexOf(QChar('!'));
+    const QString module = apiSplit > 0 ? api.left(apiSplit) : QString();
+    const QString function = apiSplit > 0 ? api.mid(apiSplit + 1) : QString();
+    menu.addSeparator();
+    QAction* hideFunction = menu.addAction(QStringLiteral("隐藏此函数事件"));
+    QAction* rejectFunction = menu.addAction(QStringLiteral("拒收此函数事件"));
+    QAction* hideModule = menu.addAction(QStringLiteral("隐藏此模块事件"));
+    QAction* rejectModule = menu.addAction(QStringLiteral("拒收此模块事件"));
+    for (auto* action : {hideFunction, rejectFunction, hideModule, rejectModule})
+        action->setEnabled(m_eventRulesValid && selectedRecord && !selectedRecord->value.internalEvent && !module.isEmpty() && !function.isEmpty());
     menu.addSeparator();
     ks::online_scan::addVirusTotalSandboxMenu(
         &menu,
@@ -1588,11 +1751,9 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
             // 输入：WinAPI 监控事件表当前右键行。
             // 处理：从 PID/TID 列解析进程 PID，再解析进程镜像路径。
             // 返回：VT 上传目标；解析失败时返回 errorText 交给统一 helper 弹窗。
-            QTableWidgetItem* pidItem = m_eventTable != nullptr
-                ? m_eventTable->item(row, EventColumnPidTid)
-                : nullptr;
+            const QString pidText = m_eventTable->model()->index(row, EventColumnPidTid).data().toString();
             std::uint32_t pidValue = 0;
-            if (pidItem == nullptr || !ks::online_scan::tryParsePidFromText(pidItem->text(), &pidValue))
+            if (!ks::online_scan::tryParsePidFromText(pidText, &pidValue))
             {
                 return {
                     QString(),
@@ -1624,13 +1785,16 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
         return;
     }
 
+    if (selectedAction == hideFunction || selectedAction == rejectFunction || selectedAction == hideModule || selectedAction == rejectModule)
+    {
+        const bool wholeModule = selectedAction == hideModule || selectedAction == rejectModule;
+        const bool pre = selectedAction == rejectFunction || selectedAction == rejectModule;
+        applyEventRule(module, wholeModule ? QString() : function, pre, true); return;
+    }
+
     if (selectedAction == copyCellAction)
     {
-        QTableWidgetItem* itemPointer = m_eventTable->item(row, column);
-        if (itemPointer != nullptr)
-        {
-            QApplication::clipboard()->setText(itemPointer->text());
-        }
+        QApplication::clipboard()->setText(m_eventTable->model()->index(row, column).data().toString());
         return;
     }
 
@@ -1645,8 +1809,7 @@ void WinAPIDock::showEventContextMenu(const QPoint& position)
         QStringList rowTextList;
         for (int currentColumn = 0; currentColumn < EventColumnCount; ++currentColumn)
         {
-            QTableWidgetItem* itemPointer = m_eventTable->item(row, currentColumn);
-            rowTextList << (itemPointer != nullptr ? itemPointer->text() : QString());
+            rowTextList << m_eventTable->model()->index(row, currentColumn).data().toString();
         }
         QApplication::clipboard()->setText(rowTextList.join('\t'));
     }

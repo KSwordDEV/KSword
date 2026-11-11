@@ -281,10 +281,10 @@ std::wstring EventLogChannelPath(const EventLogChannel channel) {
 EventLogQueryResult QueryEventLog(const EventLogQueryRequest& request) {
     EventLogQueryResult result{};
     const ULONGLONG startTick = ::GetTickCount64();
-    result.channelPath = EventLogChannelPath(request.channel);
+    result.channelPath = request.channelPath.empty() ? EventLogChannelPath(request.channel) : request.channelPath;
 
     const std::uint32_t wanted = (std::min)(request.maxCount == 0 ? 1u : request.maxCount, kMaxRequestedCount);
-    const std::wstring query = LevelQueryFragment(request.level);
+    const std::wstring query = request.xpath.empty() ? LevelQueryFragment(request.level) : request.xpath;
 
     result.closeErrors.reserve(32);
     [&] {

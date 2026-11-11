@@ -63,7 +63,7 @@ void MetricAreaRenderer::attach(QWidget* host)
 
 void MetricAreaRenderer::scheduleLight()
 {
-    if (!m_host || !m_host->isVisible()) return;
+    if (!m_lightEnabled || !m_host || !m_host->isVisible()) return;
     if (!m_host->style()->styleHint(QStyle::SH_Widget_Animate, nullptr, m_host)) {
         m_position = m_target; m_tracking = m_targetTracking;
         m_timer->stop(); m_host->update(); return;
@@ -72,6 +72,16 @@ void MetricAreaRenderer::scheduleLight()
         const qreal hz = m_host->screen() ? m_host->screen()->refreshRate() : 60.0;
         m_timer->setInterval(qMax(7, qRound(1000.0 / qBound(30.0, hz, 144.0))));
         m_clock.restart(); m_timer->start();
+    }
+}
+
+void MetricAreaRenderer::setLightEnabled(bool enabled)
+{
+    if (m_lightEnabled == enabled) return;
+    m_lightEnabled = enabled;
+    if (!enabled) {
+        if (m_timer) m_timer->stop();
+        m_tracking = m_targetTracking = 0;
     }
 }
 
@@ -92,11 +102,11 @@ void MetricAreaRenderer::advanceLight()
 bool MetricAreaRenderer::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched != m_host) return false;
-    if (event->type() == QEvent::MouseMove) {
+    if (m_lightEnabled && event->type() == QEvent::MouseMove) {
         m_target = static_cast<QMouseEvent*>(event)->position();
         if (m_tracking == 0) m_position = m_target;
         m_targetTracking = 1; scheduleLight();
-    } else if (event->type() == QEvent::Leave) {
+    } else if (m_lightEnabled && event->type() == QEvent::Leave) {
         m_targetTracking = 0; scheduleLight();
     } else if (event->type() == QEvent::Hide) {
         m_timer->stop(); m_tracking = m_targetTracking = 0;

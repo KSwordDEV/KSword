@@ -19,6 +19,13 @@ code 为实际 Win32/HRESULT；原布尔接口未提供具体错误时为 null�
 canEnable/canDisable/canDelete、actionKind 及结构化 registry/service/task/file 定位字段。
 未知或不可证明的值为 null/unknown；驱动、隐藏项和来源差异观察保持只读，不从差异推导隐藏服务判定。
 
+每项也直接提供 GUI 详情所用的 `sourceUniqueId`、`categoryDisplay`、`displayRegistryValueName`、
+`sourceEnabled`、`deleteRegistryTree` 和 `serviceStartMode`。`sourceEnabled` 是共享后端返回的原始布尔值，
+不是额外实时验证；`state` 仍保留各来源的可证明状态。`registryValueName` 是动作定位器中的值名，
+`displayRegistryValueName` 是原始记录的显示值名，两者可能不同。共享后端没有 WOW64 注册表视图、
+禁用备份子键或通用 properties 的可靠字段，`registryView`、`disabledRegistrySubKey`、`properties`
+因此返回 null；不使用 0、原键名或空列表伪装已有证据。`serviceStartType` 对可确认的 Boot=0 保留零值。
+
 id 是调用者 SID 与不可变来源字段的稳定标识，排除 active/disabled 状态；后续操作会重新枚举并要求唯一匹配。
 该标识只用于定位当前来源，不是可跨用户复用的授权令牌；SID 获取失败时 id 为 null。
 采集完整返回 0；来源查询部分失败或身份上下文不可用返回 6，已采集的内容继续输出。
@@ -35,6 +42,7 @@ KswordCLI.exe startup location query --id ID [--backend r3] [--json]
 从 startup enum 取得 id。操作前重新枚举并要求同一调用者 SID 下唯一匹配；缺失或歧义返回 3，未执行修改。
 驱动和 registry-only-service 仍为只读观察，控制请求返回 5。
 位置查询返回来源字段，不启动 Regedit/Explorer/Services GUI；它也可用于只读观察项。
+其数据就是重新枚举后唯一匹配的完整 entry，与 `startup enum` 共用同一个字段投影。
 
 Run/RunOnce 使用 shared 后端的 KSword 恢复元数据，移动时保留原始 SZ/EXPAND_SZ 类型和字节。
 启动目录项在原目录与 shared 后端恢复目录之间移动；删除实际选中的活动／禁用文件。

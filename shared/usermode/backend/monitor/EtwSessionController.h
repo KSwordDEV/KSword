@@ -36,6 +36,8 @@ struct EtwSessionEvidence {
 class EtwSessionController final {
 public:
     using EventCallback = std::function<void(const EtwEvent&)>;
+    // Raw record is valid only during the callback; consumers must copy any data.
+    using RawEventCallback = std::function<void(const EtwEvent&, const EVENT_RECORD&)>;
     using StatusCallback = std::function<void(const std::wstring&)>;
 
     EtwSessionController();
@@ -46,6 +48,7 @@ public:
 
     // setEventCallback stores the UI/model event sink. Input is callable; no return.
     void setEventCallback(EventCallback callback);
+    void setRawEventCallback(RawEventCallback callback);
 
     // setStatusCallback stores the UI status sink. Input is callable; no return.
     void setStatusCallback(StatusCallback callback);
@@ -80,6 +83,7 @@ private:
 
     mutable std::mutex mutex_;
     EventCallback eventCallback_;
+    RawEventCallback rawEventCallback_;
     StatusCallback statusCallback_;
     EtwFilterState filterState_;
     std::wstring sessionName_;

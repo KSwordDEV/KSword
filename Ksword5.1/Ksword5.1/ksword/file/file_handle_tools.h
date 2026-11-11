@@ -366,6 +366,24 @@ namespace ks::file
         std::uint64_t expectedObjectAddress,
         std::string& detailTextOut);
 
+    struct RemoteHandleCloseResult
+    {
+        bool success = false;
+        bool suspendAttempted = false;
+        bool closeAttempted = false;
+        bool closeSucceeded = false;
+        bool resumeAttempted = false;
+        long suspendStatus = 0;
+        long resumeStatus = 0;
+        std::string detail;
+    };
+    // Preserves the close and resume outcomes separately for automation.
+    RemoteHandleCloseResult CloseRemoteHandleByObjectIdentityDetailed(
+        std::uint32_t processId,
+        std::uint64_t handleValue,
+        std::uint64_t expectedProcessCreationTime,
+        std::uint64_t expectedObjectAddress);
+
     // BuildHandleSnapshot 作用：构建句柄 Dock 使用的完整后端快照。
     HandleSnapshotResult BuildHandleSnapshot(const HandleSnapshotOptions& options);
 

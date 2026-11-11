@@ -306,6 +306,7 @@ namespace apimon
             L"stop_flag_path",
             ks::winapi_monitor::buildStopFlagPathForPid(configValue.targetPid).c_str());
         configValue.rootStopFlagPath = QueryIniText(configValue.configPath, L"root_stop_flag_path", L"");
+        configValue.pauseEventName = QueryIniText(configValue.configPath, L"pause_event_name", L"");
         configValue.sessionId = QueryIniText(
             configValue.configPath,
             L"session_id",
@@ -326,8 +327,17 @@ namespace apimon
         configValue.enableRegistry = QueryIniBool(configValue.configPath, L"enable_registry", true);
         configValue.enableNetwork = QueryIniBool(configValue.configPath, L"enable_network", true);
         configValue.enableProcess = QueryIniBool(configValue.configPath, L"enable_process", true);
+        configValue.enableMemory = QueryIniBool(configValue.configPath, L"enable_memory", configValue.enableProcess);
+        configValue.enableThread = QueryIniBool(configValue.configPath, L"enable_thread", configValue.enableProcess);
+        configValue.enableService = QueryIniBool(configValue.configPath, L"enable_service", configValue.enableProcess);
+        configValue.enableSecurity = QueryIniBool(configValue.configPath, L"enable_security", configValue.enableProcess);
+        configValue.enableCrypto = QueryIniBool(configValue.configPath, L"enable_crypto", configValue.enableProcess);
+        configValue.enableCom = QueryIniBool(configValue.configPath, L"enable_com", configValue.enableProcess);
+        configValue.enableWindow = QueryIniBool(configValue.configPath, L"enable_window", configValue.enableProcess);
+        configValue.enableGui = QueryIniBool(configValue.configPath, L"enable_gui", false);
         configValue.enableLoader = QueryIniBool(configValue.configPath, L"enable_loader", true);
         configValue.autoInjectChild = QueryIniBool(configValue.configPath, L"auto_inject_child", false);
+        configValue.captureCallStack = QueryIniBool(configValue.configPath, L"capture_call_stack", false);
         configValue.enableRawFallback = QueryIniBool(configValue.configPath, L"enable_raw_fallback", false);
         configValue.rawUseDefaultDenyList = QueryIniBool(configValue.configPath, L"raw_use_default_denylist", true);
         configValue.rawModuleList = SplitIniList(QueryIniText(

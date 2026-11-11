@@ -18,6 +18,7 @@ struct FileOperationResult {
 FileOperationResult TransferPathToFolder(const std::wstring& source, const std::wstring& folder, bool move);
 FileOperationResult CreateEmptyFileResult(const std::wstring& directory);
 FileOperationResult CreateNewDirectoryResult(const std::wstring& directory);
+FileOperationResult CreateNamedPathResult(const std::wstring& path, bool directory, const std::vector<std::uint8_t>& contents);
 
 
 bool CopyOrMovePathToFolder(

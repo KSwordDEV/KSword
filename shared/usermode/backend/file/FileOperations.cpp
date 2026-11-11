@@ -75,6 +75,31 @@ std::wstring CreateEmptyFile(const std::wstring& directory) {
     const auto result = CreateEmptyFileResult(directory);
     return result.success ? result.target : std::wstring{};
 }
+FileOperationResult CreateNamedPathResult(const std::wstring& path, bool directory, const std::vector<std::uint8_t>& contents) {
+    FileOperationResult result;
+    result.target = path;
+    result.errorCategory = "win32";
+    if (path.empty() || (directory && !contents.empty())) { result.errorCode = ERROR_INVALID_PARAMETER; return result; }
+    if (directory) {
+        result.success = ::CreateDirectoryW(path.c_str(), nullptr) != FALSE;
+        if (!result.success) result.errorCode = ::GetLastError();
+        return result;
+    }
+    HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) { result.errorCode = ::GetLastError(); return result; }
+    std::size_t offset = 0;
+    while (offset < contents.size()) {
+        DWORD written = 0;
+        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(contents.size() - offset, 1024 * 1024));
+        if (!::WriteFile(file, contents.data() + offset, chunk, &written, nullptr)) { result.errorCode = ::GetLastError(); break; }
+        if (!written) { result.errorCode = ERROR_WRITE_FAULT; break; }
+        offset += written;
+    }
+    if (!::CloseHandle(file) && result.errorCode == ERROR_SUCCESS) result.errorCode = ::GetLastError();
+    result.success = result.errorCode == ERROR_SUCCESS;
+    result.partial = !result.success;
+    return result;
+}
 FileOperationResult CreateEmptyFileResult(const std::wstring& directory) {
     FileOperationResult result;
     if (directory.empty()) {

@@ -901,13 +901,8 @@ private:
     void showProcessActivitySnapshotForIndex(int sampleIndex);
     // 明确选择样本默认冻结当前 X 窗口；仅旧滑块兼容入口可显式保留最右端跟随实时。
     void commitProcessActivityTimelineIndex(int sampleIndex, bool followLatestWhenSelected = false);
-    // handleProcessWindowPickerRelease 作用：
-    // - 接收“进程页准星拖拽拾取”释放坐标；
-    // - 按窗口页同类逻辑命中鼠标下窗口并解析所属 PID；
-    // - 设置进程列表筛选器为 PID，并打开对应进程详细信息窗口。
-    // 参数 globalPos：鼠标释放时的全局屏幕坐标。
-    // 返回值：无，失败时通过提示框和日志反馈。
-    void handleProcessWindowPickerRelease(const QPoint& globalPos);
+    // Shared picker returns a native HWND after direct hit testing or Ctrl preview selection.
+    void handleProcessWindowPicked(quintptr hwndValue);
     bool isProcessActivityTableSnapshotActive() const;
     bool isProcessActivitySnapshotProjectionCurrent() const;
     void rebuildProcessActivityTableSnapshotRecords();
@@ -1058,6 +1053,8 @@ private:
     // - 处理：R0 内核 API 优先写 TokenIntegrityLevel，驱动不可用/旧驱动时回退 R3；
     // - 返回：无返回值，执行结果写入统一动作日志。
     void executeSetProcessIntegrityAction(unsigned long integrityRid, const QString& levelDisplayText);
+    // Source PID is selected in a shared secondary dialog; targets retain the menu snapshot.
+    void executeCopyProcessTokenAction();
     // executeSetEfficiencyModeAction 作用：开启/关闭 Windows 进程效率模式。
     void executeSetEfficiencyModeAction(bool enableEfficiencyMode);
     void executeOpenFolderAction();

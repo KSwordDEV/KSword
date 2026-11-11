@@ -15,6 +15,7 @@ static unsigned queries=0, actions=0;
 namespace ks::r3::network {
 ConnectionEntry target(){ConnectionEntry e;e.localAddress=L"127.0.0.1";e.remoteAddress=L"127.0.0.1";e.localPort=1234;e.remotePort=4321;e.processId=77;e.state=5;e.hasState=true;return e;}
 ConnectionEnumerationResult EnumerateConnections(){ConnectionEnumerationResult r;r.success=true;++queries;
+    if(scenario==L"enumerate"){for(unsigned i=0;i<5;++i){auto e=target();e.processId=70+i;r.entries.push_back(e);}return r;}
     if(queries==1||scenario==L"failed-present"||scenario==L"succeeded-present")r.entries.push_back(target());
     if(queries>1&&scenario==L"partial-postcheck"){r.entries.push_back(target());r.diagnosticText=L"one table unavailable";}
     if(queries>1&&scenario==L"failed-postcheck")r.success=false;
@@ -30,7 +31,7 @@ NetToolsActionResult CloseTcpConnection(const ConnectionEntry&){++actions;NetToo
 }
 int wmain(int argc,wchar_t* argv[]){_setmode(_fileno(stdout),_O_U8TEXT);_setmode(_fileno(stderr),_O_U8TEXT);
     scenario=argv[1];++argv;--argc;ks::cli::registerNetworkConnections();
-    const auto code=ks::cli::dispatchR3(argc,argv).value_or(1);return queries==2&&actions==1?code:99;
+    const auto code=ks::cli::dispatchR3(argc,argv).value_or(1);return scenario==L"enumerate"?(queries==1&&actions==0?code:99):(queries==2&&actions==1?code:99);
 }
 '''
 
@@ -60,6 +61,13 @@ def main():
         assert run('succeeded-present', 6)['data']['postcheckPresent']
         partial = run('partial-postcheck', 6)
         assert partial['data']['postcheckPresent'] is None and not partial['data']['postcheckComplete']
+        def page(offset,limit):
+            result=subprocess.run([str(binary),'enumerate','network','connections','enum','--offset',str(offset),'--limit',str(limit),'--json'],capture_output=True,timeout=10)
+            assert result.returncode==0,(result.returncode,result.stdout,result.stderr)
+            return json.loads(result.stdout)['data']
+        first=page(0,2);assert first['matchedCount']==5 and first['nextOffset']==2 and [e['pid'] for e in first['entries']]==[70,71]
+        last=page(4,2);assert last['offset']==4 and last['nextOffset'] is None and [e['pid'] for e in last['entries']]==[74]
+        assert page(8,2)['entries']==[] and page(0,0)['nextOffset'] is None
         print('R3_CONNECTIONS_FIXTURE_PASS native status vs UI text, failure/present/absent/unknown, partial/success postchecks')
 
 

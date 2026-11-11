@@ -33,6 +33,20 @@ namespace apimon
         ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode,
         ks::winapi_monitor::EventKind eventKind = ks::winapi_monitor::EventKind::ApiCall,
         std::uint64_t operationId = 0, std::uint32_t apiId = 0);
+    // An explicitly captured return value, separate from the status/error code.
+    bool SendMonitorEventRawWithReturn(
+        ks::winapi_monitor::EventCategory categoryValue,
+        const wchar_t* moduleName, const wchar_t* apiName,
+        std::int32_t resultCode, const wchar_t* detailText,
+        std::uint64_t returnBits);
+    bool SendMonitorEventRawWithMetrics(
+        ks::winapi_monitor::EventCategory categoryValue,
+        const wchar_t* moduleName, const wchar_t* apiName,
+        std::int32_t resultCode, const wchar_t* detailText,
+        bool hasReturnValue, std::uint64_t returnBits,
+        bool hasDuration, std::uint64_t duration100ns, std::uint32_t apiId = 0,
+        ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode,
+        std::uint64_t operationId = 0);
     std::uint32_t FlushCoverageSnapshot(std::uint32_t budget);
     std::uint32_t FlushPendingMonitorEvents(std::uint32_t maxPacketsToFlush);
     bool IsMonitorPipeHandle(HANDLE handleValue);

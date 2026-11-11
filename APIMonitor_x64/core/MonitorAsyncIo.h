@@ -24,6 +24,7 @@ namespace apimon
         void (*completionDetail)(const std::shared_ptr<IoOperation>&, wchar_t*, std::size_t) = nullptr;
         // Fields below are protected by the tracker mutex.
         bool submitted = false, completed = false, callbackExpected = false;
+        bool completionBytesKnown = true;
         bool portExpected = false, portConsumed = false, earlyCompletion = false;
         bool lookupAmbiguous = false;
         DWORD completionError = 0, completionBytes = 0;
@@ -34,11 +35,11 @@ namespace apimon
     IoToken BeginIo(std::uintptr_t resource, LPOVERLAPPED overlapped,
         const wchar_t* module, const wchar_t* api, ks::winapi_monitor::EventCategory category,
         std::uint64_t requested, bool callbackExpected = false) noexcept;
-    void FinishIo(const IoToken& operation, bool accepted, bool pending, DWORD error, DWORD bytes) noexcept;
+    void FinishIo(const IoToken& operation, bool accepted, bool pending, DWORD error, DWORD bytes, bool bytesKnown = true) noexcept;
     void AbortIo(const IoToken& operation) noexcept;
     void CompleteIo(const IoToken& operation, DWORD error, DWORD bytes) noexcept;
     void ObserveIoResult(std::uintptr_t resource, LPOVERLAPPED overlapped, bool completed,
-        DWORD error, DWORD bytes) noexcept;
+        DWORD error, DWORD bytes, bool bytesKnown = true) noexcept;
     void ObservePortCompletion(HANDLE port, LPOVERLAPPED overlapped, DWORD error, DWORD bytes,
         ULONG_PTR completionKey = 0) noexcept;
     void ObserveIoCancellation(std::uintptr_t resource, LPOVERLAPPED overlapped, DWORD error,

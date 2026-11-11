@@ -34,13 +34,14 @@
       "^DELETE_PIDDB$",
       "^HWID_DISPATCH_CONTROL$",
       "^SET_PROCESS_VISIBILITY$",
+      "^COPY_PROCESS_TOKEN$",
       "^WINDOW_BAND$"
     ],
     "patternWaivers": {},
     "gapBudget": {
-      "no-cli-path": 21
+      "no-cli-path": 15
     },
-    "gapBudgetRationale": "2026-10-05 为 GUI 新增 CLOSE_HANDLE 单项缺口（20→21）；该动作需要专属远程句柄、进程创建时间与对象身份 fixture，现有 CLI harness 无关闭入口，不将任意机器句柄纳入测试。",
+    "gapBudgetRationale": "CLI 已新增句柄关闭、文件 IRP、热键变更、流量控制和 PFN 查询入口；有副作用或需要驻留页的功能仍须专用对象夹具，不对机器现有对象执行。",
     "targetGuards": {
       "harness-owned-process": "命令里的 PID 必须等于本次运行 spawn 的一次性目标进程。",
       "harness-owned-path": "命令里的路径必须位于本次运行的临时目录。",
@@ -80,6 +81,19 @@
     "mutation.transactionId": "guarded：上一步 mutation prepare 返回的事务 ID。"
   },
   "cases": [
+    {
+      "id": "module.r0-snapshots",
+      "tier": "probe",
+      "ioctls": ["ENUM_MODULES"],
+      "steps": [
+        ["r0", "kernel-modules", "--max-rows", "16"],
+        ["r0", "process-modules", "--pid", "{target.pid}", "--max-rows", "16"]
+      ],
+      "expect": "graceful",
+      "timeoutSeconds": 120,
+      "requires": ["target.pid"],
+      "notes": "只读内核模块快照与测试子进程 MEM_IMAGE 映射；非 loader/VAD 交叉视图。"
+    },
     {
       "id": "selftest.ioctl-registry",
       "tier": "probe",
@@ -445,6 +459,16 @@
         "target.pid",
         "target.tid"
       ]
+    },
+    {
+      "id": "thread.r0-identity",
+      "tier": "probe",
+      "ioctls": ["CONTROL_THREAD_VERIFIED"],
+      "steps": [["thread", "r0", "identity", "--pid", "{target.pid}", "--tid", "{target.tid}", "--json"]],
+      "expect": "graceful",
+      "timeoutSeconds": 120,
+      "requires": ["target.pid", "target.tid"],
+      "notes": "只读 identity action；挂起、恢复和终止仅在专属测试线程上单独验收。"
     },
     {
       "id": "thread.runtime-fields",
@@ -2966,6 +2990,11 @@
       "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
     },
     {
+      "ioctl": "COPY_PROCESS_TOKEN",
+      "reason": "primary-token-replacement",
+      "detail": "替换现存进程的主令牌会改变其安全主体、访问检查、会话/完整性上下文和后续行为；通用 CI 不执行该安全敏感副作用。仅在隔离 VM 中对自建目标进程人工验收，并记录目标存活与崩溃证据。"
+    },
+    {
       "ioctl": "ANSWER_CALLBACK_EVENT",
       "reason": "requires-live-event",
       "detail": "需要真实挂起的回调决策事件；CI 不下发会拦截系统行为的规则，因此无法安全构造。"
@@ -3062,8 +3091,8 @@
     },
     {
       "ioctl": "FILE_IRP_SUBMIT",
-      "reason": "no-cli-path",
-      "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+      "reason": "requires-owned-file-irp-fixture",
+      "detail": "通用 IRP 可能改变文件或设备状态，实测仅使用专属临时文件及受限操作。"
     },
     {
       "ioctl": "FORCE_UNLOAD_DRIVER",
@@ -3132,8 +3161,8 @@
     },
     {
       "ioctl": "MUTATE_KEYBOARD_HOTKEY",
-      "reason": "no-cli-path",
-      "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+      "reason": "requires-owned-session-hotkey-fixture",
+      "detail": "热键清除仅针对专属交互会话中的自建注册和已验证身份执行。"
     },
     {
       "ioctl": "WINDOW_BAND",
@@ -3142,8 +3171,8 @@
     },
     {
       "ioctl": "NETWORK_CONTROL_TRAFFIC_CAPTURE",
-      "reason": "no-cli-path",
-      "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+      "reason": "changes-shared-capture-state",
+      "detail": "启停捕获改变共享驱动状态，停止还会清空环；仅在隔离来宾验证并恢复原状态。"
     },
     {
       "ioctl": "NETWORK_CONTROL_MANAGED_POLICY",
@@ -3287,13 +3316,13 @@
     },
     {
       "ioctl": "QUERY_PFN_BATCH",
-      "reason": "no-cli-path",
-      "detail": "PFN 只读范围、身份与归属查询；GUI 客户端支持，CLI 尚无协议入口，属于覆盖缺口。"
+      "reason": "requires-pfn-fixture",
+      "detail": "PFN 查询已接入 CLI；需要专门的已知页及系统权限夹具验证返回身份和范围。"
     },
     {
       "ioctl": "QUERY_PFN_MAPPINGS",
-      "reason": "no-cli-path",
-      "detail": "有界工作集 VA 到 PFN 只读映射；GUI 客户端支持，CLI 尚无协议入口，属于覆盖缺口。"
+      "reason": "requires-resident-page-fixture",
+      "detail": "需要一次性进程的真实创建时间及已触碰的驻留用户地址，通用 harness 尚未提供。"
     },
     {
       "ioctl": "WRITE_PHYSICAL_MEMORY",
@@ -3317,8 +3346,13 @@
     },
     {
       "ioctl": "CLOSE_HANDLE",
-      "reason": "no-cli-path",
-      "detail": "GUI 逐行远程句柄关闭，临时挂起目标并校验创建时间/对象身份；CLI 无入口，实机测试只能使用专属临时进程与句柄。"
+      "reason": "requires-owned-handle-fixture",
+      "detail": "CLI 已提供身份校验关闭；实机测试仅使用自建进程及专属句柄。"
+    },
+    {
+      "ioctl": "READ_VIRTUAL_MEMORY_VERIFIED",
+      "reason": "requires-owned-identity-fixture",
+      "detail": "身份校验读取需要专属进程的真实创建时间和已知可读地址；旧驱动不回退。"
     },
     {
       "ioctl": "WRITE_VIRTUAL_MEMORY",

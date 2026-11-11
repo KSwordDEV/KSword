@@ -757,6 +757,8 @@
     <ClCompile Include="UI\UiCommitCoordinator.cpp" />
     <ClCompile Include="UI\AsyncOperation.cpp" />
     <ClCompile Include="UI\WindowPickerButton.cpp" />
+    <ClCompile Include="UI\WindowTargetPicker.cpp" />
+    <ClInclude Include="UI\WindowTargetPicker.h" />
     <ClCompile Include="UI\TableSearchSupport.cpp" />
     <ClCompile Include="UI\TextSearchReplaceSupport.cpp" />
     <ClCompile Include="UI\TableSnapshotCompare.cpp" />
@@ -766,11 +768,14 @@
     <ClCompile Include="MonitorDock\WinAPIDock.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Actions.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Pipe.cpp" />
+    <ClCompile Include="MonitorDock\WinAPIEventTimeline.cpp" />
+    <ClCompile Include="MonitorDock\WinAPIEventTableModel.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.Ui.cpp" />
     <ClCompile Include="WindowDock\WindowDock.cpp" />
     <ClCompile Include="WindowDock\WindowEventHookTab.cpp" />
     <ClCompile Include="WindowDock\WindowGlobalHotkeyTab.cpp" />
     <ClCompile Include="WindowDock\WindowGuiHandleTab.cpp" />
+    <ClCompile Include="WindowDock\WindowFailureLog.cpp" />
     <ClCompile Include="WindowDock\WindowTimerTab.cpp" />
     <ClCompile Include="ksword\log\log.cpp">
       <ObjectFileName>$(IntDir)ksword_log.obj</ObjectFileName>
@@ -829,6 +834,7 @@
     <ClCompile Include="ArkDriverClient\ArkRuntimeDynData.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCapabilities.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcessProtect.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverClipboardPolicy.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverWorkQueue.cpp" />
@@ -888,6 +894,7 @@
     <ClInclude Include="UI\CompleteExport.h" />
     <ClInclude Include="MonitorDock\ProcessTraceEventMetadata.h" />
     <ClInclude Include="WindowDock\WindowSnapshotSupport.h" />
+    <ClInclude Include="WindowDock\WindowFailureLog.h" />
     <ClInclude Include="MonitorDock\WmiEventArchive.h" />
     <ClInclude Include="..\..\shared\evidence\memory_workbench\MemoryWriteOperation.h" />
     <ClInclude Include="UI\BudgetedPlainTextTransfer.h" />
@@ -1420,7 +1427,18 @@
     <ClInclude Include="ProcessDock\ProcessHotkeyEnumerator.h" />
     <ClInclude Include="ProcessDock\HotkeyClearController.h" />
     <ClInclude Include="UI\UI.css\UI_css.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventColumns.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventTimeline.h" />
+    <ClInclude Include="MonitorDock\WinAPITimelineDensity.h" />
+    <ClInclude Include="MonitorDock\WinAPISignatureCatalog.h" />
+    <ClInclude Include="MonitorDock\WinAPICallerSnapshotAdapter.h" />
+    <ClInclude Include="MonitorDock\WinAPIStackSnapshotAdapter.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorStackSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorExportSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorCallerSnapshot.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorDrain.h" />
     <ClInclude Include="MonitorDock\WinAPIEventArchive.h" />
+    <ClInclude Include="MonitorDock\WinAPIEventTableModel.h" />
     <ClInclude Include="MonitorDock\WinAPISessionBackend.h" />
     <ClInclude Include="MonitorDock\WinAPIDock.h" />
     <ClInclude Include="MonitorDock\WinApiMonitorProtocol.h" />
@@ -1798,6 +1816,7 @@
     </ProjectReference>
     <ClInclude Include="..\..\shared\ApiMonitorPlatform.h" />
     <ClInclude Include="..\..\shared\ApiMonitorInjection.h" />
+    <ClInclude Include="..\..\shared\ApiMonitorR0Injection.h" />
   </ItemGroup>
   <ItemGroup><ClInclude Include="..\..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
   <ItemGroup>
@@ -1918,4 +1937,10 @@
     <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedRead.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedWrite.cpp" />
   </ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIDiskArchive.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterDecode.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterRules.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterEditor.h" /><ClCompile Include="MonitorDock\WinAPIParameterEditor.cpp" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterRules.h" /></ItemGroup>
+<ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterCatalog.h" /></ItemGroup>
 </Project>

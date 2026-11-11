@@ -45,10 +45,11 @@ Value value(const backend::ProcessDetailEvidence& evidence, Id id) {
     case Id::Status: return {r.processStateKnown, Json::string(r.processSuspended ? L"suspended" : L"running")};
     case Id::Signature: {
         const auto s = r.signatureTrustStatus;
-        const bool known = r.signatureEvaluated && (s == ERROR_SUCCESS || s == TRUST_E_NOSIGNATURE || s == CERT_E_EXPIRED ||
+        const bool known = r.signatureEvaluated && (s == ERROR_SUCCESS || s == CERT_E_EXPIRED ||
             s == TRUST_E_BAD_DIGEST || s == CERT_E_UNTRUSTEDROOT || s == CERT_E_CHAINING || s == TRUST_E_EXPLICIT_DISTRUST || s == TRUST_E_SUBJECT_NOT_TRUSTED);
         return {known, Json::object({{L"trusted", Json::boolean(r.signatureTrusted)}, {L"publisher", text(r.signaturePublisher)},
-            {L"display", text(r.signatureState)}}), r.signatureEvaluated ? Json::hex(static_cast<DWORD>(s)) : Json{}};
+            {L"display", text(r.signatureState)}, {L"source", Json::string(L"embedded WinVerifyTrust")},
+            {L"catalogChecked", Json::boolean(false)}, {L"revocationChecked", Json::boolean(false)}}), r.signatureEvaluated ? Json::hex(static_cast<DWORD>(s)) : Json{}};
     }
     case Id::PplLevel: return {r.protectionLevelKnown, Json::hex(r.protectionLevel)};
     case Id::PackageName: return {r.packageNameKnown, text(r.packageFullName)};
@@ -117,9 +118,12 @@ Result query(const Args& args) {
         const auto observed = evidence ? value(*evidence, f->id) : Value{};
         if (observed.available) ++available;
         const auto displayed = snapshot.rows.front().detailTexts.find(static_cast<std::uint8_t>(f->id));
+        const bool embeddedMissing = f->id == Id::Signature && evidence && evidence->record.signatureEvaluated &&
+            evidence->record.signatureTrustStatus == TRUST_E_NOSIGNATURE;
         rows.push_back(Json::object({{L"name", Json::string(f->name)}, {L"available", Json::boolean(observed.available)},
             {L"value", observed.available ? observed.data : Json{}}, {L"nativeStatus", observed.nativeStatus},
-            {L"display", displayed == snapshot.rows.front().detailTexts.end() ? Json{} : Json::string(displayed->second)}}));
+            {L"display", embeddedMissing ? Json::string(L"No embedded signature; catalog trust not checked") :
+                displayed == snapshot.rows.front().detailTexts.end() ? Json{} : Json::string(displayed->second)}}));
     }
     return {available == selection.size() ? 0 : available ? 6 : 5, Json::object({{L"target", lease.json()},
         {L"source", Json::string(L"shared R3 process enrichment")}, {L"requestedCount", Json::number(static_cast<std::uint32_t>(selection.size()))},
@@ -136,6 +140,6 @@ void registerProcessFields() {
         }});
     addCommand({L"process detail fields query", L"KswordCLI.exe process detail fields query --pid PID [--creation-time FILETIME] [--fields NAME[,NAME...]|all] [--backend r3] [--json]",
         L"Read selected extended fields with independent availability and typed values.", L"Required: --pid. Optional: --creation-time expected identity, --fields (use fields list), --backend r3, --json.",
-        L"Fields: target PID/creationTime, availableCount, fields with available/value/nativeStatus/display. Retains an identity handle until completion. Unknown fields are null; partial availability returns 6, none returns 5. A single PDH query can be warming up; display text never determines success.", query});
+        L"Fields: target PID/creationTime, availableCount, fields with available/value/nativeStatus/display. Retains an identity handle until completion. Unknown fields are null; partial availability returns 6, none returns 5. Signature uses embedded WinVerifyTrust without catalog or revocation checks; no embedded signature leaves overall trust unavailable. A single PDH query can be warming up; display text never determines success.", query});
 }
 }

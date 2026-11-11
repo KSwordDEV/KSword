@@ -1,0 +1,122 @@
+{
+  "total_files": 221,
+  "counts": {
+    "pe_read": 221,
+    "matched": 216,
+    "match": 4671,
+    "candidate_unavailable": 920,
+    "reference_missing": 20,
+    "both_missing": 5,
+    "no_unique_profile": 5
+  },
+  "fields": {
+    "EpUniqueProcessId": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpImageFileName": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpCreateTime": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpExitStatus": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpPeb": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpWin32Process": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpWow64Process": {
+      "candidate_unavailable": 215,
+      "both_missing": 1
+    },
+    "EpInheritedFromUniqueProcessId": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpSectionBaseAddress": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpJob": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpDebugPort": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpPriorityClass": {
+      "candidate_unavailable": 215,
+      "both_missing": 1
+    },
+    "EpActiveThreads": {
+      "candidate_unavailable": 58,
+      "both_missing": 1,
+      "match": 157
+    },
+    "EpWin32WindowStation": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpSecurityPort": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "KtProcess": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EtStartAddress": {
+      "candidate_unavailable": 215,
+      "both_missing": 1
+    },
+    "EtWin32StartAddress": {
+      "candidate_unavailable": 215,
+      "both_missing": 1
+    },
+    "EtCid": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "KtInitialStack": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "KtStackLimit": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "KtStackBase": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpProtection": {
+      "match": 215,
+      "reference_missing": 1
+    },
+    "EpSignatureLevel": {
+      "match": 214,
+      "reference_missing": 1,
+      "candidate_unavailable": 1
+    },
+    "EpSectionSignatureLevel": {
+      "match": 214,
+      "reference_missing": 1,
+      "candidate_unavailable": 1
+    },
+    "PsLoadedModuleList": {
+      "match": 216
+    }
+  },
+  "mismatch_examples": {},
+  "seconds": 100.53199999999924
+}

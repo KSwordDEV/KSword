@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+struct INetFwRule;
 namespace ks::r3::network {
 struct FirewallRuleEntry {
     std::wstring name;
@@ -15,6 +16,7 @@ struct FirewallRuleEntry {
     std::wstring localAddresses;
     std::wstring remoteAddresses;
     std::wstring interfaceTypes;
+    std::wstring icmpTypesAndCodes;
     std::int32_t direction = 0;   // NET_FW_RULE_DIR_*
     std::int32_t action = 0;      // NET_FW_ACTION_*
     std::int32_t protocol = 0;    // IANA protocol number, 256 for "any".
@@ -33,4 +35,6 @@ struct FirewallEnumerationResult {
     std::uint32_t hresult = 0, profileKnownFlags = 0, profileEnabledFlags = 0;
 };
 FirewallEnumerationResult EnumerateFirewallRules();
+// Reads the same field projection used by enumeration from one live COM rule.
+bool ReadFirewallRule(INetFwRule* rule, FirewallRuleEntry& entry);
 }

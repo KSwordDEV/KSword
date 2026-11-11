@@ -359,11 +359,12 @@ Return Value:
         KswordARKNetworkNsiCopyAddress(row->localAddress, localAddress, addressFamily);
 
         if (TcpTable) {
-            const UCHAR* dynamicBytes = (const UCHAR*)dynamicTable + ((SIZE_T)index * dynamicSize);
             const KSWORD_ARK_NSI_TCP_STATIC* staticRow =
                 (const KSWORD_ARK_NSI_TCP_STATIC*)((const UCHAR*)staticTable +
                     ((SIZE_T)index * staticSize));
-            RtlCopyMemory(&row->state, dynamicBytes, sizeof(row->state));
+            /* NSI may accept a size that does not describe its actual stride.
+             * Until calibrated, do not publish an unverified TCP state. */
+            row->state = KSWORD_ARK_NETWORK_TCP_STATE_UNKNOWN;
             row->owningPid = staticRow->ProcessId;
             row->remotePort = KswordARKNetworkNsiHostPort(remoteAddress);
             KswordARKNetworkNsiCopyAddress(row->remoteAddress, remoteAddress, addressFamily);

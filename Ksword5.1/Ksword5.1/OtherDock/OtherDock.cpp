@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/TableContextMenu.h"
+#include "../UI/WindowTargetPicker.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/AsyncOperation.h"
@@ -412,115 +413,6 @@ namespace
     constexpr int kWindowColumnTopMost = 10;
     constexpr int kWindowColumnState = 11;
     constexpr int kWindowColumnAlpha = 12;
-
-    // WindowPickerDragButton：
-    // - 作用：在左键按下后抓取鼠标，实现“按住准星拖拽并在任意位置松开”交互；
-    // - 调用：由 OtherDock::initializeUi 创建，并通过 setReleaseCallback 绑定释放回调；
-    // - 传入：releaseCallback 接收全局坐标；
-    // - 传出：无，回调由外部处理具体窗口拾取与详情弹窗。
-    class WindowPickerDragButton final : public QPushButton
-    {
-    public:
-        using ReleaseCallback = std::function<void(const QPoint&)>;
-
-        explicit WindowPickerDragButton(QWidget* parent = nullptr)
-            : QPushButton(parent)
-        {
-            // setMouseTracking(true) 作用：在拖拽过程中即使不按键变化也持续接收移动事件。
-            setMouseTracking(true);
-        }
-
-        // setReleaseCallback：
-        // - 作用：注册鼠标释放回调；
-        // - 调用：OtherDock 初始化 UI 时绑定；
-        // - 传入 callback：释放时接收全局坐标的函数对象；
-        // - 传出：无。
-        void setReleaseCallback(ReleaseCallback callback)
-        {
-            m_releaseCallback = std::move(callback);
-        }
-
-    protected:
-        void mousePressEvent(QMouseEvent* event) override
-        {
-            if (event != nullptr && event->button() == Qt::LeftButton)
-            {
-                // m_dragTracking 用于标记当前是否处于“准星拖拽拾取”过程。
-                m_dragTracking = true;
-                // m_pressGlobalPos 用于记录拖拽起点，配合阈值区分“点击”和“拖拽”。
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                m_pressGlobalPos = event->globalPosition().toPoint();
-#else
-                m_pressGlobalPos = event->globalPos();
-#endif
-                m_hasReachedDragThreshold = false;
-                // grabMouse + CrossCursor 组合用于把拖拽过程视觉与输入统一到本按钮。
-                grabMouse(QCursor(Qt::CrossCursor));
-            }
-            QPushButton::mousePressEvent(event);
-        }
-
-        void mouseMoveEvent(QMouseEvent* event) override
-        {
-            if (m_dragTracking && event != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                const QPoint currentGlobalPos = event->globalPosition().toPoint();
-#else
-                const QPoint currentGlobalPos = event->globalPos();
-#endif
-                const int moveDistance = (currentGlobalPos - m_pressGlobalPos).manhattanLength();
-                // m_hasReachedDragThreshold 用于避免“单击按钮”误触发窗口拾取。
-                if (moveDistance >= QApplication::startDragDistance())
-                {
-                    m_hasReachedDragThreshold = true;
-                }
-            }
-            QPushButton::mouseMoveEvent(event);
-        }
-
-        void mouseReleaseEvent(QMouseEvent* event) override
-        {
-            // shouldDispatch 用于确保仅在左键拖拽链路结束时触发窗口拾取回调。
-            const bool shouldDispatch =
-                m_dragTracking
-                && m_hasReachedDragThreshold
-                && event != nullptr
-                && event->button() == Qt::LeftButton;
-
-            if (m_dragTracking)
-            {
-                // releaseMouse 作用：结束全局鼠标抓取，避免后续输入被错误劫持。
-                releaseMouse();
-                m_dragTracking = false;
-            }
-            m_hasReachedDragThreshold = false;
-
-            QPoint releaseGlobalPos;
-            if (event != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                // releaseGlobalPos 用于记录松开鼠标时的屏幕坐标，后续据此 WindowFromPoint。
-                releaseGlobalPos = event->globalPosition().toPoint();
-#else
-                releaseGlobalPos = event->globalPos();
-#endif
-            }
-
-            QPushButton::mouseReleaseEvent(event);
-
-            if (shouldDispatch && m_releaseCallback)
-            {
-                m_releaseCallback(releaseGlobalPos);
-            }
-        }
-
-    private:
-        bool m_dragTracking = false;          // m_dragTracking：记录当前是否在拖拽拾取链路中。
-        bool m_hasReachedDragThreshold = false; // m_hasReachedDragThreshold：拖拽距离是否达到最小阈值。
-        QPoint m_pressGlobalPos;              // m_pressGlobalPos：记录左键按下时的屏幕坐标。
-        ReleaseCallback m_releaseCallback;    // m_releaseCallback：鼠标释放时回调到 OtherDock。
-    };
 
     // queryProcessImagePathByPid：
     // - 通过 PID 查询可执行文件完整路径；
@@ -1458,6 +1350,7 @@ namespace ks::windowlist
             if (role == Qt::UserRole + 2) return value.processId;
             if (role == Qt::UserRole + 3) return value.threadId;
             if (role == Qt::UserRole + 4) return QVariant::fromValue<qulonglong>(value.processCreationTime100ns);
+            if (role == Qt::UserRole + 5) return node->key;
             if (!node->group && role == Qt::ForegroundRole && !value.valid) return QBrush(KswordTheme::ExitedRowForegroundColor());
             if (!node->group && role == Qt::BackgroundRole)
             {
@@ -3920,12 +3813,13 @@ void OtherDock::initializeUi()
     m_windowListToolLayout->setContentsMargins(0, 0, 0, 0);
     m_windowListToolLayout->setSpacing(6);
 
-    auto* pickerButton = new WindowPickerDragButton(m_windowListToolWidget);
+    auto* pickerButton = new ks::ui::WindowTargetPickerButton(m_windowListToolWidget);
     m_windowPickerButton = pickerButton;
     m_windowPickerButton->setIcon(QIcon(":/Icon/window_picker_target.svg"));
-    m_windowPickerButton->setToolTip(QStringLiteral("按住并拖拽准星，松开后打开鼠标下方窗口的详细信息"));
-    m_windowPickerButton->setStyleSheet(blueButtonStyle());
-    m_windowPickerButton->setFixedWidth(32);
+    m_windowPickerButton->setToolTip(QStringLiteral("拖拽准星定位窗口；按住 Ctrl 松开可预览并选择该位置的窗口"));
+    ks::ui::ApplyFlatButtonTheme(m_windowPickerButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    KswordTheme::ApplyCompactIconButtonMetrics(m_windowPickerButton);
 
     m_protectCaptureButton = new QPushButton(QIcon(":/Icon/titlebar_capture_protected.svg"), QString(), m_windowListToolWidget);
     m_protectCaptureButton->setToolTip(QStringLiteral("对选中窗口启用防截图保护：优先从截图/录屏中隐藏，失败时回退黑屏"));
@@ -3938,12 +3832,12 @@ void OtherDock::initializeUi()
     m_unprotectCaptureButton->setFixedWidth(32);
 
     m_windowPickerHintLabel = new QLabel(
-        QStringLiteral("拖拽准星可定位窗口；Ctrl/Shift 多选后可通过右键菜单批量操作"),
+        QStringLiteral("拖拽准星定位窗口，Ctrl 松开预览选择；列表支持 Ctrl/Shift 多选"),
         m_windowListToolWidget);
     m_windowPickerHintLabel->setToolTip(QStringLiteral("防截图保护会对顶层窗口写入 DisplayAffinity，外部进程窗口会尝试远程调用"));
 
-    pickerButton->setReleaseCallback([this](const QPoint& globalPos) {
-        handleWindowPickerRelease(globalPos);
+    pickerButton->setPickCallback([this](quintptr hwndValue) {
+        handleWindowPicked(hwndValue);
     });
 
     m_windowListToolLayout->addWidget(m_windowPickerButton, 0);
@@ -3958,6 +3852,31 @@ void OtherDock::initializeUi()
         const auto windows = selectedWindowSnapshots();
         if (windows.size() == 1) openWindowDetailDialog(windows.front(), true);
     });
+    m_expandWindowsButton = new QPushButton(
+        QIcon(QStringLiteral(":/Icon/detail_node_expanded.svg")), QString(), m_windowListToolWidget);
+    m_expandWindowsButton->setObjectName(QStringLiteral("ks_window_list_expand_all"));
+    ks::i18n::LanguageManager::instance().bindToolTip(m_expandWindowsButton,
+        QStringLiteral("window.list.expand_all"), QStringLiteral("全部展开"));
+    ks::ui::ApplyFlatButtonTheme(m_expandWindowsButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    KswordTheme::ApplyCompactIconButtonMetrics(m_expandWindowsButton);
+    m_windowListToolLayout->addWidget(m_expandWindowsButton, 0);
+    connect(m_expandWindowsButton, &QPushButton::clicked, this, [this] {
+        if (m_windowTree) m_windowTree->expandAll();
+    });
+
+    m_collapseWindowsButton = new QPushButton(
+        QIcon(QStringLiteral(":/Icon/detail_node_collapsed.svg")), QString(), m_windowListToolWidget);
+    m_collapseWindowsButton->setObjectName(QStringLiteral("ks_window_list_collapse_all"));
+    ks::i18n::LanguageManager::instance().bindToolTip(m_collapseWindowsButton,
+        QStringLiteral("window.list.collapse_all"), QStringLiteral("全部折叠"));
+    ks::ui::ApplyFlatButtonTheme(m_collapseWindowsButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    KswordTheme::ApplyCompactIconButtonMetrics(m_collapseWindowsButton);
+    m_windowListToolLayout->addWidget(m_collapseWindowsButton, 0);
+    connect(m_collapseWindowsButton, &QPushButton::clicked, this, [this] {
+        if (m_windowTree) m_windowTree->collapseAll();
+    });
     m_windowListToolLayout->addWidget(m_windowPickerHintLabel, 0);
     m_windowListToolLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_windowListToolLayout);
@@ -3965,6 +3884,8 @@ void OtherDock::initializeUi()
 
     // 窗口列表页：左树右预览。
     m_mainSplitter = new QSplitter(Qt::Horizontal, m_windowListPage);
+    // 预览正文允许忽略尺寸提示，但外层分栏必须保留两侧可用空间。
+    m_mainSplitter->setChildrenCollapsible(false);
     m_windowListPageLayout->addWidget(m_mainSplitter, 1);
 
     m_windowTree = new QTreeView(m_mainSplitter);
@@ -3999,6 +3920,8 @@ void OtherDock::initializeUi()
     ks::window::configureWindowListColumnSizing(m_windowTree);
 
     m_previewWidget = new QWidget(m_mainSplitter);
+    // 搜索工具栏在窄列内换行；最小列宽不再依赖初始隐藏的缩略图。
+    m_previewWidget->setMinimumWidth(280);
     m_previewLayout = new QVBoxLayout(m_previewWidget);
     m_previewLayout->setContentsMargins(0, 0, 0, 0);
     m_previewLayout->setSpacing(6);
@@ -4028,6 +3951,8 @@ void OtherDock::initializeUi()
     // 默认把左侧窗口列表区域放宽，避免窗口标题被截断。
     m_mainSplitter->setStretchFactor(0, 4);
     m_mainSplitter->setStretchFactor(1, 1);
+    // 显式提供首次分配基准，避免右侧零尺寸提示使分栏初始宽度归零。
+    m_mainSplitter->setSizes({800, 280});
     m_navigationTabs.add(kWindowNavigation[0], m_contentTabWidget, m_windowListPage);
 
     // 桌面管理页：列出窗口站与桌面，并补充 SessionId / SID / 权限状态等上下文。
@@ -4644,14 +4569,16 @@ void OtherDock::updatePreviewPanel(const WindowInfo* info)
     {
         if (m_thumbnailLabel->margin() != 0) m_thumbnailLabel->setMargin(0);
         m_thumbnailLabel->show();
+        // previewHeight：沿用原有高度预算；固定纵向策略让布局实际为图片预留空间。
+        // Ignored 会让后续字段工具栏按零高度图片排布，覆盖仍有最小高度的 QLabel。
         const int previewHeight = std::clamp(m_previewWidget->height() / 3, 120, 220);
-        if (m_thumbnailLabel->minimumHeight() != previewHeight || m_thumbnailLabel->maximumHeight() != 220)
+        if (m_thumbnailLabel->minimumHeight() != previewHeight ||
+            m_thumbnailLabel->maximumHeight() != previewHeight)
         {
-            m_thumbnailLabel->setMaximumHeight(220);
-            m_thumbnailLabel->setMinimumHeight(previewHeight);
+            m_thumbnailLabel->setFixedHeight(previewHeight);
         }
-        if (m_thumbnailLabel->sizePolicy().verticalPolicy() != QSizePolicy::Ignored)
-            m_thumbnailLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        if (m_thumbnailLabel->sizePolicy().verticalPolicy() != QSizePolicy::Fixed)
+            m_thumbnailLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         if (!m_thumbnailLabel->text().isEmpty()) m_thumbnailLabel->setText(QString());
         m_previewLayout->activate();
         const QSize targetSize = m_thumbnailLabel->contentsRect().size();
@@ -4746,23 +4673,10 @@ void OtherDock::updatePreviewPanel(const WindowInfo* info)
         << eol;
 }
 
-void OtherDock::handleWindowPickerRelease(const QPoint& globalPos)
+void OtherDock::handleWindowPicked(quintptr hwndValue)
 {
-    // 拾取链路统一复用 pickEvent，保证从“拖拽释放”到“打开详情”全程可追踪。
     kLogEvent pickEvent;
-    info << pickEvent
-        << "[OtherDock] 准星拾取释放, x="
-        << globalPos.x()
-        << ", y="
-        << globalPos.y()
-        << eol;
-
-    POINT nativePoint{};
-    nativePoint.x = globalPos.x();
-    nativePoint.y = globalPos.y();
-
-    // rawWindowHandle 直接对应鼠标下最细粒度窗口；rootWindowHandle 作为顶级窗口回退。
-    HWND rawWindowHandle = ::WindowFromPoint(nativePoint);
+    HWND rawWindowHandle = reinterpret_cast<HWND>(hwndValue);
     HWND rootWindowHandle = rawWindowHandle != nullptr ? ::GetAncestor(rawWindowHandle, GA_ROOT) : nullptr;
     HWND targetWindowHandle = rawWindowHandle != nullptr ? rawWindowHandle : rootWindowHandle;
 

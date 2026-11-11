@@ -76,9 +76,11 @@ def main():
                  'shared/usermode/backend/process/ThreadActions.cpp','shared/usermode/backend/Common.cpp']
         subprocess.run(['cl','/nologo','/std:c++20','/EHsc','/utf-8','/O2','/DNOMINMAX','/DUNICODE','/D_UNICODE',
                         str(directory/'fixture.cpp'),*[str(ROOT/path) for path in sources],'/Fe:'+str(binary),'/link','Advapi32.lib','Psapi.lib'],cwd=directory,check=True)
-        def run(mode,verb,code):
+        def run(mode,verb,code,limit=None,name=None):
             args=[str(binary),mode,'process','module',verb,'--pid','self']
             if verb=='unload':args+=['--base','self','--confirm']
+            if limit is not None:args+=['--limit',str(limit)]
+            if name is not None:args+=['--name',name]
             result=subprocess.run(args+['--json'],capture_output=True,timeout=15)
             assert result.returncode==code,(result.returncode,result.stdout,result.stderr)
             return json.loads(result.stdout)['data']
@@ -88,12 +90,18 @@ def main():
         growth=run('growth','enum',6)
         assert not growth['enumeration']['complete'] and growth['enumeration']['win32Error']==234 and growth['returnedCount']==259
         assert all(row['base'] for row in growth['modules'])
+        limited_growth=run('growth','enum',6,limit=1)
+        assert not limited_growth['complete'] and limited_growth['displayTruncated'] and limited_growth['returnedCount']==1
+        limited=run('normal','enum',0,limit=1)
+        assert limited['complete'] and limited['displayTruncated'] and limited['matchedCount']>1
         for mode in ('info-denied','path-denied','path-truncated'):
             rows=run(mode,'enum',6)['modules']
             assert rows
             for row in rows:
                 if mode=='info-denied':assert row['base'] is None and row['imageSize'] is None and row['infoEvidence']['win32Error']==5
                 else:assert row['path'] is None and row['name'] is None and row['pathEvidence']['win32Error']==(5 if mode=='path-denied' else 234)
+        missing_filter=run('path-denied','enum',6,name='fixture.exe')
+        assert not missing_filter['complete'] and missing_filter['matchedCount']==0
         failed=run('remote-denied','unload',3)
         assert not failed['remoteThreadCreated'] and not failed['requestSucceeded'] and failed['win32Error']==5
         zero=run('free-zero','unload',3)

@@ -13,6 +13,7 @@
 #include <softpub.h>
 #include <wincrypt.h>
 #include <wintrust.h>
+#include <mscat.h>
 #pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "Wintrust.lib")
 namespace ks::r3::file {
@@ -158,6 +159,97 @@ SignatureResult ReadEmbeddedSignature(const std::wstring& path) {
         return result;
     }
     result.message = L"数字签名验证失败，状态 0x" + HexText(static_cast<std::uint32_t>(status));
+    return result;
+}
+
+CatalogSignatureResult ReadCatalogSignature(const std::wstring& path) {
+    CatalogSignatureResult result;
+    HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) { result.errorCode = ::GetLastError(); return result; }
+    bool complete = true;
+    for (const auto* algorithm : {L"SHA256", L"SHA1"}) {
+        HCATADMIN admin = nullptr;
+        GUID subsystem = DRIVER_ACTION_VERIFY;
+        if (!::CryptCATAdminAcquireContext2(&admin, &subsystem, algorithm, nullptr, 0)) {
+            if (!result.errorCode) result.errorCode = ::GetLastError();
+            complete = false;
+            continue;
+        }
+        DWORD bytes = 0;
+        LARGE_INTEGER start{};
+        const bool positioned = ::SetFilePointerEx(file, start, nullptr, FILE_BEGIN) != FALSE;
+        const bool sized = positioned && ::CryptCATAdminCalcHashFromFileHandle2(admin, file, &bytes, nullptr, 0) != FALSE;
+        if (!sized || bytes == 0 || bytes > 1024) {
+            if (!result.errorCode) result.errorCode = sized ? ERROR_INVALID_DATA : ::GetLastError();
+            complete = false;
+            ::CryptCATAdminReleaseContext(admin, 0);
+            continue;
+        }
+        std::vector<BYTE> hash(bytes);
+        if (!::SetFilePointerEx(file, start, nullptr, FILE_BEGIN) ||
+            !::CryptCATAdminCalcHashFromFileHandle2(admin, file, &bytes, hash.data(), 0) || !bytes || bytes > hash.size()) {
+            if (!result.errorCode) result.errorCode = ::GetLastError();
+            complete = false;
+            ::CryptCATAdminReleaseContext(admin, 0);
+            continue;
+        }
+        hash.resize(bytes);
+        std::wstring tag;
+        static constexpr wchar_t digits[] = L"0123456789ABCDEF";
+        for (BYTE value : hash) { tag.push_back(digits[value >> 4]); tag.push_back(digits[value & 15]); }
+        HCATINFO previous = nullptr;
+        for (;;) {
+            ::SetLastError(ERROR_SUCCESS);
+            HCATINFO current = ::CryptCATAdminEnumCatalogFromHash(admin, hash.data(), bytes, 0, &previous);
+            if (!current) {
+                const DWORD error = ::GetLastError();
+                if (error != ERROR_SUCCESS && error != ERROR_NOT_FOUND && error != static_cast<DWORD>(CRYPT_E_NOT_FOUND)) {
+                    if (!result.errorCode) result.errorCode = error;
+                    complete = false;
+                }
+                break;
+            }
+            previous = current;
+            if (++result.catalogsExamined > 64) {
+                ::CryptCATAdminReleaseCatalogContext(admin, current, 0);
+                if (!result.errorCode) result.errorCode = ERROR_MORE_DATA;
+                complete = false;
+                break;
+            }
+            CATALOG_INFO info{}; info.cbStruct = sizeof(info);
+            if (!::CryptCATCatalogInfoFromContext(current, &info, 0)) {
+                if (!result.errorCode) result.errorCode = ::GetLastError();
+                complete = false;
+                continue;
+            }
+            WINTRUST_CATALOG_INFO catalog{};
+            catalog.cbStruct = sizeof(catalog); catalog.pcwszCatalogFilePath = info.wszCatalogFile;
+            catalog.pcwszMemberTag = tag.c_str(); catalog.pcwszMemberFilePath = path.c_str();
+            catalog.hMemberFile = file; catalog.pbCalculatedFileHash = hash.data();
+            catalog.cbCalculatedFileHash = bytes; catalog.hCatAdmin = admin;
+            WINTRUST_DATA trust{};
+            trust.cbStruct = sizeof(trust); trust.dwUIChoice = WTD_UI_NONE; trust.fdwRevocationChecks = WTD_REVOKE_NONE;
+            trust.dwUnionChoice = WTD_CHOICE_CATALOG; trust.pCatalog = &catalog;
+            trust.dwStateAction = WTD_STATEACTION_VERIFY; trust.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL;
+            GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            const LONG status = ::WinVerifyTrust(nullptr, &policy, &trust);
+            trust.dwStateAction = WTD_STATEACTION_CLOSE;
+            (void)::WinVerifyTrust(nullptr, &policy, &trust);
+            result.evaluated = true; result.trustStatus = status;
+            result.catalogPath = info.wszCatalogFile; result.hashAlgorithm = algorithm;
+            result.candidates.push_back({status, info.wszCatalogFile, algorithm});
+            if (status == ERROR_SUCCESS) {
+                result.trusted = true;
+                ::CryptCATAdminReleaseCatalogContext(admin, current, 0);
+                break;
+            }
+        }
+        ::CryptCATAdminReleaseContext(admin, 0);
+        if (result.trusted) break;
+    }
+    ::CloseHandle(file);
+    result.complete = complete && !result.trusted;
     return result;
 }
 }

@@ -20,12 +20,14 @@ bool NtApi::available()const{return mode!=L"missing";}
 LONG NtApi::querySystemInformation(SystemInformationClass,void* buffer,ULONG size,ULONG* returned)const{
  ++ntCalls;if(mode==L"positive")return 258;if(mode==L"denied")return static_cast<LONG>(0xC0000022);
  if(mode==L"budget"){*returned=0xffffffff;return static_cast<LONG>(0xC0000004);}
- auto* m=static_cast<b::KRTL_PROCESS_MODULES*>(buffer);m->NumberOfModules=mode==L"empty"?0:1;
+ auto* m=static_cast<b::KRTL_PROCESS_MODULES*>(buffer);m->NumberOfModules=mode==L"empty"?0:mode==L"two"||mode==L"two-redacted"?2:1;
  *returned=static_cast<ULONG>(offsetof(b::KRTL_PROCESS_MODULES,Modules)+m->NumberOfModules*sizeof(b::KRTL_PROCESS_MODULE_INFORMATION));
  if(mode==L"bad-count"){m->NumberOfModules=0xffffffff;return 0;}
  if(mode==L"bad-length"){*returned=size+1;return 0;}
  if(m->NumberOfModules){auto& r=m->Modules[0];r.ImageBase=reinterpret_cast<PVOID>(mode==L"redacted"?0:mode==L"overflow"?0xfffffffffffffff0:0xffff800012340000);
  r.ImageSize=4096;const char* path="C:\\FixtureDriver.sys";memcpy(r.FullPathName,path,strlen(path)+1);}
+ if(m->NumberOfModules==2){auto& r=m->Modules[1];r.ImageBase=reinterpret_cast<PVOID>(mode==L"two-redacted"?0:0xffff800012350000);
+ r.ImageSize=4096;const char* path="C:\\SecondDriver.sys";memcpy(r.FullPathName,path,strlen(path)+1);}
  return 0;
 }
 }
@@ -77,6 +79,8 @@ def main():
             assert result.returncode==code,(mode,result.returncode,result.stdout,result.stderr)
             return json.loads(result.stdout)['data']
         assert run('valid',0)['modules'][0]['imageSize']=='4096'
+        limited=run('two',0,limit='1');assert limited['complete'] and limited['displayTruncated'] and limited['truncated'] and limited['matchedCount']=='2'
+        limited_partial=run('two-redacted',6,limit='1');assert not limited_partial['complete'] and limited_partial['displayTruncated']
         assert run('empty',0)['enumeratedCount']=='0'
         assert run('redacted',6)['modules'][0]['baseAddress'] is None
         assert run('bad-count',4,source='auto')['sources'][0]['malformed']

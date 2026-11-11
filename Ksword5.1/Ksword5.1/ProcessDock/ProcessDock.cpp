@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include "ProcessActivitySeriesCache.h"
 #include "../UI/TableContextMenu.h"
+#include "../UI/WindowTargetPicker.h"
 #include "../UI/RetainedCleanupJob.h"
 #include "../UI/FlatButtonTheme.h"
 #include "ProcessAffinityUtils.h"
@@ -1535,120 +1536,6 @@ namespace
         bool m_preserveSourceOrder = false; // m_preserveSourceOrder：树状模式下按源模型顺序返回。
     };
 
-    // ProcessWindowPickerDragButton：
-    // - 作用：复用窗口页“准星拖拽拾取”的输入模型；
-    // - 按住按钮拖到任意窗口后松开，向宿主回调全局屏幕坐标；
-    // - 只负责输入捕获，不直接读取 HWND/PID，避免 UI 控件承担业务逻辑。
-    class ProcessWindowPickerDragButton final : public QPushButton
-    {
-    public:
-        using ReleaseCallback = std::function<void(const QPoint&)>;
-
-        // 构造函数：
-        // - parent：Qt 父控件；
-        // - 处理：启用鼠标追踪，允许拖拽过程中持续计算距离；
-        // - 返回：无返回值。
-        explicit ProcessWindowPickerDragButton(QWidget* parent = nullptr)
-            : QPushButton(parent)
-        {
-            setMouseTracking(true);
-        }
-
-        // setReleaseCallback：
-        // - callback：鼠标释放时接收全局坐标的函数；
-        // - 处理：保存到成员变量，供 mouseReleaseEvent 调用；
-        // - 返回：无返回值。
-        void setReleaseCallback(ReleaseCallback callback)
-        {
-            m_releaseCallback = std::move(callback);
-        }
-
-    protected:
-        // mousePressEvent：
-        // - 输入：Qt 鼠标按下事件；
-        // - 处理：记录左键起点并抓取鼠标，光标切换成准星；
-        // - 返回：无返回值。
-        void mousePressEvent(QMouseEvent* eventPointer) override
-        {
-            if (eventPointer != nullptr && eventPointer->button() == Qt::LeftButton)
-            {
-                m_dragTracking = true;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                m_pressGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                m_pressGlobalPos = eventPointer->globalPos();
-#endif
-                m_hasReachedDragThreshold = false;
-                grabMouse(QCursor(Qt::CrossCursor));
-            }
-            QPushButton::mousePressEvent(eventPointer);
-        }
-
-        // mouseMoveEvent：
-        // - 输入：Qt 鼠标移动事件；
-        // - 处理：超过系统拖拽阈值后才允许释放触发，避免普通点击误拾取；
-        // - 返回：无返回值。
-        void mouseMoveEvent(QMouseEvent* eventPointer) override
-        {
-            if (m_dragTracking && eventPointer != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                const QPoint currentGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                const QPoint currentGlobalPos = eventPointer->globalPos();
-#endif
-                const int moveDistance = (currentGlobalPos - m_pressGlobalPos).manhattanLength();
-                if (moveDistance >= QApplication::startDragDistance())
-                {
-                    m_hasReachedDragThreshold = true;
-                }
-            }
-            QPushButton::mouseMoveEvent(eventPointer);
-        }
-
-        // mouseReleaseEvent：
-        // - 输入：Qt 鼠标释放事件；
-        // - 处理：释放鼠标抓取，并在有效拖拽时回调释放坐标；
-        // - 返回：无返回值。
-        void mouseReleaseEvent(QMouseEvent* eventPointer) override
-        {
-            const bool shouldDispatch =
-                m_dragTracking &&
-                m_hasReachedDragThreshold &&
-                eventPointer != nullptr &&
-                eventPointer->button() == Qt::LeftButton;
-
-            if (m_dragTracking)
-            {
-                releaseMouse();
-                m_dragTracking = false;
-            }
-            m_hasReachedDragThreshold = false;
-
-            QPoint releaseGlobalPos;
-            if (eventPointer != nullptr)
-            {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-                releaseGlobalPos = eventPointer->globalPosition().toPoint();
-#else
-                releaseGlobalPos = eventPointer->globalPos();
-#endif
-            }
-
-            QPushButton::mouseReleaseEvent(eventPointer);
-
-            if (shouldDispatch && m_releaseCallback)
-            {
-                m_releaseCallback(releaseGlobalPos);
-            }
-        }
-
-    private:
-        bool m_dragTracking = false;             // m_dragTracking：当前是否处于准星拖拽链路。
-        bool m_hasReachedDragThreshold = false;  // m_hasReachedDragThreshold：是否达到系统拖拽阈值。
-        QPoint m_pressGlobalPos;                 // m_pressGlobalPos：左键按下时的全局坐标。
-        ReleaseCallback m_releaseCallback;       // m_releaseCallback：释放后通知宿主处理 PID 过滤。
-    };
 
 }
 
@@ -6045,19 +5932,19 @@ void ProcessDock::initializeProcessActivityPanel()
     // 准星按钮放在“网络/GPU”等时间轴指标按钮右侧：
     // - 交互与窗口页拾取按钮一致，必须按住拖到目标窗口后松开；
     // - 释放后不打开窗口详情，而是按目标窗口所属 PID 过滤进程列表并打开进程详情。
-    ProcessWindowPickerDragButton* processPickerButton = new ProcessWindowPickerDragButton(m_activityPanelWidget);
+    auto* processPickerButton = new ks::ui::WindowTargetPickerButton(m_activityPanelWidget);
     processPickerButton->setIcon(QIcon(IconWindowPickerTarget));
     KswordTheme::ApplyCompactIconButtonMetrics(processPickerButton);
     // 拾取属于工具栏独立动作，不能使用透明常态把图标直接压在工具面上。
     ks::ui::ApplyFlatButtonTheme(processPickerButton,
         ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
-    processPickerButton->setToolTip(QStringLiteral("按住并拖拽准星到目标窗口，松开后按该窗口 PID 筛选进程并打开进程详细信息"));
+    processPickerButton->setToolTip(QStringLiteral("拖拽准星定位进程；按住 Ctrl 松开可预览并选择该位置的窗口"));
     languageManager.bindToolTip(
         processPickerButton,
         QStringLiteral("process.activity.tooltip.picker"),
-        QStringLiteral("按住并拖拽准星到目标窗口，松开后按该窗口 PID 筛选进程并打开进程详细信息"));
-    processPickerButton->setReleaseCallback([this](const QPoint& globalPos) {
-        handleProcessWindowPickerRelease(globalPos);
+        QStringLiteral("拖拽准星定位进程；按住 Ctrl 松开可预览并选择该位置的窗口"));
+    processPickerButton->setPickCallback([this](quintptr hwndValue) {
+        handleProcessWindowPicked(hwndValue);
     });
     m_activityProcessPickerButton = processPickerButton;
 
@@ -6119,25 +6006,10 @@ void ProcessDock::initializeProcessActivityPanel()
     m_processPageLayout->addWidget(m_activityPanelWidget, 0);
 }
 
-void ProcessDock::handleProcessWindowPickerRelease(const QPoint& globalPos)
+void ProcessDock::handleProcessWindowPicked(quintptr hwndValue)
 {
-    // 该函数是进程页准星拾取的业务入口：
-    // - 命中逻辑与窗口页保持一致，先拿鼠标下窗口，再回退到根窗口；
-    // - 结果不进入窗口详情，而是转成 PID 过滤和进程详情。
     kLogEvent pickEvent;
-    info << pickEvent
-        << "[ProcessDock] 进程准星拾取释放, x="
-        << globalPos.x()
-        << ", y="
-        << globalPos.y()
-        << eol;
-
-    POINT nativePoint{};
-    nativePoint.x = globalPos.x();
-    nativePoint.y = globalPos.y();
-
-    // rawWindowHandle 是鼠标下最细粒度窗口；rootWindowHandle 用于顶级窗口回退。
-    HWND rawWindowHandle = ::WindowFromPoint(nativePoint);
+    HWND rawWindowHandle = reinterpret_cast<HWND>(hwndValue);
     HWND rootWindowHandle = rawWindowHandle != nullptr ? ::GetAncestor(rawWindowHandle, GA_ROOT) : nullptr;
     HWND targetWindowHandle = rawWindowHandle != nullptr ? rawWindowHandle : rootWindowHandle;
     if (targetWindowHandle == nullptr || ::IsWindow(targetWindowHandle) == FALSE)
@@ -14026,6 +13898,16 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         integrityAction->setData(static_cast<unsigned int>(preset.rid));
     }
 
+    QAction* copyTokenAction = contextMenu.addAction(
+        blueTintedIcon(":/Icon/process_critical.svg"),
+        ks::i18n::sourceText(QStringLiteral("复制进程令牌（R0）…")));
+    const bool tokenCopyTargetsValid = !contextActionTargets.empty() &&
+        std::all_of(contextActionTargets.begin(), contextActionTargets.end(), [](const ProcessActionTarget& target) {
+            return target.record.pid > 4U && target.record.creationTime100ns != 0ULL;
+        });
+    copyTokenAction->setEnabled(tokenCopyTargetsValid);
+    copyTokenAction->setToolTip(ks::i18n::sourceText(QStringLiteral("从指定 PID 复制主令牌；目标必须具有真实创建时间且不能是系统进程。")));
+
     QAction* detailsAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_details.svg"),
         processContextText("process.menu.details", QStringLiteral("进程详细信息")));
@@ -14195,6 +14077,7 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         }
         else if (selectedAction == injectionPageAction) { openSelectedProcessInjectionPage(); }
         else if (selectedAction == scanHotkeyAction) { openSelectedProcessHotkeyScanner(); }
+        else if (selectedAction == copyTokenAction) { executeCopyProcessTokenAction(); }
         else if (selectedAction == detailsAction) { openProcessDetailsPlaceholder(); }
         else if (selectedAction->parent() == prioritySubMenu)
         {
@@ -17115,9 +16998,11 @@ void ProcessDock::continueHvmProcessDispositionAction(const unsigned long operat
      * 一句，那段等待期看起来和"没生效"完全一样，而两者要做的事相反：一个是
      * 等，一个是换一页重下。
      */
-    const QString successAdvice = freezing
-        ? translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程可能不会立刻停住——正卡在等待或睡眠中的进程要等它再次运行到那里。若长时间没有反应，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"))
-        : translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程退出可能有延迟——正卡在等待或睡眠中的进程要等它再次运行到那里，期间它会继续留在列表里。若长时间没有退出，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"));
+    const QString successAdvice = armed
+        ? (freezing
+            ? translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程可能不会立刻停住——正卡在等待或睡眠中的进程要等它再次运行到那里。若长时间没有反应，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"))
+            : translator.sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程退出可能有延迟——正卡在等待或睡眠中的进程要等它再次运行到那里，期间它会继续留在列表里。若长时间没有退出，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。")))
+        : QString();
     return HvmActionResult{armed, result.io.message, result.response.status, successAdvice};
     });
 }
@@ -18640,6 +18525,98 @@ void ProcessDock::executeSetProcessIntegrityAction(
         false,
         false,
         true);
+}
+
+void ProcessDock::executeCopyProcessTokenAction()
+{
+    // Freeze the exact menu targets before opening a modal dialog or yielding to refresh events.
+    const auto targets = selectedActionTargets();
+    if (targets.empty() || std::any_of(targets.begin(), targets.end(), [](const ProcessActionTarget& target) {
+        return target.record.pid <= 4U || target.record.creationTime100ns == 0ULL;
+    })) return;
+
+    const QString title = ks::i18n::sourceText(QStringLiteral("复制进程令牌（R0）"));
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    ks::ui::StyleSecondaryWindow(&dialog);
+    auto* layout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryContentLayout(layout);
+    auto* body = new QWidget(&dialog);
+    auto* bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    bodyLayout->setSpacing(16);
+    QStringList targetNames;
+    for (const auto& target : targets)
+        targetNames << QStringLiteral("%1 (%2)").arg(QString::fromStdString(target.record.processName)).arg(target.record.pid);
+    auto* summary = new QLabel(ks::i18n::sourceText(QStringLiteral("目标进程：%1")).arg(targetNames.join(QStringLiteral(", "))), body);
+    summary->setTextFormat(Qt::PlainText);
+    summary->setWordWrap(true);
+    bodyLayout->addWidget(summary);
+    auto* section = new QGroupBox(ks::i18n::sourceText(QStringLiteral("令牌来源")), body);
+    ks::ui::StyleSecondarySection(section);
+    auto* form = new QFormLayout(section);
+    auto* sourceEdit = new QLineEdit(section);
+    sourceEdit->setMaximumWidth(280);
+    form->addRow(ks::i18n::sourceText(QStringLiteral("来源进程 PID")), sourceEdit);
+    ks::ui::StyleSecondaryForm(form, 120);
+    bodyLayout->addWidget(section);
+    auto* hint = new QLabel(ks::i18n::sourceText(QStringLiteral("目标将与来源共享主令牌，后续令牌修改可能影响双方。已有句柄和线程模拟令牌不会随之更新；此操作不会自动恢复原令牌。")), body);
+    hint->setWordWrap(true);
+    bodyLayout->addWidget(hint);
+    layout->addWidget(ks::ui::CreateSecondaryFormScroll(body, &dialog));
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    auto* apply = buttons->addButton(ks::i18n::sourceText(QStringLiteral("复制令牌")), QDialogButtonBox::AcceptRole);
+    ks::ui::StyleSecondaryButtonBox(buttons);
+    ks::ui::ApplyFlatButtonTheme(apply, ks::ui::FlatButtonTone::Danger);
+    layout->addWidget(buttons);
+    const auto validate = [sourceEdit, apply, targets]() {
+        bool valid = false;
+        const auto pid = parseUInt32WithDefault(sourceEdit->text(), 0U, &valid);
+        valid = valid && pid != 0U && std::none_of(targets.begin(), targets.end(), [pid](const ProcessActionTarget& target) {
+            return target.record.pid == pid;
+        });
+        apply->setEnabled(valid);
+        apply->setToolTip(valid ? QString() : ks::i18n::sourceText(QStringLiteral("来源 PID 必须有效，且不能与目标进程相同。")));
+    };
+    connect(sourceEdit, &QLineEdit::textChanged, &dialog, validate);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    validate();
+    dialog.resize(520, 320);
+    sourceEdit->setFocus();
+    if (dialog.exec() != QDialog::Accepted) return;
+    const auto sourcePid = parseUInt32WithDefault(sourceEdit->text(), 0U);
+
+    // Prefer the real enumeration identity so R0-only sources need no user-mode query handle.
+    std::uint64_t sourceCreationTime = 0ULL;
+    for (const auto& entry : m_cacheByIdentity)
+    {
+        const auto& cached = entry.second;
+        if (cached.record.pid == sourcePid && !cached.isExitedInLatestRound &&
+            cached.record.creationTime100ns > sourceCreationTime)
+            sourceCreationTime = cached.record.creationTime100ns;
+    }
+    std::string identityError;
+    if (!sourceCreationTime && !ks::process::QueryProcessCreationTimeByPid(sourcePid, &sourceCreationTime, &identityError))
+    {
+        QMessageBox::warning(this, title, ks::i18n::sourceText(QStringLiteral("无法取得来源进程的真实创建时间，请刷新进程列表后重试。")));
+        return;
+    }
+    // Reuse the existing async action/result path; the driver verifies both referenced identities.
+    dispatchProcessActionTargetsInParallel(title, targets,
+        [sourcePid, sourceCreationTime](const ProcessActionTarget& target, std::string* detailText) {
+            const auto result = ksword::ark::DriverClient().copyProcessToken(sourcePid, sourceCreationTime,
+                target.record.pid, target.record.creationTime100ns);
+            QString summaryText;
+            if (result.verified)
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌已复制，回读验证成功。"));
+            else if (result.applied)
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌已替换，但回读未确认；目标可能已经改变，请勿自动重试。"));
+            else
+                summaryText = ks::i18n::sourceText(QStringLiteral("主令牌复制失败，请检查驱动状态、偏移配置和进程身份。"));
+            if (detailText != nullptr) *detailText = summaryText.toStdString() + "\n" + result.io.message;
+            return result.verified;
+        }, true, true, false);
 }
 
 void ProcessDock::executeSetEfficiencyModeAction(const bool enableEfficiencyMode)

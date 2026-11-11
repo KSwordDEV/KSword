@@ -292,6 +292,42 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
+// 新入口用独立 IOCTL 承载创建时间，不能回退到旧 PID-only 读取。
+NTSTATUS
+KswordARKMemoryIoctlReadVirtualMemoryVerified(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST requestCopy; // 在 METHOD_BUFFERED 输出初始化前保留输入。
+    PVOID inputBuffer = NULL; // WDF 输入视图。
+    PVOID outputBuffer = NULL; // WDF 输出视图。
+    size_t actualInputLength = 0U; // 实际输入长度。
+    size_t actualOutputLength = 0U; // 实际输出长度。
+    NTSTATUS status; // 保留各步原始状态。
+    UNREFERENCED_PARAMETER(InputBufferLength); // 长度由 WDF 再次校验。
+    UNREFERENCED_PARAMETER(OutputBufferLength); // 长度由 WDF 再次校验。
+    if (BytesReturned == NULL) return STATUS_INVALID_PARAMETER; // 调用方必须提供响应长度。
+    *BytesReturned = 0U; // 失败路径不得报告未初始化输出。
+    status = KswordARKRetrieveRequiredInputBuffer(Request, sizeof(requestCopy), &inputBuffer, &actualInputLength); // 检查完整身份请求。
+    if (!NT_SUCCESS(status)) return status; // 输入不足时不执行读取。
+    RtlCopyMemory(&requestCopy, inputBuffer, sizeof(requestCopy)); // 输入输出可能共享系统缓冲区。
+    if (requestCopy.size != sizeof(requestCopy) || requestCopy.version != KSWORD_ARK_VERIFIED_MEMORY_READ_VERSION ||
+        requestCopy.expectedCreationTime100ns == 0ULL || requestCopy.bytesToRead == 0UL ||
+        requestCopy.bytesToRead > KSWORD_ARK_MEMORY_READ_MAX_BYTES || requestCopy.reserved != 0UL ||
+        (requestCopy.flags & ~KSWORD_ARK_MEMORY_READ_FLAG_ZERO_FILL_UNREADABLE) != 0UL) return STATUS_INVALID_PARAMETER; // 不接受空身份、越界或内核地址模式。
+    status = KswordARKValidateUserPid(requestCopy.processId); // 沿用原读取 PID 范围策略。
+    if (!NT_SUCCESS(status)) return status; // 不向特权目标悄悄放宽限制。
+    status = KswordARKRetrieveRequiredOutputBuffer(Request, KSWORD_ARK_MEMORY_READ_RESPONSE_HEADER_SIZE, &outputBuffer, &actualOutputLength); // 获取有界输出。
+    if (!NT_SUCCESS(status)) return status; // 输出不足时不读取目标。
+    status = KswordARKDriverReadVirtualMemoryVerified(outputBuffer, actualOutputLength, &requestCopy, BytesReturned); // 同引用对象验证时间后复制。
+    if (!NT_SUCCESS(status)) KswordARKMemoryIoctlLog(Device, "Error", "R0 verified read-vm failed: pid=%lu status=0x%08X.", (unsigned long)requestCopy.processId, (unsigned int)status); // 只记录错误元数据。
+    return status; // 读取状态由响应头报告。
+}
+
 NTSTATUS
 KswordARKMemoryIoctlWriteVirtualMemory(
     _In_ WDFDEVICE Device,

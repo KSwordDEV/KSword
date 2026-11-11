@@ -20,6 +20,7 @@
 // 前置声明：减少头文件依赖体积，提升编译速度。
 class QCheckBox;
 class QHBoxLayout;
+class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QShowEvent;
@@ -217,6 +218,7 @@ private:
     QCheckBox* m_detailCheck = nullptr;       // “详细信息”开关：控制文件/函数列显示。
     QCheckBox* m_autoScrollCheck = nullptr;   // “保持滚动到最底端”开关。
     QSpinBox* m_visibleLimitSpin = nullptr;   // “最近日志条数”输入：只限制界面渲染行数，不截断内部日志。
+    QLineEdit* m_textFilterEdit = nullptr;    // 文本过滤框：匹配日志内容、文件和函数字段。
 
     QPushButton* m_exportButton = nullptr;       // 导出日志按钮。
     QPushButton* m_clearButton = nullptr;        // 清空日志按钮。

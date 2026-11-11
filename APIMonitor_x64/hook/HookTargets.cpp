@@ -1,5 +1,9 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "HookTargets.h"
+#include <enclaveapi.h>
+#include <processtopologyapi.h>
+#include <memoryapi.h>
+#include <realtimeapiset.h>
 #include "HookEngine.h"
 #include "ClipboardGuardHook.h"
 #include "ClipboardGuardVTableHook.h"
@@ -11,6 +15,8 @@
 #include "../core/MonitorAsyncIo.h"
 #include "ContextThunk.h"
 #include "ExportCatalog.h"
+#include "RawAbiSnapshot.h"
+#include "HookCallStack.h"
 #include "../../shared/ApiMonitorInjection.h"
 #ifdef _M_IX86
 #include "../../APIMonitor_x86/hook/EntryStubs.h"
@@ -151,12 +157,13 @@ namespace apimon
         class ScopedHookGuard
         {
         public:
-            ScopedHookGuard()
+            explicit ScopedHookGuard(const bool allowCallStack = true)
             {
                 m_bypass = IsInlineHookInternalBypassActive() || g_hookReentryGuard;
                 if (!m_bypass)
                 {
                     g_hookReentryGuard = true;
+                    if (allowCallStack && ActiveConfig().captureCallStack) CaptureHookCallStack();
                 }
             }
 
@@ -164,6 +171,7 @@ namespace apimon
             {
                 if (!m_bypass)
                 {
+                    ClearHookCallStack();
                     g_hookReentryGuard = false;
                 }
             }
@@ -1056,7 +1064,7 @@ namespace apimon
             const HANDLE handleValue,
             const unsigned long requestLength,
             const unsigned long long actualLength,
-            const LARGE_INTEGER* const byteOffsetPointer)
+            const LARGE_INTEGER* const byteOffsetPointer, const bool actualKnown = true)
         {
             detailBuffer[0] = L'\0';
             AppendWideText(detailBuffer, L"handle=");
@@ -1064,7 +1072,8 @@ namespace apimon
             AppendWideText(detailBuffer, L" request=");
             AppendUnsignedText(detailBuffer, requestLength);
             AppendWideText(detailBuffer, L" transferred=");
-            AppendUnsignedText(detailBuffer, actualLength);
+            if (actualKnown) AppendUnsignedText(detailBuffer, actualLength);
+            else AppendWideText(detailBuffer, L"unknown");
             if (byteOffsetPointer != nullptr)
             {
                 AppendWideText(detailBuffer, L" offset=");
@@ -1234,7 +1243,8 @@ namespace apimon
             const long long transferLength,
             const DWORD flagsValue,
             const sockaddr* const addressPointer = nullptr,
-            const int addressLength = 0)
+            const int addressLength = 0,
+            const bool transferKnown = true, const bool flagsKnown = true)
         {
             detailBuffer[0] = L'\0';
             AppendWideText(detailBuffer, L"socket=");
@@ -1247,9 +1257,11 @@ namespace apimon
             AppendWideText(detailBuffer, L" request=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(requestLength));
             AppendWideText(detailBuffer, L" transferred=");
-            AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(transferLength < 0 ? 0 : transferLength));
+            if (transferKnown) AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(transferLength < 0 ? 0 : transferLength));
+            else AppendWideText(detailBuffer, L"unknown");
             AppendWideText(detailBuffer, L" flags=");
-            AppendHexText(detailBuffer, static_cast<std::uint64_t>(flagsValue));
+            if (flagsKnown) AppendHexText(detailBuffer, static_cast<std::uint64_t>(flagsValue));
+            else AppendWideText(detailBuffer, L"unknown");
             if (addressPointer != nullptr)
             {
                 AppendWideText(detailBuffer, L" remote=");
@@ -1270,11 +1282,29 @@ namespace apimon
                 return configValue.enableNetwork;
             case ks::winapi_monitor::EventCategory::Process:
                 return configValue.enableProcess;
+            case ks::winapi_monitor::EventCategory::Memory:
+                return configValue.enableMemory;
+            case ks::winapi_monitor::EventCategory::Thread:
+                return configValue.enableThread;
+            case ks::winapi_monitor::EventCategory::Service:
+                return configValue.enableService;
+            case ks::winapi_monitor::EventCategory::Security:
+                return configValue.enableSecurity;
+            case ks::winapi_monitor::EventCategory::Crypto:
+                return configValue.enableCrypto;
+            case ks::winapi_monitor::EventCategory::Com:
+                return configValue.enableCom;
+            case ks::winapi_monitor::EventCategory::Window:
+                return configValue.enableWindow;
+            case ks::winapi_monitor::EventCategory::Gui:
+                return configValue.enableGui;
             case ks::winapi_monitor::EventCategory::Loader:
                 // Loader hook 还承担“后加载模块补装”职责：
                 // - enableLoader 控制是否上报 LoadLibrary 事件；
                 // - 注册表/网络/Shell32 进程启动模块可能晚于 Agent 注入加载，因此启用这些分类时也要安装加载器 hook。
                 return configValue.enableLoader || configValue.enableRegistry || configValue.enableNetwork || configValue.enableProcess
+                    || configValue.enableMemory || configValue.enableThread || configValue.enableService
+                    || configValue.enableSecurity || configValue.enableCrypto || configValue.enableCom || configValue.enableWindow || configValue.enableGui
                     || configValue.autoInjectChild || configValue.enableClipboard || configValue.enableRawFallback || configValue.fakeSuccessEnabled;
             case ks::winapi_monitor::EventCategory::Clipboard:
                 // 剪贴板 hook 默认关闭：必须显式 enableClipboard，
@@ -1349,6 +1379,83 @@ namespace apimon
                 apiName,
                 static_cast<std::int32_t>(statusValue),
                 detailText, resultKind, ks::winapi_monitor::EventKind::ApiCall, 0, apiId);
+        }
+
+        struct ApiCallClock
+        {
+            LARGE_INTEGER start{};
+            bool valid = false;
+        };
+
+        struct ApiCallDuration
+        {
+            std::uint64_t ticks100ns = 0;
+            bool valid = false;
+        };
+
+        // Timing calls must not change the LastError seen by the original API
+        // or by its caller. A failed or backwards clock is explicitly absent.
+        ApiCallClock BeginApiCallClock()
+        {
+            const DWORD lastError = ::GetLastError();
+            ApiCallClock clock;
+            clock.valid = ::QueryPerformanceCounter(&clock.start) != FALSE;
+            ::SetLastError(lastError);
+            return clock;
+        }
+
+        ApiCallDuration EndApiCallClock(const ApiCallClock& clock)
+        {
+            const DWORD lastError = ::GetLastError();
+            LARGE_INTEGER end{}, frequency{};
+            const bool valid = clock.valid && ::QueryPerformanceCounter(&end)
+                && ::QueryPerformanceFrequency(&frequency)
+                && frequency.QuadPart > 0 && end.QuadPart >= clock.start.QuadPart;
+            ApiCallDuration result;
+            if (valid)
+            {
+                const double ticks = static_cast<double>(end.QuadPart - clock.start.QuadPart)
+                    * 10000000.0 / static_cast<double>(frequency.QuadPart);
+                if (ticks >= 0.0 && ticks < 18446744073709551616.0)
+                {
+                    result.ticks100ns = static_cast<std::uint64_t>(ticks);
+                    result.valid = true;
+                }
+            }
+            ::SetLastError(lastError);
+            return result;
+        }
+
+        template<typename T>
+        std::uint64_t ApiReturnBits(const T value)
+        {
+            static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(std::uint64_t));
+            std::uint64_t bits = 0;
+            std::memcpy(&bits, &value, sizeof(value));
+            return bits;
+        }
+
+        bool SendRawEventWithMetrics(const ks::winapi_monitor::EventCategory categoryValue,
+            const wchar_t* moduleName, const wchar_t* apiName, const long statusValue,
+            const wchar_t* detailText, const bool hasReturn, const std::uint64_t returnBits,
+            const ApiCallDuration& duration, const std::uint32_t apiId = 0, const std::uint64_t operationId = 0,
+            const ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode)
+        {
+            if (!CategoryEnabled(categoryValue)
+                || (categoryValue == ks::winapi_monitor::EventCategory::Loader && !ActiveConfig().enableLoader)) return false;
+            return SendMonitorEventRawWithMetrics(categoryValue, moduleName, apiName,
+                static_cast<std::int32_t>(statusValue), detailText,
+                hasReturn, returnBits, duration.valid, duration.ticks100ns, apiId,
+                resultKind, operationId);
+        }
+
+        bool SendFileEventWithReturn(const wchar_t* apiName, const long status,
+            const wchar_t* detail, const HANDLE returnHandle, const ApiCallDuration& duration)
+        {
+            if (!ActiveConfig().enableFile) return false;
+            return SendMonitorEventRawWithMetrics(ks::winapi_monitor::EventCategory::File,
+                L"KernelBase", apiName, static_cast<std::int32_t>(status), detail,
+                true, ApiReturnBits(returnHandle), duration.valid, duration.ticks100ns);
         }
 
         ks::winapi_monitor::EventCategory InferRawHookCategory(const std::wstring& moduleName, const std::string& procName);
@@ -1494,7 +1601,7 @@ namespace apimon
             }
 
             const DWORD previousLastError = ::GetLastError();
-            ScopedHookGuard guardValue;
+            ScopedHookGuard guardValue(false);
             if (!guardValue.bypass())
             {
                 wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
@@ -1730,14 +1837,14 @@ namespace apimon
         // - 输入：bindingValue 为动态 stub 传入的 Raw Hook 元数据；
         // - 处理：在不解析参数语义的前提下上报 module/api/target/trampoline，并用全局 reentry guard 避免日志链路递归；
         // - 返回：无返回值，动态 stub 随后恢复寄存器并跳入 trampoline 继续执行原函数。
-        void RawHookEnter(RawHookBinding* const bindingValue)
+        void RawHookEnter(RawHookBinding* const bindingValue, const std::uintptr_t* const savedFrame)
         {
             if (bindingValue == nullptr)
             {
                 return;
             }
 
-            ScopedHookGuard guardValue;
+            ScopedHookGuard guardValue(false);
             if (guardValue.bypass())
             {
                 return;
@@ -1749,7 +1856,34 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(bindingValue->hookRecord.targetAddress));
             AppendWideText(detailBuffer, L" trampoline=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(bindingValue->originalAddress));
-            AppendWideText(detailBuffer, L" strongTyped=0 params=unparsed");
+            const auto arguments = CaptureRawAbi(savedFrame);
+            if (arguments.returnAddress != 0)
+            {
+                AppendWideText(detailBuffer, L" caller=");
+                AppendHexText(detailBuffer, arguments.returnAddress);
+            }
+#ifdef _M_IX86
+            AppendWideText(detailBuffer, L" strongTyped=0 params=raw abi=x86 ECX=");
+            AppendHexText(detailBuffer, arguments.registers[0]);
+            AppendWideText(detailBuffer, L" EDX=");
+            AppendHexText(detailBuffer, arguments.registers[1]);
+#else
+            AppendWideText(detailBuffer, L" strongTyped=0 params=raw abi=x64 RCX=");
+            AppendHexText(detailBuffer, arguments.registers[0]);
+            AppendWideText(detailBuffer, L" RDX=");
+            AppendHexText(detailBuffer, arguments.registers[1]);
+            AppendWideText(detailBuffer, L" R8=");
+            AppendHexText(detailBuffer, arguments.registers[2]);
+            AppendWideText(detailBuffer, L" R9=");
+            AppendHexText(detailBuffer, arguments.registers[3]);
+#endif
+            AppendWideText(detailBuffer, L" stackSlots=[");
+            for (unsigned i = 0; i < arguments.stackCount; ++i)
+            {
+                if (i) AppendWideText(detailBuffer, L",");
+                AppendHexText(detailBuffer, arguments.stack[i]);
+            }
+            AppendWideText(detailBuffer, L"]");
             SendRawEventWithStatus(
                 bindingValue->categoryValue,
                 bindingValue->moduleName.c_str(),
@@ -1849,6 +1983,8 @@ namespace apimon
 
             emit(0x48); emit(0xB9);             // mov rcx, bindingValue
             EmitRawStubU64(codePointer, offsetValue, reinterpret_cast<std::uint64_t>(bindingValue));
+            emit(0x48); emit(0x8D); emit(0x94); emit(0x24); // lea rdx, [rsp+0xA0]: saved entry frame
+            EmitRawStubU32(codePointer, offsetValue, 0x000000A0U);
             emit(0x48); emit(0xB8);             // mov rax, RawHookEnter
             EmitRawStubU64(codePointer, offsetValue, reinterpret_cast<std::uint64_t>(&RawHookEnter));
             emit(0xFF); emit(0xD0);             // call rax
@@ -1949,19 +2085,20 @@ namespace apimon
             const std::wstring& fileNameText,
             const HMODULE moduleHandle,
             const DWORD lastError,
-            const std::wstring& extraText)
+            const std::wstring& extraText,
+            const ApiCallDuration& duration)
         {
             if (!ActiveConfig().enableLoader)
             {
                 return;
             }
 
-            SendMonitorEvent(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Loader,
                 L"Kernel32",
                 apiName,
                 moduleHandle != nullptr ? 0 : static_cast<std::int32_t>(lastError),
-                TrimDetail(L"path=" + fileNameText + extraText));
+                TrimDetail(L"path=" + fileNameText + extraText).c_str(), true, ApiReturnBits(moduleHandle), duration);
         }
 
         // JoinIniList 作用：
@@ -2041,6 +2178,7 @@ namespace apimon
                 L"pipe_name=" + ks::winapi_monitor::buildPipeNameForPid(childPidValue) + L"\r\n"
                 L"stop_flag_path=" + childStopPath + L"\r\n"
                 L"root_stop_flag_path=" + (configValue.rootStopFlagPath.empty() ? configValue.stopFlagPath : configValue.rootStopFlagPath) + L"\r\n"
+                L"pause_event_name=" + configValue.pauseEventName + L"\r\n"
                 L"session_id=" + configValue.sessionId + L"_" + std::to_wstring(childPidValue) + L"_" + std::to_wstring(::GetTickCount64()) + L"\r\n"
                 L"controller_sid=" + configValue.controllerSid + L"\r\n"
                 L"agent_dll_path=" + configValue.agentDllPath + L"\r\n"
@@ -2052,12 +2190,21 @@ namespace apimon
                 L"enable_registry=" + std::to_wstring(configValue.enableRegistry ? 1 : 0) + L"\r\n"
                 L"enable_network=" + std::to_wstring(configValue.enableNetwork ? 1 : 0) + L"\r\n"
                 L"enable_process=" + std::to_wstring(configValue.enableProcess ? 1 : 0) + L"\r\n"
+                L"enable_memory=" + std::to_wstring(configValue.enableMemory ? 1 : 0) + L"\r\n"
+                L"enable_thread=" + std::to_wstring(configValue.enableThread ? 1 : 0) + L"\r\n"
+                L"enable_service=" + std::to_wstring(configValue.enableService ? 1 : 0) + L"\r\n"
+                L"enable_security=" + std::to_wstring(configValue.enableSecurity ? 1 : 0) + L"\r\n"
+                L"enable_crypto=" + std::to_wstring(configValue.enableCrypto ? 1 : 0) + L"\r\n"
+                L"enable_com=" + std::to_wstring(configValue.enableCom ? 1 : 0) + L"\r\n"
+                L"enable_window=" + std::to_wstring(configValue.enableWindow ? 1 : 0) + L"\r\n"
+                L"enable_gui=" + std::to_wstring(configValue.enableGui ? 1 : 0) + L"\r\n"
                 L"enable_loader=" + std::to_wstring(configValue.enableLoader ? 1 : 0) + L"\r\n"
                 L"enable_clipboard=" + std::to_wstring(configValue.enableClipboard ? 1 : 0) + L"\r\n"
                 L"clipboard_read_action=" + std::to_wstring(static_cast<unsigned>(configValue.clipboardReadAction)) + L"\r\n"
                 L"clipboard_write_action=" + std::to_wstring(static_cast<unsigned>(configValue.clipboardWriteAction)) + L"\r\n"
                 L"clipboard_enum_action=" + std::to_wstring(static_cast<unsigned>(configValue.clipboardEnumAction)) + L"\r\n"
                 L"auto_inject_child=" + std::to_wstring(configValue.autoInjectChild ? 1 : 0) + L"\r\n"
+                L"capture_call_stack=" + std::to_wstring(configValue.captureCallStack ? 1 : 0) + L"\r\n"
                 L"enable_raw_fallback=" + std::to_wstring(configValue.enableRawFallback ? 1 : 0) + L"\r\n"
                 L"raw_use_default_denylist=" + std::to_wstring(configValue.rawUseDefaultDenyList ? 1 : 0) + L"\r\n"
                 L"raw_modules=" + JoinIniList(configValue.rawModuleList) + L"\r\n"
@@ -2201,7 +2348,9 @@ namespace apimon
                 return g_ldrLoadDllOriginal(searchPathPointer, dllCharacteristicsPointer, dllNamePointer, moduleHandlePointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ldrLoadDllOriginal(searchPathPointer, dllCharacteristicsPointer, dllNamePointer, moduleHandlePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD savedError = ::GetLastError();
             if (NT_SUCCESS(statusValue))
             {
@@ -2227,7 +2376,7 @@ namespace apimon
                 HANDLE module = nullptr;
                 if (NT_SUCCESS(statusValue) && moduleHandlePointer) (void)ReadExportMemory(moduleHandlePointer, &module, sizeof(module));
                 AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(module));
-                SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Loader, L"ntdll", L"LdrLoadDll", statusValue, detailBuffer);
+                SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Loader, L"ntdll", L"LdrLoadDll", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             }
             ::SetLastError(savedError);
             return statusValue;
@@ -2242,13 +2391,15 @@ namespace apimon
             }
 
             const std::wstring fileNameText = AnsiToWide(fileNamePointer);
+            const auto callClock = BeginApiCallClock();
             HMODULE moduleHandle = g_loadLibraryAOriginal(fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             if (moduleHandle != nullptr)
             {
                 RetryPendingHooksFromHook();
             }
-            SendLoaderEventIfEnabled(L"LoadLibraryA", fileNameText, moduleHandle, lastError, std::wstring());
+            SendLoaderEventIfEnabled(L"LoadLibraryA", fileNameText, moduleHandle, lastError, std::wstring(), duration);
             ::SetLastError(lastError);
             return moduleHandle;
         }
@@ -2262,13 +2413,15 @@ namespace apimon
             }
 
             const std::wstring fileNameText = SafeWideText(fileNamePointer);
+            const auto callClock = BeginApiCallClock();
             HMODULE moduleHandle = g_loadLibraryWOriginal(fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             if (moduleHandle != nullptr)
             {
                 RetryPendingHooksFromHook();
             }
-            SendLoaderEventIfEnabled(L"LoadLibraryW", fileNameText, moduleHandle, lastError, std::wstring());
+            SendLoaderEventIfEnabled(L"LoadLibraryW", fileNameText, moduleHandle, lastError, std::wstring(), duration);
             ::SetLastError(lastError);
             return moduleHandle;
         }
@@ -2282,13 +2435,15 @@ namespace apimon
             }
 
             const std::wstring fileNameText = AnsiToWide(fileNamePointer);
+            const auto callClock = BeginApiCallClock();
             HMODULE moduleHandle = g_loadLibraryExAOriginal(fileNamePointer, fileHandle, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             if (moduleHandle != nullptr)
             {
                 RetryPendingHooksFromHook();
             }
-            SendLoaderEventIfEnabled(L"LoadLibraryExA", fileNameText, moduleHandle, lastError, L" flags=" + HexValue(flagsValue));
+            SendLoaderEventIfEnabled(L"LoadLibraryExA", fileNameText, moduleHandle, lastError, L" flags=" + HexValue(flagsValue), duration);
             ::SetLastError(lastError);
             return moduleHandle;
         }
@@ -2302,13 +2457,15 @@ namespace apimon
             }
 
             const std::wstring fileNameText = SafeWideText(fileNamePointer);
+            const auto callClock = BeginApiCallClock();
             HMODULE moduleHandle = g_loadLibraryExWOriginal(fileNamePointer, fileHandle, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             if (moduleHandle != nullptr)
             {
                 RetryPendingHooksFromHook();
             }
-            SendLoaderEventIfEnabled(L"LoadLibraryExW", fileNameText, moduleHandle, lastError, L" flags=" + HexValue(flagsValue));
+            SendLoaderEventIfEnabled(L"LoadLibraryExW", fileNameText, moduleHandle, lastError, L" flags=" + HexValue(flagsValue), duration);
             ::SetLastError(lastError);
             return moduleHandle;
         }
@@ -2321,11 +2478,13 @@ namespace apimon
                 return g_createFileAOriginal(fileNamePointer, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
             }
 
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createFileAOriginal(fileNamePointer, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
             const DWORD lastError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildFilePathDetailA(detailBuffer, fileNamePointer, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, resultHandle);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateFileA", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendFileEventWithReturn(L"CreateFileA", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, resultHandle, duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2338,11 +2497,13 @@ namespace apimon
                 return g_createFileWOriginal(fileNamePointer, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
             }
 
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createFileWOriginal(fileNamePointer, desiredAccess, shareMode, securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
             const DWORD lastError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildFilePathDetailW(detailBuffer, fileNamePointer, desiredAccess, shareMode, creationDisposition, flagsAndAttributes, resultHandle);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateFileW", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendFileEventWithReturn(L"CreateFileW", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, resultHandle, duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2355,13 +2516,15 @@ namespace apimon
                 return g_createFile2Original(fileNamePointer, desiredAccess, shareMode, creationDisposition, createExParamsPointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createFile2Original(fileNamePointer, desiredAccess, shareMode, creationDisposition, createExParamsPointer);
             const DWORD lastError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
             const DWORD flagsValue = createExParamsPointer != nullptr ? createExParamsPointer->dwFileFlags : 0;
             const DWORD attributesValue = createExParamsPointer != nullptr ? createExParamsPointer->dwFileAttributes : 0;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildFilePathDetailW(detailBuffer, fileNamePointer, desiredAccess, shareMode, creationDisposition, flagsValue | attributesValue, resultHandle);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateFile2", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendFileEventWithReturn(L"CreateFile2", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, resultHandle, duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2385,13 +2548,17 @@ namespace apimon
             auto operation = BeginIo(reinterpret_cast<std::uintptr_t>(fileHandle), overlappedPointer,
                 L"KernelBase", L"ReadFile", ks::winapi_monitor::EventCategory::File, bytesToRead);
             ::SetLastError(incomingError);
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_readFileOriginal(fileHandle, bufferPointer, bytesToRead, bytesReadPointer, overlappedPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
+            DWORD transferred = 0;
+            const bool transferredKnown = resultValue != FALSE && !overlappedPointer && TrySafeIoValue(bytesReadPointer, &transferred);
             FinishIo(operation, resultValue || lastError == ERROR_IO_PENDING,
-                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, SafeIoValue(bytesReadPointer));
+                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, transferred, transferredKnown);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildHandleTransferDetail(detailBuffer, fileHandle, bytesToRead, SafeIoValue(bytesReadPointer), nullptr);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"ReadFile", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            BuildHandleTransferDetail(detailBuffer, fileHandle, bytesToRead, transferred, nullptr, transferredKnown);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"ReadFile", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2412,13 +2579,17 @@ namespace apimon
             auto operation = BeginIo(reinterpret_cast<std::uintptr_t>(fileHandle), overlappedPointer,
                 L"KernelBase", L"WriteFile", ks::winapi_monitor::EventCategory::File, bytesToWrite);
             ::SetLastError(incomingError);
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_writeFileOriginal(fileHandle, bufferPointer, bytesToWrite, bytesWrittenPointer, overlappedPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
+            DWORD transferred = 0;
+            const bool transferredKnown = resultValue != FALSE && !overlappedPointer && TrySafeIoValue(bytesWrittenPointer, &transferred);
             FinishIo(operation, resultValue || lastError == ERROR_IO_PENDING,
-                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, SafeIoValue(bytesWrittenPointer));
+                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, transferred, transferredKnown);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildHandleTransferDetail(detailBuffer, fileHandle, bytesToWrite, SafeIoValue(bytesWrittenPointer), nullptr);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"WriteFile", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            BuildHandleTransferDetail(detailBuffer, fileHandle, bytesToWrite, transferred, nullptr, transferredKnown);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"WriteFile", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2447,10 +2618,14 @@ namespace apimon
             auto operation = BeginIo(reinterpret_cast<std::uintptr_t>(deviceHandle), overlappedPointer,
                 L"KernelBase", L"DeviceIoControl", ks::winapi_monitor::EventCategory::File, outBufferSize);
             ::SetLastError(incomingError);
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_deviceIoControlOriginal(deviceHandle, ioControlCode, inBufferPointer, inBufferSize, outBufferPointer, outBufferSize, bytesReturnedPointer, overlappedPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
+            DWORD transferred = 0;
+            const bool transferredKnown = resultValue != FALSE && !overlappedPointer && TrySafeIoValue(bytesReturnedPointer, &transferred);
             FinishIo(operation, resultValue || lastError == ERROR_IO_PENDING,
-                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, SafeIoValue(bytesReturnedPointer));
+                !resultValue && lastError == ERROR_IO_PENDING, resultValue ? 0 : lastError, transferred, transferredKnown);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(deviceHandle));
@@ -2461,8 +2636,9 @@ namespace apimon
             AppendWideText(detailBuffer, L" out=");
             AppendUnsignedText(detailBuffer, outBufferSize);
             AppendWideText(detailBuffer, L" returned=");
-            AppendUnsignedText(detailBuffer, SafeIoValue(bytesReturnedPointer));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"DeviceIoControl", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            if (transferredKnown) AppendUnsignedText(detailBuffer, transferred);
+            else AppendWideText(detailBuffer, L"unknown");
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"DeviceIoControl", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2477,11 +2653,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_moveFileExWOriginal(existingFileNamePointer, newFileNamePointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_moveFileExWOriginal(existingFileNamePointer, newFileNamePointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailW(detailBuffer, existingFileNamePointer, newFileNamePointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"MoveFileExW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"MoveFileExW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2490,11 +2668,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_moveFileExAOriginal(existingFileNamePointer, newFileNamePointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_moveFileExAOriginal(existingFileNamePointer, newFileNamePointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailA(detailBuffer, existingFileNamePointer, newFileNamePointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"MoveFileExA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"MoveFileExA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2503,11 +2683,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_copyFileWOriginal(existingFileNamePointer, newFileNamePointer, failIfExists); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_copyFileWOriginal(existingFileNamePointer, newFileNamePointer, failIfExists);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailW(detailBuffer, existingFileNamePointer, newFileNamePointer, failIfExists ? 1 : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2516,11 +2698,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_copyFileAOriginal(existingFileNamePointer, newFileNamePointer, failIfExists); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_copyFileAOriginal(existingFileNamePointer, newFileNamePointer, failIfExists);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailA(detailBuffer, existingFileNamePointer, newFileNamePointer, failIfExists ? 1 : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2529,11 +2713,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_copyFileExWOriginal(existingFileNamePointer, newFileNamePointer, progressRoutinePointer, dataPointer, cancelPointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_copyFileExWOriginal(existingFileNamePointer, newFileNamePointer, progressRoutinePointer, dataPointer, cancelPointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailW(detailBuffer, existingFileNamePointer, newFileNamePointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileExW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileExW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2542,11 +2728,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_copyFileExAOriginal(existingFileNamePointer, newFileNamePointer, progressRoutinePointer, dataPointer, cancelPointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_copyFileExAOriginal(existingFileNamePointer, newFileNamePointer, progressRoutinePointer, dataPointer, cancelPointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailA(detailBuffer, existingFileNamePointer, newFileNamePointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileExA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CopyFileExA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2555,11 +2743,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFileAttributesWOriginal(fileNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getFileAttributesWOriginal(fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailW(detailBuffer, fileNamePointer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesW", resultValue != INVALID_FILE_ATTRIBUTES ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesW", resultValue != INVALID_FILE_ATTRIBUTES ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2568,11 +2758,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFileAttributesAOriginal(fileNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getFileAttributesAOriginal(fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailA(detailBuffer, fileNamePointer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesA", resultValue != INVALID_FILE_ATTRIBUTES ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesA", resultValue != INVALID_FILE_ATTRIBUTES ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2581,11 +2773,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFileAttributesExWOriginal(fileNamePointer, infoLevelValue, fileInformationPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_getFileAttributesExWOriginal(fileNamePointer, infoLevelValue, fileInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailW(detailBuffer, fileNamePointer, static_cast<DWORD>(infoLevelValue));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesExW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesExW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2594,11 +2788,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFileAttributesExAOriginal(fileNamePointer, infoLevelValue, fileInformationPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_getFileAttributesExAOriginal(fileNamePointer, infoLevelValue, fileInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailA(detailBuffer, fileNamePointer, static_cast<DWORD>(infoLevelValue));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesExA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFileAttributesExA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2607,11 +2803,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_setFileAttributesWOriginal(fileNamePointer, fileAttributes); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_setFileAttributesWOriginal(fileNamePointer, fileAttributes);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailW(detailBuffer, fileNamePointer, fileAttributes);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileAttributesW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileAttributesW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2620,11 +2818,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_setFileAttributesAOriginal(fileNamePointer, fileAttributes); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_setFileAttributesAOriginal(fileNamePointer, fileAttributes);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailA(detailBuffer, fileNamePointer, fileAttributes);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileAttributesA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileAttributesA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2633,7 +2833,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_findFirstFileExWOriginal(fileNamePointer, infoLevelValue, findFileDataPointer, searchOpValue, searchFilterPointer, additionalFlags); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_findFirstFileExWOriginal(fileNamePointer, infoLevelValue, findFileDataPointer, searchOpValue, searchFilterPointer, additionalFlags);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailW(detailBuffer, fileNamePointer, additionalFlags);
@@ -2641,7 +2843,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(infoLevelValue));
             AppendWideText(detailBuffer, L" search=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(searchOpValue));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"FindFirstFileExW", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"FindFirstFileExW", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2650,7 +2852,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_findFirstFileExAOriginal(fileNamePointer, infoLevelValue, findFileDataPointer, searchOpValue, searchFilterPointer, additionalFlags); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_findFirstFileExAOriginal(fileNamePointer, infoLevelValue, findFileDataPointer, searchOpValue, searchFilterPointer, additionalFlags);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailA(detailBuffer, fileNamePointer, additionalFlags);
@@ -2658,7 +2862,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(infoLevelValue));
             AppendWideText(detailBuffer, L" search=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(searchOpValue));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"FindFirstFileExA", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"FindFirstFileExA", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2667,11 +2871,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createDirectoryWOriginal(pathNamePointer, securityAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_createDirectoryWOriginal(pathNamePointer, securityAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailW(detailBuffer, pathNamePointer, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateDirectoryW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateDirectoryW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2680,11 +2886,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createDirectoryAOriginal(pathNamePointer, securityAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_createDirectoryAOriginal(pathNamePointer, securityAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSinglePathDetailA(detailBuffer, pathNamePointer, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateDirectoryA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateDirectoryA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2693,7 +2901,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_setFileInformationByHandleOriginal(fileHandle, fileInformationClass, fileInformationPointer, bufferSize); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_setFileInformationByHandleOriginal(fileHandle, fileInformationClass, fileInformationPointer, bufferSize);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
@@ -2702,7 +2912,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(fileInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, bufferSize);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileInformationByHandle", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"SetFileInformationByHandle", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2718,11 +2928,13 @@ namespace apimon
             const std::wstring appNameText = AnsiToWide(applicationNamePointer);
             const std::wstring commandLineText = AnsiToWide(commandLinePointer);
             const std::wstring currentDirectoryText = AnsiToWide(currentDirectoryPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_createProcessAOriginal(applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInfoPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             const DWORD childPid = (resultValue != FALSE && processInfoPointer != nullptr) ? processInfoPointer->dwProcessId : 0;
             AutoInjectChildFromCreateProcessAIfRequested(resultValue, processInfoPointer);
-            if (ActiveConfig().enableProcess) SendMonitorEvent(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateProcessA", resultValue != FALSE ? 0 : static_cast<std::int32_t>(lastError), TrimDetail(L"app=" + appNameText + L" cmd=" + commandLineText + L" cwd=" + currentDirectoryText + L" flags=" + HexValue(creationFlags) + L" inherit=" + std::to_wstring(inheritHandles != FALSE) + L" childPid=" + std::to_wstring(childPid)));
+            if (ActiveConfig().enableProcess) SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateProcessA", resultValue != FALSE ? 0 : static_cast<std::int32_t>(lastError), TrimDetail(L"app=" + appNameText + L" cmd=" + commandLineText + L" cwd=" + currentDirectoryText + L" flags=" + HexValue(creationFlags) + L" inherit=" + std::to_wstring(inheritHandles != FALSE) + L" childPid=" + std::to_wstring(childPid)).c_str(), true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2738,11 +2950,13 @@ namespace apimon
             const std::wstring appNameText = SafeWideText(applicationNamePointer);
             const std::wstring commandLineText = commandLinePointer != nullptr ? std::wstring(commandLinePointer) : std::wstring();
             const std::wstring currentDirectoryText = SafeWideText(currentDirectoryPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_createProcessWOriginal(applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInfoPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             const DWORD childPid = (resultValue != FALSE && processInfoPointer != nullptr) ? processInfoPointer->dwProcessId : 0;
             AutoInjectChildIfRequested(resultValue, processInfoPointer);
-            if (ActiveConfig().enableProcess) SendMonitorEvent(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateProcessW", resultValue != FALSE ? 0 : static_cast<std::int32_t>(lastError), TrimDetail(L"app=" + appNameText + L" cmd=" + commandLineText + L" cwd=" + currentDirectoryText + L" flags=" + HexValue(creationFlags) + L" inherit=" + std::to_wstring(inheritHandles != FALSE) + L" childPid=" + std::to_wstring(childPid)));
+            if (ActiveConfig().enableProcess) SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateProcessW", resultValue != FALSE ? 0 : static_cast<std::int32_t>(lastError), TrimDetail(L"app=" + appNameText + L" cmd=" + commandLineText + L" cwd=" + currentDirectoryText + L" flags=" + HexValue(creationFlags) + L" inherit=" + std::to_wstring(inheritHandles != FALSE) + L" childPid=" + std::to_wstring(childPid)).c_str(), true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2751,13 +2965,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_openProcessOriginal(desiredAccess, inheritHandle, processId); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_openProcessOriginal(desiredAccess, inheritHandle, processId);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildProcessHandleDetail(detailBuffer, nullptr, desiredAccess, processId, resultHandle);
             AppendWideText(detailBuffer, L" inherit=");
             AppendUnsignedText(detailBuffer, inheritHandle != FALSE ? 1 : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"OpenProcess", resultHandle != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"OpenProcess", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2766,14 +2982,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_terminateProcessOriginal(processHandle, exitCode); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_terminateProcessOriginal(processHandle, exitCode);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
             AppendWideText(detailBuffer, L" exit=");
             AppendUnsignedText(detailBuffer, exitCode);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"TerminateProcess", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"TerminateProcess", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2782,7 +3000,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"start=");
@@ -2795,7 +3015,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateThread", resultHandle != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2804,7 +3024,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
@@ -2819,7 +3041,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CreateRemoteThread", resultHandle != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateRemoteThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2828,11 +3050,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_virtualAllocExOriginal(processHandle, addressPointer, sizeValue, allocationType, protectValue); }
+            const auto callClock = BeginApiCallClock();
             LPVOID resultPointer = g_virtualAllocExOriginal(processHandle, addressPointer, sizeValue, allocationType, protectValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, resultPointer != nullptr ? resultPointer : addressPointer, static_cast<std::uint64_t>(sizeValue), allocationType, protectValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualAllocEx", resultPointer != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualAllocEx", resultPointer != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultPointer), duration);
             ::SetLastError(lastError);
             return resultPointer;
         }
@@ -2841,11 +3065,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_virtualFreeExOriginal(processHandle, addressPointer, sizeValue, freeType); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_virtualFreeExOriginal(processHandle, addressPointer, sizeValue, freeType);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, addressPointer, static_cast<std::uint64_t>(sizeValue), freeType, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualFreeEx", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualFreeEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2854,11 +3080,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_virtualProtectExOriginal(processHandle, addressPointer, sizeValue, newProtect, oldProtectPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_virtualProtectExOriginal(processHandle, addressPointer, sizeValue, newProtect, oldProtectPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, addressPointer, static_cast<std::uint64_t>(sizeValue), oldProtectPointer != nullptr ? *oldProtectPointer : 0, newProtect);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"VirtualProtectEx", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualProtectEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2867,13 +3095,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" written=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(bytesWrittenPointer != nullptr ? *bytesWrittenPointer : 0));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WriteProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"WriteProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2882,13 +3112,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_readProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesReadPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_readProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesReadPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" read=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(bytesReadPointer != nullptr ? *bytesReadPointer : 0));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ReadProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"ReadProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2901,7 +3133,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_openThreadOriginal(desiredAccess, inheritHandle, threadId); }
+            const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_openThreadOriginal(desiredAccess, inheritHandle, threadId);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"tid=");
@@ -2912,7 +3146,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, inheritHandle != FALSE ? 1 : 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"OpenThread", resultHandle != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"OpenThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -2925,14 +3159,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_suspendThreadOriginal(threadHandle); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_suspendThreadOriginal(threadHandle);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, resultValue == static_cast<DWORD>(-1) ? 0 : resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"SuspendThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SuspendThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2945,14 +3181,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_resumeThreadOriginal(threadHandle); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_resumeThreadOriginal(threadHandle);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, resultValue == static_cast<DWORD>(-1) ? 0 : resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ResumeThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"ResumeThread", resultValue != static_cast<DWORD>(-1) ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2965,7 +3203,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
@@ -2974,7 +3214,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" data=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(dataValue));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"QueueUserAPC", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"QueueUserAPC", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -2987,14 +3227,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getThreadContextOriginal(threadHandle, contextPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_getThreadContextOriginal(threadHandle, contextPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"GetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3007,7 +3249,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_setThreadContextOriginal(threadHandle, contextPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_setThreadContextOriginal(threadHandle, contextPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
@@ -3018,7 +3262,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" rip=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
 #endif
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"SetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3027,14 +3271,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_winExecOriginal(commandLinePointer, showCommand); }
+            const auto callClock = BeginApiCallClock();
             const UINT resultValue = g_winExecOriginal(commandLinePointer, showCommand);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"cmd=");
             AppendAnsiText(detailBuffer, commandLinePointer);
             AppendWideText(detailBuffer, L" show=");
             AppendUnsignedText(detailBuffer, showCommand);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Kernel32", L"WinExec", resultValue > 31 ? 0 : resultValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Kernel32", L"WinExec", resultValue > 31 ? 0 : resultValue, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3043,7 +3289,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_shellExecuteExWOriginal(executeInfoPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_shellExecuteExWOriginal(executeInfoPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"file=");
@@ -3054,7 +3302,7 @@ namespace apimon
             AppendWideText(detailBuffer, executeInfoPointer != nullptr ? executeInfoPointer->lpParameters : nullptr);
             AppendWideText(detailBuffer, L" process=");
             AppendHexText(detailBuffer, executeInfoPointer != nullptr ? reinterpret_cast<std::uint64_t>(executeInfoPointer->hProcess) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteExW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteExW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3063,7 +3311,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_shellExecuteExAOriginal(executeInfoPointer); }
+            const auto callClock = BeginApiCallClock();
             const BOOL resultValue = g_shellExecuteExAOriginal(executeInfoPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"file=");
@@ -3074,24 +3324,26 @@ namespace apimon
             AppendAnsiText(detailBuffer, executeInfoPointer != nullptr ? executeInfoPointer->lpParameters : nullptr);
             AppendWideText(detailBuffer, L" process=");
             AppendHexText(detailBuffer, executeInfoPointer != nullptr ? reinterpret_cast<std::uint64_t>(executeInfoPointer->hProcess) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteExA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteExA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
 
 
-#define APIMON_REG_SEND(ApiName, StatusValue, DetailBuffer) \
-        SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Registry, L"Advapi32", ApiName, static_cast<std::int32_t>(StatusValue), DetailBuffer)
+#define APIMON_REG_SEND(ApiName, StatusValue, DetailBuffer, Duration) \
+        SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"Advapi32", ApiName, static_cast<std::int32_t>(StatusValue), DetailBuffer, true, ApiReturnBits(StatusValue), Duration)
 
         LSTATUS WINAPI HookedRegOpenKeyW(HKEY rootKey, LPCWSTR subKeyPointer, PHKEY resultKeyPointer)
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regOpenKeyWOriginal(rootKey, subKeyPointer, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regOpenKeyWOriginal(rootKey, subKeyPointer, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegOpenDetail(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegOpenKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegOpenKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3100,11 +3352,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regOpenKeyAOriginal(rootKey, subKeyPointer, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regOpenKeyAOriginal(rootKey, subKeyPointer, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegOpenDetailA(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegOpenKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegOpenKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3113,11 +3367,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regOpenKeyExWOriginal(rootKey, subKeyPointer, optionsValue, samDesired, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regOpenKeyExWOriginal(rootKey, subKeyPointer, optionsValue, samDesired, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegOpenDetail(detailBuffer, rootKey, subKeyPointer, samDesired);
-            APIMON_REG_SEND(L"RegOpenKeyExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegOpenKeyExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3126,11 +3382,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regOpenKeyExAOriginal(rootKey, subKeyPointer, optionsValue, samDesired, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regOpenKeyExAOriginal(rootKey, subKeyPointer, optionsValue, samDesired, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegOpenDetailA(detailBuffer, rootKey, subKeyPointer, samDesired);
-            APIMON_REG_SEND(L"RegOpenKeyExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegOpenKeyExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3139,11 +3397,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCreateKeyWOriginal(rootKey, subKeyPointer, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCreateKeyWOriginal(rootKey, subKeyPointer, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegCreateDetail(detailBuffer, rootKey, subKeyPointer, 0, 0);
-            APIMON_REG_SEND(L"RegCreateKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCreateKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3152,11 +3412,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCreateKeyAOriginal(rootKey, subKeyPointer, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCreateKeyAOriginal(rootKey, subKeyPointer, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegCreateDetailA(detailBuffer, rootKey, subKeyPointer, 0, 0);
-            APIMON_REG_SEND(L"RegCreateKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCreateKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3165,11 +3427,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCreateKeyExWOriginal(rootKey, subKeyPointer, reservedValue, classPointer, optionsValue, samDesired, securityAttributes, resultKeyPointer, dispositionPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCreateKeyExWOriginal(rootKey, subKeyPointer, reservedValue, classPointer, optionsValue, samDesired, securityAttributes, resultKeyPointer, dispositionPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegCreateDetail(detailBuffer, rootKey, subKeyPointer, optionsValue, dispositionPointer != nullptr ? *dispositionPointer : 0);
-            APIMON_REG_SEND(L"RegCreateKeyExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCreateKeyExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3178,11 +3442,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCreateKeyExAOriginal(rootKey, subKeyPointer, reservedValue, classPointer, optionsValue, samDesired, securityAttributes, resultKeyPointer, dispositionPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCreateKeyExAOriginal(rootKey, subKeyPointer, reservedValue, classPointer, optionsValue, samDesired, securityAttributes, resultKeyPointer, dispositionPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegCreateDetailA(detailBuffer, rootKey, subKeyPointer, optionsValue, dispositionPointer != nullptr ? *dispositionPointer : 0);
-            APIMON_REG_SEND(L"RegCreateKeyExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCreateKeyExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3191,11 +3457,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regQueryValueExWOriginal(keyHandle, valueNamePointer, reservedPointer, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regQueryValueExWOriginal(keyHandle, valueNamePointer, reservedPointer, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetail(detailBuffer, L"hkey=", keyHandle, valueNamePointer, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
-            APIMON_REG_SEND(L"RegQueryValueExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegQueryValueExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3204,11 +3472,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regQueryValueExAOriginal(keyHandle, valueNamePointer, reservedPointer, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regQueryValueExAOriginal(keyHandle, valueNamePointer, reservedPointer, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetailA(detailBuffer, L"hkey=", keyHandle, valueNamePointer, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
-            APIMON_REG_SEND(L"RegQueryValueExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegQueryValueExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3217,11 +3487,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regGetValueWOriginal(keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regGetValueWOriginal(keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegGetValueDetail(detailBuffer, keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
-            APIMON_REG_SEND(L"RegGetValueW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegGetValueW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3230,11 +3502,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regGetValueAOriginal(keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regGetValueAOriginal(keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegGetValueDetailA(detailBuffer, keyHandle, subKeyPointer, valueNamePointer, flagsValue, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
-            APIMON_REG_SEND(L"RegGetValueA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegGetValueA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3243,11 +3517,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSetValueExWOriginal(keyHandle, valueNamePointer, reservedValue, typeValue, dataPointer, dataSize); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSetValueExWOriginal(keyHandle, valueNamePointer, reservedValue, typeValue, dataPointer, dataSize);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSetValueDetail(detailBuffer, keyHandle, valueNamePointer, typeValue, dataSize);
-            APIMON_REG_SEND(L"RegSetValueExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSetValueExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3256,11 +3532,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSetValueExAOriginal(keyHandle, valueNamePointer, reservedValue, typeValue, dataPointer, dataSize); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSetValueExAOriginal(keyHandle, valueNamePointer, reservedValue, typeValue, dataPointer, dataSize);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSetValueDetailA(detailBuffer, keyHandle, valueNamePointer, typeValue, dataSize);
-            APIMON_REG_SEND(L"RegSetValueExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSetValueExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3269,11 +3547,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSetKeyValueWOriginal(keyHandle, subKeyPointer, valueNamePointer, typeValue, dataPointer, dataSize); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSetKeyValueWOriginal(keyHandle, subKeyPointer, valueNamePointer, typeValue, dataPointer, dataSize);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegGetValueDetail(detailBuffer, keyHandle, subKeyPointer, valueNamePointer, 0, typeValue, dataSize);
-            APIMON_REG_SEND(L"RegSetKeyValueW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSetKeyValueW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3282,11 +3562,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSetKeyValueAOriginal(keyHandle, subKeyPointer, valueNamePointer, typeValue, dataPointer, dataSize); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSetKeyValueAOriginal(keyHandle, subKeyPointer, valueNamePointer, typeValue, dataPointer, dataSize);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegGetValueDetailA(detailBuffer, keyHandle, subKeyPointer, valueNamePointer, 0, typeValue, dataSize);
-            APIMON_REG_SEND(L"RegSetKeyValueA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSetKeyValueA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3295,11 +3577,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteValueWOriginal(keyHandle, valueNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteValueWOriginal(keyHandle, valueNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetail(detailBuffer, L"hkey=", keyHandle, valueNamePointer, 0, 0);
-            APIMON_REG_SEND(L"RegDeleteValueW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteValueW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3308,11 +3592,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteValueAOriginal(keyHandle, valueNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteValueAOriginal(keyHandle, valueNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetailA(detailBuffer, L"hkey=", keyHandle, valueNamePointer, 0, 0);
-            APIMON_REG_SEND(L"RegDeleteValueA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteValueA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3321,11 +3607,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyWOriginal(rootKey, subKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyWOriginal(rootKey, subKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetail(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegDeleteKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3334,11 +3622,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyAOriginal(rootKey, subKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyAOriginal(rootKey, subKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetailA(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegDeleteKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3347,11 +3637,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyExWOriginal(rootKey, subKeyPointer, samDesired, reservedValue); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyExWOriginal(rootKey, subKeyPointer, samDesired, reservedValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetail(detailBuffer, rootKey, subKeyPointer, samDesired);
-            APIMON_REG_SEND(L"RegDeleteKeyExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3360,11 +3652,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyExAOriginal(rootKey, subKeyPointer, samDesired, reservedValue); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyExAOriginal(rootKey, subKeyPointer, samDesired, reservedValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetailA(detailBuffer, rootKey, subKeyPointer, samDesired);
-            APIMON_REG_SEND(L"RegDeleteKeyExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3373,11 +3667,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteTreeWOriginal(rootKey, subKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteTreeWOriginal(rootKey, subKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetail(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegDeleteTreeW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteTreeW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3386,11 +3682,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteTreeAOriginal(rootKey, subKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteTreeAOriginal(rootKey, subKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetailA(detailBuffer, rootKey, subKeyPointer, 0);
-            APIMON_REG_SEND(L"RegDeleteTreeA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteTreeA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3399,13 +3697,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCopyTreeWOriginal(rootKey, subKeyPointer, destKey); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCopyTreeWOriginal(rootKey, subKeyPointer, destKey);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetail(detailBuffer, rootKey, subKeyPointer, 0);
             AppendWideText(detailBuffer, L" dest=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(destKey));
-            APIMON_REG_SEND(L"RegCopyTreeW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCopyTreeW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3414,13 +3714,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCopyTreeAOriginal(rootKey, subKeyPointer, destKey); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCopyTreeAOriginal(rootKey, subKeyPointer, destKey);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetailA(detailBuffer, rootKey, subKeyPointer, 0);
             AppendWideText(detailBuffer, L" dest=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(destKey));
-            APIMON_REG_SEND(L"RegCopyTreeA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCopyTreeA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3429,13 +3731,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regLoadKeyWOriginal(rootKey, subKeyPointer, fileNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regLoadKeyWOriginal(rootKey, subKeyPointer, fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetail(detailBuffer, rootKey, subKeyPointer, 0);
             AppendWideText(detailBuffer, L" file=");
             AppendWideText(detailBuffer, fileNamePointer);
-            APIMON_REG_SEND(L"RegLoadKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegLoadKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3444,13 +3748,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regLoadKeyAOriginal(rootKey, subKeyPointer, fileNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regLoadKeyAOriginal(rootKey, subKeyPointer, fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegSubKeyDetailA(detailBuffer, rootKey, subKeyPointer, 0);
             AppendWideText(detailBuffer, L" file=");
             AppendAnsiText(detailBuffer, fileNamePointer);
-            APIMON_REG_SEND(L"RegLoadKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegLoadKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3459,14 +3765,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSaveKeyWOriginal(keyHandle, fileNamePointer, securityAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSaveKeyWOriginal(keyHandle, fileNamePointer, securityAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
             AppendWideText(detailBuffer, L" file=");
             AppendWideText(detailBuffer, fileNamePointer);
-            APIMON_REG_SEND(L"RegSaveKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSaveKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3475,14 +3783,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regSaveKeyAOriginal(keyHandle, fileNamePointer, securityAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regSaveKeyAOriginal(keyHandle, fileNamePointer, securityAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
             AppendWideText(detailBuffer, L" file=");
             AppendAnsiText(detailBuffer, fileNamePointer);
-            APIMON_REG_SEND(L"RegSaveKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegSaveKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3491,7 +3801,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regRenameKeyOriginal(keyHandle, subKeyPointer, newNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regRenameKeyOriginal(keyHandle, subKeyPointer, newNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
@@ -3500,7 +3812,7 @@ namespace apimon
             AppendWideText(detailBuffer, subKeyPointer);
             AppendWideText(detailBuffer, L" new=");
             AppendWideText(detailBuffer, newNamePointer);
-            APIMON_REG_SEND(L"RegRenameKey", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegRenameKey", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3509,11 +3821,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regEnumKeyExWOriginal(keyHandle, indexValue, namePointer, nameLengthPointer, reservedPointer, classPointer, classLengthPointer, lastWriteTimePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regEnumKeyExWOriginal(keyHandle, indexValue, namePointer, nameLengthPointer, reservedPointer, classPointer, classLengthPointer, lastWriteTimePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegEnumKeyDetail(detailBuffer, keyHandle, indexValue, statusValue == ERROR_SUCCESS ? namePointer : nullptr, statusValue == ERROR_SUCCESS && nameLengthPointer != nullptr ? *nameLengthPointer : 0);
-            APIMON_REG_SEND(L"RegEnumKeyExW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegEnumKeyExW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3522,11 +3836,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regEnumKeyExAOriginal(keyHandle, indexValue, namePointer, nameLengthPointer, reservedPointer, classPointer, classLengthPointer, lastWriteTimePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regEnumKeyExAOriginal(keyHandle, indexValue, namePointer, nameLengthPointer, reservedPointer, classPointer, classLengthPointer, lastWriteTimePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegEnumKeyDetailA(detailBuffer, keyHandle, indexValue, statusValue == ERROR_SUCCESS ? namePointer : nullptr, statusValue == ERROR_SUCCESS && nameLengthPointer != nullptr ? *nameLengthPointer : 0);
-            APIMON_REG_SEND(L"RegEnumKeyExA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegEnumKeyExA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3535,13 +3851,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regEnumValueWOriginal(keyHandle, indexValue, valueNamePointer, valueNameLengthPointer, reservedPointer, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regEnumValueWOriginal(keyHandle, indexValue, valueNamePointer, valueNameLengthPointer, reservedPointer, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetail(detailBuffer, L"hkey=", keyHandle, statusValue == ERROR_SUCCESS ? valueNamePointer : nullptr, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
             AppendWideText(detailBuffer, L" index=");
             AppendUnsignedText(detailBuffer, indexValue);
-            APIMON_REG_SEND(L"RegEnumValueW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegEnumValueW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3550,13 +3868,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regEnumValueAOriginal(keyHandle, indexValue, valueNamePointer, valueNameLengthPointer, reservedPointer, typePointer, dataPointer, dataSizePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regEnumValueAOriginal(keyHandle, indexValue, valueNamePointer, valueNameLengthPointer, reservedPointer, typePointer, dataPointer, dataSizePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetailA(detailBuffer, L"hkey=", keyHandle, statusValue == ERROR_SUCCESS ? valueNamePointer : nullptr, typePointer != nullptr ? *typePointer : 0, dataSizePointer != nullptr ? *dataSizePointer : 0);
             AppendWideText(detailBuffer, L" index=");
             AppendUnsignedText(detailBuffer, indexValue);
-            APIMON_REG_SEND(L"RegEnumValueA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegEnumValueA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3565,12 +3885,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regCloseKeyOriginal(keyHandle); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regCloseKeyOriginal(keyHandle);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
-            APIMON_REG_SEND(L"RegCloseKey", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegCloseKey", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3599,7 +3921,9 @@ namespace apimon
                 return g_regQueryInfoKeyWOriginal(keyHandle, classPointer, classLengthPointer, reservedPointer, subKeyCountPointer, maxSubKeyLengthPointer, maxClassLengthPointer, valueCountPointer, maxValueNameLengthPointer, maxValueLengthPointer, securityDescriptorLengthPointer, lastWriteTimePointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regQueryInfoKeyWOriginal(keyHandle, classPointer, classLengthPointer, reservedPointer, subKeyCountPointer, maxSubKeyLengthPointer, maxClassLengthPointer, valueCountPointer, maxValueNameLengthPointer, maxValueLengthPointer, securityDescriptorLengthPointer, lastWriteTimePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
@@ -3608,7 +3932,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, subKeyCountPointer != nullptr ? *subKeyCountPointer : 0);
             AppendWideText(detailBuffer, L" values=");
             AppendUnsignedText(detailBuffer, valueCountPointer != nullptr ? *valueCountPointer : 0);
-            APIMON_REG_SEND(L"RegQueryInfoKeyW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegQueryInfoKeyW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3637,7 +3961,9 @@ namespace apimon
                 return g_regQueryInfoKeyAOriginal(keyHandle, classPointer, classLengthPointer, reservedPointer, subKeyCountPointer, maxSubKeyLengthPointer, maxClassLengthPointer, valueCountPointer, maxValueNameLengthPointer, maxValueLengthPointer, securityDescriptorLengthPointer, lastWriteTimePointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regQueryInfoKeyAOriginal(keyHandle, classPointer, classLengthPointer, reservedPointer, subKeyCountPointer, maxSubKeyLengthPointer, maxClassLengthPointer, valueCountPointer, maxValueNameLengthPointer, maxValueLengthPointer, securityDescriptorLengthPointer, lastWriteTimePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
@@ -3646,7 +3972,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, subKeyCountPointer != nullptr ? *subKeyCountPointer : 0);
             AppendWideText(detailBuffer, L" values=");
             AppendUnsignedText(detailBuffer, valueCountPointer != nullptr ? *valueCountPointer : 0);
-            APIMON_REG_SEND(L"RegQueryInfoKeyA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegQueryInfoKeyA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3659,12 +3985,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regFlushKeyOriginal(keyHandle); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regFlushKeyOriginal(keyHandle);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
-            APIMON_REG_SEND(L"RegFlushKey", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegFlushKey", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3677,13 +4005,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyValueWOriginal(keyHandle, subKeyPointer, valueNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyValueWOriginal(keyHandle, subKeyPointer, valueNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetail(detailBuffer, L"hkey=", keyHandle, valueNamePointer, 0, 0);
             AppendWideText(detailBuffer, L" sub=");
             AppendWideText(detailBuffer, subKeyPointer);
-            APIMON_REG_SEND(L"RegDeleteKeyValueW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyValueW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3696,13 +4026,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regDeleteKeyValueAOriginal(keyHandle, subKeyPointer, valueNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regDeleteKeyValueAOriginal(keyHandle, subKeyPointer, valueNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRegValueDetailA(detailBuffer, L"hkey=", keyHandle, valueNamePointer, 0, 0);
             AppendWideText(detailBuffer, L" sub=");
             AppendAnsiText(detailBuffer, subKeyPointer);
-            APIMON_REG_SEND(L"RegDeleteKeyValueA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegDeleteKeyValueA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3715,7 +4047,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regConnectRegistryWOriginal(machineNamePointer, rootKey, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regConnectRegistryWOriginal(machineNamePointer, rootKey, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"machine=");
@@ -3724,7 +4058,7 @@ namespace apimon
             AppendRegistryRootText(detailBuffer, rootKey);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultKeyPointer != nullptr ? reinterpret_cast<std::uint64_t>(*resultKeyPointer) : 0);
-            APIMON_REG_SEND(L"RegConnectRegistryW", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegConnectRegistryW", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3737,7 +4071,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_regConnectRegistryAOriginal(machineNamePointer, rootKey, resultKeyPointer); }
+            const auto callClock = BeginApiCallClock();
             const LSTATUS statusValue = g_regConnectRegistryAOriginal(machineNamePointer, rootKey, resultKeyPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"machine=");
@@ -3746,7 +4082,7 @@ namespace apimon
             AppendRegistryRootText(detailBuffer, rootKey);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultKeyPointer != nullptr ? reinterpret_cast<std::uint64_t>(*resultKeyPointer) : 0);
-            APIMON_REG_SEND(L"RegConnectRegistryA", statusValue, detailBuffer);
+            APIMON_REG_SEND(L"RegConnectRegistryA", statusValue, detailBuffer, duration);
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -3755,12 +4091,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateFileOriginal(fileHandlePointer, desiredAccess, objectAttributesPointer, ioStatusBlockPointer, allocationSizePointer, fileAttributes, shareAccess, createDisposition, createOptions, eaBufferPointer, eaLength); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateFileOriginal(fileHandlePointer, desiredAccess, objectAttributesPointer, ioStatusBlockPointer, allocationSizePointer, fileAttributes, shareAccess, createDisposition, createOptions, eaBufferPointer, eaLength);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, desiredAccess, shareAccess, createDisposition, createOptions);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, fileHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*fileHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtCreateFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtCreateFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3768,12 +4106,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenFileOriginal(fileHandlePointer, desiredAccess, objectAttributesPointer, ioStatusBlockPointer, shareAccess, openOptions); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenFileOriginal(fileHandlePointer, desiredAccess, objectAttributesPointer, ioStatusBlockPointer, shareAccess, openOptions);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, desiredAccess, shareAccess, 0, openOptions);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, fileHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*fileHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtOpenFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtOpenFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3785,10 +4125,12 @@ namespace apimon
             }
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntReadFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, bufferPointer, lengthValue, byteOffsetPointer, keyPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntReadFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, bufferPointer, lengthValue, byteOffsetPointer, keyPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildHandleTransferDetail(detailBuffer, fileHandle, lengthValue, ioStatusBlockPointer != nullptr ? static_cast<unsigned long long>(ioStatusBlockPointer->Information) : 0, byteOffsetPointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtReadFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtReadFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3800,10 +4142,12 @@ namespace apimon
             }
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntWriteFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, bufferPointer, lengthValue, byteOffsetPointer, keyPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntWriteFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, bufferPointer, lengthValue, byteOffsetPointer, keyPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildHandleTransferDetail(detailBuffer, fileHandle, lengthValue, ioStatusBlockPointer != nullptr ? static_cast<unsigned long long>(ioStatusBlockPointer->Information) : 0, byteOffsetPointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtWriteFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtWriteFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3811,7 +4155,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSetInformationFileOriginal(fileHandle, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSetInformationFileOriginal(fileHandle, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
@@ -3819,7 +4165,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(fileInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtSetInformationFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtSetInformationFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3827,7 +4173,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryInformationFileOriginal(fileHandle, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryInformationFileOriginal(fileHandle, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
@@ -3835,7 +4183,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(fileInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryInformationFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryInformationFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3843,10 +4191,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntDeleteFileOriginal(objectAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntDeleteFileOriginal(objectAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, 0, 0, 0, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtDeleteFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtDeleteFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3854,10 +4204,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryAttributesFileOriginal(objectAttributesPointer, fileInformationPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryAttributesFileOriginal(objectAttributesPointer, fileInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, 0, 0, 0, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryAttributesFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryAttributesFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3865,10 +4217,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryFullAttributesFileOriginal(objectAttributesPointer, fileInformationPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryFullAttributesFileOriginal(objectAttributesPointer, fileInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, 0, 0, 0, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryFullAttributesFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryFullAttributesFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3894,7 +4248,9 @@ namespace apimon
                 return g_ntDeviceIoControlFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, ioControlCode, inputBufferPointer, inputBufferLength, outputBufferPointer, outputBufferLength);
             }
 
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntDeviceIoControlFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, ioControlCode, inputBufferPointer, inputBufferLength, outputBufferPointer, outputBufferLength);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
@@ -3906,7 +4262,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, outputBufferLength);
             AppendWideText(detailBuffer, L" info=");
             AppendUnsignedText(detailBuffer, ioStatusBlockPointer != nullptr ? static_cast<unsigned long long>(ioStatusBlockPointer->Information) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtDeviceIoControlFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtDeviceIoControlFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3932,7 +4288,9 @@ namespace apimon
                 return g_ntFsControlFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fsControlCode, inputBufferPointer, inputBufferLength, outputBufferPointer, outputBufferLength);
             }
 
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntFsControlFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fsControlCode, inputBufferPointer, inputBufferLength, outputBufferPointer, outputBufferLength);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"fsctlName=");
             AppendWideText(detailBuffer, FsctlCodeToText(fsControlCode));
@@ -3948,7 +4306,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, outputBufferLength);
             AppendWideText(detailBuffer, L" info=");
             AppendUnsignedText(detailBuffer, ioStatusBlockPointer != nullptr ? static_cast<unsigned long long>(ioStatusBlockPointer->Information) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtFsControlFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtFsControlFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -3975,7 +4333,9 @@ namespace apimon
                 return g_ntQueryDirectoryFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass, returnSingleEntry, fileNamePointer, restartScan);
             }
 
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryDirectoryFileOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass, returnSingleEntry, fileNamePointer, restartScan);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
@@ -3989,7 +4349,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, returnSingleEntry ? 1 : 0);
             AppendWideText(detailBuffer, L" restart=");
             AppendUnsignedText(detailBuffer, restartScan ? 1 : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryDirectoryFile", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryDirectoryFile", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4015,7 +4375,9 @@ namespace apimon
                 return g_ntQueryDirectoryFileExOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass, queryFlags, fileNamePointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryDirectoryFileExOriginal(fileHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, fileInformationPointer, lengthValue, fileInformationClass, queryFlags, fileNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
@@ -4027,7 +4389,7 @@ namespace apimon
             AppendHexText(detailBuffer, queryFlags);
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryDirectoryFileEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"ntdll", L"NtQueryDirectoryFileEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4035,12 +4397,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateKeyOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer, titleIndex, classPointer, createOptions, dispositionPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateKeyOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer, titleIndex, classPointer, createOptions, dispositionPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, desiredAccess, 0, dispositionPointer != nullptr ? *dispositionPointer : 0, createOptions);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, keyHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*keyHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtCreateKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtCreateKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4048,12 +4412,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenKeyOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenKeyOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, desiredAccess, 0, 0, 0);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, keyHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*keyHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtOpenKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtOpenKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4061,12 +4427,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenKeyExOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer, openOptions); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenKeyExOriginal(keyHandlePointer, desiredAccess, objectAttributesPointer, openOptions);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtObjectPathDetail(detailBuffer, objectAttributesPointer, desiredAccess, 0, 0, openOptions);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, keyHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*keyHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtOpenKeyEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtOpenKeyEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4074,10 +4442,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSetValueKeyOriginal(keyHandle, valueNamePointer, titleIndex, typeValue, dataPointer, dataSize); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSetValueKeyOriginal(keyHandle, valueNamePointer, titleIndex, typeValue, dataPointer, dataSize);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtKeyValueDetail(detailBuffer, keyHandle, valueNamePointer, typeValue, dataSize);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSetValueKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSetValueKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4085,10 +4455,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryValueKeyOriginal(keyHandle, valueNamePointer, keyValueInformationClass, keyValueInformationPointer, lengthValue, resultLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryValueKeyOriginal(keyHandle, valueNamePointer, keyValueInformationClass, keyValueInformationPointer, lengthValue, resultLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtKeyValueDetail(detailBuffer, keyHandle, valueNamePointer, static_cast<ULONG>(keyValueInformationClass), resultLengthPointer != nullptr ? *resultLengthPointer : lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryValueKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryValueKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4096,7 +4468,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntEnumerateKeyOriginal(keyHandle, indexValue, keyInformationClass, keyInformationPointer, lengthValue, resultLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntEnumerateKeyOriginal(keyHandle, indexValue, keyInformationClass, keyInformationPointer, lengthValue, resultLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4106,7 +4480,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(keyInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, resultLengthPointer != nullptr ? *resultLengthPointer : lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtEnumerateKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtEnumerateKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4114,7 +4488,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntEnumerateValueKeyOriginal(keyHandle, indexValue, keyValueInformationClass, keyValueInformationPointer, lengthValue, resultLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntEnumerateValueKeyOriginal(keyHandle, indexValue, keyValueInformationClass, keyValueInformationPointer, lengthValue, resultLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4124,7 +4500,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(keyValueInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, resultLengthPointer != nullptr ? *resultLengthPointer : lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtEnumerateValueKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtEnumerateValueKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4132,11 +4508,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntDeleteKeyOriginal(keyHandle); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntDeleteKeyOriginal(keyHandle);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtDeleteKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtDeleteKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4144,10 +4522,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntDeleteValueKeyOriginal(keyHandle, valueNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntDeleteValueKeyOriginal(keyHandle, valueNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildNtKeyValueDetail(detailBuffer, keyHandle, valueNamePointer, 0, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtDeleteValueKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtDeleteValueKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4155,11 +4535,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntFlushKeyOriginal(keyHandle); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntFlushKeyOriginal(keyHandle);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtFlushKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtFlushKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4167,13 +4549,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntRenameKeyOriginal(keyHandle, newNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntRenameKeyOriginal(keyHandle, newNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
             AppendWideText(detailBuffer, L" new=");
             AppendUnicodeStringText(detailBuffer, newNamePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtRenameKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtRenameKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4181,13 +4565,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntLoadKeyOriginal(targetKeyPointer, sourceFilePointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntLoadKeyOriginal(targetKeyPointer, sourceFilePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"target=");
             AppendObjectNameText(detailBuffer, targetKeyPointer);
             AppendWideText(detailBuffer, L" source=");
             AppendObjectNameText(detailBuffer, sourceFilePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4195,13 +4581,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSaveKeyOriginal(keyHandle, fileHandle); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSaveKeyOriginal(keyHandle, fileHandle);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
             AppendWideText(detailBuffer, L" file=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSaveKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSaveKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4213,7 +4601,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryKeyOriginal(keyHandle, keyInformationClass, keyInformationPointer, lengthValue, resultLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryKeyOriginal(keyHandle, keyInformationClass, keyInformationPointer, lengthValue, resultLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4221,7 +4611,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(keyInformationClass));
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, resultLengthPointer != nullptr ? *resultLengthPointer : lengthValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4233,7 +4623,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryMultipleValueKeyOriginal(keyHandle, valueEntriesPointer, entryCount, valueBufferPointer, bufferLengthPointer, requiredBufferLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryMultipleValueKeyOriginal(keyHandle, valueEntriesPointer, entryCount, valueBufferPointer, bufferLengthPointer, requiredBufferLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4243,7 +4635,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, bufferLengthPointer != nullptr ? *bufferLengthPointer : 0);
             AppendWideText(detailBuffer, L" required=");
             AppendUnsignedText(detailBuffer, requiredBufferLengthPointer != nullptr ? *requiredBufferLengthPointer : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryMultipleValueKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtQueryMultipleValueKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4255,7 +4647,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntNotifyChangeKeyOriginal(keyHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, completionFilter, watchTree, bufferPointer, bufferSize, asynchronous); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntNotifyChangeKeyOriginal(keyHandle, eventHandle, apcRoutinePointer, apcContextPointer, ioStatusBlockPointer, completionFilter, watchTree, bufferPointer, bufferSize, asynchronous);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4265,7 +4659,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, watchTree ? 1 : 0);
             AppendWideText(detailBuffer, L" async=");
             AppendUnsignedText(detailBuffer, asynchronous ? 1 : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtNotifyChangeKey", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtNotifyChangeKey", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4277,7 +4671,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntLoadKey2Original(targetKeyPointer, sourceFilePointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntLoadKey2Original(targetKeyPointer, sourceFilePointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"target=");
             AppendObjectNameText(detailBuffer, targetKeyPointer);
@@ -4285,7 +4681,7 @@ namespace apimon
             AppendObjectNameText(detailBuffer, sourceFilePointer);
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadKey2", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadKey2", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4297,7 +4693,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSaveKeyExOriginal(keyHandle, fileHandle, formatValue); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSaveKeyExOriginal(keyHandle, fileHandle, formatValue);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"hkey=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(keyHandle));
@@ -4305,7 +4703,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
             AppendWideText(detailBuffer, L" format=");
             AppendHexText(detailBuffer, formatValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSaveKeyEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtSaveKeyEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4317,11 +4715,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntLoadDriverOriginal(serviceNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntLoadDriverOriginal(serviceNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"service=");
             AppendUnicodeStringText(detailBuffer, serviceNamePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadDriver", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtLoadDriver", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4333,11 +4733,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntUnloadDriverOriginal(serviceNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntUnloadDriverOriginal(serviceNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"service=");
             AppendUnicodeStringText(detailBuffer, serviceNamePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtUnloadDriver", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Registry, L"ntdll", L"NtUnloadDriver", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4345,10 +4747,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenProcessOriginal(processHandlePointer, desiredAccess, objectAttributesPointer, clientIdPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenProcessOriginal(processHandlePointer, desiredAccess, objectAttributesPointer, clientIdPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildProcessHandleDetail(detailBuffer, nullptr, desiredAccess, clientIdPointer != nullptr ? reinterpret_cast<std::uint64_t>(clientIdPointer->UniqueProcess) : 0, processHandlePointer != nullptr ? *processHandlePointer : nullptr);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenProcess", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenProcess", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4356,7 +4760,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenThreadOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, clientIdPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenThreadOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, clientIdPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"pid=");
             AppendHexText(detailBuffer, clientIdPointer != nullptr ? reinterpret_cast<std::uint64_t>(clientIdPointer->UniqueProcess) : 0);
@@ -4366,7 +4772,7 @@ namespace apimon
             AppendHexText(detailBuffer, desiredAccess);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtOpenThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4374,13 +4780,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntTerminateProcessOriginal(processHandle, exitStatus); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntTerminateProcessOriginal(processHandle, exitStatus);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
             AppendWideText(detailBuffer, L" exit=");
             AppendHexText(detailBuffer, static_cast<std::uint32_t>(exitStatus));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtTerminateProcess", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtTerminateProcess", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4388,7 +4796,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateUserProcessOriginal(processHandlePointer, threadHandlePointer, processDesiredAccess, threadDesiredAccess, processObjectAttributesPointer, threadObjectAttributesPointer, processFlags, threadFlags, processParametersPointer, createInfoPointer, attributeListPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateUserProcessOriginal(processHandlePointer, threadHandlePointer, processDesiredAccess, threadDesiredAccess, processObjectAttributesPointer, threadObjectAttributesPointer, processFlags, threadFlags, processParametersPointer, createInfoPointer, attributeListPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"processAccess=");
             AppendHexText(detailBuffer, processDesiredAccess);
@@ -4402,7 +4812,7 @@ namespace apimon
             AppendHexText(detailBuffer, processHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*processHandlePointer) : 0);
             AppendWideText(detailBuffer, L" thread=");
             AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateUserProcess", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateUserProcess", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4410,7 +4820,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateProcessExOriginal(processHandlePointer, desiredAccess, objectAttributesPointer, parentProcessHandle, flagsValue, sectionHandle, debugPortHandle, exceptionPortHandle, inJob); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateProcessExOriginal(processHandlePointer, desiredAccess, objectAttributesPointer, parentProcessHandle, flagsValue, sectionHandle, debugPortHandle, exceptionPortHandle, inJob);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"parent=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(parentProcessHandle));
@@ -4420,7 +4832,7 @@ namespace apimon
             AppendHexText(detailBuffer, flagsValue);
             AppendWideText(detailBuffer, L" process=");
             AppendHexText(detailBuffer, processHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*processHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateProcessEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateProcessEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4428,7 +4840,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
@@ -4440,7 +4854,7 @@ namespace apimon
             AppendHexText(detailBuffer, createFlags);
             AppendWideText(detailBuffer, L" thread=");
             AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateThreadEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtCreateThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4448,10 +4862,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, allocationType, protectValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtAllocateVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtAllocateVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4459,10 +4875,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, freeType, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtFreeVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtFreeVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4470,10 +4888,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, oldProtectPointer != nullptr ? *oldProtectPointer : 0, newProtect);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtProtectVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtProtectVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4481,12 +4901,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" written=");
             AppendUnsignedText(detailBuffer, bytesWrittenPointer != nullptr ? static_cast<unsigned long long>(*bytesWrittenPointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtWriteVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtWriteVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4494,12 +4916,14 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntReadVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesReadPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntReadVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesReadPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
             AppendWideText(detailBuffer, L" read=");
             AppendUnsignedText(detailBuffer, bytesReadPointer != nullptr ? static_cast<unsigned long long>(*bytesReadPointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtReadVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtReadVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4507,7 +4931,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"section=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(sectionHandle));
@@ -4519,7 +4945,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, viewSizePointer != nullptr ? static_cast<unsigned long long>(*viewSizePointer) : 0);
             AppendWideText(detailBuffer, L" protect=");
             AppendHexText(detailBuffer, protectValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtMapViewOfSection", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtMapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4527,10 +4953,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, 0, 0, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtUnmapViewOfSection", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtUnmapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4538,7 +4966,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntDuplicateObjectOriginal(sourceProcessHandle, sourceHandle, targetProcessHandle, targetHandlePointer, desiredAccess, handleAttributes, optionsValue); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntDuplicateObjectOriginal(sourceProcessHandle, sourceHandle, targetProcessHandle, targetHandlePointer, desiredAccess, handleAttributes, optionsValue);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"sourceProcess=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(sourceProcessHandle));
@@ -4552,7 +4982,7 @@ namespace apimon
             AppendHexText(detailBuffer, desiredAccess);
             AppendWideText(detailBuffer, L" options=");
             AppendHexText(detailBuffer, optionsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtDuplicateObject", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtDuplicateObject", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4564,7 +4994,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryInformationProcessOriginal(processHandle, processInformationClass, processInformationPointer, processInformationLength, returnLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryInformationProcessOriginal(processHandle, processInformationClass, processInformationPointer, processInformationLength, returnLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
@@ -4572,7 +5004,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, processInformationClass);
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, returnLengthPointer != nullptr ? *returnLengthPointer : processInformationLength);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueryInformationProcess", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueryInformationProcess", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4584,7 +5016,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSetInformationProcessOriginal(processHandle, processInformationClass, processInformationPointer, processInformationLength); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSetInformationProcessOriginal(processHandle, processInformationClass, processInformationPointer, processInformationLength);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"process=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
@@ -4592,7 +5026,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, processInformationClass);
             AppendWideText(detailBuffer, L" size=");
             AppendUnsignedText(detailBuffer, processInformationLength);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSetInformationProcess", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSetInformationProcess", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4604,10 +5038,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueryVirtualMemoryOriginal(processHandle, baseAddress, memoryInformationClass, memoryInformationPointer, memoryInformationLength, returnLengthPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueryVirtualMemoryOriginal(processHandle, baseAddress, memoryInformationClass, memoryInformationPointer, memoryInformationLength, returnLengthPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(returnLengthPointer != nullptr ? *returnLengthPointer : memoryInformationLength), memoryInformationClass, 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueryVirtualMemory", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtQueryVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4619,7 +5055,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntCreateSectionOriginal(sectionHandlePointer, desiredAccess, objectAttributesPointer, maximumSizePointer, sectionPageProtection, allocationAttributes, fileHandle); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntCreateSectionOriginal(sectionHandlePointer, desiredAccess, objectAttributesPointer, maximumSizePointer, sectionPageProtection, allocationAttributes, fileHandle);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"section=");
             AppendHexText(detailBuffer, sectionHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*sectionHandlePointer) : 0);
@@ -4631,7 +5069,7 @@ namespace apimon
             AppendHexText(detailBuffer, allocationAttributes);
             AppendWideText(detailBuffer, L" file=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(fileHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtCreateSection", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtCreateSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4643,7 +5081,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntOpenSectionOriginal(sectionHandlePointer, desiredAccess, objectAttributesPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntOpenSectionOriginal(sectionHandlePointer, desiredAccess, objectAttributesPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"object=");
             AppendObjectNameText(detailBuffer, objectAttributesPointer);
@@ -4651,7 +5091,7 @@ namespace apimon
             AppendHexText(detailBuffer, desiredAccess);
             AppendWideText(detailBuffer, L" section=");
             AppendHexText(detailBuffer, sectionHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*sectionHandlePointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtOpenSection", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtOpenSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4663,7 +5103,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
@@ -4671,7 +5113,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueueApcThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4683,7 +5125,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueueApcThreadExOriginal(threadHandle, reserveHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueueApcThreadExOriginal(threadHandle, reserveHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
@@ -4693,7 +5137,7 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4705,13 +5149,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSuspendThreadOriginal(threadHandle, previousSuspendCountPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSuspendThreadOriginal(threadHandle, previousSuspendCountPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, previousSuspendCountPointer != nullptr ? *previousSuspendCountPointer : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSuspendThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSuspendThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4723,13 +5169,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntResumeThreadOriginal(threadHandle, previousSuspendCountPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntResumeThreadOriginal(threadHandle, previousSuspendCountPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
             AppendUnsignedText(detailBuffer, previousSuspendCountPointer != nullptr ? *previousSuspendCountPointer : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtResumeThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtResumeThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4741,13 +5189,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntGetContextThreadOriginal(threadHandle, contextPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntGetContextThreadOriginal(threadHandle, contextPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtGetContextThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtGetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4759,7 +5209,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntSetContextThreadOriginal(threadHandle, contextPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntSetContextThreadOriginal(threadHandle, contextPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
@@ -4769,7 +5221,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" rip=");
             AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
 #endif
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"ntdll", L"NtSetContextThread", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -4781,8 +5233,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_socketOriginal(addressFamily, socketType, protocolValue); }
+            const auto callClock = BeginApiCallClock();
             const SOCKET resultSocket = g_socketOriginal(addressFamily, socketType, protocolValue);
-            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"af=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(addressFamily));
@@ -4792,8 +5248,8 @@ namespace apimon
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(protocolValue));
             AppendWideText(detailBuffer, L" socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(resultSocket));
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"socket", errorValue, detailBuffer);
-            if (resultSocket == INVALID_SOCKET) { ::WSASetLastError(errorValue); }
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"socket", errorValue, detailBuffer, true, ApiReturnBits(resultSocket), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultSocket;
         }
 
@@ -4805,8 +5261,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_wsaSocketWOriginal(addressFamily, socketType, protocolValue, protocolInfoPointer, groupValue, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const SOCKET resultSocket = g_wsaSocketWOriginal(addressFamily, socketType, protocolValue, protocolInfoPointer, groupValue, flagsValue);
-            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"af=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(addressFamily));
@@ -4818,8 +5278,8 @@ namespace apimon
             AppendHexText(detailBuffer, flagsValue);
             AppendWideText(detailBuffer, L" socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(resultSocket));
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSASocketW", errorValue, detailBuffer);
-            if (resultSocket == INVALID_SOCKET) { ::WSASetLastError(errorValue); }
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSASocketW", errorValue, detailBuffer, true, ApiReturnBits(resultSocket), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultSocket;
         }
 
@@ -4831,8 +5291,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_wsaSocketAOriginal(addressFamily, socketType, protocolValue, protocolInfoPointer, groupValue, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const SOCKET resultSocket = g_wsaSocketAOriginal(addressFamily, socketType, protocolValue, protocolInfoPointer, groupValue, flagsValue);
-            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"af=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(addressFamily));
@@ -4844,8 +5308,8 @@ namespace apimon
             AppendHexText(detailBuffer, flagsValue);
             AppendWideText(detailBuffer, L" socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(resultSocket));
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSASocketA", errorValue, detailBuffer);
-            if (resultSocket == INVALID_SOCKET) { ::WSASetLastError(errorValue); }
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSASocketA", errorValue, detailBuffer, true, ApiReturnBits(resultSocket), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultSocket;
         }
 
@@ -4857,7 +5321,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_closeSocketOriginal(socketValue); }
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_closeSocketOriginal(socketValue);
+            const auto duration = EndApiCallClock(callClock);
             const int savedWsa = ::WSAGetLastError();
             const DWORD savedWin32 = ::GetLastError();
             const int errorValue = resultValue == 0 ? 0 : savedWsa;
@@ -4865,7 +5331,7 @@ namespace apimon
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(socketValue));
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"closesocket", errorValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"closesocket", errorValue, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
@@ -4878,15 +5344,19 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_shutdownOriginal(socketValue, howValue); }
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_shutdownOriginal(socketValue, howValue);
-            const int errorValue = resultValue == 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue == 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(socketValue));
             AppendWideText(detailBuffer, L" how=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(howValue));
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"shutdown", errorValue, detailBuffer);
-            if (resultValue != 0) { ::WSASetLastError(errorValue); }
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"shutdown", errorValue, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -4898,20 +5368,21 @@ namespace apimon
                 return g_connectOriginal(socketValue, namePointer, nameLength);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_connectOriginal(socketValue, namePointer, nameLength);
-            const int errorValue = resultValue == 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue == 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"connect", socketValue, 0, 0, 0, namePointer, nameLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"connect",
                 errorValue,
-                detailBuffer);
-            if (resultValue != 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -4927,20 +5398,21 @@ namespace apimon
                 return g_wsaConnectOriginal(socketValue, namePointer, nameLength, callerDataPointer, calleeDataPointer, socketQosPointer, groupQosPointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_wsaConnectOriginal(socketValue, namePointer, nameLength, callerDataPointer, calleeDataPointer, socketQosPointer, groupQosPointer);
-            const int errorValue = resultValue == 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue == 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"connect", socketValue, 0, 0, 0, namePointer, nameLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"WSAConnect",
                 errorValue,
-                detailBuffer);
-            if (resultValue != 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -4953,20 +5425,21 @@ namespace apimon
                 return g_sendOriginal(socketValue, bufferPointer, bufferLength, flagsValue);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_sendOriginal(socketValue, bufferPointer, bufferLength, flagsValue);
-            const int errorValue = resultValue >= 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue >= 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"send", socketValue, static_cast<std::uint64_t>(bufferLength < 0 ? 0 : bufferLength), resultValue, static_cast<DWORD>(flagsValue));
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"send",
                 errorValue,
-                detailBuffer);
-            if (resultValue < 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -4986,21 +5459,24 @@ namespace apimon
             auto replacement = reinterpret_cast<LPWSAOVERLAPPED_COMPLETION_ROUTINE>(PrepareIoCallback(operation, nullptr, completionRoutinePointer));
             if (completionRoutinePointer && !replacement) operation.reset();
             ::WSASetLastError(incomingWsa); ::SetLastError(incomingWin32);
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_wsaSendOriginal(socketValue, buffersPointer, bufferCount, bytesSentPointer, flagsValue, overlappedPointer, replacement ? replacement : completionRoutinePointer);
+            const auto duration = EndApiCallClock(callClock);
             const int savedWsa = ::WSAGetLastError();
             const DWORD savedWin32 = ::GetLastError();
             const int errorValue = resultValue == 0 ? 0 : savedWsa;
-            const DWORD sentValue = SafeIoValue(bytesSentPointer);
+            DWORD sentValue = 0;
+            const bool sentKnown = resultValue == 0 && !overlappedPointer && TrySafeIoValue(bytesSentPointer, &sentValue);
             FinishIo(operation, resultValue == 0 || errorValue == WSA_IO_PENDING,
-                resultValue != 0 && errorValue == WSA_IO_PENDING, errorValue, SafeIoValue(bytesSentPointer));
+                resultValue != 0 && errorValue == WSA_IO_PENDING, errorValue, sentValue, sentKnown);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildSocketDetail(detailBuffer, L"send", socketValue, requestLength, sentValue, flagsValue);
-            SendMonitorEventRaw(
+            BuildSocketDetail(detailBuffer, L"send", socketValue, requestLength, sentValue, flagsValue, nullptr, 0, sentKnown, true);
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"WSASend",
                 errorValue,
-                detailBuffer);
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
@@ -5014,20 +5490,21 @@ namespace apimon
                 return g_sendToOriginal(socketValue, bufferPointer, bufferLength, flagsValue, toPointer, toLength);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_sendToOriginal(socketValue, bufferPointer, bufferLength, flagsValue, toPointer, toLength);
-            const int errorValue = resultValue >= 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue >= 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"sendto", socketValue, static_cast<std::uint64_t>(bufferLength < 0 ? 0 : bufferLength), resultValue, static_cast<DWORD>(flagsValue), toPointer, toLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"sendto",
                 errorValue,
-                detailBuffer);
-            if (resultValue < 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -5040,20 +5517,21 @@ namespace apimon
                 return g_recvOriginal(socketValue, bufferPointer, bufferLength, flagsValue);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_recvOriginal(socketValue, bufferPointer, bufferLength, flagsValue);
-            const int errorValue = resultValue >= 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue >= 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"recv", socketValue, static_cast<std::uint64_t>(bufferLength < 0 ? 0 : bufferLength), resultValue, static_cast<DWORD>(flagsValue));
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"recv",
                 errorValue,
-                detailBuffer);
-            if (resultValue < 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -5073,22 +5551,25 @@ namespace apimon
             auto replacement = reinterpret_cast<LPWSAOVERLAPPED_COMPLETION_ROUTINE>(PrepareIoCallback(operation, nullptr, completionRoutinePointer));
             if (completionRoutinePointer && !replacement) operation.reset();
             ::WSASetLastError(incomingWsa); ::SetLastError(incomingWin32);
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_wsaRecvOriginal(socketValue, buffersPointer, bufferCount, bytesReceivedPointer, flagsPointer, overlappedPointer, replacement ? replacement : completionRoutinePointer);
+            const auto duration = EndApiCallClock(callClock);
             const int savedWsa = ::WSAGetLastError();
             const DWORD savedWin32 = ::GetLastError();
             const int errorValue = resultValue == 0 ? 0 : savedWsa;
-            const DWORD receivedValue = SafeIoValue(bytesReceivedPointer);
-            const DWORD flagsValue = SafeIoValue(flagsPointer);
+            DWORD receivedValue = 0, flagsValue = 0;
+            const bool receivedKnown = resultValue == 0 && !overlappedPointer && TrySafeIoValue(bytesReceivedPointer, &receivedValue);
+            const bool flagsKnown = resultValue == 0 && !overlappedPointer && TrySafeIoValue(flagsPointer, &flagsValue);
             FinishIo(operation, resultValue == 0 || errorValue == WSA_IO_PENDING,
-                resultValue != 0 && errorValue == WSA_IO_PENDING, errorValue, SafeIoValue(bytesReceivedPointer));
+                resultValue != 0 && errorValue == WSA_IO_PENDING, errorValue, receivedValue, receivedKnown);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildSocketDetail(detailBuffer, L"recv", socketValue, requestLength, receivedValue, flagsValue);
-            SendMonitorEventRaw(
+            BuildSocketDetail(detailBuffer, L"recv", socketValue, requestLength, receivedValue, flagsValue, nullptr, 0, receivedKnown, flagsKnown);
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"WSARecv",
                 errorValue,
-                detailBuffer);
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
@@ -5102,21 +5583,22 @@ namespace apimon
                 return g_recvFromOriginal(socketValue, bufferPointer, bufferLength, flagsValue, fromPointer, fromLengthPointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_recvFromOriginal(socketValue, bufferPointer, bufferLength, flagsValue, fromPointer, fromLengthPointer);
-            const int errorValue = resultValue >= 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue >= 0 ? 0 : savedWsa;
             const int fromLength = fromLengthPointer != nullptr ? *fromLengthPointer : 0;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"recvfrom", socketValue, static_cast<std::uint64_t>(bufferLength < 0 ? 0 : bufferLength), resultValue, static_cast<DWORD>(flagsValue), fromPointer, fromLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"recvfrom",
                 errorValue,
-                detailBuffer);
-            if (resultValue < 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -5128,20 +5610,21 @@ namespace apimon
                 return g_bindOriginal(socketValue, namePointer, nameLength);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_bindOriginal(socketValue, namePointer, nameLength);
-            const int errorValue = resultValue == 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue == 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"bind", socketValue, 0, 0, 0, namePointer, nameLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"bind",
                 errorValue,
-                detailBuffer);
-            if (resultValue != 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -5153,24 +5636,25 @@ namespace apimon
                 return g_listenOriginal(socketValue, backlogValue);
             }
 
+            const auto callClock = BeginApiCallClock();
             const int resultValue = g_listenOriginal(socketValue, backlogValue);
-            const int errorValue = resultValue == 0 ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultValue == 0 ? 0 : savedWsa;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             detailBuffer[0] = L'\0';
             AppendWideText(detailBuffer, L"socket=");
             AppendHexText(detailBuffer, static_cast<std::uint64_t>(socketValue));
             AppendWideText(detailBuffer, L" backlog=");
             AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(backlogValue < 0 ? 0 : backlogValue));
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"listen",
                 errorValue,
-                detailBuffer);
-            if (resultValue != 0)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultValue;
         }
 
@@ -5182,21 +5666,22 @@ namespace apimon
                 return g_acceptOriginal(socketValue, addressPointer, addressLengthPointer);
             }
 
+            const auto callClock = BeginApiCallClock();
             const SOCKET resultSocket = g_acceptOriginal(socketValue, addressPointer, addressLengthPointer);
-            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : ::WSAGetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            const DWORD savedWin32 = ::GetLastError();
+            const int savedWsa = ::WSAGetLastError();
+            const int errorValue = resultSocket != INVALID_SOCKET ? 0 : savedWsa;
             const int addressLength = addressLengthPointer != nullptr ? *addressLengthPointer : 0;
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildSocketDetail(detailBuffer, L"accept", socketValue, 0, static_cast<long long>(resultSocket == INVALID_SOCKET ? 0 : resultSocket), 0, addressPointer, addressLength);
-            SendMonitorEventRaw(
+            SendRawEventWithMetrics(
                 ks::winapi_monitor::EventCategory::Network,
                 L"Ws2_32",
                 L"accept",
                 errorValue,
-                detailBuffer);
-            if (resultSocket == INVALID_SOCKET)
-            {
-                ::WSASetLastError(errorValue);
-            }
+                detailBuffer, true, ApiReturnBits(resultSocket), duration);
+            ::WSASetLastError(savedWsa); ::SetLastError(savedWin32);
             return resultSocket;
         }
 
@@ -5324,7 +5809,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getProcAddressOriginal(moduleHandle, procNamePointer); }
+            const auto callClock = BeginApiCallClock();
             const FARPROC resultPointer = g_getProcAddressOriginal(moduleHandle, procNamePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"module=");
@@ -5333,7 +5820,7 @@ namespace apimon
             AppendProcNameText(detailBuffer, procNamePointer);
             AppendWideText(detailBuffer, L" address=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultPointer));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetProcAddress", resultPointer != nullptr ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetProcAddress", resultPointer != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultPointer), duration);
             ::SetLastError(lastError);
             return resultPointer;
         }
@@ -5342,7 +5829,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ldrGetProcedureAddressOriginal(moduleHandle, procNamePointer, ordinalValue, functionPointer); }
+            const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ldrGetProcedureAddressOriginal(moduleHandle, procNamePointer, ordinalValue, functionPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"module=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(moduleHandle));
@@ -5352,7 +5841,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, ordinalValue);
             AppendWideText(detailBuffer, L" address=");
             AppendHexText(detailBuffer, functionPointer != nullptr ? reinterpret_cast<std::uint64_t>(*functionPointer) : 0);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Loader, L"ntdll", L"LdrGetProcedureAddress", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Loader, L"ntdll", L"LdrGetProcedureAddress", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5397,14 +5886,16 @@ namespace apimon
         {
             ScopedHookGuard guard;
             if (guard.bypass()) return g_createProcessAsUserWOriginal(tokenHandle, applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL result = g_createProcessAsUserWOriginal(tokenHandle, applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             AutoInjectChildIfRequested(result, processInformationPointer);
             if (ActiveConfig().enableProcess)
             {
                 wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
                 { AppendWideText(detailBuffer, L"token="); AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(tokenHandle)); AppendWideText(detailBuffer, L" app="); AppendWideText(detailBuffer, applicationNamePointer); AppendWideText(detailBuffer, L" cmd="); AppendWideText(detailBuffer, commandLinePointer); AppendWideText(detailBuffer, L" flags="); AppendHexText(detailBuffer, creationFlags); AppendWideText(detailBuffer, L" childPid="); AppendUnsignedText(detailBuffer, processInformationPointer != nullptr ? processInformationPointer->dwProcessId : 0); }
-                SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessAsUserW", result ? 0 : lastError, detailBuffer);
+                SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessAsUserW", result ? 0 : lastError, detailBuffer, true, ApiReturnBits(result), duration);
             }
             ::SetLastError(lastError);
             return result;
@@ -5413,14 +5904,16 @@ namespace apimon
         {
             ScopedHookGuard guard;
             if (guard.bypass()) return g_createProcessAsUserAOriginal(tokenHandle, applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL result = g_createProcessAsUserAOriginal(tokenHandle, applicationNamePointer, commandLinePointer, processAttributes, threadAttributes, inheritHandles, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             AutoInjectChildIfRequested(result, processInformationPointer);
             if (ActiveConfig().enableProcess)
             {
                 wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
                 { AppendWideText(detailBuffer, L"token="); AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(tokenHandle)); AppendWideText(detailBuffer, L" app="); AppendAnsiText(detailBuffer, applicationNamePointer); AppendWideText(detailBuffer, L" cmd="); AppendAnsiText(detailBuffer, commandLinePointer); AppendWideText(detailBuffer, L" flags="); AppendHexText(detailBuffer, creationFlags); AppendWideText(detailBuffer, L" childPid="); AppendUnsignedText(detailBuffer, processInformationPointer != nullptr ? processInformationPointer->dwProcessId : 0); }
-                SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessAsUserA", result ? 0 : lastError, detailBuffer);
+                SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessAsUserA", result ? 0 : lastError, detailBuffer, true, ApiReturnBits(result), duration);
             }
             ::SetLastError(lastError);
             return result;
@@ -5429,14 +5922,16 @@ namespace apimon
         {
             ScopedHookGuard guard;
             if (guard.bypass()) return g_createProcessWithTokenWOriginal(tokenHandle, logonFlags, applicationNamePointer, commandLinePointer, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL result = g_createProcessWithTokenWOriginal(tokenHandle, logonFlags, applicationNamePointer, commandLinePointer, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             AutoInjectChildIfRequested(result, processInformationPointer);
             if (ActiveConfig().enableProcess)
             {
                 wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
                 { AppendWideText(detailBuffer, L"token="); AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(tokenHandle)); AppendWideText(detailBuffer, L" logonFlags="); AppendHexText(detailBuffer, logonFlags); AppendWideText(detailBuffer, L" app="); AppendWideText(detailBuffer, applicationNamePointer); AppendWideText(detailBuffer, L" cmd="); AppendWideText(detailBuffer, commandLinePointer); AppendWideText(detailBuffer, L" childPid="); AppendUnsignedText(detailBuffer, processInformationPointer != nullptr ? processInformationPointer->dwProcessId : 0); }
-                SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessWithTokenW", result ? 0 : lastError, detailBuffer);
+                SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessWithTokenW", result ? 0 : lastError, detailBuffer, true, ApiReturnBits(result), duration);
             }
             ::SetLastError(lastError);
             return result;
@@ -5478,7 +5973,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_dnsQueryWOriginal(namePointer, typeValue, optionsValue, extraPointer, queryResultsPointer, reservedPointer); }
+            const auto callClock = BeginApiCallClock();
             const DNS_STATUS statusValue = g_dnsQueryWOriginal(namePointer, typeValue, optionsValue, extraPointer, queryResultsPointer, reservedPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"name=");
             AppendWideText(detailBuffer, namePointer);
@@ -5486,7 +5983,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, typeValue);
             AppendWideText(detailBuffer, L" options=");
             AppendHexText(detailBuffer, optionsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Network, L"Dnsapi", L"DnsQuery_W", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Dnsapi", L"DnsQuery_W", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5494,7 +5991,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_dnsQueryAOriginal(namePointer, typeValue, optionsValue, extraPointer, queryResultsPointer, reservedPointer); }
+            const auto callClock = BeginApiCallClock();
             const DNS_STATUS statusValue = g_dnsQueryAOriginal(namePointer, typeValue, optionsValue, extraPointer, queryResultsPointer, reservedPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"name=");
             AppendAnsiText(detailBuffer, namePointer);
@@ -5502,7 +6001,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, typeValue);
             AppendWideText(detailBuffer, L" options=");
             AppendHexText(detailBuffer, optionsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Network, L"Dnsapi", L"DnsQuery_A", statusValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Dnsapi", L"DnsQuery_A", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
 
@@ -5573,7 +6072,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createToolhelp32SnapshotOriginal(flagsValue, processId); }
+            const auto callClock = BeginApiCallClock();
             const HANDLE resultHandle = g_createToolhelp32SnapshotOriginal(flagsValue, processId);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"flags=");
@@ -5582,7 +6083,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, processId);
             AppendWideText(detailBuffer, L" snapshot=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Kernel32", L"CreateToolhelp32Snapshot", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Kernel32", L"CreateToolhelp32Snapshot", resultHandle != INVALID_HANDLE_VALUE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -5599,7 +6100,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getModuleFileNameWOriginal(moduleHandle, fileNamePointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getModuleFileNameWOriginal(moduleHandle, fileNamePointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"module=");
@@ -5608,7 +6111,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" path=");
             AppendWideText(detailBuffer, resultValue != 0 ? fileNamePointer : nullptr, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetModuleFileNameW", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetModuleFileNameW", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5617,7 +6120,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getModuleFileNameAOriginal(moduleHandle, fileNamePointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getModuleFileNameAOriginal(moduleHandle, fileNamePointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"module=");
@@ -5626,7 +6131,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" path=");
             if (resultValue != 0) { AppendAnsiText(detailBuffer, fileNamePointer, resultValue); }
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetModuleFileNameA", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Loader, L"Kernel32", L"GetModuleFileNameA", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5648,7 +6153,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_shellExecuteWOriginal(windowHandle, operationPointer, filePointer, parametersPointer, directoryPointer, showCommand); }
+            const auto callClock = BeginApiCallClock();
             const HINSTANCE resultValue = g_shellExecuteWOriginal(windowHandle, operationPointer, filePointer, parametersPointer, directoryPointer, showCommand);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"op=");
@@ -5659,7 +6166,7 @@ namespace apimon
             AppendWideText(detailBuffer, parametersPointer);
             AppendWideText(detailBuffer, L" cwd=");
             AppendWideText(detailBuffer, directoryPointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteW", reinterpret_cast<INT_PTR>(resultValue) > 32 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteW", reinterpret_cast<INT_PTR>(resultValue) > 32 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5668,7 +6175,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_shellExecuteAOriginal(windowHandle, operationPointer, filePointer, parametersPointer, directoryPointer, showCommand); }
+            const auto callClock = BeginApiCallClock();
             const HINSTANCE resultValue = g_shellExecuteAOriginal(windowHandle, operationPointer, filePointer, parametersPointer, directoryPointer, showCommand);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"op=");
@@ -5679,7 +6188,7 @@ namespace apimon
             AppendAnsiText(detailBuffer, parametersPointer);
             AppendWideText(detailBuffer, L" cwd=");
             AppendAnsiText(detailBuffer, directoryPointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteA", reinterpret_cast<INT_PTR>(resultValue) > 32 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Shell32", L"ShellExecuteA", reinterpret_cast<INT_PTR>(resultValue) > 32 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5688,14 +6197,16 @@ namespace apimon
         {
             ScopedHookGuard guard;
             if (guard.bypass()) return g_createProcessWithLogonWOriginal(userNamePointer, domainPointer, passwordPointer, logonFlags, applicationNamePointer, commandLinePointer, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto callClock = BeginApiCallClock();
             const BOOL result = g_createProcessWithLogonWOriginal(userNamePointer, domainPointer, passwordPointer, logonFlags, applicationNamePointer, commandLinePointer, creationFlags, environmentPointer, currentDirectoryPointer, startupInfoPointer, processInformationPointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             AutoInjectChildIfRequested(result, processInformationPointer);
             if (ActiveConfig().enableProcess)
             {
                 wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
                 { AppendWideText(detailBuffer, L"user="); AppendWideText(detailBuffer, domainPointer); AppendWideText(detailBuffer, L"\\"); AppendWideText(detailBuffer, userNamePointer); AppendWideText(detailBuffer, L" logonFlags="); AppendHexText(detailBuffer, logonFlags); AppendWideText(detailBuffer, L" app="); AppendWideText(detailBuffer, applicationNamePointer); AppendWideText(detailBuffer, L" cmd="); AppendWideText(detailBuffer, commandLinePointer); AppendWideText(detailBuffer, L" childPid="); AppendUnsignedText(detailBuffer, processInformationPointer != nullptr ? processInformationPointer->dwProcessId : 0); }
-                SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessWithLogonW", result ? 0 : lastError, detailBuffer);
+                SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"CreateProcessWithLogonW", result ? 0 : lastError, detailBuffer, true, ApiReturnBits(result), duration);
             }
             ::SetLastError(lastError);
             return result;
@@ -5726,13 +6237,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_urlDownloadToFileWOriginal(callerPointer, urlPointer, fileNamePointer, reservedValue, callbackPointer); }
+            const auto callClock = BeginApiCallClock();
             const HRESULT resultValue = g_urlDownloadToFileWOriginal(callerPointer, urlPointer, fileNamePointer, reservedValue, callbackPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"url=");
             AppendWideText(detailBuffer, urlPointer);
             AppendWideText(detailBuffer, L" file=");
             AppendWideText(detailBuffer, fileNamePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Network, L"Urlmon", L"URLDownloadToFileW", resultValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Urlmon", L"URLDownloadToFileW", resultValue, detailBuffer, true, ApiReturnBits(resultValue), duration);
             return resultValue;
         }
 
@@ -5740,13 +6253,15 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_urlDownloadToFileAOriginal(callerPointer, urlPointer, fileNamePointer, reservedValue, callbackPointer); }
+            const auto callClock = BeginApiCallClock();
             const HRESULT resultValue = g_urlDownloadToFileAOriginal(callerPointer, urlPointer, fileNamePointer, reservedValue, callbackPointer);
+            const auto duration = EndApiCallClock(callClock);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"url=");
             AppendAnsiText(detailBuffer, urlPointer);
             AppendWideText(detailBuffer, L" file=");
             AppendAnsiText(detailBuffer, fileNamePointer);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Network, L"Urlmon", L"URLDownloadToFileA", resultValue, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Urlmon", L"URLDownloadToFileA", resultValue, detailBuffer, true, ApiReturnBits(resultValue), duration);
             return resultValue;
         }
 
@@ -5765,8 +6280,12 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { g_coUninitializeOriginal(); return; }
+            const auto callClock = BeginApiCallClock();
             g_coUninitializeOriginal();
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Ole32", L"CoUninitialize", 0, L"");
+            const DWORD savedError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Com, L"Ole32", L"CoUninitialize", 0, L"", false, 0, duration);
+            ::SetLastError(savedError);
         }
 
         // HookedThirdBatchProcess 作用：
@@ -5779,11 +6298,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createSymbolicLinkWOriginal(linkPointer, targetPointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOLEAN resultValue = g_createSymbolicLinkWOriginal(linkPointer, targetPointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailW(detailBuffer, linkPointer, targetPointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateSymbolicLinkW", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateSymbolicLinkW", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5792,11 +6313,13 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createSymbolicLinkAOriginal(linkPointer, targetPointer, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const BOOLEAN resultValue = g_createSymbolicLinkAOriginal(linkPointer, targetPointer, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             BuildTwoPathDetailA(detailBuffer, linkPointer, targetPointer, flagsValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateSymbolicLinkA", resultValue != FALSE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"CreateSymbolicLinkA", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5805,7 +6328,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFinalPathNameByHandleWOriginal(fileHandle, filePathPointer, filePathSize, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getFinalPathNameByHandleWOriginal(fileHandle, filePathPointer, filePathSize, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"file=");
@@ -5814,7 +6339,7 @@ namespace apimon
             AppendHexText(detailBuffer, flagsValue);
             AppendWideText(detailBuffer, L" path=");
             if (resultValue != 0 && resultValue < filePathSize) { AppendWideText(detailBuffer, filePathPointer, resultValue); }
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFinalPathNameByHandleW", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFinalPathNameByHandleW", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5823,7 +6348,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getFinalPathNameByHandleAOriginal(fileHandle, filePathPointer, filePathSize, flagsValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getFinalPathNameByHandleAOriginal(fileHandle, filePathPointer, filePathSize, flagsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"file=");
@@ -5832,7 +6359,7 @@ namespace apimon
             AppendHexText(detailBuffer, flagsValue);
             AppendWideText(detailBuffer, L" path=");
             if (resultValue != 0 && resultValue < filePathSize) { AppendAnsiText(detailBuffer, filePathPointer, resultValue); }
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFinalPathNameByHandleA", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::File, L"KernelBase", L"GetFinalPathNameByHandleA", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5862,7 +6389,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_waitForSingleObjectOriginal(handleValue, millisecondsValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_waitForSingleObjectOriginal(handleValue, millisecondsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"handle=");
@@ -5871,7 +6400,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, millisecondsValue);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WaitForSingleObject", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"WaitForSingleObject", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5880,7 +6409,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_waitForMultipleObjectsOriginal(countValue, handlesPointer, waitAll, millisecondsValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_waitForMultipleObjectsOriginal(countValue, handlesPointer, waitAll, millisecondsValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"count=");
@@ -5891,7 +6422,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, millisecondsValue);
             AppendWideText(detailBuffer, L" result=");
             AppendHexText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"WaitForMultipleObjects", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"WaitForMultipleObjects", resultValue != WAIT_FAILED ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5904,7 +6435,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getEnvironmentVariableWOriginal(namePointer, bufferPointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getEnvironmentVariableWOriginal(namePointer, bufferPointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"name=");
@@ -5913,7 +6446,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" resultLen=");
             AppendUnsignedText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetEnvironmentVariableW", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetEnvironmentVariableW", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5922,7 +6455,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_getEnvironmentVariableAOriginal(namePointer, bufferPointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_getEnvironmentVariableAOriginal(namePointer, bufferPointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"name=");
@@ -5931,7 +6466,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" resultLen=");
             AppendUnsignedText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetEnvironmentVariableA", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"GetEnvironmentVariableA", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5942,7 +6477,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_expandEnvironmentStringsWOriginal(sourcePointer, destinationPointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_expandEnvironmentStringsWOriginal(sourcePointer, destinationPointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"src=");
@@ -5951,7 +6488,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" resultLen=");
             AppendUnsignedText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ExpandEnvironmentStringsW", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ExpandEnvironmentStringsW", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5960,7 +6497,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_expandEnvironmentStringsAOriginal(sourcePointer, destinationPointer, sizeValue); }
+            const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_expandEnvironmentStringsAOriginal(sourcePointer, destinationPointer, sizeValue);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"src=");
@@ -5969,7 +6508,7 @@ namespace apimon
             AppendUnsignedText(detailBuffer, sizeValue);
             AppendWideText(detailBuffer, L" resultLen=");
             AppendUnsignedText(detailBuffer, resultValue);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ExpandEnvironmentStringsA", resultValue != 0 ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"ExpandEnvironmentStringsA", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -6031,7 +6570,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_openTraceWOriginal(logFilePointer); }
+            const auto callClock = BeginApiCallClock();
             const TRACEHANDLE traceHandle = g_openTraceWOriginal(logFilePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"logfile=");
@@ -6040,7 +6581,7 @@ namespace apimon
             AppendWideText(detailBuffer, logFilePointer != nullptr ? logFilePointer->LoggerName : nullptr);
             AppendWideText(detailBuffer, L" trace=");
             AppendHexText(detailBuffer, traceHandle);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"OpenTraceW", traceHandle != INVALID_PROCESSTRACE_HANDLE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"OpenTraceW", traceHandle != INVALID_PROCESSTRACE_HANDLE ? 0 : lastError, detailBuffer, true, ApiReturnBits(traceHandle), duration);
             ::SetLastError(lastError);
             return traceHandle;
         }
@@ -6049,7 +6590,9 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_openTraceAOriginal(logFilePointer); }
+            const auto callClock = BeginApiCallClock();
             const TRACEHANDLE traceHandle = g_openTraceAOriginal(logFilePointer);
+            const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"logfile=");
@@ -6058,7 +6601,7 @@ namespace apimon
             AppendAnsiText(detailBuffer, logFilePointer != nullptr ? logFilePointer->LoggerName : nullptr);
             AppendWideText(detailBuffer, L" trace=");
             AppendHexText(detailBuffer, traceHandle);
-            SendRawEventWithStatus(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"OpenTraceA", traceHandle != INVALID_PROCESSTRACE_HANDLE ? 0 : lastError, detailBuffer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"Advapi32", L"OpenTraceA", traceHandle != INVALID_PROCESSTRACE_HANDLE ? 0 : lastError, detailBuffer, true, ApiReturnBits(traceHandle), duration);
             ::SetLastError(lastError);
             return traceHandle;
         }
@@ -6292,6 +6835,14 @@ namespace apimon
         // - 处理：InstallConfiguredHooks 遍历该表安装 inline hook，LoadLibrary/LdrLoadDll 后会重试延迟模块；
         // - 返回：本表本身无返回值，是所有已支持 API 覆盖面的权威来源。
         #include "ApiCaptureFormatters.inc"
+        #include "ApiWindowCaptureFormatters.inc"
+        #include "ApiMemoryThreadCaptureFormatters.inc"
+        #include "ApiServiceSecurityCaptureFormatters.inc"
+        #include "ApiWindowExtraCaptureFormatters.inc"
+        #include "ApiMemoryThreadExtraCaptureFormatters.inc"
+        #include "ApiServiceSecurityExtraCaptureFormatters.inc"
+        #include "ApiGuiObjectCaptureFormatters.inc"
+        #include "ApiGuiDrawingCaptureFormatters.inc"
 #include "ApiMonitorWrappers.inc"
 #include "ApiMonitorBindings.inc"
 
@@ -6449,6 +7000,28 @@ namespace apimon
         {
             const std::wstring moduleLower = ToLowerWide(moduleName);
             const std::string procLower = ToLowerAnsi(procName);
+            // Graphics has an explicit opt-in category. Resolve known graphics
+            // providers before the legacy name guesses (e.g. GetFontFileData
+            // must not become a file API, nor SetBkColor a process API).
+            std::wstring provider = moduleLower;
+            const auto separator = provider.find_last_of(L"\\/");
+            if (separator != std::wstring::npos) provider.erase(0, separator + 1);
+            if (provider.find(L'.') == std::wstring::npos) provider += L".dll";
+            static const std::unordered_set<std::wstring> graphicsProviders{
+                L"gdi32.dll", L"gdi32full.dll", L"gdiplus.dll", L"msimg32.dll", L"opengl32.dll",
+                L"dwmapi.dll", L"d2d1.dll", L"dwrite.dll", L"dxgi.dll", L"d3d9.dll", L"d3d10.dll",
+                L"d3d10_1.dll", L"d3d11.dll", L"d3d12.dll", L"uxtheme.dll", L"usp10.dll"};
+            static const std::unordered_set<std::string> userDrawingExports{
+                "beginpaint", "endpaint", "getdc", "getdcex", "getwindowdc", "releasedc", "windowfromdc",
+                "getsyscolor", "getsyscolorbrush", "drawtexta", "drawtextw", "drawtextexa", "drawtextexw",
+                "fillrect", "framerect", "invertrect", "drawedge", "drawframecontrol", "drawstatea", "drawstatew",
+                "drawicon", "drawiconex", "drawanimatedrects", "paintdesktop", "getupdaterect", "getupdatergn",
+                "excludeupdatergn", "invalidaterect", "validaterect", "invalidatergn", "validatergn",
+                "redrawwindow", "updatewindow", "printwindow"};
+            if (graphicsProviders.count(provider)
+                || (provider == L"user32.dll" && userDrawingExports.count(procLower))
+                || (provider == L"win32u.dll" && procLower.rfind("ntgdi", 0) == 0))
+                return ks::winapi_monitor::EventCategory::Gui;
             if (moduleLower == L"ws2_32.dll" || moduleLower == L"wininet.dll" || moduleLower == L"winhttp.dll"
                 || moduleLower == L"iphlpapi.dll" || moduleLower == L"dnsapi.dll" || moduleLower == L"netapi32.dll"
                 || moduleLower == L"urlmon.dll" || moduleLower == L"wldap32.dll")
@@ -6613,6 +7186,13 @@ namespace apimon
                             IsStrongTypedExport(moduleName, exportName) ? L"Strong definition owns this export; see its actual installation state" : L"export excluded by Raw/Fake rules");
                         continue;
                     }
+                    const auto rawCategory = InferRawHookCategory(moduleName, exportName);
+                    if (!CategoryEnabled(rawCategory))
+                    {
+                        g_rawCoverageObservations[observationKey] = MakeCoverageRow(moduleName.c_str(), observationApi.c_str(),
+                            HookKind::Raw, CoverageState::CategoryDisabled, L"Raw category disabled");
+                        continue;
+                    }
                     if (IsNativeRuntimeHookTarget(reinterpret_cast<void*>(::GetProcAddress(moduleHandle, exportName.c_str()))))
                     {
                         g_rawCoverageObservations[observationKey] = MakeCoverageRow(moduleName.c_str(), observationApi.c_str(),
@@ -6638,7 +7218,7 @@ namespace apimon
                     bindingPointer->moduleName = moduleName;
                     bindingPointer->procName = exportName;
                     bindingPointer->procNameWide = AnsiToWide(exportName.c_str());
-                    bindingPointer->categoryValue = InferRawHookCategory(moduleName, exportName);
+                    bindingPointer->categoryValue = rawCategory;
                     bindingPointer->apiId = RuntimeApiId(moduleName.c_str(), bindingPointer->procNameWide.c_str());
                     rawKeySet.insert(rawKey);
                     rawBindingList.push_back(std::move(bindingPointer));

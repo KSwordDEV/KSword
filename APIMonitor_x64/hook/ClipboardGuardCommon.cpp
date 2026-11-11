@@ -376,13 +376,18 @@ namespace apimon
         const wchar_t* const apiName,
         const UINT formatValue,
         const HANDLE dataHandleForSizeHash,
-        const ClipboardPolicyAction actionTaken)
+        const ClipboardPolicyAction actionTaken,
+        const bool hasReturnValue, const std::uint64_t returnBits,
+        const bool hasDuration, const std::uint64_t duration100ns,
+        const bool statusKnown, const std::int32_t statusCode)
     {
         const std::uint64_t sequenceNumber = NextClipboardEventSequence();
 
         std::wstring detailText;
         AppendDetailField(detailText, L"op",
             kind == ClipboardOperationKind::Read ? L"READ" : (kind == ClipboardOperationKind::Write ? L"WRITE" : L"ENUM"));
+        if (hasReturnValue)
+            AppendDetailField(detailText, L"return_origin", actionTaken == ClipboardPolicyAction::Block ? L"policy" : L"original");
         AppendDetailField(detailText, L"fmt", BuildClipboardFormatText(formatValue));
         AppendDetailFieldU64(detailText, L"fmtId", formatValue);
 
@@ -412,14 +417,15 @@ namespace apimon
         // 不需要像"记录剪贴板访问"那样只在开启详细日志时才做。
         CaptureAndPersistClipboardCallStack(sequenceNumber);
 
-        const std::int32_t resultCode = (actionTaken == ClipboardPolicyAction::Block)
-            ? static_cast<std::int32_t>(ERROR_ACCESS_DENIED)
-            : 0;
-        SendMonitorEventRaw(
-            ks::winapi_monitor::EventCategory::Clipboard,
-            moduleName,
-            apiName,
-            resultCode,
-            detailText.c_str());
+        // Legacy vtable reports have no return metadata; preserve their prior policy status.
+        const std::int32_t resultCode = actionTaken == ClipboardPolicyAction::Block && !hasReturnValue
+            ? static_cast<std::int32_t>(ERROR_ACCESS_DENIED) : statusCode;
+        const auto resultKind = statusKnown ? ks::winapi_monitor::EventResultKind::StatusCode
+            : ks::winapi_monitor::EventResultKind::StatusUnknown;
+        if (hasReturnValue || hasDuration)
+            SendMonitorEventRawWithMetrics(ks::winapi_monitor::EventCategory::Clipboard,
+                moduleName, apiName, resultCode, detailText.c_str(), hasReturnValue, returnBits, hasDuration, duration100ns, 0, resultKind);
+        else
+            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Clipboard, moduleName, apiName, resultCode, detailText.c_str(), resultKind);
     }
 }

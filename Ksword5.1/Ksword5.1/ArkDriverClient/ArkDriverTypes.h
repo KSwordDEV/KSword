@@ -22,6 +22,7 @@
 #include "../../../shared/driver/KswordArkKernelIoctl.h"
 #include "../../../shared/driver/KswordArkKeyboardIoctl.h"
 #include "../../../shared/driver/KswordArkMemoryIoctl.h"
+#include "../../../shared/driver/KswordArkModuleIoctl.h"
 #include "../../../shared/driver/KswordArkDdmaIoctl.h"
 #include "../../../shared/driver/KswordArkMutationIoctl.h"
 #include "../../../shared/driver/KswordArkProcessIoctl.h"
@@ -76,6 +77,14 @@ namespace ksword::ark
         unsigned long bytesReturned = 0;
         // Feature wrappers may replace message; retain the transport phase.
         bool deviceOpenFailed = false;
+    };
+
+    struct HandleCloseResult
+    {
+        IoResult io;
+        bool responseValid = false;
+        long closeStatus = 0;
+        long resumeStatus = 0;
     };
 
     struct WindowBandResult
@@ -179,6 +188,20 @@ namespace ksword::ark
         std::vector<ProcessEntry> entries;
     };
 
+    // ProcessModuleEnumResult：单页进程映像映射及续扫元数据。
+    struct ProcessModuleEnumResult
+    {
+        IoResult io; // 传输状态与失败诊断。
+        bool responseValid = false; // 响应头、身份与条目边界均已校验。
+        std::uint32_t processId = 0; // 响应确认的目标 PID。
+        std::uint32_t status = KSWORD_ARK_MODULE_STATUS_UNAVAILABLE; // R0 完整/部分/不可用状态。
+        std::uint32_t flags = 0; // MORE、路径不可用等协议标记。
+        std::uint32_t visitedCount = 0; // R0 已扫描映射数量。
+        std::uint64_t processCreateTime100ns = 0; // R0 验证的进程创建时间。
+        std::uint64_t nextCursor = 0; // 下一页 VA 游标，零表示结束。
+        std::vector<KSWORD_ARK_MODULE_ENTRY> entries; // 当前页映像记录。
+    };
+
     // 只有完整 CID/活动链表对照、独立对象引用和存活证据同时成立，
     // R0-only 行才允许进入主进程列表；弱证据仍保留给 CrossView 诊断。
     inline bool isTrustedHiddenProcessFlags(const std::uint32_t flags) noexcept
@@ -219,6 +242,16 @@ namespace ksword::ark
         std::uint32_t integrityRid = 0;      // integrityRid：S-1-16-* mandatory label RID。
         std::uint32_t status = KSWORD_ARK_PROCESS_INTEGRITY_STATUS_UNKNOWN; // status：R0 聚合状态。
         long lastStatus = 0;                 // lastStatus：Zw* token API 或 R0 DynData Token 兜底路径 NTSTATUS。
+    };
+
+    // Token-copy transport, mutation and readback are separate outcomes.
+    struct ProcessTokenCopyResult
+    {
+        IoResult io;
+        KSWORD_ARK_COPY_PROCESS_TOKEN_RESPONSE response{};
+        bool responseValid = false;
+        bool applied = false;
+        bool verified = false;
     };
 
     // ProcessTokenPrivilegeEntry is shared by both unified and legacy token privilege flows.

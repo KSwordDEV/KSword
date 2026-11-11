@@ -20,6 +20,7 @@ struct FileHolderEntry {
     std::wstring processName;
     std::wstring processPath;
     std::uint64_t handleValue = 0;
+    std::uint64_t objectAddress = 0; // Snapshot identity for revalidation, never dereferenced.
     std::uint32_t grantedAccess = 0;
     std::wstring accessText;      // Readable subset of the granted access mask.
     std::wstring objectName;      // NT object-manager path of the opened file.

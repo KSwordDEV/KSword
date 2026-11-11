@@ -11,7 +11,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 ARCHITECTURE = os.environ.get("KSWORD_APIMON_ARCH", "x64")
-AGENT = ROOT / f"Ksword5.1/x64/Release/APIMonitor_{ARCHITECTURE}.dll"
+AGENT = Path(os.environ.get("KSWORD_APIMON_AGENT", ROOT / f"Ksword5.1/x64/Release/APIMonitor_{ARCHITECTURE}.dll"))
 kernel = ctypes.WinDLL("kernel32", use_last_error=True)
 kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
                               wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]

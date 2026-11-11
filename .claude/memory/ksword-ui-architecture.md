@@ -125,6 +125,9 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 ## 通用表格交互
 
+- 2026-11-07 窗口 Dock → 窗口列表的右侧预览有两处尺寸陷阱：隐藏缩略图、零边距及 `StructuredFieldView` 的 Ignored 外壳会令整个 splitter 子面板的尺寸提示归零，仅设 stretch factor 不保证右侧初始宽度；`OtherDock` 显式设 `setSizes({800, 280})`、预览最小宽 280 并禁止子面板折叠。有效图片纵向不能继续使用 Ignored：即使 QLabel 有最小/固定高度，Qt 仍可能按零高度为后续字段区分配位置，使搜索栏覆盖图片。有效图片使用 Fixed 纵向策略及 `clamp(容器高度/3, 120, 220)` 固定高度；不可用提示恢复 minHeight=0/maxHeight=QWIDGETSIZE_MAX 与 Maximum，未选中时隐藏图片。独立 Qt 6.9.3 几何夹具 36 项通过，覆盖旧策略复现、两种列宽、三种高度及图片/提示往返；只模拟字段外壳，不替代真实 StructuredFieldView 或主程序验收。主程序最新 Release 编译和双语/主题门禁通过，链接因运行中的 exe 占用报 LNK1104（`.codex-build-logs/ksword-build-check-20261107-231607.raw.log`），未更新主程序 exe，实际 GUI、深浅主题/DPI/背景模式及完整页面规范核对仍待完成。
+- 2026-11-07 窗口列表分组树由周期采样触发的模型 reset 会保存/恢复选择；分组索引不能沿用 HWND/PID/TID 键，模型对所有节点暴露自身投影 key 于 `Qt::UserRole + 5`，`WindowListInteraction::windowItemIdentity(QModelIndex)` 优先读该键，选择快照也包含分组行。窗口动作仍由 `selectedWindowHandles` 排除 `UserRole + 1` 分组节点。全部展开/折叠工具放在窗口列表工具行“窗口输入与顺序”按钮右侧，使用共享详情节点箭头图标、CompactIconButtonMetrics、共享中性按钮主题和双语 tooltip；`expandToDepth(0)` 加逐根恢复继续保留按钮设定的展开状态。
+
 - Issue #220 的复制菜单能力统一由 `UI/TableContextMenu` 管理。业务 QAction 创建后用 `SetTableContextActionRole` 声明 CopyCell/CopyRows/ExportRows；检查递归包含已创建子菜单，不依赖翻译标题。共享层只补缺失能力，复用菜单时重绑实际来源与右键单元格，表头菜单不追加正文复制项。覆盖和验证记录见 [表格复制菜单核对](../../docs/Issue-220-表格复制菜单核对.md)。
 
 - 2026-10-07：窗口列表由 `WindowDock` 内嵌的 `OtherDock` 实现，默认筛选“所有窗口”，仍叠加外部 PID 与关键字过滤，包含退出保留一轮的无效窗口。自动刷新默认开启、间隔 1000 ms；在信号连接完成后勾选以实际启动定时器。定时采样调用 `refreshWindowListAsync(false)`，不注册或更新全局 `kPro` 任务，手动刷新保留进度通知。
@@ -233,6 +236,8 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - `UI/PageControlStyle.h` 提供页面明确调用的搜索和普通 Tab 外观，不扫描所有字段。搜索色面使用既有 ThemeBinding，几何 marker 随局部主题重建恢复；普通 Tab 绑定自身栏，避免替换整个页面已有主题回调。自绘 HexViewSegmented 必须同步实际绘制配方。
 - `NormalizeToolbarRow(row, spacing)` 只统一直接单行控件，不固定内容视图和多行说明；普通间距8，A/B/C显式0。图标方形判断依据明确图标工具或既有固定方形，不能因文字按钮尚未翻译而误锁成方块。后续局部 QSS 重建时补回登记几何。
 - `FlowLayout::addExpandingWidget` 用于工具行最后一个目录组合或状态说明：宽窗占满剩余行宽，放不下最小宽度时整体换行，换行标签按实际宽度计算高度；隐藏的扩展项不占位。C 伪代码页的高级 Ghidra 目录和动作后状态共用此入口，不能把长状态重新放到独立大行或让输入框挤掉动作文字。
+- 2026-11-08：`ParameterChoiceWrap` 为普通参数表单设置 `QSizePolicy::Ignored`，其 `QWidgetItem` 的自然宽度会变为0；放入 `FlowLayout` 时必须对非扩展、非隐藏项回退到控件本身的 `sizeHint()` 并按行宽限制，不能直接使用布局项的零宽。API分类曾因此13项全消失；生产类离屏回归覆盖12种配色/字号/栏宽和标签点击，旧源码负控复现13项零宽，真实整页仍需人工视觉验收。
+- 同日用户截图复核发现短标签 `API` 的 `I` 全部断行：`ParameterChoiceWrap` 硬编码7px间距，与主程序QSS的6px不一致，`sizeHint()` 足宽但自绘正文少1px。`labelRect()` 必须复用主题 `SE_CheckBoxContents` / `SE_RadioButtonContents`，不能自行拼指示器宽度和间距。配色不等于主题，几何回归需加载实际QSS并检查短标签单行；本次原生/主程序主题共24组通过，既有参数首帧与交互245项通过，真实整页仍待人工查看。
 - 表格在构建入口逐用途登记 Full/Compact/None，禁止改全局默认后当作完成。现场清单保留快照对比，静态导出结果精简为复制导出，属性/目标选择/已有业务工作流隐藏重复操作条。逐页记录见 `docs/UI控件逐页整理-20261010.md`。
 
 ### 配置与工具二级窗口

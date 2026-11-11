@@ -22,9 +22,21 @@ struct SignatureResult {
     LONG trustStatus = E_INVALIDARG;
     std::wstring message;
 };
+struct CatalogSignatureCandidate {
+    LONG trustStatus = E_INVALIDARG;
+    std::wstring catalogPath, hashAlgorithm;
+};
+struct CatalogSignatureResult {
+    bool complete = false, trusted = false, evaluated = false;
+    DWORD errorCode = ERROR_SUCCESS, catalogsExamined = 0;
+    LONG trustStatus = TRUST_E_NOSIGNATURE;
+    std::wstring catalogPath, hashAlgorithm;
+    std::vector<CatalogSignatureCandidate> candidates;
+};
 HashResult ReadSha256(const std::wstring& path);
 EntropyResult ReadFileEntropy(const std::wstring& path, std::uint64_t maxBytes);
 SignatureResult ReadEmbeddedSignature(const std::wstring& path);
+CatalogSignatureResult ReadCatalogSignature(const std::wstring& path);
 
 std::wstring BytesToHex(const BYTE* data, DWORD bytes);
 std::wstring ComputeSha256(const std::wstring& path, std::wstring* errorOut);

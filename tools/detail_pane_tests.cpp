@@ -127,9 +127,21 @@ namespace
         host->applyScheme(DetailDisplayScheme::Right);
         drain();
         expect(splitter->orientation() == Qt::Horizontal && !editor->isHidden(), "right strategy uses declared panels");
+        host->setDetailsEnabled(false);
+        drain();
+        expect(editor->isHidden(), "disabled detail hides right pane");
+        clickRow(table, 0);
+        expect(editor->isHidden(), "disabled detail ignores row clicks");
+        host->setDetailsEnabled(true);
+        drain();
+        expect(!editor->isHidden(), "enabling detail restores right pane");
         QAbstractItemDelegate* const sourceDelegate = table->itemDelegate();
         const int originalHeight = table->rowHeight(0);
         host->applyScheme(DetailDisplayScheme::Embedded);
+        QMetaObject::invokeMethod(table, "clicked", Q_ARG(QModelIndex, table->model()->index(0, 0)));
+        host->setDetailsEnabled(false); drain();
+        expect(table->viewport()->findChildren<CodeEditorWidget*>().isEmpty(), "disabling detail cancels queued inline click");
+        host->setDetailsEnabled(true); drain();
         clickRow(table, 0);
         expect(table->rowCount() == 2 && table->rowHeight(0) > originalHeight,
             "inline expands source geometry without inserting business row");

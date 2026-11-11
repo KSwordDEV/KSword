@@ -152,6 +152,9 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernel.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernelBaseline.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKeyboard.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMemory.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverModule.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverRegistry.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverNetworkTraffic.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPiDdb.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPower.cpp" />
@@ -350,6 +353,47 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3ProcessModules.cpp" />
+    <ClCompile Include="R0ThreadControl.cpp" />
+    <ClCompile Include="ProcessMemoryDump.cpp" />
+    <ClCompile Include="R3ThreadStack.cpp" />
+    <ClCompile Include="R3FileMetadata.cpp" />
+    <ClCompile Include="PiDdbCommands.cpp" />
+    <ClCompile Include="NetworkPolicyCommand.cpp" />
+    <ClCompile Include="HandleCloseCommand.cpp" />
+    <ClCompile Include="WindowAdvancedCommand.cpp" />
+    <ClCompile Include="R0Modules.cpp" />
+    <ClCompile Include="R3FirewallActions.cpp" />
+    <ClCompile Include="FileIrpCommand.cpp" />
+    <ClCompile Include="R3ApplicationControl.cpp" />
+    <ClCompile Include="SystemTimeControlCommand.cpp" />
+    <ClCompile Include="VirtualLocationCommand.cpp" />
+    <ClCompile Include="LowlevelCommands.cpp" />
+    <ClCompile Include="PfnCommands.cpp" />
+    <ClCompile Include="ShadowSsdtRestore.cpp" />
+    <ClCompile Include="DebuggerSession.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\FileMetadata.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\ApplicationControl.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\VirtualLocation.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\TrustedImageBaseline.cpp" />
+    <ClCompile Include="..\shared\evidence\PeImageMap.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordDebuggerBackend.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordDebuggerDebug.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordDebuggerMemory.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordDebuggerNative.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\ApplicationControl.h" />
+    <ClInclude Include="..\shared\usermode\backend\system\VirtualLocation.h" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\TrustedImageBaseline.h" />
+    <ClInclude Include="..\shared\driver\KswordArkModuleIoctl.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\FileMetadata.h" />
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkPolicy.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\FirewallOperations.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\FirewallOperations.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverNetworkPolicy.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverResearch.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPfn.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHandle.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWindowBand.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\file_handle_tools.cpp" />
     <ClCompile Include="..\shared\usermode\backend\process\ProcessModules.cpp" />
     <ClCompile Include="..\shared\usermode\backend\process\ModuleActions.cpp" />
     <ClInclude Include="R3ThreadShared.h" />
@@ -488,6 +532,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3SystemIoctl.cpp" />
+    <ClCompile Include="HealthCommand.cpp" />
     <ClCompile Include="RawIoctlCommand.cpp" />
     <ClCompile Include="RxpfAtomicCommitCommand.cpp" />
     <ClCompile Include="RxpfExecProofCommand.cpp" />
@@ -614,6 +659,10 @@
       <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
     </ClCompile>
     <ClInclude Include="..\shared\ApiMonitorCapture.h" />
+    <ClInclude Include="..\shared\ApiMonitorR0Injection.h" />
+    <ClInclude Include="..\shared\ApiMonitorCliView.h" />
+    <ClInclude Include="ApiMonitorSignatureCatalog.h" />
+    <ClInclude Include="ApiMonitorFilterImport.h" />
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x64'">
     <ProjectReference Include="..\APIMonitor_x64\APIMonitor_x64.vcxproj">
@@ -627,5 +676,8 @@
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
 </Project>

@@ -67,6 +67,7 @@ namespace apimon
         std::wstring rootStopFlagPath;
         std::wstring stopFlagPath;              // stopFlagPath：停止标记文件路径。
         std::wstring sessionId;                 // sessionId：UI 为每次启动生成的唯一会话标识，用于捕获短暂 stop/start 的配置切换。
+        std::wstring pauseEventName;            // Session-wide read-only pause control, shared with child agents.
         std::wstring agentDllPath;              // agentDllPath：当前 APIMonitor_x64.dll 路径，供子进程自动注入复用。
         std::wstring controllerSid;             // controllerSid：创建会话的控制端 SID，用于 DWM/服务账户管道 ACL。
         ks::winapi_monitor::InjectionEndpoint injectionEndpoint;
@@ -74,8 +75,17 @@ namespace apimon
         bool enableRegistry = true;             // enableRegistry：是否启用注册表 API Hook。
         bool enableNetwork = true;              // enableNetwork：是否启用网络 API Hook。
         bool enableProcess = true;              // enableProcess：是否启用进程 API Hook。
+        bool enableMemory = true;
+        bool enableThread = true;
+        bool enableService = true;
+        bool enableSecurity = true;
+        bool enableCrypto = true;
+        bool enableCom = true;
+        bool enableWindow = true;
+        bool enableGui = false;
         bool enableLoader = true;               // enableLoader：是否启用加载器 API Hook。
         bool autoInjectChild = false;           // autoInjectChild：CreateProcessW 成功后是否自动注入新子进程。
+        bool captureCallStack = false;           // Optional bounded strong-hook stack; off by default.
         bool enableRawFallback = false;         // enableRawFallback：是否对强类型表之外的导出安装 Raw ABI 兜底 Hook。
         bool rawUseDefaultDenyList = true;      // rawUseDefaultDenyList：是否启用内置高频/高风险 API 黑名单。
         std::vector<std::wstring> rawModuleList;// rawModuleList：Raw 兜底扫描的模块名目录。

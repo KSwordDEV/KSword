@@ -1,5 +1,6 @@
 #include "process.h"
 #include "ProcessCpuUsageModel.h"
+#include "../../ArkDriverClient/ArkDriverClient.h"
 
 #include "../string/string.h"
 
@@ -6329,31 +6330,33 @@ namespace ks::process
                 appendDiagnostic(
                     "OpenProcess(for module identity) failed: " +
                     FormatLastErrorMessage(::GetLastError()));
-                return snapshot;
             }
-
-            FILETIME creationTime{};
-            FILETIME exitTime{};
-            FILETIME kernelTime{};
-            FILETIME userTime{};
-            const BOOL identityQueryOk = ::GetProcessTimes(
-                processIdentityHold.handle,
-                &creationTime,
-                &exitTime,
-                &kernelTime,
-                &userTime);
-            const DWORD identityQueryError = identityQueryOk != FALSE ? ERROR_SUCCESS : ::GetLastError();
-            const std::uint64_t actualCreationTime100ns = identityQueryOk != FALSE
-                ? ks::str::FileTimeToUint64(creationTime.dwHighDateTime, creationTime.dwLowDateTime)
-                : 0U;
-            if (identityQueryOk == FALSE ||
-                actualCreationTime100ns == 0U ||
-                actualCreationTime100ns != expectedCreationTime100ns)
+            else
             {
-                appendDiagnostic(identityQueryOk == FALSE
-                    ? "GetProcessTimes(for module identity) failed: " + FormatLastErrorMessage(identityQueryError)
-                    : "process identity changed (PID was reused); module snapshot skipped.");
-                return snapshot;
+                FILETIME creationTime{};
+                FILETIME exitTime{};
+                FILETIME kernelTime{};
+                FILETIME userTime{};
+                const BOOL identityQueryOk = ::GetProcessTimes(
+                    processIdentityHold.handle,
+                    &creationTime,
+                    &exitTime,
+                    &kernelTime,
+                    &userTime);
+                const DWORD identityQueryError = identityQueryOk != FALSE ? ERROR_SUCCESS : ::GetLastError();
+                const std::uint64_t actualCreationTime100ns = identityQueryOk != FALSE
+                    ? ks::str::FileTimeToUint64(creationTime.dwHighDateTime, creationTime.dwLowDateTime)
+                    : 0U;
+                if (identityQueryOk == FALSE)
+                {
+                    appendDiagnostic("GetProcessTimes(for module identity) failed: " +
+                        FormatLastErrorMessage(identityQueryError));
+                }
+                else if (actualCreationTime100ns == 0U || actualCreationTime100ns != expectedCreationTime100ns)
+                {
+                    appendDiagnostic("process identity changed (PID was reused); module snapshot skipped.");
+                    return snapshot;
+                }
             }
         }
 
@@ -6374,6 +6377,85 @@ namespace ks::process
                 moduleRecord.signatureState = "Pending";
                 moduleRecord.signaturePublisher.clear();
                 moduleRecord.signatureTrusted = false;
+            };
+
+        // enumerateModulesByR0：R3 两种来源失败或返回空集时，读取驱动的 MEM_IMAGE 映射。
+        // 输入使用本轮 PID/创建时间；输出把观察范围保存在 SizeBytes 并附加来源及完整性诊断。
+        const auto enumerateModulesByR0 = [&]()
+            {
+                ksword::ark::DriverClient client;
+                std::uint64_t cursor = 0U;
+                std::uint64_t observedCreateTime = 0U;
+                bool gotPage = false;
+                bool complete = true;
+                for (std::size_t page = 0U; page < 4096U && !stopped(); ++page)
+                {
+                    // 后续游标必须绑定第一页回显的创建时间，防止 PID 复用污染分页结果。
+                    const std::uint64_t pageExpectedCreateTime = observedCreateTime != 0U
+                        ? observedCreateTime : expectedCreationTime100ns;
+                    const auto pageResult = client.enumerateProcessModules(
+                        pid, pageExpectedCreateTime, cursor);
+                    if (!pageResult.io.ok || !pageResult.responseValid)
+                    {
+                        appendDiagnostic("R0 module fallback failed: " + pageResult.io.message);
+                        return false;
+                    }
+                    if (observedCreateTime == 0U)
+                    {
+                        observedCreateTime = pageResult.processCreateTime100ns;
+                    }
+                    else if (observedCreateTime != pageResult.processCreateTime100ns)
+                    {
+                        appendDiagnostic("R0 module fallback process identity changed between pages.");
+                        return false;
+                    }
+                    gotPage = true;
+                    for (const auto& entry : pageResult.entries)
+                    {
+                        ProcessModuleRecord record{};
+                        record.moduleBaseAddress = entry.baseAddress;
+                        record.moduleSizeBytes = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                            entry.spanBytes, std::numeric_limits<std::uint32_t>::max()));
+                        if ((entry.flags & KSWORD_ARK_MODULE_ROW_PATH_PRESENT) != 0U)
+                        {
+                            const std::size_t pathLength = ::wcsnlen_s(entry.path, KSWORD_ARK_MODULE_PATH_CHARS);
+                            record.modulePath = ks::str::Utf16ToUtf8(std::wstring(entry.path, pathLength));
+                            record.moduleName = ExtractFileNameFromPath(record.modulePath);
+                        }
+                        if (record.moduleName.empty())
+                        {
+                            std::ostringstream name;
+                            name << "<image@0x" << std::hex << std::uppercase << record.moduleBaseAddress << ">";
+                            record.moduleName = name.str();
+                        }
+                        record.runningState = "Loaded";
+                        fillModuleSignature(record);
+                        snapshot.modules.push_back(std::move(record));
+                    }
+                    complete = pageResult.status == KSWORD_ARK_MODULE_STATUS_COMPLETE &&
+                        (pageResult.flags & (KSWORD_ARK_MODULE_FLAG_PATH_UNAVAILABLE |
+                            KSWORD_ARK_MODULE_FLAG_SCAN_BUDGET | KSWORD_ARK_MODULE_FLAG_PROCESS_EXITED)) == 0U;
+                    if ((pageResult.flags & KSWORD_ARK_MODULE_FLAG_MORE) == 0U)
+                    {
+                        break;
+                    }
+                    cursor = pageResult.nextCursor;
+                    if (page + 1U == 4096U)
+                    {
+                        complete = false;
+                    }
+                }
+                if (!gotPage)
+                {
+                    appendDiagnostic("R0 module fallback was cancelled before receiving a page.");
+                    return false;
+                }
+                appendDiagnostic("Module source: R0 process image map");
+                if (!complete)
+                {
+                    appendDiagnostic("R0 module image map is partial; reported span is observed mapping range, not PE SizeOfImage.");
+                }
+                return !snapshot.modules.empty();
             };
 
         // 查询每个线程的 Win32 启动地址，只向实际覆盖该地址的模块填充线程 ID。
@@ -6484,6 +6566,8 @@ namespace ks::process
             if (processHandle == nullptr)
             {
                 appendDiagnostic("PSAPI fallback open process failed: " + FormatLastErrorMessage(::GetLastError()));
+                enumerateModulesByR0();
+                AssignModuleThreads(snapshot.modules, moduleThreads, threadStartsComplete);
                 return snapshot;
             }
 
@@ -6498,6 +6582,8 @@ namespace ks::process
             {
                 appendDiagnostic("EnumProcessModulesEx failed: " + FormatLastErrorMessage(::GetLastError()));
                 ::CloseHandle(processHandle);
+                enumerateModulesByR0();
+                AssignModuleThreads(snapshot.modules, moduleThreads, threadStartsComplete);
                 return snapshot;
             }
 
@@ -6514,6 +6600,8 @@ namespace ks::process
                 {
                     appendDiagnostic("EnumProcessModulesEx(second pass) failed: " + FormatLastErrorMessage(::GetLastError()));
                     ::CloseHandle(processHandle);
+                    enumerateModulesByR0();
+                    AssignModuleThreads(snapshot.modules, moduleThreads, threadStartsComplete);
                     return snapshot;
                 }
             }
@@ -6571,12 +6659,19 @@ namespace ks::process
                 snapshot.modules.push_back(std::move(moduleRecord));
             }
 
-            moduleEnumerated = true;
-            appendDiagnostic("Module source: PSAPI fallback");
+            moduleEnumerated = !snapshot.modules.empty();
+            if (moduleEnumerated)
+            {
+                appendDiagnostic("Module source: PSAPI fallback");
+            }
             ::CloseHandle(processHandle);
         }
 
         if (stopped()) { return {}; }
+        if (!moduleEnumerated || snapshot.modules.empty())
+        {
+            moduleEnumerated = enumerateModulesByR0();
+        }
         if (!moduleEnumerated)
         {
             appendDiagnostic("No module enumeration path succeeded.");

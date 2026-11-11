@@ -14,6 +14,28 @@ SUPPORTED_TYPES = set(['ACCESS_MASK', 'ALG_ID', 'BCRYPT_ALG_HANDLE', 'BCRYPT_ALG
 SUPPORTED_TYPES.update(['BIND_OPTS*', 'KS_ALPC_MESSAGE_ATTRIBUTES*', 'KS_ALPC_PORT_ATTRIBUTES*', 'KS_PORT_MESSAGE*', 'MEM_EXTENDED_PARAMETER*', 'QUEUE_USER_APC_FLAGS', 'THREADINFOCLASS', 'const UNICODE_STRING*', 'void**'])
 SUPPORTED_TYPES.update(["LPOVERLAPPED_COMPLETION_ROUTINE", "PULONG_PTR", "LPOVERLAPPED*", "LPOVERLAPPED_ENTRY"])
 SUPPORTED_TYPES.update(["LPWSAMSG", "LPTRANSMIT_FILE_BUFFERS", "LPTRANSMIT_PACKETS_ELEMENT", "sockaddr**"])
+SUPPORTED_TYPES.update({
+    "BYTE", "COLORREF", "COLORREF*", "HICON", "HMONITOR", "HRGN", "LPMONITORINFO", "LPPOINT", "LPRECT",
+    "LPTRACKMOUSEEVENT", "PCURSORINFO", "PGUITHREADINFO", "PICONINFO", "PLASTINPUTINFO", "PWINDOWINFO",
+    "WINDOWPLACEMENT*", "const RECT*", "const WINDOWPLACEMENT*", "THREAD_INFORMATION_CLASS", "PPROCESSOR_NUMBER",
+    "PGROUP_AFFINITY", "const GROUP_AFFINITY*", "const ULONG*", "PWSTR*", "ULONG_PTR*", "LPSTREAM", "HRESULT*",
+    "BCRYPT_HANDLE", "BCRYPT_SECRET_HANDLE", "BCRYPT_SECRET_HANDLE*", "PSID_IDENTIFIER_AUTHORITY", "PSID*",
+    "PSECURITY_DESCRIPTOR_CONTROL", "PACL*",
+})
+SUPPORTED_TYPES.update({
+    "HMENU", "LPCMENUINFO", "LPCMENUITEMINFOA", "LPCMENUITEMINFOW", "LPMENUINFO", "LPMENUITEMINFOA",
+    "LPMENUITEMINFOW", "UINT_PTR", "WIN32_MEMORY_INFORMATION_CLASS", "OFFER_PRIORITY", "PPROCESS_MEMORY_COUNTERS",
+    "PIO_COUNTERS", "PROCESS_INFORMATION_CLASS", "PROCESS_MITIGATION_POLICY", "PULONG64", "APTTYPE*",
+    "APTTYPEQUALIFIER*", "HGLOBAL", "HGLOBAL*", "LPBC*", "LPCLSID", "LPCOLESTR", "LPIID", "LPMALLOC*",
+    "LPOLESTR*", "LPRUNNINGOBJECTTABLE*", "LPSTREAM*", "PACL", "SECURITY_DESCRIPTOR_CONTROL",
+})
+SUPPORTED_TYPES.update({
+    "HBRUSH", "HFONT", "HPALETTE", "HPEN", "LPABC", "LPSIZE", "TEXTMETRICA*", "TEXTMETRICW*",
+    "const BITMAP*", "const BITMAPINFO*", "const BITMAPINFOHEADER*", "const DWORD*", "const LOGBRUSH*",
+    "const LOGFONTA*", "const LOGFONTW*", "const LOGPALETTE*", "const LOGPEN*", "const PALETTEENTRY*",
+    "const POINT*", "LPTEXTMETRICA", "LPTEXTMETRICW", "LPOUTLINETEXTMETRICA", "LPOUTLINETEXTMETRICW",
+    "LPRASTERIZER_STATUS", "LPGLYPHSET",
+})
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*$")
 POLICIES = {"bool", "handle", "dword_nonzero", "uint_nonzero", "int_positive",
             "ulong_status", "long_status", "security_status", "rpc_status",
@@ -21,6 +43,21 @@ POLICIES = {"bool", "handle", "dword_nonzero", "uint_nonzero", "int_positive",
 SIZE_TYPES = {"DWORD", "ULONG", "SIZE_T", "UINT", "int", "ULONG_PTR", "ULONGLONG", "ULONG64",
               "INT", "LONG", "WORD", "USHORT", "long", "unsigned int", "unsigned long", "DWORD_PTR"}
 SIZE_POINTER_TYPES = {"LPDWORD", "PULONG", "PSIZE_T", "int*", "DWORD*", "ULONG*", "UINT*", "LPINT", "LPLONG"}
+
+# Success-defined fixed-size output values only. Explicit names prevent generic
+# direction annotations from causing reads of async buffers or secrets.
+OUTPUT_SNAPSHOTS = {
+    'VirtualProtect': [('oldProtectPointer', 'PDWORD')],
+    'DuplicateHandle': [('targetHandlePointer', 'LPHANDLE')],
+    'OpenProcessToken': [('tokenHandlePointer', 'PHANDLE')],
+    'OpenThreadToken': [('tokenHandlePointer', 'PHANDLE')],
+    'DuplicateToken': [('newTokenHandlePointer', 'PHANDLE')],
+    'DuplicateTokenEx': [('newTokenHandlePointer', 'PHANDLE')],
+    'LogonUserA': [('tokenHandlePointer', 'PHANDLE')],
+    'LogonUserW': [('tokenHandlePointer', 'PHANDLE')],
+    'CreateRestrictedToken': [('newTokenHandlePointer', 'PHANDLE')],
+    'CreatePipe': [('readPipePointer', 'PHANDLE'), ('writePipePointer', 'PHANDLE')],
+}
 
 
 def require(condition, message):
@@ -45,7 +82,8 @@ def validate(catalog, handlers):
         require(isinstance(api["architectures"], list) and bool(api["architectures"])
                 and set(api["architectures"]) <= {"x86", "x64"}
                 and len(set(api["architectures"])) == len(api["architectures"]), f"unsupported architecture: {name}")
-        require(api["category"] in {"File", "Registry", "Network", "Process", "Loader", "Clipboard"}, f"bad category: {name}")
+        require(api["category"] in {"File", "Registry", "Network", "Process", "Loader", "Clipboard",
+                                    "Memory", "Thread", "Service", "Security", "Crypto", "Com", "Window", "Gui"}, f"bad category: {name}")
         require(api["calling_convention"] in {"WINAPI", "NTAPI", "WSAAPI", "RPC_ENTRY"}, f"bad convention: {name}")
         require(api["return_type"] in SUPPORTED_TYPES, f"invalid return type: {name}")
         binding = api["binding"]
@@ -94,13 +132,16 @@ def validate(catalog, handlers):
         require(handler in handlers, f"unknown C++ handler: {name}: {handler}")
         if wrapper["kind"] == "generated":
             require(wrapper["policy"] in POLICIES, f"unknown return policy: {name}")
+            if api["return"]["error_source"] == "none":
+                require(wrapper["policy"] in {"bool", "handle", "dword_nonzero", "uint_nonzero", "int_positive"},
+                        f"unsupported unknown-error policy: {name}")
             if wrapper["policy"] == "handle":
                 require(api["return"]["success"] in {"handle", "not_invalid_handle"}, f"bad handle success condition: {name}")
             if wrapper["policy"] == "wsa_int":
                 require(wrapper["success"] in {"zero", "not_socket_error"}, f"bad WSA success rule: {name}")
         else:
             require(handler == binding["hook"], f"special handler/binding mismatch: {name}")
-        require(api["return"]["error_source"] in {"handler", "wsa_last_error", "return_status", "win32_last_error"}, f"bad error source: {name}")
+        require(api["return"]["error_source"] in {"handler", "wsa_last_error", "return_status", "win32_last_error", "none"}, f"bad error source: {name}")
         require(api["return"]["success"] in POLICIES | {"handler", "zero", "not_socket_error", "not_invalid_handle", "nonnegative"}, f"bad success rule: {name}")
 
 
@@ -129,19 +170,70 @@ def wrapper(api):
         "ulong_status", "long_status", "security_status", "rpc_status", "lstatus", "ntstatus", "hresult"} else "resultValue"
     capture_args = "detailBuffer" + (", " + args if args else "") + (", " + result if ret != "void" else "")
     capture_params = "wchar_t (&detailBuffer)[ks::winapi_monitor::kMaxDetailChars]" + (", " + params if params else "") + (f", {ret} {result}" if ret != "void" else "")
+    outputs = OUTPUT_SNAPSHOTS.get(api['export'], [])
+    if outputs:
+        require(ret == 'BOOL' and policy == 'bool', f"output policy changed: {api['export']}")
+        for name, type_name in outputs:
+            require(any(p['name'] == name and p['type'] == type_name and p['direction'] == 'out'
+                        for p in api['parameters']), f"output signature changed: {api['export']}.{name}")
     # SEH boundary contains no C++ objects/destructors. Invalid output pointers cannot crash the target.
     code = f"void {w['capture_handler']}Checked({capture_params})\n{{\n"
     code += f"    __try {{ {w['capture_handler']}({capture_args}); }}\n"
     code += "    __except (EXCEPTION_EXECUTE_HANDLER) { wcscpy_s(detailBuffer, ks::winapi_monitor::kMaxDetailChars, L\"capture=unreadable\"); }\n}\n"
+    if outputs:
+        output_params = ', '.join(f'{type_name} {name}' for name, type_name in outputs)
+        code += f"void {w['capture_handler']}OutputChecked(wchar_t (&detailBuffer)[ks::winapi_monitor::kMaxDetailChars], BOOL success, {output_params})\n{{\n"
+        for name, _ in outputs:
+            code += f'    AppendWideText(detailBuffer, L" out_after.{name}=");\n'
+            code += f'    if (!success || !{name}) AppendWideText(detailBuffer, L"<unavailable>");\n'
+            code += f'    else {{ __try {{ AppendHexText(detailBuffer, ApiReturnBits(*{name})); }}\n'
+            code += '        __except (EXCEPTION_EXECUTE_HANDLER) { AppendWideText(detailBuffer, L"<unreadable>"); } }\n'
+        code += '}\n'
     code += f"{ret} {api['calling_convention']} {b['hook']}({params})\n{{\n    ScopedHookGuard guardValue;\n"
     call = f"{b['original']}({args})"
     code += f"    if (guardValue.bypass()) {{ {'return ' if ret != 'void' else ''}{call};{' return;' if ret == 'void' else ''} }}\n"
+    # These formatters already publish this path after the call. Snapshot it
+    # beforehand as well: the callee is allowed to modify/free caller memory.
+    # Do not infer permission to read arbitrary input strings from annotations:
+    # other APIs can carry secrets, non-NUL buffers, or opaque string-like data.
+    before_path = api['export'] in {'DeleteFileA', 'DeleteFileW', 'RemoveDirectoryA', 'RemoveDirectoryW'}
+    if before_path:
+        append = 'AppendWideText' if api['export'].endswith('W') else 'AppendAnsiText'
+        code += '    const DWORD entryError = ::GetLastError();\n'
+        code += '    wchar_t inputBefore[96] = {};\n'
+        code += '    AppendWideText(inputBefore, L" input_before.path=");\n'
+        code += f'    {append}(inputBefore, pathPointer, 72);\n'
+        code += '    ::SetLastError(entryError);\n'
+    # Snapshot argument *values*, never pointees. Even out parameters have an
+    # input address that remains useful; it is not an output value. REFIID and
+    # REFCLSID are C++ references and cannot safely be copied as ABI words.
+    # The packet has a bounded detail field, so preserve at most eight values;
+    # formatting below may truncate if a named formatter uses the whole field.
+    entry_values = [(i, p) for i, p in enumerate(api['parameters'][:8], 1)
+                    if p['type'] not in {'REFIID', 'REFCLSID'}]
+    for position, param in entry_values:
+        code += f"    const auto entryArg{position} = ApiReturnBits({param['name']});\n"
+    code += "    const auto callClock = BeginApiCallClock();\n"
     code += f"    {'' if ret == 'void' else f'const {ret} {result} = '}{call};\n"
     code += "    const DWORD savedError = ::GetLastError();\n"
     if uses_wsa_error:
         code += "    const int savedWsaError = ::WSAGetLastError();\n"
+    code += "    const auto duration = EndApiCallClock(callClock);\n"
     code += "    wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};\n"
     code += f"    {w['capture_handler']}Checked({capture_args});\n"
+    if outputs:
+        code += f"    {w['capture_handler']}OutputChecked(detailBuffer, {result}, " + ', '.join(name for name, _ in outputs) + ");\n"
+    if before_path:
+        code += '    AppendWideText(detailBuffer, inputBefore);\n'
+    for position, _ in entry_values:
+        code += f'    AppendWideText(detailBuffer, L" arg{position}=");\n'
+        code += f'    AppendHexText(detailBuffer, entryArg{position});\n'
+    # Append helpers cap writes; if full, reserve a marker so a clipped record
+    # cannot look like a complete set of captured parameters.
+    code += '    if (detailBuffer[ks::winapi_monitor::kMaxDetailChars - 2] != 0) {\n'
+    code += '        constexpr wchar_t marker[] = L"<possibly-truncated>";\n'
+    code += '        std::memcpy(detailBuffer + ks::winapi_monitor::kMaxDetailChars - (sizeof(marker) / sizeof(marker[0])), marker, sizeof(marker));\n'
+    code += '    }\n'
     success = {"bool": f"{result} != FALSE", "handle": f"{result} != nullptr",
                "dword_nonzero": f"{result} != 0", "uint_nonzero": f"{result} != 0",
                "int_positive": f"{result} > 0"}.get(policy)
@@ -149,9 +241,18 @@ def wrapper(api):
         success = f"{result} != nullptr && {result} != INVALID_HANDLE_VALUE"
     if policy == "wsa_int":
         success = f"{result} == 0" if w["success"] == "zero" else f"{result} != SOCKET_ERROR"
-    status = "0" if ret == "void" else f"({success}) ? 0 : {'savedWsaError' if uses_wsa_error else 'savedError'}" if success else f"static_cast<std::int32_t>({result})"
+    unknown_error = api['return']['error_source'] == 'none'
+    status = "0" if ret == "void" or unknown_error else f"({success}) ? 0 : {'savedWsaError' if uses_wsa_error else 'savedError'}" if success else f"static_cast<std::int32_t>({result})"
     module = api["module"][:-4]
-    code += f"    SendRawEventWithStatus(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer);\n"
+    return_bits = '0' if ret == 'void' else f'ApiReturnBits({result})'
+    has_return = 'false' if ret == 'void' else 'true'
+    if unknown_error:
+        code += f'    if (!({success})) AppendWideText(detailBuffer, L" call_failed=1 error=unavailable");\n'
+        kind = f'({success}) ? ks::winapi_monitor::EventResultKind::StatusCode : ks::winapi_monitor::EventResultKind::StatusUnknown'
+        extra = f', 0, 0, {kind}'
+    else:
+        extra = ''
+    code += f"    SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::{api['category']}, L\"{module}\", L\"{api['export']}\", {status}, detailBuffer, {has_return}, {return_bits}, duration{extra});\n"
     if uses_wsa_error:
         code += "    ::WSASetLastError(savedWsaError);\n"
     code += "    ::SetLastError(savedError);\n"

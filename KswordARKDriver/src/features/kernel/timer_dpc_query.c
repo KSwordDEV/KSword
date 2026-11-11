@@ -17,6 +17,8 @@ Environment:
 #include "ark/ark_driver.h"
 #include "../dyndata/dyndata_v4_internal.h"
 #include "../../platform/pool_compat.h"
+#include "../../platform/runtime_signature_scan.h" // 候选地址统一通过安全读取器访问。
+#include "timer_dpc_decode.h" // 每次快照验证 KTIMER.Dpc 的真实存储方式。
 
 #define KSW_TIMER_DPC_POOL_TAG 'pDTK'
 
@@ -37,6 +39,7 @@ typedef struct _KSW_TIMER_DPC_BUILDER
     ULONG64* SeenTimers;
     ULONG SeenCount;
     KSW_DYN_V4_TIMER_DPC_LAYOUT Layout;
+    KSW_TIMER_DPC_DECODER Decoder; // 当前启动参数经自建定时器校准，不跨查询缓存。
 } KSW_TIMER_DPC_BUILDER;
 
 static BOOLEAN
@@ -59,7 +62,7 @@ KswordARKTimerDpcAddAddress(
     _Out_ ULONG64* AddressOut
     )
 {
-    if (AddressOut == NULL || Base > MAXULONGLONG - (ULONG64)Offset) {
+    if (AddressOut == NULL || Base > ~0ULL - (ULONG64)Offset) { // 无符号 64 位上界不依赖非 WDK 宏。
         return FALSE;
     }
     *AddressOut = Base + (ULONG64)Offset;
@@ -73,36 +76,18 @@ KswordARKTimerDpcReadMemory(
     _In_ SIZE_T BytesToRead
     )
 {
-    MM_COPY_ADDRESS sourceAddress;
-    SIZE_T copiedBytes = 0U;
-    NTSTATUS status = STATUS_SUCCESS;
-
     if (Destination == NULL || BytesToRead == 0U ||
         !KswordARKTimerDpcIsKernelAddress(Address) ||
-        Address > MAXULONGLONG - (ULONG64)(BytesToRead - 1U) ||
+        Address > ~0ULL - (ULONG64)(BytesToRead - 1U) || // 拒绝范围尾部溢出。
         !KswordARKTimerDpcIsKernelAddress(Address + (ULONG64)(BytesToRead - 1U)) ||
         KeGetCurrentIrql() > APC_LEVEL) {
         return FALSE;
     }
 
-    RtlZeroMemory(&sourceAddress, sizeof(sourceAddress));
-    sourceAddress.VirtualAddress = (PVOID)(ULONG_PTR)Address;
-    __try {
-        status = MmCopyMemory(
-            Destination,
-            sourceAddress,
-            BytesToRead,
-            MM_COPY_MEMORY_VIRTUAL,
-            &copiedBytes);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        RtlZeroMemory(Destination, BytesToRead);
-        return FALSE;
-    }
-
-    if (!NT_SUCCESS(status) || copiedBytes != BytesToRead) {
-        RtlZeroMemory(Destination, BytesToRead);
-        return FALSE;
+    if (!KswordARKRuntimeReadMemory( // 统一使用 MmCopyMemory，完整复制才可解释字段。
+            (const VOID*)(ULONG_PTR)Address, Destination, BytesToRead)) {
+        RtlZeroMemory(Destination, BytesToRead); // 失败时清除可能复制的部分字段。
+        return FALSE; // 不把部分复制视为有效对象。
     }
     return TRUE;
 }
@@ -130,7 +115,7 @@ Return Value:
     ULONG64 prcbEnd = 0ULL;
 
     if (!KswordARKTimerDpcIsKernelAddress(PrcbAddress) ||
-        PrcbAddress > MAXULONGLONG - KSW_TIMER_DPC_RUNTIME_PRCB_BYTES) {
+        PrcbAddress > ~0ULL - KSW_TIMER_DPC_RUNTIME_PRCB_BYTES) { // 保证 PRCB 窗口加法不回绕。
         return FALSE;
     }
     prcbEnd = PrcbAddress + KSW_TIMER_DPC_RUNTIME_PRCB_BYTES;
@@ -296,7 +281,7 @@ Return Value:
 
     cursorAddress = KnownHeadAddress;
     while (beforeCount + afterCount < KSWORD_ARK_TIMER_DPC_MAX_BUCKETS - 1UL &&
-           cursorAddress <= MAXULONGLONG - EntryBytes) {
+           cursorAddress <= ~0ULL - EntryBytes) { // 保证下个桶头地址不回绕。
         const ULONG64 nextAddress = cursorAddress + EntryBytes;
 
         if (!KswordARKTimerDpcAddressInsidePrcb(
@@ -603,6 +588,7 @@ KswordARKTimerDpcEmitTimer(
     KSWORD_ARK_TIMER_DPC_ENTRY row;
     ULONG64 fieldAddress = 0ULL;
     ULONG64 dpcAddress = 0ULL;
+    ULONG64 encodedDpc = 0ULL; // KTIMER.Dpc 在新系统中包含编码，不能直接当地址。
     UCHAR timerType = 0U;
     BOOLEAN timerFieldsComplete = TRUE;
 
@@ -630,8 +616,9 @@ KswordARKTimerDpcEmitTimer(
     }
 
     if (KswordARKTimerDpcAddAddress(TimerAddress, Builder->Layout.TimerDpc, &fieldAddress) &&
-        KswordARKTimerDpcReadMemory(fieldAddress, &dpcAddress, sizeof(dpcAddress))) {
-        row.dpcAddress = dpcAddress;
+        KswordARKTimerDpcReadMemory(fieldAddress, &encodedDpc, sizeof(encodedDpc)) &&
+        KswordARKTimerDpcDecodePointer(&Builder->Decoder, TimerAddress, encodedDpc, &dpcAddress)) { // 先解码再验证地址。
+        row.dpcAddress = dpcAddress; // 只向用户态返回已解码的对象地址，包括真正的 NULL。
         if (dpcAddress != 0ULL) {
             row.flags |= KSWORD_ARK_TIMER_DPC_ENTRY_DPC_PRESENT;
             if (KswordARKTimerDpcIsKernelAddress(dpcAddress) &&
@@ -831,6 +818,8 @@ KswordARKDriverEnumerateTimerDpc(
         return STATUS_SUCCESS;
     }
     builder.Response->bucketCount = bucketCount;
+    (VOID)KswordARKTimerDpcInitializeDecoder( // 失败时 Decoder 保持无效，各条目仍报告部分读取。
+        builder.Layout.TimerDpc, &builder.Decoder);
 
     builder.SeenTimers = (ULONG64*)KswordARKAllocateNonPagedPool(
         (SIZE_T)builder.MaxEntries * sizeof(ULONG64),

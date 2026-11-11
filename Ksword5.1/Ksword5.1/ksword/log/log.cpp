@@ -362,7 +362,9 @@ namespace ks::log
         const std::size_t maxCount,
         const std::uint32_t enabledLevelMask,
         const GUID* const trackedGuid,
-        const RecentSnapshotToken* const previousToken) const
+        const RecentSnapshotToken* const previousToken,
+        const std::function<bool(const Event&)>& predicate,
+        const std::string& filterIdentity) const
     {
         RecentSnapshot snapshot;
         std::lock_guard<std::mutex> lockGuard(m_mutex);
@@ -371,6 +373,7 @@ namespace ks::log
         snapshot.token.enabledLevelMask = enabledLevelMask;
         snapshot.token.isTracking = trackedGuid != nullptr;
         if (trackedGuid != nullptr) snapshot.token.trackedGuid = *trackedGuid;
+        snapshot.token.filterIdentity = filterIdentity;
 
         std::array<const std::vector<std::size_t>*, 32> tails{};
         std::array<std::size_t, 32> positions{};
@@ -400,21 +403,23 @@ namespace ks::log
             }
         }
 
+        // 查询令牌包含等级、GUID、文本条件和最新候选序号；没有新增候选时可直接复用表格快照。
         if (previousToken != nullptr
             && previousToken->epoch == snapshot.token.epoch
             && previousToken->newestRecordSequence == snapshot.token.newestRecordSequence
             && previousToken->maxCount == maxCount
             && previousToken->enabledLevelMask == enabledLevelMask
             && previousToken->isTracking == snapshot.token.isTracking
+            && previousToken->filterIdentity == filterIdentity
             && (trackedGuid == nullptr || ::ks::log::IsSameGuid(previousToken->trackedGuid, *trackedGuid)))
         {
             snapshot.changed = false;
             return snapshot;
         }
 
-        const std::size_t resultCount = std::min(maxCount, matchingCount);
+        const std::size_t resultCount = predicate ? maxCount : std::min(maxCount, matchingCount);
         snapshot.events.reserve(resultCount);
-        while (snapshot.events.size() < resultCount)
+        while (snapshot.events.size() < resultCount && matchingCount != 0)
         {
             std::size_t newestLevel = tails.size();
             std::size_t newestIndex = 0;
@@ -428,8 +433,16 @@ namespace ks::log
                     newestIndex = candidateIndex;
                 }
             }
-            snapshot.events.push_back(m_events[newestIndex]);
+            // candidate 用途：保存当前从索引尾部取出的最新候选日志，随后应用文本谓词。
+            const Event& candidate = m_events[newestIndex];
+            if (!predicate || predicate(candidate))
+            {
+                snapshot.events.push_back(candidate);
+                snapshot.token.newestRecordSequence = std::max(
+                    snapshot.token.newestRecordSequence, candidate.recordSequence);
+            }
             --positions[newestLevel];
+            --matchingCount;
         }
         std::reverse(snapshot.events.begin(), snapshot.events.end());
         return snapshot;

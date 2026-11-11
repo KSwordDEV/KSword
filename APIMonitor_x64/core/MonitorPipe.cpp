@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "MonitorPipe.h"
+#include "../hook/HookCallStack.h"
 #include "MonitorCoverage.h"
 #include "ApiMonitorMetadata.h"
 #include "../MonitorAgent.h"
@@ -586,9 +587,11 @@ namespace apimon
         const wchar_t* detailText,
         const ks::winapi_monitor::EventResultKind resultKind,
         const ks::winapi_monitor::EventKind eventKind, const std::uint64_t operationId, const std::uint32_t apiId,
-        const std::uint64_t finalCoverageRevision)
+        const std::uint64_t finalCoverageRevision,
+        const bool hasReturnValue = false, const std::uint64_t returnBits = 0,
+        const bool hasDuration = false, const std::uint64_t duration100ns = 0)
     {
-        if (StopRequested() && categoryValue != ks::winapi_monitor::EventCategory::Internal) return false;
+        if ((StopRequested() || EventsPaused()) && categoryValue != ks::winapi_monitor::EventCategory::Internal) return false;
         ks::winapi_monitor::ApiMonitorEventPacket packetValue{};
         packetValue.pid = static_cast<std::uint32_t>(::GetCurrentProcessId());
         packetValue.tid = static_cast<std::uint32_t>(::GetCurrentThreadId());
@@ -600,6 +603,18 @@ namespace apimon
         packetValue.apiId = apiId ? apiId : FindApiDefinitionId(moduleName, apiName);
         packetValue.operationId = operationId;
         packetValue.snapshotRevision = finalCoverageRevision;
+        if (hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue != ks::winapi_monitor::EventCategory::Internal)
+        {
+            packetValue.snapshotIndex = ks::winapi_monitor::kApiCallReturnValueMarker;
+            packetValue.hookAddress = returnBits;
+        }
+        if (hasDuration && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue != ks::winapi_monitor::EventCategory::Internal)
+        {
+            packetValue.snapshotCount = ks::winapi_monitor::kApiCallDurationMarker;
+            packetValue.snapshotRevision = duration100ns;
+        }
         packetValue.sessionIdentity = CurrentMonitorSessionIdentity();
         std::memcpy(packetValue.definitionSha256, kDefinitionSha256, sizeof(packetValue.definitionSha256));
 
@@ -609,6 +624,7 @@ namespace apimon
         CopyWideTextRaw(moduleName, packetValue.moduleName, std::size(packetValue.moduleName), ks::winapi_monitor::kMaxModuleNameChars - 1);
         CopyWideTextRaw(apiName, packetValue.apiName, std::size(packetValue.apiName), ks::winapi_monitor::kMaxApiNameChars - 1);
         CopyWideTextRaw(detailText, packetValue.detailText, std::size(packetValue.detailText), detailLimit);
+        StoreHookCallStack(packetValue);
 
         ::AcquireSRWLockExclusive(&g_queueLock);
         const std::size_t capacity = categoryValue == ks::winapi_monitor::EventCategory::Internal
@@ -636,6 +652,27 @@ namespace apimon
         ks::winapi_monitor::EventKind kind,std::uint64_t operation,std::uint32_t id)
     {
         return QueueMonitorEventRaw(category,module,api,result,detail,resultKind,kind,operation,id,0);
+    }
+
+    bool SendMonitorEventRawWithReturn(ks::winapi_monitor::EventCategory category,
+        const wchar_t* module, const wchar_t* api, std::int32_t result,
+        const wchar_t* detail, std::uint64_t returnBits)
+    {
+        return QueueMonitorEventRaw(category, module, api, result, detail,
+            ks::winapi_monitor::EventResultKind::StatusCode,
+            ks::winapi_monitor::EventKind::ApiCall, 0, 0, 0, true, returnBits);
+    }
+
+    bool SendMonitorEventRawWithMetrics(ks::winapi_monitor::EventCategory category,
+        const wchar_t* module, const wchar_t* api, std::int32_t result,
+        const wchar_t* detail, bool hasReturnValue, std::uint64_t returnBits,
+        bool hasDuration, std::uint64_t duration100ns, std::uint32_t apiId,
+        ks::winapi_monitor::EventResultKind resultKind, std::uint64_t operationId)
+    {
+        return QueueMonitorEventRaw(category, module, api, result, detail,
+            resultKind,
+            ks::winapi_monitor::EventKind::ApiCall, operationId, apiId, 0,
+            hasReturnValue, returnBits, hasDuration, duration100ns);
     }
 
     bool SendHooksRemovedEvent(const std::wstring& detail)

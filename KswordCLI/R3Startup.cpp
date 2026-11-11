@@ -82,7 +82,9 @@ Json row(const StartupEntry& entry, const std::wstring& sid) {
     const bool readOnly = !entry.canEnable && !entry.canDisable && !entry.canDelete;
     return Json::object({
         {L"id", sid.empty() ? Json{} : Json::string(id(entry, sid))},
+        {L"sourceUniqueId", field(entry.uniqueIdText)},
         {L"category", Json::string(category(entry.category))},
+        {L"categoryDisplay", field(entry.categoryText)},
         {L"kind", Json::string(kind(entry))},
         {L"stage", Json::string(stage(entry.category))},
         {L"state", Json::string(state(entry))},
@@ -92,6 +94,7 @@ Json row(const StartupEntry& entry, const std::wstring& sid) {
         {L"location", field(entry.locationText)},
         {L"locationGroup", field(entry.locationGroupText)},
         {L"sourceType", field(entry.sourceTypeText)},
+        {L"sourceEnabled", Json::boolean(entry.enabled)},
         {L"publisher", field(entry.publisherText)},
         {L"imagePath", field(entry.imagePathText)},
         {L"user", field(entry.userText)},
@@ -103,20 +106,25 @@ Json row(const StartupEntry& entry, const std::wstring& sid) {
         {L"canEnable", Json::boolean(entry.canEnable)},
         {L"canDisable", Json::boolean(entry.canDisable)},
         {L"canDelete", Json::boolean(entry.canDelete)},
+        {L"deleteRegistryTree", Json::boolean(entry.deleteRegistryTree)},
         {L"canOpenFileLocation", Json::boolean(entry.canOpenFileLocation)},
         {L"canOpenRegistryLocation", Json::boolean(entry.canOpenRegistryLocation)},
         {L"actionKind", Json::count(static_cast<std::uint32_t>(entry.actionKind))},
         {L"registryRoot", entry.actionLocator.registryRoot == StartupRegistryRoot::CurrentUser ? Json::string(L"HKCU") : entry.actionLocator.registryRoot == StartupRegistryRoot::LocalMachine ? Json::string(L"HKLM") : Json{}},
-        {L"registryView", Json::count(entry.actionLocator.registryRoot == StartupRegistryRoot::None ? 0 : entry.actionLocator.serviceIsDriver ? 0 : 0)},
+        // StartupEntry does not carry a native WOW64 registry view; do not
+        // turn the prior placeholder zero into a claimed observation.
+        {L"registryView", Json{}},
         {L"registrySubKey", field(entry.actionLocator.registrySubKeyText)},
         {L"registryValueName", field(entry.actionLocator.registryValueNameText)},
-        {L"disabledRegistrySubKey", field(entry.actionLocator.registrySubKeyText)},
+        {L"displayRegistryValueName", field(entry.registryValueNameText)},
+        {L"disabledRegistrySubKey", Json{}},
         {L"serviceName", field(entry.actionLocator.serviceNameText)},
-        {L"serviceStartType", entry.actionLocator.serviceStartType ? Json::count(entry.actionLocator.serviceStartType) : Json{}},
+        {L"serviceStartType", entry.actionKind == StartupActionKind::ScmStartType && entry.actionLocator.serviceStartMode != StartupScmStartMode::None ? Json::count(entry.actionLocator.serviceStartType) : Json{}},
+        {L"serviceStartMode", entry.actionKind == StartupActionKind::ScmStartType ? Json::number(static_cast<std::uint32_t>(entry.actionLocator.serviceStartMode)) : Json{}},
         {L"taskPath", field(entry.actionLocator.taskPathText)},
         {L"filePath", field(entry.actionLocator.originalFilePathText)},
         {L"disabledFilePath", field(entry.actionLocator.parkedFilePathText)},
-        {L"properties", Json::array({})}
+        {L"properties", Json{}}
     });
 }
 }

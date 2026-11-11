@@ -25,8 +25,8 @@ sizeBytes 和 FILETIME 使用十进制字符串；目录／驱动器的文件大
 ## 创建、传输和删除（迁移项 15）
 
 ```powershell
-KswordCLI.exe file create --directory PATH --confirm [--backend r3] [--json]
-KswordCLI.exe file directory create --directory PATH --confirm [--backend r3] [--json]
+KswordCLI.exe file create (--path PATH [--text TEXT | --hex HEX | --data-file PATH] | --directory PATH) --confirm [--backend r3] [--json]
+KswordCLI.exe file directory create (--path PATH | --directory PATH) --confirm [--backend r3] [--json]
 KswordCLI.exe file copy --path PATH --to-directory PATH --confirm [--backend r3] [--json]
 KswordCLI.exe file move --path PATH --to-directory PATH --confirm [--backend r3] [--json]
 KswordCLI.exe file rename --path PATH --target PATH --confirm [--backend r3] [--json]
@@ -37,8 +37,8 @@ KswordCLI.exe file path short query --path PATH [--backend r3] [--json]
 KswordCLI.exe file shortcut query --path PATH [--backend r3] [--json]
 ```
 
-create 复用后端的自动命名（新建文件.txt／新建文件夹，有冲突则编号），返回实际 target。
-创建空文件或空目录；指定最终名称可随后调用 rename。创建成功不保留前一次名称碰撞错误。
+create 的 `--directory` 使用自动命名（新建文件.txt／新建文件夹，有冲突则编号）；`--path` 指定最终名称，存在时失败，不覆盖。返回实际 target。
+文件内容可选 `--text`（UTF-8，无 BOM）、`--hex` 或 `--data-file` 原始字节，互斥且最多 64 MiB；省略时创建空文件。目录不接受内容。指定路径的文件会回读并比较全部字节；写入失败可能留下部分文件并返回 6。
 copy／move 目标为目录，目标名称取源路径最后一段。复制按后端行为递归并覆盖已有文件；
 移动先尝试重命名，失败后复制并删除源。rename 使用 MoveFileExW，可覆盖目标并允许跨卷文件移动。
 文件删除使用 DeleteFileW；目录删除仅删除空目录。delete-path 只有显式 R3 时调用本实现，默认 R0 不变。
@@ -89,11 +89,12 @@ sampledBytes、sizeBytes、maxBytes、complete、limited、win32Error。空文�
 部分熵只描述实际读到的前缀，所有字节数使用十进制字符串。共享写入文件不构成原子快照。
 
 signature 使用 WinVerifyTrust 通用 Authenticode 策略，无 UI，仅允许缓存 URL 数据，不检查吊销。
-输出 evaluated、trusted、signatureState（trusted／unsigned／expired／bad-digest／not-trusted）、
-trustStatus、description、revocationChecked=false、networkRetrieval=false。
-“查询成功”与“签名可信”分别表达：明确的无签名、过期、摘要不匹配、根不可信、链不完整或拒绝信任
-可以作为查询结果返回 0，但 trusted=false；策略／主体格式不可用返回 5，其他验证调用错误返回 3。
-原始 trustStatus 始终保留。此命令不提供在线吊销检查或单独的目录签名枚举。
+`embedded` 保留嵌入式签名状态和原始 trustStatus；`catalog` 独立报告已安装驱动子系统目录中
+SHA256/SHA1 哈希对应的签名验证、目录路径、算法、枚举数量、搜索是否完成和原生错误。
+任一来源通过时 trusted=true；已检查证据不足以判断时 trusted=null 且退出码 6。如果没有通过的来源，
+嵌入式签名或已找到的目录中存在明确不可信结果，且查询完整，则 trusted=false。未找到已安装目录不能证明没有其他脱机目录或无签名。
+策略／主体格式不可用返回 5，其他验证调用错误返回 3；受限或部分查询返回 6。
+文件在两次检查之间可能变化，两者不是原子快照，在线吊销和其他目录数据库不在检查范围。
 
 ## 十六进制与 PE（迁移项 18）
 
@@ -103,16 +104,17 @@ KswordCLI.exe file pe query --path PATH [--backend r3] [--json]
 KswordCLI.exe file pe header query --path PATH [--backend r3] [--json]
 ```
 
-hex 默认读取前 256 字节，max-bytes 范围 1..1048576；输出 dataHex、preview、returnedBytes、sizeBytes、limited、win32Error。
+hex 默认读取前 256 字节，max-bytes 范围 1..1048576；输出 dataHex、preview、returnedBytes、sizeBytes、limited、complete、displayTruncated、win32Error。
 preview 保留后端每行 16 字节的偏移／十六进制／ASCII 展示，JSON 中作为字符串。有效空文件返回 0，
-有剩余未读内容的受限预览返回 6，读取失败返回 3。
+complete 表示请求的前缀已完整读取，displayTruncated 表示文件超出请求预览；完整的受限预览返回 0。文件大小未知或读取短于预期返回 6，读取失败返回 3。
 
 pe query 复用 16 MiB 上限的后端磁盘快照和共享 PE 解析器，展示最多 32 个区段及 64 个导入模块。
 输出 deepAvailable、fallbackReason、snapshotSize、bytesRead、machine／machineName、subsystem／subsystemName、
-format、imageBase、entryPointRva、entryPointFileOffset、sectionCount、importModuleCount、sections、imports、notes。
+format、imageBase、entryPointRva、entryPointFileOffset、sectionCount、importModuleCount、sections、imports、exportEntries、notes。
 地址／RVA／文件偏移与标志为十六进制字符串；大小为十进制字符串。区段保留原名、布局、属性和熵；
-导入模块保留名称、描述符、thunk RVA、已解析条目数和独立诊断，不额外发布完整函数／导出表。
-显示截断通过 sectionsTruncated／importsTruncated 明确说明，截断或导入解析不完整返回 6。
+导入模块保留名称、描述符、thunk RVA、已解析条目数、函数名或序号、hint、thunk/name RVA 和独立诊断；最多显示 4096 个导入函数，计数和截断状态单独列出。
+exportEntries 原样保留旧版导出报告字段、备注和层级；结构化 exportSymbols 按非零 EAT 槽返回序号、RVA、全部已解码名称及转发目标，包含仅按序号导出。名称表不完整时 ordinalOnly 为 null，不把未知名称判为仅序号。exportEvidenceState 区分 unavailable、absent、partial、complete；exportNamesComplete、exportTruncated、exportMalformed 和目录中的函数／名称计数单独报告。解析上限为 4096 个 EAT 槽和 4096 个名称，零槽不计作导出；损坏或受限返回 6。
+显示截断通过 sectionsTruncated／importsTruncated／importFunctionsTruncated 明确说明，截断、导出诊断或导入解析不完整返回 6。
 
 fallbackReason 区分 none／unsupported-path／read-failure／size-limit／invalid-pe，不解析 UI 文本判断状态。
 超过大小上限而还能取得轻量 header 时返回 6，仅剩路径限制且没有证据时返回 5；读取失败返回 3，

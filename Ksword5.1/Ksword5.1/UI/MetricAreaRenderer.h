@@ -31,6 +31,7 @@ class MetricAreaRenderer final : public QObject {
 public:
     MetricAreaRenderer();
     void attach(QWidget* host);
+    void setLightEnabled(bool enabled);
     void paintLight(QPainter& painter, const QRectF& rectangle) const;
     void setLightGeometry(QSize viewport, const std::vector<QRectF>& rectangles);
     void paintLights(QPainter& painter) const;
@@ -48,6 +49,7 @@ private:
     mutable std::array<QPixmap, 289> m_directions;
     QPointer<QWidget> m_host;
     QTimer* m_timer = nullptr;
+    bool m_lightEnabled = true;
     QElapsedTimer m_clock;
     QPointF m_position, m_target;
     double m_tracking = 0, m_targetTracking = 0;

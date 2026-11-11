@@ -1,6 +1,12 @@
 #include "WinAPIDock.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/FlowLayout.h"
+#include "../UI/SegmentedControl.h"
+#include "../UI/PageControlStyle.h"
+#include "WinAPIEventTableModel.h"
+#include "WinAPIParameterEditor.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QAbstractTableModel>
 #include <QFileSystemWatcher>
@@ -14,6 +20,8 @@
 #include <QComboBox>
 #include <QCollator>
 #include <QHeaderView>
+#include <QElapsedTimer>
+#include <QHBoxLayout>
 #include <QCryptographicHash>
 #include <QFile>
 #include <QLabel>
@@ -21,6 +29,356 @@
 #include <QSignalBlocker>
 #include <QTableView>
 #include <QTabWidget>
+#include <QCheckBox>
+#include <QFileDialog>
+#include <QPushButton>
+#include <QStyle>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QVBoxLayout>
+
+namespace {
+QString filterCategoryLabel(const QString& category)
+{
+    if (category == QStringLiteral("File")) return QStringLiteral("文件");
+    if (category == QStringLiteral("Registry")) return QStringLiteral("注册表");
+    if (category == QStringLiteral("Network")) return QStringLiteral("网络");
+    if (category == QStringLiteral("Process")) return QStringLiteral("进程");
+    if (category == QStringLiteral("Memory")) return QStringLiteral("内存");
+    if (category == QStringLiteral("Thread")) return QStringLiteral("线程");
+    if (category == QStringLiteral("Service")) return QStringLiteral("服务");
+    if (category == QStringLiteral("Security")) return QStringLiteral("权限");
+    if (category == QStringLiteral("Crypto")) return QStringLiteral("加密");
+    if (category == QStringLiteral("Com")) return QStringLiteral("COM");
+    if (category == QStringLiteral("Window")) return QStringLiteral("窗口");
+    if (category == QStringLiteral("Loader")) return QStringLiteral("加载器");
+    if (category == QStringLiteral("Clipboard")) return QStringLiteral("剪贴板");
+    if (category.startsWith(QStringLiteral("Raw/"))) return QStringLiteral("Raw / %1").arg(category.mid(4));
+    return QStringLiteral("其他 / Raw");
+}
+}
+
+QWidget* WinAPIDock::createEventRulesPanel(QWidget* parent)
+{
+    auto* panel = new QWidget(parent);
+    auto* layout = new QVBoxLayout(panel); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(6);
+    auto* row = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
+    const auto help = [panel, row](const QString& tip) {
+        auto* button = new QToolButton(panel); button->setIcon(panel->style()->standardIcon(QStyle::SP_MessageBoxQuestion));
+        button->setIconSize(QSize(16, 16)); button->setToolTip(tip); button->setAccessibleName(tip); row->addWidget(button);
+    };
+    row->addWidget(new QLabel(QStringLiteral("前置"), panel)); help(QStringLiteral("前置筛选：主程序收到事件后丢弃，不写入采集档案，不能恢复；不会阻止目标进程中的 Hook。"));
+    auto* preAll = new QPushButton(QStringLiteral("全选显示"), panel); auto* preInvert = new QPushButton(QStringLiteral("反选显示"), panel);
+    row->addWidget(preAll); row->addWidget(preInvert);
+    row->addWidget(new QLabel(QStringLiteral("后置"), panel)); help(QStringLiteral("后置筛选：事件仍会采集和存档，只从列表隐藏；移除规则后可恢复内存中保留的事件。"));
+    auto* postAll = new QPushButton(QStringLiteral("全选显示"), panel); auto* postInvert = new QPushButton(QStringLiteral("反选显示"), panel);
+    row->addWidget(postAll); row->addWidget(postInvert);
+    auto* importButton = new QPushButton(QStringLiteral("导入配置"), panel);
+    auto* exportButton = new QPushButton(QStringLiteral("导出配置"), panel);
+    m_ruleSearchEdit = new QLineEdit(panel); m_ruleSearchEdit->setPlaceholderText(QStringLiteral("搜索模块或函数"));
+    ks::ui::StyleSearchField(m_ruleSearchEdit); row->addWidget(m_ruleSearchEdit);
+    for (auto* button : {importButton, exportButton}) row->addWidget(button);
+    ks::ui::NormalizeToolbarLayout(row); layout->addLayout(row);
+    m_eventRulesTree = new QTreeWidget(panel); m_eventRulesTree->setColumnCount(2);
+    m_eventRulesTree->setHeaderLabels({QStringLiteral("前置"), QStringLiteral("后置")});
+    m_eventRulesTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_eventRulesTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_eventRulesTree->setUniformRowHeights(true); m_eventRulesTree->setSortingEnabled(true);
+    layout->addWidget(m_eventRulesTree, 1);
+    m_eventRulesStatus = new QLabel(panel); m_eventRulesStatus->setWordWrap(true); layout->addWidget(m_eventRulesStatus);
+    connect(preAll, &QPushButton::clicked, panel, [this]() { applyVisibleEventRules(true, false); });
+    connect(preInvert, &QPushButton::clicked, panel, [this]() { applyVisibleEventRules(true, true); });
+    connect(postAll, &QPushButton::clicked, panel, [this]() { applyVisibleEventRules(false, false); });
+    connect(postInvert, &QPushButton::clicked, panel, [this]() { applyVisibleEventRules(false, true); });
+    connect(m_ruleSearchEdit, &QLineEdit::textChanged, panel, [this]() {
+        const auto ticket = ++m_ruleSearchTicket;
+        QTimer::singleShot(120, this, [this, ticket]() { if (ticket == m_ruleSearchTicket) scheduleEventRuleSearch(); });
+    });
+    connect(m_eventRulesTree, &QTreeWidget::itemChanged, panel, [this](QTreeWidgetItem* item, int column) {
+        if (column < 0 || column > 1 || item->data(0, Qt::UserRole + 2).isValid()) return;
+        const auto module = item->data(0, Qt::UserRole).toString(); const auto function = item->data(0, Qt::UserRole + 1).toString();
+        const bool pre = column == 0, enabled = item->checkState(column) != Qt::Checked;
+        QTimer::singleShot(0, this, [this, module, function, pre, enabled]() { applyEventRule(module, function, pre, enabled); });
+    });
+    connect(importButton, &QPushButton::clicked, panel, [this]() {
+        const auto path = QFileDialog::getOpenFileName(this, QStringLiteral("导入筛选配置"), {}, QStringLiteral("Config (*.cfg *.json)"));
+        if (path.isEmpty()) return;
+        ks::monitor::WinAPIFilterRules imported(path);
+        if (!QFileInfo::exists(path) || !imported.load() || !m_eventRules->save(*imported.snapshot())) {
+            m_eventRulesStatus->setText(QStringLiteral("导入失败：配置无效或无法保存。")); return;
+        }
+        m_eventRulesValid = true; eventRulesChanged();
+    });
+    connect(exportButton, &QPushButton::clicked, panel, [this]() {
+        const auto path = QFileDialog::getSaveFileName(this, QStringLiteral("导出筛选配置"), QStringLiteral("winapi-filter.cfg"), QStringLiteral("Config (*.cfg *.json)"));
+        if (!path.isEmpty() && (!m_eventRulesValid || !m_eventRules->exportFile(path))) m_eventRulesStatus->setText(QStringLiteral("导出失败：配置无效或无法写入。"));
+    });
+    refreshEventRulesPanel(); loadEventRuleDefinitions(); return panel;
+}
+
+void WinAPIDock::applyEventRule(const QString& rawModule, const QString& rawFunction, bool pre, bool enabled)
+{
+    const auto module = rawModule.trimmed(); const auto function = rawFunction.trimmed();
+    if (!m_eventRulesValid || module.isEmpty() || module.size() > 260 || function.size() > 1024
+        || module.contains(QChar(0x1f)) || function.contains(QChar(0x1f))) { refreshEventRulesPanel(); return; }
+    auto next = *m_eventRules->snapshot();
+    const auto key = function.isEmpty() ? ks::monitor::WinAPIFilterSnapshot::moduleKey(module) : ks::monitor::WinAPIFilterSnapshot::functionKey(module, function);
+    auto& set = function.isEmpty() ? (pre ? next.preModules : next.postModules) : (pre ? next.preFunctions : next.postFunctions);
+    if (enabled) set.insert(key); else set.remove(key);
+    if (!function.isEmpty()) {
+        auto& allowed = pre ? next.preAllowed : next.postAllowed;
+        const auto& modules = pre ? next.preModules : next.postModules;
+        if (!enabled && modules.contains(ks::monitor::WinAPIFilterSnapshot::moduleKey(module))) allowed.insert(key); else allowed.remove(key);
+    } else {
+        const QString prefix = key + QChar(0x1f);
+        auto& denied = pre ? next.preFunctions : next.postFunctions;
+        auto& allowed = pre ? next.preAllowed : next.postAllowed;
+        for (auto it = denied.begin(); it != denied.end();) { if (it->startsWith(prefix)) it = denied.erase(it); else ++it; }
+        for (auto it = allowed.begin(); it != allowed.end();) { if (it->startsWith(prefix)) it = allowed.erase(it); else ++it; }
+    }
+    if (!m_eventRules->save(next)) { refreshEventRulesPanel(); m_eventRulesStatus->setText(QStringLiteral("筛选规则保存失败，请检查 config 目录权限。")); return; }
+    refreshEventRuleItem(module, function);
+    if (function.isEmpty()) refreshEventRulesPanel();
+    if (m_eventModel) m_eventModel->setEventRules(m_eventRules->snapshot());
+}
+
+void WinAPIDock::applyVisibleEventRules(bool pre, bool invert)
+{
+    if (!m_eventRulesValid || !m_eventRulesTree) return;
+    if (m_ruleSearchScheduled || m_ruleCatalogPumpScheduled || (m_ruleSearchEdit && m_ruleSearchText != m_ruleSearchEdit->text().trimmed())) {
+        m_eventRulesStatus->setText(QStringLiteral("筛选结果正在更新，请稍后重试。")); return;
+    }
+    auto next = *m_eventRules->snapshot();
+    auto& denied = pre ? next.preFunctions : next.postFunctions;
+    auto& allowed = pre ? next.preAllowed : next.postAllowed;
+    const auto& modules = pre ? next.preModules : next.postModules;
+    if (!invert && m_ruleSearchText.isEmpty()) {
+        (pre ? next.preModules : next.postModules).clear(); denied.clear(); allowed.clear();
+        if (!m_eventRules->save(next)) { m_eventRulesStatus->setText(QStringLiteral("筛选规则保存失败，请检查 config 目录权限。")); return; }
+        eventRulesChanged(); return;
+    }
+    for (auto it = m_ruleFunctions.cbegin(); it != m_ruleFunctions.cend(); ++it) {
+        auto* item = it.value(); auto* category = item->parent(); auto* moduleItem = category->parent();
+        if (item->isHidden() || category->isHidden() || moduleItem->isHidden()) continue;
+        const auto module = item->data(0, Qt::UserRole).toString();
+        const auto function = item->data(0, Qt::UserRole + 1).toString();
+        const bool blocked = next.rejects(module, function, pre);
+        const bool newBlocked = invert ? !blocked : false;
+        if (newBlocked) { denied.insert(it.key()); allowed.remove(it.key()); }
+        else { denied.remove(it.key()); if (modules.contains(ks::monitor::WinAPIFilterSnapshot::moduleKey(module))) allowed.insert(it.key()); else allowed.remove(it.key()); }
+    }
+    if (!m_eventRules->save(next)) { m_eventRulesStatus->setText(QStringLiteral("筛选规则保存失败，请检查 config 目录权限。")); return; }
+    eventRulesChanged();
+}
+
+void WinAPIDock::eventRulesChanged()
+{
+    refreshEventRulesPanel();
+    if (m_eventModel) m_eventModel->setEventRules(m_eventRules->snapshot());
+}
+
+void WinAPIDock::refreshEventRulesPanel()
+{
+    if (!m_eventRulesTree) return;
+    const QSignalBlocker blocker(m_eventRulesTree);
+    const auto rules = m_eventRules->snapshot();
+    QSet<QString> keys = rules->preModules; keys.unite(rules->postModules); keys.unite(rules->preFunctions); keys.unite(rules->postFunctions);
+    keys.unite(rules->preAllowed); keys.unite(rules->postAllowed);
+    auto entries = std::make_shared<ks::monitor::WinAPIFilterCatalog>(); entries->reserve(static_cast<std::size_t>(keys.size()));
+    for (const auto& key : keys) { const int split = key.indexOf(QChar(0x1f));
+        entries->push_back({split < 0 ? key : key.left(split), split < 0 ? QString() : key.mid(split + 1), {}}); }
+    queueEventRuleCatalog(entries);
+    for (auto it = m_ruleModules.cbegin(); it != m_ruleModules.cend(); ++it) {
+        const auto* item = it.value(); refreshEventRuleItem(item->data(0, Qt::UserRole).toString(), {});
+    }
+    m_ruleStateItems = m_ruleFunctions.values(); m_ruleStateCursor = 0;
+    if (!m_ruleStateScheduled) { m_ruleStateScheduled = true; QTimer::singleShot(0, this, [this]() { pumpEventRuleStates(); }); }
+    m_eventRulesTree->setEnabled(m_eventRulesValid);
+    m_eventRulesStatus->setText(!m_eventRulesValid ? QStringLiteral("筛选配置无法读取，已停用编辑；可导入有效配置恢复。")
+        : m_ruleDefinitionsUnavailable ? QStringLiteral("API 定义文件不可用；仅显示已发现和已保存的函数。")
+        : QStringLiteral("勾选表示接收或显示；批量操作只影响当前搜索结果。规则自动保存。"));
+}
+
+void WinAPIDock::refreshEventRuleItem(const QString& module, const QString& function, const QString& category)
+{
+    if (!m_eventRulesTree || module.isEmpty()) return;
+    const QSignalBlocker blocker(m_eventRulesTree);
+    const auto moduleKey = ks::monitor::WinAPIFilterSnapshot::moduleKey(module);
+    auto* group = m_ruleModules.value(moduleKey, nullptr);
+    if (!group) {
+        group = new QTreeWidgetItem(m_eventRulesTree, {module});
+        group->setText(1, module);
+        group->setData(0, Qt::UserRole, module); group->setData(0, Qt::UserRole + 1, QString());
+        m_ruleModules.insert(moduleKey, group);
+    }
+    const auto rules = m_eventRules->snapshot();
+    const auto stateFor = [&](bool pre) {
+        const bool blocked = (pre ? rules->preModules : rules->postModules).contains(moduleKey);
+        const auto& exceptions = blocked ? (pre ? rules->preAllowed : rules->postAllowed) : (pre ? rules->preFunctions : rules->postFunctions);
+        const QString prefix = moduleKey + QChar(0x1f);
+        for (const auto& key : exceptions) if (key.startsWith(prefix)) return Qt::PartiallyChecked;
+        return blocked ? Qt::Unchecked : Qt::Checked;
+    };
+    group->setCheckState(0, stateFor(true)); group->setCheckState(1, stateFor(false));
+    const auto updateChild = [&](QTreeWidgetItem* child) {
+        const auto name = child->data(0, Qt::UserRole + 1).toString();
+        child->setCheckState(0, rules->rejects(module, name, true) ? Qt::Unchecked : Qt::Checked);
+        child->setCheckState(1, rules->rejects(module, name, false) ? Qt::Unchecked : Qt::Checked);
+    };
+    if (function.isEmpty()) {
+        return;
+    }
+    const auto key = ks::monitor::WinAPIFilterSnapshot::functionKey(module, function);
+    auto* child = m_ruleFunctions.value(key, nullptr);
+    if (!child || !category.isEmpty()) {
+        const QChar initial = function.isEmpty() ? QChar('#') : function.front().toUpper();
+        const QString categoryKey = category.isEmpty()
+            ? QStringLiteral("Raw/") + (initial.isLetterOrNumber() ? QString(initial) : QStringLiteral("#")) : category;
+        const QString groupKey = moduleKey + QChar(0x1f) + categoryKey;
+        auto* section = m_ruleCategories.value(groupKey, nullptr);
+        if (!section) {
+            section = new QTreeWidgetItem(group, {filterCategoryLabel(categoryKey)});
+            section->setText(1, filterCategoryLabel(categoryKey));
+            section->setData(0, Qt::UserRole, module); section->setData(0, Qt::UserRole + 2, categoryKey);
+            m_ruleCategories.insert(groupKey, section);
+        }
+        if (child && child->parent() != section) {
+            auto* previous = child->parent(); previous->removeChild(child); section->addChild(child);
+            if (previous->childCount() == 0) {
+                m_ruleCategories.remove(moduleKey + QChar(0x1f) + previous->data(0, Qt::UserRole + 2).toString());
+                delete previous;
+            }
+        }
+        if (!child) child = new QTreeWidgetItem(section, {function});
+        child->setText(1, function);
+        child->setData(0, Qt::UserRole, module); child->setData(0, Qt::UserRole + 1, function);
+        m_ruleFunctions.insert(key, child);
+    }
+    updateChild(child);
+}
+
+void WinAPIDock::pumpEventRuleStates()
+{
+    m_ruleStateScheduled = false;
+    if (!m_eventRulesTree) return;
+    const QSignalBlocker blocker(m_eventRulesTree); const auto rules = m_eventRules->snapshot();
+    QElapsedTimer budget; budget.start(); int count = 0;
+    while (m_ruleStateCursor < m_ruleStateItems.size() && count++ < 300 && budget.elapsed() < 4) {
+        auto* item = m_ruleStateItems[m_ruleStateCursor++];
+        const auto module = item->data(0, Qt::UserRole).toString(); const auto function = item->data(0, Qt::UserRole + 1).toString();
+        item->setCheckState(0, rules->rejects(module, function, true) ? Qt::Unchecked : Qt::Checked);
+        item->setCheckState(1, rules->rejects(module, function, false) ? Qt::Unchecked : Qt::Checked);
+    }
+    if (m_ruleStateCursor < m_ruleStateItems.size()) {
+        m_ruleStateScheduled = true; QTimer::singleShot(0, this, [this]() { pumpEventRuleStates(); });
+    } else m_ruleStateItems.clear();
+}
+
+void WinAPIDock::queueEventRuleCatalog(std::shared_ptr<const ks::monitor::WinAPIFilterCatalog> entries)
+{
+    if (!entries || entries->empty()) return;
+    m_ruleCatalogBatches.emplace_back(std::move(entries), 0);
+    if (!m_ruleCatalogPumpScheduled) {
+        m_ruleCatalogPumpScheduled = true;
+        QTimer::singleShot(0, this, [this]() { pumpEventRuleCatalog(); });
+    }
+}
+
+void WinAPIDock::pumpEventRuleCatalog()
+{
+    m_ruleCatalogPumpScheduled = false;
+    if (!m_eventRulesTree) { m_ruleCatalogBatches.clear(); return; }
+    QElapsedTimer budget; budget.start(); int count = 0;
+    while (!m_ruleCatalogBatches.empty() && count++ < 200 && budget.elapsed() < 4) {
+        auto& batch = m_ruleCatalogBatches.front();
+        const auto& [module, function, category] = (*batch.first)[batch.second++];
+        const auto key = ks::monitor::WinAPIFilterSnapshot::functionKey(module, function);
+        if ((function.isEmpty() && !m_ruleModules.contains(ks::monitor::WinAPIFilterSnapshot::moduleKey(module)))
+            || (!function.isEmpty() && (!m_ruleFunctions.contains(key) || !category.isEmpty()))) refreshEventRuleItem(module, function, category);
+        if (batch.second == batch.first->size()) m_ruleCatalogBatches.pop_front();
+    }
+    if (!m_ruleCatalogBatches.empty()) {
+        m_ruleCatalogPumpScheduled = true; QTimer::singleShot(0, this, [this]() { pumpEventRuleCatalog(); });
+    }
+    else if (m_ruleSearchEdit && !m_ruleSearchEdit->text().trimmed().isEmpty()) scheduleEventRuleSearch();
+}
+
+void WinAPIDock::loadEventRuleDefinitions()
+{
+    if (!m_coverageDispatcher) return;
+    const auto ticket = ++m_ruleDefinitionsTicket;
+    const auto dispatcher = m_coverageDispatcher;
+    const QString path = QApplication::applicationDirPath() + QStringLiteral("/profiles/api_monitor_definitions.json");
+    QThreadPool::globalInstance()->start(QRunnable::create([this, dispatcher, path, ticket]() {
+        auto entries = std::make_shared<ks::monitor::WinAPIFilterCatalog>();
+        auto signatures = std::make_shared<ks::monitor::WinAPISignatureCatalog>(); QFile file(path);
+        const bool opened = file.open(QIODevice::ReadOnly) && file.size() <= 16 * 1024 * 1024;
+        const QByteArray contents = opened ? file.readAll() : QByteArray();
+        const bool ok = opened && ks::monitor::ParseWinAPIFilterCatalog(contents, entries.get());
+        const bool signatureOk = opened && signatures->load(contents);
+        dispatcher->post([this, entries, signatures, signatureOk, ok, ticket]() {
+            if (ticket != m_ruleDefinitionsTicket) return;
+            m_ruleDefinitionsUnavailable = !ok;
+            if (ok) queueEventRuleCatalog(entries);
+            if (signatureOk && m_parameterEditor) m_parameterEditor->setSignatureCatalog(signatures);
+            refreshEventRulesPanel();
+        });
+    }));
+}
+
+void WinAPIDock::scheduleEventRuleSearch()
+{
+    if (!m_eventRulesTree || !m_ruleSearchEdit) return;
+    const QString next = m_ruleSearchEdit->text().trimmed();
+    if (!m_ruleSearchActive && !next.isEmpty()) {
+        m_ruleExpandedBeforeSearch.clear();
+        for (auto it = m_ruleModules.cbegin(); it != m_ruleModules.cend(); ++it)
+            if (it.value()->isExpanded()) m_ruleExpandedBeforeSearch.insert(QStringLiteral("M") + it.key());
+        for (auto it = m_ruleCategories.cbegin(); it != m_ruleCategories.cend(); ++it)
+            if (it.value()->isExpanded()) m_ruleExpandedBeforeSearch.insert(QStringLiteral("C") + it.key());
+    }
+    m_ruleSearchActive = !next.isEmpty(); m_ruleSearchText = next;
+    for (auto it = m_ruleModules.cbegin(); it != m_ruleModules.cend(); ++it)
+        it.value()->setHidden(!next.isEmpty() && !it.value()->text(0).contains(next, Qt::CaseInsensitive));
+    for (auto it = m_ruleCategories.cbegin(); it != m_ruleCategories.cend(); ++it)
+        it.value()->setHidden(!next.isEmpty() && !it.value()->text(0).contains(next, Qt::CaseInsensitive)
+            && !it.value()->parent()->text(0).contains(next, Qt::CaseInsensitive));
+    m_ruleSearchItems = m_ruleFunctions.values(); m_ruleSearchCursor = 0;
+    if (!m_ruleSearchScheduled) {
+        m_ruleSearchScheduled = true; QTimer::singleShot(0, this, [this]() { pumpEventRuleSearch(); });
+    }
+}
+
+void WinAPIDock::pumpEventRuleSearch()
+{
+    m_ruleSearchScheduled = false;
+    if (!m_eventRulesTree) return;
+    QElapsedTimer budget; budget.start(); int count = 0;
+    while (m_ruleSearchCursor < m_ruleSearchItems.size() && count++ < 300 && budget.elapsed() < 4) {
+        auto* function = m_ruleSearchItems[m_ruleSearchCursor++];
+        auto* section = function->parent(); auto* module = section->parent();
+        const bool match = m_ruleSearchText.isEmpty() || function->text(0).contains(m_ruleSearchText, Qt::CaseInsensitive)
+            || section->text(0).contains(m_ruleSearchText, Qt::CaseInsensitive)
+            || module->text(0).contains(m_ruleSearchText, Qt::CaseInsensitive);
+        function->setHidden(!match);
+        if (match) {
+            section->setHidden(false); module->setHidden(false);
+            if (m_ruleSearchActive) { module->setExpanded(true); section->setExpanded(true); }
+        }
+    }
+    if (m_ruleSearchCursor < m_ruleSearchItems.size()) {
+        m_ruleSearchScheduled = true; QTimer::singleShot(0, this, [this]() { pumpEventRuleSearch(); });
+    } else {
+        m_ruleSearchItems.clear();
+        if (!m_ruleSearchActive) {
+            for (auto it = m_ruleModules.cbegin(); it != m_ruleModules.cend(); ++it)
+                it.value()->setExpanded(m_ruleExpandedBeforeSearch.contains(QStringLiteral("M") + it.key()));
+            for (auto it = m_ruleCategories.cbegin(); it != m_ruleCategories.cend(); ++it)
+                it.value()->setExpanded(m_ruleExpandedBeforeSearch.contains(QStringLiteral("C") + it.key()));
+            m_ruleExpandedBeforeSearch.clear();
+        }
+    }
+}
 
 namespace
 {
@@ -203,7 +561,18 @@ void WinAPIDock::flushCoverageUpdates()
         auto& visible = m_coverageViews[pid];
         if (visible.session && (visible.session != update.session || visible.revision > update.revision)) continue;
         visible.session = update.session;
-        if (update.complete) { visible.revision = update.revision; visible.rows = std::move(update.rows); visible.displayRows = std::move(update.displayRows); visible.complete = true; }
+        if (update.complete) {
+            visible.revision = update.revision; visible.rows = std::move(update.rows); visible.displayRows = std::move(update.displayRows); visible.complete = true;
+            const auto rows = visible.displayRows; const auto dispatcher = m_coverageDispatcher;
+            if (rows && dispatcher) QThreadPool::globalInstance()->start(QRunnable::create([this, rows, dispatcher]() {
+                auto entries = std::make_shared<ks::monitor::WinAPIFilterCatalog>(); entries->reserve(rows->size());
+                for (const auto& row : *rows) {
+                    const auto api = row.columns.value(3); const int split = api.indexOf(QChar('!'));
+                    if (split > 0 && split + 1 < api.size()) entries->push_back({api.left(split), api.mid(split + 1), {}});
+                }
+                dispatcher->post([this, entries]() { queueEventRuleCatalog(entries); });
+            }));
+        }
         visible.stale = update.stale;
         if (pid == m_currentSessionPid && !visible.rows.empty())
         {
@@ -238,9 +607,9 @@ void WinAPIDock::initializeCoverageTable()
     connect(watcher, &QFileSystemWatcher::directoryChanged, this, [this, watcher, directory]() {
         // Atomic replacement invalidates a file watch. The directory watch reconnects it.
         if (watcher->files().isEmpty()) watcher->addPath(directory + QStringLiteral("/api_monitor_definitions.json"));
-        refreshCoverageDefinitionHash();
+        refreshCoverageDefinitionHash(); loadEventRuleDefinitions();
     });
-    connect(watcher, &QFileSystemWatcher::fileChanged, this, [this]() { refreshCoverageDefinitionHash(); });
+    connect(watcher, &QFileSystemWatcher::fileChanged, this, [this]() { refreshCoverageDefinitionHash(); loadEventRuleDefinitions(); });
     refreshCoverageDefinitionHash();
 }
 

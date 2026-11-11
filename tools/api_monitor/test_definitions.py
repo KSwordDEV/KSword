@@ -28,8 +28,8 @@ mutations = [
     lambda c: c["apis"][0]["wrapper"].update(handler="UnknownHandler"),
     lambda c: c["apis"][0]["parameters"][0].update(length={"parameter": "missing", "unit": "bytes"}),
     lambda c: c["apis"][0]["parameters"][0].update(length={"parameter": c["apis"][0]["parameters"][0]["name"], "unit": "bytes"}),
-    lambda c: c["apis"][-1].update(extension_guid="invalid-guid"),
-    lambda c: c["apis"][-1].update(extension_guid=c["apis"][-2]["extension_guid"]),
+    lambda c: next(a for a in c["apis"] if a["id"] == 641).update(extension_guid="invalid-guid"),
+    lambda c: next(a for a in c["apis"] if a["id"] == 641).update(extension_guid=next(a["extension_guid"] for a in c["apis"] if a["id"] == 640)),
     lambda c: c["apis"][0]["parameters"][0].update(length={"parameter": "desiredAccess", "unit": "bytes", "indirect": True}),
 ]
 def cyclic_lengths(c):

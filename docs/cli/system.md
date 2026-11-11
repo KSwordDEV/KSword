@@ -1,5 +1,11 @@
 # 系统工具 R3 命令
 
+## 驱动只读健康检查
+
+`system health [--json]` 查询服务状态、驱动能力、DynData 状态、v4 缺项以及独立的旧版进程链表、线程链表和 CID 表字段证据。`legacyCrossviewFields.groups` 中 `reportedAvailable` 来自旧版能力位；字段 `present` 根据 `dyn fields` 的实际回执标为 true、false 或未知 null。`fieldEvidenceComplete=false` 表示回复截断、格式不兼容或该版本没有返回全部所需描述符，不能把未知当成缺失。
+
+v4 缺项清单只覆盖 v4 profile，空列表不能证明旧版字段或 win32k 能力可用。各查询是独立快照，跨视图还依赖运行时对象类型和其他条件；即使字段全部存在也不保证对应跨视图操作可用。`window win32k` 需要在目标会话分别检查，不将其位掩码与 DynData 旧版位掩码混用。字段缺失时可检查匹配的内核 profile 身份，并使用 `dyn fields` 获取全部描述符；命令不会修改驱动、下发 profile 或加载服务。
+
 ## IOCTL 编码解析（迁移项 46）
 
 ```powershell
@@ -70,7 +76,12 @@ KswordCLI.exe system event-log query --channel system --limit 100 --json
 KswordCLI.exe system event-log query --channel application --level information --messages on --json
 ```
 
-`system event-log query` 使用已有共享 wevtapi 后端，支持 `--channel system|application`（system）、`--level all|critical|error|warning|information`（all）、`--messages off|on`（off）、`--limit 1..5000`（100）、`--duration-ms 100..30000`（10000）、`--backend r3`、`--json`。级别条件直接用于原后端 XPath；information 包含原始 level 0 和 4，不把 level 0 数值改成 4。只读最新一页，按通道反向顺序读取；不发布尚未实现的 Security／自定义通道、任意 XPath、载荷／XML解析、清空／删除能力。
+`system event-log query` 使用已有共享 wevtapi 后端，支持 `--channel CHANNEL`（默认 system，也接受 Security 和自定义通道名）、`--xpath XPATH`、`--level all|critical|error|warning|information`（all）、`--messages off|on`（off）、`--limit 1..5000`（100）、`--duration-ms 100..30000`（10000）、`--backend r3`、`--json`。级别条件直接用于原后端 XPath；information 包含原始 level 0 和 4，不把 level 0 数值改成 4。自定义 XPath 原样交给 EvtQuery，不能与非 all 的 `--level` 同用，须在 XPath 中自行写入级别条件；系统返回的查询错误保留在 `queryWin32Error`，访问 Security 等受保护通道需要相应权限。只读最新一页，按通道反向顺序读取；不提供载荷／XML 解析和清空／删除能力。
+
+```powershell
+KswordCLI.exe system event-log query --channel Security --xpath '*[System[EventID=4624]]' --limit 10 --json
+KswordCLI.exe system event-log query --channel Microsoft-Windows-PowerShell/Operational --limit 10 --json
+```
 
 data 提供 channel/levelFilter/messages、requestedCount/returnedCount/examinedCount、pageComplete（请求页完整）、channelExhausted（实际 NO_MORE_ITEMS）、limited/cancelled/malformed/elapsedMs、queryAttempted/queryWin32Error、contextAttempted/contextWin32Error、nextWin32Error、renderFailedCount/lastRenderWin32Error、unresolvedMessageCount、closeAttemptedCount/closeFailedCount/closeWin32ErrorsFirst32、events。达到所请求行数可正常成功，不等于通道导出完整；短批次不直接冒充通道已读尽。
 
@@ -86,6 +97,8 @@ KswordCLI.exe help system file-holders query
 KswordCLI.exe system file-holders query --path C:\Temp\fixture.bin --json
 KswordCLI.exe system file-holders query --path C:\Temp --recursive on --pid 1234 --creation-time 133000000000000000 --json
 ```
+
+每条 holder 额外提供系统句柄快照中的 `object` 地址，供 `handle close` 在关闭前复核；未知或系统屏蔽时为 null。该地址只用于身份比较，不能视为稳定租约。
 
 `system file-holders query` 要求 `--path`（非空，不包含字面包裹引号或末尾空格；shell 参数引号正常使用），支持 DOS／UNC／原生 `\Device\`／`\??\` 路径，Win32 相对路径先解析为绝对路径。可选 `--recursive off|on`（off）、`--pid`（正数）、`--creation-time`（正数，要求 pid）、`--duration-ms 250..30000`（10000）、`--max-handles 1..1000000`（1000000）、`--limit 1..100000`（1000）、`--backend r3`、`--json`。PID 筛选保留查询进程租约，校验创建时间和存活，扫描时按该创建时间检查；不匹配／已退出为 3。
 

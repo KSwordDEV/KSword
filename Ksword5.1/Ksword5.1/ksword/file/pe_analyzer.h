@@ -72,6 +72,31 @@ namespace ks::file
         std::string diagnosticText;                  // diagnosticText：局部解析失败或截断说明。
     };
 
+    // EAT slots are identified by ordinal; several names may refer to one slot.
+    // A zero slot is absent, so it is not emitted as an exported symbol.
+    struct PeExportSymbol
+    {
+        std::uint64_t ordinal = 0;
+        std::uint32_t rva = 0;
+        std::vector<std::wstring> names;
+        bool isForwarder = false;
+        bool forwarderKnown = false;
+        std::wstring forwarder;
+    };
+
+    struct PeExportSummary
+    {
+        bool present = false;
+        bool complete = false;
+        bool truncated = false;
+        bool malformed = false;
+        bool namesComplete = false;
+        std::uint32_t ordinalBase = 0;
+        std::uint32_t functionCount = 0;
+        std::uint32_t nameCount = 0;
+        std::vector<PeExportSymbol> symbols;
+    };
+
     // PeAnalysisResult 作用：
     // - 聚合原生字段、节表与导入摘要，支持按需从字段模型导出文本；
     // - success=false 时 errorText 与 Note 保存可读失败原因。
@@ -89,6 +114,7 @@ namespace ks::file
         std::uint64_t imageBase = 0;
         std::vector<PeSectionSummary> sections;
         std::vector<PeImportModuleSummary> importModules;
+        PeExportSummary exports;
         std::vector<PeReportEntry> entries;
         std::wstring errorText;
         PeAnalysisError error = PeAnalysisError::None;

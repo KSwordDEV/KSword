@@ -31,18 +31,52 @@ KswordCLI.exe network connections help
 已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪；04 DNS 查询；05 防火墙规则读取；06 AFD/NSI 公开端点审计。07 服务枚举、详情和控制；08 注册表浏览和读取；09 注册表搜索；10 注册表修改；11 启动项枚举；12 启动项控制和位置查询；13 当前进程权限查询和作用域执行；14 目录浏览；15 文件操作；16 文件所有权和占用者；17 文件哈希、签名和熵；18 十六进制和 PE 分析；19 R3 进程枚举；20 进程扩展字段；21 进程遥测采样；22 R3 进程控制；23 进程基本信息；24 线程查询和控制；25 模块枚举、卸载和关联线程控制；26 令牌查询与编辑；27 令牌开关；28 PEB、环境／内存区域查询和进程亲和性；29 进程热键候选；30 驱动 R3 枚举与模块元数据；31 硬件设备枚举与详情；32 系统性能采样；33 物理磁盘活动采样；34 USB 拓扑；35 总线设备与资源；36 窗口枚举与管理；37 剪贴板格式与文本读取；38 窗口显示亲和性；39 窗口层级诊断；40 全局热键占用探测；41 ETW 限时采集与筛选；42 系统文件句柄占用；43 事件日志读取；44 Shell 右键菜单注册及启用／禁用；45 系统时间与 W32Time 配置；46 IOCTL 编码解析；47 内核对象命名空间；48 对象目录递归；49 内核符号链接；50 Device／Driver 对象注册；51 全局与会话命名对象；52 命名通信端点；53 R3 对象类型矩阵；54 命名管道枚举与打开验证；55 Atom 与注册剪贴板格式名称；56 安全 NtQuery 预设与导出清单；57 磁盘 PE Hook 基线读取与字节比较；58 CI／WDAC 公开证据；59 VBS／HVCI／SKCI 公开证据；60 Hyper-V／VMBus／HvSocket 公开证据；61 AppLocker／AppID 公开证据；62 BAM／ahcache／Amcache 摘要；63 Bugcheck／VMware 环境证据；64 窗口列表捕获保护适配；65 剪贴板清空与实时所有者；66 进程身份采样。详细语法见 [网络 R3 命令](cli/network.md)、[服务 R3 命令](cli/service.md)、[注册表 R3 命令](cli/registry.md)、[启动项 R3 命令](cli/startup.md)、[权限 R3 命令](cli/privilege.md)、[文件 R3 命令](cli/file.md)、[进程 R3 命令](cli/process.md)、[驱动 R3 命令](cli/driver.md)、[硬件 R3 命令](cli/hardware.md)、[窗口 R3 命令](cli/window.md)、[监控 R3 命令](cli/monitor.md)、[系统工具 R3 命令](cli/system.md)、[内核对象 R3 命令](cli/kernel.md)、[安全证据 R3 命令](cli/security.md)。
 66 项对应关系与边界见 [迁移覆盖清单](cli/coverage.md)，可用 `tools/Test-KSwordCliR3Coverage.ps1` 核对全部帮助层级。
 网络关闭的 API 状态与回读存在性分别输出；错误 317 不推导为目标消失，详见 [网络文档](cli/network.md)。
+`network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]` 支持显示偏移与下一页位置；不同调用是各自的网络快照。
+`process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--json]` 以地址游标分页读取进程的已提交区域；正常页大小限制不代表采集失败。分页快照可能随进程映射变化，详见 [进程文档](cli/process.md)。
+`process memory dump` 与 `process module dump` 支持 R3/R0 分块转储并报告来源、身份与完整性；`process thread stack query` 捕获受验证线程的调用栈，详见 [进程文档](cli/process.md)。
+`thread r0` 与 `thread driver` 提供独立的驱动线程控制入口，详见 [R0 线程命令](cli/thread-r0.md)。
+`handle close` 对同一目标提供 R3/R0 关闭及独立状态回执，详见 [句柄命令](cli/handle.md)。
+`network policy` 提供按各自后端实现的 R0 托管策略与 R3 防火墙策略操作；`network qos` 提供 R3 QoS 操作，详见 [网络命令](cli/network.md)。
+`network firewall rule` 提供单项详情与规则增改、启停和删除，按名称和指纹重验；详见 [网络命令](cli/network.md)。
+`file metadata` 提供文件属性、时间、命名流、扩展属性和安全描述符的 R3 查询与操作，详见 [文件元数据命令](cli/file-metadata.md)。
+`service config set`、`service recovery set`、`service delete` 提供服务配置及删除操作，详见 [服务命令](cli/service.md)。
+`startup location query --id` 直接返回对应单项的详细字段，详见 [启动项命令](cli/startup.md)。
+`r0 traffic-start`、`r0 traffic-stop` 和事件记录读取的行为与清理语义见 [R0 事件命令](cli/r0-events.md)；PiDDB 单项详情与删除见 [PiDDB 命令](cli/piddb.md)。
+`r0 kernel-modules` 和 `r0 process-modules` 提供驱动模块快照与进程映像映射视图，详情与来源边界见 [R0 模块命令](cli/r0-modules.md)；窗口热键与 Band 入口见 [窗口命令](cli/window.md)。
+`r0 io-timer`、`r0 platform-edit`、`r0 debug-output-control`、`r0 research-topic`、`r0 token-privilege` 和 `r0 process-protect` 控制及查询说明见 [R0 底层命令](../KswordCLI/R0LowlevelCommands.md)。
+`file irp submit` 提交文件 IRP，参数和状态见 [文件 IRP 命令](cli/file-irp.md)；`pfn` 提供物理页查询，详见 [PFN 命令](cli/pfn.md)。
+虚拟位置与应用控制操作分别见 [虚拟位置命令](cli/location.md) 和 [应用控制命令](cli/application-control.md)；Shadow SSDT 基线和恢复见 [Shadow SSDT 命令](cli/shadow-ssdt.md)。
+`debugger session --pid PID --creation-time FILETIME --confirm [--backend r3|r0] --json` 启动逐行交互会话。输入 `wait`、`continue`、`threads`、`context`、`read`、`write`、`break` 或 `detach`；完整参数见 `help debugger session`。仅支持原生 x64 目标和按线程设置的硬件执行断点，不支持 HVM 或软件断点。
+`system health [--json]` 只读汇总驱动服务、能力、动态数据和跨视图字段证据；各查询独立报告状态与限制，详见 [系统工具文档](cli/system.md)。
+`system time speed` 提供 R0 时间倍率查询、设置与恢复，`system time resync` 使用 R3 时间服务重同步，详见 [时间控制命令](cli/system-time-control.md)。
 新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
 
 默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、
 `backend`、`status`（success/partial/unsupported/failed）、`data`、`diagnostics`。
 参数错误仍返回 1 并提供语法；已识别的 R3 命令在 JSON 模式下同时输出结构化失败。
+
+R3 文件创建可使用 `file create --path PATH [--text TEXT | --hex HEX | --data-file PATH] --confirm` 或 `file directory create --path PATH --confirm` 指定最终名称；原有 `--directory` 自动命名仍可用。R3 注册表 `--type` 支持 `REG_SZ`、`REG_DWORD` 等名称，详见 [文件](cli/file.md)与[注册表](cli/registry.md)命令。
+`file signature query` 分别检查嵌入式签名和已安装驱动子系统目录的 SHA256/SHA1 目录签名；来源、验证状态、搜索边界和错误各自输出，详见 [文件命令](cli/file.md)。
+`file pe query --path PATH --json` 的 `exportSymbols` 覆盖非零 EAT 槽，包括仅序号导出、多个名称和转发目标；损坏或超过 4096 槽／名称上限时标记 partial，详见 [文件命令](cli/file.md)。
+
+既有 R0 `registry` 命令的 `--key` 使用原生路径，例如 `\Registry\Machine\SOFTWARE`；当前用户配置单元使用 `\Registry\User\<调用者 SID>\...`，可用同一调用者的 `whoami /user` 获取 SID。R3 命令支持 `HKLM`、`HKCU` 等简称；R0 的 `set-value --type` 仍使用数字类型和原始 `--data-file`。
 地址和句柄为十六进制字符串，大于安全整数范围的计数为十进制字符串。部分完成返回 6。
 
 ## API Monitor 注入监控
 
-`monitor api capture --pid PID --confirm [--duration-ms N] [--json]` 已接入主程序同源的 API Monitor Agent、位数选择、原生注入、会话租约、子进程注入 broker 和覆盖快照协议，无需加载 R0 驱动。默认从 CLI 同目录选择 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`；限时采集结束或 Ctrl+C 后写停止标记，并等待 Hook 移除和管道排空。DLL 保持常驻，可对同一目标再次采集。
+`monitor api capture --pid PID --confirm [--duration-ms N] [--json]` 已接入主程序同源的 API Monitor Agent、位数选择、原生注入、会话租约、子进程注入 broker 和覆盖快照协议，默认使用 R3 注入，无需加载 R0 驱动。可显式使用 `--r0-inject 1` 选择现有 R0 注入后端；开启自动子进程时子进程同样使用 R0 注入，失败不会自动回退 R3。目标创建时间在驱动调用前后校验，但现有 PID 协议仍有查找前复用窗口。`injectionBackendRequested` 记录选择，常驻 Agent 复用时不再次注入。默认从 CLI 同目录选择 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`；限时采集结束或 Ctrl+C 后写停止标记，并等待 Hook 移除和管道排空。DLL 保持常驻，可对同一目标再次采集。
 
-支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard`（逗号分隔）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+通过 `--call-stack 0|1` 或 `--options-file` 导入 `[monitor]` 节中的 `capture_call_stack=1` 可选采集强类型调用栈；事件 JSON 的 `callStackAvailable` 与 `callStack` 分别表示是否采到和最多 8 个地址。该栈可能包含监控内部帧，Raw 调用或详情空间不足时可能缺失；命令行选项优先于 INI。
+
+可用 `--filter-file PATH` 导入界面的前后置筛选配置；`--pre-exclude-modules`、`--pre-exclude-apis`、`--post-exclude-modules`、`--post-exclude-apis` 按分号分隔的模块或 `模块!函数` 身份追加排除，优先于导入配置中的允许例外。前置在接收后入缓冲前拒收，后置只隐藏已保留结果；控制和覆盖事件不受影响。模块名不区分大小写，无路径且无扩展名时按 `.dll` 匹配；函数名区分大小写。`--timeline 1` 输出最多 2048 个自适应时间桶，计入前置保留的普通调用（含后置隐藏和缓冲淘汰），不包含丢失或前置拒收事件；详见 [监控命令](cli/monitor.md)。
+
+`monitor etw capture --decode 1` 可按 TDH 读取有界的顶层载荷与原始前缀；`--target-pid` 只匹配明确载荷目标字段，未知目标单独计数，不把事件头 PID 当作目标。解码不完整和事件丢失会返回部分结果；边界和性能说明见 [监控命令](cli/monitor.md)。
+
+事件中的 `rawAbi` 列出实际采集的 Raw 寄存器和栈槽，不推断参数类型。`--signatures 1` 读取同目录的项目声明文件，只有文件 SHA-256 与 Agent 事件定义哈希一致时才附加声明，并标识项目、SDK 已核对或未核验参考来源；不读取目标指针。
+
+支持 `--agent PATH`、`--duration-ms 100..120000`（1000，从 HooksInstalled 后计时）、`--limit 1..100000`（5000，保留最近事件）、`--categories file,registry,network,process,loader,clipboard,memory,thread,service,security,crypto,com,window,gui`（逗号分隔；gui 默认关闭，包含 GDI、绘图及 DC 调用；窗口生命周期、消息和菜单属于 window）、`--raw 0|1`、`--raw-modules LIST`、`--raw-exclude LIST`、`--raw-default-denylist 0|1`、`--auto-children 0|1`、`--r0-inject 0|1`、`--options-file PATH`、`--startup-timeout-ms 1000..120000`（30000）和 `--stop-timeout-ms 1000..120000`（15000）。Raw 列表以分号分隔；INI 仅导入 `[monitor]` 业务选项，包含主程序 Fake Success／剪贴板规则，拒绝跨行选项，不导入控制端路径、SID、会话或 broker 身份；显式命令行选项覆盖 INI。支持 `--backend r3` 和 `--json`，x64 CLI 为监控宿主。
+
+采集事件的 `returnValueAvailable`、`durationAvailable` 分别表示是否实际采到返回位模式和调用耗时；对应的 `returnValue` 是十六进制字符串、`duration100ns` 是以 100 纳秒为单位的十进制字符串，缺失时为 `null`。旧 Agent 和 Raw 入口不会推断未采集值。详见 [monitor 命令](cli/monitor.md)。
 
 输出事件、异步 operationId、每个 PID 的完整覆盖快照、Hook 安装／移除、Agent 丢包、输出缓冲截断、进程创建身份及清理结果。Raw 的未知返回值为 null。完整无损采集返回 0；部分 Hook、丢包、截断、取消、提前退出或未确认停止返回 6；启动失败 3，参数错误 1，非 x64 宿主 5。仅加载 DLL 不算监控成功，只有 HooksInstalled 才开始计时；只有 HooksRemoved／原目标退出才确认停止。停止标记保留，以防迟到的加载线程重启旧会话。详见 [监控命令](cli/monitor.md)。
 
@@ -58,7 +92,7 @@ KswordCLI.exe network connections help
 
 IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计结论统一写入 stderr，保证合并重定向时先原因、后结论；成功数据继续写入 stdout。
 
-退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。所有未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态统一返回 `5`，包括固定响应、变长审计和 `r0`/Callback Monitor 命令。个别命令另以 `6` 表示扫描不完整或完整卸载尚未确认，见该命令说明。
+退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用，`6` 部分结果或完整动作尚未确认。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态返回 `5`。`file hex query`、`driver modules enum` 和 `process module enum` 的 `complete` 表示请求的采集证据完整，`displayTruncated` 表示有意限制的显示内容；仅显示受限返回 0，采集缺失仍返回 6。其他命令的限制与退出码见各自 help，不能假定已全部统一。
 
 若所有只读命令连同 `capability query-driver-capabilities` 都返回 `win32=50`，不能仅凭 IOCTL 名称判断驱动缺少实现。请运行 `preflight query` 和 `r0 ioctl-registry`，核对 `sc qc KswordARK` 的实际加载路径及配套版本。2026-10-01 的旧驱动会在 OS build 高于 26100 时拦截包括能力查询在内的请求；该上限已于 2026-10-03 移除，仍须使用匹配的内核 profile。
 
@@ -66,7 +100,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 - 缺少必填参数会指出参数名，例如 `missing option --pid`；有参数但无值会显示 `missing value for option --pid`。参数错误同时显示该命令的语法及内置 help 的参数说明。
 - 未知选项在发送请求前报 `unknown option --name`；`driver detail` 使用 `--driver`，不接受 `--name`。允许的选项与该命令的 help 语法一致。
 - `--flags 0xN` 是按位标志；具体含义以 `shared/driver/` 中对应协议头为准。
-- `--limit N` 只限制 CLI 打印行数；`--max-*` 通常控制传给驱动的查询预算。
+- `--limit N` 通常限制 CLI 显示行数；`--max-*` 通常控制查询预算。各命令的限制与退出码以对应 help 为准。
 - `--hex`/`--*-hex` 接收十六进制字节串；`--data-file`/`--*-file` 从文件读取原始字节；同一 payload 的 hex 和 file 形式互斥。
 - `--hexdump` 会把返回字节按十六进制展开打印。
 
@@ -135,7 +169,7 @@ Inspect and control process visibility, PPL, DKOM, and cross-view state.
 | `process set-visibility` | `KswordCLI.exe process set-visibility --action ACTION [--pid PID] [--flags 0xN]` | Apply a process visibility action. | Required: --action. Optional: --pid defaults to 0, --flags. |  |
 | `process set-special-flags` | `KswordCLI.exe process set-special-flags --pid PID --action ACTION [--flags 0xN]` | Apply special process flags. | Required: --pid, --action. Optional: --flags. |  |
 | `process dkom` | `KswordCLI.exe process dkom --pid PID [--action ACTION] [--flags 0xN]` | Run the configured process DKOM action. | Required: --pid. Optional: --action, --flags. |  |
-| `process crossview` | `KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N]` | Compare process evidence across supported sources. | Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit. |  |
+| `process crossview` | `KswordCLI.exe process crossview [--flags 0xN] [--start-pid PID] [--end-pid PID] [--max-nodes N] [--limit N] [--json]` | Compare process evidence across supported sources. | Optional: --flags, --start-pid, --end-pid, --max-nodes, --limit, --json. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
 | `process detail` | `KswordCLI.exe process detail --pid PID [--flags 0xN]` | Query fixed R0 EPROCESS runtime detail. | Required: --pid. Optional: --flags defaults to include-all. | Uses `IOCTL_KSWORD_ARK_QUERY_PROCESS_DETAIL`. |
 | `process runtime-fields` | `KswordCLI.exe process runtime-fields --pid PID --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]` | Sample bounded EPROCESS runtime fields by checked offsets. | Required: --pid, --items. Optional: --flags, --hexdump, --limit. | Uses `IOCTL_KSWORD_ARK_QUERY_PROCESS_RUNTIME_FIELDS`; each sample is capped by the shared protocol. |
 
@@ -167,15 +201,15 @@ Inspect files, filters, storage evidence, and file-monitor runtime state.
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
 | `file delete-path` | `KswordCLI.exe file delete-path --path PATH [--flags 0xN]` | Delete one path through the driver. | Required: --path. Optional: --flags. |  |
-| `file query-info` | `KswordCLI.exe file query-info --path PATH [--flags 0xN]` | Query file object and basic file metadata. | Required: --path. Optional: --flags. |  |
+| `file query-info` | `KswordCLI.exe file query-info --path PATH [--flags 0xN]` | Query file object and basic file metadata. | Required: --path. Optional: --flags. | Accepts Win32, UNC and native NT paths. |
 | `file set-integrity` | `KswordCLI.exe file set-integrity --path PATH (--rid RID \| --level untrusted\|low\|medium\|medium-plus\|high\|system) [--directory] [--flags 0xN] [--confirm]` | Set a file or directory mandatory integrity label through R0. | Required: --path and one integrity selector. Optional: --directory, --flags, --confirm. | Win32/UNC paths are normalized to driver NT paths before `IOCTL_KSWORD_ARK_SET_FILE_INTEGRITY`. |
-| `file fileobject` | `KswordCLI.exe file fileobject --path PATH [--flags 0xN]` | Alias for file query-info. | Required: --path. Optional: --flags. | Prints an alias banner before query-info output. |
+| `file fileobject` | `KswordCLI.exe file fileobject --path PATH [--flags 0xN]` | Alias for file query-info. | Required: --path. Optional: --flags. | Accepts Win32, UNC and native NT paths; prints an alias banner. |
 | `file minifilter` | `KswordCLI.exe file minifilter [--flags 0xN] [--max-rows N] [--limit N]` | Enumerate minifilter inventory rows. | Optional: --flags, --max-rows, --limit. |  |
-| `file section` | `KswordCLI.exe file section` | Report that the file section alias is unsupported. | No options. | Use section query-file-mappings --path PATH for the implemented section protocol. |
-| `file bitlocker` | `KswordCLI.exe file bitlocker [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query BitLocker/FVE storage audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. |  |
-| `file storage` | `KswordCLI.exe file storage [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query volume stack audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. |  |
-| `file mountmgr` | `KswordCLI.exe file mountmgr [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query MountMgr mapping audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. |  |
-| `file filesystem` | `KswordCLI.exe file filesystem [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query filesystem integrity audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. |  |
+| `file section` | `KswordCLI.exe file section --path PATH [--flags 0xN] [--max-mappings N] [--limit N]` | Alias for section query-file-mappings. | Required: --path. Optional: --flags, --max-mappings, --limit. | Uses the same read-only protocol and unverified mapping evidence semantics. |
+| `file bitlocker` | `KswordCLI.exe file bitlocker [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query BitLocker/FVE storage audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. | Volume accepts a drive such as C: or an NT device path. |
+| `file storage` | `KswordCLI.exe file storage [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query volume stack audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. | Volume accepts a drive such as C: or an NT device path. |
+| `file mountmgr` | `KswordCLI.exe file mountmgr [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query MountMgr mapping audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. | Volume accepts a drive such as C: or an NT device path. |
+| `file filesystem` | `KswordCLI.exe file filesystem [--flags 0xN] [--max-rows N] [--max-depth N] [--volume PATH] [--limit N]` | Query filesystem integrity audit rows. | Optional: --flags, --max-rows, --max-depth, --volume, --limit. | Volume accepts a drive such as C: or an NT device path. |
 | `file monitor-control` | `KswordCLI.exe file monitor-control --action ACTION [--operation-mask 0xN] [--pid PID] [--flags 0xN]` | Control file monitor runtime state. | Required: --action. Optional: --operation-mask, --pid, --flags. |  |
 | `file monitor-drain` | `KswordCLI.exe file monitor-drain [--max-events N] [--flags 0xN]` | Drain file monitor events. | Optional: --max-events, --flags. |  |
 | `file monitor-status` | `KswordCLI.exe file monitor-status` | Query file monitor runtime status. | No options. |  |
@@ -186,8 +220,8 @@ Inspect SSDT, hooks, driver objects, CPU, physical layout, CID, and IPC state.
 
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
-| `kernel ssdt` | `KswordCLI.exe kernel ssdt [--flags 0xN] [--limit N]` | Enumerate SSDT entries. | Optional: --flags, --limit. |  |
-| `kernel shadow-ssdt` | `KswordCLI.exe kernel shadow-ssdt [--flags 0xN] [--limit N]` | Enumerate shadow SSDT entries. | Optional: --flags, --limit. |  |
+| `kernel ssdt` | `KswordCLI.exe kernel ssdt [--flags 0xN] [--limit N]` | Inspect export-derived SSDT entries. | Optional: --flags, --limit. | Totals count matching exports, not all table entries. Missing service targets return 5 (unavailable) or 6 (partial); no hook verdict is made. |
+| `kernel shadow-ssdt` | `KswordCLI.exe kernel shadow-ssdt [--flags 0xN] [--limit N]` | Inspect export-derived shadow SSDT entries. | Optional: --flags, --limit. | Totals count matching exports, not all table entries. Missing service targets return 5 (unavailable) or 6 (partial); no hook verdict is made. |
 | `kernel scan-inline-hooks` | `KswordCLI.exe kernel scan-inline-hooks [--flags 0xN] [--max-entries N] [--module NAME] [--limit N]` | Scan inline hook evidence. | Optional: --flags, --max-entries, --module, --limit. |  |
 | `kernel enum-iat-eat-hooks` | `KswordCLI.exe kernel enum-iat-eat-hooks [--flags 0xN] [--max-entries N] [--module NAME] [--limit N]` | Enumerate IAT/EAT hook evidence. | Optional: --flags, --max-entries, --module, --limit. |  |
 | `kernel patch-inline-hook` | `KswordCLI.exe kernel patch-inline-hook --mode MODE --function VA (--expected-hex HEX \| --expected-file PATH) [--restore-hex HEX \| --restore-file PATH] [--flags 0xN]` | Patch or restore an inline hook using bounded byte evidence. | Required: --mode, --function, and expected payload. Optional: restore payload, --flags. | Hex and file payload forms are mutually exclusive per payload. |
@@ -219,11 +253,12 @@ Manage callback rules, pending decisions, callback inventory, and bypass PIDs.
 | `callback wait-event` | `KswordCLI.exe callback wait-event [--waiter-tag N]` | Wait for one callback event packet. | Optional: --waiter-tag. |  |
 | `callback answer-event` | `KswordCLI.exe callback answer-event --event-guid GUID --decision N --source-session-id N [--answered-at UTC100NS]` | Answer one pending callback event. | Required: --event-guid, --decision, --source-session-id. Optional: --answered-at. |  |
 | `callback cancel-pending` | `KswordCLI.exe callback cancel-pending` | Cancel all pending callback decisions. | No options. |  |
-| `callback remove` | `KswordCLI.exe callback remove --class N --callback VA [--flags 0xN]` | Remove a callback through an address-based public API path. | Required: --class, --callback. Object, Registry, and ETW classes are not supported by this legacy command. |  |
-| `callback remove-ex` | `KswordCLI.exe callback remove-ex --class N --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN]` | Remove an external callback with extended row identity. | Object removal requires every identity field copied from one verified V3 enumeration row plus revalidation flags. Registry and ETW removal are disabled. |  |
+| `callback remove` | `KswordCLI.exe callback remove --class CLASS --callback VA [--flags 0xN] --confirm` | Remove a callback through an address-based public API path. | Required: --class, --callback, --confirm. Object, Registry, and ETW classes are not supported by this legacy command. | CLASS accepts a removal type number or name. |
+| `callback remove-ex` | `KswordCLI.exe callback remove-ex --class CLASS --callback VA [--registration VA] [--raw-storage VA] [--generation N] [--identity-hash N] [--source N] [--operation-mask 0xN] [--object-type-mask 0xN] [--trust-flags 0xN] [--remove-behavior N] [--flags 0xN] --confirm` | Remove an external callback with extended row identity. | Use the complete V3 row identity. Registry requires a calibrated cookie; ETW removal is unsupported. | CLASS accepts a removal type number or name. |
+| `callback remove-row` | `KswordCLI.exe callback remove-row --identity-hash N --confirm [--json]` | Re-enumerate and remove a uniquely identified current row. | Required: --identity-hash, --confirm. Optional: --json. | Minifilter child removal unloads its entire owning filter; thread/image/WFP may use legacy public API removal. |
 | `callback set-minifilter-bypass-pids` | `KswordCLI.exe callback set-minifilter-bypass-pids --pids PID[,PID...] [--flags 0xN]` | Set minifilter bypass PID list. | Required: --pids. Optional: --flags. |  |
 | `callback query-minifilter-bypass-pids` | `KswordCLI.exe callback query-minifilter-bypass-pids` | Query minifilter bypass PID list. | No options. |  |
-| `callback enum` | `KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N]` | Enumerate callback inventory. | Optional: --flags, --max-entries, --limit. | Uses protocol v3; prints snapshot generation/hash and per-row identity hashes, and stops if a continuation page no longer matches the first-page snapshot. |
+| `callback enum` | `KswordCLI.exe callback enum [--flags 0xN] [--max-entries N] [--limit N] [--json]` | Enumerate callback inventory. | Optional: --flags, --max-entries, --limit, --json. | Includes row identity, trustFlags and removeBehavior; enum and removal class numbers differ. |
 
 ### `dyn`
 
@@ -252,7 +287,7 @@ Enumerate threads and compare R0/R3 thread evidence.
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
 | `thread enum` | `KswordCLI.exe thread enum [--flags 0xN] [--pid PID] [--limit N]` | Enumerate threads. | Optional: --flags, --pid, --limit. |  |
-| `thread crossview` | `KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N]` | Compare thread evidence across supported sources. | Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit. |  |
+| `thread crossview` | `KswordCLI.exe thread crossview [--flags 0xN] [--pid PID] [--start-tid TID] [--end-tid TID] [--max-nodes N] [--limit N] [--json]` | Compare thread evidence across supported sources. | Optional: --flags, --pid, --start-tid, --end-tid, --max-nodes, --limit, --json. | Anomaly flags are raw candidates; missing sources make comparisons incomplete. See source states and DynData diagnostics. |
 | `thread detail` | `KswordCLI.exe thread detail --tid TID [--pid PID] [--flags 0xN]` | Query fixed R0 ETHREAD/KTHREAD runtime detail. | Required: --tid. Optional: --pid, --flags defaults to include-all. | Uses `IOCTL_KSWORD_ARK_QUERY_THREAD_DETAIL`. |
 | `thread runtime-fields` | `KswordCLI.exe thread runtime-fields --tid TID [--pid PID] --items id:offset:size[:flags][,id:offset:size[:flags]...] [--flags 0xN] [--hexdump] [--limit N]` | Sample bounded ETHREAD/KTHREAD runtime fields by checked offsets. | Required: --tid, --items. Optional: --pid, --flags, --hexdump, --limit. | Uses `IOCTL_KSWORD_ARK_QUERY_THREAD_RUNTIME_FIELDS`; each sample is capped by the shared protocol. |
 
@@ -484,9 +519,9 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 | `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v10；完整逐核 JSON：`hvm_ctl --json metrics`，包括 Intel 影子 EPT 与 AMD NPT 缓存计数。 |
 | `r0 hvm-events` | `KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]` | 读取 HVM 事件环，不清空事件。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_HVM_EVENTS`。 |
 | `r0 hvm-platform` | `KswordCLI.exe r0 hvm-platform` | 查询 CR4、CPUID 与 CET MSR 平台校准证据。 | 无。 | `IOCTL_KSWORD_ARK_HVM_PLATFORM`；不进入 VMX。 |
-| `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
-| `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
-| `r0 unloaded` | `KswordCLI.exe r0 unloaded [--source mm\|piddb\|hash] [--max-rows N]` | 查询已卸载驱动、PiDDB 或哈希桶证据。 | 可选：--source 默认 `mm`，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS`。 |
+| `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N] [--json]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
+| `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N] [--json]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
+| `r0 unloaded` | `KswordCLI.exe r0 unloaded [--source mm\|piddb\|hash] [--max-rows N] [--json]` | 查询已卸载驱动、PiDDB 或哈希桶证据。 | 可选：--source 默认 `mm`，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS`。 |
 | `r0 wfp-events` | `KswordCLI.exe r0 wfp-events [--after-sequence N] [--max-rows N]` | 读取 WFP 事件环元数据。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_NETWORK_QUERY_WFP_EVENTS`。 |
 | `r0 traffic` | `KswordCLI.exe r0 traffic [--after-sequence N] [--max-rows N]` | 读取现有流量捕获环的元数据。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_NETWORK_QUERY_TRAFFIC_PACKETS`，不启动捕获。 |
 | `r0 piddb` | `KswordCLI.exe r0 piddb [--max-rows N]` | 枚举 PiDDBCacheTable 证据。 | 可选：--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PIDDB`，不删除条目。 |
@@ -498,12 +533,16 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 | `r0 raw-disk-read` | `KswordCLI.exe r0 raw-disk-read --length N [--disk N] [--backend N] [--offset N] [--flags 0xN] [--hexdump]` | 读取受协议长度上限约束的原始磁盘范围。 | 必填：--length。可选：--disk、--backend、--offset、--flags、--hexdump。 | `IOCTL_KSWORD_ARK_READ_RAW_DISK`。 |
 | `r0 system-time` | `KswordCLI.exe r0 system-time` | 查询系统时间虚拟化和冲突状态。 | 无。 | `IOCTL_KSWORD_ARK_QUERY_SYSTEM_TIME`。 |
 | `r0 slat-iommu` | `KswordCLI.exe r0 slat-iommu [--include-mmio]` | 查询 SLAT、IOMMU 固件及运行时证据。 | 可选：--include-mmio。 | `IOCTL_KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT`。 |
-| `r0 platform` | `KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N]` | 查询 HAL 和 WDF 平台审计证据。 | 可选：--scope 默认全量，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT`。 |
+| `r0 platform` | `KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N] [--json]` | 查询 HAL 和 WDF 平台审计证据。 | 可选：--scope 默认全量，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT`。 |
 | `r0 i8042` | `KswordCLI.exe r0 i8042 [--max-rows N]` | 查询 i8042prt 回调和栈证据，不读取输入数据。 | 可选：--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_I8042_AUDIT`。 |
-| `r0 object-types` | `KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N]` | 枚举内核对象类型表。 | 可选：--flags、--max-entries、--start-index。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE`。 |
+| `r0 object-types` | `KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N] [--json]` | 枚举内核对象类型表。 | 可选：--flags、--max-entries、--start-index。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE`。 |
 | `r0 object-type-procedures` | `KswordCLI.exe r0 object-type-procedures [--start-index N] [--max-entries N]` | 逐个对象类型核对 Dump/Open/Close/Delete/Parse/Security/QueryName/OkayToClose 八个方法指针的归属模块；方法指针块布局在运行时自验证，验证不过如实报告 UNVERIFIED 而不给结论。核心类型（Process/Thread/Driver/File）按地址范围硬判；非核心类型另有一条"类型内一致性"判据：同一类型里 >=3 个槽落在 ntoskrnl 内、又恰好 1 个槽落在别处时判隐藏行为，汇总行的 `judged_types=N/M` 说明这条判据能覆盖 70 个类型里的多少个——不在这个数里的类型不代表"干净"，只是本版本给不出硬判据。退出码：0=已验证且干净，5=布局未验证，6=已验证但扫描不完整。 | 可选：--start-index、--max-entries。 | `IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES`。 |
-| `r0 win32k-timers` | `KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]` | 查询基于 PDB 的 win32k 定时器证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS`。 |
-| `r0 win32k-events` | `KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]` | 查询基于 PDB 的 WinEvent Hook 证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS`。 |
+| `r0 win32k-timers` | `KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]` | 查询基于 PDB 的 win32k 定时器证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS`。 |
+| `r0 win32k-events` | `KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N] [--json]` | 查询基于 PDB 的 WinEvent Hook 证据。 | 可选：--flags、--session-id、--pid、--tid、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS`。 |
+
+`r0 ioctl-registry`、`unloaded`、`platform`、`object-types`、`win32k-timers`、`win32k-events` 和 `timer-dpc` 输出已解析的逐行文本及响应状态，也支持 `--json`。JSON 使用 `schemaVersion`、`command`、`backend`、`status`、`data` 和 `diagnostics`；`data` 包含传输状态、协议状态、总数、返回行和截断信息，地址与位掩码使用十六进制字符串。`complete=false` 表示已知不完整，`null` 表示无法仅凭这些回执确认采集完整。结合总数、状态和标志判断结果；`--max-rows` 或 `--max-entries` 设置上限不意味着结果完整。`object-types` 的 `next_index`（JSON 为 `nextIndex`）可用于后续 `--start-index` 查询。字段有效性以各协议定义的 `field_flags` 或 `flags` 为准，未标记的值不应被解释成已确认的证据。已解析响应若返回 `STATUS_BUFFER_OVERFLOW`，退出码为 6（部分结果）。
+
+`r0 timer-dpc` 的 `query_state` 将缺少动态数据、无效布局和不支持与成功空结果区分开：上述不可用状态返回 5，部分或截断返回 6，完整结果返回 0；传输错误保留对应错误退出码。
 
 
 ### 通用调试后端能力查询

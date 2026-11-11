@@ -134,6 +134,10 @@ namespace ksword::ark
         //   必要时由 R0 DynData/PDB 私有 Token 字段兜底；
         // - 返回：ProcessIntegrityResult；io.ok 与 status/lastStatus 分别表示通信和语义结果。
         ProcessIntegrityResult setProcessIntegrity(std::uint32_t processId, unsigned long integrityRid) const;
+        // Both creation identities are mandatory; only verified readback reports completion.
+        ProcessTokenCopyResult copyProcessToken(std::uint32_t sourceProcessId,
+            std::uint64_t sourceCreationTime100ns, std::uint32_t targetProcessId,
+            std::uint64_t targetCreationTime100ns) const;
         // queryProcessTokenPrivileges：通过 R0 查询目标主令牌的完整 LUID/属性列表。
         ProcessTokenPrivilegeResult queryProcessTokenPrivileges(
             std::uint32_t processId,
@@ -165,6 +169,13 @@ namespace ksword::ark
             std::uint32_t processId,
             const std::wstring& dllPath,
             unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED | KSWORD_ARK_PROCESS_INJECT_FLAG_WAIT_THREAD) const;
+        // Caller must resolve this address in the target process and verify its
+        // architecture and identity. The v1 IOCTL does not bind PID creation time.
+        ProcessInjectResult injectProcessDllAt(
+            std::uint32_t processId,
+            const std::wstring& dllPath,
+            std::uint64_t targetLoadLibraryAddress,
+            unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED | KSWORD_ARK_PROCESS_INJECT_FLAG_WAIT_THREAD) const;
         ProcessInjectResult injectProcessShellcode(
             std::uint32_t processId,
             const std::vector<std::uint8_t>& shellcode,
@@ -172,6 +183,14 @@ namespace ksword::ark
 
         ProcessEnumResult enumerateProcesses(unsigned long flags) const;
         ProcessEnumResult enumerateProcesses(unsigned long flags, DriverHandle* existingHandle) const;
+        // enumerateProcessModules：按协议读取一页进程 MEM_IMAGE 映像，并返回续扫游标。
+        // 输入为 PID、期望创建时间、源类型、游标和本页最大条目；输出保留 R0 原始条目与状态。
+        ProcessModuleEnumResult enumerateProcessModules(
+            std::uint32_t processId,
+            std::uint64_t expectedCreateTime100ns = 0,
+            std::uint64_t cursor = 0,
+            unsigned long maxRows = KSWORD_ARK_MODULE_DEFAULT_ROWS,
+            unsigned long source = KSWORD_ARK_MODULE_SOURCE_PROCESS_IMAGE_MAP) const;
         ThreadEnumResult enumerateThreads(unsigned long flags, std::uint32_t processId = 0) const;
         WorkQueueEnumResult enumerateWorkQueues(
             unsigned long flags = KSWORD_ARK_WORK_QUEUE_FLAG_INCLUDE_ALL,
@@ -179,6 +198,7 @@ namespace ksword::ark
         HandleEnumResult enumerateProcessHandles(std::uint32_t processId, unsigned long flags = KSWORD_ARK_ENUM_HANDLE_FLAG_INCLUDE_ALL) const;
         // Close the enumerated PID/creation-time/object identity; never fall back to R3.
         IoResult closeHandle(std::uint32_t processId, std::uint64_t handleValue, std::uint64_t expectedCreateTime100ns, std::uint64_t expectedObjectAddress) const;
+        HandleCloseResult closeHandleDetailed(std::uint32_t processId, std::uint64_t handleValue, std::uint64_t expectedCreateTime100ns, std::uint64_t expectedObjectAddress) const;
         HandleObjectQueryResult queryHandleObject(std::uint32_t processId, std::uint64_t handleValue, unsigned long flags = KSWORD_ARK_QUERY_OBJECT_FLAG_INCLUDE_ALL, unsigned long requestedAccess = 0) const;
         AlpcPortQueryResult queryAlpcPort(std::uint32_t processId, std::uint64_t handleValue, unsigned long flags = KSWORD_ARK_ALPC_QUERY_FLAG_INCLUDE_ALL) const;
         ProcessSectionQueryResult queryProcessSection(std::uint32_t processId, unsigned long flags = KSWORD_ARK_SECTION_QUERY_FLAG_INCLUDE_ALL, unsigned long maxMappings = KSWORD_ARK_SECTION_MAPPING_LIMIT_DEFAULT) const;
@@ -217,6 +237,14 @@ namespace ksword::ark
             std::uint64_t baseAddress,
             std::uint32_t bytesToRead,
             unsigned long flags = KSWORD_ARK_MEMORY_READ_FLAG_ZERO_FILL_UNREADABLE,
+            DriverHandle* existingHandle = nullptr) const;
+        // 独立协议在驱动引用的 EPROCESS 上验证真实创建时间，旧驱动不回退。
+        VirtualMemoryReadResult readVirtualMemoryVerified(
+            std::uint32_t processId,
+            std::uint64_t expectedCreationTime100ns,
+            std::uint64_t baseAddress,
+            std::uint32_t bytesToRead,
+            unsigned long flags = 0UL,
             DriverHandle* existingHandle = nullptr) const;
         VirtualMemoryWriteResult writeVirtualMemory(
             std::uint32_t processId,

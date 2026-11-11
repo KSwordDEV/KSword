@@ -15,6 +15,7 @@
 #include <cstddef> // std::size_t: revision counters and vector indexes.
 #include <cstdint> // std::uint32_t: compact log level filter mask.
 #include <ctime>   // std::time_t: log timestamps.
+#include <functional> // std::function：可选的日志快照筛选谓词。
 #include <mutex>   // std::mutex: thread-safe log storage.
 #include <ostream> // std::ostream: stream manipulator overload.
 #include <sstream> // std::ostringstream: per-thread pending message buffer.
@@ -105,6 +106,7 @@ namespace ks::log
         std::uint32_t enabledLevelMask = 0;
         bool isTracking = false;
         GUID trackedGuid{};
+        std::string filterIdentity; // 文本查询身份，用于增量复用日志投影。
     };
 
     struct RecentSnapshot
@@ -162,7 +164,9 @@ namespace ks::log
             std::size_t maxCount,
             std::uint32_t enabledLevelMask,
             const GUID* trackedGuid,
-            const RecentSnapshotToken* previousToken) const;
+            const RecentSnapshotToken* previousToken,
+            const std::function<bool(const Event&)>& predicate = {},
+            const std::string& filterIdentity = {}) const;
 
         // TailCursor captures a baseline without copying archived records.
         ArchiveCursor TailCursor() const;

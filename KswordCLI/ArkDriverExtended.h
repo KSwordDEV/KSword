@@ -7,3 +7,6 @@ int commandArkDriverExtended(int argc, wchar_t* argv[]);
 // commandArkDriverCallbackMonitor handles callback monitor subcommands through
 // the production ArkDriverClient protocol wrappers.
 int commandArkDriverCallbackMonitor(int argc, wchar_t* argv[]);
+
+int commandPiDdbDetail(int argc, wchar_t* argv[]);
+int commandPiDdbDelete(int argc, wchar_t* argv[]);

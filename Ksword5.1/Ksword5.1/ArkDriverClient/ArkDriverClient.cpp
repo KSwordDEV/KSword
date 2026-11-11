@@ -853,6 +853,69 @@ namespace ksword::ark
         return integrityResult;
     }
 
+    ProcessTokenCopyResult DriverClient::copyProcessToken(
+        const std::uint32_t sourceProcessId, const std::uint64_t sourceCreationTime100ns,
+        const std::uint32_t targetProcessId, const std::uint64_t targetCreationTime100ns) const
+    {
+        ProcessTokenCopyResult result;
+        if (!sourceProcessId || targetProcessId <= 4U || sourceProcessId == targetProcessId ||
+            !sourceCreationTime100ns || !targetCreationTime100ns)
+        {
+            result.io.win32Error = ERROR_INVALID_PARAMETER;
+            result.io.message = "Token copy requires distinct processes and nonzero creation identities";
+            return result;
+        }
+        KSWORD_ARK_COPY_PROCESS_TOKEN_REQUEST request{};
+        request.size = sizeof(request);
+        request.version = KSWORD_ARK_PROCESS_TOKEN_COPY_VERSION;
+        request.sourceProcessId = sourceProcessId;
+        request.targetProcessId = targetProcessId;
+        request.flags = KSWORD_ARK_PROCESS_TOKEN_COPY_CONFIRMED;
+        request.expectedSourceCreateTime100ns = sourceCreationTime100ns;
+        request.expectedTargetCreateTime100ns = targetCreationTime100ns;
+        auto& response = result.response;
+        result.io = deviceIoControl(IOCTL_KSWORD_ARK_COPY_PROCESS_TOKEN,
+            &request, sizeof(request), &response, sizeof(response));
+        if (!result.io.ok) return result;
+
+        constexpr unsigned long required = KSWORD_ARK_PROCESS_TOKEN_COPY_SOURCE_IDENTITY |
+            KSWORD_ARK_PROCESS_TOKEN_COPY_TARGET_IDENTITY | KSWORD_ARK_PROCESS_TOKEN_COPY_SOURCE_TOKEN |
+            KSWORD_ARK_PROCESS_TOKEN_COPY_BEFORE_TOKEN | KSWORD_ARK_PROCESS_TOKEN_COPY_ASSIGNED_TOKEN |
+            KSWORD_ARK_PROCESS_TOKEN_COPY_ASSIGN_ATTEMPTED | KSWORD_ARK_PROCESS_TOKEN_COPY_APPLIED |
+            KSWORD_ARK_PROCESS_TOKEN_COPY_AFTER_TOKEN | KSWORD_ARK_PROCESS_TOKEN_COPY_VERIFIED;
+        result.responseValid = result.io.bytesReturned == sizeof(response) &&
+            response.size == sizeof(response) && response.version == request.version &&
+            response.sourceProcessId == sourceProcessId && response.targetProcessId == targetProcessId &&
+            (response.fieldFlags & ~required) == 0UL &&
+            (!(response.fieldFlags & KSWORD_ARK_PROCESS_TOKEN_COPY_SOURCE_IDENTITY) ||
+                response.sourceCreateTime100ns == sourceCreationTime100ns) &&
+            (!(response.fieldFlags & KSWORD_ARK_PROCESS_TOKEN_COPY_TARGET_IDENTITY) ||
+                response.targetCreateTime100ns == targetCreationTime100ns);
+        if (!result.responseValid)
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = "Token copy response has an invalid protocol or process identity";
+            return result;
+        }
+        result.io.ntStatus = response.lastStatus;
+        result.applied = (response.fieldFlags & KSWORD_ARK_PROCESS_TOKEN_COPY_APPLIED) != 0UL;
+        result.verified = response.lastStatus == 0 && response.assignStatus == 0 && response.verifyStatus == 0 &&
+            (response.fieldFlags & required) == required && response.assignedTokenId == response.sourceTokenId &&
+            response.targetTokenIdAfter == response.sourceTokenId;
+        std::ostringstream detail;
+        detail << "sourcePid=" << sourceProcessId << ", targetPid=" << targetProcessId
+            << ", applied=" << result.applied << ", verified=" << result.verified
+            << ", lastStatus=0x" << std::hex << static_cast<unsigned long>(response.lastStatus)
+            << ", assignStatus=0x" << static_cast<unsigned long>(response.assignStatus)
+            << ", verifyStatus=0x" << static_cast<unsigned long>(response.verifyStatus)
+            << ", sourceTokenId=0x" << response.sourceTokenId
+            << ", targetTokenIdBefore=0x" << response.targetTokenIdBefore
+            << ", targetTokenIdAfter=0x" << response.targetTokenIdAfter;
+        result.io.message = detail.str();
+        return result;
+    }
+
     ProcessTokenPrivilegeResult DriverClient::queryProcessTokenPrivileges(
         const std::uint32_t processId,
         const std::uint64_t expectedCreateTime100ns) const
@@ -1558,6 +1621,27 @@ namespace ksword::ark
                 "GetProcAddress(LoadLibraryW) failed, error=" + std::to_string(win32Error));
         }
 
+        return injectProcessDllAt(processId, dllPath,
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(loadLibraryAddress)), flags);
+    }
+
+    ProcessInjectResult DriverClient::injectProcessDllAt(
+        const std::uint32_t processId,
+        const std::wstring& dllPath,
+        const std::uint64_t targetLoadLibraryAddress,
+        const unsigned long flags) const
+    {
+        if (dllPath.empty() || targetLoadLibraryAddress == 0)
+        {
+            return makeProcessInjectInputFailure(processId, KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH,
+                ERROR_INVALID_PARAMETER, "DLL path or target LoadLibraryW address is empty");
+        }
+        if (dllPath.size() + 1U > KSWORD_ARK_PROCESS_INJECT_MAX_PAYLOAD_BYTES / sizeof(wchar_t))
+        {
+            return makeProcessInjectInputFailure(processId, KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH,
+                ERROR_BAD_LENGTH, "DLL path is larger than R0 inject payload limit");
+        }
+
         const std::size_t payloadBytes = (dllPath.size() + 1U) * sizeof(wchar_t);
         const std::size_t headerSize = processInjectRequestHeaderSize();
         std::vector<std::uint8_t> requestBuffer(headerSize + payloadBytes, 0U);
@@ -1567,8 +1651,7 @@ namespace ksword::ark
         request->injectType = KSWORD_ARK_PROCESS_INJECT_TYPE_DLL_PATH;
         request->flags = flags;
         request->payloadBytes = static_cast<unsigned long>(payloadBytes);
-        request->entryPointAddress =
-            static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(loadLibraryAddress));
+        request->entryPointAddress = static_cast<unsigned long long>(targetLoadLibraryAddress);
         request->parameterAddress = 0ULL;
         std::memcpy(request->payload, dllPath.c_str(), payloadBytes);
 

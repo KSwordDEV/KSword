@@ -234,6 +234,73 @@ namespace ksword::ark
         return readResult;
     }
 
+    VirtualMemoryReadResult DriverClient::readVirtualMemoryVerified(
+        const std::uint32_t processId,
+        const std::uint64_t expectedCreationTime100ns,
+        const std::uint64_t baseAddress,
+        const std::uint32_t bytesToRead,
+        const unsigned long flags,
+        DriverHandle* const existingHandle) const
+    {
+        VirtualMemoryReadResult result{};
+        if (processId <= 4U || expectedCreationTime100ns == 0ULL || bytesToRead == 0U ||
+            bytesToRead > KSWORD_ARK_MEMORY_READ_MAX_BYTES ||
+            (flags & ~KSWORD_ARK_MEMORY_READ_FLAG_ZERO_FILL_UNREADABLE) != 0UL)
+        {
+            result.io.win32Error = ERROR_INVALID_PARAMETER;
+            result.io.message = "verified read-vm requires a valid process identity, nonzero bounded length and user-address flags";
+            return result;
+        }
+        KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST request{};
+        request.size = sizeof(request);
+        request.version = KSWORD_ARK_VERIFIED_MEMORY_READ_VERSION;
+        request.flags = flags;
+        request.processId = processId;
+        request.expectedCreationTime100ns = expectedCreationTime100ns;
+        request.baseAddress = baseAddress;
+        request.bytesToRead = bytesToRead;
+        std::vector<std::uint8_t> buffer(kReadResponseHeaderSize + static_cast<std::size_t>(bytesToRead), 0U);
+        result.io = deviceIoControl(IOCTL_KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED, &request,
+            static_cast<unsigned long>(sizeof(request)), buffer.data(), static_cast<unsigned long>(buffer.size()), existingHandle);
+        if (!result.io.ok) return result; // 旧驱动返回不支持，绝不调用旧 PID-only IOCTL。
+        if (result.io.bytesReturned < kReadResponseHeaderSize || result.io.bytesReturned > buffer.size())
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = "verified read-vm response length is invalid";
+            return result;
+        }
+        const auto* response = reinterpret_cast<const KSWORD_ARK_READ_VIRTUAL_MEMORY_RESPONSE*>(buffer.data());
+        if (response->version != KSWORD_ARK_MEMORY_PROTOCOL_VERSION || response->headerSize != kReadResponseHeaderSize ||
+            response->processId != processId || response->requestedBaseAddress != baseAddress ||
+            response->requestedBytes != bytesToRead || response->bytesRead > bytesToRead ||
+            response->bytesRead > result.io.bytesReturned - kReadResponseHeaderSize ||
+            (response->readStatus == KSWORD_ARK_MEMORY_READ_STATUS_OK && response->bytesRead != bytesToRead) ||
+            (response->lookupStatus < 0 && response->bytesRead != 0U))
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = "verified read-vm response identity or payload is invalid";
+            return result;
+        }
+        result.version = response->version;
+        result.headerSize = response->headerSize;
+        result.processId = response->processId;
+        result.fieldFlags = response->fieldFlags;
+        result.readStatus = response->readStatus;
+        result.lookupStatus = response->lookupStatus;
+        result.copyStatus = response->copyStatus;
+        result.source = response->source;
+        result.requestedBaseAddress = response->requestedBaseAddress;
+        result.requestedBytes = response->requestedBytes;
+        result.bytesRead = response->bytesRead;
+        result.maxBytesPerRequest = response->maxBytesPerRequest;
+        result.data.assign(buffer.begin() + static_cast<std::ptrdiff_t>(kReadResponseHeaderSize),
+            buffer.begin() + static_cast<std::ptrdiff_t>(kReadResponseHeaderSize + result.bytesRead));
+        result.io.message = "verified read-vm response parsed; inspect lookupStatus, copyStatus and readStatus";
+        return result;
+    }
+
     VirtualMemoryWriteResult DriverClient::writeVirtualMemory(
         const std::uint32_t processId,
         const std::uint64_t baseAddress,

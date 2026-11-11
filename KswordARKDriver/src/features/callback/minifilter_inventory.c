@@ -694,6 +694,7 @@ Return Value:
 --*/
 {
     KSWORD_ARK_QUERY_MINIFILTER_INVENTORY_REQUEST* queryRequest = NULL;
+    KSWORD_ARK_QUERY_MINIFILTER_INVENTORY_REQUEST requestSnapshot;
     KSWORD_ARK_QUERY_MINIFILTER_INVENTORY_REQUEST defaultRequest;
     PVOID inputBuffer = NULL;
     PVOID outputBuffer = NULL;
@@ -737,6 +738,12 @@ Return Value:
             (unsigned long)queryRequest->version,
             (unsigned int)queryRequest->flags);
         return STATUS_INVALID_PARAMETER;
+    }
+
+    if (hasInput) {
+        /* METHOD_BUFFERED shares input/output: preserve options before output is cleared. */
+        RtlCopyMemory(&requestSnapshot, queryRequest, sizeof(requestSnapshot));
+        queryRequest = &requestSnapshot;
     }
 
     status = KswordARKRetrieveRequiredOutputBuffer(

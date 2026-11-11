@@ -1,5 +1,7 @@
 # 进程命令（R3）
 
+`process thread stack query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--limit N] [--json]` 对经过身份核验的 x64 线程短暂挂起、复制用户栈并恢复，然后使用 DbgHelp 展开与符号化。输出地址、可用符号、原始状态、原挂起计数及恢复状态。只支持 R3 x64 到 x64，WOW64 明确返回不支持；栈快照上限 16 MiB，帧数上限 128。栈外的展开元数据仍为实时读取；符号解析尽力而为，恢复失败必须核查目标状态。
+
 ## 进程身份采样（迁移项 66）
 
 ```powershell
@@ -52,6 +54,7 @@ list 返回可选择的字段名。默认选择 command-line,user,architecture,e
 命名覆盖名称／路径、命令行、用户、架构、描述、提升状态、效率模式、运行状态、签名、PPL、程序包、作业、
 UAC 虚拟化、DEP、CFG、硬件栈保护、DPI、企业上下文、GPU 利用率／引擎／显存，以及累计 CPU、内存、I/O 字段。
 字段名未知、重复或逗号空项返回 1。R0 EPROCESS 字段和没有真实采样的 CPU／网络速率不在本组发布。
+签名字段沿用进程共享后端的嵌入式 WinVerifyTrust，未检查目录签名或吊销；未找到嵌入式签名时整体信任状态不可用，保留原始状态而不判为无签名。需要目录签名证据时使用 `file signature query`。
 发行与虚拟机部署应同时复制 Release 中的 MSVCP140.dll、VCRUNTIME140.dll、VCRUNTIME140_1.dll；
 新工具链构建的标准库代码不能依赖来宾系统里更旧的 VC 运行库。测试通道校验 EXE 与这些 DLL 的哈希。
 
@@ -205,11 +208,11 @@ KswordCLI.exe process module thread terminate --pid PID --base ADDRESS --tid TID
 使用 `help process module`、`help process module thread` 和叶子 help 逐层发现；本组默认 R3，无 R0 回退。
 枚举保留进程身份句柄，需要 PROCESS_QUERY_INFORMATION 与 PROCESS_VM_READ；权限失败返回 3，后端入口不可用返回 5。
 name 按完整模块文件名忽略大小写筛选，base 按模块句柄筛选，limit 默认 1000。
-输出 target、source、enumeration、threadEnumeration、matchedCount、returnedCount、truncated、modules。
+输出 target、source、enumeration、threadEnumeration、matchedCount、returnedCount、complete、displayTruncated、truncated、modules。
 模块行含 handle、name、path、base、imageSize、infoEvidence、pathEvidence、representativeThread。
 地址为十六进制字符串；不可用的路径／映像信息为 null，并保留原始 Win32 错误。
 关联线程按真实起始地址是否位于映像范围选取，提供 tid 与创建时间；没有关联线程可以是有效结果。
-路径截断、代表线程证据缺失或输出截断返回 6，结构字节数不对齐返回 4。
+路径截断、代表线程证据缺失返回 6，结构字节数不对齐返回 4。仅因 limit 减少显示行时 complete 为 true、displayTruncated 为 true，返回 0；truncated 保留为兼容字段。
 模块表增长时最多重试四次，持续增长只处理实际已填入的容量并标记不完整，避免空槽位冒充模块。
 
 unload 在完整模块快照上核对 base，可附 module-path 和 image-size 约束预期模块。
@@ -304,6 +307,7 @@ Native 64 位／提升令牌可能拒绝或忽略虚拟化启用；运行中令�
 KswordCLI.exe process peb query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--backend r3] [--json]
 KswordCLI.exe process peb environment query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--name NAME] [--limit N] [--backend r3] [--json]
 KswordCLI.exe process memory regions query --pid PID [--creation-time FILETIME] [--address ADDRESS] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--backend r3] [--json]
 KswordCLI.exe process settings set-affinity --pid PID --mask MASK [--creation-time FILETIME] --confirm [--backend r3] [--json]
 ```
 
@@ -329,6 +333,8 @@ memory regions query 带 address 时调用共享 VirtualQueryEx 适配器读取�
 size 和统计计数用十进制字符串。预览有 complete、budgetLimited、regionCount、committedRegionCount、commitBytes、mappedBytes、imageBytes、privateBytes、returnedCount、truncated。
 遍历保持原后端 60000 个区域／8 秒上限，只有到达地址空间终点才称 complete；查询中断、预览截断或映射路径缺失返回 6。
 limit 范围 1..40，不代表增加后端预览能力；区域长度／范围无效返回 4，实际查询失败返回 3。累计区域与后续独立查询可能因目标映射变化而不同。
+
+memory regions page 通过共享 VirtualQueryEx 适配器枚举提交区域，默认从地址 0 开始；将返回的 nextAddress 传给下一次的 --start-address，直到 complete=true。limit 为 1..4096，默认 100；pageLimited 表示正常到达请求的页大小，返回 0，并不声称已扫描完整地址空间。输出扫描区域数、原生错误和 budgetLimited；每页最多扫描 60000 个区域或 8 秒，预算耗尽、部分读取失败或映射路径不可用返回 6，首项读取失败返回 3，区域格式无效返回 4。每次调用保留并验证进程身份，但分页不是原子快照：进程映射可能在调用间改变，可使用首次返回的 creationTime 约束后续调用。
 
 set-affinity 使用已实现的 SetProcessAffinityMask，输出 requestedMask、requestSucceeded、writeAttempted、verified、win32Error，以及 before／after 的 known、mask、systemMask、原始错误。
 mask 是正的十进制或十六进制值。保留身份并在原句柄上回读；成功请求但掩码未匹配返回 6，API 失败返回 3。
@@ -358,3 +364,11 @@ limit 默认 1000，范围 1..10000，限制输出而非证明完整库存；输
 COM 和文件系统调用不被强制中断。源不完整、窗口挂起或达到边界返回 6；资源结构无效返回 4，所选来源全部无法取得时返回 3。
 有效空的所选来源可以成功。COM 在当前线程初始化／释放；借用已有 apartment 时不替调用者 CoUninitialize，资源映射与 ShellLink 接口按所有权释放。
 目标身份不符或期间退出返回 3，候选数据不用于推断 UI 提示中的成功文字。
+
+## 进程内存与模块 Dump
+
+`process memory dump --pid PID --address VA --size BYTES --output PATH [--creation-time FILETIME] [--backend r0|r3] [--json]` 按 64 KiB 分块读取目标范围；`process module dump --pid PID --base VA --output PATH [--creation-time FILETIME] [--module-path PATH] [--image-size N] [--backend r0|r3] [--json]` 读取选定模块范围。两项默认 R3；R0 使用 KswordARK 的身份校验读取，每块均在引用的内核进程对象上核对创建时间，不自动回退旧驱动或 R3。可正常打开的进程会自动取得创建时间；R0-only 目标须提供 R0 枚举所得真实 `--creation-time`。
+
+模块范围在 R3 模式来自进程模块快照，在 R0 模式来自指定基址的 `MEM_IMAGE` 映射范围。R0 的 `--image-size` 核对观测到的映射跨度，不代表 PE `SizeOfImage` 或 PEB 加载器链表成员。读前后分别以同一创建时间查询并比较基址、路径和范围；缺失、截断或变化不发布文件。不同查询并非同一原子快照。
+
+仅当每块均完整读取、文件刷写关闭和进程／模块身份复核成功时，将同目录临时文件发布至 `--output`；已存在的目标文件不会被替换。读入的字节按原样保存，不重建 PE，也不对不可读区域补零；失败或取消不发布部分文件，输出回执的 `writtenBytes` 是临时文件中已经写入的字节数。临时文件清理失败时会报告路径和原始错误。读取过程并非进程内存原子快照；模块可能在读期间改变，复核只能发现可观测的身份变化。权限不足、进程退出、短读、写入或目标已存在均通过状态和原始错误报告。

@@ -21,6 +21,7 @@
         <file alias="log_copy.svg">Resource/Icon/file/copy_line.svg</file>
         <file alias="log_clipboard.svg">Resource/Icon/file/clipboard_line.svg</file>
         <file alias="clipboard_guard.svg">Resource/Icon/file/clipboard_fill.svg</file>
+        <file alias="winapi_capture_help.svg">Resource/Icon/system/question_line.svg</file>
         <file alias="clipboard_guard_shield.svg">Resource/Icon/shape/shield_shape_line.svg</file>
         <file alias="log_track.svg">Resource/Icon/editor/list_search_line.svg</file>
         <file alias="log_cancel_track.svg">Resource/Icon/system/close_line.svg</file>

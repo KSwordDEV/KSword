@@ -1,5 +1,87 @@
 # API Monitor 定义、x86/x64 引擎、覆盖与异步采集
 
+## GUI 分类与第三轮强类型扩充（2026-11-08）
+
+- 用户反馈关闭窗口类仍刷大量GDI，并要求继续Raw转强类型。新增 `EventCategory::Gui=15`，原值/包布局不变；`enable_gui` 和界面“GUI API”缺省关闭，旧INI缺省也关闭，独立于 `enable_process` / `enable_window`。主程序写出/启停、CLI分类/help/业务白名单、剪贴板专用会话、子进程继承、事件标签和密度轨道同步。
+- 原因是多数GDI Raw落入旧名称推断的Process兜底。现在明确的GDI/GDI+/DWM/DirectX/OpenGL/主题/字体整形模块先归Gui，精确列出的User32绘图/DC导出及win32u的NtGdi导出也归Gui，其他旧猜测规则保留。关闭类别时Raw发现阶段直接记录CategoryDisabled，不占导出批次配额，也不创建安装绑定；底层安装门禁仍复核类别。Fake发送和原始槽位采集未改。
+- 原窗口类13项（Gdi32的6项，以及GetDC/ReleaseDC/InvalidateRect/ValidateRect/RedrawWindow/UpdateWindow/PrintWindow）迁Gui。追加77项：900–932对象/字体33项，950–993绘图/DC/路径/坐标44项。总898项，673生成包装、225专用处理器；Gui共90项。原ID/导出身份稳定，没有合入第三方声明。
+- 新接口仅采具名值/地址、返回位及耗时，不解引用结构/文本/图像。生成器 `error_source=none` 扩到bool/handle/dword_nonzero/uint_nonzero/int_positive：已知失败标StatusUnknown、保留真实返回和LastError，不把残留错误码当有效原因。GetCurrentObject、GetObjectType和LineTo的成功/失败两路径在双架构各15组逐项匹配。
+- 原生签名77项均经x86/x64 SDK static_assert核对；生产Raw分类和CategoryEnabled门禁双架构通过。定义生成/确定性/原614身份、配置继承/往返、CLI密度、14个选择项的24组主题/字号/栏宽回归和语言/主题门禁通过。入口仍为“监控→WinAPI→API事件/API覆盖”，沿用ParameterWorkspace和FlowLayout，对照SystemTime/VirtualLocation；未新增布局或例外，真实主程序视觉仍依此前用户不使用computer use的要求待人工查看。
+- 恢复用户指定 `Codex-DwmApiMonitor-PreAttach-20261101-01` 后，在20H2来宾两架构各实际调用257/257项（原180+新77）。x64逐项匹配248、入口不可用9；x86匹配255、不可用2；契约不符0、丢包/无效包0。新77中x64匹配76、x86匹配77；x64唯一新增不可用为CreateHatchBrush，入口offset3指令被现有解码器拒绝，本轮未扩改Hook引擎。不能把定义数/尝试数称全部安装成功。
+- 逐项证据 `.codex-build-logs/gui-per-api-vm-20261108/per-api-summary.json`；原始trace/capture位于同目录results。GUI隔离另测8个会话：x64/x86的process+Raw和window+Raw均0条GDI/GUI事件，且强类型/Raw覆盖行均分类关闭；GUI+Raw有187/176条，GUI强类型模式各48条，返回/耗时边界正确，70项断言通过。证据 `.codex-build-logs/gui-category-vm-20261108/results/summary.json`。这只证明受控输入和单一系统，不等于多版本/长期压力验收。
+- 最终主程序/双Agent/CLI HostX64 Release构建通过。声明SHA256=`67aa8a6476434d7af2564b1a2dc1a8f12aa16fd792cfe55e2ee2b6489cd049d1`，主程序SHA256=`0FB3E0CA80E338C08DDD86FC3B542BEDCCF08889463CB843108E4AA0FBBC31BA`；日志 `apimon-gui-main-build.log` / `apimon-gui-cli-build.log` 均在 `.codex-build-logs/`。旧x64 DLL被宿主目标映射，改名保留为 `APIMonitor_x64.before-gui-category-20261108.dll` 后重链，未结束用户进程。主程序与已加载旧Agent的目标均须重启，再开新会话才使用新分类；Agent仍PIN常驻。
+
+## 分类复选框消失与采集方式说明（2026-11-08）
+
+- 用户截图中的13个分类控件仍存在；`ParameterChoiceWrap` 将其水平策略设为 `Ignored` 后，`QWidgetItem::sizeHint()` 宽度变为0，原 `FlowLayout` 据此分配零宽。共享流布局现对这类非扩展、非隐藏控件使用控件本身的自然宽度，并限制在可用行宽内。
+- “采集强类型调用栈”右侧新增主题圆圈问号，悬停以中英文解释项目内的强类型/Raw约定、参数/返回/耗时差异及仅强类型提供最多8帧调用栈的边界；实际安装仍以API覆盖为准。入口、页面类型和共享框架沿用下节记录，无新增页面或例外。
+- `tools/api_monitor/test_flow_parameter_choices.py` 使用生产 `ParameterChoiceWrap` 和 `FlowLayout`；旧源码负控稳定复现13项零宽，新源码在深浅配色、10/14pt字体、200/340/700px栏宽的12种组合中显示、换行及标签点击均通过。图片仅为共享组件离屏回归，不代表真实主程序的背景、首帧或整页视觉验收；此前用户禁止computer use，真实窗口仍待人工查看。
+- 主程序HostX64 Release构建、语言与主题门禁通过；产物SHA256=`BF9901745ED2B1B41FB709091E659BF8D693E4210681EA70152B3115C9EB43F9`。运行中的旧EXE因占用导致首次链接LNK1104，已原目录改名为 `Ksword5.1.running-before-category-help-20261108.exe` 后重建成功，未结束用户窗口；重启主程序才会使用新布局。
+- 用户随后截图指出短标签全部把 `API` 的 `I` 换到下一行。上述12组回归只覆盖原生样式和配色，没有加载主程序的QSS，也未断言短标签必须单行；通过不能作为主题下文字尺寸正确的证据。根因是 `ParameterChoiceWrap::labelRect()` 硬编码指示器间距7px，而主程序规则为6px，造成自然宽度恰好少1px。
+- 标签区域现统一通过 `SE_CheckBoxContents` / `SE_RadioButtonContents` 取得，与原生 `sizeHint()` 同源。回归直接提取主程序的复选框主题规则，增加短API标签单行断言；修复前13项在12种主题组合均失败（156项），修复后含原生样式的24组通过。参数选择项既有首帧、鼠标、键盘与生命周期回归245项通过；组件截图已核对，仍不等于真实主程序视觉验收。
+- 断行修复后的HostX64主程序Release、语言/主题门禁通过，最终EXE SHA256=`50D44300345933D2E6B27FB99266B0D16E67BA2EDB846418CEC161530015E8D3`；构建日志 `.codex-build-logs/apimon-choice-text-build.log`。已有测试签名的本机信任校验警告仍存在，未改变证书配置。
+
+## 第二轮扩充与逐 API 实测审计（2026-11-08）
+
+- 用户追问“能否新增更多强类型，实测数量足够吗”。复核上一轮最终原始事件：新增115项中仅x64的10项、x86的9项曾出现事件，逐项强制断言各7项；426是断言数，不能称426个API实测或115项全部可靠。
+- 本轮再新增65项（801–823菜单23、830–851内存/线程/进程22、860–879 COM/安全描述符20），总数821；596个生成包装、225个专用处理器。原有ID/导出身份不变，Raw推断和Raw/Fake发送入口保持既有行为，没有合入第三方候选。补21项方向/长度元数据（16长度、6方向，836合并在一项）；输入地址数组不能因SDK SAL简写为out而丢失inout语义。
+- `ReclaimVirtualMemory` 的 `ERROR_BUSY=170` 是成功回收但内容丢弃，不是普通非零失败；831使用专用处理器，状态归成功，保留调用方返回170及 `reclaimed_discarded=1`。生产函数提取夹具在x86/x64验证0/170/87及旁路、LastError和返回位。
+- 三组 `runtime_probe_*.inc` 实际调用两轮全部180个新增接口，先未注入基线，再受控注入循环。`runtime_probe_fixture.cpp` 限定明确授权来宾 `DESKTOP-D2161R7`，本轮用户允许虚拟机状态丢失；光标调用仅在这个授权分支允许，服务仅只读打开RpcSs查询，不修改服务。每轮清理自有窗口、句柄、内存、COM/CNG资源。
+- `analyze_per_api_capture.py` 根据调用线程、FILETIME时间窗、真实返回位、LastError/状态契约与事件一对一匹配，并核对类别、函数、声明SHA及返回/耗时标志。一个事件不能验证多个调用，额外清理调用不能误报为返回不符。HooksRemoved在物理恢复和覆盖发布后才发出，不能把确认之前的全部调用都视为仍在采集；按HooksInstalled与requestedDurationMs限定稳定区间，避开20ms边界桶。
+- 最终在用户指定 `Codex-DwmApiMonitor-PreAttach-20261101-01` 快照中，x64/x86均实际调用180/180项。x64逐项匹配172、入口不可用8（前轮115中107、新65全部）；x86匹配178、入口不可用2（前轮115中113、新65全部）。契约不符0，丢包/无效包0，部署二进制哈希与本机最终产物一致。成功/失败两条路径均匹配的接口分别53/54项；部分接口只验证安全失败，不能说全部业务成功或全部旧641项已逐项实测。
+- x64不可用：GetPhysicalCursorPos/SetPhysicalCursorPos为共享入口冲突，SetProcessWorkingSetSize为保守指令拒绝，CoResumeClassObjects、CopySid、InitializeSid、InitializeSecurityDescriptor、GetSecurityDescriptorControl为RIP相对位移超范围。x86仅两个物理光标接口入口冲突。本轮没有扩改Hook引擎，不把尝试调用或覆盖行存在算已验证。
+- 结果 `.codex-build-logs/per-api-vm-20261108-final/per-api-summary.json`，原始trace/capture在同目录results；采集日志 `.codex-build-logs/apimon-per-api-vm-final.log`。重跑入口 `tools/api_monitor/Build-PerApiProbe.cmd`、`Invoke-CliParityVm.ps1 -Mode perapi`、`analyze_per_api_capture.py REPORT_ROOT`。新增65项双架构SDK ABI、定义生成、目录元数据、特殊返回和匹配器回归通过，主程序/双Agent Release与语言/主题门禁通过。当前声明SHA256=`59ee7581c3e71a467f3d19474ea998b8a36fd4f927a425ce2872047f9a931ee8`。
+- 本轮未改GUI布局；此前GUI实机视觉验收仍未完成。单一20H2快照的受控调用不代替多系统版本、长时压力、复杂输出结构解码或任意宿主进程验证。
+
+## 分类细化与自有强类型扩充（2026-11-08）
+
+- 用户要求将内存、线程、服务、权限、加密、COM、窗口从进程分类拆出；Raw 按函数名推断分类的逻辑保持原样。协议仅追加 `Memory=8/Thread=9/Service=10/Security=11/Crypto=12/Com=13/Window=14`，原枚举值和包布局不变；原 641 项导出身份与 ID 不变，其中 229 项重分类。分类数为 13 个业务类，时间轴另有其他轨道。
+- 自有 SDK 定义新增 115 项，总数 756；532 个生成包装、224 个专用处理器。新 ID 段 642–683（窗口 42）、700–731（内存/线程 32）、760–800（服务/权限/加密/COM 41）。没有合入此前第三方候选。当前分类数量：文件95、注册表86、网络111、进程83、加载器27、剪贴板10、内存42、线程70、服务33、权限54、加密58、COM26、窗口61。
+- 七个 `enable_*` INI 开关缺省继承 `enable_process`，保留旧配置覆盖；主程序显式保存、子进程显式继承，剪贴板保护专用会话显式关闭全部七类。CLI `--categories`、业务选项导入、help、文档、事件文本和密度桶同步。加载器可为补装继续安装，但强类型业务事件按用户分类选择抑制；网络完成观察入口也不冒出未启用分类事件。
+- 新包装先采具名数值/指针地址、返回值和耗时，不读取新结构/缓冲区内容。21 项 SDK SAL 长度关系表示容量或输入长度，不能推断实际输出字节。16 项未有完整 `GetLastError` 契约的 BOOL 接口使用 `error_source=none`，失败保留真实 FALSE 并上报 `StatusUnknown`、`call_failed=1 error=unavailable`；不得把旧 LastError 当有效错误。
+- 源码 UI 核对入口为“监控 → WinAPI → API 事件/API 覆盖”，类型为参数/执行与列表/时间轴混合页，沿用 `ParameterWorkspace`、既有结果表/详情与共享 `FlowLayout`；对照 `SystemTimePage`、`VirtualLocationPage` 和共享布局实现。新增分类自然换行，时间轴为14轨；普通控件继续由标准主题接入。剪贴板保护仅配置写入受影响，不改布局。真实主程序的窄窗、DPI/长文本、深浅主题、背景与首帧视觉尚未验收，不能由编译/离屏测试认定合规。
+- 本机 HostX64 构建主程序 Release、CLI 和双位数 Agent 通过；CLI 工程原漏登记的 `ArkDriverModule.cpp` 已在工程/filters 补齐，避免 `enumerateProcessModules` 链接缺失。主程序语言与主题门禁、配置隔离/子继承、覆盖快照、CLI 时间桶、定义确定性、Raw 身份索引通过；115 项 SDK 签名均在 x86/x64 编译核对，窗口/权限/加密/COM 的隔离包装夹具通过。主程序自动测试签名仍有原有 `0x80096019` 验证警告，构建成功不等于证书受信任。
+- 按用户授权丢弃 VM 当前状态，恢复 `Codex-DwmApiMonitor-PreAttach-20261101-01` 后，最终双位数 DLL/CLI 在 `DESKTOP-D2161R7` 完成16组、426项检查，覆盖18个自有进程实例、七分类独立启用、新旧代表接口、返回值、声明SHA、子进程混合开关继承、完整覆盖快照和停钩；丢包/无效包为0。部署产物哈希与本机最终产物一致。所有会话均为partial（退出6），不能据代表调用通过宣称756项全部安装。日志 `.codex-build-logs/apimon-category-vm-release.log`，结构化结果 `.codex-build-logs/category-vm-20261108-release/summary.json`；复现用 `tools/api_monitor/Invoke-CliParityVm.ps1 -Mode category` 与 `Invoke-CategoryGuest.ps1`。只操作自有夹具，不操作宿主 DWM。
+- 初轮 x64 权限代表 `OpenProcessToken`、`InitializeSecurityDescriptor` 被现有引擎以 `RIP-relative operand exceeds disp32 range` 拒绝（覆盖Unsupported），未修改引擎或伪称已覆盖；改用该快照确实可安装的 `GetTokenInformation`、`GetSecurityDescriptorDacl` 验证权限分类。初轮失败原始数据保留 `.codex-build-logs/category-vm-20261108/results/x64-security/capture.json`。Raw/Fake发送与入口实现、Raw分类推断按源码与原版逐段核对未变；分类关闭的业务事件抑制仅在强类型metrics路径。
+
+## 2026-11-02 P0 增强与 CLI（仍需最终验收）
+
+- 2026-11-03 用户确认此前版本的时间轴显示和交互正常。随后按其反馈压缩时间轴、移除可见状态/图例行，将分配长度和撤销放到模式旁，调整三栏比例，A/B 时间只显示时分秒毫秒，B 隐藏序号及相对时间；属性字段从事件列投影补齐。新布局已构建，用户禁止 computer use，修改后的真实 GUI 尚待人工查看。
+- 主程序 `ksword-build-check-20261102-222645.raw.log` 构建成功，但 EXE 测试签名的 `signtool verify /pa` 返回 `0x80096019`（basic constraint extension），签名状态 `UnknownError`；不能将编译通过说成签名已被信任。
+- 生产声明文件及 Release 副本 SHA-256 为 `F963FFD995036E2070D37811E3D0239C9DCD8EC461CC54418144CE46F25A4BEB`，仅包含 641 条自有定义。遵照用户“候选暂不合入”的要求，第三方参考数据保存在 `.codex-build-logs/api-monitor-user32-batch-candidate.json`（SHA-256 `2F8283CA5C8C9BEF2C5A2783ACC5721AFA7255D9342D55FD8A22BCA406DEF14C`），其中 227 项通过 SDK 原型核对，方向和运行时语义未由该核对证明。
+- 较早 x64 Agent 在来宾 DWM/Explorer 各短测三秒，进程创建身份保持、停钩完成、未见对应应用崩溃事件；均为 partial，Agent 报告丢失为 0，CLI 20000 条缓冲分别淘汰 10341/10357 条。见 `.codex-build-logs/api-p0-current-system-vm-20261102/results/summary.json`；该 Agent 包含候选哈希，不能冒充最终 Agent 的系统进程实测。停钩后 Agent 仍驻留来宾进程，不能删除其 DLL 或称完全卸载。
+- 异步等待语义修复前的自有声明版本 x64 Agent 在来宾 DWM/Explorer 各短测三秒，进程身份保持且停钩完成，未见对应应用崩溃事件，均为 partial；Agent 报告丢失为 0，CLI 各保留 20000 条并淘汰 19146/20972 条，见 `.codex-build-logs/api-p0-owned-system-vm-20261102/results/summary.json`。各保留记录中的 19999 条有效业务事件重放到密度模型后分别落入 37/35 个像素列，计数守恒；不能证明当前 Agent 系统进程行为、GUI 视觉或长期稳定。
+- 异步 IoWait 的零错误是未完成观察，不能显示为成功：生产跟踪器对这种等待发送 `StatusUnknown`，等待观察的非零错误仍使用 `StatusCode`。x86/x64 跟踪器回归及当前双位数 Agent 的来宾 ReadFileEx 提交/等待/完成实际对照通过，等待字节数未知、完成字节数与目标回调一致，见 `.codex-build-logs/semantic-pending-vm-20261102/results/summary.json`。
+- 异步等待语义修复前的 CLI 和双位数 Agent 在来宾自有目标完成 142 项检查，覆盖前后置筛选及例外、调用栈开关及来源、有界时间桶计数、声明哈希与停钩；各会话均为 partial，结果见 `.codex-build-logs/cli-parity-owned-catalog-vm-20261102/results/`。
+- 当前双位数 Agent 在来宾自有语义夹具中对照验证 `VirtualProtect` 和 `DuplicateHandle` 的成功/失败返回值、成功输出参数及失败错误码，各项匹配，均 partial，Agent/CLI 缓冲丢失为 0 且已停钩。见 `tools/api_monitor/Invoke-SemanticGuest.ps1` 和 `.codex-build-logs/semantic-owned-catalog-vm-20261102/results/summary.json`；该结果不代表全部 API 均有输出参数支持。
+- 自有目标双位数复测新增调用栈来源核对：校验目标 PID 的可执行文件与预期夹具一致，以运行时主映像基址和大小验证 WriteFile 事件中至少一帧落在目标映像内；142 项通过且每轮仍为 partial，原始采集见 `.codex-build-logs/cli-stack-provenance-vm-20261102/results/`。这不是完整展开、符号或任意调用场景的证明。
+- `test_timeline_density.py` 可用 CLI 采集 JSON 重放真实 API 时间戳，优先仓库 Qt、回退本机 Qt；当前来宾 x64/x86 的 baseline 分别为 594/700 条，1200 列投影落在 54/51 个不同位置且计数守恒。该模型证据不代替真实 GUI 验收。
+- 当前来宾 DWM/Explorer 短测保留的 19998/19999 条有效业务事件重放主程序密度模型后分别落入 31/33 个像素列，计数守恒。`QueryNow100ns` 使用 `GetSystemTimeAsFileTime`，不同类别可能具有相同时间戳而纵向对齐，不能将时间戳当成高精度调用顺序；CLI 已淘汰的事件未进入重放。
+- `GetProcAddress` 的隔离候选对一个实测系统映像版本验证了 `KernelBase!GetProcAddressForCaller`，它是未公开内部接口，不能代替对其他版本及调用者敏感行为的兼容证明；基于稳定性要求未合入生产。原 `Kernel32!GetProcAddress` 的覆盖仍按实际 Unsupported 报告。
+- API Monitor 提供默认关闭的 R0 注入选项，CLI 为 `--r0-inject 1`；沿用既有 v1 注入 IOCTL，不新增驱动能力或协议，目标位数与远端入口在用户态核对，子进程通过 broker 使用相同后端，失败不回退 R3。驱动 v1 仍有 PID 查找竞态及远端路径分配保留到目标退出的限制。异步等待语义修复前的版本在来宾现有驱动和自有 x64/x86 目标实测安装、停止通过且未报告丢包，覆盖为 partial；测试后服务恢复停止，见 `.codex-build-logs/api-p0-r0-owned-catalog-vm-20261102/results/summary.json`。
+- 异步等待语义修复后的当前双位数 Agent 也在来宾自有目标完成 R0 注入、采集与停钩，Agent/CLI 缓冲未报告丢失，两次为 partial；测试前后驱动均为停止状态，见 `.codex-build-logs/api-p0-r0-pending-vm-20261102/results/summary.json`。
+- 时间轴密度桶起始宽度由 1 秒调整为 10 毫秒，每个类别保留桶内首末时间并按中点投影；最长时间范围仍自适应合并到最多 2048 桶。百万事件模型回归通过，但真实 GUI 的轨道呈现及缩放拖选尚未验收。
+- 生产 `api_monitor_definitions.json` 保留 641 条可执行强类型定义；第三方参考声明和接口元数据仅在隔离候选中。来源与未核验状态须保留，不将 COM 元数据视为已安装 Hook；未知声明不推断参数。第三方转换后发行授权尚需确认。
+- `KernelBase` 与 `KernelBase.dll` 等无路径、无扩展名模块使用一致的筛选和声明键；显式其他扩展名及路径保持独立。CLI 支持前后置排除、导入 GUI v1/v2 筛选文件、调用栈选项、Raw 槽位、声明和有界分类时间桶；显式 CLI 排除叠加导入规则，控制及覆盖包不受过滤。
+- 强类型返回值和耗时有显式有效标记；可选有界调用栈在事件时采集，地址归属/最近导出只能称查询时快照。异步 I/O 的未观察字节以 unknown 表示，不能把失败、未完成或不安全晚到观察当作已知零；跨版本协议和真实失败路径仍需继续验收。
+- 重启后已重连 Windows10-20H2 来宾 `DESKTOP-D2161R7`。原 Release 主程序和双位数 Agent 构建通过；来宾自有目标高频 9600 次逐项对照通过，见 `.codex-build-logs/api-p0-vm-metrics-reconnect-20261102/`。CLI 对等功能来宾重试 130 项通过但均为 partial，见 `.codex-build-logs/cli-parity-vm-20261102-retry/`；首次 x86 一轮异常的输出未保存，原因未知。上述非全部 P0、真实 GUI 或长期系统进程稳定性的证明。
+
+## WinAPI 列、类别密度时间轴与调用者快照（2026-11-02）
+
+- 列表和 TSV 通过同一列投影展示时间、相对时间、PID/TID、模块及已明确采集的值；时间筛选与其他条件共用分批/后台过滤。Raw 事件只采入口返回位置，强类型 CreateFileA/W/2 通过固定包普通事件标记传递真实返回 HANDLE；其余未采返回值或耗时不得推断。原协议包大小不变，原始 packetBase64 仍归档；仅对验证管道 PID 与创建时间的事件附加进程身份。
+- 时间轴按主程序已接收事件、类别及自适应时间桶聚合，最多 2048 桶，不保留逐事件引用；包含后置隐藏事件，排除前置拒收、传输或队列丢失和内部/异步阶段事件，淘汰列表行不倒扣。原 ETW 时间轴的缩放、范围及拖选保留，选区以防抖方式并入异步列表/导出筛选；桶宽和时间缺失数可见。值基准不代表真实 GUI 和长时间性能验收。
+- 调用者归属只在选中事件后对验证过创建身份的当前进程异步查询，明确标记查询时快照，不把地址当前归属当作调用发生时的历史事实。旧/无身份、已退出、不可访问均未知；Raw 返回位置经跳板/尾调用不保证是最初调用者。
+- 项目自有声明异步加载，用于选中详情的签名和保守 Raw 槽位展示，不读指针内存。外部 API Monitor XML 不自动导入；审计脚本按 SHA-256 精确识别并隔离修复 esent.xml 首部多余字符，其他声明差异作为待审线索。WinVerifyTrust 的 HRESULT 返回声明与微软文档 LONG 不符，按原文件哈希在隔离副本中仅修正返回类型，GetLastError 与零成功判定仍标为待核验，不能称整项已核准。外部 XML 清洗副本和报告不纳入仓库。
+
+## WinAPI 事件解码与前后置筛选（2026-11-01）
+
+- “显示详情”默认关闭，控制事件表的详情列；事件详情面板复用 `DetailLayoutHost` 的全局显示方案；Raw 参数规则按模块名（不区分大小写）与函数名（区分大小写）保存在程序目录 `config/winapi-param.cfg`。参数槽位/连续小端字节两种解码均只使用已采集值，不读取指针指向的内存，也不能凭原始槽位推断实际参数数量；x86 fastcall 的寄存器参数不能由默认堆栈槽位准确识别。
+- 事件下方与表格右侧详情使用一份 `StructuredFieldView` 规范文档：属性、参数分别投影为只读树，未分配字节由共享 `HexView` 展示；详情源工具行保留复制/导出，隐藏搜索且限制高度。行内和独立窗口沿用共享字段镜像，不是三栏。
+- 参数类型可按固定宽度的有符号/无符号整数、bool/Win32 BOOL、wchar_t、float/double、指针与字节数组分配；指针宽度跟随目标 ABI。x64 参数模式中浮点参数走 XMM，而当前 Raw 数据没有采集 XMM，必须显示未采集，不能把整数寄存器或栈槽解释成该浮点参数；连续字节模式则明确按已采集字节的位模式解码。
+- 参数条按可用视口宽度缩放，两种模式均按类型实际字节宽度绘制色块，数组长度翻倍时宽度按比例增加；参数模式解码仍按 ABI 槽位对齐；色块之间留间隔、剩余字节单独显示。无默认选中色，使用主题中性色块及悬停状态；数据不足的分配按所需宽度标出但不消耗未采集字节，并可通过“撤销末尾分配”移除。类型按钮使用短名，并根据目标位数及数组长度按宽度升序排列。数组长度默认 1，所有类型可分配数组；数组按已采集的连续字节解码，参数模式整段按 ABI 槽位对齐，不解引用目标指针。
+- API 覆盖页维护 `config/winapi-filter.cfg`：前置筛选在管道读取后、写入档案前拒收业务事件；后置筛选保留事件档案和内存源，只异步改变表格可见行及可见事件导出。两者均不影响 Agent 控制事件与覆盖快照，也不改变 Hook 安装。规则在管道线程和 UI 之间以不可变快照共享，修改立即生效；前置丢弃的历史事件无法恢复，后置移除规则后只能恢复仍在内存窗口内的事件。
+- 筛选区以模块 → API 分类 → 函数树预加载发布定义，并增量合并覆盖快照中的运行时函数和已保存规则；无分类的 Raw 函数按名称首字母分组。前置/后置左右并列，勾选表示接收或显示，分类仅用于导航。共享搜索支持模块、分类与函数，树节点和状态按 UI 时间预算分批更新，清空搜索恢复先前展开状态；批量全选/反选只修改搜索结果，模块排除下的单函数允许例外保存在版本 2 配置中，版本 1 排除规则继续兼容。
+
 ## CLI 监控接入（2026-11-01）
 
 - 新命令 `monitor api capture --pid PID --confirm [--json]`，注册元数据在 `KswordCLI/R3MonitorApi.cpp`，文档在 `docs/CLI使用文档.md`、`docs/cli/monitor.md`。x64 CLI 使用 Qt-free `shared/ApiMonitorCapture.{h,cpp}`，复用主程序的 Agent 位数选择、原生注入、SessionLease、InjectionBroker 和 CoverageSnapshotReceiver；没有新增 R0 注入路径。CLI 工程非链接依赖两个 Agent，x86 CLI 对本命令明确返回5。
@@ -55,9 +137,13 @@
 
 ## 有界记录与协议
 
+- 2026-11-01：WinAPI 页面可输入16–65536 MiB文本估算预算并保存，立即淘汰超预算的显示窗口；100万条上限仍存在。新会话在注入前创建 AppLocalDataLocation 下 `api_monitor_archive/<session>/events.jsonl`，每个通过协议／会话校验的原始包在读管道线程内、UI有界队列之前落入单线程序列化的归档缓冲；JSONL保留机器字段和完整1000字节Base64原包，覆盖包也保留。每1MiB／有新包且经过1秒写盘，停止时FlushFileBuffers；写失败标红并请求停止。已接收与已写包数分开显示；已写不等于每包都已物理刷盘。只保证实际收到并成功写入的数据，不覆盖Agent丢包、停机前未读管道、启动前行为或本次改动之前已淘汰的记录。已有的表格TSV导出仍仅限当前保留窗口，完整记录直接从归档JSONL读取。
+- Raw入口桩额外传递保存帧：x64显示RCX/RDX/R8/R9和最多四个原始栈槽，x86显示ECX/EDX和最多四个栈槽；读取限定在线程StackLimit/StackBase且用SEH保护，不解引用槽内指针。未经签名无法确定参数个数、类型或有效位，x64栈槽高32位可能保留垃圾；XMM未解码，结果仍为EntryOnly。自建x64/x86六参数函数回归验证寄存器、栈槽及原函数返回；禁止将本机DWM作为测试目标。
+
 - Agent 环形队列 4096 个包，其中 64 个容量预留内部通知。队列拒收及取出后无法发送的包计入累计 EventsDropped 通知，通知由发送线程直接发送，不进入满队列。内部通知洪峰仍可能溢出，进程突然退出前的最后统计也不能保证送达。
-- UI 保留 24000 个待显示事件与 12000 行表格，分别记录 UI 丢失、移出表格和待显示数量。Agent 丢失按 PID 汇总。TSV 只导出当前可见行，包含覆盖范围与计数说明；它不是完整调用轨迹。
-- 筛选文本缓存于时间列 UserRole；已有行不可变，仅筛选条件变化时全表扫描。新行单独筛选，淘汰旧行时同步可见计数。
+- UI 待显示队列仍为24000；2026-11-01前端由QTableWidget迁为TableActionTableView＋WinAPIEventTableModel＋WinAPIEventFilterModel。规范保留窗口上限100万条／约512 MiB文本估算预算，先到者淘汰；估算不是总RSS硬限制。Agent丢失、UI队列丢失、窗口移出分别计数。导出读取同一规范窗口及当前筛选／排序条件，包含尚未物化的保留记录，已移出记录不在内；它不是无限完整调用轨迹。
+- 不再为每行创建六个item、长期persistent index及独立过滤字段副本。普通增量批量beginInsert/RemoveRows，不reset；默认2048条一批。筛选快照按2048／4ms捕获纯值，AsyncOperation后台匹配，按512／4ms发布AcceptedRole，代理只处理变化范围；代次拒绝旧条件、已淘汰ordinal及clear之前的结果。隐藏页不提交筛选投影，菜单复用共享屏障。
+- “保持贴底”时关闭Qt的currentChanged自动定位，避免旧选中行淘汰／筛掉后跳到替代的首行；rangeChanged和批次结尾合并一次排队scrollToBottom，勾选、可见性和菜单屏障都在执行时复核。取消贴底恢复原生导航，删除旧行后按事件身份及像素偏移恢复阅读点。不要只在append返回前滚一次，也不要每次菜单屏障后clear模型。前端实现与验收边界见`docs/API-Monitor前端长列表-20261101.md`。
 - 协议版本 `0x20261003`，Windows 包大小1000字节。包包含 EventKind、API ID、操作 ID、会话身份、快照修订/状态/种类/地址及定义 SHA256。resultKind 为 StatusCode 或 EntryOnly，Raw 结果显示“未采集”，不能因 resultCode=0 标成 OK 或错误。剪贴板分类码为7。
 - 升级必须同时部署新主程序、APIMonitor_x64.dll、APIMonitor_x86.dll；旧协议组合不兼容。已加载旧 Agent 的目标进程需要重启后再监控。剪贴板保护的读端也使用共享包布局与版本检查。
 
@@ -136,3 +222,22 @@
 - 通过生产64位注入器与会话 broker 对新启动的三个 x86 应用全选分类+默认 Raw+自动子进程测试，最终均正常安装、持续记录并收到 HooksRemoved：JC PID59824，Raw7992、189824事件、3043条标记搜索参数加载；SysWOW64 notepad PID34064，Raw6397、12194事件；SysWOW64 cmd PID8392，Raw4756、307事件。证据 `.codex-build-logs/x86-real-app-probe.log`、`x86-real-app-results.json`；每次活动观察15秒，退出本轮自有进程，不代表长期压力证明。
 - 另查到较早的 x64 notepad 转储，加载的是 `Ksword-nice` 目录中的9月23日旧 DLL，不应与当前 Release 产物混同。当前 DLL 定义641项及发布 JSON SHA256保持一致；未重新引入注入助手。工作区其他功能修改保持原样。
 - 用户追加要求后，用当前 Release 对新启动的原生 x64 System32 notepad（PID41880）和 cmd（PID47748）再次全选注入，IsWow64Process2 确认机器类型；六分类、默认 Raw 模块/排除规则与自动子进程开关均启用。各观察30秒，记事本 Raw5893、43959事件，cmd Raw4357、409事件，均取得完整覆盖快照、HooksInstalled 和 HooksRemoved，未出现崩溃，随后仅关闭本轮自有实例。证据 `.codex-build-logs/x64-real-app-probe.log`、`x64-real-app-results.json`。x64 四线程全分类/默认 Raw 回归另采集290080事件并正常停止（`apimon-x64-all-selection-recheck.log`）；x64 Release 增量编译成功（`apimon-x64-all-selection-build.log`），发布 JSON/两套 DLL 架构校验通过。本轮无代码修复，不代表每个 API 已安装或完成长期压力验证。
+
+## WinAPI 暂停与详情 HEX
+
+- 会话操作区的“暂停”默认关闭，可在会话期间切换；接收线程在校验包之后、前置筛选和归档之前丢弃普通 API 事件，单独统计暂停丢弃数。覆盖率及内部控制包仍需处理，以维持会话状态和子进程管道；暂停前已接收的事件可以继续入队。
+- WinAPI 事件详情的 HEX 视图初始化为每行 8 字节，仍可通过视图工具栏手动更改行宽，不影响其他 HEX 视图。
+
+## WinAPI 列、筛选与导出
+
+- 事件表禁用全局内容采样列宽适配，使用可手工调整的初始列宽；缺失字段显示 `-`。耗时使用当前主题强调色，按毫秒的十进制数量级调整透明度，不对未采集数据着色。
+- 筛选进度延迟 350ms 接入 KProgress：采集与结果应用阶段按实际进度更新，后台匹配阶段不伪造百分比。事件专用 CSV/TSV 导出从保留窗口及筛选条件生成，包含 A/B 的所有列。
+- 调用者模块与内存归属为当前进程映射的异步快照，不能当作历史时刻证据；表格对有调用地址且进程身份可验证的事件分批后台查询，结果随表格记录淘汰。2026-11-03 自有进程单地址 10 万行真实表格模型和代理自动填充约 3988ms；进程权限、地址分布和系统负载会影响实际用时。
+
+## 暂停、刷新和退出（2026-11-03）
+
+- 自动调用者解析器的关闭登记曾在 `beginShutdown` 只停止 worker、直到页面销毁才释放 lease，而主窗口等 lease 归还后才销毁页面，造成退出死锁。现由关闭回调通过 `AsyncUiDispatcher` 回到模型线程移交停止与后台 join；回归在模型仍存活时验证 pending 清零。
+- ETW 使用 50ms/32 行的有界 UI 提交；WinAPI 原先可能一次接收 24000 行并以零间隔持续投影。现 UI inbox 最多每批接收、投影 512 行，积压以 16ms 间隔继续；后台 inbox 按剩余容量转移，丢弃继续计数，完整原包仍以现有语义先入磁盘归档。调用者快照投影间隔由 10ms 调整为 40ms；自有离屏回归的 12000 行最大批次 2ms、10 万相同地址快照约 18.4s，仅是本机样本。
+- 主程序使用会话唯一的全局命名事件通知新 Agent 暂停，Agent 持有只读等待权限，子进程配置继承同一名称。暂停先阻止业务事件，再批量恢复 Hook 入口，确认后发 `HooksPaused`；恢复时重新安装并发 `HooksResumed`。根进程确认恢复前主程序继续丢弃暂停期数据；旧常驻 Agent 不支持此控制，需重启目标进程。x64/x86 自有目标回归验证原始入口字节、暂停时无事件、恢复重新安装及暂停中停止，并验证两个独立 Agent 监听同一事件；未以实际自动注入子进程路径实测此功能。反复停装按现有安全策略保留已退役代码，不能称为完全卸载。
+- 启动失败时即使清理已经开始也显示真实失败原因，未发布配置不再声称已发送停止标记；只剩停止事件的历史现象无法单凭空归档确定原始错误。本机非提升测试重现了会话目录 ACL 错误 5，提升的自有目标后端启动/暂停/恢复/清理通过，不能推断用户目标当时的具体错误。
+- 原 Release 的旧 Agent 被用户记事本映射时，先在自有进程验证映像重命名与替换可行，再将旧 DLL 移至工作区忽略目录并原子放入已测试新 DLL；未结束用户进程。已加载旧 Agent 的目标仍须重启才会使用新代码，旧版不支持暂停控制时 UI 会提示。

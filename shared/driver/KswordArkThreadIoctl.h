@@ -19,6 +19,7 @@
 #define KSWORD_ARK_IOCTL_FUNCTION_TERMINATE_THREAD 0x84FUL
 #define KSWORD_ARK_IOCTL_FUNCTION_SET_THREAD_SUSPENDED 0x850UL
 #define KSWORD_ARK_IOCTL_FUNCTION_CONTROL_DRIVER_THREAD 0x851UL
+#define KSWORD_ARK_IOCTL_FUNCTION_CONTROL_THREAD_VERIFIED 0x8D5UL
 
 #define IOCTL_KSWORD_ARK_ENUM_THREAD \
     CTL_CODE( \
@@ -92,6 +93,49 @@ typedef struct _KSWORD_ARK_SET_THREAD_SUSPENDED_REQUEST
     unsigned long action;
     unsigned long reserved;
 } KSWORD_ARK_SET_THREAD_SUSPENDED_REQUEST;
+
+// Dedicated identity-checked ordinary thread operations. A distinct IOCTL is
+// necessary: an older driver accepts oversized legacy requests but ignores
+// appended identity, which must never silently weaken a verified command.
+#define IOCTL_KSWORD_ARK_CONTROL_THREAD_VERIFIED \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_CONTROL_THREAD_VERIFIED, \
+        METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define KSWORD_ARK_THREAD_VERIFIED_VERSION 1UL
+#define KSWORD_ARK_THREAD_VERIFIED_QUERY 0UL
+#define KSWORD_ARK_THREAD_VERIFIED_SUSPEND 1UL
+#define KSWORD_ARK_THREAD_VERIFIED_RESUME 2UL
+#define KSWORD_ARK_THREAD_VERIFIED_TERMINATE 3UL
+#define KSWORD_ARK_THREAD_VERIFIED_CONFIRMED 0x00000001UL
+#define KSWORD_ARK_THREAD_VERIFIED_FIELD_IDENTITY 0x00000001UL
+#define KSWORD_ARK_THREAD_VERIFIED_FIELD_PREVIOUS_COUNT 0x00000002UL
+
+typedef struct _KSWORD_ARK_CONTROL_THREAD_VERIFIED_REQUEST
+{
+    unsigned long size;
+    unsigned long version;
+    unsigned long processId;
+    unsigned long threadId;
+    unsigned long action;
+    unsigned long flags;
+    unsigned long long expectedProcessCreationTime100ns;
+    unsigned long long expectedThreadCreationTime100ns;
+    long exitStatus;
+    unsigned long reserved;
+} KSWORD_ARK_CONTROL_THREAD_VERIFIED_REQUEST;
+
+typedef struct _KSWORD_ARK_CONTROL_THREAD_VERIFIED_RESPONSE
+{
+    unsigned long size;
+    unsigned long version;
+    long status;
+    unsigned long fieldFlags;
+    unsigned long processId;
+    unsigned long threadId;
+    unsigned long action;
+    unsigned long previousSuspendCount;
+    unsigned long long processCreationTime100ns;
+    unsigned long long threadCreationTime100ns;
+} KSWORD_ARK_CONTROL_THREAD_VERIFIED_RESPONSE;
 
 // 驱动/System 线程控制协议：
 // - 只接受 PID 4 的系统线程；R0 自行读取真实启动地址和创建时间；

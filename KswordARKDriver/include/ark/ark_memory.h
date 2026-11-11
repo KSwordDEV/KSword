@@ -23,6 +23,14 @@ KswordARKDriverReadVirtualMemory(
     );
 
 NTSTATUS
+KswordARKDriverReadVirtualMemoryVerified(
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ size_t OutputBufferLength,
+    _In_ const KSWORD_ARK_READ_VIRTUAL_MEMORY_VERIFIED_REQUEST* Request,
+    _Out_ size_t* BytesWrittenOut
+    );
+
+NTSTATUS
 KswordARKDriverWriteVirtualMemory(
     _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
     _In_ size_t OutputBufferLength,

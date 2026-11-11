@@ -12,6 +12,7 @@ if (!(Test-Path -LiteralPath $timelineOutput)) { throw 'Existing output director
 $timelineQt = Join-Path $timelineRepo '.deps\Qt\6.9.3\msvc2022_64'
 if (!(Test-Path -LiteralPath $timelineQt)) { $timelineQt = 'D:\Software\Qt\6.9.3\msvc2022_64' }
 $timelineVc = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207'
+if (!(Test-Path -LiteralPath $timelineVc)) { $timelineVc = 'D:\Software\VS\VC\Tools\MSVC\14.44.35207' }
 $timelineSdk = 'C:\Program Files (x86)\Windows Kits\10'
 $timelineSdkVersion = '10.0.26100.0'
 $timelineCompiler = Join-Path $timelineVc 'bin\Hostx64\x64\cl.exe'
@@ -24,7 +25,10 @@ $timelineSources = @(
     'Ksword5.1\Ksword5.1\MonitorDock\EventTimelineModel.cpp',
     'Ksword5.1\Ksword5.1\MonitorDock\ProcessTraceTimelineWidget.cpp',
     'Ksword5.1\Ksword5.1\MonitorDock\ProcessTraceTimelineWidget.Render.cpp',
-    'Ksword5.1\Ksword5.1\Internationalization\LanguageManager.cpp'
+    'Ksword5.1\Ksword5.1\Internationalization\LanguageManager.cpp',
+    'Ksword5.1\Ksword5.1\UI\AsyncOperation.cpp',
+    'Ksword5.1\Ksword5.1\UI\CompleteExport.cpp',
+    'Ksword5.1\Ksword5.1\UI\MainSurfaceStyle.cpp'
 )
 $timelineIncludes = @('/I' + (Join-Path $timelineRepo 'Ksword5.1\Ksword5.1'))
 $timelineIncludes += '/external:I' + (Join-Path $timelineVc 'include')

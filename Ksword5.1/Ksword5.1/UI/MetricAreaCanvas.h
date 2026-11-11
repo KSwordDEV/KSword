@@ -62,6 +62,7 @@ private:
     QPixmap m_surface;
     QPixmap m_labels;
     bool m_surfaceDirty = true;
+    bool m_animationsEnabled = true;
     // Index into the visible boxes, so a process's own area and its child group stay distinct.
     int m_root = -1, m_hover = -1;
 };

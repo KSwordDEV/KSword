@@ -9,6 +9,7 @@ HEADER=r'''
 #include <Windows.h>
 #include <evntrace.h>
 #include <evntcons.h>
+#include <tdh.h>
 ULONG WINAPI FixtureStart(PTRACEHANDLE,LPCWSTR,PEVENT_TRACE_PROPERTIES);
 ULONG WINAPI FixtureControl(TRACEHANDLE,LPCWSTR,PEVENT_TRACE_PROPERTIES,ULONG);
 ULONG WINAPI FixtureEnable(TRACEHANDLE,LPCGUID,ULONG,UCHAR,ULONGLONG,ULONGLONG,ULONG,PENABLE_TRACE_PARAMETERS);
@@ -16,6 +17,9 @@ TRACEHANDLE WINAPI FixtureOpen(PEVENT_TRACE_LOGFILEW);
 ULONG WINAPI FixtureProcess(PTRACEHANDLE,ULONG,LPFILETIME,LPFILETIME);
 ULONG WINAPI FixtureClose(TRACEHANDLE);
 BOOL WINAPI FixtureConsole(PHANDLER_ROUTINE,BOOL);
+ULONG WINAPI FixtureTdhInfo(PEVENT_RECORD,ULONG,PTDH_CONTEXT,PTRACE_EVENT_INFO,PULONG);
+ULONG WINAPI FixtureTdhSize(PEVENT_RECORD,ULONG,PTDH_CONTEXT,ULONG,PPROPERTY_DATA_DESCRIPTOR,PULONG);
+ULONG WINAPI FixtureTdhProperty(PEVENT_RECORD,ULONG,PTDH_CONTEXT,ULONG,PPROPERTY_DATA_DESCRIPTOR,ULONG,PBYTE);
 #define StartTraceW FixtureStart
 #define ControlTraceW FixtureControl
 #define EnableTraceEx2 FixtureEnable
@@ -23,6 +27,9 @@ BOOL WINAPI FixtureConsole(PHANDLER_ROUTINE,BOOL);
 #define ProcessTrace FixtureProcess
 #define CloseTrace FixtureClose
 #define SetConsoleCtrlHandler FixtureConsole
+#define TdhGetEventInformation FixtureTdhInfo
+#define TdhGetPropertySize FixtureTdhSize
+#define TdhGetProperty FixtureTdhProperty
 '''
 SOURCE=r'''
 #include "mock.h"
@@ -33,6 +40,17 @@ SOURCE=r'''
 #include <string>
 static std::wstring mode;static PEVENT_RECORD_CALLBACK callback=nullptr;static void* context=nullptr;static HANDLE stopped=nullptr;
 static PHANDLER_ROUTINE control=nullptr;static GUID provider{};static int starts=0,stops=0,closes=0,enables=0;static DWORD opener=0;
+ULONG WINAPI FixtureTdhInfo(PEVENT_RECORD record,ULONG,PTDH_CONTEXT,PTRACE_EVENT_INFO out,PULONG bytes){
+ const wchar_t target[]=L"TargetProcessId",path[]=L"FileName",event[]=L"Create";
+ const ULONG offset=static_cast<ULONG>(offsetof(TRACE_EVENT_INFO,EventPropertyInfoArray)+2*sizeof(EVENT_PROPERTY_INFO));
+ const ULONG required=offset+sizeof(target)+sizeof(path)+sizeof(event);
+ if(!out||*bytes<required){*bytes=required;return ERROR_INSUFFICIENT_BUFFER;}
+ memset(out,0,required);out->PropertyCount=out->TopLevelPropertyCount=2;out->DecodingSource=DecodingSourceXMLFile;
+ out->EventPropertyInfoArray[0].NameOffset=offset;out->EventPropertyInfoArray[0].nonStructType.InType=TDH_INTYPE_UINT32;out->EventPropertyInfoArray[0].count=record->EventHeader.EventDescriptor.Id==31002?2:1;
+ out->EventPropertyInfoArray[1].NameOffset=offset+sizeof(target);out->EventPropertyInfoArray[1].nonStructType.InType=TDH_INTYPE_UNICODESTRING;out->EventPropertyInfoArray[1].count=1;
+ out->EventNameOffset=offset+sizeof(target)+sizeof(path);auto* base=reinterpret_cast<BYTE*>(out);memcpy(base+offset,target,sizeof(target));memcpy(base+offset+sizeof(target),path,sizeof(path));memcpy(base+out->EventNameOffset,event,sizeof(event));*bytes=required;return 0;}
+ULONG WINAPI FixtureTdhSize(PEVENT_RECORD,ULONG,PTDH_CONTEXT,ULONG,PPROPERTY_DATA_DESCRIPTOR property,PULONG bytes){const auto name=reinterpret_cast<const wchar_t*>(property->PropertyName);*bytes=wcscmp(name,L"TargetProcessId")==0?4:sizeof(L"C:\\test.txt");return 0;}
+ULONG WINAPI FixtureTdhProperty(PEVENT_RECORD record,ULONG,PTDH_CONTEXT,ULONG,PPROPERTY_DATA_DESCRIPTOR property,ULONG bytes,PBYTE out){const auto name=reinterpret_cast<const wchar_t*>(property->PropertyName);if(wcscmp(name,L"TargetProcessId")==0){const ULONG id=record->EventHeader.EventDescriptor.Id==31001?42:7;assert(bytes==4);memcpy(out,&id,4);}else{const wchar_t path[]=L"C:\\test.txt";assert(bytes==sizeof(path));memcpy(out,path,bytes);}return 0;}
 BOOL WINAPI FixtureConsole(PHANDLER_ROUTINE handler,BOOL add){control=add?handler:nullptr;return TRUE;}
 ULONG WINAPI FixtureStart(PTRACEHANDLE h,LPCWSTR name,PEVENT_TRACE_PROPERTIES properties){++starts;assert(properties->Wnode.ClientContext==2&&properties->FlushTimer==1&&name&&name[0]);
  if(mode==L"start-denied")return 5;if(mode==L"start-unsupported")return 50;if(mode==L"start-positive")return 258;if(mode==L"collision")return 183;*h=123;return 0;}
@@ -44,11 +62,11 @@ ULONG WINAPI FixtureControl(TRACEHANDLE h,LPCWSTR,PEVENT_TRACE_PROPERTIES proper
 ULONG WINAPI FixtureClose(TRACEHANDLE h){assert(h==456);++closes;SetEvent(stopped);return mode==L"close-fail"?5:mode==L"close-pending"?ERROR_CTX_CLOSE_PENDING:0;}
 ULONG WINAPI FixtureProcess(PTRACEHANDLE h,ULONG count,LPFILETIME,LPFILETIME){assert(*h==456&&count==1&&opener==GetCurrentThreadId());
  if(mode!=L"empty"&&mode!=L"process-fail-empty")for(int i=0;i<3;++i){EVENT_RECORD record{};record.UserContext=context;record.EventHeader.ProviderId=provider;record.EventHeader.ProcessId=GetCurrentProcessId()+(i==1?1:0);record.EventHeader.ThreadId=opener;
- record.EventHeader.EventDescriptor.Id=static_cast<USHORT>(31000+i);record.EventHeader.EventDescriptor.Level=static_cast<BYTE>(2+i);record.EventHeader.EventDescriptor.Keyword=0x8000000000000001ULL;record.EventHeader.TimeStamp.QuadPart=133000000000000000+i;callback(&record);}
+ BYTE raw[]={0xab,0xcd};record.UserData=raw;record.UserDataLength=sizeof(raw);record.EventHeader.EventDescriptor.Id=static_cast<USHORT>(31000+i);record.EventHeader.EventDescriptor.Level=static_cast<BYTE>(2+i);record.EventHeader.EventDescriptor.Keyword=0x8000000000000001ULL;record.EventHeader.TimeStamp.QuadPart=133000000000000000+i;callback(&record);}
  if(mode==L"early-end")return 0;if(mode==L"cancel"){assert(control);control(CTRL_BREAK_EVENT);}assert(WaitForSingleObject(stopped,5000)==WAIT_OBJECT_0);return mode==L"process-fail"||mode==L"process-fail-empty"?5:0;}
 int wmain(int argc,wchar_t* argv[]){_setmode(_fileno(stdout),_O_U8TEXT);_setmode(_fileno(stderr),_O_U8TEXT);mode=argv[1];stopped=CreateEventW(nullptr,TRUE,FALSE,nullptr);assert(stopped);
  for(int i=1;i+1<argc;++i)argv[i]=argv[i+1];--argc;const auto pid=std::to_wstring(GetCurrentProcessId());for(int i=1;i+1<argc;++i)if(std::wstring(argv[i])==L"--pid"&&std::wstring(argv[i+1])==L"self")argv[i+1]=const_cast<wchar_t*>(pid.c_str());
- ks::cli::registerMonitorEtw();const auto result=ks::cli::dispatchR3(argc,argv).value_or(1);assert(starts==1&&closes<=1);if(mode==L"collision")assert(stops==0&&enables==0&&closes==0);if(mode==L"stop-retry")assert(stops==2);
+ ks::cli::registerMonitorEtw();const auto result=ks::cli::dispatchR3(argc,argv).value_or(1);assert(starts==1&&(closes<=1||mode==L"close-fail"));if(mode==L"collision")assert(stops==0&&enables==0&&closes==0);if(mode==L"stop-retry")assert(stops==2);
  CloseHandle(stopped);return result;}
 '''
 def main():
@@ -63,6 +81,12 @@ def main():
         data=run('valid',0);assert data['receivedCount']=='3' and data['returnedCount']=='3' and data['sessionStopped'] and data['consumerJoined'] and data['statisticsKnown']
         assert data['events'][0]['timestampFileTime']=='133000000000000000' and data['events'][0]['keyword']=='0x8000000000000001'
         assert run('valid',0,('--pid','self','--level','3'))['filteredCount']=='2'
+        decoded=run('valid',6,('--decode','1'));assert decoded['decodePartialCount']=='1' and decoded['events'][0]['payload']['targetPid']==7
+        assert decoded['events'][0]['payload']['eventName']=='Create' and decoded['events'][0]['payload']['properties'][1]['value']==r'C:\test.txt'
+        assert decoded['events'][0]['payload']['rawPrefixHex']=='abcd' and decoded['events'][0]['payload']['rawSize']==2
+        assert run('valid',6,('--decode','1','--limit','1'))['droppedFromBufferCount']=='2'
+        target=run('valid',6,('--target-pid','42'));assert target['matchedCount']=='1' and target['targetFilteredCount']=='1' and target['targetUnknownCount']=='1'
+        assert target['events'][0]['payload']['targetPid']==42 and target['events'][0]['headerPid']!=42
         assert run('empty',0)['returnedCount']=='0'
         assert run('valid',6,('--limit','1'))['droppedFromBufferCount']=='2'
         for mode,code,status in [('start-denied',3,5),('start-unsupported',5,50),('start-positive',3,258),('collision',3,183)]:

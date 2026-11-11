@@ -61,6 +61,55 @@
 #define KSWORD_ARK_IOCTL_FUNCTION_PROCESS_TOKEN_PRIVILEGES 0x855UL
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_PROCESS_TOKEN_PRIVILEGES 0x853UL
 #define KSWORD_ARK_IOCTL_FUNCTION_ADJUST_PROCESS_TOKEN_PRIVILEGE 0x854UL
+#define KSWORD_ARK_IOCTL_FUNCTION_COPY_PROCESS_TOKEN 0x937UL
+
+// Replace EPROCESS.Token with a separately owned reference to the source token object.
+#define IOCTL_KSWORD_ARK_COPY_PROCESS_TOKEN \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_COPY_PROCESS_TOKEN, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_VERSION 2UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_CONFIRMED 0x00000001UL
+
+// Receipt fields are valid only when the corresponding observation bit is present.
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_SOURCE_IDENTITY 0x00000001UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_TARGET_IDENTITY 0x00000002UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_SOURCE_TOKEN 0x00000004UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_BEFORE_TOKEN 0x00000008UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_ASSIGNED_TOKEN 0x00000010UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_ASSIGN_ATTEMPTED 0x00000020UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_APPLIED 0x00000040UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_AFTER_TOKEN 0x00000080UL
+#define KSWORD_ARK_PROCESS_TOKEN_COPY_VERIFIED 0x00000100UL
+
+typedef struct _KSWORD_ARK_COPY_PROCESS_TOKEN_REQUEST
+{
+    unsigned long size;
+    unsigned long version;
+    unsigned long sourceProcessId;
+    unsigned long targetProcessId;
+    unsigned long flags;
+    unsigned long reserved;
+    unsigned long long expectedSourceCreateTime100ns;
+    unsigned long long expectedTargetCreateTime100ns;
+} KSWORD_ARK_COPY_PROCESS_TOKEN_REQUEST;
+
+typedef struct _KSWORD_ARK_COPY_PROCESS_TOKEN_RESPONSE
+{
+    unsigned long size;
+    unsigned long version;
+    unsigned long sourceProcessId;
+    unsigned long targetProcessId;
+    unsigned long fieldFlags;
+    long lastStatus;
+    long assignStatus;
+    long verifyStatus;
+    unsigned long long sourceCreateTime100ns;
+    unsigned long long targetCreateTime100ns;
+    unsigned long long sourceTokenId;
+    // The assigned object is the source token itself, rather than a duplicate token.
+    unsigned long long assignedTokenId;
+    unsigned long long targetTokenIdBefore;
+    unsigned long long targetTokenIdAfter;
+} KSWORD_ARK_COPY_PROCESS_TOKEN_RESPONSE;
 
 #define IOCTL_KSWORD_ARK_TERMINATE_PROCESS \
     CTL_CODE( \

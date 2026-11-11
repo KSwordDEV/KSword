@@ -23,14 +23,17 @@
             void Restore() const { ::WSASetLastError(wsa); ::SetLastError(win32); }
         };
         void RecordExtensionCall(ExtensionContext* context, DWORD error, SOCKET socket, LPOVERLAPPED ov,
-            DWORD bytes, const wchar_t* parameters)
+            DWORD bytes, const wchar_t* parameters, bool hasReturn, std::uint64_t returnBits,
+            const ApiCallDuration& duration, bool bytesKnown = true)
         {
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
-            _snwprintf_s(detail, _TRUNCATE, L"socket=0x%llX overlapped=%p bytes=%lu %s",
-                static_cast<unsigned long long>(socket), ov, bytes, parameters);
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Mswsock", context->definition->name,
-                error, detail, ks::winapi_monitor::EventResultKind::StatusCode,
-                ks::winapi_monitor::EventKind::ApiCall, 0, context->definition->id);
+            wchar_t bytesText[32]{};
+            if (bytesKnown) _snwprintf_s(bytesText, _TRUNCATE, L"%lu", bytes);
+            else wcscpy_s(bytesText, L"unknown");
+            _snwprintf_s(detail, _TRUNCATE, L"socket=0x%llX overlapped=%p bytes=%s %s",
+                static_cast<unsigned long long>(socket), ov, bytesText, parameters);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Mswsock", context->definition->name,
+                error, detail, hasReturn, returnBits, duration, context->definition->id);
         }
         BOOL WSAAPI DispatchAcceptEx(ExtensionContext* context, SOCKET listener, SOCKET accepted, PVOID buffer,
             DWORD receiveLength, DWORD localLength, DWORD remoteLength, LPDWORD bytes, LPOVERLAPPED ov)
@@ -41,14 +44,17 @@
             const ExtensionErrors incoming;
             auto op = BeginIo(listener, ov, L"Mswsock", L"AcceptEx", ks::winapi_monitor::EventCategory::Network, receiveLength);
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const BOOL result = original(listener, accepted, buffer, receiveLength, localLength, remoteLength, bytes, ov);
-            const ExtensionErrors saved;
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock);
             const DWORD error = result ? 0 : saved.wsa;
-            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, result ? SafeIoValue(bytes) : 0);
+            DWORD transferred = 0;
+            const bool bytesKnown = result != FALSE && TrySafeIoValue(bytes, &transferred);
+            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred, bytesKnown);
             wchar_t parameters[160]{};
             _snwprintf_s(parameters, _TRUNCATE, L"accepted=0x%llX buffer=%p receive=%lu local=%lu remote=%lu",
                 static_cast<unsigned long long>(accepted), buffer, receiveLength, localLength, remoteLength);
-            RecordExtensionCall(context, error, listener, ov, result ? SafeIoValue(bytes) : 0, parameters);
+            RecordExtensionCall(context, error, listener, ov, transferred, parameters, true, ApiReturnBits(result), duration, bytesKnown);
             saved.Restore(); return result;
         }
         BOOL WSAAPI DispatchConnectEx(ExtensionContext* context, SOCKET socket, const sockaddr* address,
@@ -60,12 +66,15 @@
             const ExtensionErrors incoming;
             auto op = BeginIo(socket, ov, L"Mswsock", L"ConnectEx", ks::winapi_monitor::EventCategory::Network, length);
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const BOOL result = original(socket, address, addressLength, buffer, length, bytes, ov);
-            const ExtensionErrors saved; const DWORD error = result ? 0 : saved.wsa;
-            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, result ? SafeIoValue(bytes) : 0);
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock); const DWORD error = result ? 0 : saved.wsa;
+            DWORD transferred = 0;
+            const bool bytesKnown = result != FALSE && TrySafeIoValue(bytes, &transferred);
+            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred, bytesKnown);
             wchar_t parameters[160]{};
             _snwprintf_s(parameters, _TRUNCATE, L"address=%p addressLength=%d buffer=%p length=%lu", address, addressLength, buffer, length);
-            RecordExtensionCall(context, error, socket, ov, result ? SafeIoValue(bytes) : 0, parameters);
+            RecordExtensionCall(context, error, socket, ov, transferred, parameters, true, ApiReturnBits(result), duration, bytesKnown);
             saved.Restore(); return result;
         }
         int WSAAPI DispatchWSARecvMsg(ExtensionContext* context, SOCKET socket, LPWSAMSG message,
@@ -81,12 +90,18 @@
             auto replacement = reinterpret_cast<LPWSAOVERLAPPED_COMPLETION_ROUTINE>(PrepareIoCallback(op, nullptr, callback));
             if (callback && !replacement) op.reset();
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const int result = original(socket, message, bytes, ov, replacement ? replacement : callback);
-            const ExtensionErrors saved; const DWORD error = result == 0 ? 0 : saved.wsa;
-            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error, result == 0 ? SafeIoValue(bytes) : 0);
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock); const DWORD error = result == 0 ? 0 : saved.wsa;
+            DWORD transferred = 0;
+            const bool bytesKnown = result == 0 && !ov && TrySafeIoValue(bytes, &transferred);
+            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error, transferred, bytesKnown);
             wchar_t parameters[160]{};
-            _snwprintf_s(parameters, _TRUNCATE, L"message=%p flags=0x%lX callback=%p", message, SafeIoValue(message).dwFlags, callback);
-            RecordExtensionCall(context, error, socket, ov, result == 0 ? SafeIoValue(bytes) : 0, parameters);
+            WSAMSG output{};
+            const bool flagsKnown = result == 0 && !ov && TrySafeIoValue(message, &output);
+            if (flagsKnown) _snwprintf_s(parameters, _TRUNCATE, L"message=%p flags=0x%lX callback=%p", message, output.dwFlags, callback);
+            else _snwprintf_s(parameters, _TRUNCATE, L"message=%p flags=unknown callback=%p", message, callback);
+            RecordExtensionCall(context, error, socket, ov, transferred, parameters, true, ApiReturnBits(result), duration, bytesKnown);
             saved.Restore(); return result;
         }
         int WSAAPI DispatchWSASendMsg(ExtensionContext* context, SOCKET socket, LPWSAMSG message, DWORD flags,
@@ -102,12 +117,15 @@
             auto replacement = reinterpret_cast<LPWSAOVERLAPPED_COMPLETION_ROUTINE>(PrepareIoCallback(op, nullptr, callback));
             if (callback && !replacement) op.reset();
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const int result = original(socket, message, flags, bytes, ov, replacement ? replacement : callback);
-            const ExtensionErrors saved; const DWORD error = result == 0 ? 0 : saved.wsa;
-            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error, result == 0 ? SafeIoValue(bytes) : 0);
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock); const DWORD error = result == 0 ? 0 : saved.wsa;
+            DWORD transferred = 0;
+            const bool bytesKnown = result == 0 && !ov && TrySafeIoValue(bytes, &transferred);
+            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error, transferred, bytesKnown);
             wchar_t parameters[160]{};
             _snwprintf_s(parameters, _TRUNCATE, L"message=%p flags=0x%lX callback=%p", message, flags, callback);
-            RecordExtensionCall(context, error, socket, ov, result == 0 ? SafeIoValue(bytes) : 0, parameters);
+            RecordExtensionCall(context, error, socket, ov, transferred, parameters, true, ApiReturnBits(result), duration, bytesKnown);
             saved.Restore(); return result;
         }
         BOOL WSAAPI DispatchTransmitFile(ExtensionContext* context, SOCKET socket, HANDLE file, DWORD length,
@@ -119,13 +137,14 @@
             const ExtensionErrors incoming;
             auto op = BeginIo(socket, ov, L"Mswsock", L"TransmitFile", ks::winapi_monitor::EventCategory::Network, length);
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const BOOL result = original(socket, file, length, perSend, ov, buffers, flags);
-            const ExtensionErrors saved; const DWORD error = result ? 0 : saved.wsa;
-            const DWORD transferred = result && ov ? static_cast<DWORD>(SafeIoValue(&ov->InternalHigh)) : 0;
-            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred);
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock); const DWORD error = result ? 0 : saved.wsa;
+            const DWORD transferred = 0; // No reliable byte count is exposed by this entry point.
+            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred, false);
             wchar_t parameters[160]{};
             _snwprintf_s(parameters, _TRUNCATE, L"file=%p length=%lu perSend=%lu buffers=%p flags=0x%lX", file, length, perSend, buffers, flags);
-            RecordExtensionCall(context, error, socket, ov, transferred, parameters);
+            RecordExtensionCall(context, error, socket, ov, transferred, parameters, true, ApiReturnBits(result), duration, false);
             saved.Restore(); return result;
         }
         std::uint64_t TransmitPacketLength(LPTRANSMIT_PACKETS_ELEMENT packets, DWORD count)
@@ -144,13 +163,14 @@
             const auto length = TransmitPacketLength(packets, count);
             auto op = BeginIo(socket, ov, L"Mswsock", L"TransmitPackets", ks::winapi_monitor::EventCategory::Network, length);
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const BOOL result = original(socket, packets, count, sendSize, ov, flags);
-            const ExtensionErrors saved; const DWORD error = result ? 0 : saved.wsa;
-            const DWORD transferred = result && ov ? static_cast<DWORD>(SafeIoValue(&ov->InternalHigh)) : 0;
-            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred);
+            const ExtensionErrors saved; const auto duration = EndApiCallClock(callClock); const DWORD error = result ? 0 : saved.wsa;
+            const DWORD transferred = 0; // No reliable byte count is exposed by this entry point.
+            FinishIo(op, result || error == WSA_IO_PENDING, !result && error == WSA_IO_PENDING, error, transferred, false);
             wchar_t parameters[160]{};
             _snwprintf_s(parameters, _TRUNCATE, L"packets=%p count=%lu sendSize=%lu flags=0x%lX", packets, count, sendSize, flags);
-            RecordExtensionCall(context, error, socket, ov, transferred, parameters);
+            RecordExtensionCall(context, error, socket, ov, transferred, parameters, true, ApiReturnBits(result), duration, false);
             saved.Restore(); return result;
         }
         VOID WSAAPI DispatchGetAcceptExSockaddrs(ExtensionContext* context, PVOID buffer, DWORD receiveLength,
@@ -159,12 +179,14 @@
             ScopedHookGuard guard;
             const auto original = reinterpret_cast<GetAcceptExSockaddrsFn>(context->original);
             if (guard.bypass()) { original(buffer, receiveLength, localLength, remoteLength, local, localSize, remote, remoteSize); return; }
+            const auto callClock = BeginApiCallClock();
             original(buffer, receiveLength, localLength, remoteLength, local, localSize, remote, remoteSize);
             const ExtensionErrors saved;
+            const auto duration = EndApiCallClock(callClock);
             wchar_t parameters[200]{};
             _snwprintf_s(parameters, _TRUNCATE, L"buffer=%p receive=%lu localLength=%lu remoteLength=%lu local=%p localSize=%d remote=%p remoteSize=%d",
                 buffer, receiveLength, localLength, remoteLength, SafeIoValue(local), SafeIoValue(localSize), SafeIoValue(remote), SafeIoValue(remoteSize));
-            RecordExtensionCall(context, 0, 0, nullptr, 0, parameters); saved.Restore();
+            RecordExtensionCall(context, 0, 0, nullptr, 0, parameters, false, 0, duration, false); saved.Restore();
         }
 
         #include "ApiMonitorExtensions.inc"
@@ -259,7 +281,7 @@
         void DiscoverCompletedIoctl(const IoToken& op, DWORD error)
         {
             const auto* discovery = static_cast<const ExtensionDiscovery*>(op->observerContext);
-            if (!error && discovery && discovery->capacity >= sizeof(void*) && SafeIoValue(discovery->returned) >= sizeof(void*))
+            if (!error && discovery && op->completionBytesKnown && discovery->capacity >= sizeof(void*) && op->completionBytes >= sizeof(void*))
                 DiscoverExtension(discovery->guid, SafeIoValue(static_cast<void**>(discovery->output)));
         }
         int WSAAPI HookedWSAIoctl(SOCKET socketValue, DWORD ioControlCode, LPVOID inBufferPointer, DWORD inBufferSize,
@@ -281,17 +303,24 @@
             auto replacement = reinterpret_cast<LPWSAOVERLAPPED_COMPLETION_ROUTINE>(PrepareIoCallback(op, nullptr, completionRoutinePointer));
             if (completionRoutinePointer && !replacement) op.reset();
             incoming.Restore();
+            const auto callClock = BeginApiCallClock();
             const int result = g_wsaIoctlOriginal(socketValue, ioControlCode, inBufferPointer, inBufferSize,
                 outBufferPointer, outBufferSize, bytesReturnedPointer, overlappedPointer, replacement ? replacement : completionRoutinePointer);
+            const auto duration = EndApiCallClock(callClock);
             const ExtensionErrors saved; const DWORD error = result == 0 ? 0 : saved.wsa;
-            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error,
-                result == 0 ? SafeIoValue(bytesReturnedPointer) : 0);
-            if (result == 0 && discover && outBufferSize >= sizeof(void*) && SafeIoValue(bytesReturnedPointer) >= sizeof(void*))
+            DWORD returned = 0;
+            // WSAIoctl documents a valid byte count on immediate success even with OVERLAPPED.
+            const bool returnedKnown = result == 0 && TrySafeIoValue(bytesReturnedPointer, &returned);
+            FinishIo(op, result == 0 || error == WSA_IO_PENDING, result != 0 && error == WSA_IO_PENDING, error, returned, returnedKnown);
+            if (returnedKnown && discover && outBufferSize >= sizeof(void*) && returned >= sizeof(void*))
                 DiscoverExtension(guid, SafeIoValue(static_cast<void**>(outBufferPointer)));
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
-            _snwprintf_s(detail, _TRUNCATE, L"socket=0x%llX code=0x%lX in=%p inLength=%lu out=%p outLength=%lu returned=%lu overlapped=%p callback=%p",
+            wchar_t returnedText[32]{};
+            if (returnedKnown) _snwprintf_s(returnedText, _TRUNCATE, L"%lu", returned);
+            else wcscpy_s(returnedText, L"unknown");
+            _snwprintf_s(detail, _TRUNCATE, L"socket=0x%llX code=0x%lX in=%p inLength=%lu out=%p outLength=%lu returned=%s overlapped=%p callback=%p",
                 static_cast<unsigned long long>(socketValue), ioControlCode, inBufferPointer, inBufferSize, outBufferPointer,
-                outBufferSize, result == 0 ? SafeIoValue(bytesReturnedPointer) : 0, overlappedPointer, completionRoutinePointer);
-            SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSAIoctl", error, detail);
+                outBufferSize, returnedText, overlappedPointer, completionRoutinePointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Network, L"Ws2_32", L"WSAIoctl", error, detail, true, ApiReturnBits(result), duration);
             saved.Restore(); return result;
         }

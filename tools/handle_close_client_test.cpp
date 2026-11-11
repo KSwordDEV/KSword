@@ -67,8 +67,13 @@ int main() {
     const auto recovery = close();
     check(!recovery.ok && recovery.ntStatus == 0 && recovery.message.find("handle closed") != std::string::npos,
         "close success with failed recovery stays distinguishable");
+    const auto detailed = client.closeHandleDetailed(targetPid, 0x100, creationTime, objectAddress);
+    check(detailed.responseValid && detailed.closeStatus == 0 && detailed.resumeStatus == failureStatus,
+        "structured close and failed recovery statuses remain separate");
     reply = Reply::Truncated;
     check(!close().ok, "reject truncated receipt");
+    check(!client.closeHandleDetailed(targetPid, 0x100, creationTime, objectAddress).responseValid,
+        "truncated receipt cannot publish fabricated statuses");
     reply = Reply::WrongVersion;
     check(!close().ok, "reject incompatible receipt");
     reply = Reply::TransportFailure;

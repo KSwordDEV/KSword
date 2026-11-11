@@ -38,7 +38,7 @@ static EVT_HANDLE handle(std::uintptr_t value){return reinterpret_cast<EVT_HANDL
 static EVT_HANDLE acquire(std::uintptr_t value){const auto h=handle(value);assert(live.insert(h).second);return h;}
 static void same(){assert(owner==GetCurrentThreadId());}
 BOOL WINAPI FixtureConsole(PHANDLER_ROUTINE handler,BOOL add){control=add?handler:nullptr;return TRUE;}
-EVT_HANDLE WINAPI FixtureQuery(EVT_HANDLE,LPCWSTR channel,LPCWSTR query,DWORD flags){owner=GetCurrentThreadId();assert(wcscmp(channel,L"System")==0&&query&&flags==(EvtQueryChannelPath|EvtQueryReverseDirection));if(mode==L"query-denied"||mode==L"query-unsupported"){SetLastError(mode==L"query-denied"?5:50);return nullptr;}return acquire(1);}
+EVT_HANDLE WINAPI FixtureQuery(EVT_HANDLE,LPCWSTR channel,LPCWSTR query,DWORD flags){owner=GetCurrentThreadId();assert(query&&flags==(EvtQueryChannelPath|EvtQueryReverseDirection));if(mode==L"custom")assert(wcscmp(channel,L"Security")==0&&wcscmp(query,L"*[System[EventID=4624]]")==0);else assert(wcscmp(channel,L"System")==0);if(mode==L"query-denied"||mode==L"query-unsupported"){SetLastError(mode==L"query-denied"?5:50);return nullptr;}return acquire(1);}
 EVT_HANDLE WINAPI FixtureContext(DWORD count,LPCWSTR*,DWORD flags){same();assert(count==0&&flags==EvtRenderContextSystem);if(mode==L"context-denied"){SetLastError(5);return nullptr;}return acquire(2);}
 BOOL WINAPI FixtureNext(EVT_HANDLE h,DWORD count,PEVT_HANDLE events,DWORD timeout,DWORD,PDWORD returned){same();assert(h==handle(1)&&timeout==5000&&count<=32);
  if(mode==L"next-denied"||mode==L"next-partial"&&issued){SetLastError(5);return FALSE;}
@@ -88,6 +88,7 @@ def main():
             result=subprocess.run([str(binary),mode,'system','event-log','query','--limit','10','--json',*extra],capture_output=True,timeout=10)
             assert result.returncode==code,(mode,result.returncode,result.stdout[:2000],result.stderr);return json.loads(result.stdout)['data']
         valid=run('valid',0);assert valid['returnedCount']=='3' and valid['pageComplete'] and valid['channelExhausted'] and valid['closeAttemptedCount']=='5'
+        custom=run('custom',0,('--channel','Security','--xpath','*[System[EventID=4624]]'));assert custom['channel']=='Security' and custom['xpath']=='*[System[EventID=4624]]'
         row=valid['events'][0];assert row['recordId']=='9007199254741003' and row['timestampFileTime']=='133000000000000000' and row['level']==0 and row['headerPid']==0 and row['message'] is None
         assert run('empty',0)['returnedCount']=='0'
         for mode,code,error in [('query-denied',3,5),('query-unsupported',5,50)]:assert run(mode,code)['queryWin32Error']==error

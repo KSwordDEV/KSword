@@ -2,6 +2,7 @@
 #include "WindowSnapshotSupport.h"
 #include "../UI/TableCompleteExport.h"
 #include "WindowImmutableTableSupport.h"
+#include "WindowFailureLog.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/FlatButtonTheme.h"
@@ -205,7 +206,8 @@ namespace
         }
     }
 
-    TimerSnapshot collectTimers(const ks::window::SnapshotTexts& texts)
+    // 工作线程传入冻结文本与本轮日志 trace，返回 Timer 快照并记录查询失败。
+    TimerSnapshot collectTimers(const ks::window::SnapshotTexts& texts, kLogEvent& trace)
     {
         TimerSnapshot snapshot;
         const ksword::ark::Win32kTimersResult result =
@@ -215,6 +217,8 @@ namespace
             snapshot.statusText = texts.value(QStringLiteral("window.timer.status.io_failed"), QStringLiteral("状态：窗口定时器查询失败，Win32=%1，%2"))
                 .arg(result.io.win32Error)
                 .arg(QString::fromStdString(result.io.message));
+            ks::window::LogWindowFailure(trace, "WINDOW_TIMER", "IOCTL", QStringList{
+                QString::number(result.io.win32Error), QString::fromStdString(result.io.message)}.join(QLatin1Char('|')));
             return snapshot;
         }
 
@@ -227,12 +231,14 @@ namespace
                 .arg(hex32(result.win32kfullTimeDateStamp))
                 .arg(hex32(result.win32kfullImageSize))
                 .arg(detailText);
+            ks::window::LogWindowFailure(trace, "WINDOW_TIMER", "LAYOUT_UNSUPPORTED", detailText);
             return snapshot;
         }
         if (result.status == KSWORD_ARK_WIN32K_STATUS_WIN32K_NOT_FOUND)
         {
             snapshot.statusText = texts.value(QStringLiteral("window.timer.status.win32k_missing"), QStringLiteral("状态：未定位 win32kbase/win32kfull，无法读取窗口定时器。%1"))
                 .arg(detailText);
+            ks::window::LogWindowFailure(trace, "WINDOW_TIMER", "WIN32K_NOT_FOUND", detailText);
             return snapshot;
         }
 
@@ -285,6 +291,15 @@ namespace
             .arg(result.layout.objectSize, 0, 16)
             .arg(layoutSourceText(result.layout.source, texts))
             .arg(detailText);
+        if (result.status != KSWORD_ARK_WIN32K_STATUS_OK || result.readFailureCount != 0U ||
+            result.corruptBucketCount != 0U || result.duplicateCount != 0U)
+        {
+            ks::window::LogWindowFailure(trace, "WINDOW_TIMER", "PARTIAL", QStringList{
+                QString::number(result.status), QString::number(result.returnedCount),
+                QString::number(result.totalCount), QString::number(result.visitedNodeCount),
+                QString::number(result.readFailureCount), QString::number(result.corruptBucketCount),
+                QString::number(result.duplicateCount), detailText}.join(QLatin1Char('|')));
+        }
         return snapshot;
     }
 
@@ -406,7 +421,12 @@ void WindowTimerTab::reconcileRefreshState()
     const QPointer<WindowTimerTab> alive(this);
     m_refreshing = false;
     m_refreshButton->setEnabled(true);
-    if (alive && !m_refreshOperation->isBusy() && !m_refreshOperation->isInFlight()) m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+    if (alive && !m_refreshOperation->isBusy() && !m_refreshOperation->isInFlight())
+    {
+        kLogEvent trace; // 丢弃的 worker 投递已无活动 trace 可复用。
+        ks::window::LogWindowFailure(trace, "WINDOW_TIMER", "ASYNC_STATE", QString::number(m_refreshOperation->generation()));
+        m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+    }
 }
 
 void WindowTimerTab::refreshAsync()
@@ -427,22 +447,27 @@ void WindowTimerTab::refreshAsync()
         "window.timer.status.refreshing",
         QStringLiteral("状态：正在通过 R0 读取 gTimerHashTable...")));
     if (!alive) return;
+    const auto trace = std::make_shared<kLogEvent>(); // 本轮采集与异常回调共享事件 GUID。
     m_refreshOperation->submit<ks::window::SnapshotTexts, std::shared_ptr<const TimerSnapshot>>(
         freezeSnapshotTexts(),
-        [](const ks::window::SnapshotTexts& texts, const ks::ui::AsyncOperationToken&) {
-            auto snapshot = collectTimers(texts);
+        [trace](const ks::window::SnapshotTexts& texts, const ks::ui::AsyncOperationToken&) {
+            auto snapshot = collectTimers(texts, *trace);
             snapshot.tableValues = ks::window::makeWindowTableSource(std::move(snapshot.rows), {ColumnObject, ColumnPid, ColumnTid, ColumnTimerId, ColumnWindow});
             return ks::window::makeSnapshotValue<TimerSnapshot>(std::move(snapshot));
         },
         [this](const std::shared_ptr<const TimerSnapshot>& snapshot, std::uint64_t ticket) {
             return applySnapshot(snapshot->tableValues, snapshot->statusText, ticket);
         },
-        [this](std::exception_ptr) {
+        [this, trace](std::exception_ptr failure) {
             const QPointer<WindowTimerTab> alive(this);
             const auto failedGeneration = m_refreshOperation->generation();
             m_refreshing = false;
             m_refreshButton->setEnabled(true);
-            if (alive && m_refreshOperation->isCurrent(failedGeneration)) m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+            if (alive && m_refreshOperation->isCurrent(failedGeneration))
+            {
+                ks::window::LogWindowException(*trace, "WINDOW_TIMER", failure);
+                m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("后台任务发生异常。")));
+            }
         });
 }
 

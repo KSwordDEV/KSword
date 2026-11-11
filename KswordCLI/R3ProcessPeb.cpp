@@ -1,6 +1,8 @@
 #include "R3ProcessShared.h"
 #include "../shared/usermode/backend/process/ProcessPeb.h"
 #include <algorithm>
+#include <chrono>
+#include <limits>
 namespace ks::cli {
 namespace {
 namespace backend = ks::r3::process_detail::peb;
@@ -104,6 +106,40 @@ Result memory(const Args& args) {
         {L"mappedBytes",Json::count(data.mappedBytes)}, {L"imageBytes",Json::count(data.imageBytes)}, {L"privateBytes",Json::count(data.privateBytes)},
         {L"returnedCount",Json::number(static_cast<DWORD>(rows.size()))}, {L"truncated",Json::boolean(truncated)}, {L"regions",Json::array(rows)}}),code?std::vector<std::wstring>{L"Committed preview, mapped metadata or address-space traversal is incomplete. Backend limits: 40 preview rows, 60000 regions, 8 seconds."}:std::vector<std::wstring>{}};
 }
+Result memoryPage(const Args& args) {
+    const auto limit=args.u32(L"--limit",100);
+    if (!limit || limit>4096) throw std::invalid_argument("--limit must be 1..4096");
+    const auto start=args.integer(L"--start-address",0);
+    SYSTEM_INFO system{};GetNativeSystemInfo(&system);
+    const auto maximum=static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(system.lpMaximumApplicationAddress));
+    if (start>maximum || start>std::numeric_limits<std::uintptr_t>::max()) throw std::invalid_argument("--start-address exceeds the application address space");
+    process::Lease lease(args,PROCESS_QUERY_INFORMATION|PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_VM_READ|SYNCHRONIZE);
+    if (!lease.matches || !lease.alive()) return {3,Json::object({{L"target",lease.json()}}),{L"Queryable process identity is unavailable, mismatched or has exited."}};
+    std::uint64_t cursor=start,scanned=0;DWORD error=ERROR_SUCCESS;bool pathsMissing=false,budgetLimited=false;
+    std::vector<Json> rows;const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(8);
+    while (cursor<=maximum && rows.size()<limit) {
+        if (scanned>=backend::kMaxRegionCount || std::chrono::steady_clock::now()>=deadline) {budgetLimited=true;break;}
+        backend::RegionInfo r;
+        if (!backend::QueryMemoryRegion(lease.handle.get(),cursor,r,error)) break;
+        ++scanned;
+        if (r.state==MEM_COMMIT) {
+            pathsMissing=pathsMissing || ((r.type==MEM_IMAGE||r.type==MEM_MAPPED)&&!r.mappedPathKnown);
+            rows.push_back(region(r));
+        }
+        cursor=r.base+r.size;
+    }
+    if (!lease.alive()) return {3,Json::object({{L"target",lease.json()}}),{L"Target exited during memory query."}};
+    const bool complete=cursor>maximum;
+    const bool pageLimited=!complete && rows.size()==limit && error==ERROR_SUCCESS && !budgetLimited;
+    const int code=error==ERROR_INVALID_DATA?4:error!=ERROR_SUCCESS?(rows.empty()?3:6):budgetLimited||pathsMissing?6:0;
+    return {code,Json::object({{L"target",lease.json()}, {L"source",Json::string(L"shared R3 VirtualQueryEx")},
+        {L"startAddress",Json::hex(start)}, {L"nextAddress",complete?Json{}:Json::hex(cursor)},
+        {L"complete",Json::boolean(complete)}, {L"pageLimited",Json::boolean(pageLimited)}, {L"budgetLimited",Json::boolean(budgetLimited)},
+        {L"win32Error",Json::number(error)}, {L"scannedRegionCount",Json::count(scanned)},
+        {L"returnedCount",Json::number(static_cast<DWORD>(rows.size()))}, {L"regions",Json::array(rows)}}),
+        code?std::vector<std::wstring>{L"Memory traversal or mapped-path evidence is incomplete; nextAddress is the first unexamined address."}:
+            std::vector<std::wstring>{L"Each page is a separate point-in-time observation; mappings may change between pages."}};
+}
 Result affinity(const Args& args) {
     (void)args.require(L"--confirm");const auto mask=args.integer(L"--mask");(void)args.require(L"--mask");
     if (!mask) throw std::invalid_argument("--mask must be positive");process::Lease lease(args);
@@ -131,6 +167,9 @@ void registerProcessPeb() {
     addCommand({L"process memory regions query",L"KswordCLI.exe process memory regions query --pid PID [--creation-time FILETIME] [--address ADDRESS] [--limit N] [--backend r3] [--json]",
         L"Query one address or bounded committed-region preview with totals.",L"Required: --pid. Optional: --creation-time, --address, --limit (1..40, default 40), --backend r3, --json.",
         L"Output: one region for address, or traversal counters/complete/budgetLimited and committed regions. Region fields: base/allocationBase/size/state/type/protect/allocationProtect/mappedPath and native error. Addresses/masks use hex strings; 64-bit counters decimal strings. Global backend limits 60000 regions and 8 seconds. Missing mapped path or preview/traversal truncation returns 6. Read-only; no R0 fallback.",memory});
+    addCommand({L"process memory regions page",L"KswordCLI.exe process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--backend r3] [--json]",
+        L"Enumerate committed memory regions with an address cursor.",L"Required: --pid. Optional: --creation-time, --start-address (0), --limit (1..4096; 100), --backend r3, --json.",
+        L"Output: target, startAddress, nextAddress, complete, pageLimited, budgetLimited, win32Error, scannedRegionCount and regions. Feed nextAddress into --start-address until complete; mappings can change between calls. Reaching the requested page limit is success, not an acquisition failure. Missing mapped paths or budget exhaustion return 6; malformed regions return 4; native query failures return 3 or 6 after partial rows. At most 60000 regions or 8 seconds per call. Retains a verified process identity; read-only with no R0 fallback.",memoryPage});
     addCommand({L"process settings set-affinity",L"KswordCLI.exe process settings set-affinity --pid PID --mask MASK [--creation-time FILETIME] --confirm [--backend r3] [--json]",
         L"Set the implemented process affinity mask and verify it.",L"Required: --pid, --mask (positive decimal/hex), --confirm. Optional: --creation-time, --backend r3, --json.",
         L"Output: target, requestedMask, requestSucceeded/writeAttempted/verified, before/after process and system masks and original errors. Uses SetProcessAffinityMask within its processor-group limits; does not modify priority or PEB fields. Query/set rights required. Native failure returns 3, unconfirmed readback 6. Priority is available separately through process settings set-priority.",affinity});

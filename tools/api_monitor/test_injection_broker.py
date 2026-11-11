@@ -47,6 +47,19 @@ int wmain(int argc,wchar_t** argv){
   auto stop=CreateFileW(rootStop.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);CloseHandle(stop);
   if(requestChildInjection(endpoint,child.dwProcessId,creation,&error)||GetLastError()!=ERROR_OPERATION_ABORTED)return 10;
   DeleteFileW(rootStop.c_str());
+  // A selected custom backend must be invoked only after authorization. If it
+  // rejects, broker must not silently fall back to its native R3 injector.
+  broker.stop();std::atomic<unsigned> customCalls{0};
+  InjectionBroker::Injector rejected=[&](DWORD pid,const std::wstring& path,std::wstring* detail,std::uint64_t created,HANDLE){
+   if(pid!=child.dwProcessId||created!=creation||path!=argv[1])return platformFailure(detail,L"unexpected callback target",ERROR_INVALID_PARAMETER);
+   ++customCalls;return platformFailure(detail,L"intentional backend failure",ERROR_NOT_SUPPORTED);
+  };
+  if(!broker.start(GetCurrentProcessId(),argv[1],session,rootStop,&error,rejected))return 20;
+  endpoint=broker.endpoint();
+  if(requestChildInjection(endpoint,child.dwProcessId,creation,&error)||GetLastError()!=ERROR_NOT_SUPPORTED)return 21;
+  if(customCalls.load()!=1||remoteImageLoaded(child.dwProcessId,argv[1]))return 22;
+  broker.stop();if(!broker.start(GetCurrentProcessId(),argv[1],session,rootStop,&error))return 23;
+  endpoint=broker.endpoint();
   if(!requestChildInjection(endpoint,child.dwProcessId,creation,&error)){fwprintf(stderr,L"%s\n",error.c_str());return 11;}
   if(!remoteImageLoaded(child.dwProcessId,argv[1]))return 12;
   if(!requestChildInjection(endpoint,child.dwProcessId,creation,&error))return 13;

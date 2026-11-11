@@ -769,7 +769,8 @@ namespace ks::service
         if (!svc.ok()) { return false; }
         SERVICE_DESCRIPTIONW desc{};
         std::wstring mutableDesc = description;
-        desc.lpDescription = writableOrNull(mutableDesc);
+        // A null pointer leaves the description unchanged; an empty string clears it.
+        desc.lpDescription = mutableDesc.data();
         if (!allowScmMutation(name, textOut, codeOut)) return false;
         if (::ChangeServiceConfig2W(svc.get(), SERVICE_CONFIG_DESCRIPTION, reinterpret_cast<LPBYTE>(&desc)) == FALSE)
         {
@@ -856,7 +857,11 @@ namespace ks::service
         if (!allowScmMutation(name, textOut, codeOut)) return false;
         Guard scm = openScm(SC_MANAGER_CONNECT, textOut, codeOut);
         if (!scm.ok()) { return false; }
-        Guard svc = openSvc(scm.get(), name, SERVICE_CHANGE_CONFIG, textOut, codeOut);
+        // SCM requires SERVICE_START when failure actions include a restart.
+        DWORD access = SERVICE_CHANGE_CONFIG;
+        for (const FailureAction& item : settings.actions)
+            if (item.type == SC_ACTION_RESTART) access |= SERVICE_START;
+        Guard svc = openSvc(scm.get(), name, access, textOut, codeOut);
         if (!svc.ok()) { return false; }
 
         std::vector<SC_ACTION> actions;
@@ -873,10 +878,13 @@ namespace ks::service
         std::wstring command = settings.command;
         SERVICE_FAILURE_ACTIONSW info{};
         info.dwResetPeriod = static_cast<DWORD>(settings.resetPeriodSeconds);
-        info.lpRebootMsg = writableOrNull(reboot);
-        info.lpCommand = writableOrNull(command);
+        // The caller supplies a complete snapshot; empty strings clear old values.
+        info.lpRebootMsg = reboot.data();
+        info.lpCommand = command.data();
         info.cActions = static_cast<DWORD>(actions.size());
-        info.lpsaActions = actions.empty() ? nullptr : actions.data();
+        // SCM interprets a null array as no change, and a non-null empty array as clear.
+        SC_ACTION emptyAction{};
+        info.lpsaActions = actions.empty() ? &emptyAction : actions.data();
         if (!allowScmMutation(name, textOut, codeOut)) return false;
         if (::ChangeServiceConfig2W(svc.get(), SERVICE_CONFIG_FAILURE_ACTIONS, reinterpret_cast<LPBYTE>(&info)) == FALSE)
         {

@@ -13,6 +13,7 @@ namespace apimon
     namespace
     {
         std::atomic_bool g_stopRequested{ false };     // g_stopRequested：全局停止标志。
+        std::atomic_bool g_eventsPaused{ false };
         std::atomic_bool g_processDetachRequested{ false }; // g_processDetachRequested：DLL 正在卸载，worker 不得重新开启会话。
         std::atomic<const MonitorConfig*> g_activeConfig{ new MonitorConfig{} };                // g_activeConfig：当前已加载的会话配置。
         constexpr DWORD kSessionIdlePollMs = 100;       // kSessionIdlePollMs：等待下一次 UI 会话配置时的低频轮询间隔。
@@ -75,7 +76,7 @@ namespace apimon
         // - 输入：activeConfigValue 为当前已安装 Hook 的会话配置；
         // - 处理：重新读取原子提交后的 INI，比对 UI 写入的唯一 session_id；
         // - 返回：检测到不同的新会话时为 true，读取失败或旧版无标识配置时为 false。
-        bool SessionConfigWasReplaced(const MonitorConfig& activeConfigValue)
+        bool SessionConfigWasReplaced(const MonitorConfig& activeConfigValue, bool syncClipboardHooks)
         {
             if (activeConfigValue.sessionId.empty())
             {
@@ -98,7 +99,7 @@ namespace apimon
             RefreshClipboardPolicyFromConfig(observedConfig);
             // tier2 hook 的装/卸取决于最新策略，同一轮顺带同步，
             // 保证"右键拦截读"之类的操作不但对 tier1 生效，也补上 win32u 深度防御。
-            if (observedConfig.enableClipboard)
+            if (observedConfig.enableClipboard && syncClipboardHooks)
             {
                 SyncClipboardWin32uHooks();
             }
@@ -109,16 +110,60 @@ namespace apimon
         // - 输入：configValue 为本次已启动会话的稳定配置；
         // - 处理：等待 UI 写入停止标记或 DLL 卸载请求，并把文件标记同步到进程内停止状态；
         // - 返回：无返回值，返回后调用方必须卸载 Hook 并停止管道。
-        void WaitForCurrentSessionStop(const MonitorConfig& configValue)
+        void WaitForCurrentSessionStop(const MonitorConfig& configValue, HANDLE pauseEvent, bool initiallyPaused = false)
         {
             std::wstring lastRetryReport;
+            bool hooksPaused = initiallyPaused;
+            bool needsInstall = initiallyPaused;
+            bool pauseFailureReported = false, resumeFailureReported = false;
             while (!g_processDetachRequested.load() && !StopRequested())
             {
-                if (IsStopFlagPresent(configValue) || SessionConfigWasReplaced(configValue))
+                const bool pauseRequested = pauseEvent && ::WaitForSingleObject(pauseEvent, 0) == WAIT_OBJECT_0;
+                if (IsStopFlagPresent(configValue) || SessionConfigWasReplaced(configValue, !pauseRequested && !needsInstall))
                 {
                     APIMON_DIAG_MARK("stop-observed",0,0);
                     RequestStop();
                     break;
+                }
+                if (pauseRequested)
+                {
+                    g_eventsPaused.store(true);
+                    needsInstall = true;
+                    if (!hooksPaused) {
+                        if (UninstallConfiguredHooks()) {
+                            hooksPaused = true; pauseFailureReported = false;
+                            SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksPaused", 0,
+                                L"Configured hooks have been removed while monitoring is paused.");
+                        } else if (!pauseFailureReported) {
+                            SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksPauseFailed", 1,
+                                L"Hook removal is incomplete; retrying while events are suppressed.");
+                            pauseFailureReported = true;
+                        }
+                    }
+                    ::Sleep(kSessionActivePollMs);
+                    continue;
+                }
+                if (needsInstall)
+                {
+                    std::wstring resumeError;
+                    if (InstallConfiguredHooks(&resumeError)) {
+                        if (pauseEvent && ::WaitForSingleObject(pauseEvent, 0) == WAIT_OBJECT_0) {
+                            hooksPaused = false; // Pause was requested again during installation.
+                            ::Sleep(kSessionActivePollMs);
+                            continue;
+                        }
+                        needsInstall = false; hooksPaused = false; resumeFailureReported = false;
+                        g_eventsPaused.store(false);
+                        if (!resumeError.empty())
+                            SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksPartial", 0, resumeError);
+                        SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksResumed", 0,
+                            L"Configured hooks were reinstalled after pause.");
+                    } else if (!resumeFailureReported) {
+                        SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksResumeFailed", 1, resumeError);
+                        resumeFailureReported = true;
+                    }
+                    ::Sleep(kSessionActivePollMs);
+                    continue;
                 }
                 std::wstring retryReport;
                 RetryPendingHooks(&retryReport);
@@ -192,6 +237,7 @@ namespace apimon
                 }
 
                 ReplaceActiveConfig(configValue);
+                g_eventsPaused.store(false);
                 APIMON_DIAG_RESET();
                 APIMON_DIAG_MARK("session-begin",0,0);
                 // 初始化剪贴板策略的原子镜像，确保 InstallConfiguredHooks 之后
@@ -216,8 +262,21 @@ namespace apimon
                     0,
                     std::wstring(L"definitionSha256=") + std::wstring(kDefinitionSha256, kDefinitionSha256 + 64));
 
+                struct PauseHandle { HANDLE value = nullptr; ~PauseHandle() { if (value) ::CloseHandle(value); } } pause;
+                if (!configValue.pauseEventName.empty()) {
+                    pause.value = ::OpenEventW(SYNCHRONIZE, FALSE, configValue.pauseEventName.c_str());
+                    if (!pause.value)
+                        SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"PauseControlUnavailable", 1,
+                            L"Could not open the session pause event: " + std::to_wstring(::GetLastError()));
+                    else
+                        SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"PauseControlReady", 0,
+                            L"Session pause control is ready.");
+                }
+                const bool initiallyPaused = pause.value && ::WaitForSingleObject(pause.value, 0) == WAIT_OBJECT_0;
+                if (initiallyPaused) g_eventsPaused.store(true);
+
                 APIMON_DIAG_MARK("install-begin",0,0);
-                const bool installed = InstallConfiguredHooks(&errorText);
+                const bool installed = initiallyPaused || InstallConfiguredHooks(&errorText);
                 const bool cancelled = StopRequested() || IsStopFlagPresent(configValue);
                 if (!installed || cancelled)
                 {
@@ -228,7 +287,7 @@ namespace apimon
                         cancelled ? L"InstallHooksCancelled" : L"InstallHooksFailed",
                         1,
                         errorText);
-                    if(!cancelled)WaitForCurrentSessionStop(configValue);
+                    if(!cancelled)WaitForCurrentSessionStop(configValue, pause.value);
                     while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
                     ::Sleep(kSessionActivePollMs);
                     SendHooksRemovedEvent(L"Inline hooks removed after incomplete installation.");
@@ -250,11 +309,11 @@ namespace apimon
                 SendMonitorEvent(
                     ks::winapi_monitor::EventCategory::Internal,
                     L"Agent",
-                    L"HooksInstalled",
+                    initiallyPaused ? L"HooksPaused" : L"HooksInstalled",
                     0,
-                    L"Configured inline hooks are now active.");
+                    initiallyPaused ? L"Session started paused; no hooks were installed." : L"Configured inline hooks are now active.");
 
-                WaitForCurrentSessionStop(configValue);
+                WaitForCurrentSessionStop(configValue, pause.value, initiallyPaused);
                 APIMON_DIAG_MARK("uninstall-begin",0,0);
                 while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
                     ::Sleep(kSessionActivePollMs);
@@ -262,6 +321,7 @@ namespace apimon
                 APIMON_DIAG_MARK("uninstall-end",0,0);
                 (void)DrainMonitorPipeServer();
                 StopMonitorPipeServer();
+                g_eventsPaused.store(false);
             }
             return 0;
         }
@@ -311,6 +371,8 @@ namespace apimon
     {
         return g_stopRequested.load();
     }
+
+    bool EventsPaused() { return g_eventsPaused.load(); }
 
     void RequestStop()
     {

@@ -61,7 +61,8 @@ Result query(const Args& a,bool detail) {
     }
     bool partial=!evidence.complete,useful=rows.empty()&&ok;std::vector<Json> values;std::size_t matched=0;
     for(auto& r:rows) {
-        if(detail&&((a.has(L"--name")&&(!r.nameKnown||_wcsicmp(r.driverName.c_str(),name.c_str())))||(a.has(L"--base")&&(!r.baseKnown||r.baseAddress!=base)))) continue;
+        if(detail&&((a.has(L"--name")&&!r.nameKnown)||(a.has(L"--base")&&!r.baseKnown))) {partial=true;continue;}
+        if(detail&&((a.has(L"--name")&&_wcsicmp(r.driverName.c_str(),name.c_str()))||(a.has(L"--base")&&r.baseAddress!=base))) continue;
         ++matched;useful=useful||r.baseKnown||r.nameKnown||r.pathKnown;
         partial=partial||!r.baseKnown||!r.sizeKnown||!r.nameKnown||!r.pathKnown;
         if(values.size()>=limit) continue;
@@ -70,7 +71,7 @@ Result query(const Args& a,bool detail) {
         values.push_back(module(r,selected,signature));
     }
     const bool truncated=matched>values.size();
-    int code=evidence.malformed?4:!ok?(evidence.unsupported?5:3):!useful?5:partial||truncated?6:0;
+    int code=evidence.malformed?4:!ok?(evidence.unsupported?5:3):!useful?5:partial?6:0;
     if(detail&&!matched) {
         // Hidden names/addresses cannot establish that a requested module is absent.
         const bool identifiable=std::all_of(rows.begin(),rows.end(),[&](const auto& r){return a.has(L"--name")?r.nameKnown:r.baseKnown;});
@@ -80,13 +81,14 @@ Result query(const Args& a,bool detail) {
     if(code==5||code==6) diagnostics.push_back(L"Addresses may be hidden by OS privilege policy; Psapi does not supply image sizes. Signature checks concern the accessible disk file and omit catalog verification. No kernel integrity or R0 evidence is inferred.");
     return {code,Json::object({{L"requestedSource",Json::string(requested)},{L"selectedSource",Json::string(selected)},
         {L"sources",Json::array(sources)},{L"enumeratedCount",Json::count(rows.size())},{L"matchedCount",Json::count(matched)},
-        {L"returnedCount",Json::number(static_cast<DWORD>(values.size()))},{L"truncated",Json::boolean(truncated)},
+        {L"returnedCount",Json::number(static_cast<DWORD>(values.size()))},{L"complete",Json::boolean(ok&&!evidence.malformed&&!partial)},
+        {L"truncated",Json::boolean(truncated)},{L"displayTruncated",Json::boolean(truncated)},
         {L"modules",Json::array(values)}}),diagnostics};
 }
 }
 void registerDriverModules() {
     const auto options=L"Optional: --source auto|nt|psapi (auto), --signature on|off, --limit (1..100000, default 1000), --backend r3, --json.";
-    const auto notes=L"Output: selected source, separate NT/Psapi status and completeness, counts, loaded module name/base/imageSize/exclusive end/path, NT flags/loadOrder/initOrder/loadCount, optional disk-file trust evidence. Addresses are hex strings, sizes decimal strings, unknowns null. auto falls back only between R3 sources; explicit source does not fall back. Psapi sizes are unavailable (6); all identities hidden returns 5. Windows 11 24H2 Psapi needs enabled SeDebugPrivilege for addresses; use privilege run in the same CLI process when authorized. Invalid native layout returns 4; missing query match 3 only when identities are visible. Signature is cache-only WinVerifyTrust of accessible disk image, excludes catalog verification and in-memory integrity; no-embedded-signature does not mean the driver is unsigned. No R0 fallback. Snapshot is not a retained driver lifetime lease.";
+    const auto notes=L"Output: selected source, separate NT/Psapi status, complete, displayTruncated, counts, loaded module name/base/imageSize/exclusive end/path, NT flags/loadOrder/initOrder/loadCount, optional disk-file trust evidence. --limit limits displayed rows, not collection; displayTruncated alone returns 0. Signatures are checked only for displayed rows. Addresses are hex strings, sizes decimal strings, unknowns null. auto falls back only between R3 sources; explicit source does not fall back. Psapi sizes are unavailable (6); all identities hidden returns 5. Windows 11 24H2 Psapi needs enabled SeDebugPrivilege for addresses; use privilege run in the same CLI process when authorized. Invalid native layout returns 4; missing query match 3 only when identities are visible. Signature is cache-only WinVerifyTrust of accessible disk image, excludes catalog verification and in-memory integrity; no-embedded-signature does not mean the driver is unsigned. No R0 fallback. Snapshot is not a retained driver lifetime lease.";
     addCommand({L"driver modules enum",L"KswordCLI.exe driver modules enum [--source auto|nt|psapi] [--signature on|off] [--limit N] [--backend r3] [--json]",
         L"Enumerate loaded kernel images through R3 NT/Psapi sources.",options, std::wstring(notes)+L" Signature defaults off.",[](const Args& a){return query(a,false);}});
     addCommand({L"driver modules query",L"KswordCLI.exe driver modules query (--name NAME | --base ADDRESS) [--source auto|nt|psapi] [--signature on|off] [--limit N] [--backend r3] [--json]",

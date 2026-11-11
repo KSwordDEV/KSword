@@ -347,6 +347,19 @@ namespace ks::ui
         }));
     }
 
+    void DetailLayoutHost::setDetailsEnabled(const bool enabled)
+    {
+        if (m_detailsEnabled == enabled) return;
+        const QPointer<DetailLayoutHost> guard(this);
+        m_detailsEnabled = enabled; ++m_bindingGeneration;
+        if (!enabled) {
+            clearEmbeddedDetails(); if (!guard) return;
+            destroyFloatingWindow(); if (!guard) return;
+            m_bottomExpanded = false;
+        }
+        applyScheme(m_requestedScheme);
+    }
+
     // 请求与有效模式分离：普通树视图回退到右侧详情槽，保存的全局选择不被改写。
     void DetailLayoutHost::applyScheme(const ks::settings::DetailDisplayScheme requested)
     {
@@ -359,6 +372,16 @@ namespace ks::ui
         {
             m_scheme = scheme;
             scheduleHostUiInitialization();
+            return;
+        }
+        if (!m_detailsEnabled)
+        {
+            if (m_toggleBar) m_toggleBar->hide();
+            if (!self) return;
+            m_detailPane->hide();
+            if (!self) return;
+            if (m_scheme != scheme) ++m_bindingGeneration;
+            m_scheme = scheme;
             return;
         }
         if (m_scheme == ks::settings::DetailDisplayScheme::Embedded && scheme != m_scheme)
@@ -424,6 +447,11 @@ namespace ks::ui
         }
     }
 
+    void DetailLayoutHost::setBottomDetailWeight(const int weight)
+    {
+        m_bottomDetailWeight = std::clamp(weight, 1, 999);
+    }
+
     void DetailLayoutHost::updateBottomExpanded(const bool expanded)
     {
         if (m_scheme != ks::settings::DetailDisplayScheme::BottomCollapsed || !isBound())
@@ -450,7 +478,7 @@ namespace ks::ui
                 return;
             }
         }
-        setManagedSplitterSizes(expanded ? 720 : 1000, 18, expanded ? 240 : 0);
+        setManagedSplitterSizes(expanded ? 1000 - m_bottomDetailWeight : 1000, 18, expanded ? m_bottomDetailWeight : 0);
     }
 
     // 四种策略只负责布局和显隐，文本镜像与业务模型始终保持原来的对象。
