@@ -563,6 +563,8 @@ namespace ks::ui
         left->addWidget(m_scroll, 1);
 
         auto* footer = new QWidget(m_parameterPanel);
+        footer->setProperty("ksword_keyboard_region", true);
+        footer->setProperty("ksword_keyboard_region_name", QStringLiteral("执行操作"));
         bindWorkspaceSurface(footer, true);
         m_actions = new QHBoxLayout(footer);
         m_actions->setContentsMargins(0, 12, 0, 0);

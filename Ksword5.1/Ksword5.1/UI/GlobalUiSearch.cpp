@@ -1143,11 +1143,17 @@ namespace ks::ui
                 // keyEvent 用途：仅在标题输入框截获四节点循环，弹层内字段保留正常焦点导航。
                 auto* keyEvent = static_cast<QKeyEvent*>(eventObject);
                 // isScopeCycleKey 用途：普通 Tab/Shift+Tab；不拦截 Ctrl/Alt/Meta 组合快捷键。
-                const bool isScopeCycleKey = (keyEvent->key() == Qt::Key_Tab
+                const bool mouseless = qApp->property("ksword_mouseless_mode").toBool();
+                const bool isScopeCycleKey = (!mouseless && (keyEvent->key() == Qt::Key_Tab
                     || keyEvent->key() == Qt::Key_Backtab)
                     && !keyEvent->modifiers().testFlag(Qt::ControlModifier)
                     && !keyEvent->modifiers().testFlag(Qt::AltModifier)
-                    && !keyEvent->modifiers().testFlag(Qt::MetaModifier);
+                    && !keyEvent->modifiers().testFlag(Qt::MetaModifier))
+                    || (mouseless && keyEvent->key() == Qt::Key_S
+                        && keyEvent->modifiers().testFlag(Qt::ControlModifier)
+                        && keyEvent->modifiers().testFlag(Qt::AltModifier)
+                        && !keyEvent->modifiers().testFlag(Qt::GroupSwitchModifier)
+                        && !keyEvent->modifiers().testFlag(Qt::MetaModifier));
                 if (isScopeCycleKey)
                 {
                     // direction 用途：兼容 Key_Backtab 和带 Shift 的 Key_Tab 两种反向事件。

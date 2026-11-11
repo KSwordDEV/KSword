@@ -420,6 +420,10 @@ void SettingsDock::bindAppearanceSignals()
         markPendingChanges(QStringLiteral("启动时最大化开关切换"));
         });
 
+    connect(m_startupMouselessCheckBox, &QCheckBox::toggled, this, [this]() {
+        markPendingChanges(QStringLiteral("startup_mouseless_enabled"));
+    });
+
     connect(m_startupTopMostCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
         markPendingChanges(QStringLiteral("启动后默认最高级置顶开关切换"));
         });
@@ -647,6 +651,8 @@ void SettingsDock::applySettingsToUi(const ks::settings::AppearanceSettings& set
     {
         m_startupMaximizedCheckBox->setChecked(settings.launchMaximizedOnStartup);
     }
+    if (m_startupMouselessCheckBox != nullptr)
+        m_startupMouselessCheckBox->setChecked(settings.startupMouselessEnabled);
 
     if (m_startupTopMostCheckBox != nullptr)
     {
@@ -851,6 +857,7 @@ ks::settings::AppearanceSettings SettingsDock::collectSettingsFromUi() const
     collectedSettings.startupDefaultTabKey = m_currentAppearanceSettings.startupDefaultTabKey;
     collectedSettings.launchMaximizedOnStartup =
         (m_startupMaximizedCheckBox != nullptr) && m_startupMaximizedCheckBox->isChecked();
+    collectedSettings.startupMouselessEnabled = m_startupMouselessCheckBox && m_startupMouselessCheckBox->isChecked();
     collectedSettings.startupTopMostEnabled =
         (m_startupTopMostCheckBox != nullptr) && m_startupTopMostCheckBox->isChecked();
     collectedSettings.autoRequestAdminOnStartup =
@@ -1238,6 +1245,7 @@ void SettingsDock::saveAndEmitFromUi(const QString& triggerReason)
         && nextSettings.acrylicTintOpacityPercent == m_currentAppearanceSettings.acrylicTintOpacityPercent
         && nextSettings.desktopTintOpacityPercent == m_currentAppearanceSettings.desktopTintOpacityPercent
         && nextSettings.launchMaximizedOnStartup == m_currentAppearanceSettings.launchMaximizedOnStartup
+        && nextSettings.startupMouselessEnabled == m_currentAppearanceSettings.startupMouselessEnabled
         && nextSettings.startupTopMostEnabled == m_currentAppearanceSettings.startupTopMostEnabled
         && nextSettings.autoRequestAdminOnStartup == m_currentAppearanceSettings.autoRequestAdminOnStartup
         && nextSettings.startupAutoInstallR0Driver == m_currentAppearanceSettings.startupAutoInstallR0Driver

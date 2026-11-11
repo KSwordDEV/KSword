@@ -747,6 +747,7 @@
     <ClCompile Include="UI\PageTabMotion.cpp" />
     <ClCompile Include="UI\PerfTrace.cpp" />
     <ClCompile Include="UI\UiAnimationGate.cpp" />
+    <ClCompile Include="UI\MouselessNavigation.cpp" />
     <ClCompile Include="UI\PageTabFocusStyle.cpp" />
     <ClCompile Include="UI\DockTabSelectionAnimation.cpp" />
     <ClCompile Include="UI\RoundedViewSurface.cpp" />
@@ -1059,6 +1060,8 @@
     <ClInclude Include="UI\PageTabMotion.h" />
     <ClInclude Include="UI\PerfTrace.h" />
     <ClInclude Include="UI\UiAnimationGate.h" />
+    <ClInclude Include="UI\MouselessNavigation.h" />
+    <ClInclude Include="UI\MouselessNavigationState.h" />
     <ClInclude Include="UI\PageTabFocusStyle.h" />
     <ClInclude Include="UI\DockTabSelectionAnimation.h" />
     <ClInclude Include="UI\RoundedViewSurface.h" />

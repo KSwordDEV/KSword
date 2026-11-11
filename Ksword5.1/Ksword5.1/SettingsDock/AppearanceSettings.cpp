@@ -738,6 +738,8 @@ ks::settings::AppearanceSettings ks::settings::loadAppearanceSettings()
             .toBool(loadedSettings.launchMaximizedOnStartup);
     }
 
+    // Startup preference is separate from the temporary keyboard-mode toggle.
+    loadedSettings.startupMouselessEnabled = rootObject.value(QStringLiteral("startup_mouseless_enabled")).toBool(false);
     // startupTopMostEnabled 作用：读取“启动后自动最高级置顶”开关，缺失时默认关闭。
     loadedSettings.startupTopMostEnabled = rootObject.value(QStringLiteral("startup_topmost_enabled"))
         .toBool(loadedSettings.startupTopMostEnabled);
@@ -991,6 +993,7 @@ bool ks::settings::saveAppearanceSettings(const AppearanceSettings& settings, QS
         : settings.startupDefaultTabKey.trimmed().toLower());
     rootObject.insert(QStringLiteral("startup_maximized"), settings.launchMaximizedOnStartup);
     rootObject.insert(QStringLiteral("startup_topmost_enabled"), settings.startupTopMostEnabled);
+    rootObject.insert(QStringLiteral("startup_mouseless_enabled"), settings.startupMouselessEnabled);
     rootObject.insert(QStringLiteral("startup_auto_request_admin"), settings.autoRequestAdminOnStartup);
     rootObject.insert(QStringLiteral("startup_auto_install_r0_driver"), settings.startupAutoInstallR0Driver);
     rootObject.insert(QStringLiteral("prevent_multiple_instances"), settings.preventMultipleInstances);

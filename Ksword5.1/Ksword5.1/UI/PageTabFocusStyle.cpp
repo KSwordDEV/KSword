@@ -1,6 +1,7 @@
 #include "PageTabFocusStyle.h"
 
 #include <QEvent>
+#include <QApplication>
 #include <QFocusEvent>
 #include <QPointer>
 #include <QProxyStyle>
@@ -22,8 +23,8 @@ namespace
         void drawPrimitive(PrimitiveElement element, const QStyleOption* option,
             QPainter* painter, const QWidget* widget = nullptr) const override
         {
-            // 鼠标焦点不绘键盘提示；键盘来源仍交给原平台风格绘制。
-            if (element == PE_FrameFocusRect && !m_keyboardFocus)
+            // 普通模式隐藏焦点框；无鼠标模式恢复原生提示并由共享导航标记当前控件。
+            if (element == PE_FrameFocusRect && !qApp->property("ksword_mouseless_mode").toBool())
             {
                 return;
             }
@@ -62,7 +63,7 @@ namespace
 
     private:
         QPointer<QTabBar> m_bar; // 原标签栏，销毁后不再接收排队结果。
-        bool m_keyboardFocus = false; // 仅键盘操作启用原生焦点提示。
+        bool m_keyboardFocus = false; // 输入来源变化只请求本导航重绘。
     };
 }
 

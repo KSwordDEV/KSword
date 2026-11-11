@@ -127,6 +127,7 @@ namespace ks::settings
         int desktopTintOpacityPercent = 65;
         QString startupDefaultTabKey = QStringLiteral("welcome");
         bool launchMaximizedOnStartup = true;
+        bool startupMouselessEnabled = false; // Startup preference; runtime gestures never overwrite it.
         bool startupTopMostEnabled = false;
         bool autoRequestAdminOnStartup = true;
         bool startupAutoInstallR0Driver = false;

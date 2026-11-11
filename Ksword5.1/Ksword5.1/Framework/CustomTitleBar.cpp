@@ -317,6 +317,16 @@ namespace ks::ui
         BindWidgetTheme(this, [this]() { updateThemeStyle(); });
     }
 
+    void CustomTitleBar::setMouselessMode(bool enabled)
+    {
+        setProperty("ksword_mouseless_mode", enabled);
+        ks::i18n::LanguageManager::instance().bindText(m_titleTextLabel,
+            enabled ? QStringLiteral("keyboard.title.active") : QStringLiteral("keyboard.title.normal"),
+            enabled ? QStringLiteral("Ksword（无鼠标模式）") : QStringLiteral("Ksword"));
+        updateTitleInputModeVisuals();
+        updateCommandLineWidth();
+    }
+
     void CustomTitleBar::setPinnedState(const bool pinnedState)
     {
         if (m_isPinned == pinnedState)
@@ -664,6 +674,8 @@ namespace ks::ui
         m_titleTextLabel = new QLabel(m_leftWidget);
         m_titleTextLabel->setText(ks::i18n::sourceText(QStringLiteral("Ksword")));
         m_titleTextLabel->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        m_leftWidget->setProperty("ksword_keyboard_region", true);
+        m_leftWidget->setProperty("ksword_keyboard_region_name", QStringLiteral("主菜单"));
 
         m_leftLayout->addWidget(m_appIconLabel, 0);
         m_leftLayout->addWidget(m_titleTextLabel, 0);
@@ -759,6 +771,11 @@ namespace ks::ui
 
         m_rootLayout->addWidget(m_leftWidget, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
         m_rootLayout->addWidget(m_centerInputGroup, 0, 1, Qt::AlignCenter);
+        m_centerInputGroup->setProperty("ksword_keyboard_region", true);
+        m_rightWidget->setProperty("ksword_keyboard_region", true);
+        m_centerInputGroup->setProperty("ksword_keyboard_region_name", QStringLiteral("搜索 / 命令"));
+        m_rightWidget->setProperty("ksword_keyboard_region_name", QStringLiteral("窗口控制"));
+        m_commandLineEdit->setProperty("ksword_mouseless_search_input", true);
         m_rootLayout->addWidget(m_rightWidget, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
         updateCommandLineWidth();
     }
@@ -995,7 +1012,16 @@ namespace ks::ui
             return;
         }
 
-        const int commandLineWidth = std::clamp(width() / 3, kCommandLineMinWidth, kCommandLineMaxWidth);
+        int commandLineWidth = std::clamp(width() / 3, kCommandLineMinWidth, kCommandLineMaxWidth);
+        if (property("ksword_mouseless_mode").toBool() && m_rootLayout && m_leftWidget && m_rightWidget)
+        {
+            // Reserve the expanded mode title and window actions before allocating search width.
+            const QMargins margins = m_rootLayout->contentsMargins();
+            const int available = width() - margins.left() - margins.right()
+                - m_rootLayout->horizontalSpacing() * 2
+                - m_leftWidget->sizeHint().width() - m_rightWidget->sizeHint().width();
+            commandLineWidth = std::min(commandLineWidth, std::max(kCommandLineMinWidth, available));
+        }
         m_centerInputGroup->setFixedWidth(commandLineWidth);
     }
 
@@ -1097,6 +1123,11 @@ namespace ks::ui
                 "CMD 模式：聚焦输入框后按 Tab 切到全局搜索，按 Shift+Tab 切到当前表格搜索。")));
             m_commandLineEdit->setPlaceholderText(
                 QStringLiteral("输入命令后回车：将使用 cmd /K 在新控制台执行"));
+        }
+        if (property("ksword_mouseless_mode").toBool())
+        {
+            m_inputModeButton->setToolTip(ks::i18n::sourceText(QStringLiteral(
+                "无鼠标模式：Tab 切分区；Ctrl+Alt+S 循环切换搜索范围 / CMD，加 Shift 反向。")));
         }
     }
 

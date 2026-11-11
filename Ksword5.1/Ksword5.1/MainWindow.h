@@ -74,6 +74,7 @@ namespace ks::ui
 {
     class CustomTitleBar; // 前置声明：主窗口自绘标题栏组件。
     class GlobalUiSearchController; // 前置声明：标题栏全局页面搜索控制器。
+    class MouselessNavigation;
     class PageNavigationBridge; // Taskbar 页面目录与跨进程导航服务。
     class McpLocalBridge; // 显式启动的本地 MCP Qt 对象桥。
     class CommandExecutionPopup; // 前置声明：标题栏 CMD 命令选项弹层。
@@ -793,6 +794,7 @@ private:
     ks::ui::NotificationCardManager* m_notificationCardManager = nullptr;
     ks::ui::CustomTitleBar* m_customTitleBar = nullptr; // m_customTitleBar：主窗口自绘标题栏组件。
     ks::ui::GlobalUiSearchController* m_globalUiSearchController = nullptr; // m_globalUiSearchController：标题栏全局页面搜索控制器。
+    ks::ui::MouselessNavigation* m_mouselessNavigation = nullptr;
     ks::ui::PageNavigationBridge* m_pageNavigationBridge = nullptr; // 不在主程序增加导航按钮。
     ks::ui::McpLocalBridge* m_mcpLocalBridge = nullptr; // 在页面及驱动后端拆除前关闭。
     QString m_mcpServiceError; // 最近一次启动失败，设置页可重试并清除此值。

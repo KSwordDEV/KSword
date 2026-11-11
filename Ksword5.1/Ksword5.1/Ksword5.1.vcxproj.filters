@@ -1915,6 +1915,9 @@
     <ClCompile Include="UI\UiAnimationGate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\MouselessNavigation.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
     <ClCompile Include="UI\PageTabFocusStyle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3253,6 +3256,12 @@
     </ClInclude>
     <ClInclude Include="UI\UiAnimationGate.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\MouselessNavigation.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\MouselessNavigationState.h">
+      <Filter>UI</Filter>
     </ClInclude>
     <ClInclude Include="UI\PageTabFocusStyle.h">
       <Filter>Header Files</Filter>

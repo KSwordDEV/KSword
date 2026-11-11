@@ -123,6 +123,7 @@
 #include "UI/StandardWidgetTheme.h"
 #include "UI/ThemedSlider.h"
 #include "UI/GlobalUiSearch.h"
+#include "UI/MouselessNavigation.h"
 #include "UI/CommandExecutionPopup.h"
 #include "UI/WindowChrome.h"
 #include "UI/SvgThemeIconManager.h"
@@ -5619,6 +5620,14 @@ MainWindow::MainWindow(
         QStringLiteral("正在应用界面设置..."));
     initAppearanceSettings();
 
+    m_mouselessNavigation = new ks::ui::MouselessNavigation(this,
+        [this](bool enabled) { m_customTitleBar->setMouselessMode(enabled); },
+        [this]() {
+            if (m_globalUiSearchController) m_globalUiSearchController->dismissPopup();
+            if (m_commandExecutionPopup) m_commandExecutionPopup->dismissPopup();
+        });
+    m_mouselessNavigation->setEnabled(m_currentAppearanceSettings.startupMouselessEnabled);
+
     // 记录初始化完成日志，方便用户在“日志输出”面板直接看到结果。
     // 注意：使用 kLogEvent，避免与 QObject::event 命名冲突。
     kLogEvent readyEvent;
@@ -5638,6 +5647,9 @@ MainWindow::MainWindow(
 
 MainWindow::~MainWindow()
 {
+    // Stop input/focus observers before QWidget/ADS starts destroying its child windows.
+    delete m_mouselessNavigation;
+    m_mouselessNavigation = nullptr;
     ks::ui::RemoveCoordinatedApplicationRestart(this);
     // 排队的 MCP 动作必须先失效，再拆除页面、驱动租约与后台消费者。
     if (m_mcpLocalBridge)
@@ -11814,6 +11826,9 @@ void MainWindow::initDockWidgets()
         QStringLiteral("main.startup.progress.first_page"),
         QStringLiteral("正在加载功能模块..."));
     m_welcomeWidget = new WelcomeDock(this);
+    connect(m_welcomeWidget, &WelcomeDock::mouselessTutorialRequested, this, [this]() {
+        if (m_mouselessNavigation) m_mouselessNavigation->showTutorial();
+    });
     connect(
         m_welcomeWidget,
         &WelcomeDock::languageSettingsRequested,

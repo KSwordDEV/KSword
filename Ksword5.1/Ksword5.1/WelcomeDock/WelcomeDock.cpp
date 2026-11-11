@@ -282,6 +282,16 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     headerRightLayout->setSpacing(8);
     headerRightLayout->addWidget(m_copyright, 1);
     headerRightLayout->addWidget(m_languageSettingsBtn, 0, Qt::AlignRight);
+    auto* keyboardHint = new QLabel(this);
+    keyboardHint->setWordWrap(true);
+    ks::i18n::LanguageManager::instance().bindText(keyboardHint, QStringLiteral("keyboard.welcome.hint"),
+        QStringLiteral("无鼠标模式：按住 Ctrl 连按两次 Alt，或同时按 Ctrl + 左 Alt + 右 Alt。再次按可退出；模式内按 F1 查看教程。"));
+    headerRightLayout->addWidget(keyboardHint);
+    auto* keyboardGuide = new QPushButton(this);
+    ks::i18n::LanguageManager::instance().bindText(keyboardGuide, QStringLiteral("keyboard.welcome.guide"),
+        QStringLiteral("进入无鼠标模式并学习"));
+    headerRightLayout->addWidget(keyboardGuide, 0, Qt::AlignRight);
+    connect(keyboardGuide, &QPushButton::clicked, this, &WelcomeDock::mouselessTutorialRequested);
     m_mainLayout->addLayout(headerRightLayout, 1);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
