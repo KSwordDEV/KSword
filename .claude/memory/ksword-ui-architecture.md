@@ -334,6 +334,8 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - 普通详情卡片仍以完整 StructuredFieldView 文档负责搜索、复制和导出；大分区在后台用冻结翻译快照准备纯值索引，界面只挂载视口字段，保留共享卡片、双列、说明及原 QLabel 选区。清空 QFormLayout 重排行时必须用 takeRow 移除行槽，不能仅 takeAt 留下空行；旧可视控件按预算退休，大值快照最终释放放在后台。复杂报告与专业布局不因这条普通卡片优化而改入口。
 - `StructuredFieldView` 本身直接作为Tab/Stack页时不能替换页对象：清掉旧布局后在source内部安装 `CreateDetailFieldProjection(source, source)`，保持原页索引/标题/currentWidget及业务指针。该模式不重挂或隐藏source，重复接入查其直接投影子节点，避免父子循环和重复宿主。
 
+- 2026-11-11 令牌快照滚动：整段字段固定名称列宽并预计算行高，名称测绘同用 `TextWordWrap | TextWrapAnywhere`；`QLabel::heightForWidth`会受旧固定高度钳制，自然高度缓存失效须先解除旧约束。虚拟空白用精确表单边距，零高占位行仍产生6px原生行距。普通卡片保留完整外框，超出Qt尺寸上限才走原裁窗。320px预取/80px安全范围内复用，越界仅增删边缘行；标签直接创建于最终pane，预算占位仍保留有界拆行回退和选区/焦点保活。专用Canvas实填底色，实际alpha255才声明opaque；移除LayoutRequest→物化反馈，不以禁更新/强制repaint遮闪。77493项组件检查0失败，四宽度连续滚动0坐标跳动，大面积卡片绘制由186–218降至18–22次/160步；真实850/840px各259/260帧最低文字量抽查未见整块清空，约31ms桌面取帧仍可漏短闪。主程序Release构建通过，真实主题热切换、DPI/全部背景及其它详情页未验收；详见 `docs/令牌详情快照布局修复.md`。
+
 ## UI 适配与性能补漏（2026-10-11）
 
 - 文件详情同样以 `ksword_detail_theme_owner` 保留完整业务根主题；GlobalDialogTheme为其安装共享结构但让出颜色。`ApplyDetailDialogChrome` 与框架维护同一个完整拥有块，不重复追加或覆盖根主题。侧导航比较源图标身份，不能拿主题加工后的显示图标key误判源变化。

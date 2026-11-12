@@ -85,15 +85,16 @@ namespace ks::ui::detail_cards
     struct Geometry
     {
         std::array<Heights, 3> columns;
+        std::array<int, 3> labelWidths{}; // 整段规范字段共同决定名称列宽，虚拟窗口滚动不重新求宽。
         qint64 header = 0;
         bool twoColumns = false;
         qint64 columnHeight(int column) const { return qMax<qint64>(0, columns[column].total() - (columns[column].size() ? 6 : 0)); }
         qint64 columnStart(int column) const
         {
             if (column == 0) return header;
-            if (column == 1) return header + (twoColumns ? 0 : columnHeight(0) + (columns[0].size() && columns[1].size() ? 18 : 0));
+            if (column == 1) return header + (twoColumns ? 0 : columnHeight(0) + (columns[0].size() && columns[1].size() ? 16 : 0));
             return header + (twoColumns ? qMax(columnHeight(0), columnHeight(1))
-                : columnHeight(0) + columnHeight(1) + (columns[0].size() && columns[1].size() ? 18 : 0))
+                : columnHeight(0) + columnHeight(1) + (columns[0].size() && columns[1].size() ? 16 : 0))
                 + (columns[2].size() && (columns[0].size() || columns[1].size()) ? 10 : 0);
         }
         qint64 height() const { return columnStart(2) + columnHeight(2) + 14; }
