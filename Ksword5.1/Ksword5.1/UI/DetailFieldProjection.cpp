@@ -6,6 +6,7 @@
 #include "./MainSurfaceStyle.h"
 #include "./ComplexReportView.h"
 #include "./DetailCardProjectionValues.h"
+#include "./DetailFieldProjectionWidgets.h"
 #include "./AsyncUiDispatcher.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -29,6 +30,7 @@
 #include <QMap>
 #include <QSet>
 #include <QKeyEvent>
+#include <QPainter>
 #include <deque>
 #include <climits>
 
@@ -85,7 +87,7 @@ namespace
             }
             else
             {
-                m_body = new QWidget(this);
+                m_body = new ks::ui::detail_cards::Canvas(this);
                 m_body->setProperty("ksword_detail_document_body", true);
                 m_body->setMinimumWidth(0);
                 m_body->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -159,19 +161,8 @@ namespace
             if (m_body) materialize();
         }
     private:
-        struct Row
-        {
-            QPointer<QLabel> label, value;
-            bool pinned() const { return value && (value->hasFocus() || value->hasSelectedText()); }
-        };
-        struct Card
-        {
-            QPointer<QWidget> widget, firstPane, secondPane, notesPane, columnsHost;
-            QPointer<QLabel> heading;
-            std::array<QFormLayout*, 3> forms{};
-            QMap<int, Row> rows;
-            bool columnsInLayout = false, notesInLayout = true;
-        };
+        using Row = ks::ui::detail_cards::MaterializedRow; // 保留原字段控件、选区和高度缓存。
+        using Card = ks::ui::detail_cards::MaterializedCard; // 外框稳定，物化范围有界。
         using Values = ks::ui::detail_cards::Projection;
 
         // Old cards can include many intentionally pinned selections. Detach
@@ -293,7 +284,9 @@ namespace
                     if (m_body && m_body->width() != m_renderWidth) scheduleRefresh();
                     scheduleViewport();
                 }
-                else if (event->type() == QEvent::Show || event->type() == QEvent::Move || event->type() == QEvent::LayoutRequest)
+                // 物化时重建表单本身就会发出LayoutRequest；不能把它作为下一次物化的输入。
+                // 真正的视口变化由Resize/Move/滚动通知驱动，行高校正则显式安排补轮。
+                else if (event->type() == QEvent::Show || event->type() == QEvent::Move)
                     scheduleViewport();
             }
             return QWidget::eventFilter(watched, event);
@@ -411,20 +404,64 @@ namespace
                 // QFontMetrics is a value; all full-document traversal and
                 // translation uses captured values, never a widget or singleton.
                 const QFontMetrics metrics(renderFont);
+                QFont headingFont = renderFont; // 标题与生产卡片相同的半粗字体，预先计算跨行标题。
+                headingFont.setWeight(QFont::DemiBold);
+                const QFontMetrics headingMetrics(headingFont); // 标题测量不复用正文常规字重。
                 const int lineHeight = metrics.height();
                 auto values = ks::ui::detail_cards::prepare(document,
                     [translator](const QString& text) { return translator.sourceText(text); }, query,
-                    width - 32 >= 618, lineHeight,
-                    [metrics, width](const ks::ui::detail_cards::Field& field, bool twoColumns)
+                    width - 32 >= 616, lineHeight,
+                    [headingMetrics, width, lineHeight](const ks::ui::detail_cards::Field& field, bool)
                     {
-                        const int columnWidth = qMax(40, (width - 32 - (twoColumns ? 18 : 0)) / (twoColumns ? 2 : 1));
-                        const int valueWidth = field.note ? columnWidth : qMax(20, (columnWidth - 16) * 2 / 3);
-                        const int nameWidth = qMax(20, columnWidth - valueWidth - 16);
-                        const auto height = [&](const QString& text, int available)
-                        { return metrics.boundingRect(QRect(0, 0, available, INT_MAX / 8), Qt::TextWordWrap, text).height(); };
-                        return field.note ? height(field.value, valueWidth)
-                            : qMax(height(field.name, nameWidth), height(field.value, valueWidth));
-                    }, previous, canceled);
+                        // 此轮先建立规范字段树；正文在名称列宽确定后统一测量，标题使用全宽。
+                        return field.note ? headingMetrics.boundingRect(QRect(0, 0, qMax(1, width - 32),
+                            INT_MAX / 8), Qt::TextWordWrap, field.value).height() + 1 : lineHeight;
+                     }, previous, canceled);
+                // 名称列宽按整段字段一次确定，不让当前可见的短/长名称改变其它行宽度。
+                // 仍使用原生表单和响应式分栏；只给名称列保留稳定的自然宽度上限。
+                if (values)
+                {
+                    for (int section = 0; section < values->sections.size() && !canceled->load(std::memory_order_relaxed); ++section)
+                    {
+                        auto& geometry = values->geometry[section]; // 本轮宽度对应的纯值几何。
+                        const auto& data = values->sections.at(section); // 当前过滤后的规范字段集合。
+                        const int contentWidth = qMax(1, width - 32); // 卡片扣除左右16px后的整段宽度。
+                        const auto columnWidth = [&](int column) // 原生等分列把奇数余量分给第一列，附注始终全宽。
+                        {
+                            return !geometry.twoColumns || column == 2 ? contentWidth
+                                : qMax(1, (contentWidth - 16 + (column == 0 ? 1 : 0)) / 2);
+                        };
+                        for (int column = 0; column < 2; ++column)
+                        {
+                            int naturalWidth = 0; // 当前完整字段列的名称自然宽度。
+                            for (const int index : data.accepted[column])
+                            {
+                                if (canceled->load(std::memory_order_relaxed)) break;
+                                naturalWidth = qMax(naturalWidth, metrics.horizontalAdvance(data.fields.at(index).name));
+                            }
+                            geometry.labelWidths[column] = qMin(naturalWidth, qMax(20, (columnWidth(column) - 16) / 2));
+                        }
+                        // 同一宽度下整段行高一次算准，滚动只裁出窗口，不再校正未见行导致总高漂移。
+                        for (int column = 0; column < 3; ++column)
+                        {
+                            const int nameWidth = geometry.labelWidths[column]; // 此列稳定名称宽度，附注列为零。
+                            const int valueWidth = column == 2 ? contentWidth : qMax(1, columnWidth(column) - nameWidth - 16);
+                            for (int position = 0; position < data.accepted[column].size(); ++position)
+                            {
+                                if (canceled->load(std::memory_order_relaxed)) break;
+                                const auto& field = data.fields.at(data.accepted[column].at(position)); // 当前规范行。
+                                const int nameHeight = field.note ? 0 : qMax(lineHeight, metrics.boundingRect(
+                                    QRect(0, 0, qMax(1, nameWidth), INT_MAX / 8),
+                                    Qt::TextWordWrap | Qt::TextWrapAnywhere, field.name).height());
+                                const int valueHeight = qMax(lineHeight, metrics.boundingRect(
+                                    QRect(0, 0, valueWidth, INT_MAX / 8), Qt::TextWordWrap, field.value).height() + 1);
+                                geometry.columns[column].set(position, qMax(nameHeight, valueHeight) + 6);
+                            }
+                        }
+                        const bool visible = !data.acceptedOrder.isEmpty(); // 搜索空结果仍不占用虚拟正文高度。
+                        values->sectionsHeight.set(section, visible ? geometry.height() + 14 : 0);
+                    }
+                }
                 // Every final release, including a dropped queued callback, is
                 // dispatched to a worker. The GUI never frees a large value tree.
                 auto published = ks::ui::detail_cards::workerOwned(std::move(values), [](std::function<void()> action)
@@ -440,6 +477,7 @@ namespace
                     { m_dirty = true; scheduleRefresh(); return; }
                     if (!published->sameStructure) discardCards();
                     m_snapshot = std::move(published);
+                    ++m_snapshotRevision;
                     m_documentRevision = revision; m_language = language; m_query = query;
                     m_renderWidth = width; m_renderFont = renderFont;
                     m_renderedTranslationRevision = translationRevision; m_snapshotReady = true;
@@ -454,6 +492,8 @@ namespace
             Card card;
             const auto& value = m_snapshot->sections.at(section);
             card.widget = ks::ui::CreateDetailCard(value.title, m_body);
+            // 虚拟卡片只承载当前窗口的自然行高，余量留在底部，避免每次裁窗均分到顶部。
+            card.widget->layout()->setAlignment(Qt::AlignTop);
             card.heading = card.widget->findChild<QLabel*>(QString(), Qt::FindDirectChildrenOnly);
             if (value.fieldCount >= 8)
                 ks::ui::AddDetailFieldColumns(card.widget, card.forms[0], card.forms[1]);
@@ -482,7 +522,10 @@ namespace
         {
             const auto& field = m_snapshot->sections.at(m_buildSection).fields.at(index);
             Row row;
-            auto* value = new QLabel(card.widget);
+            // 标签直接归最终表单面板；addRow不再把新标签从卡片重挂而触发整支样式失效。
+            QWidget* pane = field.column == 0 ? card.firstPane.data()
+                : field.column == 1 ? card.secondPane.data() : card.notesPane.data(); // 此字段的最终父控件。
+            auto* value = new QLabel(pane ? pane : card.widget.data());
             row.value = value;
             value->setTextFormat(Qt::PlainText); value->setWordWrap(true); value->setMinimumWidth(0);
             value->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -503,7 +546,7 @@ namespace
             });
             if (!field.note)
             {
-                row.label = new QLabel(field.name, card.widget);
+                row.label = new ks::ui::detail_cards::NameLabel(field.name, pane ? pane : card.widget.data());
                 row.label->setProperty("ksword_detail_field_label", true);
                 row.label->setWordWrap(true); row.label->setMinimumWidth(0);
             }
@@ -557,9 +600,17 @@ namespace
                 const auto& data = m_snapshot->sections.at(section);
                 auto& geometry = m_snapshot->geometry[section];
                 const qint64 sectionTop = m_snapshot->sectionsHeight.prefix(section);
-                const qint64 requestedFirst = qMax<qint64>(0, firstPixel - sectionTop);
+                // 在已有窗口的安全余量内滚动只搬移像素；越过边缘后才补充有界字段集合。
+                const qint64 visibleFirst = qMax<qint64>(0, top - sectionTop - 80); // 视口上方必须保留的文字范围。
+                const qint64 visibleLast = qMin(geometry.height(), top + viewportHeight - sectionTop + 80); // 视口下方安全范围。
+                const bool reuseWindow = card.layoutRevision == m_snapshotRevision
+                    && card.windowFirst <= visibleFirst && card.windowLast >= visibleLast;
+                const qint64 requestedFirst = reuseWindow ? card.windowFirst : qMax<qint64>(0, top - sectionTop - 320);
                 qint64 clipFirst = requestedFirst;
-                const qint64 requestedLast = qMin(geometry.height(), lastPixel - sectionTop);
+                const qint64 requestedLast = reuseWindow ? card.windowLast
+                    : qMin(geometry.height(), top + viewportHeight - sectionTop + 320);
+                card.windowFirst = requestedFirst;
+                card.windowLast = requestedLast;
                 qint64 clipLast = requestedLast;
                 if (clipFirst < geometry.header) clipFirst = 0;
                 for (int column = 0; column < 3; ++column)
@@ -574,6 +625,14 @@ namespace
                         // clipping its host inside a long field compresses the text.
                         clipLast = qMax(clipLast, start + heights.prefix(window.end) - 6);
                     }
+                }
+                // 普通卡片保持完整外框，滚动不再缩放/移动实底；仅字段继续按可见范围物化。
+                // 超出Qt控件尺寸上限的逻辑卡片保留裁窗回退，避免破坏超大文档坐标映射。
+                const bool stableFrame = geometry.height() < QWIDGETSIZE_MAX - 1024;
+                if (stableFrame)
+                {
+                    clipFirst = 0;
+                    clipLast = geometry.height();
                 }
                 const qint64 contentTop = qMax(geometry.header, clipFirst);
                 QSet<int> wanted;
@@ -610,7 +669,18 @@ namespace
                     if (!wanted.contains(it.key()) && !it->pinned())
                     {
                         if (budget <= 0) { unfinished = true; ++it; continue; }
-                        --budget; delete it->label.data(); delete it->value.data(); it = card.rows.erase(it); continue;
+                        --budget;
+                        auto* form = card.forms[data.fields.at(it.key()).column]; // 删除控件前移除整行，避免留下空布局项。
+                        if (form && form->indexOf(it->value) >= 0)
+                        {
+                            const auto removed = form->takeRow(it->value);
+                            delete removed.labelItem;
+                            delete removed.fieldItem;
+                        }
+                        delete it->label.data();
+                        delete it->value.data();
+                        it = card.rows.erase(it);
+                        continue;
                     }
                     ++it;
                 }
@@ -620,24 +690,49 @@ namespace
                 {
                     auto* form = card.forms[column];
                     if (!form) continue;
-                    while (form->rowCount())
-                    {
-                        const auto row = form->takeRow(0);
-                        delete row.labelItem;
-                        delete row.fieldItem;
-                    }
                     QWidget* pane = column == 0 ? card.firstPane.data() : column == 1 ? card.secondPane.data() : card.notesPane.data();
                     const auto& heights = geometry.columns[column];
                     const qint64 start = geometry.columnStart(column);
                     const qint64 regionFirst = qMax(contentTop, start);
                     const qint64 regionLast = qMin(clipLast, start + geometry.columnHeight(column));
+                    QVector<int> formRows; // 仅比较有界可见集合，未完成的占位转为控件时也必须补建。
+                    for (const int position : selected[column])
+                    {
+                        const int index = data.accepted[column].at(position);
+                        formRows.append(card.rows.contains(index) ? index : -index - 1);
+                    }
+                    if (card.layoutRevision == m_snapshotRevision && card.formRows[column] == formRows
+                        && card.formFirst[column] == regionFirst && card.formLast[column] == regionLast)
+                    {
+                        continue; // 单纯滚动保留现有表单，不再先取空布局项再重新挂入同一批标签。
+                    }
+                    const bool complete = std::all_of(formRows.cbegin(), formRows.cend(),
+                        [](int index) { return index >= 0; }); // 存在预算占位时仍按原顺序完整构造该有界表单。
+                    card.formRows[column] = std::move(formRows);
+                    card.formFirst[column] = regionFirst;
+                    card.formLast[column] = regionLast;
+                    // 无预算占位时只增删窗口边缘，已有可见行不经过“整列拆空”路径。
+                    const bool retained = complete && ks::ui::detail_cards::retainFormRows(form, wanted);
+                    while (!retained && form->rowCount())
+                    {
+                        const auto row = form->takeRow(0); // 仅真实窗口集合变化时替换布局项，标签身份仍保留。
+                        delete row.labelItem;
+                        delete row.fieldItem;
+                    }
                     bool pinned = false;
                     for (auto row = card.rows.cbegin(); row != card.rows.cend(); ++row)
                         pinned |= data.fields.at(row.key()).column == column && row->pinned();
-                    const bool show = (regionLast > regionFirst && !selected[column].isEmpty()) || pinned;
+                    const bool show = (regionLast > regionFirst && !data.accepted[column].isEmpty()) || pinned;
                     if (pane) pane->setVisible(show);
                     if (!show) continue;
-                    qint64 cursor = regionFirst;
+                    // 首尾虚拟空白用表单边距表达；零高占位行仍会触发6px原生行距，
+                    // 将1–5px空白放大，造成滚动中整列反复偏移。
+                    const qint64 firstRow = selected[column].isEmpty() ? regionLast
+                        : start + heights.prefix(selected[column].first()); // 此窗口首行的规范正文坐标。
+                    const int topMargin = static_cast<int>(qMax<qint64>(0, firstRow - regionFirst)); // 精确前缀空白。
+                    form->setContentsMargins(0, topMargin, 0, 0);
+                    qint64 cursor = regionFirst + topMargin; // 已由边距消费前缀，不额外插入空行。
+                    int formPosition = 0; // 本轮规范行在有界表单中的目标顺序。
                     for (const int position : selected[column])
                     {
                         const int index = data.accepted[column].at(position);
@@ -648,22 +743,44 @@ namespace
                         if (row != card.rows.end())
                         {
                             const auto& field = data.fields.at(index);
-                            if (row->value->text() != field.value) { row->value->setText(field.value); row->value->setToolTip(field.value); }
+                            if (row->value->text() != field.value)
+                            {
+                                row->value->setText(field.value);
+                                row->value->setToolTip(field.value);
+                                row->measuredWidth = -1;
+                            }
                             if (row->value->property("ksword_detail_field_semantic").toString() != field.semantic)
                             {
                                 row->value->setProperty("ksword_detail_field_semantic", field.semantic);
                                 row->value->style()->unpolish(row->value); row->value->style()->polish(row->value);
                             }
-                            if (row->label) { form->addRow(row->label, row->value); row->label->show(); }
-                            else form->addRow(row->value);
+                            if (row->label)
+                            {
+                                const int labelWidth = geometry.labelWidths[column]; // 整段共享名称列宽，滚动窗口变化不改列宽。
+                                if (row->label->minimumWidth() != labelWidth || row->label->maximumWidth() != labelWidth)
+                                {
+                                    row->label->setFixedWidth(labelWidth);
+                                }
+                                if (!retained || form->indexOf(row->value) < 0)
+                                {
+                                    form->insertRow(formPosition, row->label, row->value);
+                                }
+                                row->label->show();
+                            }
+                            else if (!retained || form->indexOf(row->value) < 0)
+                            {
+                                form->insertRow(formPosition, row->value);
+                            }
                             row->value->show();
                         }
                         else form->setItem(form->rowCount(), QFormLayout::SpanningRole,
                             new QSpacerItem(0, static_cast<int>(heights.at(position) - 6), QSizePolicy::Minimum, QSizePolicy::Fixed));
                         cursor = qMax(cursor, rowY + heights.at(position));
+                        ++formPosition;
                     }
-                    if (regionLast > cursor) form->setItem(form->rowCount(), QFormLayout::SpanningRole,
-                        new QSpacerItem(0, static_cast<int>(qMax<qint64>(0, regionLast - cursor - 6)), QSizePolicy::Minimum, QSizePolicy::Fixed));
+                    const int bottomMargin = selected[column].isEmpty() ? 0
+                        : static_cast<int>(qMax<qint64>(0, regionLast - cursor + 6)); // 空列只用顶部边距占位，不增加虚构行距。
+                    form->setContentsMargins(0, topMargin, 0, bottomMargin);
                 }
                 auto* layout = static_cast<QVBoxLayout*>(card.widget->layout());
                 const auto placePane = [&](QWidget* pane, bool present, bool pinned, bool& inLayout, int position)
@@ -689,14 +806,35 @@ namespace
                         if (data.fields.at(row.key()).column == 2) pinnedNotes = true;
                         else pinnedColumns = true;
                     }
-                placePane(card.columnsHost, !selected[0].isEmpty() || !selected[1].isEmpty(), pinnedColumns, card.columnsInLayout, 1);
-                placePane(card.notesPane, !selected[2].isEmpty(), pinnedNotes, card.notesInLayout, layout->count());
+                placePane(card.columnsHost, stableFrame ? !data.accepted[0].isEmpty() || !data.accepted[1].isEmpty()
+                    : !selected[0].isEmpty() || !selected[1].isEmpty(), pinnedColumns, card.columnsInLayout, 1);
+                placePane(card.notesPane, stableFrame ? !data.accepted[2].isEmpty()
+                    : !selected[2].isEmpty(), pinnedNotes, card.notesInLayout, layout->count());
                 const bool headingVisible = clipFirst < geometry.header && !data.title.isEmpty();
                 if (card.heading) card.heading->setVisible(headingVisible);
                 layout->setContentsMargins(16, clipFirst == 0 ? 14 : 0, 16, clipLast == geometry.height() ? 14 : 0);
                 card.widget->setGeometry(0, physical + static_cast<int>(sectionTop + clipFirst - top),
                     m_body->width(), static_cast<int>(qMax<qint64>(1, clipLast - clipFirst)));
                 layout->activate();
+                // 外卡片激活不保证嵌套表单已消费本轮宽度；先逐层完成列布局再读取字段矩形。
+                // 否则旧列宽参与高度回写，在临界宽度处会不断放大/缩小虚拟卡片。
+                if (card.columnsHost && card.columnsHost->layout())
+                {
+                    card.columnsHost->layout()->activate();
+                }
+                for (int column = 0; column < 3; ++column)
+                {
+                    auto* form = card.forms[column]; // 当前物化列的原生表单。
+                    if (!form || !form->parentWidget()->isVisible())
+                    {
+                        continue;
+                    }
+                    if (auto* parentLayout = form->parentWidget()->parentWidget()->layout()) // 表单上层列宿主先分配本轮宽度。
+                    {
+                        parentLayout->activate();
+                    }
+                    form->activate();
+                }
                 // Native WrapLongRows decides whether label and value share a
                 // row. Correct only realized row heights, in O(log N), so a
                 // conservative estimate cannot hide the tail of a long field.
@@ -710,13 +848,37 @@ namespace
                 for (int column = 0; column < 3; ++column)
                     for (const int position : selected[column])
                     {
-                        const auto row = card.rows.constFind(data.accepted[column].at(position));
-                        if (row == card.rows.cend() || !row->value) continue;
-                        const int valueHeight = qMax(row->value->fontMetrics().height(), row->value->heightForWidth(qMax(1, row->value->width())));
+                        const auto row = card.rows.find(data.accepted[column].at(position)); // 此行文字自然高度缓存。
+                        if (row == card.rows.end() || !row->value) continue;
+                        const int valueWidth = qMax(1, row->value->width()); // 已激活原生列布局的当前宽度。
+                        if (row->measuredWidth != valueWidth || row->measuredFont != row->value->font())
+                        {
+                            // QLabel::heightForWidth会钳制到现有固定高度；仅缓存失效时解除旧约束，
+                            // 测出自然高度后立即重新固定，不让旧窄窗的高度污染新宽度及行高前缀树。
+                            row->value->setMinimumHeight(0);
+                            row->value->setMaximumHeight(QWIDGETSIZE_MAX);
+                            row->naturalHeight = qMax(row->value->fontMetrics().height(), row->value->heightForWidth(valueWidth));
+                            row->measuredWidth = valueWidth;
+                            row->measuredFont = row->value->font();
+                        }
+                        const int valueHeight = row->naturalHeight; // 同一文字/字体/宽度在滚动中保持不变。
+                        // QFormLayout可能压缩字段，且名称标签不保证按heightForWidth分配高度。
+                        // 用本轮真实宽度提供最小文字高度，让原生布局保留完整名称和raw预览。
+                        if (row->value->minimumHeight() != valueHeight || row->value->maximumHeight() != valueHeight)
+                        {
+                            row->value->setFixedHeight(valueHeight);
+                            // 即使前缀树高度已正确，最小高度变化仍需补轮让表单消费新约束。
+                            corrected = true;
+                        }
                         int height = valueHeight;
                         if (row->label)
                         {
                             const int labelHeight = qMax(row->label->fontMetrics().height(), row->label->heightForWidth(qMax(1, row->label->width())));
+                            if (row->label->minimumHeight() != labelHeight || row->label->maximumHeight() != labelHeight)
+                            {
+                                row->label->setFixedHeight(labelHeight);
+                                corrected = true;
+                            }
                             height = row->label->y() + row->label->height() <= row->value->y()
                                 ? labelHeight + valueHeight + 6 : qMax(labelHeight, valueHeight);
                         }
@@ -727,6 +889,7 @@ namespace
                     m_snapshot->sectionsHeight.set(section, geometry.height() + 14);
                     unfinished = true;
                 }
+                card.layoutRevision = corrected ? 0 : m_snapshotRevision;
                 ks::ui::PrepareWidgetThemeBindingsForShow(card.widget);
                 if (section == m_focusSection && card.rows.contains(m_focusField))
                 {
@@ -770,7 +933,7 @@ namespace
             const QString begin = QStringLiteral("/* KSWORD_DETAIL_PROJECTION_BEGIN */");
             const QString end = QStringLiteral("/* KSWORD_DETAIL_PROJECTION_END */");
             const QString block = begin + QStringLiteral(
-                "QWidget[ksword_detail_projection=\"true\"],QWidget[ksword_detail_document_body=\"true\"]{background:%1;border:0;}"
+                "QWidget[ksword_detail_projection=\"true\"]{background:%1;border:0;}"
                 "QScrollArea,QScrollArea > QWidget{background:%1;border:0;}"
                 "QLabel[ksword_detail_loading=\"true\"]{background:%1;color:%2;border:0;}"
                 "QLabel[ksword_detail_field_label=\"true\"]{background:transparent;color:%2;}"
@@ -797,6 +960,11 @@ namespace
             {
                 setStyleSheet(style);
             }
+            if (m_body)
+            {
+                // QSS不再接管正文填底；opaque标记与自身paint实际使用的颜色同步。
+                static_cast<ks::ui::detail_cards::Canvas*>(m_body)->setCanvasColor(projectionCanvasColor());
+            }
         }
         QPointer<ks::ui::StructuredFieldView> m_source; // 保留规范数据源及原导出入口。
         ks::ui::ComplexReportView* m_complexReport = nullptr; // 显式复杂报告正文，普通详情保持原卡片。
@@ -819,6 +987,7 @@ namespace
         bool m_viewportPending = false;
         bool m_materializing = false;
         quint64 m_documentRevision = 0; // 最后一帧使用的规范文档代次。
+        quint64 m_snapshotRevision = 0; // 每次接纳新投影使现有表单消费新文字、字体和几何。
         quint64 m_translationRevision = 0; // LanguageChange只在统一调度器中递增。
         quint64 m_renderedTranslationRevision = 0; // 已展示的翻译代次，兜底主题回调不重复翻译。
         QString m_language; // 相同语言的重复广播不重建字段文本。
