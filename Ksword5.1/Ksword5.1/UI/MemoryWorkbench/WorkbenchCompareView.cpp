@@ -1,3 +1,4 @@
+#include "../KeyboardItemActivation.h"
 // WorkbenchCompareView.cpp
 // 作用：WorkbenchCompareModel 的实现与 WorkbenchCompareView 的搭建/数据流。
 // 两段"待写入修改/两次读取之间"分别对应 ByteChangeKind::Pending/ExternalChange（后者经过
@@ -414,6 +415,7 @@ namespace ks::ui
         m_table->setAlternatingRowColors(true);
         layout->addWidget(m_table, 1);
         // 相同模型提供导航和原始字节复制，避免静态宿主再维护一张旧比较表。
+        ks::ui::InstallKeyboardItemActivation(m_table);
         connect(m_table, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
             if (index.isValid()) emit requestHexLocate(index.data(Qt::UserRole).toULongLong());
         });

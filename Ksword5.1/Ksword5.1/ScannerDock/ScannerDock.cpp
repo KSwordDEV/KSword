@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "ScannerDock.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../UI/PageControlStyle.h"
@@ -766,6 +767,7 @@ void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
         if (sourceTable.id == "sections" &&
             (result.format == ks::scanner::BinaryFormat::Pe32 || result.format == ks::scanner::BinaryFormat::Pe32Plus))
         {
+            ks::ui::InstallKeyboardItemActivation(table);
             connect(table, &QTableView::doubleClicked, this, [this, proxy, snapshot](const QModelIndex& index) {
                 if (snapshot != m_lastResult || !index.isValid()) return;
                 const auto sourceIndex = proxy->mapToSource(index);

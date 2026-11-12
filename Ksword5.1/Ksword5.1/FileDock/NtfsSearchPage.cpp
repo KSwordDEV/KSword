@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "NtfsSearchPage.h"
 #include "NtfsFastIndex.h"
 #include "../Internationalization/LanguageManager.h"
@@ -261,6 +262,7 @@ NtfsSearchPage::NtfsSearchPage(QWidget* parent) : QWidget(parent), m_state(std::
     connect(s.search, &QPushButton::clicked, this, requestSearch);
     connect(s.query, &QLineEdit::returnPressed, this, requestSearch);
     connect(s.locate, &QPushButton::clicked, this, &NtfsSearchPage::locateSelected);
+    ks::ui::InstallKeyboardItemActivation(s.results);
     connect(s.results, &QTableView::doubleClicked, this, [this] { locateSelected(); });
     connect(s.results->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { updateButtons(); });
     connect(s.volume, &QComboBox::currentIndexChanged, this, [this] {

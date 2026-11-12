@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/WindowTargetPicker.h"
@@ -4169,6 +4170,7 @@ void OtherDock::initializeConnections()
     });
 
     // 双击行：直接打开窗口详细信息。
+    ks::ui::InstallKeyboardItemActivation(m_windowTree);
     connect(m_windowTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& item) {
         if (!item.isValid() || item.data(Qt::UserRole + 1).toBool())
         {
@@ -4286,6 +4288,7 @@ void OtherDock::initializeConnections()
         connect(m_desktopCreateButton, &QPushButton::clicked, this, [this]() {
             showCreateDesktopDialog();
         });
+        ks::ui::InstallKeyboardItemActivation(m_desktopTable);
         connect(m_desktopTable, &QTableView::doubleClicked, this, [this](const QModelIndex&) {
             switchToSelectedDesktop();
         });

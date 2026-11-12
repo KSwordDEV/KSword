@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "MonitorTableExport.h"
 #include "MonitorEventFilterProjection.h"
 #include "../UI/AsyncCleanupRegistry.h"
@@ -7067,6 +7068,7 @@ void MonitorDock::initializeConnections()
     connect(m_wmiEventTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         showWmiEventContextMenu(pos);
     });
+    ks::ui::InstallKeyboardItemActivation(m_wmiEventTable);
     connect(m_wmiEventTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* itemPointer) {
         if (itemPointer == nullptr)
         {
@@ -7382,6 +7384,7 @@ void MonitorDock::initializeConnections()
     connect(m_etwEventTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
         showEtwEventContextMenu(pos);
     });
+    ks::ui::InstallKeyboardItemActivation(m_etwEventTable);
     connect(m_etwEventTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
         if (index.isValid()) openEtwEventDetailViewerForRow(index.row());
     });

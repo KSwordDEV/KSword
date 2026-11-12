@@ -1,3 +1,4 @@
+#include "../../UI/KeyboardItemActivation.h"
 #include "DiskFileSystemForensicsPanel.h"
 #include <QList>
 #include "../../UI/ToolbarMetrics.h"
@@ -658,6 +659,7 @@ namespace ks::misc
                 m_rawExportButton->setEnabled(!m_busy && fileSelected);
                 m_rawPeAction->setEnabled(!m_busy && fileSelected);
             });
+        ks::ui::InstallKeyboardItemActivation(m_rawTable);
         connect(m_rawTable, &QTableView::doubleClicked, this,
             [this](const QModelIndex& index)
             {
@@ -704,6 +706,7 @@ namespace ks::misc
         {
             eraseSelectedDeletedEntry();
         });
+        ks::ui::InstallKeyboardItemActivation(m_probeTable);
         connect(m_probeTable, &QTableWidget::cellDoubleClicked, this,
             [this](const int row, const int column)
         {
@@ -714,6 +717,7 @@ namespace ks::misc
                 m_jumpCallback(item->data(Qt::UserRole).toULongLong());
             }
         });
+        ks::ui::InstallKeyboardItemActivation(m_extentTable);
         connect(m_extentTable, &QTableView::doubleClicked, this,
             [this](const QModelIndex& index)
             {
@@ -728,6 +732,7 @@ namespace ks::misc
                 const bool eligible = entry != nullptr && entry->exactExtents && entry->clustersCurrentlyFree;
                 m_deletedEraseButton->setEnabled(!m_busy && eligible);
             });
+        ks::ui::InstallKeyboardItemActivation(m_deletedTable);
         connect(m_deletedTable, &QTableView::doubleClicked, this,
             [this](const QModelIndex& index)
             {

@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "ProcessDock.h"
 #include <map>
 #include <stdexcept>
@@ -7184,7 +7185,8 @@ void ProcessDock::initializeConnections()
         });
     });
 
-    // 双击友好视图合成行时折叠/展开；真实进程行保持“打开详情”的任务管理器式行为。
+    // 双击或无鼠标模式下 Enter：友好视图分组展开/收起，真实进程打开详情。
+    ks::ui::InstallKeyboardItemActivation(m_processTable);
     connect(m_processTable, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& index) {
         const ProcessTableRow* tableRow = processTableRowForViewIndex(index);
         if (tableRow == nullptr)

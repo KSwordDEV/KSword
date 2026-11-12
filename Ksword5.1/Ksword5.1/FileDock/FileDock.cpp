@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "FileDock.h"
 #include "FilePropertyTableModel.h"
 #include "NtfsSearchPage.h"
@@ -13561,6 +13562,7 @@ namespace
                 };
             connect(scan, &QPushButton::clicked, page, launch);
             connect(query, &QLineEdit::returnPressed, page, launch);
+            ks::ui::InstallKeyboardItemActivation(table);
             connect(table, &QTableView::doubleClicked, this, [this, table](const QModelIndex& index)
                 {
                     if (m_tabWidget == nullptr || !index.isValid()) return;

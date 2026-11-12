@@ -3257,6 +3257,12 @@
     <ClInclude Include="UI\UiAnimationGate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\KeyboardItemActivation.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\NavigationHighlight.h">
+      <Filter>UI</Filter>
+    </ClInclude>
     <ClInclude Include="UI\MouselessNavigation.h">
       <Filter>UI</Filter>
     </ClInclude>

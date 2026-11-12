@@ -38,6 +38,7 @@ namespace ks::ui
         ImmutableTableSource canonicalSource() const;
         bool isPreparing() const;
         std::function<void()> currentRowChanged, sourceReady;
+        // Legacy callback name; the default action is also reachable with Enter in mouseless mode.
         std::function<void(int)> rowDoubleClicked;
         std::function<void(const QString&)> preparationFailed;
     protected:

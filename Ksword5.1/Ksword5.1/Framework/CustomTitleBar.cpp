@@ -676,6 +676,7 @@ namespace ks::ui
         m_titleTextLabel->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
         m_leftWidget->setProperty("ksword_keyboard_region", true);
         m_leftWidget->setProperty("ksword_keyboard_region_name", QStringLiteral("主菜单"));
+        m_leftWidget->setProperty("ksword_keyboard_region_order", 10);
 
         m_leftLayout->addWidget(m_appIconLabel, 0);
         m_leftLayout->addWidget(m_titleTextLabel, 0);
@@ -775,6 +776,8 @@ namespace ks::ui
         m_rightWidget->setProperty("ksword_keyboard_region", true);
         m_centerInputGroup->setProperty("ksword_keyboard_region_name", QStringLiteral("搜索 / 命令"));
         m_rightWidget->setProperty("ksword_keyboard_region_name", QStringLiteral("窗口控制"));
+        m_centerInputGroup->setProperty("ksword_keyboard_region_order", 20);
+        m_rightWidget->setProperty("ksword_keyboard_region_order", 30);
         m_commandLineEdit->setProperty("ksword_mouseless_search_input", true);
         m_rootLayout->addWidget(m_rightWidget, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
         updateCommandLineWidth();
@@ -1127,7 +1130,7 @@ namespace ks::ui
         if (property("ksword_mouseless_mode").toBool())
         {
             m_inputModeButton->setToolTip(ks::i18n::sourceText(QStringLiteral(
-                "无鼠标模式：Tab 切分区；Ctrl+Alt+S 循环切换搜索范围 / CMD，加 Shift 反向。")));
+                "无鼠标模式：Tab 切换控件，F6 切换分区；Ctrl+Alt+S 切换搜索范围 / CMD，加 Shift 反向。")));
         }
     }
 

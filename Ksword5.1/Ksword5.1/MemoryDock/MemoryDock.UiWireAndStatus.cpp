@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "MemoryDock.Internal.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/TableContextMenu.h"
@@ -472,6 +473,7 @@ void MemoryDock::initializeProcessConnections()
         m_processComboChangeTimer->start();
         });
 
+    ks::ui::InstallKeyboardItemActivation(m_processTable);
     connect(m_processTable, &QTableView::doubleClicked, this, [this](const QModelIndex& clicked) {
         if (!coreProjectionIsCurrent(CoreKind::Processes)) { return; }
         const int row = clicked.row();
@@ -553,6 +555,7 @@ void MemoryDock::initializeProcessConnections()
         requestCoreProjection(CoreKind::Modules, true);
     });
 
+    ks::ui::InstallKeyboardItemActivation(m_moduleTable);
     connect(m_moduleTable, &QTreeView::doubleClicked, this, [this](const QModelIndex& item) {
         // 双击模块任意列时，按模块基址跳转到内存查看器。
         if (!item.isValid() || !coreProjectionIsCurrent(CoreKind::Modules))
@@ -669,6 +672,7 @@ void MemoryDock::initializeRegionConnections()
         refreshMemoryRegionList(true);
         });
 
+    ks::ui::InstallKeyboardItemActivation(m_regionTable);
     connect(m_regionTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!coreProjectionIsCurrent(CoreKind::Regions)) { return; }
         const int row = index.row(), column = index.column();
@@ -1015,6 +1019,7 @@ void MemoryDock::initializeSearchConnections()
         return nullptr;
     };
 
+    ks::ui::InstallKeyboardItemActivation(m_searchResultTable);
     connect(m_searchResultTable, &QTableView::doubleClicked, this, [this, searchRowAddress](const QModelIndex& index) {
         if (!coreProjectionIsCurrent(CoreKind::SearchResults)) { return; }
         const int row = index.row();

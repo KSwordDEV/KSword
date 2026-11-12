@@ -8,9 +8,10 @@
 #include <QVector>
 #include <functional>
 
-class QDialog;
 class QFocusFrame;
 class QKeyEvent;
+class QLabel;
+class QVBoxLayout;
 class QWidget;
 
 namespace ks::ui
@@ -20,7 +21,8 @@ namespace ks::ui
     class MouselessNavigation final : public QObject, public QAbstractNativeEventFilter
     {
     public:
-        MouselessNavigation(QWidget* mainWindow, std::function<void(bool)> modeChanged,
+        MouselessNavigation(QWidget* mainWindow, QWidget* tutorialHost, QVBoxLayout* tutorialLayout,
+            QWidget* workspace, std::function<void(bool)> modeChanged,
             std::function<void()> dismissTransientPanels);
         ~MouselessNavigation() override;
         void setEnabled(bool enabled);
@@ -37,11 +39,26 @@ namespace ks::ui
             QVector<QPointer<QWidget>> controls;
             QString title;
         };
+        struct FocusPolicyChange
+        {
+            QPointer<QWidget> widget;
+            Qt::FocusPolicy original;
+        };
+        struct RegionFocus
+        {
+            QPointer<QWidget> anchor;
+            QPointer<QWidget> control;
+        };
         QWidget* navigationWindow() const;
         QVector<Region> regions(QWidget* window) const;
         int currentRegion(const QVector<Region>& items, QWidget* focus) const;
-        void moveFocus(bool backwards, bool withinRegion);
-        void focusControl(QWidget* control);
+        void moveFocus(bool backwards, bool byRegion);
+        bool focusControl(QWidget* control);
+        bool focusRegion(const Region& region, bool backwards = false);
+        void restoreFocusPolicies();
+        void highlightRegion(QWidget* anchor);
+        void rememberNavigationFocus(QWidget* anchor, int tabIndex);
+        void queueNavigationFocusRestore();
         void showKeyTips();
         void hideKeyTips();
         void updateFocusFrame();
@@ -49,14 +66,32 @@ namespace ks::ui
         bool activateControl(QWidget* focus, QKeyEvent* key);
         bool contextMenu(QWidget* focus);
         void offerFirstTutorial();
+        void advanceTutorial(int direction);
+        void closeTutorial();
+        void locateTutorialTarget();
 
         QPointer<QWidget> m_mainWindow;
+        QPointer<QWidget> m_tutorialHost;
+        QPointer<QVBoxLayout> m_tutorialLayout;
+        QPointer<QWidget> m_workspace;
         QPointer<QFocusFrame> m_focusFrame;
         QPointer<QWidget> m_tipOverlay;
-        QPointer<QDialog> m_tutorial;
+        QPointer<QWidget> m_regionHighlight;
+        QPointer<QWidget> m_navigationFocusAnchor;
+        QPointer<QWidget> m_tutorial;
+        QPointer<QWidget> m_tutorialReturnFocus;
+        QPointer<QLabel> m_tutorialStatus;
         QVector<Region> m_tipRegions;
+        QVector<FocusPolicyChange> m_focusPolicyChanges;
+        QVector<RegionFocus> m_regionFocus;
         QString m_tipPrefix;
         int m_tipDigits = 1;
+        int m_tutorialStep = 0;
+        int m_navigationTabIndex = -1;
+        quint64 m_inputRevision = 0;
+        quint64 m_navigationInputRevision = 0;
+        bool m_navigationRestoreQueued = false;
+        std::function<void()> m_renderTutorial;
         std::function<void(bool)> m_modeChanged;
         std::function<void()> m_dismissTransientPanels;
         MouselessGesture m_gesture;

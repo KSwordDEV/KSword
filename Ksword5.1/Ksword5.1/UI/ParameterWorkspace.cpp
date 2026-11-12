@@ -535,6 +535,12 @@ namespace ks::ui
         // 参数面板与结果面板处于同一视觉层级，中间留白代替重复的大组框。
         m_parameterPanel = new QWidget(m_splitter);
         m_resultPanel = new QWidget(m_splitter);
+        m_parameterPanel->setProperty("ksword_keyboard_region", true);
+        m_parameterPanel->setProperty("ksword_keyboard_region_name", QStringLiteral("参数"));
+        m_parameterPanel->setProperty("ksword_keyboard_region_order", 100);
+        m_resultPanel->setProperty("ksword_keyboard_region", true);
+        m_resultPanel->setProperty("ksword_keyboard_region_name", QStringLiteral("结果"));
+        m_resultPanel->setProperty("ksword_keyboard_region_order", 120);
         m_parameterPanel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         m_resultPanel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         bindWorkspaceSurface(m_parameterPanel);
@@ -565,6 +571,7 @@ namespace ks::ui
         auto* footer = new QWidget(m_parameterPanel);
         footer->setProperty("ksword_keyboard_region", true);
         footer->setProperty("ksword_keyboard_region_name", QStringLiteral("执行操作"));
+        footer->setProperty("ksword_keyboard_region_order", 110);
         bindWorkspaceSurface(footer, true);
         m_actions = new QHBoxLayout(footer);
         m_actions->setContentsMargins(0, 12, 0, 0);

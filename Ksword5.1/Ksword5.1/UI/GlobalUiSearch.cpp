@@ -1,3 +1,4 @@
+#include "./NavigationHighlight.h"
 #include "GlobalUiSearch.h"
 #include "./ScopedObjectDiscoveryCursor.h"
 
@@ -523,116 +524,6 @@ namespace
             Q_UNUSED(index);
             return QSize(200, kResultItemHeight);
         }
-    };
-
-    // ============================================================
-    // SearchHitFlashOverlay
-    // 说明：
-    // - 覆盖在命中控件上的临时高亮层：主题强调色圆角描边+浅填充，
-    //   按正弦脉冲闪烁三次后自毁；
-    // - 作为目标控件子控件随目标缩放，鼠标事件全透传。
-    // ============================================================
-    class SearchHitFlashOverlay final : public QWidget
-    {
-    public:
-        // flashOnWidget：
-        // - 作用：在目标控件上点亮一次搜索高亮（旧高亮先移除）；
-        // - 传入 targetWidget：要高亮的控件。
-        static void flashOnWidget(QWidget* targetWidget)
-        {
-            if (targetWidget == nullptr)
-            {
-                return;
-            }
-            if (QWidget* previousOverlay = targetWidget->findChild<QWidget*>(
-                    QStringLiteral("ksSearchHitFlashOverlay"),
-                    Qt::FindDirectChildrenOnly))
-            {
-                previousOverlay->deleteLater();
-            }
-            auto* overlayWidget = new SearchHitFlashOverlay(targetWidget);
-            overlayWidget->show();
-            overlayWidget->raise();
-        }
-
-        explicit SearchHitFlashOverlay(QWidget* targetWidget)
-            : QWidget(targetWidget)
-            , m_targetWidget(targetWidget)
-        {
-            setObjectName(QStringLiteral("ksSearchHitFlashOverlay"));
-            setAttribute(Qt::WA_TransparentForMouseEvents, true);
-            setAttribute(Qt::WA_NoSystemBackground, true);
-            setGeometry(targetWidget->rect());
-            targetWidget->installEventFilter(this);
-
-            // kFlashPulseCount 用途：完整脉冲次数；动画值 0..N，小数部分驱动单次脉冲相位。
-            constexpr double kFlashPulseCount = 3.0;
-            auto* pulseAnimation = new QVariantAnimation(this);
-            pulseAnimation->setStartValue(0.0);
-            pulseAnimation->setEndValue(kFlashPulseCount);
-            pulseAnimation->setDuration(1800);
-            connect(pulseAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& animationValue) {
-                const double phaseValue = animationValue.toDouble();
-                const double pulseFraction = phaseValue - std::floor(phaseValue);
-                // envelopeFactor 用途：整体强度随时间轻微衰减，结束前自然淡出。
-                const double envelopeFactor = 1.0 - (phaseValue / 3.0) * 0.35;
-                m_pulseIntensity = std::sin(pulseFraction * 3.14159265358979323846) * envelopeFactor;
-                update();
-            });
-            connect(pulseAnimation, &QVariantAnimation::finished, this, [this]() {
-                deleteLater();
-            });
-            pulseAnimation->start();
-        }
-
-    protected:
-        void paintEvent(QPaintEvent* paintEventPointer) override
-        {
-            Q_UNUSED(paintEventPointer);
-            if (m_pulseIntensity <= 0.0)
-            {
-                return;
-            }
-
-            QPainter overlayPainter(this);
-            overlayPainter.setRenderHint(QPainter::Antialiasing, true);
-
-            QColor accentColor = KswordTheme::PrimaryAccentColor();
-            QColor borderColor = accentColor;
-            borderColor.setAlpha(static_cast<int>(210.0 * m_pulseIntensity));
-            QColor fillColor = accentColor;
-            fillColor.setAlpha(static_cast<int>(42.0 * m_pulseIntensity));
-
-            QPen borderPen(borderColor);
-            borderPen.setWidthF(2.0);
-            overlayPainter.setPen(borderPen);
-            overlayPainter.setBrush(fillColor);
-            overlayPainter.drawRoundedRect(
-                QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5),
-                4.0,
-                4.0);
-        }
-
-        bool eventFilter(QObject* watchedObject, QEvent* eventObject) override
-        {
-            if (watchedObject == m_targetWidget)
-            {
-                if (eventObject->type() == QEvent::Resize)
-                {
-                    setGeometry(m_targetWidget->rect());
-                }
-                else if (eventObject->type() == QEvent::Hide
-                    || eventObject->type() == QEvent::Destroy)
-                {
-                    deleteLater();
-                }
-            }
-            return QWidget::eventFilter(watchedObject, eventObject);
-        }
-
-    private:
-        QPointer<QWidget> m_targetWidget;  // m_targetWidget：被高亮的目标控件。
-        double m_pulseIntensity = 0.0;     // m_pulseIntensity：当前脉冲强度（0..1）。
     };
 
     // widgetBelongsToBranch：
@@ -2185,7 +2076,7 @@ namespace ks::ui
                 tableMatch.modelIndex = guardedModelIndex;
                 ks::ui::RevealTableCellSearchMatch(tableMatch);
             }
-            SearchHitFlashOverlay::flashOnWidget(guardedTarget);
+            ks::ui::FlashNavigationTarget(guardedTarget, ks::ui::NavigationHighlightKind::SearchResult);
         });
     }
 

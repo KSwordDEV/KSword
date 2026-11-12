@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
 #include "../UI/PageControlStyle.h"
@@ -330,6 +331,7 @@ void ServiceDock::initializeConnections()
         {
             onServiceSelectionChanged();
         });
+    ks::ui::InstallKeyboardItemActivation(m_serviceTable);
     connect(m_serviceTable, &QTableWidget::cellDoubleClicked, this, [this](const int row, const int)
         {
             if (row >= 0)

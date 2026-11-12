@@ -1,3 +1,4 @@
+#include "../KeyboardItemActivation.h"
 // AddressBookPanel.cpp
 #include "../FlatButtonTheme.h"
 // 作用：AddressBookPanel.h 声明的实现——UI 装配、列组切换、kind 分段、键盘/双击行为、
@@ -345,6 +346,7 @@ namespace ks::ui
         // 双击"地址/模块+RVA/目标"这几个只读列等同于跳转；双击"类型图标"列同样跳转
         // （该列本身不可编辑，双击没有别的意义）。"值/值类型/备注"三列双击是进入编辑，
         // 由 setEditTriggers 与各自的 flags() 接管，不在这里处理。
+        ks::ui::InstallKeyboardItemActivation(m_view);
         connect(m_view, &QTableView::doubleClicked, this, [this](const QModelIndex& proxyIndex) {
             switch (proxyIndex.column())
             {

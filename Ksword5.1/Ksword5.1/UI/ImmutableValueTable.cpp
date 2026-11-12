@@ -1,3 +1,4 @@
+#include "./KeyboardItemActivation.h"
 #include "ImmutableValueTable.h"
 #include "TableRowFilterSupport.h"
 #include "TableInteractionSupport.h"
@@ -111,6 +112,7 @@ namespace ks::ui
                 if (const auto* row = state.model->rowAt(index.row())) state.selectedKeys.insert(row->key);
             if (state.keepPreviousInteractive && isPreparing()) request(false);
         });
+        ks::ui::InstallKeyboardItemActivation(this);
         connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
             if (rowDoubleClicked) rowDoubleClicked(index.row());
         });

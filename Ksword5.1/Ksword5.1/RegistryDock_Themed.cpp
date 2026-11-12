@@ -1,4 +1,5 @@
-﻿#include "RegistryDock/RegistryDock.h"
+﻿#include "./UI/KeyboardItemActivation.h"
+#include "RegistryDock/RegistryDock.h"
 #include "RegistryDock/RegistryNavigationSchema.h"
 #include "UI/TableContextMenu.h"
 #include "UI/AsyncOperation.h"
@@ -667,6 +668,7 @@ void RegistryDock::initializeConnections()
     connect(m_keyTree, &QTreeWidget::itemClicked, this, [this]() { m_valuesActive = false; });
     connect(m_valueTable, &QTableWidget::itemClicked, this, [this]() { m_valuesActive = true; });
     connect(m_keyTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) { ensureTreeItemLoaded(item); });
+    ks::ui::InstallKeyboardItemActivation(m_keyTree);
     connect(m_keyTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
         if (item && item->data(0, kRolePlaceholder).toBool() && item->parent()
             && !item->parent()->data(0, kRoleLoaded).toBool()
@@ -681,6 +683,7 @@ void RegistryDock::initializeConnections()
 
     connect(m_keyTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) { showTreeContextMenu(pos); });
     connect(m_valueTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) { showValueContextMenu(pos); });
+    ks::ui::InstallKeyboardItemActivation(m_valueTable);
     connect(m_valueTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem*) { editSelectedValue(); });
 
     connect(m_newKeyButton, &QPushButton::clicked, this, [this]() { createSubKey(); });
@@ -751,6 +754,7 @@ void RegistryDock::initializeConnections()
         }
     });
 
+    ks::ui::InstallKeyboardItemActivation(m_searchResultTable);
     connect(m_searchResultTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* item) {
         if (item == nullptr) return;
         QTableWidgetItem* pathItem = m_searchResultTable->item(item->row(), 0);

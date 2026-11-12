@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "StartupDock.Internal.h"
 #include "../UI/TableContextMenu.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -267,6 +268,7 @@ void StartupDock::initializeConnections()
                 {
                     showEntryContextMenu(category, tableWidget, localPos);
                 });
+            ks::ui::InstallKeyboardItemActivation(tableWidget);
             connect(tableWidget, &QTableWidget::cellDoubleClicked, this, [this, category, tableWidget](const int row, const int /*column*/)
                 {
                     if (row < 0)
@@ -292,6 +294,7 @@ void StartupDock::initializeConnections()
             {
                 showRegistryContextMenu(localPos);
             });
+        ks::ui::InstallKeyboardItemActivation(m_registryTree);
         connect(m_registryTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* treeItem, int)
             {
                 if (treeItem == nullptr)

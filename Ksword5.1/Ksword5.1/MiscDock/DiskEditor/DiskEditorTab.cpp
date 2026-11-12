@@ -1,3 +1,4 @@
+#include "../../UI/KeyboardItemActivation.h"
 #include "DiskEditorTab.h"
 #include "../../UI/TableContextMenu.h"
 #include "../../UI/AsyncOperation.h"
@@ -918,6 +919,7 @@ namespace ks::misc
             refreshStructureReportAsync(QStringLiteral("手动刷新结构解析"));
         });
 
+        ks::ui::InstallKeyboardItemActivation(m_structureTable);
         connect(m_structureTable, &QTableWidget::cellDoubleClicked, this,
             [this](const int row, const int column)
         {
@@ -932,6 +934,7 @@ namespace ks::misc
             readCurrentRangeAsync(QStringLiteral("结构字段跳转读取"));
         });
 
+        ks::ui::InstallKeyboardItemActivation(m_volumeTable);
         connect(m_volumeTable, &QTableWidget::cellDoubleClicked, this,
             [this](const int row, const int column)
         {
@@ -946,6 +949,7 @@ namespace ks::misc
             readCurrentRangeAsync(QStringLiteral("卷映射跳转读取"));
         });
 
+        ks::ui::InstallKeyboardItemActivation(m_searchResultTable);
         connect(m_searchResultTable, &QTableView::doubleClicked, this,
             [this](const QModelIndex& index)
             {

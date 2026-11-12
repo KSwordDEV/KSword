@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "HardwareDeviceManagerPage.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/PrimaryPageStyle.h"
@@ -1054,6 +1055,7 @@ void HardwareDeviceManagerPage::initializeConnections()
             updateDetailForItem(currentItem);
         });
 
+    ks::ui::InstallKeyboardItemActivation(m_deviceTree);
     connect(
         m_deviceTree,
         &QTreeWidget::itemDoubleClicked,

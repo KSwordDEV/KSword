@@ -5621,6 +5621,7 @@ MainWindow::MainWindow(
     initAppearanceSettings();
 
     m_mouselessNavigation = new ks::ui::MouselessNavigation(this,
+        m_mainRootContainer, m_mainRootLayout, m_pDockManager,
         [this](bool enabled) { m_customTitleBar->setMouselessMode(enabled); },
         [this]() {
             if (m_globalUiSearchController) m_globalUiSearchController->dismissPopup();
@@ -8284,6 +8285,9 @@ void MainWindow::initMenus()
     titleActionLayout->addWidget(m_toolsMenuButton);
     titleActionLayout->addWidget(m_windowMenuButton);
     titleActionLayout->addWidget(m_githubMenuButton);
+    QWidget::setTabOrder(m_optionsMenuButton, m_toolsMenuButton);
+    QWidget::setTabOrder(m_toolsMenuButton, m_windowMenuButton);
+    QWidget::setTabOrder(m_windowMenuButton, m_githubMenuButton);
     m_customTitleBar->setCustomLeftWidget(titleActionContainer);
     refreshTitleActionButtonStyles();
 }
@@ -8718,6 +8722,9 @@ void MainWindow::initPrivilegeStatusButtons()
 
     // 权限状态组在 Dock 布局恢复后挂到主功能 Tab 栏右侧；初始化期先由主窗口托管。
     m_privilegeButtonContainer = new QWidget(this);
+    m_privilegeButtonContainer->setProperty("ksword_keyboard_region", true);
+    m_privilegeButtonContainer->setProperty("ksword_keyboard_region_name", QStringLiteral("权限状态"));
+    m_privilegeButtonContainer->setProperty("ksword_keyboard_region_order", 50);
     QHBoxLayout* buttonLayout = new QHBoxLayout(m_privilegeButtonContainer);
     buttonLayout->setContentsMargins(0, 0, 4, 0);
     buttonLayout->setSpacing(6);

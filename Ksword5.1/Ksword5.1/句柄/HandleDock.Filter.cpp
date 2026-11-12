@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "HandleDock.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/ToolbarMetrics.h"
@@ -970,6 +971,7 @@ void HandleDock::showRuleManagerDialog(const QString& initiallySelectedRuleId)
             }
         };
     connect(editButton, &QPushButton::clicked, &dialog, editCurrentRule);
+    ks::ui::InstallKeyboardItemActivation(ruleList);
     connect(ruleList, &QListWidget::itemDoubleClicked, &dialog,
         [editCurrentRule](QListWidgetItem*) { editCurrentRule(); });
     connect(copyButton, &QPushButton::clicked, &dialog,
