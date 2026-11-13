@@ -461,6 +461,9 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessModuleDriverStub.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h">

@@ -400,6 +400,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
+    <ClCompile Include="ProcessModuleDriverStub.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h" />
