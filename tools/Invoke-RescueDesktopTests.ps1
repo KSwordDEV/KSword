@@ -36,6 +36,10 @@ try {
             throw "Elevation gate probe artifact is missing: $taskProbePath"
         }
     }
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --session-guard-probe $taskActualHost $taskActualClient
+    if ($LASTEXITCODE -ne 0) {
+        throw "Rescue session guard probe failed: $LASTEXITCODE"
+    }
     & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --elevation-gate-probe $taskActualHost $taskActualClient
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue elevation gate probe failed: $LASTEXITCODE"

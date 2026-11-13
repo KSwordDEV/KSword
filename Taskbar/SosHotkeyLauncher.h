@@ -12,9 +12,10 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <functional>
 
 // SosHotkeyLauncher：
-// - 作用：在 Taskbar 辅助程序启动后安装全局低级键盘钩子；
+// - 作用：在 Taskbar 或普通主程序中安装全局低级键盘钩子；
 // - 检测固定序列 S、O、S、Enter；
 // - 命中后由独立监护进程在私有救援桌面启动 Ksword5.1，不记录其它键盘输入。
 class SosHotkeyLauncher final
@@ -25,6 +26,8 @@ public:
     // - 处理：解析 Ksword5.1.exe 候选路径；
     // - 返回：无。
     explicit SosHotkeyLauncher(const QString& applicationDirectoryPath);
+    SosHotkeyLauncher(const QString& applicationDirectoryPath,
+        const QString& rescueHostPath, std::function<void(DWORD)> launchFailure = {});
 
     // 析构函数：
     // - 处理：停止钩子线程并注销 WH_KEYBOARD_LL；
@@ -42,6 +45,9 @@ public:
     // - 处理：请求钩子线程退出并等待结束；
     // - 返回：无。
     void stop();
+
+    // 菜单与 SOS 共用独立线程启动入口；钩子不可用时仍允许菜单直接派发监护进程。
+    void requestLaunch();
 
 private:
     // lowLevelKeyboardProc：
@@ -106,6 +112,8 @@ private:
     std::wstring m_kswordWorkingDirectory;           // 主程序启动工作目录。
     std::wstring m_rescueHostExecutablePath;         // 当前 Taskbar.exe，使用其无 Qt 监护入口。
     HANDLE m_rescueHostProcess = nullptr;            // 避免重复 SOS 创建并发救援会话。
+    std::mutex m_launchMutex;
+    std::function<void(DWORD)> m_launchFailure;
 };
 
 #endif

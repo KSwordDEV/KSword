@@ -1768,6 +1768,9 @@
     <ClCompile Include="UI\RescueDesktopSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Taskbar\SosHotkeyLauncher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3939,6 +3942,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\RescueDesktopSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Taskbar\SosHotkeyLauncher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h">

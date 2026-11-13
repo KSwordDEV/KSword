@@ -10,6 +10,7 @@
 namespace ks::rescue
 {
     inline constexpr wchar_t kHostArgument[] = L"--ksword-rescue-host";
+    inline constexpr wchar_t kSessionGuardName[] = L"Local\\KSword.Rescue.Session";
     inline constexpr wchar_t kClientArgument[] = L"--ksword-rescue-desktop";
     inline constexpr wchar_t kDesktopPrefix[] = L"KSword.Rescue.";
     inline constexpr int kReturnHotkeyId = 0x4b53;

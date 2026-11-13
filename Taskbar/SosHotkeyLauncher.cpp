@@ -36,6 +36,13 @@ namespace
 SosHotkeyLauncher* SosHotkeyLauncher::s_activeInstance = nullptr;
 
 SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath)
+    : SosHotkeyLauncher(applicationDirectoryPath, {}, {})
+{
+}
+
+SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath,
+    const QString& rescueHostPath, std::function<void(DWORD)> launchFailure)
+    : m_launchFailure(std::move(launchFailure))
 {
     // executablePath 用途：保存主程序路径，后续钩子线程直接使用 Win32 API 启动。
     const QString executablePath = resolveKswordExecutablePath(applicationDirectoryPath);
@@ -44,7 +51,18 @@ SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath)
     m_kswordExecutablePath = QDir::toNativeSeparators(executableInfo.absoluteFilePath()).toStdWString();
     m_kswordWorkingDirectory = QDir::toNativeSeparators(executableInfo.absolutePath()).toStdWString();
     m_rescueHostExecutablePath = QDir::toNativeSeparators(
-        QCoreApplication::applicationFilePath()).toStdWString();
+        rescueHostPath.isEmpty() ? QCoreApplication::applicationFilePath() : rescueHostPath).toStdWString();
+}
+
+void SosHotkeyLauncher::requestLaunch()
+{
+    const DWORD threadId = m_hookThreadId.load(std::memory_order_acquire);
+    if (m_hookInstalled.load(std::memory_order_acquire) && threadId != 0
+        && ::PostThreadMessageW(threadId, kSosLaunchMessage, 0, 0))
+    {
+        return;
+    }
+    launchKswordFromHookThread();
 }
 
 SosHotkeyLauncher::~SosHotkeyLauncher()
@@ -159,6 +177,8 @@ LRESULT CALLBACK SosHotkeyLauncher::lowLevelKeyboardProc(
 
 void SosHotkeyLauncher::hookThreadMain()
 {
+    MSG queuedMessage{};
+    ::PeekMessageW(&queuedMessage, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
     m_hookThreadId.store(::GetCurrentThreadId(), std::memory_order_release);
 
     // 线程优先级用途：让 SOS 低级键盘钩子尽量早于普通 UI 工作响应。
@@ -250,6 +270,7 @@ void SosHotkeyLauncher::handleKeyDown(const DWORD vkCode, const DWORD flags)
 
 void SosHotkeyLauncher::launchKswordFromHookThread()
 {
+    const std::lock_guard<std::mutex> launchLock(m_launchMutex);
     if (m_rescueHostProcess != nullptr)
     {
         // 活动会话期间不创建第二个私有桌面或并发启动第三个 KSword 实例。
@@ -270,6 +291,7 @@ void SosHotkeyLauncher::launchKswordFromHookThread()
     if (m_kswordExecutablePath.empty())
     {
         qWarning() << "[Taskbar][SOS] Ksword5.1.exe 路径为空，无法启动。";
+        if (m_launchFailure) m_launchFailure(ERROR_FILE_NOT_FOUND);
         return;
     }
 
@@ -293,7 +315,9 @@ void SosHotkeyLauncher::launchKswordFromHookThread()
 
     if (createOk == FALSE)
     {
-        qWarning() << "[Taskbar][SOS] 启动 Ksword5.1.exe 失败, error=" << ::GetLastError();
+        const DWORD error = ::GetLastError();
+        qWarning() << "[Taskbar][SOS] 启动 Ksword5.1.exe 失败, error=" << error;
+        if (m_launchFailure) m_launchFailure(error);
         return;
     }
 

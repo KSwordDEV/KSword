@@ -165,6 +165,40 @@ namespace
         return failures == 0 ? 0 : 1;
     }
 
+    // 已有会话时实际监护入口必须直接结束，不弹 UAC、不创建或切换桌面。
+    int SessionGuardProbe(const std::wstring& host, const std::wstring& client)
+    {
+        const HANDLE guard = ::CreateMutexW(nullptr, FALSE, ks::rescue::kSessionGuardName);
+        Check(guard != nullptr, "hold a rescue session guard");
+        if (!guard) return 1;
+        std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument + L" \"" + client + L"\"";
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION child{};
+        const BOOL launched = ::CreateProcessW(host.c_str(), command.data(), nullptr, nullptr,
+            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
+        Check(launched != FALSE, "launch actual host while a rescue session is active");
+        if (launched)
+        {
+            const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
+            Check(waited == WAIT_OBJECT_0, "duplicate host exits before UAC or desktop creation");
+            if (waited != WAIT_OBJECT_0)
+            {
+                ::TerminateProcess(child.hProcess, 1);
+                ::WaitForSingleObject(child.hProcess, 5000);
+            }
+            DWORD exitCode = 1;
+            Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == 0,
+                "duplicate host reports an existing session");
+            ::CloseHandle(child.hThread);
+            ::CloseHandle(child.hProcess);
+        }
+        ::CloseHandle(guard);
+        std::printf("RESCUE_SESSION_GUARD=%s checks=%d failures=%d\n",
+            failures == 0 ? "PASS" : "FAIL", checks, failures);
+        return failures == 0 ? 0 : 1;
+    }
+
     void InputPolicyTests()
     {
         const INPUT_MESSAGE_SOURCE mouse{ IMDT_MOUSE, IMO_HARDWARE }; // 物理鼠标来源。
@@ -192,6 +226,10 @@ namespace
 
 int wmain(const int count, wchar_t** arguments)
 {
+    if (count == 4 && std::wstring(arguments[1]) == L"--session-guard-probe")
+    {
+        return SessionGuardProbe(arguments[2], arguments[3]);
+    }
     if (count == 4 && std::wstring(arguments[1]) == L"--elevation-gate-probe")
     {
         return ElevationGateProbe(arguments[2], arguments[3]);

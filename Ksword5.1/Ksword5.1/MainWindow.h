@@ -68,6 +68,7 @@
 #include "句柄/HandleDock.h"
 
 class LogDockWidget; // 前置声明：日志 Dock 面板类型。
+class SosHotkeyLauncher;
 class ProgressDockWidget; // 前置声明：当前操作进度面板类型。
 class CodeEditorWidget; // 前置声明：即时窗口可复用代码编辑器组件。
 namespace ks::ui
@@ -449,6 +450,8 @@ private:
     void restoreLogOutputWindowGeometry();
     // openProjectPageFromMenu 作用：打开一个项目相关外链，失败时按 failureTitle 提示。
     void openProjectPageFromMenu(const QString& urlText, const QString& failureTitle);
+    void launchRescueDesktopFromMenu(QAction* action);
+    std::unique_ptr<SosHotkeyLauncher> m_sosHotkeyLauncher;
     // showLicenseFromMenu 作用：读取程序同目录 LICENSE 文件并展示许可证内容。
     void showLicenseFromMenu();
 

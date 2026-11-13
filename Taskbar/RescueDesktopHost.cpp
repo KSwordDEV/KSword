@@ -459,6 +459,29 @@ int RunRescueDesktopHostIfRequested()
         return 2;
     }
 
+    // 普通主程序和 Taskbar 都监听 SOS；只有首个引导进程持有会话名，避免一次按键启动两份。
+    // UAC 接替进程借用仍存活的引导进程所持门闩，不重复获取。
+    struct LaunchGuard
+    {
+        HANDLE handle = nullptr;
+        ~LaunchGuard() { if (handle) ::CloseHandle(handle); }
+    } launchGuard;
+    if (!elevationAttempted)
+    {
+        launchGuard.handle = ::CreateMutexW(nullptr, FALSE, ks::rescue::kSessionGuardName);
+        const DWORD error = ::GetLastError();
+        if (!launchGuard.handle)
+        {
+            LogStage(L"entry.session_guard_failed", error);
+            return 2;
+        }
+        if (error == ERROR_ALREADY_EXISTS)
+        {
+            LogStage(L"entry.session_already_active");
+            return 0;
+        }
+    }
+
     // 先提升监护进程，再建立私有桌面和句柄；客户端直接继承管理员令牌，不在救援桌面内重启。
     bool elevated = false; // 当前 Windows 令牌是否已经提升。
     if (!QueryCurrentElevation(elevated))

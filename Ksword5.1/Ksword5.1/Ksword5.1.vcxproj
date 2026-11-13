@@ -595,6 +595,7 @@
     <ClCompile Include="UI\CommandExecutionPopup.cpp" />
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\RescueDesktopSession.cpp" />
+    <ClCompile Include="..\..\Taskbar\SosHotkeyLauncher.cpp" />
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.Edit.cpp" />
@@ -1335,6 +1336,7 @@
     <QtMoc Include="UI\CommandExecutionPopup.h" />
     <ClInclude Include="UI\WindowChrome.h" />
     <ClInclude Include="UI\RescueDesktopSession.h" />
+    <ClInclude Include="..\..\Taskbar\SosHotkeyLauncher.h" />
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h" />

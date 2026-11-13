@@ -19,6 +19,7 @@
 #include "UI/McpHexCanvasAdapter.h"
 #include "UI/UI_All.h"
 #include "../../shared/usermode/KswordArkServiceMode.h"
+#include "../../Taskbar/SosHotkeyLauncher.h"
 #include "Framework/PrivilegeElevationPrompt.h"
 #include "MinidumpDock/DumpAutoCheck.h"
 #include <QMenu>
@@ -127,6 +128,7 @@
 #include "UI/CommandExecutionPopup.h"
 #include "UI/WindowChrome.h"
 #include "UI/SvgThemeIconManager.h"
+#include "UI/ThemeAccentIcon.h"
 #include "UI/ThemeControlGlyphs.h"
 #include "UI/DockThemeIcons.h"
 #include "UI/SmoothScrollSupport.h"
@@ -5648,6 +5650,8 @@ MainWindow::MainWindow(
 
 MainWindow::~MainWindow()
 {
+    // 在 QObject 子树销毁前停止独立 SOS 线程，取消后续跨线程通知。
+    m_sosHotkeyLauncher.reset();
     // Stop input/focus observers before QWidget/ADS starts destroying its child windows.
     delete m_mouselessNavigation;
     m_mouselessNavigation = nullptr;
@@ -8270,6 +8274,42 @@ void MainWindow::initMenus()
         ks::ui::KernelHookWizard::openWizard(this);
     });
 
+    QAction* const rescueAction = m_toolsMenu->addAction(
+        ks::ui::MakeThemeAccentIcon(QIcon(QStringLiteral(":/Icon/process_critical.svg"))),
+        QStringLiteral("救援模式"));
+    rescueAction->setObjectName(QStringLiteral("ks_rescue_mode_action"));
+    rescueAction->setIconVisibleInMenu(true);
+    languageManager.bindText(rescueAction, QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式"));
+    const bool rescueActive = qApp->property("ksword_rescue_desktop").toBool();
+    rescueAction->setEnabled(!rescueActive);
+    const auto updateRescueToolTip = [rescueAction, rescueActive]() {
+        rescueAction->setToolTip(ks::i18n::text(
+            rescueActive ? QStringLiteral("rescue.desktop.already_active") : QStringLiteral("menu.tools.rescue.tooltip"),
+            rescueActive ? QStringLiteral("当前已处于救援模式，请使用返回原桌面按钮退出。")
+                         : QStringLiteral("在独立桌面启动管理员救援实例，保留当前窗口；也可依次按 S O S Enter，返回快捷键为 Ctrl+Alt+Shift+F10。")));
+    };
+    updateRescueToolTip();
+    connect(m_toolsMenu, &QMenu::aboutToShow, rescueAction, updateRescueToolTip);
+    connect(rescueAction, &QAction::triggered, this, [this, rescueAction]() {
+        launchRescueDesktopFromMenu(rescueAction);
+    });
+    if (!rescueActive)
+    {
+        m_sosHotkeyLauncher = std::make_unique<SosHotkeyLauncher>(
+            QCoreApplication::applicationDirPath(),
+            QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("Taskbar.exe")),
+            [this](DWORD errorCode) {
+                QMetaObject::invokeMethod(this, [this, errorCode]() {
+                    QMessageBox::warning(this,
+                        ks::i18n::text(QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式")),
+                        ks::i18n::text(QStringLiteral("rescue.desktop.launch_failed"),
+                            QStringLiteral("无法启动救援监护程序。错误码：%1"))
+                            .arg(errorCode));
+                }, Qt::QueuedConnection);
+            });
+        m_sosHotkeyLauncher->start();
+    }
+
     // ======== 窗口 ========
     m_windowMenuButton = new QToolButton(titleActionContainer);
     m_windowMenuButton->setObjectName(QStringLiteral("ksWindowMenuButton"));
@@ -8409,6 +8449,27 @@ void MainWindow::refreshTitleActionButtonStyles()
             button->setStyleSheet(topActionButtonStyle);
         }
     }
+}
+
+void MainWindow::launchRescueDesktopFromMenu(QAction* action)
+{
+    if (!action->isEnabled() || qApp->property("ksword_rescue_desktop").toBool())
+    {
+        return;
+    }
+
+    const QDir directory(QCoreApplication::applicationDirPath());
+    const QString hostPath = directory.filePath(QStringLiteral("Taskbar.exe"));
+    const QString title = ks::i18n::text(QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式"));
+    if (!QFileInfo(hostPath).isFile())
+    {
+        QMessageBox::warning(this, title, ks::i18n::text(QStringLiteral("rescue.desktop.host_missing"),
+            QStringLiteral("缺少救援监护程序：%1\n请将 Taskbar.exe 放在主程序同目录后重试。"))
+            .arg(QDir::toNativeSeparators(hostPath)));
+        return;
+    }
+
+    if (m_sosHotkeyLauncher) m_sosHotkeyLauncher->requestLaunch();
 }
 
 void MainWindow::openProjectPageFromMenu(const QString& urlText, const QString& failureTitle)
