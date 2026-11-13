@@ -121,6 +121,8 @@
     <ClCompile Include="src\features\hvm\hvm_debug.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_exit.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_breakpoints.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_commands.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_ioctl.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_debug_ioctl.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\debugger\debugger.c" />

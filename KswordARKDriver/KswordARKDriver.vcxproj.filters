@@ -909,6 +909,8 @@
     <ClCompile Include="src\features\hvm\hvm_debug.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_exit.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_breakpoints.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_commands.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_ioctl.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_debug_ioctl.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\debugger\debugger.c"><Filter>Source Files</Filter></ClCompile>

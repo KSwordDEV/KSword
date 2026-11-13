@@ -4,6 +4,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "../ArkDriverClient/ArkHvmNoAttachClient.h"
 #include <QWidget>
+#include <QPointer>
 #include <array>
 #include <functional>
 #include <memory>
@@ -12,6 +13,10 @@ class QComboBox;
 class QLabel;
 class QToolButton;
 class QTimer;
+class QDialog;
+class QLineEdit;
+class QTableWidget;
+class QPushButton;
 namespace ksword::cooperative { class Session; struct Result; }
 
 namespace ks::ui
@@ -39,6 +44,9 @@ namespace ks::ui
         bool closeHvm(); // 后台释放全核资源；嵌套事件循环只保持 UI 响应，不在 UI 运行 IOCTL。
         void updateActions(); // 以实际状态更新控件，不从历史寄存器推断暂停。
         void showRegisters(); // 用同一规范文档打开共享字段详情。
+        void showHvmControls(); // 参数工作区承载断点草稿，当前配置使用独立结果表。
+        void updateHvmControls(); // 根据实际停点更新编辑资格，保留未提交草稿。
+        void submitHvm(KSWORD_ARK_HVM_NOATTACH_REQUEST request); // 冻结身份后后台执行扩展操作。
 
         QComboBox* backend_ = nullptr; // 原生检查、协作 VEH 与虚拟化能力边界。
         QComboBox* thread_ = nullptr; // 原生检查绑定创建时间的线程选择。
@@ -49,6 +57,8 @@ namespace ks::ui
         QToolButton* step_ = nullptr; // 仅支持真实单步后端的当前停点可用。
         QToolButton* registers_ = nullptr; // 显示不可变现场及其来源。
         QToolButton* openHvm_ = nullptr; // 仅显式确认后开启独占的实验 HVM 后端。
+        QToolButton* configureHvm_ = nullptr; // 打开独立的断点/整数寄存器工具页。
+        QToolButton* closeHvm_ = nullptr; // 显式关闭虚拟化，保留当前内存会话。
         QLabel* status_ = nullptr; // 操作、权限、恢复及能力限制的可换行说明。
         QTimer* poll_ = nullptr; // 协作停点/租约查询；隐藏页面仍保持生命周期。
         std::shared_ptr<AsyncUiDispatcher> dispatcher_; // 控件销毁后的回投门禁。
@@ -75,5 +85,19 @@ namespace ks::ui
         bool hvmAvailable_ = false; // 驱动只读查询证实具备实验执行能力。
         bool hvmOwnershipUncertain_ = false; // OPEN 回执丢失时先恢复身份，不能放弃潜在自有常驻。
         int fastPollBudget_ = 0; // 新暂停/单步短时加快回执查询，长期等待恢复低频，避免常驻忙轮询。
+        KSWORD_ARK_HVM_NOATTACH_RESPONSE hvmResponse_{}; // 最近经协议核验的会话文档。
+        QPointer<QDialog> hvmDialog_; // 工具窗关闭不执行继续或结束调试。
+        QLineEdit* hvmAddress_ = nullptr;
+        QLineEdit* hvmValue_ = nullptr;
+        QComboBox* hvmRegister_ = nullptr;
+        QTableWidget* hvmBreakpoints_ = nullptr;
+        QLabel* hvmDetailStatus_ = nullptr;
+        QPushButton* hvmAdd_ = nullptr;
+        QPushButton* hvmRemove_ = nullptr;
+        QPushButton* hvmRunTo_ = nullptr;
+        QPushButton* hvmWrite_ = nullptr;
+        std::uint64_t hvmDialogSession_ = 0; // 同一窗口不会把旧目标草稿用于另一个会话。
+        std::array<KSWORD_ARK_HVM_NOATTACH_BREAKPOINT, KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS> hvmDisplayedRows_{};
+        unsigned long hvmDisplayedCount_ = ~0UL;
     };
 }

@@ -64,6 +64,8 @@
 #define KSWORD_DEBUGGER_HVM_NESTED_PAGE 30U
 #define KSWORD_DEBUGGER_HVM_BREAKPOINT 31U
 #define KSWORD_DEBUGGER_NATIVE 32U
+// Independent user-thread execution channel; never enters the Windows debug loop.
+#define KSWORD_DEBUGGER_NOATTACH 33U
 
 // All pointers are encoded as uint64_t so the ABI is stable across adapters.
 typedef struct KSWORD_DEBUGGER_CALL

@@ -136,7 +136,7 @@ static BOOLEAN NaSameStop(KSW_HVM_GPR_FRAME *Frame)
 }
 
 /* 调用方赢得状态转换后，才发布一份当前快照。 */
-static NTSTATUS NaPublish(KSW_HVM_GPR_FRAME *Frame, ULONG Reason)
+static NTSTATUS NaPublish(KSW_HVM_GPR_FRAME *Frame, ULONG Reason, ULONG BreakpointId)
 {
     /* 先在本地构建文档，VMREAD 失败时保留原停止现场。 */
     KSWORD_ARK_HVM_NOATTACH_RESPONSE copy = g_KswordNoAttach.Snapshot;
@@ -157,6 +157,8 @@ static NTSTATUS NaPublish(KSW_HVM_GPR_FRAME *Frame, ULONG Reason)
     }
     /* 标识当前停止的真实来源。 */
     copy.stopReason = Reason;
+    /* 当前命中身份与本次现场一起由序列锁发布。 */
+    copy.breakpointId = BreakpointId;
     /* 已完成停止与已接受命令是不同状态。 */
     copy.state = KSWORD_ARK_HVM_NOATTACH_STOPPED;
     /* 字段读取成功后，才确立此快照的语义结果。 */
@@ -183,7 +185,7 @@ static NTSTATUS NaPublish(KSW_HVM_GPR_FRAME *Frame, ULONG Reason)
 
 /* 取消属于正常生命周期清理，不是体系结构回滚故障。 */
 static BOOLEAN NaPublishResult(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_GPR_FRAME *Frame, ULONG Reason,
-                               ULONG *Action);
+                               ULONG BreakpointId, ULONG *Action);
 
 /* 体系结构更新失败时，必须进入既有已核对的 VMXOFF 路径。 */
 static BOOLEAN NaFail(KSW_HVM_RESIDENT_VCPU *Context, ULONG *Action)
@@ -201,10 +203,10 @@ static BOOLEAN NaFail(KSW_HVM_RESIDENT_VCPU *Context, ULONG *Action)
 
 /* 区分真实 VMCS 失败与并发的所有者或目标撤销。 */
 static BOOLEAN NaPublishResult(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_GPR_FRAME *Frame, ULONG Reason,
-                               ULONG *Action)
+                               ULONG BreakpointId, ULONG *Action)
 {
     /* 全部体系结构读取成功后，快照发布仍可能被取消。 */
-    NTSTATUS status = NaPublish(Frame, Reason);
+    NTSTATUS status = NaPublish(Frame, Reason, BreakpointId);
     /* 已撤销停止应恢复普通根表，并由所有者完成退休。 */
     if (status == STATUS_CANCELLED)
     {
@@ -215,6 +217,54 @@ static BOOLEAN NaPublishResult(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_GPR_FRAME
     return NT_SUCCESS(status) ? TRUE : NaFail(Context, Action);
 }
 
+/* 放行只改变当前 CPU 的 EPTP，其他核继续使用不可变的受限视图。 */
+static BOOLEAN NaBypass(KSW_HVM_RESIDENT_VCPU *Context, ULONG *Action)
+{
+    /* 必须先登记恢复责任，任意下一退出都会收回权限。 */
+    Context->NoAttachBypass = TRUE;
+    /* 不修改目标代码、TF、DR 或共享 EPT 叶子。 */
+    return NaRoot(g_KswordNoAttach.NormalEptp) && NaMtf(TRUE) ? TRUE : NaFail(Context, Action);
+}
+
+/* 在已复核的原停点提交整数寄存器，不执行任何用户指令。 */
+static BOOLEAN NaApplyRegisters(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_GPR_FRAME *Frame, ULONG *Action)
+{
+    /* 普通控制面发布状态之前已冻结完整的值请求。 */
+    const KSWORD_ARK_HVM_NOATTACH_GPR *requested = &g_KswordNoAttach.PendingRegisters;
+    /* 位顺序与汇编保存帧相同。 */
+    ULONGLONG *actual = (ULONGLONG *)Frame;
+    /* 请求指针只指向固定非分页存储。 */
+    const ULONGLONG *values = &requested->rax;
+    /* RFLAGS 保留原值，不能借寄存器编辑设置 TF。 */
+    ULONGLONG mask = g_KswordNoAttach.PendingRegisterMask;
+    /* 仅遍历有限的十五个整数寄存器。 */
+    ULONG i;
+    /* 两个 VMCS 写入均完成前不修改通用寄存器保存帧。 */
+    if (((mask & (1ULL << 15)) != 0ULL && KswordARKHvmVmcsFieldStore(0x681EUL, (SIZE_T)requested->rip) != 0U) ||
+        ((mask & (1ULL << 16)) != 0ULL && KswordARKHvmVmcsFieldStore(0x681CUL, (SIZE_T)requested->rsp) != 0U))
+    {
+        /* 恢复原控制寄存器，不能带着半份修改返回用户代码。 */
+        if (KswordARKHvmVmcsFieldStore(0x681EUL, (SIZE_T)g_KswordNoAttach.Snapshot.rip) != 0U ||
+            KswordARKHvmVmcsFieldStore(0x681CUL, (SIZE_T)g_KswordNoAttach.Snapshot.rsp) != 0U)
+        {
+            /* 无法保证原现场时不允许不完整的继续。 */
+            *Action = KSW_HVM_EXIT_ACTION_FATAL;
+            /* 由既有致命错误路径处理硬件故障。 */
+            return TRUE;
+        }
+        /* 完整回滚后沿用现有 VMXOFF 恢复机制。 */
+        return NaFail(Context, Action);
+    }
+    /* 只改请求明确选择的位，未选择的寄存器完全保留。 */
+    for (i = 0UL; i < 15UL; ++i)
+    {
+        /* 不修改任何 SIMD/扩展状态。 */
+        if ((mask & (1ULL << i)) != 0ULL) { actual[i] = values[i]; }
+    }
+    /* 提交后的新停点不冒充 MTF 完成。 */
+    return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT, 0UL, Action);
+}
+
 BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_GPR_FRAME *Frame, ULONG Reason,
                                        ULONGLONG Qualification, ULONG *Action)
 {
@@ -222,6 +272,8 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
     LONG state;
     /* 当前 EPTP 标识哪种模式门禁产生了取指违规。 */
     ULONGLONG eptp = 0ULL;
+    /* active bank 在全核屏障前不可重建，单次退出始终使用同一份。 */
+    KSW_NA_BANK *bank;
     /* 全部不可变根表构建完成前，不认领执行控制。 */
     if (!KswordARKHvmNoAttachOwned() || g_KswordNoAttach.NormalEptp == 0ULL)
     {
@@ -229,6 +281,26 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
     }
     /* 每次成功拦截都从同一条体系结构指令继续。 */
     *Action = KSW_HVM_EXIT_ACTION_RESUME;
+    /* 索引的原子读取与完整表发布配对。 */
+    bank = &g_KswordNoAttach.Banks[InterlockedCompareExchange(&g_KswordNoAttach.ActiveBank, 0L, 0L)];
+    /* 同一 bank 根物理地址重用后逐核失效，不能依赖 VMXON 清缓存。 */
+    if (Context->NoAttachWatchGeneration != bank->Generation)
+    {
+        /* 初次和每次配置代次变化都在使用前失效。 */
+        if (bank->Eptp == 0ULL || KswordARKHvmAsmInveptSingle(bank->Eptp) != 0U) { return NaFail(Context, Action); }
+        /* 此代次已经在当前 CPU 完成硬件失效。 */
+        Context->NoAttachWatchGeneration = bank->Generation;
+    }
+    /* 不匹配 RIP/线程的页命中及 Continue 的临时放行均在任何退出收回。 */
+    if (Context->NoAttachBypass)
+    {
+        /* 先退休本 CPU 的恢复责任。 */
+        Context->NoAttachBypass = FALSE;
+        /* 不将该 MTF 当作用户单步完成事件。 */
+        if (!NaMtf(FALSE) || !NaRoot(g_KswordNoAttach.UserGateEptp)) { return NaFail(Context, Action); }
+        /* 私有 MTF 必须完全消费，不能落入原有 guest #DB 通道。 */
+        if (Reason == 37UL) { return TRUE; }
+    }
     /* 派发任何其它退出前，先收回这一次处理器本地放行。 */
     if (InterlockedCompareExchange(&g_KswordNoAttach.StepProcessor, -1L, -1L) ==
         (LONG)Context->ProcessorIndex)
@@ -246,7 +318,7 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
                                        KSWORD_ARK_HVM_NOATTACH_STEPPING) == KSWORD_ARK_HVM_NOATTACH_STEPPING)
         {
             /* 保持下一次取指停止前，先发布真实 VMCS 和寄存器证据。 */
-            return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_STEP, Action);
+            return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_STEP, 0UL, Action);
         }
         else
         {
@@ -269,9 +341,55 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
         /* 在继续或撤销前已发生的门禁违规，仍由本模块认领。 */
         BOOLEAN gateFetch =
             Reason == 48UL && (Qualification & 4ULL) != 0ULL && NaRead(0x201AUL, &eptp) &&
-            (eptp == g_KswordNoAttach.UserGateEptp || eptp == g_KswordNoAttach.KernelGateEptp);
+            (eptp == g_KswordNoAttach.UserGateEptp || eptp == g_KswordNoAttach.KernelGateEptp ||
+             eptp == g_KswordNoAttach.Banks[0].Eptp || eptp == g_KswordNoAttach.Banks[1].Eptp);
+        /* 活动执行断点从 EPT 页事件核对精确线程、RIP 与 backing。 */
+        if (gateFetch && state == KSWORD_ARK_HVM_NOATTACH_RUNNING &&
+            InterlockedCompareExchange(&g_KswordNoAttach.Enabled, 0L, 0L) != 0L && eptp == bank->Eptp)
+        {
+            /* 仅在架构保证有效的 EPT 退出读取 GPA。 */
+            ULONGLONG physical = 0ULL, rip = 0ULL, rsp = 0ULL;
+            /* 对页面命中作有限精确筛选。 */
+            ULONG i;
+            /* 无法读取真实地址时不能放行不明事件。 */
+            if (!NaRead(0x2400UL, &physical) || !NaRead(0x681EUL, &rip) || !NaRead(0x681CUL, &rsp))
+            { return NaFail(Context, Action); }
+            /* 不同线程、同页其他指令或物理别名只放行当前 CPU 一条指令。 */
+            if (NaTargetUserThread())
+            {
+                /* 多个地址可以共用同一受限物理页。 */
+                for (i = 0UL; i < bank->Count; ++i)
+                {
+                    /* 过滤条件全部来自不可变活动配置。 */
+                    const KSWORD_ARK_HVM_NOATTACH_BREAKPOINT *row = &bank->Rows[i];
+                    /* 不把页粒度事件冒充任意字节地址命中。 */
+                    if ((bank->Disabled & (1L << i)) != 0L || row->address != rip ||
+                        row->physicalPage != (physical & ~0xFFFULL) ||
+                        ((row->flags & KSWORD_ARK_HVM_NOATTACH_BP_STACK_FILTER) != 0UL && rsp < row->minimumRsp))
+                    { continue; }
+                    /* 只有唯一的停点发布者能消费一次性资格。 */
+                    if (InterlockedCompareExchange(&g_KswordNoAttach.State, KSW_NOATTACH_PUBLISHING,
+                                                   KSWORD_ARK_HVM_NOATTACH_RUNNING) == KSWORD_ARK_HVM_NOATTACH_RUNNING)
+                    {
+                        /* 保持原指令未执行，并允许系统内核继续调度。 */
+                        if (!NaRoot(g_KswordNoAttach.UserGateEptp)) { return NaFail(Context, Action); }
+                        /* 一次性断点只撤销自身精确地址资格，不放宽共享页权限。 */
+                        if ((row->flags & KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT) != 0UL)
+                        { InterlockedOr(&bank->Disabled, 1L << i); }
+                        /* 当前停止来自真实 EPT 执行事件。 */
+                        return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT, row->id, Action);
+                    }
+                    /* 与暂停或退出竞争失败仍由新的状态保留门禁。 */
+                    return NaRoot(g_KswordNoAttach.UserGateEptp) ? TRUE : NaFail(Context, Action);
+                }
+            }
+            /* 无关页内取指不触发调试回调。 */
+            return NaBypass(Context, Action);
+        }
         /* 既有派发继续前，先恢复普通映射。 */
-        if (!NaRoot(g_KswordNoAttach.NormalEptp))
+        if (!NaRoot(InterlockedCompareExchange(&g_KswordNoAttach.Enabled, 0L, 0L) != 0L &&
+                    state == KSWORD_ARK_HVM_NOATTACH_RUNNING && bank->Count != 0UL
+                        ? bank->Eptp : g_KswordNoAttach.NormalEptp))
         {
             return NaFail(Context, Action);
         }
@@ -285,6 +403,12 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
         if (!NaRead(0x201AUL, &eptp))
         {
             return NaFail(Context, Action);
+        }
+        /* PAUSE/新配置期间的旧 watch 事件先切到门禁，不能交给 #DB 处理。 */
+        if (eptp == g_KswordNoAttach.Banks[0].Eptp || eptp == g_KswordNoAttach.Banks[1].Eptp)
+        {
+            /* 同一 RIP 会在目标门禁中重新核对。 */
+            return NaRoot(g_KswordNoAttach.UserGateEptp) ? TRUE : NaFail(Context, Action);
         }
         /* 每次首个监督态取指都恢复用户入口门禁。 */
         if (eptp == g_KswordNoAttach.KernelGateEptp)
@@ -303,7 +427,8 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
             }
             /* 旧 stopId 不能授权内核返回后已经改变的另一份用户上下文。 */
             if ((state == KSWORD_ARK_HVM_NOATTACH_STOPPED || state == KSWORD_ARK_HVM_NOATTACH_STEP_PENDING ||
-                 state == KSWORD_ARK_HVM_NOATTACH_CONTINUE_PENDING) &&
+                 state == KSWORD_ARK_HVM_NOATTACH_CONTINUE_PENDING ||
+                 state == KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING) &&
                 !NaSameStop(Frame))
             {
                 /* 先退休旧停止/动作，再发布确实截获的新取指现场。 */
@@ -311,9 +436,18 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
                     state)
                 {
                     /* 新 stopReason 是 FETCH，不能冒充旧 STEP 已完成。 */
-                    return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_FETCH, Action);
+                    return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_FETCH, 0UL, Action);
                 }
                 /* 与命令占用或退出竞争失败时仍保持门禁。 */
+                return TRUE;
+            }
+            /* 编辑只在原现场完全一致时提交，随后仍保持停止。 */
+            if (state == KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING)
+            {
+                /* 与退出竞争失败不修改任何寄存器。 */
+                if (InterlockedCompareExchange(&g_KswordNoAttach.State, KSW_NOATTACH_PUBLISHING, state) == state)
+                { return NaApplyRegisters(Context, Frame, Action); }
+                /* 已撤销的命令保持门禁直到普通生命周期收尾。 */
                 return TRUE;
             }
             /* 继续动作也只在同一份真实停止现场上解除门禁。 */
@@ -324,7 +458,8 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
                                                state) == state)
                 {
                     /* 保持当前原始指令与寄存器，只解除本模块自己的执行门禁。 */
-                    return NaRoot(g_KswordNoAttach.NormalEptp) ? TRUE : NaFail(Context, Action);
+                    return bank->Count != 0UL ? NaBypass(Context, Action)
+                        : (NaRoot(g_KswordNoAttach.NormalEptp) ? TRUE : NaFail(Context, Action));
                 }
                 /* 已撤销或其它状态仍由下一次退出处理其恢复映射。 */
                 return TRUE;
@@ -338,7 +473,7 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
                     state)
                 {
                     /* 仅发布真实停止目标的当前体系结构状态。 */
-                    return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_FETCH, Action);
+                    return NaPublishResult(Context, Frame, KSWORD_ARK_HVM_NOATTACH_STOP_FETCH, 0UL, Action);
                 }
                 /* 重试被拒绝的取指，使停止指令保持未执行。 */
                 return TRUE;
@@ -465,7 +600,7 @@ NTSTATUS KswordARKHvmNoAttachBuildRootsLocked(KSW_HVM_RUNTIME *Runtime)
     /* VMCS 配置读取根表指针前，完成全部表写入。 */
     KeMemoryBarrier();
     /* 此准备例程不执行任何 VMX 指令。 */
-    return STATUS_SUCCESS;
+    return KswordARKHvmNoAttachPrepareBanks(Runtime);
 }
 
 NTSTATUS KswordARKHvmNoAttachInvalidateRootsForEntry(KSW_HVM_RUNTIME *Runtime)

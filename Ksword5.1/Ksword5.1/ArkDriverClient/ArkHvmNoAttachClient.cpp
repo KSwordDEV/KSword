@@ -21,7 +21,12 @@ HvmNoAttachResult controlHvmNoAttach(KSWORD_ARK_HVM_NOATTACH_REQUEST request, Dr
     if (result.io.ok && (result.io.bytesReturned < sizeof(result.response) ||
                          result.response.version != KSWORD_ARK_HVM_NOATTACH_VERSION ||
                          result.response.size != sizeof(result.response) ||
-                         result.response.state > KSWORD_ARK_HVM_NOATTACH_CONTINUE_PENDING))
+                         result.response.state > KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING ||
+                         result.response.breakpointCount > KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS ||
+                         (result.response.state == KSWORD_ARK_HVM_NOATTACH_STOPPED &&
+                          (result.response.sessionId == 0 || result.response.stopId == 0 ||
+                           result.response.stopReason < KSWORD_ARK_HVM_NOATTACH_STOP_FETCH ||
+                           result.response.stopReason > KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT))))
     {
         result.io.ok = false;
         result.io.win32Error = ERROR_INVALID_DATA;

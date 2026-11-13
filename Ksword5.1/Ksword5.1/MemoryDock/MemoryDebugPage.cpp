@@ -66,7 +66,7 @@ namespace ks::ui
         explanation->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         ks::i18n::LanguageManager::instance().bindText(explanation,
             QStringLiteral("memory.debug.mode"),
-            QStringLiteral("不附加模式：内存与反汇编、R3 单线程检查，以及目标主动启用组件的 VEH 单步；均不建立 Windows 调试附加。"));
+            QStringLiteral("不附加模式：独立内存与反汇编、R3 线程检查、协作 VEH 或 Intel HVM 执行控制；目标与线程范围由当前会话明确显示。"));
         layout_->addWidget(explanation);
 
         // 候选选择独立于旧 Dock，输入内容只能匹配当前快照，不能凭 PID 猜测目标身份。

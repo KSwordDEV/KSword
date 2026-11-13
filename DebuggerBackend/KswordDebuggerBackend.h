@@ -124,6 +124,10 @@ namespace ksword::debugger
         std::recursive_mutex mutex_;
         ark::DriverClient client_;
         ark::DriverHandle driver_;
+        // The no-attach owner must keep one exact control file until confirmed CLOSE.
+        ark::DriverHandle noAttachDriver_;
+        // An uncertain OPEN ACK also reserves this adapter until QUERY/CLOSE recovers it.
+        bool noAttachReserved_ = false;
         // 句柄身份与目标身份分别持有；事件对象不能替代真实进程引用。
         struct TargetIdentity
         {

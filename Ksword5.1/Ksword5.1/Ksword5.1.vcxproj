@@ -382,6 +382,7 @@
     <ClCompile Include="MemoryDock\MemoryDebugPage.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugProcessCatalog.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.cpp" />
+    <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.Hvm.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugThreadSession.cpp" />
     <ClCompile Include="ArkDriverClient\ArkHvmNoAttachClient.cpp" />
     <ClCompile Include="..\..\shared\debug\CooperativeDebugClient.cpp" />

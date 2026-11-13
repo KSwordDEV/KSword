@@ -276,6 +276,10 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     ULONG HltLastInterruptibility;
     /* CPUID.0 has no dynamic OS state; refresh on this CPU at each insertion. */
     int CpuidVendorLeaf[4];
+    /* 无附加断点仅在此处理器临时切回正常 EPTP。 */
+    BOOLEAN NoAttachBypass;
+    /* 同一 EPTP 的 bank 重用前在本处理器执行 INVEPT。 */
+    ULONGLONG NoAttachWatchGeneration;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START

@@ -1,4 +1,8 @@
 #include "hvm_noattach.h"
+/* 用户态和内核态的固定宽度 ABI 必须一致。 */
+C_ASSERT(sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST) == 232);
+/* 完整停止现场及八条配置不能被编译选项改变。 */
+C_ASSERT(sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE) == 480);
 
 /* wdm.h 内联声明可能因 include 顺序不可见，同 debugger_ioctl.c。 */
 NTKERNELAPI ULONG IoGetRequestorProcessId(_In_ PIRP Irp);
@@ -59,7 +63,7 @@ NTSTATUS KswordARKHvmIoctlNoAttach(WDFDEVICE Device, WDFREQUEST Request, size_t 
         return status;
     }
     /* 输入长度必须完整。 */
-    if (InputBufferLength < sizeof(copy) || inputBytes < sizeof(copy))
+    if (InputBufferLength != sizeof(copy) || inputBytes < sizeof(copy))
     {
         return STATUS_INFO_LENGTH_MISMATCH;
     }

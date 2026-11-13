@@ -813,6 +813,9 @@
     <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.Hvm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MemoryDock\MemoryDebugThreadSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

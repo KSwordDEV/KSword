@@ -206,6 +206,7 @@ namespace ksword::debugger
     DWORD Backend::observeNativeSession(DWORD pid, std::uint64_t* generation)
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (noAttachReserved_) return ERROR_BUSY;
         if (generation != nullptr) *generation = 0;
         if (!driver_.isValid()) return ERROR_DEVICE_NOT_CONNECTED;
         if (pid == 0) return ERROR_INVALID_PARAMETER;
@@ -685,6 +686,7 @@ namespace ksword::debugger
     BOOL Backend::attach(DWORD pid)
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (noAttachReserved_) { SetLastError(ERROR_BUSY); return FALSE; }
         if (attachedPid_ != 0)
         { SetLastError(ERROR_BUSY); return FALSE; }
         ark::DriverHandle identity(openIdentityProcess(pid));

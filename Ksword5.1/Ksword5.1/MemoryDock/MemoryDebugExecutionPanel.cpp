@@ -1,5 +1,6 @@
 #include "../Framework.h"
 #include "MemoryDebugExecutionPanel.h"
+#include "../UI/ShortcutRegistry.h"
 #include "../../../shared/debug/CooperativeDebugClient.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncUiDispatcher.h"
@@ -137,7 +138,7 @@ namespace ks::ui
         auto* row = new QHBoxLayout(); // 选择器可缩，图标动作保持共享尺寸。
         backend_ = new QComboBox(this);
         backend_->setObjectName(QStringLiteral("memory_debug_backend"));
-        backend_->addItems({T("R3 线程检查"), T("协作 VEH 单步"), T("HVM 单线程单步（实验）")});
+        backend_->addItems({T("R3 线程检查"), T("协作 VEH 单步"), T("HVM 无附加调试（实验）")});
         backend_->setMinimumWidth(0);
         backend_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         StylePrimaryCombo(backend_);
@@ -156,6 +157,10 @@ namespace ks::ui
         registers_ = Action(this, ":/Icon/process_copy_row.svg", "查看最近一次寄存器现场及来源，可搜索、复制和导出");
         openHvm_ = Action(this, ":/Icon/process_start.svg", "启动独占的实验 HVM 单线程调试；要求 Intel MBEC 与 MTF");
         openHvm_->setObjectName(QStringLiteral("memory_debug_hvm_open"));
+        configureHvm_ = Action(this, ":/Icon/process_details.svg", "管理 EPT 执行断点、运行到地址和整数寄存器");
+        configureHvm_->setObjectName(QStringLiteral("memory_debug_hvm_controls"));
+        closeHvm_ = Action(this, ":/Icon/log_clear.svg", "关闭本会话的 HVM 运行控制，保留内存视图");
+        closeHvm_->setObjectName(QStringLiteral("memory_debug_hvm_close"));
         ApplyFlatButtonTheme(openHvm_, FlatButtonTone::Danger);
         ApplyFlatButtonTheme(resume_, FlatButtonTone::Accent);
         refresh_->setObjectName(QStringLiteral("memory_debug_connect"));
@@ -165,7 +170,7 @@ namespace ks::ui
         step_->setObjectName(QStringLiteral("memory_debug_step"));
         registers_->setObjectName(QStringLiteral("memory_debug_registers"));
         // 普通线程模式不设置 TF；只有具备目标内异常消费者的后端才启用单步。
-        for (auto* button : {refresh_, openHvm_, capture_, pause_, resume_, step_, registers_})
+        for (auto* button : {refresh_, openHvm_, capture_, pause_, resume_, step_, registers_, configureHvm_, closeHvm_})
         {
             row->addWidget(button);
         }
@@ -182,15 +187,20 @@ namespace ks::ui
         connect(step_, &QToolButton::clicked, this, [this]() { execute(5); });
         connect(registers_, &QToolButton::clicked, this, &MemoryDebugExecutionPanel::showRegisters);
         connect(openHvm_, &QToolButton::clicked, this, [this]() { execute(7); });
+        connect(configureHvm_, &QToolButton::clicked, this, &MemoryDebugExecutionPanel::showHvmControls);
+        connect(closeHvm_, &QToolButton::clicked, this, [this]() { if (!busy_) (void)closeHvm(); });
         // 快捷键仅属于本页及工作台子树；隐藏页不抢其它工具窗的调试按键。
         auto* singleStep = new QShortcut(QKeySequence(Qt::Key_F7), parent);
         singleStep->setContext(Qt::WidgetWithChildrenShortcut);
+        ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("debug"), singleStep);
         connect(singleStep, &QShortcut::activated, step_, &QToolButton::click);
         auto* continueExecution = new QShortcut(QKeySequence(Qt::Key_F9), parent);
         continueExecution->setContext(Qt::WidgetWithChildrenShortcut);
+        ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("debug"), continueExecution);
         connect(continueExecution, &QShortcut::activated, resume_, &QToolButton::click);
         auto* pauseExecution = new QShortcut(QKeySequence(Qt::Key_F12), parent);
         pauseExecution->setContext(Qt::WidgetWithChildrenShortcut);
+        ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("debug"), pauseExecution);
         connect(pauseExecution, &QShortcut::activated, pause_, &QToolButton::click);
         step_->setToolTip(step_->toolTip() + QStringLiteral("\nF7"));
         resume_->setToolTip(resume_->toolTip() + QStringLiteral("\nF9"));
@@ -261,6 +271,8 @@ namespace ks::ui
 
     void MemoryDebugExecutionPanel::setTarget(const std::uint32_t pid, const std::uint64_t creation)
     {
+        if (hvmDialog_) hvmDialog_->close(); // 新目标通过原离开守卫后清退旧目标的工具草稿。
+        hvmResponse_ = {};
         ++epoch_;
         pid_ = pid;
         creation_ = creation;
@@ -664,6 +676,8 @@ namespace ks::ui
             return;
         }
         const auto& response = result.response; // 版本、长度及传输身份由 ArkDriverClient 验证。
+        if (response.status >= 0 || response.sessionId == hvmSessionId_)
+            hvmResponse_ = response;
         hvmAvailable_ = response.status >= 0
             && (response.capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION) != 0;
         if (response.sessionId != 0)
@@ -751,7 +765,10 @@ namespace ks::ui
         document_.field(T("线程创建时间（100ns）"), QString::number(response.threadCreationTime));
         document_.field(T("停止代次"), QString::number(response.stopId));
         document_.field(T("停止来源"), response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_STEP
-            ? T("MTF 单步边界") : T("用户态取指暂停"));
+            ? T("MTF 单步边界") : response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT
+                ? T("EPT 执行断点") : response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT
+                    ? T("整数寄存器已提交") : T("用户态取指暂停"));
+        document_.field(T("断点 ID"), QString::number(response.breakpointId));
         document_.field(QStringLiteral("CR3"), Hex(response.cr3));
         document_.note(T("实验 HVM 捕获的单线程停止快照；未修改目标代码、TF 或 DR，不包含 XSTATE。"));
         AddRegisters(document_, response);
@@ -841,6 +858,11 @@ namespace ks::ui
             : mode_ == 1 ? connected_ && stopped_ : hvmControllable && stopped_));
         step_->setEnabled(ready && mode_ != 0 && stopped_ && (connected_ || hvmControllable));
         registers_->setEnabled(!document_.isEmpty());
+        configureHvm_->setVisible(mode_ == 2);
+        configureHvm_->setEnabled(ready); // 启动前可查看能力与保留草稿，执行仍由真实停点门禁决定。
+        closeHvm_->setVisible(mode_ == 2);
+        closeHvm_->setEnabled(!busy_ && hvmActive);
+        updateHvmControls();
     }
 
     void MemoryDebugExecutionPanel::showRegisters()
