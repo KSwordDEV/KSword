@@ -1,3 +1,4 @@
+#include "./NavigationHighlight.h"
 #include "GlobalUiSearch.h"
 #include "./ScopedObjectDiscoveryCursor.h"
 
@@ -28,6 +29,7 @@
 #include <QPainter>
 #include <QPen>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
@@ -80,7 +82,6 @@ namespace
     constexpr int kHeaderColumnScanLimit = 80;
     constexpr int kFlashDelayMs = 140;
     constexpr int kProgressContentHeight = 44;
-    constexpr int kSearchOptionsRowHeight = 36;
     constexpr int kResultHtmlRole = Qt::UserRole + 41;
     // HTML 只缓存文本与语义占位，实际绘制时按该行真实底色求色，避免跨主题保存 RGB。
     constexpr auto kResultPrimaryColorToken = "__KS_SEARCH_PRIMARY_COLOR__";
@@ -523,116 +524,6 @@ namespace
             Q_UNUSED(index);
             return QSize(200, kResultItemHeight);
         }
-    };
-
-    // ============================================================
-    // SearchHitFlashOverlay
-    // 说明：
-    // - 覆盖在命中控件上的临时高亮层：主题强调色圆角描边+浅填充，
-    //   按正弦脉冲闪烁三次后自毁；
-    // - 作为目标控件子控件随目标缩放，鼠标事件全透传。
-    // ============================================================
-    class SearchHitFlashOverlay final : public QWidget
-    {
-    public:
-        // flashOnWidget：
-        // - 作用：在目标控件上点亮一次搜索高亮（旧高亮先移除）；
-        // - 传入 targetWidget：要高亮的控件。
-        static void flashOnWidget(QWidget* targetWidget)
-        {
-            if (targetWidget == nullptr)
-            {
-                return;
-            }
-            if (QWidget* previousOverlay = targetWidget->findChild<QWidget*>(
-                    QStringLiteral("ksSearchHitFlashOverlay"),
-                    Qt::FindDirectChildrenOnly))
-            {
-                previousOverlay->deleteLater();
-            }
-            auto* overlayWidget = new SearchHitFlashOverlay(targetWidget);
-            overlayWidget->show();
-            overlayWidget->raise();
-        }
-
-        explicit SearchHitFlashOverlay(QWidget* targetWidget)
-            : QWidget(targetWidget)
-            , m_targetWidget(targetWidget)
-        {
-            setObjectName(QStringLiteral("ksSearchHitFlashOverlay"));
-            setAttribute(Qt::WA_TransparentForMouseEvents, true);
-            setAttribute(Qt::WA_NoSystemBackground, true);
-            setGeometry(targetWidget->rect());
-            targetWidget->installEventFilter(this);
-
-            // kFlashPulseCount 用途：完整脉冲次数；动画值 0..N，小数部分驱动单次脉冲相位。
-            constexpr double kFlashPulseCount = 3.0;
-            auto* pulseAnimation = new QVariantAnimation(this);
-            pulseAnimation->setStartValue(0.0);
-            pulseAnimation->setEndValue(kFlashPulseCount);
-            pulseAnimation->setDuration(1800);
-            connect(pulseAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& animationValue) {
-                const double phaseValue = animationValue.toDouble();
-                const double pulseFraction = phaseValue - std::floor(phaseValue);
-                // envelopeFactor 用途：整体强度随时间轻微衰减，结束前自然淡出。
-                const double envelopeFactor = 1.0 - (phaseValue / 3.0) * 0.35;
-                m_pulseIntensity = std::sin(pulseFraction * 3.14159265358979323846) * envelopeFactor;
-                update();
-            });
-            connect(pulseAnimation, &QVariantAnimation::finished, this, [this]() {
-                deleteLater();
-            });
-            pulseAnimation->start();
-        }
-
-    protected:
-        void paintEvent(QPaintEvent* paintEventPointer) override
-        {
-            Q_UNUSED(paintEventPointer);
-            if (m_pulseIntensity <= 0.0)
-            {
-                return;
-            }
-
-            QPainter overlayPainter(this);
-            overlayPainter.setRenderHint(QPainter::Antialiasing, true);
-
-            QColor accentColor = KswordTheme::PrimaryAccentColor();
-            QColor borderColor = accentColor;
-            borderColor.setAlpha(static_cast<int>(210.0 * m_pulseIntensity));
-            QColor fillColor = accentColor;
-            fillColor.setAlpha(static_cast<int>(42.0 * m_pulseIntensity));
-
-            QPen borderPen(borderColor);
-            borderPen.setWidthF(2.0);
-            overlayPainter.setPen(borderPen);
-            overlayPainter.setBrush(fillColor);
-            overlayPainter.drawRoundedRect(
-                QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5),
-                4.0,
-                4.0);
-        }
-
-        bool eventFilter(QObject* watchedObject, QEvent* eventObject) override
-        {
-            if (watchedObject == m_targetWidget)
-            {
-                if (eventObject->type() == QEvent::Resize)
-                {
-                    setGeometry(m_targetWidget->rect());
-                }
-                else if (eventObject->type() == QEvent::Hide
-                    || eventObject->type() == QEvent::Destroy)
-                {
-                    deleteLater();
-                }
-            }
-            return QWidget::eventFilter(watchedObject, eventObject);
-        }
-
-    private:
-        QPointer<QWidget> m_targetWidget;  // m_targetWidget：被高亮的目标控件。
-        double m_pulseIntensity = 0.0;     // m_pulseIntensity：当前脉冲强度（0..1）。
     };
 
     // widgetBelongsToBranch：
@@ -1143,11 +1034,17 @@ namespace ks::ui
                 // keyEvent 用途：仅在标题输入框截获四节点循环，弹层内字段保留正常焦点导航。
                 auto* keyEvent = static_cast<QKeyEvent*>(eventObject);
                 // isScopeCycleKey 用途：普通 Tab/Shift+Tab；不拦截 Ctrl/Alt/Meta 组合快捷键。
-                const bool isScopeCycleKey = (keyEvent->key() == Qt::Key_Tab
+                const bool mouseless = qApp->property("ksword_mouseless_mode").toBool();
+                const bool isScopeCycleKey = (!mouseless && (keyEvent->key() == Qt::Key_Tab
                     || keyEvent->key() == Qt::Key_Backtab)
                     && !keyEvent->modifiers().testFlag(Qt::ControlModifier)
                     && !keyEvent->modifiers().testFlag(Qt::AltModifier)
-                    && !keyEvent->modifiers().testFlag(Qt::MetaModifier);
+                    && !keyEvent->modifiers().testFlag(Qt::MetaModifier))
+                    || (mouseless && keyEvent->key() == Qt::Key_S
+                        && keyEvent->modifiers().testFlag(Qt::ControlModifier)
+                        && keyEvent->modifiers().testFlag(Qt::AltModifier)
+                        && !keyEvent->modifiers().testFlag(Qt::GroupSwitchModifier)
+                        && !keyEvent->modifiers().testFlag(Qt::MetaModifier));
                 if (isScopeCycleKey)
                 {
                     // direction 用途：兼容 Key_Backtab 和带 Shift 的 Key_Tab 两种反向事件。
@@ -1309,6 +1206,7 @@ namespace ks::ui
             const bool popupVisible = m_popupPanel != nullptr && m_popupPanel->isVisible();
             if (popupVisible && (eventType == QEvent::Resize || eventType == QEvent::Move))
             {
+                if (eventType == QEvent::Resize) updatePopupSize();
                 repositionPopupPanel();
             }
             else if (popupVisible && eventType == QEvent::WindowDeactivate)
@@ -1351,14 +1249,17 @@ namespace ks::ui
         panelLayout->setSpacing(0);
 
         m_searchOptionsRow = new QWidget(m_popupPanel);
-        m_searchOptionsRow->setFixedHeight(kSearchOptionsRowHeight);
-        auto* optionsLayout = new QHBoxLayout(m_searchOptionsRow);
+        auto* optionsLayout = new QVBoxLayout(m_searchOptionsRow);
         optionsLayout->setContentsMargins(8, 4, 8, 4);
         optionsLayout->setSpacing(8);
+        auto* scopeLayout = new QHBoxLayout;
+        scopeLayout->setSpacing(8);
+        optionsLayout->addLayout(scopeLayout);
 
         m_searchScopeLabel = new QLabel(m_searchOptionsRow);
         m_searchScopeTabs = new QTabBar(m_searchOptionsRow);
-        m_searchScopeTabs->setMinimumWidth(360);
+        m_searchScopeTabs->setMinimumWidth(0);
+        m_searchScopeTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         m_searchScopeTabs->setDrawBase(false);
         m_searchScopeTabs->setExpanding(true);
         m_searchScopeTabs->setUsesScrollButtons(false);
@@ -1369,10 +1270,9 @@ namespace ks::ui
         InstallSegmentedTabBar(m_searchScopeTabs);
         m_searchResultsOnlyCheck = new QCheckBox(m_searchOptionsRow);
 
-        optionsLayout->addWidget(m_searchScopeLabel, 0);
-        optionsLayout->addWidget(m_searchScopeTabs, 1);
-        optionsLayout->addStretch(1);
-        optionsLayout->addWidget(m_searchResultsOnlyCheck, 0);
+        scopeLayout->addWidget(m_searchScopeLabel, 0);
+        scopeLayout->addWidget(m_searchScopeTabs, 1);
+        optionsLayout->addWidget(m_searchResultsOnlyCheck, 0, Qt::AlignLeft);
 
         connect(
             m_searchScopeTabs,
@@ -1417,6 +1317,11 @@ namespace ks::ui
         m_emptyHintLabel = new QLabel(QStringLiteral("未找到匹配内容"), m_popupPanel);
         m_emptyHintLabel->setObjectName(QStringLiteral("ksGlobalUiSearchEmptyHint"));
         m_emptyHintLabel->setAlignment(Qt::AlignCenter);
+        m_emptyHintLabel->setTextFormat(Qt::PlainText);
+        m_emptyHintLabel->setWordWrap(true);
+        m_retrySearchButton = new QPushButton(m_popupPanel);
+        m_retrySearchButton->hide();
+        connect(m_retrySearchButton, &QPushButton::clicked, this, &GlobalUiSearchController::runSearchNow);
 
         // 进度行：异步扫描进行中显示“正在搜索：Dock 名（n/N）”+ 进度条。
         m_searchProgressRow = new QWidget(m_popupPanel);
@@ -1441,11 +1346,13 @@ namespace ks::ui
         panelLayout->addWidget(m_searchProgressRow, 0);
         panelLayout->addWidget(m_resultListWidget, 1);
         panelLayout->addWidget(m_emptyHintLabel, 0);
+        panelLayout->addWidget(m_retrySearchButton, 0);
         refreshSearchOptionControls();
     }
 
     void GlobalUiSearchController::refreshSearchOptionControls()
     {
+        if (m_retrySearchButton) m_retrySearchButton->setText(ks::i18n::sourceText(QStringLiteral("重新搜索")));
         if (m_searchScopeLabel != nullptr)
         {
             m_searchScopeLabel->setText(ks::i18n::sourceText(QStringLiteral("范围")));
@@ -1463,6 +1370,8 @@ namespace ks::ui
                 static_cast<int>(UiSearchScope::CurrentTable),
                 ks::i18n::sourceText(QStringLiteral("当前表格（%1）")).arg(
                     ks::ui::ResolveTableSearchDisplayName(resolveCurrentTable())));
+            for (int index = 0; index < m_searchScopeTabs->count(); ++index)
+                m_searchScopeTabs->setTabToolTip(index, m_searchScopeTabs->tabText(index));
             m_searchScopeTabs->setCurrentIndex(static_cast<int>(m_searchScope));
         }
         if (m_searchResultsOnlyCheck != nullptr)
@@ -1477,6 +1386,7 @@ namespace ks::ui
     void GlobalUiSearchController::showOptionsOnlyPopup()
     {
         ensurePopupCreated();
+        if (m_retrySearchButton) m_retrySearchButton->hide();
         m_currentHitList.clear();
         if (m_searchProgressRow != nullptr)
         {
@@ -1490,7 +1400,7 @@ namespace ks::ui
         if (m_emptyHintLabel != nullptr)
         {
             m_emptyHintLabel->setText(
-                ks::i18n::sourceText(QStringLiteral("搜索")));
+                ks::i18n::sourceText(QStringLiteral("输入关键词查找页面、功能或内容；选择结果后跳转到对应位置。")));
             m_emptyHintLabel->show();
         }
         refreshSearchOptionControls();
@@ -1558,6 +1468,7 @@ namespace ks::ui
 
         // 进度态弹层：隐藏结果列表与空态，只显示进度行。
         ensurePopupCreated();
+        if (m_retrySearchButton) m_retrySearchButton->hide();
         if (m_resultListWidget != nullptr)
         {
             m_resultListWidget->clear();
@@ -1847,6 +1758,10 @@ namespace ks::ui
         m_resultListWidget->setVisible(hasResults);
         if (m_emptyHintLabel != nullptr)
         {
+            m_emptyHintLabel->setText(m_searchScope == UiSearchScope::CurrentTable && !resolveCurrentTable()
+                ? ks::i18n::sourceText(QStringLiteral("尚未选择可搜索的表格。请在目标表格的操作条点击搜索。"))
+                : ks::i18n::sourceText(QStringLiteral("在%1中未找到匹配内容。可修改关键词或切换搜索范围。"))
+                    .arg(searchScopeDisplayText()));
             m_emptyHintLabel->setVisible(!hasResults);
         }
         if (hasResults)
@@ -1955,11 +1870,21 @@ namespace ks::ui
         }
         // 范围栏颜色由共享分段组件在绘制时求值，显示弹层不再覆写它的选中样式。
 
+        updatePopupSize();
+        repositionPopupPanel();
+        m_popupPanel->raise();
+        m_popupPanel->show();
+    }
+
+    void GlobalUiSearchController::updatePopupSize()
+    {
+        if (!m_popupPanel || !m_popupHostWindow) return;
         const int anchorWidth = m_popupAnchorWidget != nullptr ? m_popupAnchorWidget->width() : 460;
+        const int availableWidth = std::max(1, m_popupHostWindow->width() - 24);
         const int panelWidth = std::clamp(
             anchorWidth + 220,
-            460,
-            std::max(320, m_popupHostWindow->width() - 24));
+            std::min(460, availableWidth),
+            availableWidth);
         const int visibleRowCount = std::min(
             static_cast<int>(m_currentHitList.size()),
             kMaxVisibleResultRows);
@@ -1972,11 +1897,15 @@ namespace ks::ui
         {
             contentHeight = visibleRowCount * kResultItemHeight + 2;
         }
-        m_popupPanel->setFixedSize(panelWidth, contentHeight + kSearchOptionsRowHeight + 8);
-
-        repositionPopupPanel();
-        m_popupPanel->raise();
-        m_popupPanel->show();
+        else if (m_emptyHintLabel)
+        {
+            const int hintWidth = std::max(1, panelWidth - 20);
+            contentHeight = std::max(contentHeight, m_emptyHintLabel->heightForWidth(hintWidth) + 12);
+            if (m_retrySearchButton && !m_retrySearchButton->isHidden())
+                contentHeight += m_retrySearchButton->sizeHint().height() + 8;
+        }
+        const int optionsHeight = m_searchOptionsRow ? m_searchOptionsRow->sizeHint().height() : 0;
+        m_popupPanel->setFixedSize(panelWidth, contentHeight + optionsHeight + 8);
     }
 
     void GlobalUiSearchController::repositionPopupPanel()
@@ -2002,6 +1931,23 @@ namespace ks::ui
         m_popupPanel->move(panelLeft, panelTop);
     }
 
+    void GlobalUiSearchController::showNavigationUnavailable()
+    {
+        dismissPopup();
+        clearSearchResultFilters();
+        ensurePopupCreated();
+        if (!m_popupHostWindow || !m_popupPanel || !m_resultListWidget
+            || !m_searchProgressRow || !m_emptyHintLabel || !m_retrySearchButton) return;
+        m_currentHitList.clear();
+        m_resultListWidget->clear();
+        m_resultListWidget->hide();
+        m_searchProgressRow->hide();
+        m_emptyHintLabel->setText(ks::i18n::sourceText(QStringLiteral("目标页面或结果已变化，无法跳转。请重新搜索后选择。")));
+        m_emptyHintLabel->show();
+        m_retrySearchButton->show();
+        showPopupPanel();
+    }
+
     void GlobalUiSearchController::activateHitAtRow(const int rowIndex)
     {
         if (m_searchInProgress)
@@ -2017,6 +1963,14 @@ namespace ks::ui
         const UiSearchHit hitEntry = m_currentHitList.at(rowIndex);
         if (!hitEntry.navigationEnabled) return;
         const QPointer<GlobalUiSearchController> lifetime(this);
+        if (hitEntry.targetTableView) {
+            const QPointer<QTableView> table(hitEntry.targetTableView);
+            const bool unavailable = !hitEntry.targetModelIndex.isValid()
+                || hitEntry.targetModelIndex.model() != table->model()
+                || IsTableCellExcludedByBusinessFilter(table.data(), hitEntry.targetModelIndex);
+            if (!lifetime) return;
+            if (!table || unavailable) { showNavigationUnavailable(); return; }
+        }
         const auto permittedDescriptor = [this, &hitEntry, lifetime]()
         {
             if (!hitEntry.pageDockWidget || !m_pageCatalogProvider || !m_pageCatalogNavigator) return false;
@@ -2035,14 +1989,14 @@ namespace ks::ui
         if (!hitEntry.navigationDescriptorId.isEmpty() && !permittedDescriptor())
         {
             if (!lifetime) return;
-            dismissPopup();
+            showNavigationUnavailable();
             return;
         }
         QPointer<ads::CDockWidget> dockWidget = hitEntry.pageDockWidget;
         QPointer<QTableView> targetTableView = hitEntry.targetTableView;
         if (dockWidget == nullptr && targetTableView == nullptr)
         {
-            dismissPopup();
+            showNavigationUnavailable();
             return;
         }
 
@@ -2087,7 +2041,7 @@ namespace ks::ui
         QPointer<QWidget> targetWidget = hitEntry.targetWidget;
         if (descriptorHit)
         {
-            if (!permittedDescriptor()) { if (lifetime) dismissPopup(); return; }
+            if (!permittedDescriptor()) { if (lifetime) showNavigationUnavailable(); return; }
             const auto navigator = m_pageCatalogNavigator;
             targetWidget = navigator(hitEntry.pageDockWidget, hitEntry.navigationDescriptorId);
             if (!lifetime) return;
@@ -2098,6 +2052,7 @@ namespace ks::ui
         dismissPopup();
         if (targetWidget == nullptr)
         {
+            showNavigationUnavailable();
             return;
         }
 
@@ -2121,7 +2076,7 @@ namespace ks::ui
                 tableMatch.modelIndex = guardedModelIndex;
                 ks::ui::RevealTableCellSearchMatch(tableMatch);
             }
-            SearchHitFlashOverlay::flashOnWidget(guardedTarget);
+            ks::ui::FlashNavigationTarget(guardedTarget, ks::ui::NavigationHighlightKind::SearchResult);
         });
     }
 

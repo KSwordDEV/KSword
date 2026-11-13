@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "MonitorCanonicalExport.h"
 #include <QPushButton>
 #include "../UI/StructuredFieldView.h"
@@ -692,6 +693,7 @@ void WinAPIDock::initializeConnections()
         connect(m_eventTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& position) {
             showEventContextMenu(position);
         });
+        ks::ui::InstallKeyboardItemActivation(m_eventTable);
         connect(m_eventTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
             showEventDetailDialog(index.row());
         });

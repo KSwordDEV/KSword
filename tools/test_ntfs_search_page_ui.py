@@ -2,7 +2,7 @@
 """Exercise the real MFT page and shared layout/theme sources with QtWidgets.
 
 Raw NTFS reads are replaced with controlled immutable snapshots. The production
-page, async controller, path projection, treemap, ParameterWorkspace, result host,
+page, async controller, file search, ParameterWorkspace, result host,
 page tabs, toolbar and table surfaces are compiled. Pack loading, tab motion,
 control glyph files and table action/search integrations use small adapters;
 the table capabilities and source models remain real. This is a UI regression, not
@@ -104,8 +104,6 @@ class CodeTextEdit : public QPlainTextEdit { public: using QPlainTextEdit::QPlai
         for name in ("ThemeBinding", "FlatButtonTheme", "PageTabFocusStyle", "TablePresentation", "ThemeStatusRole",
                      "ResultTableHost", "AsyncOperation"):
             sources.append(APP / "UI" / f"{name}.cpp")
-        sources.append(APP / "FileDock/NtfsSpaceMapWidget.cpp")
-        sources.append(APP / "UI/MetricAreaRenderer.cpp")
         coordinator = (APP / "UI/UiCommitCoordinator.cpp").read_text(encoding="utf-8-sig")
         if os.name != "nt":
             # The actual coordinator already offers an input probe. Only its

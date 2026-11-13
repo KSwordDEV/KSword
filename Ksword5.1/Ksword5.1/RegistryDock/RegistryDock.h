@@ -13,6 +13,7 @@
 #include "../UI/PageNavigationTabCatalog.h"
 
 #include <QWidget>
+#include <QDateTime>
 #include <QVector>
 #include <QStringList>
 
@@ -238,10 +239,19 @@ private:
         quint64 generation = 0;
         int progressPid = 0;
         bool uiFinalized = false; // GUI-only terminal claim; workers never access this member.
+        QString keyword;
+        QStringList roots;
+        QStringList inputIdentity;
+        SearchOptions options;
+        bool requestedR0 = false;
+        int scope = 1;
+        QDateTime startedAt;
     };
     void startSearchAsync();
     void stopSearch(bool invalidateResults);
     void flushPendingSearchRows();
+    QStringList searchInputIdentity() const;
+    void updateSearchRequestSummary();
     static void enqueuePendingSearchRow(const std::shared_ptr<SearchSession>& session, PendingSearchRow&& row);
     static void searchRegistryPath(const QString& path, bool useR0, const QString& keyword,
         const SearchOptions& options, const std::shared_ptr<SearchSession>& session,
@@ -287,6 +297,7 @@ private:
     QTabWidget* m_rightTabWidget = nullptr;      // 右侧 Tab（值/搜索结果）。
     QTableWidget* m_valueTable = nullptr;        // 当前键值列表。
     QTableWidget* m_searchResultTable = nullptr; // 搜索结果表。
+    QLabel* m_searchRequestLabel = nullptr;      // 冻结的搜索来源，与当前输入条件分离。
 
     // ===================== 状态栏 =====================
     QStatusBar* m_statusBar = nullptr;           // 状态栏。

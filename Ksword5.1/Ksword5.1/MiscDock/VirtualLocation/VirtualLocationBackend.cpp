@@ -1064,10 +1064,15 @@ namespace ks::misc::virtual_location
             readValueViaWin32(kSensorPolicySubKey, kProviderPolicyValueName, &lastError);
         if (providerPolicy.found) {
             unsigned long long providerFlag = 0U;
-            integerFromRawValue(providerPolicy, &providerFlag);
-            snapshot.providerDisabledByPolicy = providerFlag != 0U;
-            policyLines.append(
-                QStringLiteral("DisableWindowsLocationProvider = %1").arg(providerFlag));
+            snapshot.providerPolicyReadable = integerFromRawValue(providerPolicy, &providerFlag);
+            if (snapshot.providerPolicyReadable) {
+                snapshot.providerDisabledByPolicy = providerFlag != 0U;
+                policyLines.append(QStringLiteral("DisableWindowsLocationProvider = %1").arg(providerFlag));
+            } else policyLines.append(QStringLiteral("DisableWindowsLocationProvider 值类型或长度无效"));
+        } else {
+            snapshot.providerPolicyReadable = lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND;
+            if (!snapshot.providerPolicyReadable)
+                policyLines.append(QStringLiteral("DisableWindowsLocationProvider 读取失败（错误 %1）").arg(lastError));
         }
         const RawValue locationPolicy =
             readValueViaWin32(kSensorPolicySubKey, kLocationPolicyValueName, &lastError);

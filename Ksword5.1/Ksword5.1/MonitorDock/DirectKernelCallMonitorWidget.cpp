@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "MonitorTableExport.h"
 #include "MonitorEventFilterProjection.h"
 #include "DirectKernelCallMonitorWidget.h"
@@ -594,6 +595,7 @@ void DirectKernelCallMonitorWidget::initializeConnections()
     connect(m_eventTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
         showEventContextMenu(position);
     });
+    ks::ui::InstallKeyboardItemActivation(m_eventTable);
     connect(m_eventTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* itemPointer) {
         if (itemPointer != nullptr)
         {

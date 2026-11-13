@@ -683,11 +683,29 @@ private:
     // - 输入来自模块表当前行和 m_moduleRecords 缓存；
     // - 返回：无，弹窗关闭后自动释放。
     void showCurrentModuleDetailDialog();
-    void openCurrentModuleFolder();
-    void unloadCurrentModule();
-    void suspendCurrentModuleThread();
-    void resumeCurrentModuleThread();
-    void terminateCurrentModuleThread();
+    // Menu actions consume the captured module and process instance, never a
+    // selection which may have changed while a nested menu was open.
+    void openModuleFolder(const ks::process::ProcessModuleRecord& module,
+        std::uint32_t processId, std::uint64_t creationTime);
+    void unloadModule(const ks::process::ProcessModuleRecord& module,
+        std::uint32_t processId, std::uint64_t creationTime);
+    void suspendModuleThread(const ks::process::ProcessModuleRecord& module,
+        std::uint32_t processId, std::uint64_t creationTime);
+    void resumeModuleThread(const ks::process::ProcessModuleRecord& module,
+        std::uint32_t processId, std::uint64_t creationTime);
+    void terminateModuleThread(const ks::process::ProcessModuleRecord& module,
+        std::uint32_t processId, std::uint64_t creationTime);
+    void reportModuleActionResult(const QString& titleSource,
+        const ks::process::ProcessModuleRecord& module, std::uint32_t processId,
+        bool actionOk, const std::string& detailText, const kLogEvent& actionEvent,
+        bool threadAction = false);
+    struct ModuleActionFeedback
+    {
+        QString titleSource, detailText;
+        ks::process::ProcessModuleRecord module;
+        std::uint32_t processId = 0;
+        bool ok = false, threadAction = false;
+    };
 
     // ======== 操作页动作 ========
     struct DetailActionResult { bool ok = false; std::string detail; bool conflict = false; bool outcomeUncertain = false; };
@@ -965,6 +983,8 @@ private:
     QCheckBox* m_signatureCheckBox = nullptr;  // 是否刷新时做签名校验。
     QLineEdit* m_moduleFilterEdit = nullptr;   // 模块列表筛选输入框。
     QLabel* m_moduleStatusLabel = nullptr;     // 模块刷新状态标签。
+    QString m_moduleRefreshStatusText; // Refresh text stays separate from the last action receipt.
+    std::unique_ptr<ModuleActionFeedback> m_moduleActionFeedback;
     ks::ui::ImmutableValueTable* m_moduleTable = nullptr;      // 模块表格。
     QPointer<ks::ui::MetricAreaWindow> m_moduleAreaWindow;
 

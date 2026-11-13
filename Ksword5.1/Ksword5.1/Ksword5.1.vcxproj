@@ -172,6 +172,9 @@
     <ClCompile Include="FileDock\NtfsFastIndex.cpp" />
     <ClCompile Include="FileDock\NtfsIndexRecord.cpp" />
     <ClCompile Include="FileDock\NtfsSearchPage.cpp" />
+    <ClCompile Include="FileDock\DiskSpacePage.cpp" />
+    <ClCompile Include="FileDock\DirectorySpaceScanner.cpp" />
+    <ClCompile Include="FileDock\DirectoryScopePicker.cpp" />
     <ClCompile Include="FileDock\NtfsSpaceMapWidget.cpp" />
     <ClCompile Include="FileDock\FileDock.cpp" />
     <ClCompile Include="FileDock\FileDock.HandleUsage.cpp" />
@@ -746,6 +749,7 @@
     <ClCompile Include="UI\PageTabMotion.cpp" />
     <ClCompile Include="UI\PerfTrace.cpp" />
     <ClCompile Include="UI\UiAnimationGate.cpp" />
+    <ClCompile Include="UI\MouselessNavigation.cpp" />
     <ClCompile Include="UI\PageTabFocusStyle.cpp" />
     <ClCompile Include="UI\DockTabSelectionAnimation.cpp" />
     <ClCompile Include="UI\RoundedViewSurface.cpp" />
@@ -915,6 +919,8 @@
     <ClInclude Include="FileDock\NtfsFastIndex.h" />
     <ClInclude Include="FileDock\NtfsIndexRecord.h" />
     <ClInclude Include="FileDock\NtfsSpaceMapWidget.h" />
+    <ClInclude Include="FileDock\DirectorySpaceScanner.h" />
+    <ClInclude Include="FileDock\DirectoryScopePicker.h" />
     <ClInclude Include="FileDock\ManualFileSystemParser.h" />
     <ClInclude Include="FileDock\NtfsRunListDecode.h" />
     <ClInclude Include="FileDock\DriverFileSystemParser.h" />
@@ -1058,6 +1064,10 @@
     <ClInclude Include="UI\PageTabMotion.h" />
     <ClInclude Include="UI\PerfTrace.h" />
     <ClInclude Include="UI\UiAnimationGate.h" />
+    <ClInclude Include="UI\KeyboardItemActivation.h" />
+    <ClInclude Include="UI\NavigationHighlight.h" />
+    <ClInclude Include="UI\MouselessNavigation.h" />
+    <ClInclude Include="UI\MouselessNavigationState.h" />
     <ClInclude Include="UI\PageTabFocusStyle.h" />
     <ClInclude Include="UI\DockTabSelectionAnimation.h" />
     <ClInclude Include="UI\RoundedViewSurface.h" />
@@ -1112,6 +1122,7 @@
     <ClInclude Include="DriverDock\DriverDock.Internal.h" />
     <ClInclude Include="DriverDock\DriverDock.ModuleDumpFile.h" />
     <QtMoc Include="FileDock\NtfsSearchPage.h" />
+    <QtMoc Include="FileDock\DiskSpacePage.h" />
     <QtMoc Include="FileDock\FileDock.h" />
     <ClInclude Include="ScannerDock\ScannerDock.h" />
     <QtMoc Include="句柄\HandleDock.h" />

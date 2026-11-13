@@ -75,6 +75,8 @@ private:
     void jumpAnalysisAddress();
     void retranslateUi();
     void chooseFile();
+    void updateSelectedTarget();
+    void refreshResultSource();
     void beginScan();
     void beginPatch();
 
@@ -128,6 +130,8 @@ private:
     QLineEdit* m_pathEdit = nullptr; // m_pathEdit：当前扫描/编辑目标路径。
     QPushButton* m_browseButton = nullptr; // m_browseButton：打开普通文件选择器。
     QPushButton* m_scanButton = nullptr; // m_scanButton：启动结构化扫描。
+    QLabel* m_resultSourceLabel = nullptr; // Always identifies the immutable result currently displayed.
+    QString m_lastScannedPath;
     QLabel* m_statusLabel = nullptr; // m_statusLabel：展示当前任务及最终结果。
 
     QTabWidget* m_mainTabs = nullptr; // m_mainTabs：扫描与安全编辑两大功能页。

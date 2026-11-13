@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "MonitorEventFilterProjection.h"
 #include "ProcessTraceMonitorWidget.h"
 #include "../UI/TableContextMenu.h"
@@ -461,6 +462,7 @@ void ProcessTraceMonitorWidget::initializeConnections()
         connect(m_availableTable, &QTableWidget::itemSelectionChanged, this, [this]() {
             updateActionState();
         });
+        ks::ui::InstallKeyboardItemActivation(m_availableTable);
         connect(m_availableTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem*) {
             addSelectedAvailableProcesses();
         });
@@ -585,6 +587,7 @@ void ProcessTraceMonitorWidget::initializeConnections()
         connect(m_eventTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
             showEventContextMenu(position);
         });
+        ks::ui::InstallKeyboardItemActivation(m_eventTable);
         connect(m_eventTable, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* itemPointer) {
             if (itemPointer == nullptr)
             {

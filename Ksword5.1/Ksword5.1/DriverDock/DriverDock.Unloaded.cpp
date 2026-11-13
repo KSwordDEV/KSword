@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/TableRowFilterSupport.h"
 #include "../UI/TableContextMenu.h"
@@ -500,6 +501,7 @@ void DriverDock::initializeUnloadedPiddbTab()
         &QTableWidget::customContextMenuRequested,
         this,
         &DriverDock::showUnloadedPiddbContextMenu);
+    ks::ui::InstallKeyboardItemActivation(m_unloadedPiddbTable);
     connect(
         m_unloadedPiddbTable,
         &QTableWidget::cellDoubleClicked,

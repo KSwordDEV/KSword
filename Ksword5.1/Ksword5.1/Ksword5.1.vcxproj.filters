@@ -29,6 +29,24 @@
     <ClCompile Include="FileDock\NtfsSearchPage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FileDock\DiskSpacePage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FileDock\DirectorySpaceScanner.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FileDock\DirectoryScopePicker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="FileDock\DirectoryScopePicker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FileDock\DirectorySpaceScanner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <QtMoc Include="FileDock\DiskSpacePage.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
     <ClCompile Include="FileDock\NtfsSpaceMapWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1906,6 +1924,9 @@
     <ClCompile Include="UI\UiAnimationGate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\MouselessNavigation.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
     <ClCompile Include="UI\PageTabFocusStyle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3250,6 +3271,18 @@
     </ClInclude>
     <ClInclude Include="UI\UiAnimationGate.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KeyboardItemActivation.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\NavigationHighlight.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\MouselessNavigation.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\MouselessNavigationState.h">
+      <Filter>UI</Filter>
     </ClInclude>
     <ClInclude Include="UI\PageTabFocusStyle.h">
       <Filter>Header Files</Filter>

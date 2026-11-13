@@ -67,6 +67,13 @@ namespace
     public:
         explicit StandardControlStyle(QStyle* base) : QProxyStyle(base) {}
 
+        void drawPrimitive(PrimitiveElement element, const QStyleOption* option,
+            QPainter* painter, const QWidget* widget = nullptr) const override
+        {
+            if (element == PE_FrameFocusRect && !qApp->property("ksword_mouseless_mode").toBool()) return;
+            QProxyStyle::drawPrimitive(element, option, painter, widget);
+        }
+
         // 复用现有应用事件过滤器，只在真实边界/对象树变化时失效；无递归扫描。
         void observeContextEvent(QObject* object, QEvent* event)
         {

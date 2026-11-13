@@ -14,6 +14,7 @@
 #include "../UI/PageNavigationCatalog.h"
 
 #include <QStringList>
+#include <QDateTime>
 #include <QSet>
 #include <QWidget>
 
@@ -179,6 +180,10 @@ private:
         QString currentPath;                   // 当前目录路径。
         QString pendingSelectionPath;          // 返回上级后待恢复选中的子目录路径。
         QString manualLoadedPath;              // 手动解析模型当前已加载目录路径。
+        QString manualDisplayedPath;           // 实际可见快照的来源，独立于请求/失败缓存。
+        int manualDisplayedReadMode = -1;
+        QDateTime manualSampledAt;
+        QString manualLastError;               // 当前路径/读取方式最近一次失败原因。
         QString panelNameText;                 // 面板名称（日志与提示使用）。
         QString lastStatusLogSignature;        // 状态栏日志去重签名。
         int statusRequestSerial = 0;           // 异步状态查询的选区/路径代次。
@@ -232,6 +237,8 @@ private:
     void initializeManagerPage();
     void initializeStorageControllerPage();
     void initializeNtfsIndexPage();
+    void initializeDiskSpacePage();
+    void locateIndexedPath(const QString& path);
 
     // initializeRecoveryPage：
     // - 作用：初始化“文件恢复”竖排 Tab 页面。
@@ -571,6 +578,8 @@ private:
     // selectedPaths：
     // - 作用：获取面板当前多选路径列表。
     std::vector<QString> selectedPaths(const FilePanelWidgets& panel) const;
+    bool fileResultActionsReady(const FilePanelWidgets& panel) const;
+    void updateManualResultStatus(FilePanelWidgets& panel);
 
     // formatSizeText：
     // - 作用：格式化字节大小（B/KB/MB/GB）。
@@ -624,7 +633,8 @@ private:
     QVBoxLayout* m_rootLayout = nullptr;       // FileDock 根布局。
     QTabWidget* m_rootTabWidget = nullptr;     // 竖排根 Tab（文件管理 / 文件恢复 / IRP 构造）。
     QWidget* m_fileManagerPage = nullptr;      // 文件管理页容器。
-    QWidget* m_ntfsIndexPage = nullptr;        // MFT/USN search and shared space distribution.
+    QWidget* m_ntfsIndexPage = nullptr;        // MFT/USN quick search.
+    QWidget* m_diskSpacePage = nullptr;        // Independent folder/volume space analysis.
     QWidget* m_storageControllerPage = nullptr; // 直接从文件侧边栏打开的控制器页。
     QWidget* m_fileRecoveryPage = nullptr;     // 文件恢复页容器。
     QWidget* m_irpBuilderPage = nullptr;       // IRP 构造页容器。

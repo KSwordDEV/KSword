@@ -31,6 +31,7 @@ class NetworkQosPage final : public QWidget
     void remove();
     void toggle();
     void selected();
+    const ks::r3::network::QosPolicy* selectedPolicy() const;
     void reset();
     void updateButtons();
     void refreshArea();
@@ -39,7 +40,7 @@ class NetworkQosPage final : public QWidget
     ks::r3::network::QosPolicy form() const;
     void setForm(const ks::r3::network::QosPolicy &policy);
     void publishPolicies(std::vector<ks::r3::network::QosPolicy> policies, const QString &selectedId);
-    void mutate(std::function<ks::r3::network::NetworkPolicyResult()> operation);
+    void mutate(std::function<ks::r3::network::NetworkPolicyResult()> operation, bool updateEditor = false);
     ks::ui::AsyncOperation *m_operation = nullptr;
     QLineEdit *m_path = nullptr, *m_source = nullptr, *m_destination = nullptr;
     QComboBox *m_scope = nullptr, *m_protocol = nullptr;
@@ -49,6 +50,7 @@ class NetworkQosPage final : public QWidget
     QCheckBox *m_enabled = nullptr;
     QLabel *m_status = nullptr, *m_identity = nullptr;
     QPushButton *m_save = nullptr, *m_remove = nullptr, *m_toggle = nullptr, *m_refresh = nullptr, *m_new = nullptr;
+    QPushButton *m_edit = nullptr, *m_browse = nullptr;
     QTableView *m_table = nullptr;
     class Model;
     Model *m_model = nullptr;

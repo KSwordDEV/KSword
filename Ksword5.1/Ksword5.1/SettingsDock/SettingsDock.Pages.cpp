@@ -104,6 +104,12 @@ void SettingsDock::initializeStartupTab()
     startupLayout->addWidget(startupHintLabel);
     auto* startupForm = ks::settings::ui::Form(startupLayout, 220);
 
+    m_startupMouselessCheckBox = new QCheckBox(startupGroupBox);
+    ks::settings::ui::ToggleRow(startupForm, m_startupMouselessCheckBox,
+        QStringLiteral("settings.startup.mouseless"), QStringLiteral("使用无鼠标模式启动"));
+    languageManager.bindToolTip(m_startupMouselessCheckBox, QStringLiteral("settings.startup.mouseless.tooltip"),
+        QStringLiteral("应用后下次启动生效。本次可按住 Ctrl 连按两次 Alt，或同时按 Ctrl、左 Alt 和右 Alt，进入或退出。"));
+
     // m_startupMaximizedCheckBox 作用：控制“下次启动时是否直接最大化显示”。
     m_startupMaximizedCheckBox = new QCheckBox(QStringLiteral("启动时最大化"), startupGroupBox);
     languageManager.bindText(m_startupMaximizedCheckBox, QStringLiteral("settings.startup.maximized"), QStringLiteral("启动时最大化"));

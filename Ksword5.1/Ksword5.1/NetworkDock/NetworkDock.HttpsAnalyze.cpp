@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "NetworkDock.NavigationData.h"
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/TableContextMenu.h"
@@ -723,6 +724,7 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     connect(m_httpsClearParsedButton, &QPushButton::clicked, this, [this]() { clearHttpsParsedEntries(); });
     connect(m_httpsExportParsedButton, &QPushButton::clicked, this, [this]() { exportVisibleHttpsParsedEntries(); });
 
+    ks::ui::InstallKeyboardItemActivation(m_httpsParsedTable);
     connect(m_httpsParsedTable, &QTableView::doubleClicked, this, [this](const QModelIndex& index)
         {
             openHttpsParsedDetailByRow(index.row());

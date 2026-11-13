@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "NetworkDock.NavigationData.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/TableContextMenu.h"
@@ -3083,6 +3084,7 @@ void NetworkFirewallPage::initializeConnections()
         updateRuleActionButtons();
         updateRuleDetailEditor();
     });
+    ks::ui::InstallKeyboardItemActivation(m_ruleTable);
     connect(m_ruleTable, &QTableView::doubleClicked, this, [this](const QModelIndex&)
     {
         editSelectedFirewallRule();

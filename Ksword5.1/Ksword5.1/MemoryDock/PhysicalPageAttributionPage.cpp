@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "../UI/MemoryPageNavigationSchema.h"
 #include "PhysicalPageAttributionPage.h"
 #include "../UI/ToolbarMetrics.h"
@@ -506,6 +507,7 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     connect(m_categories, &QTableWidget::cellClicked, this, [this](int row, int) {
         if (const auto* item = m_categories->item(row, 0)) { selectCategory(item->data(Qt::UserRole).toInt()); }
     });
+    ks::ui::InstallKeyboardItemActivation(m_groups);
     connect(m_groups, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         const auto* item = m_groups->item(row, 0);
         if (!item) { return; }

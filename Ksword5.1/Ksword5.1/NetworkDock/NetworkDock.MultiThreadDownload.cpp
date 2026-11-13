@@ -1645,6 +1645,9 @@ void NetworkDock::initializeMultiThreadDownloadTab()
     downloadForm->addRow(dirLabel, directoryRow);
     downloadForm->addRow(threadLabel, m_multiDownloadThreadCountSpin);
     workspace->parameters()->addLayout(downloadForm);
+    m_multiDownloadDraftLabel = new QLabel(m_multiThreadDownloadPage);
+    m_multiDownloadDraftLabel->setTextFormat(Qt::PlainText); m_multiDownloadDraftLabel->setWordWrap(true);
+    m_multiDownloadDraftLabel->hide(); workspace->parameters()->addWidget(m_multiDownloadDraftLabel);
     m_multiThreadDownloadControlLayout->addWidget(m_multiDownloadStartButton);
     m_multiThreadDownloadControlLayout->addStretch();
     workspace->results()->addWidget(m_multiDownloadStatusLabel);
@@ -1721,6 +1724,8 @@ void NetworkDock::initializeMultiThreadDownloadTab()
                 m_multiDownloadTaskTable->selectRow(clicked.row());
             }
             const QModelIndex current = m_multiDownloadTaskTable->currentIndex();
+            const int taskId = current.isValid() ? current.data(TaskIdRole).toInt() : 0;
+            const auto task = findMultiThreadDownloadTaskById(taskId);
             QStringList fields;
             if (current.isValid())
             {
@@ -1734,7 +1739,13 @@ void NetworkDock::initializeMultiThreadDownloadTab()
             auto* copyRow = menu.addAction(QIcon(QStringLiteral(":/Icon/process_copy_row.svg")), QStringLiteral("复制当前行"));
             ks::ui::SetTableContextActionRole(copyRow, ks::ui::TableContextActionRole::CopyRows);
             copyRow->setEnabled(current.isValid());
-            if (menu.exec(m_multiDownloadTaskTable->viewport()->mapToGlobal(position)) == copyRow)
+            auto* draft = menu.addAction(ks::i18n::sourceText(QStringLiteral("载入为新任务…")));
+            draft->setEnabled(task && task->finished.load() && (task->failed.load() || task->canceled.load()));
+            const QPointer<NetworkDock> owner(this);
+            const auto* chosen = menu.exec(m_multiDownloadTaskTable->viewport()->mapToGlobal(position));
+            if (!owner) return;
+            if (chosen == draft) { loadMultiThreadDownloadTaskDraft(taskId); return; }
+            if (chosen == copyRow)
             {
                 if (auto* clipboard = QGuiApplication::clipboard())
                 {
@@ -1846,10 +1857,12 @@ void NetworkDock::startMultiThreadDownloadTask()
     }
 
     const QString directoryText = m_multiDownloadSaveDirEdit->text().trimmed();
+    m_multiDownloadDraftLabel->hide();
     const int taskId = m_multiDownloadNextTaskId++;
     auto taskState = std::make_shared<MultiThreadDownloadTaskState>();
     taskState->taskId = taskId;
     taskState->urlText = urlText;
+    taskState->requestedDirectoryText = directoryText;
     taskState->fileNameText = buildSafeOutputFileName(downloadUrl, taskId);
     taskState->requestedThreadCount = std::max(1, m_multiDownloadThreadCountSpin->value());
     taskState->actualThreadCount = 0;
@@ -2126,6 +2139,25 @@ bool NetworkDock::startMultiThreadDownloadTaskFromInput(
 std::shared_ptr<NetworkDock::MultiThreadDownloadTaskState> NetworkDock::findMultiThreadDownloadTaskById(const int taskId) const
 {
     return m_multiDownloadTaskModel != nullptr ? m_multiDownloadTaskModel->taskById(taskId) : nullptr;
+}
+
+void NetworkDock::loadMultiThreadDownloadTaskDraft(const int taskId)
+{
+    const auto task = findMultiThreadDownloadTaskById(taskId);
+    if (!task || !task->finished.load() || (!task->failed.load() && !task->canceled.load())) return;
+    const QString directory = task->savePathText.isEmpty() ? task->requestedDirectoryText : QFileInfo(task->savePathText).absolutePath();
+    const QPointer<NetworkDock> owner(this);
+    const QString chosen = QFileDialog::getExistingDirectory(this,
+        ks::i18n::sourceText(QStringLiteral("复核新任务保存目录")), directory,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (!owner || chosen.isEmpty()) return;
+    m_multiDownloadUrlEdit->setText(task->urlText);
+    m_multiDownloadSaveDirEdit->setText(QDir::toNativeSeparators(chosen));
+    m_multiDownloadThreadCountSpin->setValue(task->requestedThreadCount);
+    m_multiDownloadDraftLabel->setText(ks::i18n::sourceText(QStringLiteral(
+        "已载入任务 %1 的新任务草稿；请核对地址与保存目录，再点击开始。原任务和已有文件保留，新任务重新下载并使用独立文件名。" )).arg(taskId));
+    m_multiDownloadDraftLabel->show();
+    m_multiDownloadUrlEdit->setFocus(Qt::OtherFocusReason);
 }
 
 void NetworkDock::setMultiThreadDownloadTaskPaused(const int taskId, const bool paused)

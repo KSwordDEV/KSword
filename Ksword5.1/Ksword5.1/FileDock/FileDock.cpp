@@ -1,6 +1,8 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "FileDock.h"
 #include "FilePropertyTableModel.h"
 #include "NtfsSearchPage.h"
+#include "DiskSpacePage.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
@@ -4532,6 +4534,7 @@ namespace
 
     struct ManualDirectoryParsePayload
     {
+        QDateTime sampledAt;
         std::vector<ks::file::ManualDirectoryEntry> entries;
         QStringList suspiciousNames;
         QSet<QString> suspiciousNameSet;
@@ -13559,6 +13562,7 @@ namespace
                 };
             connect(scan, &QPushButton::clicked, page, launch);
             connect(query, &QLineEdit::returnPressed, page, launch);
+            ks::ui::InstallKeyboardItemActivation(table);
             connect(table, &QTableView::doubleClicked, this, [this, table](const QModelIndex& index)
                 {
                     if (m_tabWidget == nullptr || !index.isValid()) return;
@@ -14705,10 +14709,14 @@ const std::vector<FileDock::NavigationPageDefinition>& FileDock::navigationPageD
               QStringLiteral("选中: 0"),
               QStringLiteral("磁盘: -"),
               QStringLiteral("解析器: Windows API") }, &FileDock::m_fileManagerPage, &FileDock::initializeManagerPage },
-        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("快速搜索与空间分布"),
+        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("快速文件搜索"),
           { QStringLiteral("快速文件搜索"), QStringLiteral("USN 增量更新"),
-            QStringLiteral("文件空间分布"), QStringLiteral("WinDirStat"), QStringLiteral("NTFS") },
+            QStringLiteral("MFT"), QStringLiteral("NTFS") },
           &FileDock::m_ntfsIndexPage, &FileDock::initializeNtfsIndexPage },
+        { QStringLiteral("file.tab.disk_space"), QString(), QStringLiteral("file.tab.disk_space"), QStringLiteral("空间分布"),
+          { QStringLiteral("文件空间分布"), QStringLiteral("WinDirStat"), QStringLiteral("扫描文件夹"),
+            QStringLiteral("普通文件遍历"), QStringLiteral("MFT") },
+          &FileDock::m_diskSpacePage, &FileDock::initializeDiskSpacePage },
         { QStringLiteral("file.tab.storage_controller"), QString(), QStringLiteral("file.tab.storage_controller"), QStringLiteral("存储控制器"),
           { QStringLiteral("KSword Controller / 存储控制器"),
               QStringLiteral("持续风险提示：此页直接驱动专用控制器的 BAR、DMA/队列或 IDE task-file。写入可立即破坏文件系统、分区表和启动数据；控制器重置可使设备离线。仅允许手动绑定的非启动、无挂载卷控制器。expected-hash 条件比较与写后复读不是硬件原子操作，不能消除设备并发写、固件缓存或掉电风险。"),
@@ -15201,18 +15209,28 @@ void FileDock::initializeNtfsIndexPage()
 {
     auto* page = new NtfsSearchPage(m_rootTabWidget);
     m_ntfsIndexPage = page;
-    connect(page, &NtfsSearchPage::locatePathRequested, this, [this](const QString& path) {
-        const QString target = QDir::cleanPath(QDir::fromNativeSeparators(path));
-        if (target.isEmpty()) return;
-        // QFileInfo path decomposition does not query the filesystem. Native existence
-        // probing remains in the existing asynchronous navigation worker.
-        const QString parent = QFileInfo(target).absolutePath();
-        m_rootTabWidget->setCurrentWidget(m_fileManagerPage);
-        m_leftPanel.filterEdit->clear();
-        m_leftPanel.showHiddenCheck->setChecked(true);
-        m_leftPanel.showSystemCheck->setChecked(true);
-        navigateToPath(m_leftPanel, parent, true, target);
-    });
+    connect(page, &NtfsSearchPage::locatePathRequested, this, &FileDock::locateIndexedPath);
+}
+
+void FileDock::initializeDiskSpacePage()
+{
+    auto* page = new DiskSpacePage(m_rootTabWidget);
+    m_diskSpacePage = page;
+    connect(page, &DiskSpacePage::locatePathRequested, this, &FileDock::locateIndexedPath);
+}
+
+void FileDock::locateIndexedPath(const QString& path)
+{
+    const QString target = QDir::cleanPath(QDir::fromNativeSeparators(path));
+    if (target.isEmpty()) return;
+    // QFileInfo path decomposition does not query the filesystem. Native existence
+    // probing remains in the existing asynchronous navigation worker.
+    const QString parent = QFileInfo(target).absolutePath();
+    m_rootTabWidget->setCurrentWidget(m_fileManagerPage);
+    m_leftPanel.filterEdit->clear();
+    m_leftPanel.showHiddenCheck->setChecked(true);
+    m_leftPanel.showSystemCheck->setChecked(true);
+    navigateToPath(m_leftPanel, parent, true, target);
 }
 
 void FileDock::initializeStorageControllerPage()
@@ -15672,6 +15690,10 @@ void FileDock::initializeConnections(FilePanelWidgets& panel)
     // 读取模式切换：Windows API 与手动解析模型实时切换。
     connect(panel.readModeCombo, &QComboBox::currentIndexChanged, this, [this, &panel](int) {
         panel.manualLoadedPath.clear();
+        panel.manualDisplayedPath.clear();
+        panel.manualDisplayedReadMode = -1;
+        panel.manualSampledAt = {};
+        panel.manualLastError.clear();
         panel.manualSourceDetail.clear();
         panel.manualResultPartial = false;
         if (panel.manualModel != nullptr)
@@ -15935,6 +15957,12 @@ void FileDock::commitFileNavigation(FilePanelWidgets& panel, const QString& norm
         panel.compactFileView->setRootIndex(proxyRootIndex);
     }
     panel.currentPath = normalizedPath;
+    if (!pathEqualsCaseInsensitive(previousPath, normalizedPath))
+    {
+        panel.manualLastError.clear();
+        if (currentModeIsManual(panel) && panel.fileView->selectionModel())
+            panel.fileView->selectionModel()->clear();
+    }
     panel.pathEdit->setText(QDir::toNativeSeparators(normalizedPath));
     refreshDriveCombo(panel);
 
@@ -16237,10 +16265,57 @@ void FileDock::setPathEditMode(FilePanelWidgets& panel, bool editMode)
         << eol;
 }
 
+bool FileDock::fileResultActionsReady(const FilePanelWidgets& panel) const
+{
+    return !currentModeIsManual(panel)
+        || (!panel.manualDisplayedPath.isEmpty()
+            && pathEqualsCaseInsensitive(panel.manualDisplayedPath, panel.currentPath)
+            && panel.readModeCombo && panel.manualDisplayedReadMode == panel.readModeCombo->currentIndex()
+            && !panel.manualParseInProgress && !panel.manualParseResultPending
+            && panel.manualLastError.isEmpty());
+}
+
+void FileDock::updateManualResultStatus(FilePanelWidgets& panel)
+{
+    if (!currentModeIsManual(panel) || !panel.parserStatusLabel) return;
+    const auto translated = [](const char* source) { return ks::i18n::sourceText(QString::fromUtf8(source)); };
+    const QString requested = QDir::toNativeSeparators(panel.currentPath);
+    const QString method = parseBackendDisplayText(manualParseBackendForPanel(panel));
+    const bool loading = panel.manualParseInProgress || panel.manualParseResultPending;
+    const bool hasSnapshot = !panel.manualDisplayedPath.isEmpty();
+    QString detail = translated("请求：%1；读取方式：%2。").arg(requested, method);
+    if (hasSnapshot)
+        detail += QLatin1Char('\n') + translated("显示结果：%1；来源：%2；采集于 %3。")
+            .arg(QDir::toNativeSeparators(panel.manualDisplayedPath),
+                ks::i18n::displayText(panel.manualSourceDetail), panel.manualSampledAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    if (!panel.manualLastError.isEmpty())
+        detail += QLatin1Char('\n') + translated("读取失败：%1。点击刷新重试，也可切换读取方式或导航到其他目录。")
+            .arg(ks::i18n::displayText(panel.manualLastError));
+    if (panel.manualResultPartial && hasSnapshot)
+        detail += QLatin1Char('\n') + translated("显示的结果不完整。");
+    if (!fileResultActionsReady(panel))
+        detail += QLatin1Char('\n') + translated("当前结果尚不能用于文件操作；刷新和目录导航仍可用。");
+    panel.parserStatusLabel->setToolTip(detail);
+    // Keep the status bar compact; the path label shows the immutable source
+    // and the tooltip preserves the complete request and failure receipt.
+    panel.parserStatusLabel->setText(!panel.manualLastError.isEmpty()
+        ? translated("读取失败；点击刷新重试")
+        : loading ? translated("正在读取；旧结果操作已暂停")
+        : !fileResultActionsReady(panel) ? translated("结果与当前请求不一致")
+        : panel.manualResultPartial ? translated("结果不完整")
+        : translated("解析器: %1").arg(ks::i18n::displayText(panel.manualSourceDetail)));
+    if (hasSnapshot)
+        panel.pathStatusLabel->setText(translated("结果路径：%1；请求路径：%2")
+            .arg(QDir::toNativeSeparators(panel.manualDisplayedPath), requested));
+    panel.pathStatusLabel->setToolTip(detail);
+}
+
 void FileDock::updatePanelStatus(FilePanelWidgets& panel)
 {
     // 路径状态：直接显示当前目录。
     panel.pathStatusLabel->setText(QStringLiteral("路径: %1").arg(QDir::toNativeSeparators(panel.currentPath)));
+    panel.pathStatusLabel->setToolTip(QDir::toNativeSeparators(panel.currentPath));
+    if (currentModeIsManual(panel)) updateManualResultStatus(panel);
 
     // 统计只读枚举模型缓存，不能对每个选中路径重新查盘。
     QModelIndexList selectedRows = panel.fileView->selectionModel()->selectedRows(0);
@@ -16352,6 +16427,7 @@ void FileDock::updatePanelStatus(FilePanelWidgets& panel)
 
 void FileDock::selectPendingPath(FilePanelWidgets& panel)
 {
+    if (!fileResultActionsReady(panel)) return;
     if (panel.pendingSelectionPath.isEmpty() ||
         panel.fileView == nullptr ||
         panel.fileView->selectionModel() == nullptr)
@@ -16419,6 +16495,17 @@ void FileDock::selectPendingPath(FilePanelWidgets& panel)
 void FileDock::applyPanelFilterAndSort(FilePanelWidgets& panel)
 {
     const bool manualMode = currentModeIsManual(panel);
+    if (auto* modes = qobject_cast<QStandardItemModel*>(panel.viewModeCombo->model())) {
+        if (auto* treeMode = modes->item(3)) {
+            treeMode->setEnabled(!manualMode);
+            treeMode->setToolTip(manualMode ? ks::i18n::sourceText(QStringLiteral(
+                "当前解析方式只提供当前目录列表；树形视图需要 Windows API 模式。")) : QString());
+        }
+    }
+    if (manualMode && panel.viewModeCombo->currentIndex() == 3) {
+        const QSignalBlocker blocker(panel.viewModeCombo);
+        panel.viewModeCombo->setCurrentIndex(2);
+    }
     const int modeIndex = panel.viewModeCombo->currentIndex();
     const QString filterText = panel.filterEdit->text().trimmed();
 
@@ -16579,6 +16666,7 @@ void FileDock::applyPanelFilterAndSort(FilePanelWidgets& panel)
         if (panel.parserStatusLabel != nullptr)
         {
             panel.parserStatusLabel->setText(QStringLiteral("解析器: Windows API"));
+            panel.parserStatusLabel->setToolTip(QString());
         }
     }
 
@@ -16801,6 +16889,7 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
             if (panel.manualParseCanceled) panel.manualParseCanceled->store(true);
             panel.manualParseResultPending = false;
         }
+        updateManualResultStatus(panel);
         return;
     }
 
@@ -16863,6 +16952,10 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
     panel.manualParseRequestSerial += 1;
     panel.manualParsingPath = requestedPath;
     panel.manualParsingReadMode = requestedReadMode;
+    panel.manualLastError.clear();
+    // Selection from another request must never become an action on this
+    // request merely because its address bar has already changed.
+    if (panel.fileView && panel.fileView->selectionModel()) panel.fileView->selectionModel()->clear();
 
     // 记录请求上下文：用于后台线程回传时校验“结果是否过期”。
     const int requestSerial = panel.manualParseRequestSerial;
@@ -16880,6 +16973,7 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
         panel.parserStatusLabel->setText(
             QStringLiteral("解析器: %1中...").arg(backendText));
     }
+    updateManualResultStatus(panel);
     if (panel.readModeCombo != nullptr)
     {
         panel.readModeCombo->setEnabled(true);
@@ -16932,6 +17026,7 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
             sourceDetail,
             suspiciousNames,
             [canceled]() { return canceled->load(); });
+        payload->sampledAt = QDateTime::currentDateTime();
 
         kPro.set(progressPid, parseOk ? "生成目录列表中" : "解析失败，整理错误信息", 0, 78.0f);
         if (!canceled->load())
@@ -17080,10 +17175,6 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
                     commitPanel.manualParsingPath.clear();
                     commitPanel.manualRequestedFsType = requestedFsType;
                     commitPanel.manualRequestedReadMode = requestedReadMode;
-                    commitPanel.manualResultPartial = partialResult;
-                    commitPanel.manualSourceDetail = sourceDetail;
-                    payload->retiredPanelNames = std::move(commitPanel.manualSuspiciousNames);
-                    commitPanel.manualSuspiciousNames = payload->suspiciousNames;
                     if (commitPanel.readModeCombo != nullptr)
                     {
                         commitPanel.readModeCombo->setEnabled(true);
@@ -17094,7 +17185,8 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
 
                     if (!parseOk)
                     {
-                        static_cast<ManualDirectoryModel*>(commitPanel.manualModel)->setSnapshot({});
+                        commitPanel.manualLastError = parseErrorText.isEmpty()
+                            ? QStringLiteral("读取失败，未取得错误详情。") : parseErrorText;
                         // 失败时也记住路径，避免过滤/排序触发连续重试。
                         commitPanel.manualLoadedPath = requestPath;
                         if (commitPanel.parserStatusLabel != nullptr)
@@ -17136,6 +17228,14 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
                     }
                     else
                     {
+                        commitPanel.manualDisplayedPath = requestPath;
+                        commitPanel.manualDisplayedReadMode = requestedReadMode;
+                        commitPanel.manualSampledAt = payload->sampledAt;
+                        commitPanel.manualLastError.clear();
+                        commitPanel.manualResultPartial = partialResult;
+                        commitPanel.manualSourceDetail = sourceDetail.isEmpty() ? backendText : sourceDetail;
+                        payload->retiredPanelNames = std::move(commitPanel.manualSuspiciousNames);
+                        commitPanel.manualSuspiciousNames = payload->suspiciousNames;
                         static_cast<ManualDirectoryModel*>(commitPanel.manualModel)->setSnapshot(
                             parsedEntriesSnapshot, payload->suspiciousNameSet);
                         commitPanel.fileView->setRootIndex(QModelIndex());
@@ -17189,6 +17289,7 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
 
                     // 模型回填后重新应用过滤/排序，让视图立即更新到当前条件。
                     safeThis->applyPanelFilterAndSort(commitPanel);
+                    safeThis->updateManualResultStatus(commitPanel);
                     safeThis->selectPendingPath(commitPanel);
                     kPro.set(
                         progressPid,
@@ -21504,6 +21605,7 @@ void FileDock::openFileDetailByPath(const QString& filePath)
 
 QString FileDock::currentIndexPath(const FilePanelWidgets& panel) const
 {
+    if (!fileResultActionsReady(panel)) return {};
     if (panel.fileView == nullptr)
     {
         return QString();
@@ -21543,6 +21645,7 @@ QString FileDock::currentIndexPath(const FilePanelWidgets& panel) const
 std::vector<QString> FileDock::selectedPaths(const FilePanelWidgets& panel) const
 {
     std::vector<QString> result;
+    if (!fileResultActionsReady(panel)) return result;
     if (panel.fileView == nullptr || panel.fileView->selectionModel() == nullptr)
     {
         return result;

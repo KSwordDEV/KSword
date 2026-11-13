@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QElapsedTimer>
 #include <QLineEdit>
+#include <QLabel>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
@@ -31,7 +32,6 @@ void RegistryDock::startSearchAsync()
     options.recursive = m_searchScopeCombo->currentData().toInt() != 0;
     options.viewBits = m_viewBits;
     options.valueType = m_searchTypeCombo->currentData().toInt();
-    options.generation = ++m_searchGeneration;
     if (!options.searchKeyName && !options.searchValueName && !options.searchValueData)
     { QMessageBox::information(this, QStringLiteral("搜索"), QStringLiteral("至少选择一种搜索范围。")); return; }
     if (keyword.startsWith(QStringLiteral("hex:"), Qt::CaseInsensitive))
@@ -52,8 +52,16 @@ void RegistryDock::startSearchAsync()
             QStringLiteral("HKEY_LOCAL_MACHINE"), QStringLiteral("HKEY_USERS"), QStringLiteral("HKEY_CURRENT_CONFIG")};
     else roots.append(m_currentPath);
     const bool r0 = shouldUseRegistryR0();
+    options.generation = ++m_searchGeneration;
     auto session = std::make_shared<SearchSession>();
     session->generation = options.generation;
+    session->keyword = keyword;
+    session->roots = roots;
+    session->inputIdentity = searchInputIdentity();
+    session->options = options;
+    session->requestedR0 = r0;
+    session->scope = m_searchScopeCombo->currentData().toInt();
+    session->startedAt = QDateTime::currentDateTime();
     auto lease = ks::ui::AsyncCleanupRegistry::global().acquire([session]() { session->stopping.store(true); });
     if (!lease) { updateStatusBar(QStringLiteral("宿主正在关闭，注册表搜索未提交。")); return; }
     auto retired = std::move(m_searchSession);
@@ -68,6 +76,7 @@ void RegistryDock::startSearchAsync()
     m_lastSearchFailed = false;
     m_searchResultTable->setRowCount(0);
     m_rightTabWidget->setCurrentWidget(m_searchResultTable);
+    updateSearchRequestSummary();
     m_searchButton->setEnabled(false);
     m_stopSearchButton->setEnabled(true);
     m_searchFlushTimer->start();
@@ -109,6 +118,52 @@ void RegistryDock::startSearchAsync()
                 kPro.set(pid, "搜索停止", 0, 100.0f);
         });
     if (!ticket) { session->state.store(SearchSession::State::Failed); flushPendingSearchRows(); }
+}
+
+QStringList RegistryDock::searchInputIdentity() const
+{
+    if (!m_searchScopeCombo) return {};
+    const int scope = m_searchScopeCombo->currentData().toInt();
+    // Compare editable intent only. The actual R0/Win32 choice is frozen in
+    // SearchSession when submitting; rendering/typing must not reopen a device.
+    return {m_searchEdit->text(), QString::number(scope), scope == 2 ? QString() : m_currentPath.toCaseFolded(),
+        QString::number(m_searchTypeCombo->currentData().toInt()), QString::number(m_viewBits),
+        QString::number(m_matchKeysCheck->isChecked()),
+        QString::number(m_matchNamesCheck->isChecked()), QString::number(m_matchDataCheck->isChecked()),
+        QString::number(m_matchCaseCheck->isChecked()), QString::number(m_matchExactCheck->isChecked())};
+}
+
+void RegistryDock::updateSearchRequestSummary()
+{
+    if (!m_searchRequestLabel) return;
+    const auto session = m_searchSession;
+    const bool visible = session && session->generation == m_searchGeneration
+        && m_rightTabWidget->currentWidget() == m_searchResultTable;
+    m_searchRequestLabel->setVisible(visible);
+    if (!visible) return;
+    const auto tr = [](const char* source) { return ks::i18n::sourceText(QString::fromUtf8(source)); };
+    const auto& options = session->options;
+    QStringList fields;
+    if (options.searchKeyName) fields.append(tr("键名"));
+    if (options.searchValueName) fields.append(tr("值名"));
+    if (options.searchValueData) fields.append(tr("数据"));
+    const QString scope = tr(session->scope == 0 ? "当前键" : session->scope == 2 ? "全部根键" : "当前子树");
+    const QString win32View = options.viewBits == 0 ? tr("Win32 / 本机视图")
+        : tr("Win32 / %1 位视图").arg(QString::number(options.viewBits));
+    const QString source = session->requestedR0
+        ? tr("R0 / 本机视图；HKEY_CLASSES_ROOT 使用 %1").arg(win32View) : win32View;
+    QString summary = tr("搜索请求：%1；范围：%2（%3）；类型：%4；来源：%5；开始：%6。")
+        .arg(session->keyword, scope, session->roots.join(QStringLiteral("; ")),
+            options.valueType < 0 ? tr("全部类型") : valueTypeToText(DWORD(options.valueType)),
+            source, session->startedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    summary += QLatin1Char('\n') + tr("匹配字段：%1；%2；%3。")
+        .arg(fields.join(QStringLiteral(" / ")), tr(options.caseSensitive ? "区分大小写" : "不区分大小写"),
+            tr(options.exactMatch ? "完全匹配" : "包含匹配"));
+    if (session->inputIdentity != searchInputIdentity())
+        summary += QLatin1Char('\n') + tr(session->state.load() == SearchSession::State::Running
+            ? "当前条件已改变，尚未执行；正在运行的任务继续使用上述请求。"
+            : "当前条件已改变，尚未执行；点击“搜索”后生效。");
+    m_searchRequestLabel->setText(summary);
 }
 
 void RegistryDock::searchRegistryPath(const QString& start, bool useR0, const QString& keyword,

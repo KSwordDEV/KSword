@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "NetworkDock.NidsAnalysis.h"
 #include <QItemSelectionModel>
 #include <QTableView>
@@ -183,6 +184,7 @@ void NetworkDock::initializeNidsConnections()
             sequenceIdOut = static_cast<std::uint64_t>(sequenceVariant.toULongLong());
             return sequenceIdOut != 0;
         };
+    ks::ui::InstallKeyboardItemActivation(m_nidsAlertTable);
     connect(m_nidsAlertTable, &QTableView::doubleClicked, this,
         [this, nidsAlertSequenceForRow](const QModelIndex& index)
         {
@@ -739,6 +741,7 @@ void NetworkDock::initializeConnections()
     }
 
     // 双击报文行：打开独立详情窗口（非阻塞）。
+    ks::ui::InstallKeyboardItemActivation(m_packetTable);
     connect(m_packetTable, &QTableView::doubleClicked, this,
         [this](const QModelIndex& index)
         {

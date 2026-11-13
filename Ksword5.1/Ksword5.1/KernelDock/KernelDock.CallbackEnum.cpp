@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "KernelNavigationCatalog.h"
 #include "KernelDock.h"
 #include "../UI/TableContextMenu.h"
@@ -2296,6 +2297,7 @@ void KernelDock::initializeCallbackEnumTab()
         showCallbackEnumDetail(
             sourceIndex < m_callbackEnumRows.size() ? &m_callbackEnumRows[sourceIndex] : nullptr);
     });
+    ks::ui::InstallKeyboardItemActivation(m_minifilterCallbackTree);
     connect(m_minifilterCallbackTree, &QTreeView::doubleClicked, this, [this](const QModelIndex& item) {
         if (!item.isValid() || m_minifilterCallbackSourceDirty)
         {

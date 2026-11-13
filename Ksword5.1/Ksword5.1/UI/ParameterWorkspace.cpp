@@ -535,6 +535,12 @@ namespace ks::ui
         // 参数面板与结果面板处于同一视觉层级，中间留白代替重复的大组框。
         m_parameterPanel = new QWidget(m_splitter);
         m_resultPanel = new QWidget(m_splitter);
+        m_parameterPanel->setProperty("ksword_keyboard_region", true);
+        m_parameterPanel->setProperty("ksword_keyboard_region_name", QStringLiteral("参数"));
+        m_parameterPanel->setProperty("ksword_keyboard_region_order", 100);
+        m_resultPanel->setProperty("ksword_keyboard_region", true);
+        m_resultPanel->setProperty("ksword_keyboard_region_name", QStringLiteral("结果"));
+        m_resultPanel->setProperty("ksword_keyboard_region_order", 120);
         m_parameterPanel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         m_resultPanel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         bindWorkspaceSurface(m_parameterPanel);
@@ -563,6 +569,9 @@ namespace ks::ui
         left->addWidget(m_scroll, 1);
 
         auto* footer = new QWidget(m_parameterPanel);
+        footer->setProperty("ksword_keyboard_region", true);
+        footer->setProperty("ksword_keyboard_region_name", QStringLiteral("执行操作"));
+        footer->setProperty("ksword_keyboard_region_order", 110);
         bindWorkspaceSurface(footer, true);
         m_actions = new QHBoxLayout(footer);
         m_actions->setContentsMargins(0, 12, 0, 0);
@@ -574,6 +583,21 @@ namespace ks::ui
         m_splitter->setStretchFactor(0, 0);
         m_splitter->setStretchFactor(1, 1);
         setMinimumSize(0, 0);
+    }
+
+    void ParameterWorkspace::setParameterViewport(QWidget* viewport)
+    {
+        if (!viewport || m_parameterViewport || m_parameters->count() != 0) return;
+        auto* layout = static_cast<QVBoxLayout*>(m_parameterPanel->layout());
+        viewport->setParent(m_parameterPanel);
+        viewport->setMinimumWidth(0);
+        viewport->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+        viewport->setProperty("ksword_parameter_body", true);
+        bindWorkspaceSurface(viewport, false, true);
+        delete layout->replaceWidget(m_scroll, viewport);
+        m_scroll->hide();
+        layout->setStretch(layout->indexOf(viewport), 1);
+        m_parameterViewport = viewport;
     }
 
     QVBoxLayout* ParameterWorkspace::parameterHeader()
@@ -669,11 +693,12 @@ namespace ks::ui
 
     void ParameterWorkspace::finish()
     {
-        StyleParameterFields(m_scroll->widget());
-        StyleWorkspaceTextViews(m_scroll->widget());
+        auto* body = m_parameterViewport ? m_parameterViewport : m_scroll->widget();
+        StyleParameterFields(body);
+        StyleWorkspaceTextViews(body);
         StyleWorkspaceTextViews(m_resultPanel);
         // 参数区按内容自然高度排列，禁止多行表单把剩余高度摊成巨大行间空白。
-        for (auto* section : m_scroll->widget()->findChildren<QGroupBox*>())
+        for (auto* section : body->findChildren<QGroupBox*>())
         {
             if (section->property("ksword_parameter_section").toBool())
             {

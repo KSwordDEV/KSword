@@ -66,6 +66,7 @@ public:
 signals:
     // languageSettingsRequested 作用：通知主窗口打开设置对话框并定位到语言页签。
     void languageSettingsRequested();
+    void mouselessTutorialRequested();
 
 protected:
     void changeEvent(QEvent* event) override;

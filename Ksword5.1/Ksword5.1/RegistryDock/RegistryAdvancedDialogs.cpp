@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "RegistryAdvancedDialogs.h"
 #include "./OfflineHiveSession.h"
 #include "../UI/VisibleTableWidget.h"
@@ -613,6 +614,7 @@ namespace
             connect(m_newValue, &QPushButton::clicked, this, [this] { editValue(true); });
             connect(m_editValue, &QPushButton::clicked, this, [this] { editValue(false); });
             connect(m_deleteValue, &QPushButton::clicked, this, [this] { deleteValue(); });
+            ks::ui::InstallKeyboardItemActivation(m_values);
             connect(m_values, &QTableWidget::cellDoubleClicked, this, [this] { editValue(false); });
             m_operation = std::make_unique<ks::ui::AsyncOperation>(this);
             m_operation->setStateChangedCallback([this] {

@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "ScannerDock.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../UI/PageControlStyle.h"
@@ -257,8 +258,15 @@ void ScannerDock::buildUi()
     // m_statusLabel：允许复制诊断状态，长路径会自动换行。
     m_statusLabel = new QLabel(this);
     m_statusLabel->setWordWrap(true);
+    m_statusLabel->setTextFormat(Qt::PlainText);
     m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     pathStack->addWidget(m_statusLabel);
+    m_resultSourceLabel = new QLabel(this);
+    m_resultSourceLabel->setTextFormat(Qt::PlainText);
+    m_resultSourceLabel->setWordWrap(true);
+    m_resultSourceLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_resultSourceLabel->hide();
+    pathStack->addWidget(m_resultSourceLabel);
 
     // m_mainTabs：将只读检查与高风险编辑明确分离，避免误触。
     m_mainTabs = new QTabWidget(this);
@@ -352,6 +360,7 @@ void ScannerDock::buildUi()
     connect(m_browseButton, &QPushButton::clicked, this, [this]() { chooseFile(); });
     connect(m_scanButton, &QPushButton::clicked, this, [this]() { beginScan(); });
     connect(m_pathEdit, &QLineEdit::returnPressed, this, [this]() { beginScan(); });
+    connect(m_pathEdit, &QLineEdit::textEdited, this, [this]() { updateSelectedTarget(); });
     connect(m_applyPatchButton, &QPushButton::clicked, this, [this]() { beginPatch(); });
 }
 
@@ -405,6 +414,7 @@ void ScannerDock::retranslateUi()
         "scanner.editor.apply.tooltip",
         "比较当前字节，最终确认后原子替换目标文件"));
     refreshStatus();
+    refreshResultSource();
 
     if (m_lastResult)
     {
@@ -451,6 +461,7 @@ void ScannerDock::changeEvent(QEvent* event)
 
 void ScannerDock::chooseFile()
 {
+    const QPointer<ScannerDock> guard(this);
     const QString selectedPath = QFileDialog::getOpenFileName(
         this,
         translated("scanner.dialog.choose_file", "选择二进制文件"),
@@ -458,12 +469,35 @@ void ScannerDock::chooseFile()
         translated(
             "scanner.dialog.file_filter",
             "二进制与镜像 (*.exe *.dll *.sys *.efi *.elf *.so *.dylib *.o *.bin *.img *.iso);;所有文件 (*.*)"));
-    if (selectedPath.isEmpty())
+    if (!guard || selectedPath.isEmpty())
     {
         return;
     }
     m_pathEdit->setText(QDir::toNativeSeparators(selectedPath));
-    beginScan();
+    updateSelectedTarget();
+}
+
+void ScannerDock::updateSelectedTarget()
+{
+    if (m_scanBusy || m_patchBusy) return;
+    m_riskCheckBox->setChecked(false);
+    if (m_pathEdit->text().trimmed().isEmpty()) {
+        setStatus("scanner.status.ready", "请选择 PE、ELF、Mach-O 或 ISO9660 镜像开始扫描。");
+        return;
+    }
+    setStatus(
+        "scanner.status.target_selected",
+        "目标已设置；点击“扫描”或按 Enter 开始。选择文件不会自动扫描。");
+}
+
+void ScannerDock::refreshResultSource()
+{
+    m_resultSourceLabel->setVisible(bool(m_lastResult));
+    if (m_lastResult) {
+        m_resultSourceLabel->setText(translated(
+            "scanner.result.source_path",
+            "当前显示的扫描结果来自：%1").arg(m_lastScannedPath));
+    }
 }
 
 void ScannerDock::beginScan()
@@ -541,6 +575,8 @@ void ScannerDock::finishScan(
 
     setScanBusy(false);
     m_lastResult = std::move(result);
+    m_lastScannedPath = scannedPath;
+    refreshResultSource();
     m_resultPresentationDirty = true;
     prepareResultPresentation();
 
@@ -731,6 +767,7 @@ void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
         if (sourceTable.id == "sections" &&
             (result.format == ks::scanner::BinaryFormat::Pe32 || result.format == ks::scanner::BinaryFormat::Pe32Plus))
         {
+            ks::ui::InstallKeyboardItemActivation(table);
             connect(table, &QTableView::doubleClicked, this, [this, proxy, snapshot](const QModelIndex& index) {
                 if (snapshot != m_lastResult || !index.isValid()) return;
                 const auto sourceIndex = proxy->mapToSource(index);

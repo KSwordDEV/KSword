@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "VirusTotalOnlineScan.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/TableContextMenu.h"
@@ -3082,6 +3083,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
 
             if (apiKind == VtApiKind::Sandbox)
             {
+                ks::ui::InstallKeyboardItemActivation(reportTree);
                 QObject::connect(reportTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int /*columnIndex*/)
                     {
                         // 输入：沙箱报告树中带 behaviour_id 的节点。

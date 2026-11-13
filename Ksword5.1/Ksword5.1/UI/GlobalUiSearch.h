@@ -32,6 +32,7 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QProgressBar;
+class QPushButton;
 class QTabBar;
 class QTableView;
 class QTimer;
@@ -193,6 +194,7 @@ namespace ks::ui
         bool eventFilter(QObject* watchedObject, QEvent* eventObject) override;
 
     private:
+        void showNavigationUnavailable();
         // ensurePopupCreated：
         // - 作用：首次需要时构建搜索选项、结果列表与空态提示。
         void ensurePopupCreated();
@@ -238,6 +240,7 @@ namespace ks::ui
         // showPopupPanel：
         // - 作用：应用当前主题样式、计算尺寸并显示/置前弹层。
         void showPopupPanel();
+        void updatePopupSize();
 
         // repositionPopupPanel：
         // - 作用：把弹层水平居中贴到锚点下方并夹取进宿主窗口范围。
@@ -299,6 +302,7 @@ namespace ks::ui
         QCheckBox* m_searchResultsOnlyCheck = nullptr; // m_searchResultsOnlyCheck：仅显示命中行。
         QListWidget* m_resultListWidget = nullptr;// m_resultListWidget：结果列表。
         QLabel* m_emptyHintLabel = nullptr;       // m_emptyHintLabel：无结果时的空态提示。
+        QPushButton* m_retrySearchButton = nullptr;
         QWidget* m_searchProgressRow = nullptr;   // m_searchProgressRow：扫描进行中的进度行容器。
         QLabel* m_searchProgressLabel = nullptr;  // m_searchProgressLabel：进度文案“正在搜索：Dock 名（n/N）”。
         QProgressBar* m_searchProgressBar = nullptr; // m_searchProgressBar：按 Dock 数推进的进度条。

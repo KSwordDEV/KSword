@@ -1,3 +1,4 @@
+#include "../UI/KeyboardItemActivation.h"
 #include "ProcessDock.h"
 #include <map>
 #include <stdexcept>
@@ -7184,7 +7185,8 @@ void ProcessDock::initializeConnections()
         });
     });
 
-    // 双击友好视图合成行时折叠/展开；真实进程行保持“打开详情”的任务管理器式行为。
+    // 双击或无鼠标模式下 Enter：友好视图分组展开/收起，真实进程打开详情。
+    ks::ui::InstallKeyboardItemActivation(m_processTable);
     connect(m_processTable, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& index) {
         const ProcessTableRow* tableRow = processTableRowForViewIndex(index);
         if (tableRow == nullptr)
@@ -12853,32 +12855,56 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         contextProcessRecord != nullptr
         && contextProcessRecord->processStateKnown
         && contextProcessRecord->processSuspended;
-    QAction* suspendToggleAction = contextMenu.addAction(
-        processContextText("process.menu.suspend", QStringLiteral("挂起进程")));
-    suspendToggleAction->setCheckable(true);
-    suspendToggleAction->setChecked(contextProcessSuspended);
-    if (!contextProcessSuspended)
+    QAction* suspendToggleAction = nullptr;
+    QAction* suspendSelectedAction = nullptr;
+    QAction* resumeSelectedAction = nullptr;
+    QAction* r0SuspendToggleAction = nullptr;
+    QAction* r0SuspendSelectedAction = nullptr;
+    QAction* r0ResumeSelectedAction = nullptr;
+    // A mixed selection has no single suspended state. Batch choices name the
+    // requested operation explicitly and keep the menu's frozen target binding.
+    if (hasBatchSelection)
     {
-        suspendToggleAction->setIcon(blueTintedIcon(":/Icon/process_suspend.svg"));
+        suspendSelectedAction = contextMenu.addAction(
+            blueTintedIcon(":/Icon/process_suspend.svg"),
+            processContextText("process.menu.suspend_selected", QStringLiteral("挂起所选进程（%1）"))
+                .arg(contextActionTargets.size()));
+        resumeSelectedAction = contextMenu.addAction(
+            blueTintedIcon(":/Icon/process_resume.svg"),
+            processContextText("process.menu.resume_selected", QStringLiteral("恢复所选进程（%1）"))
+                .arg(contextActionTargets.size()));
+        r0SuspendSelectedAction = contextMenu.addAction(
+            buildR0ActionIcon(":/Icon/process_suspend.svg"),
+            processContextText("process.menu.r0_suspend_selected", QStringLiteral("R0挂起所选进程（%1）"))
+                .arg(contextActionTargets.size()));
+        r0ResumeSelectedAction = contextMenu.addAction(
+            buildR0ActionIcon(":/Icon/process_resume.svg"),
+            processContextText("process.menu.r0_resume_selected", QStringLiteral("R0恢复所选进程（%1）"))
+                .arg(contextActionTargets.size()));
+        const QString batchHint = processContextText("process.menu.suspend_selected.tooltip",
+            QStringLiteral("操作菜单打开时选中的全部 %1 个进程；各目标按自身 PID 和创建时间校验，并分别报告结果。"))
+                .arg(contextActionTargets.size());
+        for (QAction* action : {suspendSelectedAction, resumeSelectedAction,
+                 r0SuspendSelectedAction, r0ResumeSelectedAction}) action->setToolTip(batchHint);
     }
-    /*
-     * R0 挂起跟 R3 的挂起/恢复放在一起，而不是跟结束那一组。
-     *
-     * 菜单按**要做的事**分组，不按实现层级分组：想挂起一个进程的人会去找
-     * "挂起"，不会先想清楚自己要 R3 还是 R0。按层级堆在一起的结果是同一件事
-     * 散在菜单两头，而每一头都不完整。
-     */
-    QAction* r0SuspendToggleAction = contextMenu.addAction(
-        processContextText("process.menu.r0_suspend", QStringLiteral("R0挂起进程")));
-    r0SuspendToggleAction->setCheckable(true);
-    r0SuspendToggleAction->setChecked(contextProcessSuspended);
-    if (!contextProcessSuspended)
+    else
     {
-        r0SuspendToggleAction->setIcon(buildR0ActionIcon(":/Icon/process_suspend.svg"));
+        suspendToggleAction = contextMenu.addAction(
+            processContextText("process.menu.suspend", QStringLiteral("挂起进程")));
+        suspendToggleAction->setCheckable(true);
+        suspendToggleAction->setChecked(contextProcessSuspended);
+        if (!contextProcessSuspended)
+            suspendToggleAction->setIcon(blueTintedIcon(":/Icon/process_suspend.svg"));
+        r0SuspendToggleAction = contextMenu.addAction(
+            processContextText("process.menu.r0_suspend", QStringLiteral("R0挂起进程")));
+        r0SuspendToggleAction->setCheckable(true);
+        r0SuspendToggleAction->setChecked(contextProcessSuspended);
+        if (!contextProcessSuspended)
+            r0SuspendToggleAction->setIcon(buildR0ActionIcon(":/Icon/process_suspend.svg"));
+        r0SuspendToggleAction->setToolTip(processContextText(
+            "process.menu.r0_suspend.tooltip",
+            QStringLiteral("走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。")));
     }
-    r0SuspendToggleAction->setToolTip(processContextText(
-        "process.menu.r0_suspend.tooltip",
-        QStringLiteral("走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。")));
     const bool contextEfficiencyModeEnabled =
         contextProcessRecord != nullptr
         && contextProcessRecord->efficiencyModeSupported
@@ -13965,6 +13991,8 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
             if (r0SuspendToggleAction->isChecked()) { executeR0SuspendProcessAction(); }
             else { executeR0ResumeProcessAction(); }
         }
+        else if (selectedAction == r0SuspendSelectedAction) { executeR0SuspendProcessAction(); }
+        else if (selectedAction == r0ResumeSelectedAction) { executeR0ResumeProcessAction(); }
         else if (selectedAction == dmaProcessOpAction || selectedAction == advancedDmaAction)
         {
             openDmaProcessOpWindow();
@@ -14032,6 +14060,8 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
             if (suspendToggleAction->isChecked()) { executeSuspendAction(); }
             else { executeResumeAction(); }
         }
+        else if (selectedAction == suspendSelectedAction) { executeSuspendAction(); }
+        else if (selectedAction == resumeSelectedAction) { executeResumeAction(); }
         else if (selectedAction == efficiencyToggleAction)
         {
             executeSetEfficiencyModeAction(efficiencyToggleAction->isChecked());

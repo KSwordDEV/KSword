@@ -124,6 +124,7 @@ namespace ks::ui
 
         // setSearchScopeDisplayText：刷新顶部搜索范围标签与 Tab 切换提示。
         void setSearchScopeDisplayText(const QString& displayText);
+        void setMouselessMode(bool enabled);
 
     signals:
         // requestTogglePinned：
