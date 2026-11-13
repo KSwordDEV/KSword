@@ -25,6 +25,9 @@ namespace ks::ui
         void revealParameter(QWidget* target);
         // 仅参数密集页显式调用；宽屏按百分比分配初始宽度，之后保留用户拖动的分栏比例。
         void useWideParameterLayout(int parameterPercent = 60);
+        // 查询面板嵌入并列工作流时，参数在上、动作固定居中、结果占下方空间。
+        // 页面构造完成、finish() 前调用；其它页面保持原自适应两栏行为。
+        void useStackedLayout();
         // 页面完成构造后调用，只为该参数区内的独立输入控件补齐表面和行高。
         void finish();
     protected:
@@ -43,6 +46,7 @@ namespace ks::ui
         QList<int> m_horizontalSizes; // 宽窄切换前记住用户的横向分栏比例。
         QList<int> m_verticalSizes; // 独立保留上下排列时的用户高度分配。
         bool m_positioned = false; // 初次分配后保留用户拖动分隔条的位置。
+        bool m_stackedLayout = false; // 显式选择上下参数/结果，不按窄面板再套左右栏。
     };
 
     // 仅由逐页布局明确登记；保留内容、验证器、业务信号与启用状态。

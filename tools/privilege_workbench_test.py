@@ -37,7 +37,8 @@ def main() -> None:
     # 拆出的后台与报告必须实际参与链接，编辑器也使用生产实现和真实 moc。
     files = [root / 'tools/privilege_workbench_tests.cpp']
     files += [source / 'PrivilegeDock' / name for name in
-        ('PrivilegeAccountPages.cpp', 'PrivilegeTokenPages.cpp', 'PrivilegeAccessPage.cpp',
+        ('PrivilegeAccountPages.cpp', 'PrivilegeRightsPage.cpp', 'PrivilegeRightsQuery.cpp',
+         'PrivilegeTokenPages.cpp', 'PrivilegeAccessPage.cpp',
          'PrivilegeAccessBackend.cpp', 'PrivilegeAccessReport.cpp',
          'PrivilegeSnapshotPage.cpp', 'PrivilegeSnapshotModel.cpp')]
     files += [source / name for name in ('Internationalization/LanguageManager.cpp',

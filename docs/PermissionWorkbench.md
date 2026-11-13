@@ -27,14 +27,17 @@ The lower panel queries an account's local groups. It distinguishes direct membe
 
 ## 2. Account rights assignment
 
-This page displays **direct assignments in local LSA policy**:
+This page separates account queries on the left from right-to-account lookup on the right and supports three queries against local LSA policy:
 
 - Query an account name/SID to list rights assigned directly to that user, group or service identity.
+- Choose **Account → Own and group rights** on the left to collect assignments from the account and resolvable local groups. A right is retained separately for each source SID. View A shows rights, descriptions and sources; view B shows rights, source SIDs and one membership path.
 - Select a right to list its directly assigned accounts. Double-click an account to query that SID's rights.
+
+The two account query buttons share one row on the left. Lookup, assign and remove share one row on the right. Each side has its own search and query status. Changing an input clears that side's previous results. Local-group traversal deduplicates recursive relationships; domain groups, dynamic logon groups and failed relationship queries may be incomplete, with scope diagnostics shown on the page.
 
 The catalog includes interactive, network, batch, service and Remote Desktop logon rights, their deny-logon counterparts, and privileges such as debugging, driver loading, backup and restore. Logon rights have descriptions; privilege descriptions come from Windows.
 
-Before assigning or removing a right, the page resolves the SID, reads its current direct assignment and presents a concrete preview. Confirmation applies the LSA change and reads policy back. An assignment already matching the requested state needs no change.
+**Assign this right** and **Remove this right** are in the fixed action area below the right selector. The target preview identifies the left-hand account and the right-hand right. Edits affect only that account's direct assignment, never a source group in the aggregate results. Before assigning or removing a right, the page resolves the SID, reads its current direct assignment and presents a concrete preview. Confirmation applies the LSA change and reads policy back. An assignment already matching the requested state needs no change.
 
 Direct policy assignment and actual token privileges are separate evidence. Group inheritance, logon type, deny-logon policy, UAC and restrictions can affect the actual token. Policy edits do not immediately rewrite existing process tokens. Obtain a new logon/token and inspect it in **Token comparison**. An empty direct assignment does not mean the account has no effective rights.
 

@@ -116,6 +116,12 @@
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsQuery.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotModel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -219,6 +225,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PrivilegeDock\PrivilegeAccountPages.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PrivilegeDock\PrivilegeAccountSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotModel.h">

@@ -623,10 +623,19 @@ namespace ks::ui
     }
 
     // 仅首次显示和宽窄布局转换重分配；两种方向独立记住拖动后的位置。
+    void ParameterWorkspace::useStackedLayout()
+    {
+        // 两个独立查询各用一个共享框架；参数正文只取自然高度，表格保留余量。
+        m_stackedLayout = true;
+        m_positioned = false;
+        m_splitter->setStretchFactor(0, 0);
+        m_splitter->setStretchFactor(1, 1);
+    }
+
     void ParameterWorkspace::resizeEvent(QResizeEvent* event)
     {
         QWidget::resizeEvent(event);
-        const auto orientation = width() < 860 ? Qt::Vertical : Qt::Horizontal;
+        const auto orientation = m_stackedLayout || width() < 860 ? Qt::Vertical : Qt::Horizontal;
         if (!m_positioned || m_splitter->orientation() != orientation)
         {
             if (m_positioned)
@@ -645,8 +654,14 @@ namespace ks::ui
             }
             else
             {
+                // 显式上下查询按参数和固定动作的实际高度分配；原参数页比例不变。
+                const int naturalHeight = m_parameters->sizeHint().height()
+                    + m_actions->sizeHint().height() + 44;
+                const int parameterHeight = m_stackedLayout
+                    ? qMin(naturalHeight, qMax(120, height() * 45 / 100))
+                    : qMax(220, height() / 2);
                 m_splitter->setSizes(m_verticalSizes.isEmpty()
-                    ? QList<int>{qMax(220, height() / 2), qMax(180, height() / 2)} : m_verticalSizes);
+                    ? QList<int>{parameterHeight, qMax(100, height() - parameterHeight)} : m_verticalSizes);
             }
             m_positioned = true;
         }

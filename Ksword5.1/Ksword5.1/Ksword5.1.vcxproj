@@ -480,6 +480,8 @@
     <ClCompile Include="PrivilegeDock\PrivilegeAccessBackend.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccessReport.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsPage.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsQuery.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotModel.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotPage.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeTokenPages.cpp" />
@@ -1265,6 +1267,7 @@
     <ClInclude Include="PrivilegeDock\PrivilegeAccessBackend.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccessSecurity.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccountPages.h" />
+    <ClInclude Include="PrivilegeDock\PrivilegeAccountSupport.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotModel.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotPage.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeTokenPages.h" />
