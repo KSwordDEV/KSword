@@ -6536,6 +6536,13 @@ try {
             if (serviceHandle == nullptr)
             {
                 ::CloseServiceHandle(scmHandle);
+                // 与普通 OpenService/DeleteService 保持相同的 1072 语义，但不吞恢复失败。
+                if (access.deletionAlreadyPending())
+                {
+                    return MakeActionResult(
+                        ks::r3::startup::StartupActionStatus::NoChange, true, false, ERROR_SUCCESS,
+                        FromWide(L"服务或驱动已标记为删除，等待服务停止及相关句柄关闭后移除。"));
+                }
                 auto failure = MakeActionResult(
                     access.securityChanged && !access.securityRestored
                         ? ks::r3::startup::StartupActionStatus::RollbackFailed

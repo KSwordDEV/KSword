@@ -33145,6 +33145,8 @@
     "服务删除权限不足，已请求额外权限，正在尝试临时接管服务对象并重试。": "Insufficient service deletion permissions. Additional privileges have been requested; attempting temporary service ownership and retrying.",
     "服务删除权限不足，申请额外权限后仍无法继续。": "Insufficient service deletion permissions; unable to proceed after requesting additional privileges.",
     ", securityRestoreError=": ", securityRestoreError=",
+    "服务或驱动已标记为删除，等待服务停止及相关句柄关闭后移除。": "The service or driver is already marked for deletion. Removal awaits service shutdown and closure of all service handles.",
+    "服务删除请求已处理；若仍能枚举到条目，请等待服务停止及相关句柄关闭。": "The service deletion request has been handled. If the entry is still listed, removal awaits service shutdown and closure of all service handles.",
     "无法永久删除启动文件。": "Failed to permanently delete the startup file.",
     "无法永久删除服务或驱动。": "Failed to permanently delete the service or driver.",
     "无法永久删除注册表启动值。": "Failed to permanently delete the startup registry value.",

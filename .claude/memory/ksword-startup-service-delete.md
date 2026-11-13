@@ -6,3 +6,4 @@
 - 取得删除句柄后先恢复原 Owner/DACL，再恢复线程身份。原安全描述符恢复失败时关闭删除句柄并报告独立恢复错误，不继续删除。原有服务配置快照校验与 KswordARK 服务生命周期约束仍保留。
 - 特权申请必须检查 `ERROR_NOT_ALL_ASSIGNED`；不能把调用成功误报为特权已取得。受保护服务及显式拒绝 ACE 不承诺能通过此回退。
 - 回归入口：在 x64 VS 开发环境运行 `tools/Invoke-ServiceDeleteAccessTests.ps1`，使用模拟 SCM/特权写入与真实 SDK ACL 解析，不修改任何真实服务。
+- 接管阶段同样可能返回 `ERROR_SERVICE_MARKED_FOR_DELETE (1072)`；仅当未残留权限修改且恢复无错误时按 `NoChange/success` 处理，不能再误报权限不足。服务仍运行或有未关闭句柄时依旧可能被枚举；不得据此宣称实际移除，也不能把恢复阶段的 1072 吞成成功。

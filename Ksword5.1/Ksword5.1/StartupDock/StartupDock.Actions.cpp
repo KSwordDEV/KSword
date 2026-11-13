@@ -1011,6 +1011,16 @@ void StartupDock::submitStartupAction(std::vector<ks::startup::StartupEntry> ent
                 }
                 result.known.emplace_back(index, std::move(action));
                 const auto& receipt = result.known.back().second;
+                // SCM 删除是提交标记，不保证条目已消失；把后端真实回执显示在告警日志中。
+                if (input.remove && receipt.success
+                    && input.entries[index].actionKind == ks::startup::StartupActionKind::ScmStartType)
+                {
+                    warn << actionEvent
+                        << ks::i18n::sourceText(QStringLiteral("服务删除请求已处理；若仍能枚举到条目，请等待服务停止及相关句柄关闭。"))
+                               .toStdString()
+                        << " target=" << input.targets.value(static_cast<qsizetype>(index)).toStdString()
+                        << eol;
+                }
                 info << actionEvent << "[StartupDock] accepted mutation receipt, target="
                     << input.targets.value(static_cast<qsizetype>(index)).toStdString()
                     << ", remove=" << input.remove << ", enabled=" << input.enabled

@@ -6536,6 +6536,13 @@ try {
             if (serviceHandle == nullptr)
             {
                 ::CloseServiceHandle(scmHandle);
+                // 接管期间也可能收到 1072；没有恢复失败时，不再误报权限不足。
+                if (access.deletionAlreadyPending())
+                {
+                    return MakeActionResult(
+                        ks::startup::StartupActionStatus::NoChange, true, false, ERROR_SUCCESS,
+                        FromWide(L"服务或驱动已标记为删除，等待服务停止及相关句柄关闭后移除。"));
+                }
                 auto failure = MakeActionResult(
                     access.securityChanged && !access.securityRestored
                         ? ks::startup::StartupActionStatus::RollbackFailed

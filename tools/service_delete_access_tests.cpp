@@ -8,7 +8,11 @@
 namespace
 {
     // 每种故障覆盖一个实际恢复分支；状态仅属于当前受控测试。
-    enum class Fault { None, Privilege, Owner, ReopenDac, Dacl, DeleteHandle, Restore };
+    enum class Fault
+    {
+        None, Privilege, Owner, ReopenDac, Dacl, DeleteHandle, Restore,
+        MarkedOwner, MarkedDacl, MarkedDeleteHandle, MarkedRestore
+    };
     Fault fault = Fault::None; // 本轮注入的故障阶段。
     bool taken = false; // 已临时接管 Owner。
     bool granted = false; // 已临时授予删除权。
@@ -47,6 +51,11 @@ namespace
         }
         if (access == (DELETE | SERVICE_QUERY_CONFIG) && granted && fault != Fault::DeleteHandle)
         {
+            if (fault == Fault::MarkedDeleteHandle)
+            {
+                SetLastError(ERROR_SERVICE_MARKED_FOR_DELETE);
+                return nullptr;
+            }
             return reinterpret_cast<SC_HANDLE>(4);
         }
         return nullptr;
@@ -79,9 +88,10 @@ namespace
             if (EqualSid(owner, originalOwner))
             {
                 ++restores;
-                if (fault == Fault::Restore)
+                if (fault == Fault::Restore || fault == Fault::MarkedRestore)
                 {
-                    SetLastError(ERROR_ACCESS_DENIED);
+                    SetLastError(fault == Fault::MarkedRestore
+                        ? ERROR_SERVICE_MARKED_FOR_DELETE : ERROR_ACCESS_DENIED);
                     return FALSE;
                 }
                 if (granted)
@@ -92,18 +102,20 @@ namespace
                 granted = false;
                 return TRUE;
             }
-            if (fault == Fault::Owner)
+            if (fault == Fault::Owner || fault == Fault::MarkedOwner)
             {
-                SetLastError(ERROR_ACCESS_DENIED);
+                SetLastError(fault == Fault::MarkedOwner
+                    ? ERROR_SERVICE_MARKED_FOR_DELETE : ERROR_ACCESS_DENIED);
                 return FALSE;
             }
             taken = true;
             return TRUE;
         }
         Check(parts == DACL_SECURITY_INFORMATION, "only DACL is changed during permission grant");
-        if (fault == Fault::Dacl)
+        if (fault == Fault::Dacl || fault == Fault::MarkedDacl)
         {
-            SetLastError(ERROR_ACCESS_DENIED);
+            SetLastError(fault == Fault::MarkedDacl
+                ? ERROR_SERVICE_MARKED_FOR_DELETE : ERROR_ACCESS_DENIED);
             return FALSE;
         }
         PACL acl = nullptr; // 本次写入的真实 ACL，检查最小权限及保留旧 ACE。
@@ -166,7 +178,8 @@ int main()
     for (const bool existingDac : {false, true})
     {
         for (const Fault injected : {Fault::None, Fault::Privilege, Fault::Owner,
-                Fault::ReopenDac, Fault::Dacl, Fault::DeleteHandle, Fault::Restore})
+                Fault::ReopenDac, Fault::Dacl, Fault::DeleteHandle, Fault::Restore,
+                Fault::MarkedOwner, Fault::MarkedDacl, Fault::MarkedDeleteHandle, Fault::MarkedRestore})
         {
             fault = injected;
             directDac = existingDac;
@@ -176,14 +189,22 @@ int main()
                 reinterpret_cast<SC_HANDLE>(9), L"KswordTestFixture", [] { ++warnings; });
             Check(warnings == 1, "emit one warning before privilege request");
             const bool success = fault == Fault::None
-                || (existingDac && (fault == Fault::Owner || fault == Fault::ReopenDac));
+                || (existingDac && (fault == Fault::Owner || fault == Fault::ReopenDac
+                    || fault == Fault::MarkedOwner));
             Check((result.handle != nullptr) == success, "return handle only on complete success");
             Check((result.error == ERROR_SUCCESS) == success, "retain failure status");
-            Check(!(taken || granted) || fault == Fault::Restore, "restore all temporary permission changes");
-            if (fault == Fault::Restore)
+            Check(!(taken || granted) || fault == Fault::Restore || fault == Fault::MarkedRestore,
+                "restore all temporary permission changes");
+            const bool pending = (fault == Fault::MarkedOwner && !existingDac)
+                || fault == Fault::MarkedDacl || fault == Fault::MarkedDeleteHandle; // 真实删除终态。
+            Check(result.deletionAlreadyPending() == pending, "classify 1072 without hiding failed restoration");
+            if (fault == Fault::Restore || fault == Fault::MarkedRestore)
             {
+                const DWORD expectedRestoreError = fault == Fault::MarkedRestore
+                    ? ERROR_SERVICE_MARKED_FOR_DELETE : ERROR_ACCESS_DENIED; // 与 Win32 回执保持无符号类型。
                 Check(result.securityChanged && !result.securityRestored
-                    && result.restoreError == ERROR_ACCESS_DENIED, "report rollback failure separately");
+                    && result.restoreError == expectedRestoreError,
+                    "report rollback failure separately");
                 Check(restores == 1, "do not hide failed restoration with an unreported retry");
             }
             if (success)
@@ -194,6 +215,6 @@ int main()
         }
     }
     LocalFree(snapshot);
-    std::cout << "PASS: 14 service permission takeover scenarios (no real service changes)\n";
+    std::cout << "PASS: 22 service permission takeover scenarios (no real service changes)\n";
     return 0;
 }

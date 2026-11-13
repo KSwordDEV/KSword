@@ -16,6 +16,14 @@ namespace ksword::service
         bool securityChanged = false; // 曾修改 Owner 或 DACL。
         bool securityRestored = false; // 已修改的权限是否恢复到原快照。
         DWORD restoreError = ERROR_SUCCESS; // 恢复失败时保留独立错误码。
+
+        // 1072 是已提交删除的终态；只有未残留权限修改时，调用方才可按非失败处理。
+        bool deletionAlreadyPending() const
+        {
+            return error == ERROR_SERVICE_MARKED_FOR_DELETE
+                && restoreError == ERROR_SUCCESS
+                && (!securityChanged || securityRestored);
+        }
     };
 
     // 仅在普通 OpenService 因权限不足失败后调用；warning 在申请额外权限前同步触发。
