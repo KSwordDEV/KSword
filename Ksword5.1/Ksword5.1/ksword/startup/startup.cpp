@@ -4,6 +4,7 @@
 
 #include "../string/string.h"
 #include "../../../../shared/usermode/KswordArkServiceMode.h"
+#include "../../../../shared/usermode/ServiceDeleteAccess.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -6486,7 +6487,8 @@ try {
     }
 
     ks::startup::ActionResult DeleteScmEntry(
-        const ks::startup::StartupEntry& entry)
+        const ks::startup::StartupEntry& entry,
+        const std::function<void()>& permissionWarning)
     {
         const std::wstring serviceName = ToWide(entry.actionLocator.serviceNameText);
         if (ksword::ark::isKswordArkService(serviceName))
@@ -6525,6 +6527,28 @@ try {
             scmHandle,
             serviceName.c_str(),
             SERVICE_QUERY_CONFIG | DELETE);
+        // 只对真实的权限拒绝回退；共享 helper 恢复原权限后才交付删除句柄。
+        if (serviceHandle == nullptr && ::GetLastError() == ERROR_ACCESS_DENIED)
+        {
+            const auto access = ksword::service::OpenDeleteAccessWithTakeover(
+                scmHandle, serviceName, permissionWarning); // 本次额外权限申请及恢复回执。
+            serviceHandle = access.handle;
+            if (serviceHandle == nullptr)
+            {
+                ::CloseServiceHandle(scmHandle);
+                auto failure = MakeActionResult(
+                    access.securityChanged && !access.securityRestored
+                        ? ks::startup::StartupActionStatus::RollbackFailed
+                        : StatusFromWin32(access.error, ks::startup::StartupActionStatus::WriteFailed),
+                    false, access.securityChanged && !access.securityRestored, access.error,
+                    FromWide(L"服务删除权限不足，申请额外权限后仍无法继续。")
+                        + " [" + FromWide(access.stage)
+                        + ", securityRestoreError=" + std::to_string(access.restoreError) + "]");
+                failure.rollbackAttempted = access.securityChanged;
+                failure.rollbackSucceeded = access.securityRestored;
+                return failure;
+            }
+        }
         if (serviceHandle == nullptr)
         {
             const DWORD errorCode = ::GetLastError();
@@ -7142,7 +7166,8 @@ namespace ks::startup
             FromWide(L"此启动项没有可逆的后端操作。"));
     }
 
-    ActionResult DeleteStartupEntry(const StartupEntry& entry)
+    ActionResult DeleteStartupEntry(const StartupEntry& entry,
+        const std::function<void()>& permissionWarning)
     {
         if (!entry.canDelete)
         {
@@ -7169,7 +7194,7 @@ namespace ks::startup
         case StartupActionKind::ScheduledTask:
             return DeleteScheduledTaskEntry(entry);
         case StartupActionKind::ScmStartType:
-            return DeleteScmEntry(entry);
+            return DeleteScmEntry(entry, permissionWarning);
         case StartupActionKind::WmiEntryRemoval:
         case StartupActionKind::None:
             break;

@@ -276,5 +276,7 @@ namespace ks::startup
     ActionResult SetStartupEntryEnabled(const StartupEntry& entry, bool enabled);
 
     // DeleteStartupEntry permanently removes an entry after revalidating its structured locator.
-    ActionResult DeleteStartupEntry(const StartupEntry& entry);
+    // permissionWarning 在 SCM 删除权限不足、申请额外特权前同步调用；回调不得访问 GUI。
+    ActionResult DeleteStartupEntry(const StartupEntry& entry,
+        const std::function<void()>& permissionWarning = {});
 }

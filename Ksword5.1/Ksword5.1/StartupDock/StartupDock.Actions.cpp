@@ -154,7 +154,11 @@ namespace
         const QString backendMessageText = QString::fromUtf8(
             actionResult.messageText.c_str(),
             static_cast<qsizetype>(actionResult.messageText.size())).trimmed();
-        const QString messageText = backendMessageText.isEmpty()
+        // 权限回退失败保留固定可翻译前缀，API 阶段/原始错误作为诊断后缀原样显示。
+        const QString permissionPrefix = QStringLiteral("服务删除权限不足，申请额外权限后仍无法继续。");
+        const QString messageText = backendMessageText.startsWith(permissionPrefix)
+            ? ks::i18n::sourceText(permissionPrefix) + backendMessageText.mid(permissionPrefix.size())
+            : backendMessageText.isEmpty()
             ? backendMessageText
             : ks::i18n::sourceText(backendMessageText);
         QString detailText = startupText(
@@ -984,23 +988,30 @@ void StartupDock::submitStartupAction(std::vector<ks::startup::StartupEntry> ent
             for (std::size_t index = 0; index < input.entries.size(); ++index)
             {
                 ks::startup::ActionResult action;
+                kLogEvent actionEvent; // 同一条目的权限告警与最终回执共用事件，便于追踪。
                 try
                 {
-                    action = input.remove ? ks::startup::DeleteStartupEntry(input.entries[index])
+                    // 后台同步告警不弹阻塞窗口；实际额外权限申请由后端完成并回报结果。
+                    const auto permissionWarning = [&input, index, &actionEvent]() {
+                        warn << actionEvent
+                            << ks::i18n::sourceText(QStringLiteral("服务删除权限不足，已请求额外权限，正在尝试临时接管服务对象并重试。"))
+                                   .toStdString()
+                            << " target=" << input.targets.value(static_cast<qsizetype>(index)).toStdString()
+                            << eol;
+                    };
+                    action = input.remove ? ks::startup::DeleteStartupEntry(input.entries[index], permissionWarning)
                         : ks::startup::SetStartupEntryEnabled(input.entries[index], input.enabled);
                 }
                 catch (...)
                 {
                     result.unknown.push_back(index);
-                    kLogEvent auditEvent;
-                    err << auditEvent << "[StartupDock] accepted mutation outcome unknown, target="
+                    err << actionEvent << "[StartupDock] accepted mutation outcome unknown, target="
                         << input.targets.value(static_cast<qsizetype>(index)).toStdString() << eol;
                     continue;
                 }
                 result.known.emplace_back(index, std::move(action));
                 const auto& receipt = result.known.back().second;
-                kLogEvent auditEvent;
-                info << auditEvent << "[StartupDock] accepted mutation receipt, target="
+                info << actionEvent << "[StartupDock] accepted mutation receipt, target="
                     << input.targets.value(static_cast<qsizetype>(index)).toStdString()
                     << ", remove=" << input.remove << ", enabled=" << input.enabled
                     << ", success=" << receipt.success << ", changed=" << receipt.changed

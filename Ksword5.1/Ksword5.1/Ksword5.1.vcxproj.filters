@@ -2047,6 +2047,12 @@
     <ClCompile Include="ksword\startup\startup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ServiceDeleteAccess.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\shared\usermode\ServiceDeleteAccess.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="ksword\startup\startup_hidden.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

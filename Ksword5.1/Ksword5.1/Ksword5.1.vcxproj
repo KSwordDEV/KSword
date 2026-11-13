@@ -792,6 +792,8 @@
     <ClCompile Include="ksword\window\context_menu_probe.cpp" />
     <ClCompile Include="ksword\service\service.cpp" />
     <ClCompile Include="ksword\startup\startup.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ServiceDeleteAccess.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ServiceDeleteAccess.h" />
     <ClCompile Include="ksword\startup\startup_hidden.cpp" />
     <ClCompile Include="ksword\string\string.cpp" />
     <QtRcc Include="Ksword5.qrc" />
