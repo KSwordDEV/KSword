@@ -1,5 +1,6 @@
 #include "../UI/KeyboardItemActivation.h"
 #include "FileDock.h"
+#include "../UI/ShortcutRegistry.h"
 #include "FilePropertyTableModel.h"
 #include "NtfsSearchPage.h"
 #include "DiskSpacePage.h"
@@ -15796,6 +15797,7 @@ void FileDock::initializeConnections(FilePanelWidgets& panel)
 
     // Alt+D：快速切换到路径编辑模式，行为与常见文件管理器保持一致。
     QShortcut* editPathShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_D), panel.rootWidget);
+    ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("file"), editPathShortcut);
     connect(editPathShortcut, &QShortcut::activated, this, [this, &panel]() {
         setPathEditMode(panel, true);
     });
@@ -15834,6 +15836,8 @@ void FileDock::initializeConnections(FilePanelWidgets& panel)
     // 那里的名字已经明确说明了动作与目标。
     QShortcut* copyShortcut = new QShortcut(QKeySequence::Copy, panel.fileView);
     copyShortcut->setContext(Qt::WidgetShortcut);
+    for (QShortcut* shortcut : {openShortcut, openShortcutEnter, renameShortcut, deleteShortcut, copyShortcut})
+        ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("file"), shortcut);
     connect(copyShortcut, &QShortcut::activated, this, [this, &panel]() {
         copySelectedItemPath(panel);
     });
@@ -15844,6 +15848,7 @@ void FileDock::initializeConnections(FilePanelWidgets& panel)
         {
             QShortcut* shortcut = new QShortcut(keySequence, panel.compactFileView);
             shortcut->setContext(Qt::WidgetShortcut);
+            ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("file"), shortcut);
             connect(shortcut, &QShortcut::activated, this, handler);
         };
     bindCompactShortcut(QKeySequence(Qt::Key_Return), [this, &panel]() { openSelectedItems(panel); });

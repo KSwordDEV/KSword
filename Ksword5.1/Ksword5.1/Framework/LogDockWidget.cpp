@@ -1,3 +1,4 @@
+#include "BackgroundTaskRegistry.h"
 #include "LogDockWidget.h"
 #include "../UI/TableContextMenu.h"
 #include "../Internationalization/LanguageManager.h"
@@ -566,6 +567,14 @@ void LogDockWidget::initializeRefreshTimer()
     // 周期刷新间隔 250ms：实时性与性能折中。
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(250);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_logs_presentation;
+    taskPolicy_logs_presentation.canPause = true;
+    taskPolicy_logs_presentation.canChangeInterval = true;
+    taskPolicy_logs_presentation.allowMultipleInstances = true;
+    taskPolicy_logs_presentation.minimumIntervalMs = 50;
+    taskPolicy_logs_presentation.restriction = QStringLiteral("临时实例的间隔只在本次运行生效。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("logs.presentation"),
+        QStringLiteral("日志视图更新"), QStringLiteral("日志"), m_refreshTimer, std::move(taskPolicy_logs_presentation));
 
     // 非强制刷新：仅 revision 变化时重建 UI。
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {

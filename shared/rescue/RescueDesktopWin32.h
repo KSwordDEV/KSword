@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -9,6 +10,9 @@
 // 本模块只封装 Win32 救援桌面，不涉及 R0 协议或 Windows 的 Winlogon 桌面。
 namespace ks::rescue
 {
+    // USER32 windows/hooks on the entry thread must not prevent desktop binding.
+    // The callback, its hooks and its cleanup all run on the fresh thread.
+    DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session);
     inline constexpr wchar_t kHostArgument[] = L"--ksword-rescue-host";
     inline constexpr wchar_t kSessionGuardName[] = L"Local\\KSword.Rescue.Session";
     inline constexpr wchar_t kClientArgument[] = L"--ksword-rescue-desktop";

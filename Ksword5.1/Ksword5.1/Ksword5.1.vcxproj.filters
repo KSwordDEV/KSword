@@ -1981,6 +1981,18 @@
     <ClCompile Include="Framework\Progress.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Framework\BackgroundTaskRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ShortcutRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\BackgroundTaskPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ShortcutManagerDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Framework\TaskSnapshotFeed.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3444,6 +3456,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Framework\ProgressDockWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Framework\BackgroundTaskRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\ShortcutRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\RuntimeControlPages.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Framework\TaskSnapshotFeed.h">

@@ -9,9 +9,13 @@ $taskVcVars = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC
 if (!(Test-Path -LiteralPath $taskVcVars)) {
     $taskVcVars = 'D:\Software\VS\VC\Auxiliary\Build\vcvars64.bat'
 }
-if (!(Test-Path -LiteralPath $taskOutputDirectory) -or !(Test-Path -LiteralPath $taskVcVars)) {
+if (!(Test-Path -LiteralPath $taskVcVars)) {
     throw 'Existing Taskbar Release directory and HostX64 toolchain are required.'
 }
+New-Item -ItemType Directory -Path $taskOutputDirectory -Force | Out-Null
+Write-Output "RESCUE_TEST_OUTPUT=$taskOutputDirectory"
+$taskPreviousTemp=$env:TEMP
+$taskPreviousTmp=$env:TMP
 
 # 独立命名测试对象，不能覆盖 Taskbar 正式对象或更换主程序链接器。
 $taskCompile = 'call "' + $taskVcVars + '"'
@@ -20,6 +24,8 @@ $taskCompile += ' && cl /nologo /EHsc /W4 /std:c++17 /utf-8 /D_WIN32_WINNT=0x0A0
 $taskCompile += ' && link /nologo /SUBSYSTEM:CONSOLE Taskbar\x64\Release\RescueDesktopTests.obj Taskbar\x64\Release\RescueDesktopTestBackend.obj /OUT:Taskbar\x64\Release\RescueDesktopTests.exe Advapi32.lib User32.lib'
 Push-Location -LiteralPath $taskRepositoryRoot
 try {
+    $env:TEMP=$taskOutputDirectory
+    $env:TMP=$taskOutputDirectory
     & $env:ComSpec /d /s /c $taskCompile
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue desktop test compilation failed: $LASTEXITCODE"
@@ -40,11 +46,17 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue session guard probe failed: $LASTEXITCODE"
     }
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --taskbar-single-instance-probe $taskActualHost
+    if ($LASTEXITCODE -ne 0) {
+        throw "Taskbar single-instance probe failed: $LASTEXITCODE"
+    }
     & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --elevation-gate-probe $taskActualHost $taskActualClient
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue elevation gate probe failed: $LASTEXITCODE"
     }
 }
 finally {
+    $env:TEMP=$taskPreviousTemp
+    $env:TMP=$taskPreviousTmp
     Pop-Location
 }

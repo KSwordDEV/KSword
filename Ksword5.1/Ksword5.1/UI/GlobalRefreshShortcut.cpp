@@ -1,4 +1,6 @@
 #include "GlobalRefreshShortcut.h"
+#include "ShortcutRegistry.h"
+#include <QKeySequenceEdit>
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -103,13 +105,14 @@ namespace
 
             auto* keyEvent = static_cast<QKeyEvent*>(eventObject);
             // 只处理裸 F5；带 Ctrl/Shift/Alt 的组合留给各页面自行使用。
-            if (keyEvent->key() != Qt::Key_F5
-                || (keyEvent->modifiers() & ~Qt::KeypadModifier) != Qt::NoModifier)
+            if (!ks::ui::ShortcutRegistry::instance().matches(QStringLiteral("app.refresh"), keyEvent))
             {
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
             QWidget* startWidget = QApplication::focusWidget();
+            for (QWidget* widget = startWidget; widget; widget = widget->parentWidget())
+                if (qobject_cast<QKeySequenceEdit*>(widget)) return false;
             if (startWidget == nullptr)
             {
                 startWidget = QApplication::activeWindow();
@@ -146,6 +149,10 @@ namespace ks::ui
         {
             return;
         }
+        InstallCommonShortcutCatalog();
+        auto& registry = ShortcutRegistry::instance();
+        registry.define({QStringLiteral("app.refresh"), QStringLiteral("刷新当前页面"), QStringLiteral("application"), {}, QKeySequence(Qt::Key_F5), {}});
+        registry.attach(QStringLiteral("app.refresh"), appInstance, [](const QKeySequence&, QString*) { return true; });
         GlobalRefreshShortcutFilter* filterInstance = globalRefreshShortcutFilterInstance();
         if (filterInstance == nullptr)
         {

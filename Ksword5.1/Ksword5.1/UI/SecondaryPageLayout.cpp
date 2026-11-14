@@ -449,6 +449,13 @@ namespace ks::ui
         return content ? new SecondaryFormScroll(content, parent) : nullptr;
     }
 
+    void StyleSecondaryManagerWindow(QWidget* window)
+    {
+        if (!window) return;
+        window->setProperty("ksword_secondary_keep_layout", true);
+        StyleSecondaryWindow(window);
+    }
+
     void StyleSecondaryWindow(QWidget* window)
     {
         if (window == nullptr || window->property("ksword_secondary_window").toBool())

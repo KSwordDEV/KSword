@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "HardwareDock.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/PageControlStyle.h"
@@ -4663,6 +4664,14 @@ HardwareDock::HardwareDock(QWidget* parent)
         this, &HardwareDock::saveUtilizationFloatingPreferences);
     m_utilizationFollowTimer = new QTimer(this);
     m_utilizationFollowTimer->setInterval(250);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_hardware_floating_follow;
+    taskPolicy_hardware_floating_follow.canPause = false;
+    taskPolicy_hardware_floating_follow.canChangeInterval = false;
+    taskPolicy_hardware_floating_follow.allowMultipleInstances = false;
+    taskPolicy_hardware_floating_follow.minimumIntervalMs = 50;
+    taskPolicy_hardware_floating_follow.restriction = QStringLiteral("此任务维持事件排空或窗口生命周期，请使用所属功能的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("hardware.floating_follow"),
+        QStringLiteral("硬件浮窗跟随"), QStringLiteral("硬件"), m_utilizationFollowTimer, std::move(taskPolicy_hardware_floating_follow));
     connect(m_utilizationFollowTimer, &QTimer::timeout,
         this, &HardwareDock::synchronizeUtilizationFollow);
 
@@ -4678,6 +4687,14 @@ HardwareDock::HardwareDock(QWidget* parent)
 
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(1000);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_hardware_metrics;
+    taskPolicy_hardware_metrics.canPause = true;
+    taskPolicy_hardware_metrics.canChangeInterval = true;
+    taskPolicy_hardware_metrics.allowMultipleInstances = false;
+    taskPolicy_hardware_metrics.minimumIntervalMs = 50;
+    taskPolicy_hardware_metrics.inFlight = [this]() { return m_samplingInFlight; };
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("hardware.metrics"),
+        QStringLiteral("硬件指标采样"), QStringLiteral("硬件"), m_refreshTimer, std::move(taskPolicy_hardware_metrics));
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
         refreshAllViews();
     });

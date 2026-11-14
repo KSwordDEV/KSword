@@ -41,8 +41,9 @@ SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath)
 }
 
 SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath,
-    const QString& rescueHostPath, std::function<void(DWORD)> launchFailure)
-    : m_launchFailure(std::move(launchFailure))
+    const QString& rescueHostPath, std::function<void(DWORD)> launchFailure,
+    std::function<void(bool)> launchActivity)
+    : m_launchFailure(std::move(launchFailure)), m_launchActivity(std::move(launchActivity))
 {
     // executablePath 用途：保存主程序路径，后续钩子线程直接使用 Win32 API 启动。
     const QString executablePath = resolveKswordExecutablePath(applicationDirectoryPath);
@@ -57,12 +58,12 @@ SosHotkeyLauncher::SosHotkeyLauncher(const QString& applicationDirectoryPath,
 void SosHotkeyLauncher::requestLaunch()
 {
     const DWORD threadId = m_hookThreadId.load(std::memory_order_acquire);
-    if (m_hookInstalled.load(std::memory_order_acquire) && threadId != 0
+    if (threadId != 0
         && ::PostThreadMessageW(threadId, kSosLaunchMessage, 0, 0))
     {
         return;
     }
-    launchKswordFromHookThread();
+    if (m_launchFailure) m_launchFailure(ERROR_NOT_READY);
 }
 
 SosHotkeyLauncher::~SosHotkeyLauncher()
@@ -76,7 +77,7 @@ SosHotkeyLauncher::~SosHotkeyLauncher()
     }
 }
 
-bool SosHotkeyLauncher::start()
+bool SosHotkeyLauncher::start(bool monitorKeyboard)
 {
     if (m_hookThread.joinable())
     {
@@ -85,6 +86,7 @@ bool SosHotkeyLauncher::start()
 
     // s_activeInstance 用途：WH_KEYBOARD_LL 是 C 回调，必须通过静态指针转发到对象状态机。
     s_activeInstance = this;
+    m_monitorKeyboard = monitorKeyboard;
     m_stopRequested.store(false);
     m_hookThreadId.store(0, std::memory_order_release);
     m_threadReady = false;
@@ -111,21 +113,7 @@ bool SosHotkeyLauncher::start()
 
     // 只有线程明确完成初始化且钩子安装失败时才同步回收；超时路径保持原有
     // 非阻塞语义，由 stop()/析构负责等待，避免在消息队列尚未创建时死锁。
-    if (hookReady && !m_hookInstalled.load(std::memory_order_acquire))
-    {
-        if (m_hookThread.joinable())
-        {
-            m_hookThread.join();
-        }
-        m_hookThreadId.store(0, std::memory_order_release);
-        if (s_activeInstance == this)
-        {
-            s_activeInstance = nullptr;
-        }
-        return false;
-    }
-
-    return m_hookThread.joinable();
+    return hookReady && (!m_monitorKeyboard || m_hookInstalled.load(std::memory_order_acquire));
 }
 
 void SosHotkeyLauncher::stop()
@@ -185,11 +173,11 @@ void SosHotkeyLauncher::hookThreadMain()
     ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
     // m_keyboardHook 用途：全局 WH_KEYBOARD_LL 钩子，不注入其它进程。
-    m_keyboardHook = ::SetWindowsHookExW(
+    m_keyboardHook = m_monitorKeyboard ? ::SetWindowsHookExW(
         WH_KEYBOARD_LL,
         &SosHotkeyLauncher::lowLevelKeyboardProc,
         ::GetModuleHandleW(nullptr),
-        0);
+        0) : nullptr;
     m_hookInstalled.store(m_keyboardHook != nullptr);
 
     {
@@ -198,31 +186,37 @@ void SosHotkeyLauncher::hookThreadMain()
     }
     m_stateCondition.notify_all();
 
-    if (m_keyboardHook == nullptr)
+    if (m_monitorKeyboard && m_keyboardHook == nullptr)
     {
         qWarning() << "[Taskbar][SOS] WH_KEYBOARD_LL 安装失败, error=" << ::GetLastError();
-        return;
     }
 
-    qInfo() << "[Taskbar][SOS] SOS Enter 键盘钩子已启动。";
+    if (m_keyboardHook) qInfo() << "[Taskbar][SOS] SOS Enter 键盘钩子已启动。";
 
-    MSG message{};
     while (!m_stopRequested.load())
     {
-        const BOOL getMessageResult = ::GetMessageW(&message, nullptr, 0, 0);
-        if (getMessageResult <= 0)
+        const DWORD count = m_rescueHostProcess ? 1 : 0;
+        const DWORD wait = ::MsgWaitForMultipleObjectsEx(count, count ? &m_rescueHostProcess : nullptr,
+            INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        if (wait == WAIT_FAILED) break;
+        if (count && wait == WAIT_OBJECT_0)
         {
-            break;
-        }
-
-        if (message.message == kSosLaunchMessage)
-        {
-            launchKswordFromHookThread();
+            DWORD exitCode = ERROR_GEN_FAILURE;
+            if (!::GetExitCodeProcess(m_rescueHostProcess, &exitCode)) exitCode = ::GetLastError();
+            ::CloseHandle(m_rescueHostProcess);
+            m_rescueHostProcess = nullptr;
+            m_lastLaunchTickMs = 0;
+            if (m_launchActivity) m_launchActivity(false);
+            if (exitCode != ERROR_SUCCESS && m_launchFailure) m_launchFailure(exitCode);
             continue;
         }
-
-        ::TranslateMessage(&message);
-        ::DispatchMessageW(&message);
+        MSG message{};
+        while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+        {
+            if (message.message == WM_QUIT) { m_stopRequested.store(true); break; }
+            if (message.message == kSosLaunchMessage) launchKswordFromHookThread();
+            else { ::TranslateMessage(&message); ::DispatchMessageW(&message); }
+        }
     }
 
     if (m_keyboardHook != nullptr)
@@ -231,6 +225,7 @@ void SosHotkeyLauncher::hookThreadMain()
         m_keyboardHook = nullptr;
     }
     m_hookInstalled.store(false);
+    m_hookThreadId.store(0, std::memory_order_release);
     qInfo() << "[Taskbar][SOS] SOS Enter 键盘钩子已停止。";
 }
 
@@ -324,6 +319,7 @@ void SosHotkeyLauncher::launchKswordFromHookThread()
     ::CloseHandle(processInfo.hThread);
     m_rescueHostProcess = processInfo.hProcess;
     m_lastLaunchTickMs = nowTickMs;
+    if (m_launchActivity) m_launchActivity(true);
     qInfo() << "[Taskbar][SOS] 已启动独立救援桌面监护进程，PID=" << processInfo.dwProcessId;
 }
 

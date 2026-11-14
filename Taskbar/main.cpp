@@ -13,6 +13,7 @@
 #include <QList>
 #include <QScreen>
 #include <QVector>
+#include <memory>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -60,6 +61,7 @@ int main(int argc, char* argv[])
     {
         return rescueHostResult;
     }
+    std::unique_ptr<void, decltype(&::CloseHandle)> instanceGuard(nullptr, &::CloseHandle);
     // 启用 OpenGLES，沿用原任务栏绘制路径，避免改动 Qt 渲染策略。
     QCoreApplication::setAttribute(Qt::AA_UseOpenGLES);
 
@@ -74,6 +76,13 @@ int main(int argc, char* argv[])
     {
         return 2;
     }
+    // PID handoff must finish before claiming the singleton, otherwise settings
+    // and display-change restarts would be rejected by their predecessor.
+    const HANDLE instanceHandle = ::CreateMutexExW(nullptr, L"Local\\KSword.Taskbar.Instance", 0, SYNCHRONIZE);
+    const DWORD instanceError = ::GetLastError();
+    instanceGuard.reset(instanceHandle);
+    if (!instanceHandle) return 2;
+    if (instanceError == ERROR_ALREADY_EXISTS) return 0;
 
     // SOS 键盘钩子尽早启动：
     // - 独立高优先级线程安装 WH_KEYBOARD_LL；

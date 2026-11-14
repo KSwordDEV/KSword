@@ -30,7 +30,8 @@ namespace
         return dialog && !qobject_cast<QMessageBox*>(dialog)
             && !qobject_cast<QFileDialog*>(dialog) && !qobject_cast<QColorDialog*>(dialog)
             && !qobject_cast<QFontDialog*>(dialog) && !qobject_cast<QInputDialog*>(dialog)
-            && !dialog->property("ksword_detail_keep_layout").toBool();
+            && !dialog->property("ksword_detail_keep_layout").toBool()
+            && !dialog->property("ksword_secondary_keep_layout").toBool();
     }
 
     // kGlobalDialogThemePropertyName 作用：

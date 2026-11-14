@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "../UI/KeyboardItemActivation.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/TableContextMenu.h"
@@ -4040,6 +4041,15 @@ void OtherDock::initializeUi()
     // 自动刷新定时器：由勾选框控制启动和停止。
     m_autoRefreshTimer = new QTimer(this);
     m_autoRefreshTimer->setInterval(m_autoRefreshIntervalSpin->value());
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_windows_list;
+    taskPolicy_windows_list.canPause = true;
+    taskPolicy_windows_list.canChangeInterval = false;
+    taskPolicy_windows_list.allowMultipleInstances = true;
+    taskPolicy_windows_list.minimumIntervalMs = 50;
+    taskPolicy_windows_list.restriction = QStringLiteral("间隔沿用原页面设置；暂停只阻止后续采样。");
+    taskPolicy_windows_list.eligible = [this]() { return m_autoRefreshCheck && m_autoRefreshCheck->isChecked(); };
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("windows.list"),
+        QStringLiteral("窗口列表采样"), QStringLiteral("窗口"), m_autoRefreshTimer, std::move(taskPolicy_windows_list));
 
     // Desktop enumeration starts on the actual table Show event below.
     // 页头、内容Tab及状态栏共享同一外壳，四角只放在整页根并保留原4px留白。

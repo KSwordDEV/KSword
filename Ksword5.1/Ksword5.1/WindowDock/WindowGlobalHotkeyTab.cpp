@@ -1,4 +1,5 @@
 #include "WindowGlobalHotkeyTab.h"
+#include <atomic>
 #include "WindowHotkeyClearUi.h"
 #include "../ProcessDock/HotkeyClearController.h"
 #include "WindowImmutableTableSupport.h"
@@ -159,6 +160,7 @@ namespace
 // PendingRefreshState：工作线程只写入该缓冲，UI 定时批量取走结果，避免逐进程事件淹没主线程。
 struct WindowGlobalHotkeyTab::PendingRefreshState
 {
+    std::atomic_bool canceled{false};
     // mutex：保护下列跨线程共享字段，调用方只能在短临界区内持有。
     std::mutex mutex;
     // pendingRows：尚未合并到表格的数据行，由 UI 刷新定时器批量取走。
@@ -191,6 +193,7 @@ struct WindowGlobalHotkeyTab::RowChunk
 
 WindowGlobalHotkeyTab::~WindowGlobalHotkeyTab()
 {
+    if (m_refreshState) m_refreshState->canceled.store(true);
     if (m_clearOperation) m_clearOperation->close();
     ks::window::retireSnapshotValues(std::move(m_refreshState), std::move(m_rows));
 }
@@ -205,7 +208,7 @@ WindowGlobalHotkeyTab::WindowGlobalHotkeyTab(QWidget* parent)
 void WindowGlobalHotkeyTab::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
-    if (!m_firstRefreshStarted)
+    if (!m_firstRefreshStarted && m_automaticFirstScan)
     {
         m_firstRefreshStarted = true;
         QMetaObject::invokeMethod(this, [this]() { refreshAsync(); }, Qt::QueuedConnection);
@@ -238,6 +241,14 @@ void WindowGlobalHotkeyTab::initializeUi()
         "window.global_hotkey.filter.placeholder",
         QStringLiteral("按快捷键、进程、PID/TID、来源、对象或详情筛选")));
     toolbar->addWidget(m_refreshButton);
+    m_cancelButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("取消扫描")), this);
+    m_cancelButton->setEnabled(false);
+    toolbar->addWidget(m_cancelButton);
+    connect(m_cancelButton, &QPushButton::clicked, this, [this]() {
+        if (m_refreshState) m_refreshState->canceled.store(true);
+        m_cancelButton->setEnabled(false);
+        m_statusLabel->setText(ks::i18n::sourceText(QStringLiteral("正在取消，等待在途读取结束；已采集结果会保留。")));
+    });
     toolbar->addWidget(m_clearButton);
     toolbar->addWidget(m_filterEdit, 1);
     toolbar->setSpacing(8);
@@ -271,7 +282,7 @@ void WindowGlobalHotkeyTab::initializeUi()
         {QStringLiteral("window.global_hotkey.header.object"), QStringLiteral("热键对象")},
         {QStringLiteral("window.global_hotkey.header.detail"), QStringLiteral("详情")} });
     m_table->setKeepPreviousProjectionInteractive(true);
-    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -342,6 +353,7 @@ void WindowGlobalHotkeyTab::refreshAsync()
     m_table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     m_table->setSortingEnabled(false);
     m_refreshButton->setEnabled(false);
+    m_cancelButton->setEnabled(true);
     m_statusLabel->setText(allHotkeyText(
         "window.global_hotkey.summary.refreshing",
         QStringLiteral("状态：正在扫描各进程的程序快捷键...")));
@@ -412,7 +424,7 @@ void WindowGlobalHotkeyTab::refreshAsync()
                     ++refreshState->diagnosticProcessCount;
                 }
                 ++refreshState->revision;
-            });
+            }, nullptr, [refreshState]() { return refreshState->canceled.load(); });
 
         // elapsedMs：所有扫描工作线程退出后再记录，保证完成状态对应完整结果。
         const qint64 elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -627,6 +639,7 @@ void WindowGlobalHotkeyTab::finishRefresh(const std::uint64_t ticket, const qint
     m_refreshing = false;
     m_flushTimer->stop();
     m_refreshButton->setEnabled(true);
+    m_cancelButton->setEnabled(false);
     updateClearActionState();
     // 扫描结束后恢复用户原有排序状态，仅触发这一次全表排序。
     m_table->horizontalHeader()->setSortIndicator(m_sortColumnBeforeRefresh, m_sortOrderBeforeRefresh);
@@ -644,6 +657,9 @@ void WindowGlobalHotkeyTab::finishRefresh(const std::uint64_t ticket, const qint
             : allHotkeyText(
                 "window.global_hotkey.summary.diagnostics",
                 QStringLiteral("%1 个进程的扫描包含诊断信息。")).arg(m_diagnosticProcessCount));
+    const bool canceled = m_refreshState && m_refreshState->canceled.load();
+    if (canceled) completedText = ks::i18n::sourceText(QStringLiteral("扫描已取消，保留 %1 条已采集记录；可重新扫描。"))
+        .arg(m_rowCount);
     if (!m_lastClearSummary.isEmpty()) completedText += QLatin1Char('\n') + m_lastClearSummary;
     m_statusLabel->setText(completedText);
     m_statusLabel->setToolTip(m_lastClearDetails);
@@ -652,6 +668,11 @@ void WindowGlobalHotkeyTab::finishRefresh(const std::uint64_t ticket, const qint
     m_progressTaskId = 0;
     if (progressTaskId != 0)
     {
+        if (canceled)
+        {
+            kPro.finish(progressTaskId, kProgressState::Canceled, completedText.toStdString());
+        }
+        else
         kPro.set(
             progressTaskId,
             allHotkeyText(

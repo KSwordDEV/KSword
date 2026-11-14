@@ -115,14 +115,15 @@ namespace
         const BOOL launched = ::ShellExecuteExW(&request);
         if (!launched || !request.hProcess)
         {
-            LogStage(L"uac.launch_failed", launched ? ERROR_INVALID_HANDLE : ::GetLastError());
+            const DWORD error = launched ? ERROR_INVALID_HANDLE : ::GetLastError();
+            LogStage(L"uac.launch_failed", error);
             if (request.hProcess)
             {
                 ::CloseHandle(request.hProcess);
             }
             ::CoUninitialize();
             ::OutputDebugStringW(L"[Taskbar][SOS] UAC was canceled or elevation failed.\n");
-            return 2;
+            return static_cast<int>(error);
         }
 
         LogStage(L"uac.host_started", ERROR_SUCCESS, ::GetProcessId(request.hProcess));
@@ -518,11 +519,16 @@ int RunRescueDesktopHostIfRequested()
         return LaunchElevatedHostAndWait(executable, sourceName);
     }
 
-    HostSession session; // 独立进程在所有退出分支都自动清理并尝试恢复原桌面。
-    if (!session.start(executable, originalName))
-    {
-        ::OutputDebugStringW(L"[Taskbar][SOS] Rescue desktop initialization failed.\n");
-        return 2;
-    }
-    return session.run();
+    // The Qt-linked entry thread may already own USER32 state before main().
+    // Desktop binding and the entire guardian lifetime stay on a fresh thread.
+    return static_cast<int>(ks::rescue::RunDesktopSessionOnFreshThread([&]() -> DWORD {
+        HostSession session;
+        if (!session.start(executable, originalName))
+        {
+            const DWORD error = ::GetLastError();
+            LogStage(L"session.start_failed", error);
+            return error ? error : ERROR_GEN_FAILURE;
+        }
+        return static_cast<DWORD>(session.run());
+    }));
 }

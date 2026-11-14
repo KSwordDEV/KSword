@@ -141,6 +141,8 @@ $rawLogPath = Join-Path $logDirectory "ksword-build-check-$buildStamp.raw.log"
 $errorLogPath = Join-Path $logDirectory "ksword-build-check-$buildStamp.err.log"
 $temporaryPropsPath = $null
 $previousQtDirectory = [Environment]::GetEnvironmentVariable('KSWORD_QT_DIR', 'Process')
+$previousTempDirectory = [Environment]::GetEnvironmentVariable('TEMP', 'Process')
+$previousTmpDirectory = [Environment]::GetEnvironmentVariable('TMP', 'Process')
 $buildStartedAt = Get-Date
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $timedOut = $false
@@ -197,18 +199,38 @@ try {
 
     $toolPropertiesJson = & $msbuildPath $projectPath /p:Configuration=Release /p:Platform=x64 `
         /p:PreferredToolArchitecture=x64 /p:PROCESSOR_ARCHITECTURE=AMD64 /p:PROCESSOR_ARCHITEW6432=AMD64 `
-        '-getProperty:PreferredToolArchitecture,VC_ExecutablePath_x64' /nologo
+        '-getProperty:PreferredToolArchitecture,VC_ExecutablePath_x64,IntDir,OutDir,ProjectDir' /nologo
     if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the MSVC host tool configuration.' }
     $toolProperties = ($toolPropertiesJson -join "`n" | ConvertFrom-Json).Properties
     if ($toolProperties.PreferredToolArchitecture -ne 'x64' -or $toolProperties.VC_ExecutablePath_x64 -notmatch 'HostX64') {
         throw 'Refusing a build whose evaluated compiler/linker host is not x64.'
     }
+    $evaluatedIntDir = if ([IO.Path]::IsPathRooted($toolProperties.IntDir)) {
+        [IO.Path]::GetFullPath($toolProperties.IntDir)
+    } else {
+        [IO.Path]::GetFullPath((Join-Path $toolProperties.ProjectDir $toolProperties.IntDir))
+    }
+    $evaluatedOutDir = [IO.Path]::GetFullPath($toolProperties.OutDir)
+    foreach ($buildDirectory in @($evaluatedIntDir, $evaluatedOutDir)) {
+        if (!$buildDirectory.StartsWith($resolvedRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Build output must stay in the repository's declared directories: $buildDirectory"
+        }
+    }
+    if ($evaluatedOutDir.TrimEnd('\').Equals($evaluatedIntDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) -or
+        $evaluatedOutDir.StartsWith($evaluatedIntDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The intermediate directory must not contain the formal output directory.'
+    }
+    New-Item -ItemType Directory -Path $evaluatedIntDir -Force | Out-Null
+    [Environment]::SetEnvironmentVariable('TEMP', $evaluatedIntDir, 'Process')
+    [Environment]::SetEnvironmentVariable('TMP', $evaluatedIntDir, 'Process')
 
     Write-Output "BUILD_START action=$Action wpo_disabled=$([bool]$DisableWholeProgramOptimization) timeout_minutes=$TimeoutMinutes"
     Write-Output "BUILD_PERF_TRACE_ENABLED=$([bool]$EnablePerfTrace)"
     Write-Output "BUILD_MSBUILD_X64=$msbuildPath"
     Write-Output 'BUILD_TOOL_ARCHITECTURE=x64'
     Write-Output "BUILD_HOST_TOOLS=$($toolProperties.VC_ExecutablePath_x64)"
+    Write-Output "BUILD_INTDIR=$evaluatedIntDir"
+    Write-Output "BUILD_OUTDIR=$evaluatedOutDir"
     Write-Output "BUILD_LOG=$rawLogPath"
 
     $process = Start-Process `
@@ -254,6 +276,8 @@ try {
     }
 }
 finally {
+    [Environment]::SetEnvironmentVariable('TEMP', $previousTempDirectory, 'Process')
+    [Environment]::SetEnvironmentVariable('TMP', $previousTmpDirectory, 'Process')
     $stopwatch.Stop()
     if ($null -eq $previousQtDirectory) {
         [Environment]::SetEnvironmentVariable('KSWORD_QT_DIR', $null, 'Process')

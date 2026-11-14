@@ -25,6 +25,7 @@ class WindowGlobalHotkeyTab final : public QWidget
 public:
     explicit WindowGlobalHotkeyTab(QWidget* parent = nullptr);
     ~WindowGlobalHotkeyTab() override;
+    void setAutomaticFirstScan(bool enabled) { m_automaticFirstScan = enabled; }
 
 protected:
     void showEvent(QShowEvent* event) override;
@@ -59,6 +60,7 @@ private:
 
     QLineEdit* m_filterEdit = nullptr;
     QPushButton* m_refreshButton = nullptr;
+    QPushButton* m_cancelButton = nullptr;
     QPushButton* m_clearButton = nullptr;
     QLabel* m_statusLabel = nullptr;
     ks::ui::ImmutableValueTable* m_table = nullptr;
@@ -72,6 +74,7 @@ private:
     bool m_refreshing = false;
     bool m_clearBusy = false;
     bool m_firstRefreshStarted = false;
+    bool m_automaticFirstScan = true;
     bool m_sortingEnabledBeforeRefresh = true;
     std::uint64_t m_refreshTicket = 0;
     std::uint64_t m_clearTicket = 0;

@@ -166,12 +166,14 @@ namespace
     }
 
     // 已有会话时实际监护入口必须直接结束，不弹 UAC、不创建或切换桌面。
-    int SessionGuardProbe(const std::wstring& host, const std::wstring& client)
+    int SessionGuardProbe(const std::wstring& host, const std::wstring& client, bool ordinaryTaskbar = false)
     {
-        const HANDLE guard = ::CreateMutexW(nullptr, FALSE, ks::rescue::kSessionGuardName);
+        const HANDLE guard = ::CreateMutexW(nullptr, FALSE,
+            ordinaryTaskbar ? L"Local\\KSword.Taskbar.Instance" : ks::rescue::kSessionGuardName);
         Check(guard != nullptr, "hold a rescue session guard");
         if (!guard) return 1;
-        std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument + L" \"" + client + L"\"";
+        std::wstring command = L"\"" + host + L"\"";
+        if (!ordinaryTaskbar) command += L" " + std::wstring(ks::rescue::kHostArgument) + L" \"" + client + L"\"";
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION child{};
@@ -194,9 +196,46 @@ namespace
             ::CloseHandle(child.hProcess);
         }
         ::CloseHandle(guard);
-        std::printf("RESCUE_SESSION_GUARD=%s checks=%d failures=%d\n",
+        std::printf("%s=%s checks=%d failures=%d\n", ordinaryTaskbar ? "TASKBAR_SINGLE_INSTANCE" : "RESCUE_SESSION_GUARD",
             failures == 0 ? "PASS" : "FAIL", checks, failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    void BusyEntryThreadProbe()
+    {
+        const auto entryId = ::GetCurrentThreadId();
+        const auto original = ks::rescue::DesktopName(::GetThreadDesktop(entryId));
+        WNDCLASSW type{};
+        type.hInstance = ::GetModuleHandleW(nullptr);
+        type.lpfnWndProc = ::DefWindowProcW;
+        type.lpszClassName = L"KSword.Rescue.BusyEntryProbe";
+        Check(::RegisterClassW(&type) != 0, "register entry-thread window class");
+        HWND window = ::CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP,
+            -32000, -32000, 1, 1, nullptr, nullptr, type.hInstance, nullptr);
+        Check(window != nullptr, "entry thread already owns a hidden window");
+        const auto name = std::wstring(ks::rescue::kDesktopPrefix) + L"BusyProbe." + std::to_wstring(::GetCurrentProcessId());
+        HDESK desktop = ks::rescue::CreatePrivateDesktop(name);
+        Check(desktop != nullptr, "create test desktop without switching input");
+        if (window && desktop)
+        {
+            const BOOL bound = ::SetThreadDesktop(desktop);
+            const DWORD error = ::GetLastError();
+            Check(!bound && error == ERROR_BUSY, "old entry-thread binding reproduces ERROR_BUSY");
+            const DWORD result = ks::rescue::RunDesktopSessionOnFreshThread([&]() -> DWORD {
+                if (::GetCurrentThreadId() == entryId) return ERROR_INVALID_THREAD_ID;
+                HDESK previous = ::GetThreadDesktop(::GetCurrentThreadId());
+                if (!::SetThreadDesktop(desktop)) return ::GetLastError();
+                const bool correct = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == name;
+                if (!::SetThreadDesktop(previous)) return ::GetLastError();
+                return correct ? ERROR_SUCCESS : ERROR_INVALID_DATA;
+            });
+            Check(result == ERROR_SUCCESS, "production fresh-thread adapter binds despite a busy entry thread");
+            Check(ks::rescue::DesktopName(::GetThreadDesktop(entryId)) == original, "entry thread remains on original desktop");
+            Check(!ks::rescue::IsInputDesktop(desktop), "probe never switches the input desktop");
+        }
+        if (window) ::DestroyWindow(window);
+        if (desktop) ::CloseDesktop(desktop);
+        ::UnregisterClassW(type.lpszClassName, type.hInstance);
     }
 
     void InputPolicyTests()
@@ -226,6 +265,8 @@ namespace
 
 int wmain(const int count, wchar_t** arguments)
 {
+    if (count == 3 && std::wstring(arguments[1]) == L"--taskbar-single-instance-probe")
+        return SessionGuardProbe(arguments[2], L"", true);
     if (count == 4 && std::wstring(arguments[1]) == L"--session-guard-probe")
     {
         return SessionGuardProbe(arguments[2], arguments[3]);
@@ -239,6 +280,7 @@ int wmain(const int count, wchar_t** arguments)
         return ChildProbe(count, arguments);
     }
     InputPolicyTests();
+    BusyEntryThreadProbe();
     const std::wstring original = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId()));
     const std::wstring name = std::wstring(ks::rescue::kDesktopPrefix) + L"Tests."
         + std::to_wstring(::GetCurrentProcessId()) + L"." + std::to_wstring(::GetTickCount64());

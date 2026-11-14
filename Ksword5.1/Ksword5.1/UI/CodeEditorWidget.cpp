@@ -1,4 +1,5 @@
 #include "CodeEditorWidget.h"
+#include "ShortcutRegistry.h"
 #include "./PageControlStyle.h"
 #include "./ToolbarMetrics.h"
 #include "./FlatButtonTheme.h"
@@ -1219,9 +1220,27 @@ void CodeEditorWidget::initializeConnections()
     new QShortcut(QKeySequence::SaveAs, this, [this]() { m_saveAsButton->click(); });
     new QShortcut(QKeySequence::Copy, this, [this]() { m_copyButton->click(); });
     // 每个 Dock 可能有多个编辑器；窗口级快捷键会冲突，必须限定到当前编辑器。
+    ks::ui::InstallCommonShortcutCatalog();
+    const auto definitions = ks::ui::ShortcutRegistry::instance().snapshot();
     for (QShortcut* shortcut : findChildren<QShortcut*>(QString(), Qt::FindDirectChildrenOnly))
     {
         shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        for (const auto& command : definitions)
+            if (command.context == QStringLiteral("editor") && command.defaults == shortcut->key())
+            {
+                ks::ui::ShortcutRegistry::instance().bindShortcut(command.id, command.title, command.context, shortcut);
+                QToolButton* button = nullptr;
+                if (command.id == QStringLiteral("editor.find")) button = m_findButton;
+                else if (command.id == QStringLiteral("editor.replace")) button = m_replaceButton;
+                else if (command.id == QStringLiteral("editor.goto")) button = m_gotoButton;
+                else if (command.id == QStringLiteral("editor.new")) button = m_newButton;
+                else if (command.id == QStringLiteral("editor.open")) button = m_openButton;
+                else if (command.id == QStringLiteral("editor.save")) button = m_saveButton;
+                else if (command.id == QStringLiteral("editor.save_as")) button = m_saveAsButton;
+                else if (command.id == QStringLiteral("editor.copy")) button = m_copyButton;
+                if (button) ks::ui::ShortcutRegistry::instance().setShortcutHint(command.id, button, command.title);
+                break;
+            }
     }
 }
 

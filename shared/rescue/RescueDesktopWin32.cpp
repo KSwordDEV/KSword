@@ -3,12 +3,28 @@
 #include <sddl.h>
 #include <array>
 #include <vector>
+#include <thread>
 
 #pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "User32.lib")
 
 namespace ks::rescue
 {
+    DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session)
+    {
+        DWORD result = ERROR_GEN_FAILURE;
+        try
+        {
+            std::thread worker([&]() {
+                try { result = session(); }
+                catch (...) { result = ERROR_UNHANDLED_EXCEPTION; }
+            });
+            worker.join();
+        }
+        catch (...) { result = ERROR_NOT_ENOUGH_MEMORY; }
+        return result;
+    }
+
     bool IsMouseMessage(const UINT message)
     {
         // 客户区与非客户区都要检查，否则标题栏、缩放边框仍可能接受伪造点击。

@@ -1,3 +1,4 @@
+#include "BackgroundTaskRegistry.h"
 #include "NotificationCardManager.h"
 #include "TaskSnapshotFeed.h"
 
@@ -558,6 +559,13 @@ namespace ks::ui
 
         m_refreshTimer = new QTimer(this);
         m_refreshTimer->setInterval(100);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_notifications_refresh;
+    taskPolicy_notifications_refresh.canPause = true;
+    taskPolicy_notifications_refresh.canChangeInterval = true;
+    taskPolicy_notifications_refresh.allowMultipleInstances = false;
+    taskPolicy_notifications_refresh.minimumIntervalMs = 50;
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("notifications.refresh"),
+        QStringLiteral("通知与过期提示"), QStringLiteral("主窗口"), m_refreshTimer, std::move(taskPolicy_notifications_refresh));
         connect(m_refreshTimer, &QTimer::timeout, this, [this]() { refreshFromManagers(); });
         m_refreshTimer->start();
         // 任务读取集中到 feed，通知计时器只处理日志过期和原有溢出布局。

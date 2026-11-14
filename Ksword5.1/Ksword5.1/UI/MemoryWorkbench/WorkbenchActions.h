@@ -21,6 +21,7 @@ class QWidget;
 
 namespace ks::ui
 {
+    void RegisterWorkbenchShortcutCatalog();
     // WorkbenchActionId：ux.md 第 8 节快捷键表里的每一行一个取值，顺序与表格一致。
     enum class WorkbenchActionId
     {

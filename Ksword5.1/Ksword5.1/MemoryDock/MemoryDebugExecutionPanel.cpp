@@ -202,9 +202,9 @@ namespace ks::ui
         pauseExecution->setContext(Qt::WidgetWithChildrenShortcut);
         ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("debug"), pauseExecution);
         connect(pauseExecution, &QShortcut::activated, pause_, &QToolButton::click);
-        step_->setToolTip(step_->toolTip() + QStringLiteral("\nF7"));
-        resume_->setToolTip(resume_->toolTip() + QStringLiteral("\nF9"));
-        pause_->setToolTip(pause_->toolTip() + QStringLiteral("\nF12"));
+        ks::ui::ShortcutRegistry::instance().setShortcutHint(QStringLiteral("debug.step"), step_, step_->toolTip());
+        ks::ui::ShortcutRegistry::instance().setShortcutHint(QStringLiteral("debug.continue"), resume_, resume_->toolTip());
+        ks::ui::ShortcutRegistry::instance().setShortcutHint(QStringLiteral("debug.pause"), pause_, pause_->toolTip());
         connect(backend_, &QComboBox::activated, this, [this](const int index)
         {
             const QPointer<MemoryDebugExecutionPanel> self(this); // HVM 关闭会处理嵌套事件循环。

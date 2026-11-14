@@ -81,6 +81,8 @@ namespace ks::ui
     class CommandExecutionPopup; // 前置声明：标题栏 CMD 命令选项弹层。
     struct CommandExecutionOptions; // 前置声明：CMD 命令启动选项快照。
     class NotificationCardManager;
+    class ShortcutManagerDialog;
+    class TaskManagerDialog;
 }
 
 class QDialog;
@@ -452,6 +454,9 @@ private:
     void openProjectPageFromMenu(const QString& urlText, const QString& failureTitle);
     void launchRescueDesktopFromMenu(QAction* action);
     std::unique_ptr<SosHotkeyLauncher> m_sosHotkeyLauncher;
+    QPointer<ks::ui::ShortcutManagerDialog> m_shortcutManagerWindow;
+    QPointer<ks::ui::TaskManagerDialog> m_taskManagerWindow;
+    void showShortcutManagerFromMenu(bool systemPage = false);
     // showLicenseFromMenu 作用：读取程序同目录 LICENSE 文件并展示许可证内容。
     void showLicenseFromMenu();
 

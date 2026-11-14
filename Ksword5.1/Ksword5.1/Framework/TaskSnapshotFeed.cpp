@@ -1,3 +1,4 @@
+#include "BackgroundTaskRegistry.h"
 #include "TaskSnapshotFeed.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -26,6 +27,13 @@ namespace ks::ui
         // 只保留一处任务轮询；日志过期和通知布局仍由通知端自己的定时器负责。
         m_timer = new QTimer(this);
         m_timer->setInterval(100);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_tasks_snapshot_feed;
+    taskPolicy_tasks_snapshot_feed.canPause = true;
+    taskPolicy_tasks_snapshot_feed.canChangeInterval = true;
+    taskPolicy_tasks_snapshot_feed.allowMultipleInstances = false;
+    taskPolicy_tasks_snapshot_feed.minimumIntervalMs = 50;
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("tasks.snapshot_feed"),
+        QStringLiteral("单次任务状态同步"), QStringLiteral("任务中心"), m_timer, std::move(taskPolicy_tasks_snapshot_feed));
         connect(m_timer, &QTimer::timeout, this, [this]() { refreshNow(); });
         m_timer->start();
     }

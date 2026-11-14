@@ -223,6 +223,10 @@
     <ClCompile Include="Framework\NotificationCardManager.cpp" />
     <ClCompile Include="Framework\DestructiveActionConfirmation.cpp" />
     <ClCompile Include="Framework\Progress.cpp" />
+    <ClCompile Include="Framework\BackgroundTaskRegistry.cpp" />
+    <ClCompile Include="UI\ShortcutRegistry.cpp" />
+    <ClCompile Include="UI\BackgroundTaskPage.cpp" />
+    <ClCompile Include="UI\ShortcutManagerDialog.cpp" />
     <ClCompile Include="Framework\TaskSnapshotFeed.cpp" />
     <ClCompile Include="Framework\ProgressDockWidget.cpp" />
     <ClCompile Include="Framework\CustomTitleBar.cpp" />
@@ -933,6 +937,9 @@
     <ClInclude Include="Framework\DestructiveActionConfirmation.h" />
     <ClInclude Include="Framework\PrivilegeElevationPrompt.h" />
     <ClInclude Include="Framework\ProgressDockWidget.h" />
+    <ClInclude Include="Framework\BackgroundTaskRegistry.h" />
+    <ClInclude Include="UI\ShortcutRegistry.h" />
+    <ClInclude Include="UI\RuntimeControlPages.h" />
     <ClInclude Include="Framework\TaskSnapshotFeed.h" />
     <ClInclude Include="Framework\StartupSplash.h" />
     <ClInclude Include="Framework\StartupSplashLayout.h" />

@@ -1,5 +1,6 @@
 #include "./NavigationHighlight.h"
 #include "GlobalUiSearch.h"
+#include "ShortcutRegistry.h"
 #include "./ScopedObjectDiscoveryCursor.h"
 
 #include "TableSearchSupport.h"
@@ -1040,18 +1041,16 @@ namespace ks::ui
                     && !keyEvent->modifiers().testFlag(Qt::ControlModifier)
                     && !keyEvent->modifiers().testFlag(Qt::AltModifier)
                     && !keyEvent->modifiers().testFlag(Qt::MetaModifier))
-                    || (mouseless && keyEvent->key() == Qt::Key_S
-                        && keyEvent->modifiers().testFlag(Qt::ControlModifier)
-                        && keyEvent->modifiers().testFlag(Qt::AltModifier)
-                        && !keyEvent->modifiers().testFlag(Qt::GroupSwitchModifier)
-                        && !keyEvent->modifiers().testFlag(Qt::MetaModifier));
+                    || (mouseless && (ShortcutRegistry::instance().matches(QStringLiteral("keyboard.scope_next"), keyEvent)
+                        || ShortcutRegistry::instance().matches(QStringLiteral("keyboard.scope_previous"), keyEvent)));
                 if (isScopeCycleKey)
                 {
                     // direction 用途：兼容 Key_Backtab 和带 Shift 的 Key_Tab 两种反向事件。
-                    const int direction = keyEvent->key() == Qt::Key_Backtab
-                        || keyEvent->modifiers().testFlag(Qt::ShiftModifier)
+                    const int direction = mouseless
+                        ? (ShortcutRegistry::instance().matches(QStringLiteral("keyboard.scope_previous"), keyEvent) ? -1 : 1)
+                        : (keyEvent->key() == Qt::Key_Backtab || keyEvent->modifiers().testFlag(Qt::ShiftModifier)
                         ? -1
-                        : 1;
+                        : 1);
                     if (m_searchModeActive)
                     {
                         cycleSearchScope(direction);

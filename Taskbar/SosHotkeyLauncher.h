@@ -27,7 +27,8 @@ public:
     // - 返回：无。
     explicit SosHotkeyLauncher(const QString& applicationDirectoryPath);
     SosHotkeyLauncher(const QString& applicationDirectoryPath,
-        const QString& rescueHostPath, std::function<void(DWORD)> launchFailure = {});
+        const QString& rescueHostPath, std::function<void(DWORD)> launchFailure = {},
+        std::function<void(bool)> launchActivity = {});
 
     // 析构函数：
     // - 处理：停止钩子线程并注销 WH_KEYBOARD_LL；
@@ -38,7 +39,7 @@ public:
     // - 输入：无；
     // - 处理：启动专用高优先级键盘钩子线程；
     // - 返回：true 表示线程创建成功，false 表示已经失败。
-    bool start();
+    bool start(bool monitorKeyboard = true);
 
     // stop：
     // - 输入：无；
@@ -48,6 +49,7 @@ public:
 
     // 菜单与 SOS 共用独立线程启动入口；钩子不可用时仍允许菜单直接派发监护进程。
     void requestLaunch();
+    bool isRunning() const { return m_hookInstalled.load(std::memory_order_acquire); }
 
 private:
     // lowLevelKeyboardProc：
@@ -98,6 +100,7 @@ private:
     std::thread m_hookThread;                        // 专用键盘钩子线程。
     std::atomic_bool m_stopRequested{ false };       // 线程退出请求标记。
     std::atomic_bool m_hookInstalled{ false };       // WH_KEYBOARD_LL 是否安装成功。
+    bool m_monitorKeyboard = true;
 
     std::mutex m_stateMutex;                         // 线程启动状态互斥锁。
     std::condition_variable m_stateCondition;        // start 等待线程就绪的条件变量。
@@ -114,6 +117,7 @@ private:
     HANDLE m_rescueHostProcess = nullptr;            // 避免重复 SOS 创建并发救援会话。
     std::mutex m_launchMutex;
     std::function<void(DWORD)> m_launchFailure;
+    std::function<void(bool)> m_launchActivity;
 };
 
 #endif
