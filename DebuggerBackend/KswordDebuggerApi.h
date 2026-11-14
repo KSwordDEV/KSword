@@ -68,6 +68,32 @@
 #define KSWORD_DEBUGGER_NOATTACH 33U
 // Independent ordinary-driver exception transport, sharing the stop document.
 #define KSWORD_DEBUGGER_KERNEL_NOATTACH 34U
+// Arm an independent transport for a frontend's native debugger lifecycle.
+#define KSWORD_DEBUGGER_FRONTEND_NOATTACH 35U
+#define KSWORD_DEBUGGER_FRONTEND_VERSION 1U
+#define KSWORD_DEBUGGER_FRONTEND_QUERY 0U
+#define KSWORD_DEBUGGER_FRONTEND_SELECT 1U
+#define KSWORD_DEBUGGER_FRONTEND_CLOSE 2U
+#define KSWORD_DEBUGGER_FRONTEND_PAUSE 3U
+#define KSWORD_DEBUGGER_FRONTEND_STEP_OVER_TARGET 4U
+#define KSWORD_DEBUGGER_FRONTEND_DISABLED 0U
+#define KSWORD_DEBUGGER_FRONTEND_ARMED 1U
+#define KSWORD_DEBUGGER_FRONTEND_ACTIVE 2U
+#define KSWORD_DEBUGGER_FRONTEND_RECOVERY 3U
+
+typedef struct KSWORD_DEBUGGER_FRONTEND_REQUEST
+{
+    uint32_t version, size, operation, command;
+    uint32_t processId, threadId, flags, reserved;
+} KSWORD_DEBUGGER_FRONTEND_REQUEST;
+
+typedef struct KSWORD_DEBUGGER_FRONTEND_STATUS
+{
+    uint32_t version, size, state, command;
+    uint32_t processId, threadId, driverState, capabilities;
+    uint64_t sessionId, stopId;
+    uint32_t stopReason, lastError;
+} KSWORD_DEBUGGER_FRONTEND_STATUS;
 
 // All pointers are encoded as uint64_t so the ABI is stable across adapters.
 typedef struct KSWORD_DEBUGGER_CALL

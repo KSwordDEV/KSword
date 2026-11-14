@@ -16,6 +16,8 @@
     <ClCompile Include="BackendTests.cpp" />
     <ClCompile Include="..\KswordDebuggerBackend.cpp" />
     <ClCompile Include="..\KswordDebuggerDebug.cpp" />
+    <ClCompile Include="..\KswordIndependentFrontend.cpp" />
+    <ClInclude Include="..\KswordIndependentFrontend.h" />
     <ClCompile Include="..\KswordDebuggerNative.cpp" />
     <ClCompile Include="..\KswordDebuggerMemory.cpp" />
   </ItemGroup>

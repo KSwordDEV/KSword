@@ -245,6 +245,15 @@ namespace ksword::debugger
         if (call.command == KSWORD_DEBUGGER_OPERATION_LAYOUT && input != nullptr && call.inputBytes == sizeof(DWORD))
         {
             DWORD command = 0; std::memcpy(&command, input, sizeof(command));
+            if (command == KSWORD_DEBUGGER_FRONTEND_NOATTACH)
+            {
+                if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPERATION_INFO)) return ERROR_INSUFFICIENT_BUFFER;
+                const KSWORD_DEBUGGER_OPERATION_INFO info{KSWORD_DEBUGGER_API_VERSION, command,
+                    sizeof(KSWORD_DEBUGGER_FRONTEND_REQUEST), sizeof(KSWORD_DEBUGGER_FRONTEND_STATUS),
+                    KSWORD_DEBUGGER_FRONTEND_VERSION, 0};
+                std::memcpy(output, &info, sizeof(info)); call.bytesReturned = sizeof(info);
+                return ERROR_SUCCESS;
+            }
             if (command == KSWORD_DEBUGGER_NOATTACH || command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
             {
                 if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPERATION_INFO)) return ERROR_INSUFFICIENT_BUFFER;
@@ -255,8 +264,20 @@ namespace ksword::debugger
                 return ERROR_SUCCESS;
             }
         }
+        if (call.command == KSWORD_DEBUGGER_FRONTEND_NOATTACH)
+        {
+            if (input == nullptr || call.inputBytes != sizeof(KSWORD_DEBUGGER_FRONTEND_REQUEST)) return ERROR_INVALID_PARAMETER;
+            if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_FRONTEND_STATUS)) return ERROR_INSUFFICIENT_BUFFER;
+            KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
+            KSWORD_DEBUGGER_FRONTEND_STATUS response{};
+            std::memcpy(&request, input, sizeof(request));
+            const DWORD result = independent_.control(request, response);
+            std::memcpy(output, &response, sizeof(response)); call.bytesReturned = sizeof(response);
+            return result;
+        }
         if (call.command == KSWORD_DEBUGGER_NOATTACH || call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
         {
+            if (independent_.selected() && !independentDispatch_) return ERROR_BUSY;
             const bool kernelTransport = call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH;
             const DWORD protocol = kernelTransport ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION;
             if (noAttachReserved_ && noAttachTransport_ != call.command) return ERROR_BUSY;
@@ -309,7 +330,7 @@ namespace ksword::debugger
             return ERROR_SUCCESS; // Preserve NTSTATUS separately; an accepted STEP is not a completed step.
         }
         // Keep the legacy raw native/HVM control plane out of this independent lifecycle.
-        if (noAttachReserved_ && call.command >= KSWORD_DEBUGGER_HVM_STATUS && call.command <= KSWORD_DEBUGGER_NATIVE)
+        if ((noAttachReserved_ || independent_.selected()) && call.command >= KSWORD_DEBUGGER_HVM_STATUS && call.command <= KSWORD_DEBUGGER_NATIVE)
             return ERROR_BUSY;
         if (call.command == KSWORD_DEBUGGER_GET_OPTIONS || call.command == KSWORD_DEBUGGER_SET_OPTIONS)
         {

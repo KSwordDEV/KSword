@@ -1,6 +1,7 @@
 #pragma once
 
 #include "KswordDebuggerApi.h"
+#include "KswordIndependentFrontend.h"
 #include "../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 #include "../shared/driver/KswordArkHvmDebugIoctl.h"
 #include "../shared/driver/KswordArkDebuggerIoctl.h"
@@ -49,6 +50,7 @@ namespace ksword::debugger
         bool initialize();
         bool shutdown();
         DWORD dispatch(KSWORD_DEBUGGER_CALL& call);
+        IndependentFrontend& independentFrontend() { return independent_; }
         DWORD setUseHvm(bool enabled);
         KSWORD_DEBUGGER_BACKEND_STATUS status();
         KSWORD_DEBUGGER_OPTIONS options();
@@ -107,6 +109,7 @@ namespace ksword::debugger
         HANDLE brokerOpenHandle(DWORD pid, DWORD tid, DWORD desiredAccess, BOOL inherit = FALSE,
             ark::DriverHandle* targetDevice = nullptr);
     private:
+        friend class IndependentFrontend;
 #ifdef KSWORD_DEBUGGER_TESTING
         friend struct BackendTestPeer;
 #endif
@@ -122,6 +125,9 @@ namespace ksword::debugger
         bool hasHvmBreakpointRules() const;
         // One lock serializes policy changes with high-frequency memory access.
         std::recursive_mutex mutex_;
+        IndependentFrontend independent_{*this};
+        // Only the native adapter may spend its retained file's stop identity.
+        bool independentDispatch_ = false;
         ark::DriverClient client_;
         ark::DriverHandle driver_;
         // The no-attach owner must keep one exact control file until confirmed CLOSE.

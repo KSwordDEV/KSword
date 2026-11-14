@@ -1,4 +1,5 @@
 #include "../KswordDebuggerBackend.h"
+#include "../../shared/driver/KswordArkKernelNoAttachIoctl.h"
 
 #include <cstring>
 #include <future>
@@ -36,6 +37,19 @@ namespace
         std::map<std::uint64_t, ShadowPage> shadowPages;
         std::map<DWORD, KSWORD_ARK_HVM_DEBUG_REQUEST> stops;
     } model;
+    // Independent no-attach IOCTL fixture: one owned session with deterministic
+    // state transitions. The driver reply mirrors the request's identity so
+    // the frontend's own validation can run end-to-end without a real VMM.
+    struct NoAttachModel
+    {
+        unsigned long state = KSWORD_ARK_HVM_NOATTACH_CLOSED;
+        unsigned long long sessionId = 0, stopId = 0;
+        unsigned long stopReason = 0;
+        unsigned long nextBreakpointId = 0;
+        unsigned long processId = 0, threadId = 0;
+        std::map<unsigned long, unsigned long long> breakpoints;
+        bool unsupported = false;
+    } noAttachModel;
     void require(bool condition, const char* message)
     { if (!condition) throw std::runtime_error(message); }
     ksword::ark::IoResult success(DWORD bytes = 0)
@@ -261,6 +275,90 @@ namespace ksword::ark
             }
             return success(outputBytes);
         }
+        if (ioctl == IOCTL_KSWORD_ARK_HVM_NOATTACH || ioctl == IOCTL_KSWORD_ARK_KERNEL_NOATTACH)
+        {
+            const auto& request = *static_cast<const KSWORD_ARK_HVM_NOATTACH_REQUEST*>(input);
+            auto& response = *static_cast<KSWORD_ARK_HVM_NOATTACH_RESPONSE*>(output);
+            const unsigned long protocol = ioctl == IOCTL_KSWORD_ARK_KERNEL_NOATTACH ?
+                KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION;
+            response = {}; response.version = protocol; response.size = sizeof(response);
+            response.capabilities = KSWORD_ARK_HVM_NOATTACH_CAP_SINGLE_USER_THREAD |
+                KSWORD_ARK_HVM_NOATTACH_CAP_GPR | KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION |
+                KSWORD_ARK_HVM_NOATTACH_CAP_BREAKPOINT | KSWORD_ARK_HVM_NOATTACH_CAP_SET_GPR |
+                KSWORD_ARK_HVM_NOATTACH_DIAG_MBEC | KSWORD_ARK_HVM_NOATTACH_DIAG_MTF;
+            if (noAttachModel.unsupported)
+            { response.state = KSWORD_ARK_HVM_NOATTACH_UNSUPPORTED; return success(outputBytes); }
+            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN)
+            {
+                require(noAttachModel.state == KSWORD_ARK_HVM_NOATTACH_CLOSED, "OPEN on an already-owned session");
+                noAttachModel.sessionId = 1; noAttachModel.state = KSWORD_ARK_HVM_NOATTACH_RUNNING;
+                noAttachModel.stopId = 0; noAttachModel.stopReason = 0;
+                noAttachModel.breakpoints.clear(); noAttachModel.nextBreakpointId = 0;
+                noAttachModel.processId = request.processId; noAttachModel.threadId = request.threadId;
+            }
+            else if (request.operation == KSWORD_ARK_HVM_NOATTACH_PAUSE)
+            {
+                require(noAttachModel.sessionId == request.sessionId, "PAUSE sessionId mismatch");
+                noAttachModel.state = KSWORD_ARK_HVM_NOATTACH_STOPPED; noAttachModel.stopId = 1;
+                noAttachModel.stopReason = KSWORD_ARK_HVM_NOATTACH_STOP_FETCH;
+            }
+            else if (request.operation == KSWORD_ARK_HVM_NOATTACH_STEP ||
+                     request.operation == KSWORD_ARK_HVM_NOATTACH_CONTINUE ||
+                     request.operation == KSWORD_ARK_HVM_NOATTACH_RUN_TO ||
+                     request.operation == KSWORD_ARK_HVM_NOATTACH_SET_GPR)
+            {
+                require(noAttachModel.sessionId == request.sessionId &&
+                    noAttachModel.stopId == request.stopId,
+                    "Resume consumed a stale stop identity");
+                ++noAttachModel.stopId;
+                noAttachModel.state = KSWORD_ARK_HVM_NOATTACH_STOPPED;
+                noAttachModel.stopReason = request.operation == KSWORD_ARK_HVM_NOATTACH_STEP ?
+                    KSWORD_ARK_HVM_NOATTACH_STOP_STEP :
+                    request.operation == KSWORD_ARK_HVM_NOATTACH_SET_GPR ?
+                    KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT : KSWORD_ARK_HVM_NOATTACH_STOP_FETCH;
+            }
+            else if (request.operation == KSWORD_ARK_HVM_NOATTACH_ADD_BREAKPOINT)
+            {
+                require(noAttachModel.state == KSWORD_ARK_HVM_NOATTACH_STOPPED,
+                    "Breakpoint edits require a held stop identity");
+                ++noAttachModel.nextBreakpointId;
+                noAttachModel.breakpoints[noAttachModel.nextBreakpointId] = request.address;
+                ++noAttachModel.stopId;
+                noAttachModel.stopReason = KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT;
+            }
+            else if (request.operation == KSWORD_ARK_HVM_NOATTACH_REMOVE_BREAKPOINT)
+            {
+                require(noAttachModel.breakpoints.erase(request.breakpointId) == 1,
+                    "REMOVE_BREAKPOINT missed the recorded id");
+                ++noAttachModel.stopId;
+                noAttachModel.stopReason = KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT;
+            }
+            else if (request.operation == KSWORD_ARK_HVM_NOATTACH_CLOSE)
+            {
+                noAttachModel.state = KSWORD_ARK_HVM_NOATTACH_CLOSED;
+                noAttachModel.sessionId = 0; noAttachModel.stopId = 0;
+                noAttachModel.stopReason = 0; noAttachModel.breakpoints.clear();
+            }
+            response.state = noAttachModel.state;
+            response.sessionId = noAttachModel.sessionId;
+            response.stopId = noAttachModel.stopId;
+            response.stopReason = noAttachModel.stopReason;
+            response.processId = noAttachModel.processId;
+            response.threadId = noAttachModel.threadId;
+            response.processCreationTime = request.processCreationTime;
+            response.threadCreationTime = request.threadCreationTime;
+            unsigned long index = 0;
+            for (const auto& bp : noAttachModel.breakpoints)
+            {
+                if (index >= KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS) break;
+                response.breakpoints[index].id = bp.first;
+                response.breakpoints[index].address = bp.second;
+                response.breakpoints[index].flags = 0;
+                ++index;
+            }
+            response.breakpointCount = index;
+            return success(outputBytes);
+        }
         IoResult result{}; result.win32Error = ERROR_NOT_SUPPORTED; return result;
     }
 }
@@ -444,6 +542,159 @@ namespace
             logs.find("occurrences=10") != std::string::npos && logs.find("changed native failure reason") != std::string::npos,
             "Identical transient logs were not aggregated independently or changed reasons were suppressed");
         std::cout << "PASS: context pre-mutation ownership rejection/no rollback, harmless clear, real Shadow rollback, error31 fallback counts and aggregated diagnostics\n";
+    }
+
+    void independentFrontendControlTests()
+    {
+        using ksword::debugger::Backend;
+        Backend value;
+        require(value.initialize(), "Independent frontend backend init failed");
+        auto& frontend = value.independentFrontend();
+        KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
+        KSWORD_DEBUGGER_FRONTEND_STATUS status{};
+        require(frontend.control(request, status) == ERROR_REVISION_MISMATCH,
+            "FRONTEND packet without version/size was accepted");
+        request.version = KSWORD_DEBUGGER_FRONTEND_VERSION; request.size = sizeof(request);
+        request.operation = KSWORD_DEBUGGER_FRONTEND_QUERY;
+        require(frontend.control(request, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_DISABLED && status.command == 0 &&
+            status.processId == 0 && status.threadId == 0 && status.sessionId == 0 && status.stopId == 0,
+            "Initial FRONTEND_QUERY returned a non-disabled state");
+        request.reserved = 1;
+        require(frontend.control(request, status) == ERROR_REVISION_MISMATCH,
+            "Reserved field accepted a non-zero value");
+        request.reserved = 0;
+        request.operation = KSWORD_DEBUGGER_FRONTEND_SELECT;
+        request.command = KSWORD_DEBUGGER_HVM_STATUS;
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED;
+        request.processId = GetCurrentProcessId(); request.threadId = GetCurrentThreadId();
+        require(frontend.control(request, status) == ERROR_INVALID_PARAMETER,
+            "SELECT accepted a command outside the independent transport set");
+        request.command = KSWORD_DEBUGGER_NOATTACH; request.flags = 0;
+        require(frontend.control(request, status) == ERROR_ACCESS_DENIED,
+            "SELECT accepted a packet without the CONFIRMED acknowledgement");
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | KSWORD_ARK_KERNEL_NOATTACH_HOOK_ACK;
+        require(frontend.control(request, status) == ERROR_ACCESS_DENIED,
+            "HVM SELECT accepted the kernel-only HOOK_ACK flag");
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | 0x80000000UL;
+        require(frontend.control(request, status) == ERROR_ACCESS_DENIED,
+            "SELECT accepted unknown flag bits");
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED;
+        request.processId = 4;
+        require(frontend.control(request, status) == ERROR_INVALID_PARAMETER,
+            "SELECT accepted a system-protected process identifier");
+        request.processId = GetCurrentProcessId(); request.threadId = 0;
+        require(frontend.control(request, status) == ERROR_INVALID_PARAMETER,
+            "SELECT accepted a zero thread identifier");
+        request.threadId = GetCurrentThreadId();
+        require(frontend.control(request, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_ARMED && status.command == KSWORD_DEBUGGER_NOATTACH &&
+            status.processId == GetCurrentProcessId() && status.threadId == GetCurrentThreadId(),
+            "HVM SELECT with CONFIRMED did not reach the armed state");
+        require(frontend.selected() && !frontend.active() && !frontend.ownsProcess(GetCurrentProcessId()),
+            "selected() must not imply active() before start()");
+        request.operation = KSWORD_DEBUGGER_FRONTEND_STEP_OVER_TARGET;
+        request.processId = 0x00010000U; request.threadId = 0x12345678U;
+        require(frontend.control(request, status) == ERROR_INVALID_STATE,
+            "STEP_OVER_TARGET accepted before an owned stop existed");
+        request.operation = KSWORD_DEBUGGER_FRONTEND_PAUSE;
+        require(frontend.control(request, status) == ERROR_INVALID_STATE,
+            "PAUSE accepted on an armed but not started session");
+        request.operation = 9999U;
+        require(frontend.control(request, status) == ERROR_INVALID_PARAMETER,
+            "Unknown FRONTEND operation was accepted");
+        request.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
+        require(frontend.control(request, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_DISABLED && !frontend.selected(),
+            "CLOSE from an armed-but-not-reserved state did not reset the selection");
+        request.operation = KSWORD_DEBUGGER_FRONTEND_SELECT;
+        request.command = KSWORD_DEBUGGER_KERNEL_NOATTACH;
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED;
+        request.processId = GetCurrentProcessId(); request.threadId = GetCurrentThreadId();
+        require(frontend.control(request, status) == ERROR_ACCESS_DENIED,
+            "Kernel SELECT accepted a packet without HOOK_ACK");
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED;
+        require(frontend.control(request, status) == ERROR_ACCESS_DENIED,
+            "Kernel SELECT accepted HVM-only ALLOW_NESTED without HOOK_ACK");
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | KSWORD_ARK_KERNEL_NOATTACH_HOOK_ACK;
+        require(frontend.control(request, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_ARMED && status.command == KSWORD_DEBUGGER_KERNEL_NOATTACH,
+            "Kernel SELECT with HOOK_ACK did not reach the armed state");
+        request.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
+        require(frontend.control(request, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_DISABLED,
+            "Kernel CLOSE did not release the armed selection");
+        ksword::debugger::BackendTestPeer::attach(value);
+        request.operation = KSWORD_DEBUGGER_FRONTEND_SELECT;
+        request.command = KSWORD_DEBUGGER_NOATTACH;
+        request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED;
+        request.processId = GetCurrentProcessId(); request.threadId = GetCurrentThreadId();
+        require(frontend.control(request, status) == ERROR_BUSY,
+            "SELECT accepted a packet while the backend already owned a debug port");
+        require(value.shutdown(), "Independent frontend backend shutdown failed");
+        std::cout << "PASS: IndependentFrontend::control argument validation, flag/pid/tid preconditions, mutual exclusion with backend attach\n";
+    }
+
+    void independentFrontendLifecycleTests()
+    {
+        using ksword::debugger::Backend;
+        Backend value;
+        require(value.initialize(), "Independent frontend lifecycle backend init failed");
+        noAttachModel = NoAttachModel{};
+        auto& frontend = value.independentFrontend();
+        KSWORD_DEBUGGER_FRONTEND_REQUEST select{};
+        select.version = KSWORD_DEBUGGER_FRONTEND_VERSION; select.size = sizeof(select);
+        select.operation = KSWORD_DEBUGGER_FRONTEND_SELECT;
+        select.command = KSWORD_DEBUGGER_NOATTACH;
+        select.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED;
+        select.processId = GetCurrentProcessId(); select.threadId = GetCurrentThreadId();
+        KSWORD_DEBUGGER_FRONTEND_STATUS status{};
+        require(frontend.control(select, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_ARMED &&
+            noAttachModel.state == KSWORD_ARK_HVM_NOATTACH_CLOSED,
+            "Lifecycle SELECT must not drive the driver IOCTL");
+        require(value.attach(GetCurrentProcessId()) != FALSE, "Lifecycle attach failed");
+        require(frontend.active() && frontend.ownsProcess(GetCurrentProcessId()) &&
+            noAttachModel.state == KSWORD_ARK_HVM_NOATTACH_STOPPED &&
+            noAttachModel.sessionId != 0 && noAttachModel.stopId == 1,
+            "Attach did not drive OPEN+PAUSE through the driver IOCTL");
+        KSWORD_ARK_HVM_NOATTACH_RESPONSE snapshot{};
+        require(frontend.snapshot(snapshot) == ERROR_SUCCESS &&
+            snapshot.state == KSWORD_ARK_HVM_NOATTACH_STOPPED &&
+            snapshot.sessionId == noAttachModel.sessionId && snapshot.stopId == noAttachModel.stopId,
+            "QUERY snapshot did not return the held stop");
+        std::uint32_t breakpointId = 0;
+        require(frontend.addBreakpoint(0x00401000ULL, false, breakpointId) == ERROR_SUCCESS &&
+            breakpointId != 0 && noAttachModel.breakpoints.size() == 1 &&
+            noAttachModel.breakpoints.begin()->second == 0x00401000ULL,
+            "Breakpoint add did not record the frontend-owned id");
+        require(frontend.removeBreakpoint(breakpointId) == ERROR_SUCCESS &&
+            noAttachModel.breakpoints.empty(),
+            "Breakpoint remove did not retire the recorded id");
+        require(frontend.addBreakpoint(0x00401000ULL, false, breakpointId) == ERROR_SUCCESS &&
+            noAttachModel.breakpoints.size() == 1,
+            "Second breakpoint add failed");
+        KSWORD_DEBUGGER_FRONTEND_REQUEST close{};
+        close.version = KSWORD_DEBUGGER_FRONTEND_VERSION; close.size = sizeof(close);
+        close.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
+        require(frontend.control(close, status) == ERROR_SUCCESS &&
+            status.state == KSWORD_DEBUGGER_FRONTEND_DISABLED && !frontend.selected() &&
+            noAttachModel.state == KSWORD_ARK_HVM_NOATTACH_CLOSED &&
+            noAttachModel.sessionId == 0 && noAttachModel.breakpoints.empty(),
+            "Frontend CLOSE did not retire the driver session and its breakpoints");
+        require(value.shutdown(), "Independent frontend lifecycle shutdown failed");
+        noAttachModel.unsupported = true;
+        Backend unsupported;
+        require(unsupported.initialize(), "Unsupported fixture init failed");
+        auto& unsupportedFrontend = unsupported.independentFrontend();
+        require(unsupportedFrontend.control(select, status) == ERROR_SUCCESS,
+            "SELECT refused on an unsupported platform before driver contact");
+        require(unsupported.attach(GetCurrentProcessId()) == FALSE && !unsupportedFrontend.active() &&
+            !unsupportedFrontend.selected(),
+            "Attach silently accepted an unsupported transport");
+        noAttachModel.unsupported = false;
+        require(unsupported.shutdown(), "Unsupported fixture shutdown failed");
+        std::cout << "PASS: IndependentFrontend lifecycle (SELECT->attach->OPEN+PAUSE->QUERY->BP add/remove->CLOSE), capability veto on unsupported platforms\n";
     }
 }
 
@@ -786,6 +1037,8 @@ int main()
         require(KSwordDebuggerCall(&call) == ERROR_SUCCESS && call.bytesReturned == sizeof(offlineOptions) &&
             offlineOptions.size == sizeof(offlineOptions), "Offline options persistence requires a connected driver");
         contextPreflightTests();
+        independentFrontendControlTests();
+        independentFrontendLifecycleTests();
         std::cout << "PASS: R0/HVM memory, EPT rollback, native ownership/generation, context preservation, Shadow code/data policy, patch/INT3 restore, ABI pointer isolation\n";
         return 0;
     }
