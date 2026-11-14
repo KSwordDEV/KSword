@@ -1597,6 +1597,8 @@ KswordARKHvmResidentDeactivateCurrent(
         /* Report that no safe devirtualization occurred. */
         return FALSE;
     }
+    /* TF 的处理器本地责任必须先归还，不能让 VMXOFF 将私有 TF 带回 Windows。 */
+    if (!KswordARKHvmNoAttachTfDisarm(Context)) { return FALSE; }
     /*
      * A fail-closed exit is a whole-machine event, so publish it before this
      * processor does anything else.

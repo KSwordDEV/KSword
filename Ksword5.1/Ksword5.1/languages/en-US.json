@@ -44912,6 +44912,12 @@
     "目标已退出，运行控制已撤销；请关闭以确认资源释放。": "The target exited and execution control was revoked; close to confirm resource release.",
     "等待目标提交": "Awaiting target commit",
     "管理当前后端执行断点、运行到地址和整数寄存器": "Manage execution breakpoints, run to address, and integer registers for this backend",
-    "选定线程已停止；其它线程继续运行。可单步或继续。": "The selected thread is stopped; other threads keep running. Step or continue is available."
+    "选定线程已停止；其它线程继续运行。可单步或继续。": "The selected thread is stopped; other threads keep running. Step or continue is available.",
+    "实验 HVM：先刷新并选择线程。要求 Intel MBEC；优先 MTF，备用 VMX TF 会明确报告且 TF 可观察。不注入、不建立调试附加。": "Experimental HVM: refresh and select a thread first. Intel MBEC is required. MTF is preferred; VMX TF is explicitly reported and TF is observable. No target injection or debug attachment.",
+    "将开启独占的 Intel 虚拟化调试会话，允许支持的来宾嵌套执行。要求 MBEC；优先 MTF，缺少 MTF 时仅在具备完整事件拦截能力的平台使用 VMX TF。备用模式的 TF 可观察，仅支持只读普通用户指令，特殊边界或故障可中断执行。是否启动？": "Start an exclusive Intel virtualization debug session, allowing supported nested guests. MBEC is required. MTF is preferred; without it, VMX TF requires complete event interception. TF is observable in this mode, which supports checked ordinary instructions in read-only user code. Special boundaries or faults can interrupt execution. Start?",
+    " · VMX TF：TF 可观察，仅支持只读代码中的已验证指令类别。": " · VMX TF: TF is observable; only checked instruction classes in read-only code are supported.",
+    "VMX TF/#DB 边界": "VMX TF/#DB boundary",
+    "VMX 拦截自有 TF/#DB 的单线程停止快照；TF 可观察，不修改目标代码或 DR，不包含 XSTATE。": "Single-thread stop captured by VMX interception of owned TF/#DB. TF is observable. Target code and DR are unchanged; XSTATE is not included.",
+    "不附加模式：独立内存与反汇编、R3 线程检查、普通驱动异常控制、协作 VEH 或 Intel HVM 执行控制；目标与线程范围由当前会话明确显示。": "No-attach mode: independent memory/disassembly, R3 thread inspection, ordinary-driver exception control, cooperative VEH, or Intel HVM execution control. The current session explicitly identifies its process and thread scope."
   }
 }

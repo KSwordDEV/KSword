@@ -280,6 +280,10 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     BOOLEAN NoAttachBypass;
     /* 同一 EPTP 的 bank 重用前在本处理器执行 INVEPT。 */
     ULONGLONG NoAttachWatchGeneration;
+    /* 追加字段不改变汇编依赖的既有成员偏移。 */
+    BOOLEAN NoAttachTfArmed;
+    /* 恢复原始控制；普通算术产生的新 RFLAGS 状态必须保留。 */
+    ULONGLONG NoAttachTfPin, NoAttachTfBitmap;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START

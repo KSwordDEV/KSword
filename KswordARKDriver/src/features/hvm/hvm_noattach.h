@@ -49,6 +49,8 @@ typedef struct _KSW_NA_PIN
     ULONGLONG Address;
     /* 保存安装时的真实 backing 页。 */
     ULONGLONG Physical;
+    /* TF 边界仅从预先锁定的只读系统映射检查指令，不在 root 读取用户虚拟地址。 */
+    PVOID Mapping;
 } KSW_NA_PIN;
 
 /* 保留一份不可变目标绑定，直到全部常驻读者排空。 */
@@ -74,6 +76,16 @@ typedef struct _KSW_HVM_NOATTACH
     BOOLEAN Initialized;
     /* 驱动卸载排空回调前，停止排入新工作。 */
     BOOLEAN ShuttingDown;
+    /* MTF 可用时始终优先；此位只选择明确报告的 VMX TF 边界。 */
+    BOOLEAN UseTf;
+    /* 固定诊断只记录实际体系结构值，不能作为停止或执行授权。 */
+    ULONG TfArmStage, TfPrecheckReject, TfExitReason;
+    /* 中断前未执行指令时可有界重试，不能消费另一份普通寄存器现场。 */
+    volatile LONG TfRetryAfterInterrupt;
+    /* 单次请求限制重试预算，避免永远隐藏无法执行的边界。 */
+    ULONG TfRetryCount;
+    /* root 只写固定存储，普通 CLOSE 负责格式化审计。 */
+    ULONGLONG TfExitQualification, TfExitInfo, TfBoundary[9];
     /* 在驱动生命周期内保留异步关闭工作项。 */
     WDFWORKITEM Work;
     /* 绑定真实请求方对象，不信任调用方提供的 PID。 */
@@ -125,6 +137,17 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(KSW_HVM_NOATTACH_FILE_CONTEXT, KswordARKHvmNo
 
 /* 单会话存储位于非分页内存，地址在驱动生命周期内固定。 */
 extern KSW_HVM_NOATTACH g_KswordNoAttach;
+/* 所需中断拦截和退出控制必须确实可用。 */
+BOOLEAN KswordARKHvmNoAttachTfAvailable(VOID);
+/* 只在普通控制面锁定当前停止指令的 backing。 */
+NTSTATUS KswordARKHvmNoAttachPinStepCode(ULONGLONG Address);
+/* TF 控制始终按处理器记账；失败会归还已修改的 VMCS 字段。 */
+BOOLEAN KswordARKHvmNoAttachTfEnable(KSW_HVM_RESIDENT_VCPU *Context, BOOLEAN Enable);
+/* 任意退出或 VMXOFF 前都必须先归还自有 TF 和临时拦截。 */
+BOOLEAN KswordARKHvmNoAttachTfDisarm(KSW_HVM_RESIDENT_VCPU *Context);
+/* 只将纯自有 BS 映射成完成；真实其它异常保持体系结构投递。 */
+BOOLEAN KswordARKHvmNoAttachTfRetire(KSW_HVM_RESIDENT_VCPU *Context, ULONG *Reason,
+    ULONGLONG Qualification, BOOLEAN *Forwarded);
 /* 初始化生命周期回调，不进入 VMX。 */
 NTSTATUS KswordARKHvmNoAttachInitialize(VOID);
 /* 既有运行时销毁前，先撤销、排空并退休本会话。 */

@@ -52,3 +52,11 @@ Intel 已有 vmcs12、退出反射和影子 EPT 路径，不能再用“Nested �
 ## 验证边界
 
 macOS 上的 JSON、i18n、IOCTL registry、位值唯一性和源码静态检查不证明 WDK/MSVC 编译或真实 Intel 多核 VMX、电源转换、Processor Group、Hyper-V/VBS 冲突和 SCM unload 行为。最终验收必须在 Windows Intel 机器上完成驱动构建、加载、prepare/self-test/start/stop、睡眠/Modern Standby（设备支持时）、CPU 拓扑策略和卸载恢复测试。
+
+## 2026-11-13 用户态 native-return 边界
+
+- 指定 26H2-11-Pro、ntoskrnl 26100.9974 的独立 HVM 首轮测试产生 7F/8。匹配本轮驱动 PDB 的小转储显示 CPL0 在 `hvm_entry.asm` 把 RSP 切为 `0000002B F0EEF758` 后，首次 `push r10` 触发故障；不能把这条内核栈 RET 路径宣称为任意 CPL3 返回已验证。CDB 的 ntoskrnl 缺符号提示不作为根因证据。
+- 独立 NoAttach `NaFail` 已改为先恢复 TF/临时控制和普通 EPT 根，撤销执行发布、保留引用与 VMX 资源，等待控制面在内核 IPI/VMCALL 边界 Close；恢复不了体系结构字段则保留致命错误。此修改不等于其它通用 fault-stop 来源的所有用户态 VMXOFF 路径均已整改。
+- 无 MTF 的来宾现在可使用明确的 VMX TF/#DB 备用边界：只读代码、保守指令类别、异常/IRQ 投递前退休 TF、同一指令有界 IRQ 重试，RF 从停止身份比较中单独排除。MTF 路径保留并优先，不能把 VMX TF 验收写成物理 MTF 验收。
+- 最终 0BEDB0407F525BBF9FBEB16C4CFDC639FCB12E687FEB53CE37808C2DA76B7C60 候选完成 CE/Titan HVM 各 48、停点中 Close 26、普通后端后再开 HVM 48 项；最后 processors=0/0，所有测试目标退出 0。119 项生产 VMCS 夹具覆盖 RF/IRQ/资源保留等回归；准确记录见 `docs/无附加调试执行后端.md`。
+- 本用户禁止创建检查点。验收后已恢复 Secure Boot、VBS/HVCI 运行与原 BCD，删除仅本任务服务/暂存；VM Off、启动 4 GB、nested False、Checkpoint Disabled/Automatic False/Count 0，宿主安全设置未变。

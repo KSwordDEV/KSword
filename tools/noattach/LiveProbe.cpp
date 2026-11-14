@@ -54,9 +54,12 @@ namespace
         KSWORD_ARK_HVM_NOATTACH_RESPONSE response{};
         KSWORD_DEBUGGER_CALL call{KSWORD_DEBUGGER_API_VERSION, sizeof(call), kernelTransport ? KSWORD_DEBUGGER_KERNEL_NOATTACH : KSWORD_DEBUGGER_NOATTACH, 0,
             reinterpret_cast<std::uintptr_t>(&request), reinterpret_cast<std::uintptr_t>(&response), sizeof(request), sizeof(response), 0, 0};
+        if (operation != KSWORD_ARK_HVM_NOATTACH_QUERY)
+        { std::printf("REQUEST op=%lu session=%llu stop=%llu\n", operation, request.sessionId, request.stopId); std::fflush(stdout); }
         const auto transport = backendCall(&call);
         if (operation != KSWORD_ARK_HVM_NOATTACH_QUERY || transport || response.status < 0 ||
-            response.state != current.state || response.sessionId != current.sessionId || response.stopId != current.stopId)
+            response.state != current.state || response.sessionId != current.sessionId || response.stopId != current.stopId ||
+            response.capabilities != current.capabilities)
         {
             std::printf("CONTROL op=%lu transport=%lu NTSTATUS=%08lX state=%lu session=%llu stop=%llu capabilities=%lX\n", operation,
                 transport, static_cast<unsigned long>(response.status), response.state, response.sessionId, response.stopId, response.capabilities);
@@ -132,7 +135,8 @@ int wmain(int argc, wchar_t** argv)
     if (argc == 3 && std::wcscmp(argv[1], L"--target") == 0) return target(argv[2]);
     if (argc != 3 || (std::wcscmp(argv[1], L"--vm-confirmed") != 0 && std::wcscmp(argv[1], L"--kernel-vm-confirmed") != 0 &&
                      std::wcscmp(argv[1], L"--query-only") != 0 && std::wcscmp(argv[1], L"--kernel-query-only") != 0 &&
-                     std::wcscmp(argv[1], L"--kernel-close-stopped-vm-confirmed") != 0))
+                     std::wcscmp(argv[1], L"--kernel-close-stopped-vm-confirmed") != 0 &&
+                     std::wcscmp(argv[1], L"--close-stopped-vm-confirmed") != 0))
     { std::fprintf(stderr, "Use in the selected test VM: --vm-confirmed | --kernel-vm-confirmed | --query-only | --kernel-query-only <absolute backend DLL>\n"); return 2; }
     kernelTransport = std::wcsstr(argv[1], L"kernel") != nullptr;
     closeAtStop = std::wcsstr(argv[1], L"close-stopped") != nullptr;
@@ -159,6 +163,8 @@ int wmain(int argc, wchar_t** argv)
         noDebugObject(child.value);
         opened = true; // An uncertain OPEN ACK still requires QUERY/CLOSE recovery.
         check(control(KSWORD_ARK_HVM_NOATTACH_OPEN, 0, 0, shared->pid, shared->tid), "selected independent backend opens in selected VM");
+        std::printf("MECHANISM=%s\n", kernelTransport ? "KERNEL_TF_DR" :
+            (current.capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF) ? "VMX_TF_EPT" : "VMX_MTF_EPT");
         check(control(KSWORD_ARK_HVM_NOATTACH_PAUSE), "pause is requested explicitly"); stopped(KSWORD_ARK_HVM_NOATTACH_STOP_FETCH);
         check(current.processId == shared->pid && current.threadId == shared->tid, "stop is the requested process/thread");
         const auto ticks = shared->heartbeat; Sleep(100);
@@ -176,7 +182,7 @@ int wmain(int argc, wchar_t** argv)
         if (closeAtStop)
         {
             check(control(KSWORD_ARK_HVM_NOATTACH_CLOSE) && current.state == 0 && current.sessionId == 0,
-                "close at a live DR stop confirms restoration and observer drain");
+                "close at a live backend stop confirms restoration and observer drain");
             check(wait([shared]() { return shared->completed == 1; }) && shared->value == 0x101,
                 "formerly stopped instruction completes with original registers after close");
         }
@@ -184,7 +190,8 @@ int wmain(int argc, wchar_t** argv)
         {
         check(!control(KSWORD_ARK_HVM_NOATTACH_STEP, 0, 0, 0, 0, 0, initialStop + 1) && current.stopId == initialStop,
             "stale stop identity is rejected without consuming the real stop");
-        check(control(KSWORD_ARK_HVM_NOATTACH_STEP), kernelTransport ? "TF step is accepted" : "MTF step is accepted"); stopped(KSWORD_ARK_HVM_NOATTACH_STOP_STEP);
+        check(control(KSWORD_ARK_HVM_NOATTACH_STEP), kernelTransport ? "ordinary-driver TF step is accepted" :
+            (current.capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF) ? "VMX TF step is accepted" : "MTF step is accepted"); stopped(KSWORD_ARK_HVM_NOATTACH_STOP_STEP);
         check(current.stopId > initialStop && current.rip == shared->code + 13 && current.rax == 0x101, "one known INC retires into a new hardware step stop");
         check((current.rflags & 0x100) == 0, "owned TF is clear after the actual hardware step");
         check(control(KSWORD_ARK_HVM_NOATTACH_SET_GPR, 0, 0, 0, 0, 0x777), "integer register edit is accepted");

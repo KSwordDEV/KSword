@@ -4,7 +4,12 @@ static KSW_HVM_RUNTIME runtime;
 static std::array<std::array<SIZE_T, 0x7000>, 2> vmcs{};
 static std::array<KSW_HVM_RESIDENT_VCPU, 2> cpus{};
 static unsigned int cpu = 0, checks = 0, probes = 0, unlocks = 0, invepts = 0, rendezvous = 0;
+static unsigned int devirtualizations = 0;
 static bool targetThread = true;
+static bool tfAvailable = false;
+static std::array<unsigned char, 4096> tfCode{};
+static unsigned long long mockDr6 = 0xFFFF0FF0, mockCr2 = 0;
+static DWORD mockProtection = PAGE_EXECUTE_READ;
 static std::unordered_map<unsigned long long, unsigned long long> mappings;
 
 static void check(bool valid, const char* description)
@@ -38,9 +43,21 @@ NTSTATUS KswordARKHvmResidentInvalidateEpt(unsigned long long)
 unsigned char KswordARKHvmAsmInveptSingle(unsigned long long) { ++invepts; return 0; }
 unsigned char KswordARKHvmVmcsFieldLoad(unsigned long field, SIZE_T* value) { *value = vmcs[cpu].at(field); return 0; }
 unsigned char KswordARKHvmVmcsFieldStore(unsigned long field, SIZE_T value) { vmcs[cpu].at(field) = value; return 0; }
-BOOLEAN KswordARKHvmResidentDeactivateCurrent(KSW_HVM_RESIDENT_VCPU*, unsigned long, BOOLEAN) { return TRUE; }
+BOOLEAN KswordARKHvmResidentDeactivateCurrent(KSW_HVM_RESIDENT_VCPU*, unsigned long, BOOLEAN) { ++devirtualizations; return TRUE; }
 void* KeGetCurrentThread() { return reinterpret_cast<void*>(static_cast<std::uintptr_t>(targetThread ? 1 : 2)); }
-unsigned long long fixtureReadMsr(unsigned long) { return static_cast<unsigned long long>(KSW_NOATTACH_MBEC_CONTROL) << 32; }
+unsigned long long fixtureReadMsr(unsigned long number)
+{
+    if (number == 0x480) return 1ULL << 55;
+    if (number == 0x48D || number == 0x481) return tfAvailable ? 9ULL << 32 : 0;
+    if (number == 0x48F || number == 0x483) return 0;
+    return static_cast<unsigned long long>(KSW_NOATTACH_MBEC_CONTROL) << 32;
+}
+unsigned long long fixtureReadDr(int) { return mockDr6; }
+void fixtureWriteDr(int, unsigned long long value) { mockDr6 = value; }
+void fixtureWriteCr2(unsigned long long value) { mockCr2 = value; }
+void* MmGetSystemAddressForMdlSafe(PMDL, unsigned long) { return tfCode.data(); }
+NTSTATUS ZwQueryVirtualMemory(HANDLE, void*, int, MEMORY_BASIC_INFORMATION* result, SIZE_T, SIZE_T* returned)
+{ *result = {}; result->State = MEM_COMMIT; result->Protect = mockProtection; *returned = sizeof(*result); return STATUS_SUCCESS; }
 BOOLEAN KswordARKHvmNoAttachOwned() { return g_KswordNoAttach.Owned != 0; }
 void KeStackAttachProcess(void*, void*) {}
 void KeUnstackDetachProcess(void*) {}
@@ -205,6 +222,97 @@ int main()
         at(run.address, 0xA010, bank->Eptp); exitAt(48);
         check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_STOPPED && (bank->Disabled & 1), "one-shot consumes its own match only");
         check(invepts >= 4 && rendezvous >= 3, "bank reuse requires per-CPU invalidation and barriers");
+        // Exercise the actual VMX TF code, with no VMX or privileged instruction.
+        tfAvailable = true;
+        check(KswordARKHvmNoAttachTfAvailable(), "TF availability requires real pin/exit capabilities");
+        g_KswordNoAttach.UseTf = TRUE;
+        check(NT_SUCCESS(KswordARKHvmNoAttachPinStepCode(run.address)), "TF code pin has an ordinary-mode mapping");
+        const auto pinnedCount = g_KswordNoAttach.PinCount;
+        check(NT_SUCCESS(KswordARKHvmNoAttachPinStepCode(run.address)) && g_KswordNoAttach.PinCount == pinnedCount,
+              "repeated TF steps reuse the same revalidated backing");
+        cpu = 0;
+        tfCode.fill(0x90); tfCode[0] = 0x48; tfCode[1] = 0xFF; tfCode[2] = 0xC0;
+        vmcs[0][0x2400] = 0xA000; vmcs[0][0x4000] = 8; vmcs[0][0x4004] = 0;
+        vmcs[0][0x6820] = 0x202; vmcs[0][0x6822] = 0; vmcs[0][0x400C] = 0;
+        vmcs[0][0x4016] = 0; vmcs[0][0x4408] = 0; vmcs[0][0x4824] = 0;
+        vmcs[0][0x681A] = 0; vmcs[0][0x2802] = 0;
+        check(KswordARKHvmNoAttachTfEnable(&cpus[0], TRUE), "real VMX TF boundary arms at a checked INC");
+        check(vmcs[0][0x6820] == 0x302 && vmcs[0][0x4000] == 9 && vmcs[0][0x4004] == 0xFFFFFFFF,
+              "TF arm intercepts asynchronous and synchronous delivery without changing IF");
+        check(!cpus[1].NoAttachTfArmed, "TF arm remains processor local");
+        vmcs[0][0x6820] = 0x346; vmcs[0][0x4404] = 0x80000301;
+        ULONG boundaryReason = 0; BOOLEAN forwarded = FALSE;
+        check(KswordARKHvmNoAttachTfRetire(&cpus[0], &boundaryReason, 0x4000, &forwarded) && boundaryReason == 37 && !forwarded,
+              "only an actual pure owned BS becomes execution completion");
+        check(vmcs[0][0x6820] == 0x246 && vmcs[0][0x4000] == 8 && vmcs[0][0x4004] == 0 && !cpus[0].NoAttachTfArmed,
+              "retirement restores controls and keeps the instruction's arithmetic flags");
+        check(KswordARKHvmNoAttachTfEnable(&cpus[0], TRUE), "TF rearms for a fault experiment");
+        vmcs[0][0x4404] = 0x80000B0E; vmcs[0][0x4406] = 5; boundaryReason = 0;
+        check(KswordARKHvmNoAttachTfRetire(&cpus[0], &boundaryReason, 0x12345000, &forwarded) && forwarded && boundaryReason == 0,
+              "a real page fault is forwarded and never reported as a step");
+        check(mockCr2 == 0x12345000 && vmcs[0][0x4016] == 0x80000B0E && vmcs[0][0x4018] == 5 && !(vmcs[0][0x6820] & 0x100),
+              "page-fault address/error survive and TF is removed before delivery");
+        vmcs[0][0x4016] = 0;
+        check(KswordARKHvmNoAttachTfEnable(&cpus[0], TRUE), "TF rearms before an unacknowledged interrupt");
+        boundaryReason = 1;
+        check(KswordARKHvmNoAttachTfRetire(&cpus[0], &boundaryReason, 0, &forwarded) && forwarded && boundaryReason == 1 && vmcs[0][0x4016] == 0,
+              "unacknowledged interrupt is left for normal guest delivery without a fabricated vector");
+        at(run.address & ~0xFFFULL, 0xA000, g_KswordNoAttach.UserGateEptp);
+        frame.Rax = 0x100; vmcs[0][0x6820] = 0x10202;
+        pause();
+        const auto beforeIrqStep = g_KswordNoAttach.Snapshot.stopId;
+        g_KswordNoAttach.State = KSWORD_ARK_HVM_NOATTACH_STEP_PENDING;
+        exitAt(48);
+        check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_STEPPING && cpus[0].NoAttachTfArmed,
+              "real exit state machine arms TF before testing IRQ retry");
+        exitAt(1, 0);
+        check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_STEP_PENDING && !cpus[0].NoAttachTfArmed &&
+              g_KswordNoAttach.TfRetryCount == 1 && g_KswordNoAttach.Snapshot.stopId == beforeIrqStep,
+              "IRQ before instruction retirement preserves the same consumed STEP request");
+        vmcs[0][0x6820] = 0x202;
+        exitAt(48);
+        check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_STEPPING && cpus[0].NoAttachTfArmed,
+              "interrupt-return RF change alone does not discard the frozen instruction");
+        vmcs[0][0x681E] += 3; frame.Rax = 0x101; vmcs[0][0x6820] = 0x306; vmcs[0][0x4404] = 0x80000301;
+        exitAt(0, 0x4000);
+        check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_STOPPED && g_KswordNoAttach.Snapshot.stopReason == 2 &&
+              g_KswordNoAttach.Snapshot.stopId == beforeIrqStep + 1 && g_KswordNoAttach.Snapshot.rax == 0x101 &&
+              !g_KswordNoAttach.TfRetryAfterInterrupt,
+              "only the later real BS publishes completion after an IRQ retry");
+        const auto actualStepStop = g_KswordNoAttach.Snapshot.stopId;
+        vmcs[0][0x6820] |= 0x10000;
+        vmcs[0][0x201A] = g_KswordNoAttach.UserGateEptp;
+        exitAt(48);
+        check(g_KswordNoAttach.Snapshot.stopId == actualStepStop && g_KswordNoAttach.Snapshot.stopReason == 2,
+              "CPU-owned EPT resume-flag change never overwrites a completed STEP with a spurious FETCH");
+        vmcs[0][0x6820] ^= 1;
+        exitAt(48);
+        check(g_KswordNoAttach.Snapshot.stopId == actualStepStop + 1 && g_KswordNoAttach.Snapshot.stopReason == 1,
+              "ordinary flag changes still invalidate the previous stop identity");
+        mockProtection = PAGE_EXECUTE_READWRITE;
+        const auto beforeWritablePin = g_KswordNoAttach.PinCount;
+        check(KswordARKHvmNoAttachPinStepCode(run.address) == STATUS_NOT_SUPPORTED && g_KswordNoAttach.PinCount == beforeWritablePin,
+              "writable executable code is rejected before a TF pin is retained");
+        mockProtection = PAGE_EXECUTE_READ;
+        const std::array<std::array<unsigned char, 3>, 6> unsafe{{{{0x0F,0x05,0}},{{0xCD,0x2E,0}},{{0x8E,0xD0,0}},{{0x9D,0,0}},{{0xCF,0,0}},{{0xFF,0x18,0}}}};
+        for (const auto& instruction : unsafe)
+        { check(!NaTfOpcode(instruction.data(), static_cast<ULONG>(instruction.size())), "privilege/flags/SS/interrupt boundary is rejected before TF arm"); }
+        tfCode[0] = 0x0F; tfCode[1] = 0x05;
+        check(!KswordARKHvmNoAttachTfEnable(&cpus[0], TRUE) && !cpus[0].NoAttachTfArmed && !(vmcs[0][0x6820] & 0x100),
+              "rejected syscall never changes TF or retains temporary controls");
+        at(address + 0x4000, 0xB000, g_KswordNoAttach.UserGateEptp);
+        pause();
+        g_KswordNoAttach.State = KSWORD_ARK_HVM_NOATTACH_CONTINUE_PENDING;
+        exitAt(48);
+        check(g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_RUNNING && !cpus[0].NoAttachBypass &&
+              !cpus[0].NoAttachTfArmed && vmcs[0][0x201A] == bank->Eptp,
+              "continue outside the watch page never arms a pointless TF boundary");
+        ULONG recoveryAction = KSW_HVM_EXIT_ACTION_FATAL;
+        check(NaFail(&cpus[0], &recoveryAction) && recoveryAction == KSW_HVM_EXIT_ACTION_RESUME && devirtualizations == 0,
+              "user-mode recovery never switches a kernel continuation onto a user stack");
+        check(g_KswordNoAttach.Owned && !g_KswordNoAttach.Enabled &&
+              g_KswordNoAttach.State == KSWORD_ARK_HVM_NOATTACH_RECOVERY_REQUIRED && vmcs[0][0x201A] == g_KswordNoAttach.NormalEptp,
+              "recovery releases execution restrictions but retains resources for kernel-mode close");
         KswordARKHvmNoAttachReleasePins();
         check(probes == unlocks && g_KswordNoAttach.PinCount == 0, "all temporary and lifetime page locks are balanced");
         for (unsigned long i = 0; i < runtime.EptPageCount; ++i) VirtualFree(runtime.EptPages[i].VirtualAddress, 0, MEM_RELEASE);

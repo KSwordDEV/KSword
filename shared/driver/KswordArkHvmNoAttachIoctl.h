@@ -16,7 +16,7 @@
 #define KSWORD_ARK_HVM_NOATTACH_OPEN 1UL
 /* 请求在选定线程的下一次用户指令取指处停止。 */
 #define KSWORD_ARK_HVM_NOATTACH_PAUSE 2UL
-/* 消费一次停止身份，并请求一个真实的 MTF 执行边界。 */
+/* 消费停止身份，请求真实 MTF 或明确报告的 VMX TF 执行边界。 */
 #define KSWORD_ARK_HVM_NOATTACH_STEP 3UL
 /* 消费一次停止身份，并允许正常执行。 */
 #define KSWORD_ARK_HVM_NOATTACH_CONTINUE 4UL
@@ -40,11 +40,11 @@
 #define KSWORD_ARK_HVM_NOATTACH_RUNNING 1UL
 /* 已请求暂停，但尚未捕获真实的用户取指。 */
 #define KSWORD_ARK_HVM_NOATTACH_PAUSE_PENDING 2UL
-/* 选定线程停留在真实用户取指或匹配的 MTF 边界。 */
+/* 选定线程停留在真实用户取指或匹配的执行边界。 */
 #define KSWORD_ARK_HVM_NOATTACH_STOPPED 3UL
 /* 停止身份已被消费，正在等待该线程的下一次取指。 */
 #define KSWORD_ARK_HVM_NOATTACH_STEP_PENDING 4UL
-/* 一个处理器拥有正在执行的 MTF 请求。 */
+/* 一个处理器拥有正在执行的单步请求。 */
 #define KSWORD_ARK_HVM_NOATTACH_STEPPING 5UL
 /* 中途发生其它退出，不能认定单条指令已完成。 */
 #define KSWORD_ARK_HVM_NOATTACH_INTERRUPTED 6UL
@@ -60,7 +60,7 @@
 #define KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING 11UL
 /* 停止快照来自选定线程的用户取指。 */
 #define KSWORD_ARK_HVM_NOATTACH_STOP_FETCH 1UL
-/* 停止快照来自匹配的真实 MTF 完成边界。 */
+/* 停止快照来自匹配的真实 MTF/VMX TF 完成边界。 */
 #define KSWORD_ARK_HVM_NOATTACH_STOP_STEP 2UL
 /* EPT 页执行违规经目标线程和精确 RIP 筛选后的停点。 */
 #define KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT 3UL
@@ -70,12 +70,14 @@
 #define KSWORD_ARK_HVM_NOATTACH_CAP_SINGLE_USER_THREAD 1UL
 /* 仅表示 GPR、RIP、RSP 和 RFLAGS；明确不包含 XSTATE。 */
 #define KSWORD_ARK_HVM_NOATTACH_CAP_GPR 2UL
-/* 必须同时具备原生 Intel MBEC、MTF 和单上下文 INVEPT。 */
+/* 要求 Intel MBEC、单上下文 INVEPT 以及 MTF 或显式 VMX TF 边界。 */
 #define KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION 4UL
 /* 页权限触发、精确地址/线程筛选，临时放行使用处理器本地 EPTP。 */
 #define KSWORD_ARK_HVM_NOATTACH_CAP_BREAKPOINT 8UL
 /* 仅整数寄存器；没有 SIMD、XSTATE 或调试寄存器编辑。 */
 #define KSWORD_ARK_HVM_NOATTACH_CAP_SET_GPR 16UL
+/* 无 MTF 时由 VMX 拦截自有 TF/#DB；TF 可观察，指令类别受保守检查。 */
+#define KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF 32UL
 /* 诊断位独立于 EXECUTION，缺少某一前提也能说明实际拒绝原因。 */
 #define KSWORD_ARK_HVM_NOATTACH_DIAG_MBEC 0x10000UL
 /* 此位只表示 MTF 硬件控制实际可用，不等于会话已经启动。 */

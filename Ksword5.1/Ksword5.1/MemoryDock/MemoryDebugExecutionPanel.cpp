@@ -291,7 +291,7 @@ namespace ks::ui
         status_->setText(mode_ == 3
             ? T("普通驱动：先刷新并选定线程。要求已验证内核与测试签名，HVCI 关闭；使用 TF/DR，不注入目标。首次启用后驱动留驻至重启。")
             : mode_ == 2
-            ? T("实验 HVM：先刷新并选择线程，再显式启动。仅支持 Intel MBEC/MTF；不注入、不建立调试附加。")
+            ? T("实验 HVM：先刷新并选择线程。要求 Intel MBEC；优先 MTF，备用 VMX TF 会明确报告且 TF 可观察。不注入、不建立调试附加。")
             : mode_ == 1
                 ? T("目标须主动启动协作组件；点击连接，不自动注入。暂停请求在目标的下一个主动检查点生效。")
                 : T("刷新线程后可检查寄存器或暂停一个线程。此模式没有异常消费者，不能单步。"));
@@ -356,7 +356,7 @@ namespace ks::ui
             const QPointer<MemoryDebugExecutionPanel> self(this);
             const auto answer = QMessageBox::warning(this, T("实验无附加执行控制"),
                 mode_ == 3 ? T("将修改已验证内核的异常分发入口，使用 TF 和 DR 控制一个用户线程，不建立 Windows 调试关系或注入目标。首次安装后转接器和驱动留驻至重启；关闭会话恢复目标状态和异常入口。此研究后端不保证 PatchGuard 兼容。是否启动？")
-                    : T("将开启独占的 Intel 虚拟化调试会话，支持的来宾允许嵌套执行。仅选定线程可停止和单步，其它线程继续运行。要求 MBEC 与 MTF，平台不支持时明确拒绝。是否启动？"),
+                    : T("将开启独占的 Intel 虚拟化调试会话，允许支持的来宾嵌套执行。要求 MBEC；优先 MTF，缺少 MTF 时仅在具备完整事件拦截能力的平台使用 VMX TF。备用模式的 TF 可观察，仅支持只读普通用户指令，特殊边界或故障可中断执行。是否启动？"),
                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
             if (!self || answer != QMessageBox::Yes)
             {
@@ -685,6 +685,7 @@ namespace ks::ui
             hvmResponse_ = response;
         hvmAvailable_ = response.status >= 0
             && (response.capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION) != 0;
+        const bool vmxTf = mode_ == 2 && (response.capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF) != 0;
         if (response.sessionId != 0)
         {
             hvmSessionId_ = response.sessionId;
@@ -743,6 +744,7 @@ namespace ks::ui
             status_->setText(stopped_ ? T("选定线程已停止；其它线程继续运行。可单步或继续。")
                 : T("执行请求等待目标线程的真实边界；尚无新的停止现场。"));
         }
+        if (vmxTf) status_->setText(status_->text() + T(" · VMX TF：TF 可观察，仅支持只读代码中的已验证指令类别。"));
         if (!stopped_)
         {
             return;
@@ -770,12 +772,13 @@ namespace ks::ui
         document_.field(T("线程创建时间（100ns）"), QString::number(response.threadCreationTime));
         document_.field(T("停止代次"), QString::number(response.stopId));
         document_.field(T("停止来源"), response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_STEP
-            ? (mode_ == 3 ? T("TF 单步异常") : T("MTF 单步边界")) : response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT
+            ? (mode_ == 3 ? T("TF 单步异常") : vmxTf ? T("VMX TF/#DB 边界") : T("MTF 单步边界")) : response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT
                 ? (mode_ == 3 ? T("DR 执行断点") : T("EPT 执行断点")) : response.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT
                     ? T("整数寄存器已提交") : T("用户态取指暂停"));
         document_.field(T("断点 ID"), QString::number(response.breakpointId));
         if (mode_ == 2) document_.field(QStringLiteral("CR3"), Hex(response.cr3));
         document_.note(mode_ == 3 ? T("普通驱动当前持有的单线程异常现场；使用 TF/DR，不附加、不注入，不包含 XSTATE。")
+            : vmxTf ? T("VMX 拦截自有 TF/#DB 的单线程停止快照；TF 可观察，不修改目标代码或 DR，不包含 XSTATE。")
             : T("实验 HVM 捕获的单线程停止快照；未修改目标代码、TF 或 DR，不包含 XSTATE。"));
         AddRegisters(document_, response);
         if (newStop && onStoppedAddress)

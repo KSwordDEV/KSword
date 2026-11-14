@@ -1,9 +1,6 @@
+#include <ntifs.h>
 #include "hvm_noattach.h"
 
-/* 普通地址空间切换不创建 Windows 调试关系。 */
-NTKERNELAPI VOID KeStackAttachProcess(PVOID Process, PVOID ApcState);
-/* 与上面的不透明 attach state 成对归还。 */
-NTKERNELAPI VOID KeUnstackDetachProcess(PVOID ApcState);
 /* 所有 EPT 物理表指针必须来自分配台账。 */
 #define NA_PHYSICAL 0x000FFFFFFFFFF000ULL
 
@@ -159,8 +156,8 @@ static NTSTATUS NaProbe(ULONGLONG Address, PMDL *Descriptor, ULONGLONG *Physical
 {
     /* 用同一 MDL 同时证明驻留和 backing 身份。 */
     PMDL mdl;
-    /* 不依赖 KAPC_STATE 的私有布局。 */
-    DECLSPEC_ALIGN(16) UCHAR attach[128];
+    /* 使用 WDK 提供的实际状态类型，不手工猜测私有布局。 */
+    KAPC_STATE attach;
     /* 异常路径只解除成功取得的锁。 */
     NTSTATUS status = STATUS_SUCCESS;
     /* 单字节 pin 不会跨页。 */
@@ -168,12 +165,28 @@ static NTSTATUS NaProbe(ULONGLONG Address, PMDL *Descriptor, ULONGLONG *Physical
     /* 页描述符分配失败无副作用。 */
     if (mdl == NULL) { return STATUS_INSUFFICIENT_RESOURCES; }
     /* 将地址解释限定为已引用的目标进程。 */
-    KeStackAttachProcess(g_KswordNoAttach.Process, attach);
+    KeStackAttachProcess((PRKPROCESS)g_KswordNoAttach.Process, &attach);
     /* 用户探测异常不能越过 attach 的归还。 */
     __try
     {
+        /* TF 路径不接管可写或带 guard 的自修改代码；MTF 仍保持原有能力。 */
+        if (g_KswordNoAttach.UseTf)
+        {
+            /* 只查询已引用目标进程的当前页保护，不修改权限。 */
+            MEMORY_BASIC_INFORMATION information;
+            /* 不完整查询不能被解释为只读代码。 */
+            SIZE_T returned = 0U;
+            /* 当前地址空间已明确绑定为目标，伪句柄不会跨进程猜测。 */
+            status = ZwQueryVirtualMemory(NtCurrentProcess(), (PVOID)(ULONG_PTR)Address,
+                MemoryBasicInformation, &information, sizeof(information), &returned);
+            /* RWX、写复制、guard 及无效区域均在锁页前拒绝。 */
+            if (NT_SUCCESS(status) && (returned < sizeof(information) || information.State != MEM_COMMIT ||
+                (information.Protect & PAGE_GUARD) != 0UL ||
+                ((information.Protect & 0xFFUL) != PAGE_EXECUTE && (information.Protect & 0xFFUL) != PAGE_EXECUTE_READ)))
+            { status = STATUS_NOT_SUPPORTED; }
+        }
         /* 只取得读权限；断点不修改用户页权限。 */
-        MmProbeAndLockPages(mdl, UserMode, IoReadAccess);
+        if (NT_SUCCESS(status)) { MmProbeAndLockPages(mdl, UserMode, IoReadAccess); }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -181,7 +194,7 @@ static NTSTATUS NaProbe(ULONGLONG Address, PMDL *Descriptor, ULONGLONG *Physical
         status = GetExceptionCode();
     }
     /* 无论探测结果如何都恢复调用者地址空间。 */
-    KeUnstackDetachProcess(attach);
+    KeUnstackDetachProcess(&attach);
     /* 失败的探测不拥有锁页引用。 */
     if (!NT_SUCCESS(status)) { IoFreeMdl(mdl); return status; }
     /* MDL 页数组提供此次 pin 的权威 PFN。 */
@@ -199,22 +212,52 @@ static NTSTATUS NaPin(ULONGLONG Address, ULONGLONG *Physical)
     PMDL mdl = NULL;
     /* pin 资源总量单独受会话容量约束。 */
     NTSTATUS status;
-    /* 旧物理页不能为了新安装提前释放。 */
-    if (g_KswordNoAttach.PinCount >= KSW_NA_MAX_PINS) { return STATUS_INSUFFICIENT_RESOURCES; }
     /* 锁定与读取 PFN 由同一份 MDL 完成。 */
-    status = NaProbe(Address, &mdl, Physical);
+    status = NaProbe(Address & ~0xFFFULL, &mdl, Physical);
     /* 失败不保留任何未取得的引用。 */
     if (!NT_SUCCESS(status)) { return status; }
+    /* TF 单步重复使用同一已锁 backing，不能每步耗掉一条长期 pin。 */
+    if (g_KswordNoAttach.UseTf)
+    {
+        /* 每次复用前仍通过新 MDL 复查了 PFN。 */
+        for (ULONG i = 0UL; i < g_KswordNoAttach.PinCount; ++i)
+        {
+            /* 旧 pin 一直保留到完整硬件退出。 */
+            if (g_KswordNoAttach.Pins[i].Physical == *Physical && g_KswordNoAttach.Pins[i].Mapping != NULL)
+            { MmUnlockPages(mdl); IoFreeMdl(mdl); return STATUS_SUCCESS; }
+        }
+    }
+    /* 预算不足时对称归还刚取得的临时锁。 */
+    if (g_KswordNoAttach.PinCount >= KSW_NA_MAX_PINS)
+    { MmUnlockPages(mdl); IoFreeMdl(mdl); return STATUS_INSUFFICIENT_RESOURCES; }
+    /* 系统映射只在普通控制路径建立，root 从不调用内存管理器。 */
+    PVOID mapping = g_KswordNoAttach.UseTf ? MmGetSystemAddressForMdlSafe(mdl,
+        NormalPagePriority | MdlMappingNoExecute | MdlMappingNoWrite) : NULL;
+    /* 没有固定读取来源时不开放未经检查的 TF 放行。 */
+    if (g_KswordNoAttach.UseTf && mapping == NULL)
+    { MmUnlockPages(mdl); IoFreeMdl(mdl); return STATUS_INSUFFICIENT_RESOURCES; }
     /* 新引用在完整硬件退出后统一清理。 */
     g_KswordNoAttach.Pins[g_KswordNoAttach.PinCount].Mdl = mdl;
     /* 保存页面粒度的映射身份。 */
     g_KswordNoAttach.Pins[g_KswordNoAttach.PinCount].Address = Address & ~0xFFFULL;
     /* 保存锁定 backing。 */
     g_KswordNoAttach.Pins[g_KswordNoAttach.PinCount].Physical = *Physical;
+    /* 映射与同一 PFN 一起发布，MmUnlockPages 归还该映射。 */
+    g_KswordNoAttach.Pins[g_KswordNoAttach.PinCount].Mapping = mapping;
+    /* 读者不能先看见数量、后看见半写入映射。 */
+    KeMemoryBarrier();
     /* 最后发布已拥有引用数量。 */
     ++g_KswordNoAttach.PinCount;
     /* 实际有效性仍在查询和命中处分别复核。 */
     return STATUS_SUCCESS;
+}
+
+NTSTATUS KswordARKHvmNoAttachPinStepCode(ULONGLONG Address)
+{
+    /* MTF 不需要读取用户指令；TF 在普通控制面准备固定 backing。 */
+    ULONGLONG physical = 0ULL;
+    /* 不在 VMX root 映射、锁定或查询用户内存。 */
+    return g_KswordNoAttach.UseTf ? NaPin(Address, &physical) : STATUS_SUCCESS;
 }
 
 NTSTATUS KswordARKHvmNoAttachEditBreakpoint(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Request)

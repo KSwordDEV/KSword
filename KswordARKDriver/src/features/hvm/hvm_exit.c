@@ -2481,7 +2481,7 @@ KswordARKHvmResidentVmExitDispatchBody(
     }
     /* 原有全核故障退出门优先；不附加门禁不能阻止其它处理器回滚。 */
     {
-        /* 模块只认领自己制造的 MBEC 取指与单次 MTF，不向 guest 注入异常。 */
+        /* 只消费自有取指/执行边界，无关真实异常保持体系结构投递。 */
         ULONG noAttachAction = KSW_HVM_EXIT_ACTION_RESUME;
         /* 保持现有 VMCALL STOP 的精确 RIP 续跑路径。 */
         if (KswordARKHvmNoAttachHandleExit(Context, Frame, basicReason, telemetry.Qualification, &noAttachAction)) {

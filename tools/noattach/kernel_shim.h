@@ -29,11 +29,23 @@ using NTSTATUS = LONG;
 #define WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(type, name)
 #define KeMemoryBarrier MemoryBarrier
 #define __readmsr fixtureReadMsr
+#define __readdr fixtureReadDr
+#define __writedr fixtureWriteDr
+#define __writecr2 fixtureWriteCr2
+#define NormalPagePriority 0UL
+#define MdlMappingNoExecute 0x40000000UL
+#define MdlMappingNoWrite 0x80000000UL
+#define NtCurrentProcess GetCurrentProcess
+#define MemoryBasicInformation 0
 using EX_PUSH_LOCK = unsigned long long;
 using PEPROCESS = void*;
 using PETHREAD = void*;
 using WDFWORKITEM = void*;
 using WDFFILEOBJECT = void*;
+using PRKPROCESS = void*;
+struct KAPC_STATE { unsigned char opaque[128]; };
+void KeStackAttachProcess(void*, void*);
+void KeUnstackDetachProcess(void*);
 struct PHYSICAL_ADDRESS { long long QuadPart; };
 struct FixtureMdl { unsigned long long address, pfn; bool locked; };
 using PMDL = FixtureMdl*;
@@ -56,8 +68,11 @@ struct KSW_HVM_RESIDENT_VCPU
 {
     KSW_HVM_RUNTIME* Runtime = nullptr;
     unsigned long ProcessorIndex = 0;
+    NTSTATUS LastStatus = STATUS_SUCCESS;
     BOOLEAN NoAttachBypass = FALSE;
     unsigned long long NoAttachWatchGeneration = 0;
+    BOOLEAN NoAttachTfArmed = FALSE;
+    unsigned long long NoAttachTfPin = 0, NoAttachTfBitmap = 0;
 };
 static_assert(sizeof(KSW_HVM_GPR_FRAME) == 120);
 KSW_HVM_RUNTIME* KswordARKHvmGetRuntime();
@@ -69,6 +84,11 @@ unsigned char KswordARKHvmVmcsFieldStore(unsigned long, SIZE_T);
 BOOLEAN KswordARKHvmResidentDeactivateCurrent(KSW_HVM_RESIDENT_VCPU*, unsigned long, BOOLEAN);
 void* KeGetCurrentThread();
 unsigned long long fixtureReadMsr(unsigned long);
+unsigned long long fixtureReadDr(int);
+void fixtureWriteDr(int, unsigned long long);
+void fixtureWriteCr2(unsigned long long);
+void* MmGetSystemAddressForMdlSafe(PMDL, unsigned long);
+NTSTATUS ZwQueryVirtualMemory(HANDLE, void*, int, MEMORY_BASIC_INFORMATION*, SIZE_T, SIZE_T*);
 PMDL IoAllocateMdl(void*, unsigned long, BOOLEAN, BOOLEAN, void*);
 void MmProbeAndLockPages(PMDL, int, int);
 unsigned long long* MmGetMdlPfnArray(PMDL);
