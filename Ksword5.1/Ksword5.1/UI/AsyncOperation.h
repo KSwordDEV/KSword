@@ -115,12 +115,14 @@ namespace ks::ui
             Cleanup cleanup, int workerPriority)
         {
             job.transaction = Transaction;
-            job.launch = [request = std::move(request), worker = std::move(worker), workerPriority](
+            job.launch = [request = std::move(request), worker = std::move(worker), workerPriority,
+                cpu = TaskCpuScope::capture()](
                 const AsyncOperationToken& token)
             {
                 // worker 不持页面守卫；业务查询仍使用既有全局 Qt 线程池。
-                auto* task = QRunnable::create([request, worker, token]()
+                auto* task = QRunnable::create([request, worker, token, cpu]()
                 {
+                    const TaskCpuScope measurement(cpu, TaskCpuPhase::Worker);
 #if KSWORD_PERF_TRACE_ENABLED
                     const auto traceContext = token.perfTraceContext();
                     const PerfTraceContextScope context(traceContext);

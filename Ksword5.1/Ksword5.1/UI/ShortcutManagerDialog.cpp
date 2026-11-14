@@ -132,6 +132,7 @@ namespace ks::ui
         m->occupancy = new QPushButton(i18n::sourceText(QStringLiteral("查找占用")), controls);
         controlRow->addWidget(m->keys);
         for (auto* button : {m->save, m->clear, m->defaults, m->occupancy}) controlRow->addWidget(button);
+        NormalizeToolbarLayout(controlRow);
         ApplyFlatButtonTheme(m->save, FlatButtonTone::Accent, FlatButtonAppearance::Solid);
         footerLayout->addWidget(controls);
         m->status = new QLabel(footer);

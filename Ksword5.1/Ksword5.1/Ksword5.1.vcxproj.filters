@@ -3461,6 +3461,9 @@
     <ClInclude Include="Framework\BackgroundTaskRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Framework\TaskCpuMeasurement.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\ShortcutRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>

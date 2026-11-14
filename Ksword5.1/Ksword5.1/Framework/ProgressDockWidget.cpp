@@ -123,8 +123,7 @@ void ProgressDockWidget::applyTransparentBackgroundPolicy()
     // - QScrollArea；
     // - viewport；
     // - 承载卡片的滚动内容层。
-    setStyleIfChanged(this,
-        QStringLiteral(
+    const QString surfaceStyle = QStringLiteral(
         "#ksProgressDockRoot,"
         "#ksProgressDockScrollArea,"
         "#ksProgressDockViewport,"
@@ -141,7 +140,9 @@ void ProgressDockWidget::applyTransparentBackgroundPolicy()
         "#ksProgressDockRoot QProgressBar{"
         "  color:%1;"
         "}")
-        .arg(buildHighContrastTextHex()));
+        .arg(buildHighContrastTextHex());
+    setProperty("ksword_progress_surface_style_block", surfaceStyle);
+    setStyleIfChanged(this, surfaceStyle);
 }
 
 void ProgressDockWidget::initializeSnapshotFeed()

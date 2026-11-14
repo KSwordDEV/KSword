@@ -9941,8 +9941,9 @@ void HardwareDock::refreshAllViews()
     try
     {
         queued = QMetaObject::invokeMethod(state,
-            [dispatcher, receipt, state, receiver = this]()
+            [dispatcher, receipt, state, receiver = this, cpu = ks::ui::TaskCpuScope::capture()]()
             {
+                const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Worker);
                 std::shared_ptr<PerformanceSample> sample;
                 try { sample = std::make_shared<PerformanceSample>(state->collect()); }
                 catch (...) { /* A failed provider/allocation still retires the physical lane. */ }
@@ -10206,8 +10207,9 @@ bool HardwareDock::sampleGpuUsages(std::vector<GpuUsageSample>* sampleListOut)
     {
         const bool includeGpuClockTelemetry = m_hardwareDetailsSamplingEnabled;
         QThreadPool::globalInstance()->start(
-            [samplingStatePointer, includeGpuClockTelemetry]()
+            [samplingStatePointer, includeGpuClockTelemetry, cpu = ks::ui::TaskCpuScope::capture()]()
             {
+                const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Worker);
                 // DXGI 与 PDH 全部在本线程内完成，COM 接口指针不跨线程传递。
                 const HRESULT comInitializeStatus = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 

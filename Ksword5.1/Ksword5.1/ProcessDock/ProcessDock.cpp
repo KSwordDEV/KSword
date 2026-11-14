@@ -8003,6 +8003,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     // 否则内层 QueuedConnection lambda 在工作线程里无法再引用 requestAsyncRefresh 的参数。
     const bool forceUiRefresh = forceRefresh;
     QRunnable* backgroundTask = QRunnable::create([
+        cpu = ks::ui::TaskCpuScope::capture(),
         guard,
         localTicket,
         strategyIndex,
@@ -8023,6 +8024,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
         cpuCoreCaptureGeneration,
         cpuCoreSnapshotDue,
         previousCpuCoreUsageSnapshot]() mutable {
+        const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Worker);
         std::unordered_map<std::uint32_t, NetworkTrafficCounters> networkTrafficSnapshot;
         const auto networkHealth = networkService ? networkService->SnapshotHealth() : ks::network::ProcessNetworkEtwHealth{};
         bool networkSnapshotValid = false;
@@ -8091,10 +8093,12 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
 
         // 结果通过队列连接回主线程更新 UI。
         QMetaObject::invokeMethod(guard, [
+            cpu,
             guard,
             localTicket,
             refreshResult = std::move(refreshResult),
             forceUiRefresh]() mutable {
+            const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Completion);
             if (guard == nullptr)
             {
                 return;

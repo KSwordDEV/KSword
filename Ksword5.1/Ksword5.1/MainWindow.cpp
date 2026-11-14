@@ -1584,7 +1584,7 @@ namespace
             return;
         }
 
-        const QColor backgroundColor = KswordTheme::SurfaceColor();
+        const QColor backgroundColor = KswordTheme::SurfaceAltColor();
         QPalette popupPalette = targetWidget->palette();
         popupPalette.setColor(QPalette::Window, backgroundColor);
         popupPalette.setColor(QPalette::Base, backgroundColor);
@@ -1597,6 +1597,8 @@ namespace
             QPalette::HighlightedText,
             KswordTheme::MaximumContrastMonochromeColor(KswordTheme::ControlAccentColor()));
         popupPalette.setColor(QPalette::Mid, KswordTheme::BorderColor());
+        popupPalette.setColor(QPalette::Disabled, QPalette::Text,
+            KswordTheme::EnsureTextContrast(KswordTheme::TextDisabledColor(), backgroundColor, 3.0));
         if (targetWidget->palette() != popupPalette)
         {
             targetWidget->setPalette(popupPalette);
@@ -1643,8 +1645,7 @@ namespace
             popupContainer != comboBox &&
             popupContainer->windowFlags().testFlag(Qt::Popup);
 
-        const bool autoThemed = itemView->property(kKswordComboPopupAutoThemedPropertyName).toBool();
-        if (!autoThemed && !itemView->styleSheet().trimmed().isEmpty())
+        if (comboBox->property("ksword_combo_popup_custom").toBool())
         {
             return;
         }
@@ -1652,15 +1653,15 @@ namespace
         if (hasDedicatedPopupContainer)
         {
             applyOpaqueComboPopupPalette(popupContainer);
+            popupContainer->setProperty("ksword_combo_popup_container", true);
             const QString popupContainerStyle = QStringLiteral(
-                "QFrame{"
+                "QFrame[ksword_combo_popup_container=\"true\"]{"
                 "  background-color:%1 !important;"
                 "  color:%2 !important;"
-                "  border:1px solid %3 !important;"
+                "  border:none !important;"
                 "}")
-                .arg(KswordTheme::SurfaceColorHex())
-                .arg(KswordTheme::TextPrimaryColorHex())
-                .arg(KswordTheme::BorderColorHex());
+                .arg(KswordTheme::SurfaceAltColorHex())
+                .arg(KswordTheme::TextPrimaryColorHex());
             if (popupContainer->styleSheet() != popupContainerStyle)
             {
                 popupContainer->setStyleSheet(popupContainerStyle);

@@ -246,6 +246,7 @@ struct MonitorPanelWidget::SamplingState final
     {
         std::shared_ptr<SamplingReceipt> receipt;
         std::function<void()> completion; // Constructed on GUI; only handed to the existing dispatcher.
+        ks::ui::TaskCpuToken cpu = ks::ui::TaskCpuScope::capture();
     };
     struct NetworkBaseline { std::uint64_t rx = 0, tx = 0, timeMs = 0; };
     SamplingState(int count, std::shared_ptr<ks::ui::AsyncUiDispatcher> target)
@@ -341,6 +342,7 @@ struct MonitorPanelWidget::SamplingState final
                     value = std::move(*pending);
                     pending.reset();
                 }
+                const ks::ui::TaskCpuScope measurement(value.cpu, ks::ui::TaskCpuPhase::Worker);
                 try { collect(value.receipt->sample); }
                 catch (...) { value.receipt->sample = {}; } // A failed round is a gap, never a stuck gate.
                 value.receipt->sample.sampleTimeMs = QDateTime::currentMSecsSinceEpoch();

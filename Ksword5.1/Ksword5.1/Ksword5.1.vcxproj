@@ -938,6 +938,7 @@
     <ClInclude Include="Framework\PrivilegeElevationPrompt.h" />
     <ClInclude Include="Framework\ProgressDockWidget.h" />
     <ClInclude Include="Framework\BackgroundTaskRegistry.h" />
+    <ClInclude Include="Framework\TaskCpuMeasurement.h" />
     <ClInclude Include="UI\ShortcutRegistry.h" />
     <ClInclude Include="UI\RuntimeControlPages.h" />
     <ClInclude Include="Framework\TaskSnapshotFeed.h" />

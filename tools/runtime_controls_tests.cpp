@@ -1,5 +1,6 @@
 #include "../Ksword5.1/Ksword5.1/Framework/BackgroundTaskRegistry.h"
 #include "../Ksword5.1/Ksword5.1/UI/ShortcutRegistry.h"
+#include "../Ksword5.1/Ksword5.1/UI/AsyncOperation.h"
 #include "../Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
 #include "../Taskbar/SosHotkeyLauncher.h"
 #include <QCoreApplication>
@@ -12,6 +13,18 @@
 #include <QFile>
 #include <QTimer>
 #include <cstdio>
+#include <thread>
+
+class RuntimeTestApplication final : public QCoreApplication
+{
+public:
+    using QCoreApplication::QCoreApplication;
+    bool notify(QObject* receiver, QEvent* event) override
+    {
+        const ks::ui::TaskCpuScope measurement(ks::ui::BackgroundTaskRegistry::cpuTokenForEvent(receiver, event));
+        return QCoreApplication::notify(receiver, event);
+    }
+};
 
 // Translation is an adapter here; registry, Qt timers, ownership and persistence
 // are the actual production implementations. No windows or global keys are used.
@@ -185,6 +198,106 @@ namespace
         check(registry.snapshot().size() == nativeCount - 1, "native task is removed with its owner");
     }
 
+    thread_local std::uint64_t cpuClock = 0;
+    thread_local bool cpuClockValid = true;
+    std::atomic_int cpuClockReads{0};
+    ks::ui::TaskCpuReading testCpuClock() { ++cpuClockReads; return {cpuClock, cpuClockValid}; }
+
+    void cpuAccountingTests()
+    {
+        using namespace ks::ui;
+        auto session = std::make_shared<TaskCpuSession>(&testCpuClock);
+        auto parent = std::make_shared<TaskCpuCounter>(session);
+        auto child = std::make_shared<TaskCpuCounter>(session);
+        cpuClock = 0;
+        {
+            TaskCpuScope first(parent);
+            cpuClock += 10;
+            { TaskCpuScope second(child); cpuClock += 20; }
+            { TaskCpuScope unrelated; cpuClock += 100; check(!TaskCpuScope::capture(), "nested unrelated event clears attribution"); }
+            cpuClock += 30;
+        }
+        check(parent->snapshot().time100ns[0] == 40 && child->snapshot().time100ns[0] == 20, "nested CPU is exclusive and unrelated work excluded");
+        check(!TaskCpuScope::hasCurrent(), "scope restores thread attribution");
+        {
+            TaskCpuScope scope(parent);
+            auto worker = TaskCpuScope::wrap(TaskCpuPhase::Worker, [] { cpuClock += 50; });
+            std::thread(std::move(worker)).join();
+        }
+        check(parent->snapshot().time100ns[1] == 50 && parent->snapshot().samples[1] == 1, "worker token attributes work on another thread");
+        cpuClockValid = false;
+        { TaskCpuScope failed(child); }
+        cpuClockValid = true;
+        check(child->snapshot().unavailable[0] == 1 && child->snapshot().samples[0] == 1, "failed CPU query is not a zero sample");
+        const auto before = parent->snapshot();
+        {
+            TaskCpuScope pending(parent);
+            cpuClock += 50;
+            session->stop();
+            cpuClock += 50;
+        }
+        check(parent->snapshot().time100ns == before.time100ns && parent->inFlight == 0, "stop freezes statistics and retires in-flight scope");
+        const int reads = cpuClockReads;
+        { TaskCpuScope stopped(parent); }
+        { TaskCpuScope empty; }
+        check(cpuClockReads == reads, "disabled analysis reads no clocks");
+    }
+
+    void nativeCpuTests()
+    {
+        using namespace ks::ui;
+        auto& registry = BackgroundTaskRegistry::instance();
+        QTimer timer;
+        timer.setInterval(10);
+        BackgroundTaskRegistry::Policy policy;
+        policy.minimumIntervalMs = 1;
+        check(registry.addTimer("cpu.native_test", "CPU test", "Test", &timer, policy), "register CPU test timer");
+        QObject nativeOwner;
+        registry.addExternal("cpu.native_external", "External", "Test", &nativeOwner, {[] { return true; }, {}, {}}, {});
+        registry.startCpuAnalysis();
+        auto token = registry.cpuToken("cpu.native_test");
+        check(token && !registry.cpuToken("cpu.native_external"), "unadapted native sessions have no fabricated CPU counter");
+        {
+            TaskCpuScope busy(token, TaskCpuPhase::Worker);
+            QElapsedTimer clock; clock.start();
+            volatile std::uint64_t accumulator = 1;
+            while (clock.elapsed() < 120) for (int i = 0; i < 10000; ++i) accumulator = accumulator * 3 + 1;
+        }
+        const auto busyCpu = token->snapshot().time100ns[1];
+        { TaskCpuScope wait(token, TaskCpuPhase::Worker); QThread::msleep(60); }
+        const auto sleepingCpu = token->snapshot().time100ns[1] - busyCpu;
+        check(busyCpu > 0 && busyCpu > sleepingCpu, "real Windows thread CPU distinguishes computation from sleep");
+        timer.start(); pump(35); timer.stop();
+        check(token->snapshot().samples[0] > 0, "actual registered Qt timer dispatch is measured through notify");
+        QObject owner;
+        AsyncOperation operation(&owner);
+        bool applied = false;
+        {
+            TaskCpuScope dispatch(token);
+            operation.submit<int, int>(42, [](int value, const AsyncOperationToken&) { return value; },
+                [&](int value, std::uint64_t) { applied = value == 42; return true; }, [](std::exception_ptr) {});
+        }
+        QElapsedTimer deadline; deadline.start();
+        while (!applied && deadline.elapsed() < 2000) pump(5);
+        check(applied && token->snapshot().samples[1] >= 3 && token->snapshot().samples[2] > 0,
+            "shared async worker and UI commit retain the requesting task identity");
+        const auto summary = registry.cpuAnalysis();
+        check(summary.active && summary.processAvailable && summary.processCpuMs > 0 && summary.processCpuPercent >= 0,
+            "process CPU summary uses real process times and elapsed interval");
+        registry.stopCpuAnalysis();
+        const auto stopped = registry.cpuAnalysis();
+        pump(5);
+        check(!registry.cpuAnalysisEnabled() && !stopped.active && registry.cpuAnalysis().seconds == stopped.seconds,
+            "stopped process summary is frozen");
+        registry.startCpuAnalysis();
+        check(registry.cpuToken("cpu.native_test") != token && registry.cpuToken("cpu.native_test")->snapshot().samples[0] == 0,
+            "restart creates a clean measurement epoch");
+        const auto old = token->snapshot();
+        { TaskCpuScope stale(token); }
+        check(token->snapshot().samples == old.samples, "late old worker cannot pollute a restarted measurement");
+        registry.stopCpuAnalysis();
+    }
+
     void rescueLaunchFeedbackTests()
     {
         std::atomic<DWORD> error{0};
@@ -206,7 +319,7 @@ namespace
 }
 int main(int argc, char** argv)
 {
-    QCoreApplication app(argc, argv);
+    RuntimeTestApplication app(argc, argv);
     if (app.arguments().contains(QStringLiteral("--ksword-rescue-host"))) return ERROR_NOT_READY;
     const QDir directory(QCoreApplication::applicationDirPath());
     const QString shortcuts = directory.filePath("RuntimeControlTests.shortcuts.ini");
@@ -219,6 +332,8 @@ int main(int argc, char** argv)
     check(directory.exists(), "fixed test output directory");
     shortcutTests(shortcuts);
     taskTests(polling);
+    cpuAccountingTests();
+    nativeCpuTests();
     rescueLaunchFeedbackTests();
     check(QFile::remove(shortcuts), "remove owned shortcut test settings");
     check(QFile::remove(polling), "remove owned polling test settings");

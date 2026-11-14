@@ -8,6 +8,28 @@
 #include <QThread>
 #include <QTimer>
 #include <algorithm>
+#include <qt_windows.h>
+
+namespace
+{
+    QPointer<ks::ui::BackgroundTaskRegistry> applicationRegistry;
+    std::uint64_t fileTimeValue(const FILETIME& value)
+    {
+        return (static_cast<std::uint64_t>(value.dwHighDateTime) << 32) | value.dwLowDateTime;
+    }
+    ks::ui::TaskCpuReading readThreadCpu()
+    {
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return {};
+        return {fileTimeValue(kernel) + fileTimeValue(user), true};
+    }
+    ks::ui::TaskCpuReading readProcessCpu()
+    {
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return {};
+        return {fileTimeValue(kernel) + fileTimeValue(user), true};
+    }
+}
 
 namespace ks::ui
 {
@@ -18,14 +40,74 @@ namespace ks::ui
 
     BackgroundTaskRegistry& BackgroundTaskRegistry::instance()
     {
-        static QPointer<BackgroundTaskRegistry> registry;
-        if (!registry) registry = new BackgroundTaskRegistry(QCoreApplication::instance());
-        return *registry;
+        if (!applicationRegistry) applicationRegistry = new BackgroundTaskRegistry(QCoreApplication::instance());
+        return *applicationRegistry;
     }
 
     BackgroundTaskRegistry::BackgroundTaskRegistry(QObject* parent, QString settingsPath)
         : QObject(parent), m_settingsPath(settingsPath.isEmpty() ? defaultSettingsPath() : std::move(settingsPath))
     {
+    }
+
+    BackgroundTaskRegistry::~BackgroundTaskRegistry() { stopCpuAnalysis(); }
+
+    void BackgroundTaskRegistry::startCpuAnalysis()
+    {
+        stopCpuAnalysis();
+        m_cpuSession = std::make_shared<TaskCpuSession>(&readThreadCpu);
+        for (auto& entry : m_entries)
+            entry.cpu = entry.timer ? std::make_shared<TaskCpuCounter>(m_cpuSession) : TaskCpuToken{};
+        m_processBaseline = readProcessCpu();
+        m_cpuCount = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        m_cpuStarted = std::chrono::steady_clock::now();
+        m_frozenCpu = {};
+        if (this == applicationRegistry) s_cpuEnabled.store(true, std::memory_order_relaxed);
+    }
+
+    BackgroundTaskRegistry::CpuAnalysis BackgroundTaskRegistry::cpuAnalysis() const
+    {
+        if (!m_cpuSession || !m_cpuSession->enabled.load(std::memory_order_relaxed)) return m_frozenCpu;
+        CpuAnalysis result;
+        result.started = result.active = true;
+        result.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_cpuStarted).count();
+        const auto current = readProcessCpu();
+        result.processAvailable = m_processBaseline.valid && current.valid && m_cpuCount != 0
+            && GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) == m_cpuCount
+            && current.time100ns >= m_processBaseline.time100ns && result.seconds > 0;
+        if (result.processAvailable)
+        {
+            result.processCpuMs = static_cast<double>(current.time100ns - m_processBaseline.time100ns) / 10000.0;
+            result.processCpuPercent = result.processCpuMs / (result.seconds * 10.0 * m_cpuCount);
+        }
+        return result;
+    }
+
+    void BackgroundTaskRegistry::stopCpuAnalysis()
+    {
+        if (!m_cpuSession || !m_cpuSession->enabled.load(std::memory_order_relaxed)) return;
+        m_frozenCpu = cpuAnalysis();
+        m_frozenCpu.active = false;
+        m_cpuSession->stop();
+        if (this == applicationRegistry) s_cpuEnabled.store(false, std::memory_order_relaxed);
+    }
+
+    TaskCpuToken BackgroundTaskRegistry::cpuToken(const QString& id) const
+    {
+        const auto it = m_entries.constFind(id);
+        return it == m_entries.cend() ? TaskCpuToken{} : it->cpu;
+    }
+
+    TaskCpuToken BackgroundTaskRegistry::cpuTokenForEvent(QObject* receiver, QEvent* event)
+    {
+        // notify can run on worker threads. The registry is read only by its GUI owner.
+        if (!event || event->type() != QEvent::Timer || !qApp || QThread::currentThread() != qApp->thread()
+            || !applicationRegistry || !cpuAnalysisEnabled()) return {};
+        const auto key = applicationRegistry->m_timerIds.constFind(receiver);
+        if (key == applicationRegistry->m_timerIds.cend()) return {};
+        const auto it = applicationRegistry->m_entries.constFind(*key);
+        if (it == applicationRegistry->m_entries.cend() || !it->timer || it->value.paused
+            || it->timer->timerId() != static_cast<QTimerEvent*>(event)->timerId()) return {};
+        return it->cpu;
     }
 
     bool BackgroundTaskRegistry::addTimer(const QString& requestedId, const QString& title, const QString& group,
@@ -53,6 +135,8 @@ namespace ks::ui
         m_rejectedTimers.remove(timer);
         Entry entry;
         entry.timer = timer;
+        if (m_cpuSession && m_cpuSession->enabled.load(std::memory_order_relaxed))
+            entry.cpu = std::make_shared<TaskCpuCounter>(m_cpuSession);
         entry.owner = timer;
         entry.policy = std::move(policy);
         entry.value.id = id;
@@ -123,6 +207,12 @@ namespace ks::ui
         {
             if (!entry.owner) continue;
             Snapshot row = entry.value;
+            row.cpuSupported = !entry.timer.isNull();
+            if (entry.cpu)
+            {
+                row.cpu = entry.cpu->snapshot();
+                row.cpuInFlight = entry.cpu->inFlight.load(std::memory_order_relaxed);
+            }
             if (entry.timer)
             {
                 row.intervalMs = entry.overrideIntervalMs ? entry.overrideIntervalMs : entry.timer->interval();

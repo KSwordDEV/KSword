@@ -8,6 +8,8 @@
 #include <QVector>
 #include <QSet>
 #include <functional>
+#include <chrono>
+#include "TaskCpuMeasurement.h"
 
 class QTimer;
 
@@ -36,6 +38,9 @@ namespace ks::ui
             bool active = false, paused = false, inFlight = false, canPause = false, canChangeInterval = false;
             quint64 dispatches = 0;
             QDateTime lastDispatch;
+            TaskCpuStats cpu;
+            bool cpuSupported = false;
+            unsigned cpuInFlight = 0;
         };
         struct External
         {
@@ -46,6 +51,7 @@ namespace ks::ui
 
         static BackgroundTaskRegistry& instance();
         explicit BackgroundTaskRegistry(QObject* parent = nullptr, QString settingsPath = {});
+        ~BackgroundTaskRegistry() override;
         bool addTimer(const QString& id, const QString& title, const QString& group,
             QTimer* timer, Policy policy);
         bool addExternal(const QString& id, const QString& title, const QString& group,
@@ -56,6 +62,17 @@ namespace ks::ui
         bool restoreDefault(const QString& id, QString* error = nullptr);
         bool isPaused(const QString& id) const;
         static QString defaultSettingsPath();
+        struct CpuAnalysis
+        {
+            bool started = false, active = false, processAvailable = false;
+            double seconds = 0, processCpuMs = 0, processCpuPercent = 0;
+        };
+        void startCpuAnalysis(); // A new session resets counters, never business tasks.
+        void stopCpuAnalysis();
+        CpuAnalysis cpuAnalysis() const;
+        TaskCpuToken cpuToken(const QString& id) const;
+        static TaskCpuToken cpuTokenForEvent(QObject* receiver, QEvent* event);
+        static bool cpuAnalysisEnabled() { return s_cpuEnabled.load(std::memory_order_relaxed); }
 
     protected:
         bool eventFilter(QObject* object, QEvent* event) override;
@@ -71,6 +88,7 @@ namespace ks::ui
             bool resumeActive = false;
             int overrideIntervalMs = 0;
             quint64 generation = 0;
+            TaskCpuToken cpu;
         };
         bool fail(QString* error, const QString& message) const;
         QHash<QString, Entry> m_entries;
@@ -78,5 +96,11 @@ namespace ks::ui
         QSet<QObject*> m_rejectedTimers;
         QString m_settingsPath;
         quint64 m_instanceSerial = 0;
+        std::shared_ptr<TaskCpuSession> m_cpuSession;
+        std::chrono::steady_clock::time_point m_cpuStarted;
+        TaskCpuReading m_processBaseline;
+        unsigned long m_cpuCount = 0;
+        CpuAnalysis m_frozenCpu;
+        inline static std::atomic_bool s_cpuEnabled{false};
     };
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "../Framework/TaskCpuMeasurement.h"
 
 #include <QtCore/QMetaObject>
 #include <QtCore/QObject>
@@ -59,12 +60,14 @@ namespace ks::ui
             void run()
             {
                 claimed.store(true);
+                const TaskCpuScope measurement(cpu, TaskCpuPhase::Completion);
                 callback();
             }
 
             std::function<void()> callback;
             std::function<void()> onCanceled;
             std::atomic_bool claimed{ false };
+            TaskCpuToken cpu = TaskCpuScope::capture();
         };
 
         std::mutex m_mutex;

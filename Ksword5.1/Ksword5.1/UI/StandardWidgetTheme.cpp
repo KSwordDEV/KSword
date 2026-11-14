@@ -7,6 +7,7 @@
 #include "./ParameterWorkspace.h"
 #include "./PrimaryPageStyle.h"
 #include "./ThemeBinding.h"
+#include "./ToolbarMetrics.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -251,16 +252,19 @@ namespace
                 break; // 主窗口/浮动宿主的公共基线不是某个控件的业务配色。
             }
             QString style = owner->styleSheet();
+            if (owner->property("ksword_toolbar_control").toBool()) style.remove(ks::ui::ToolbarControlGeometryStyle().trimmed());
+            if (owner->property("ksword_toolbar_icon_only").toBool()) style.remove(ks::ui::ToolbarIconGeometryStyle().trimmed());
             for (const char* blockName : {"ksword_primary_style_block",
                 "ksword_parameter_surface_style_block", "ksword_secondary_style_block",
-                "ksword_dock_root_surface_style_block", "ksword_page_tabs_owned_pane_style"})
+                "ksword_dock_root_surface_style_block", "ksword_page_tabs_owned_pane_style",
+                "ksword_settings_style_block", "ksword_progress_surface_style_block"})
             {
                 const QString block = owner->property(blockName).toString();
                 if (!block.isEmpty()) style.remove(block);
             }
-            // 共享弹窗根皮肤不是业务组框外观：仅组框可穿过这些完整已知块，
-            // 从而按自身标题/字体配置内距；其余业务QSS仍保持原来的接管边界。
-            if (qobject_cast<QGroupBox*>(widget) && owner->isWindow())
+            // Shared dialog surfaces are not per-control skins. All ordinary controls
+            // use the same binding; unknown business QSS and professional interiors remain protected.
+            if (owner->isWindow())
             {
                 for (const char* name : {"GLOBAL_DIALOG_THEME", "DETAIL_FRAMEWORK"})
                 {
