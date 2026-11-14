@@ -686,6 +686,32 @@ namespace
         require(frontend.resume(false, 0x00402000ULL) == ERROR_SUCCESS &&
             noAttachModel.stopId == beforeRunTo + 1,
             "resume(run_to) did not advance through the driver");
+        // Frontend-shaped CE debug events: CREATE_PROCESS bootstrap carries no
+        // driver traffic, continueCeEvent on EXCEPTION_BREAKPOINT drives resume
+        // through the driver. Neither path triggers the context capture path
+        // that suspends the target thread (that only runs through readContext),
+        // so the self thread is safe here.
+        DEBUG_EVENT event{};
+        require(value.waitEvent(&event, 0) != FALSE &&
+            event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT &&
+            event.dwProcessId == GetCurrentProcessId() && event.dwThreadId == GetCurrentThreadId() &&
+            event.u.CreateProcessInfo.hProcess != nullptr && event.u.CreateProcessInfo.hThread != nullptr,
+            "CE bootstrap did not synthesize CREATE_PROCESS_DEBUG_EVENT");
+        require(::CloseHandle(event.u.CreateProcessInfo.hProcess) &&
+            ::CloseHandle(event.u.CreateProcessInfo.hThread),
+            "CE bootstrap handles leaked");
+        require(value.continueEvent(event.dwProcessId, event.dwThreadId, DBG_CONTINUE) != FALSE,
+            "continueEvent on CREATE_PROCESS failed");
+        const auto beforeInitial = noAttachModel.stopId;
+        DEBUG_EVENT initial{};
+        require(value.waitEvent(&initial, 0) != FALSE &&
+            initial.dwDebugEventCode == EXCEPTION_DEBUG_EVENT &&
+            initial.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT &&
+            noAttachModel.stopId == beforeInitial,
+            "Initial stop was not projected as EXCEPTION_BREAKPOINT");
+        require(value.continueEvent(initial.dwProcessId, initial.dwThreadId, DBG_CONTINUE) != FALSE &&
+            noAttachModel.stopId == beforeInitial + 1,
+            "continueEvent on initial stop did not advance the driver session");
         KSWORD_DEBUGGER_FRONTEND_REQUEST close{};
         close.version = KSWORD_DEBUGGER_FRONTEND_VERSION; close.size = sizeof(close);
         close.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
