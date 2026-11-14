@@ -35,6 +35,23 @@ namespace
         }
         return reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(value));
     }
+
+    // 校验继承事件或进程仍可等待、尚未置位。日志保留角色和等待结果。
+    DWORD CheckPendingHandle(const HANDLE handle, const wchar_t* role)
+    {
+        const DWORD state = ::WaitForSingleObject(handle, 0);
+        if (state == WAIT_TIMEOUT)
+        {
+            return ERROR_SUCCESS;
+        }
+        DWORD error = state == WAIT_FAILED ? ::GetLastError() : ERROR_INVALID_DATA;
+        if (error == ERROR_SUCCESS)
+        {
+            error = ERROR_INVALID_HANDLE;
+        }
+        ks::rescue::LogStage(L"client.handle_invalid", error, state, role);
+        return error;
+    }
 }
 
 namespace ks::ui
@@ -78,13 +95,15 @@ namespace ks::ui
         // 已绑定到当前线程的 HDESK 由 Windows 随进程退出释放，不能提前 CloseDesktop。
     }
 
-    bool RescueDesktopSession::initializeBeforeQt()
+    DWORD RescueDesktopSession::initializeBeforeQt()
     {
         int count = 0; // Windows 原生命令行参数数量。
         wchar_t** arguments = ::CommandLineToArgvW(::GetCommandLineW(), &count);
         if (!arguments)
         {
-            return false;
+            const DWORD error = ::GetLastError();
+            ks::rescue::LogStage(L"client.arguments_failed", error);
+            return error;
         }
         bool requested = false; // 参数出现但不合法时必须停止，不能绕过救援约束。
         for (int index = 1; index < count; ++index)
@@ -94,12 +113,14 @@ namespace ks::ui
         if (!requested)
         {
             ::LocalFree(arguments);
-            return true;
+            return ERROR_SUCCESS;
         }
+        ks::rescue::LogStage(L"client.initializing", ERROR_SUCCESS, static_cast<DWORD>(count));
         if (count != 8 || std::wstring(arguments[1]) != ks::rescue::kClientArgument)
         {
             ::LocalFree(arguments);
-            return false;
+            ks::rescue::LogStage(L"client.arguments_invalid", ERROR_INVALID_PARAMETER);
+            return ERROR_INVALID_PARAMETER;
         }
 
         const std::wstring expectedName = arguments[2]; // 监护进程生成的精确救援桌面名。
@@ -110,33 +131,50 @@ namespace ks::ui
         originalName_ = arguments[7];
         ::LocalFree(arguments);
 
-        // 确保参数不是裸命令行标记：必须持有有效的私有桌面及未置位的继承事件。
-        if (expectedName.rfind(ks::rescue::kDesktopPrefix, 0) != 0
-            || originalName_.empty() || originalName_.find_first_of(L"\\/\"") != std::wstring::npos
-            || ks::rescue::DesktopName(handles_.desktop) != expectedName
-            || ::WaitForSingleObject(handles_.ready, 0) != WAIT_TIMEOUT
-            || ::WaitForSingleObject(handles_.leave, 0) != WAIT_TIMEOUT
-            || ::WaitForSingleObject(handles_.host, 0) != WAIT_TIMEOUT
-            || !::SetThreadDesktop(handles_.desktop)
-            || ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) != expectedName)
+        // 核验内部参数及所有继承对象，再决定是否需要切换线程。
+        if (originalName_.empty() || originalName_.find_first_of(L"\\/\"") != std::wstring::npos)
         {
-            return false;
+            ks::rescue::LogStage(L"client.desktop_arguments_invalid", ERROR_INVALID_NAME);
+            return ERROR_INVALID_NAME;
         }
+        if (const DWORD error = CheckPendingHandle(handles_.ready, L"ready"); error != ERROR_SUCCESS)
+        {
+            return error;
+        }
+        if (const DWORD error = CheckPendingHandle(handles_.leave, L"leave"); error != ERROR_SUCCESS)
+        {
+            return error;
+        }
+        if (const DWORD error = CheckPendingHandle(handles_.host, L"host"); error != ERROR_SUCCESS)
+        {
+            return error;
+        }
+
+        if (const DWORD error = ks::rescue::BindClientDesktop(handles_.desktop, expectedName);
+            error != ERROR_SUCCESS)
+        {
+            return error;
+        }
+        ks::rescue::LogStage(L"client.desktop_verified", ERROR_SUCCESS, 0, expectedName);
         stopMonitor_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (!stopMonitor_)
         {
-            return false;
+            const DWORD error = ::GetLastError();
+            ks::rescue::LogStage(L"client.stop_event_failed", error);
+            return error;
         }
-        active_ = true;
+        // 观察监护退出的线程和 Qt 过滤器只在当前桌面核验通过后启用。
         try
         {
             monitor_ = std::thread(&RescueDesktopSession::monitorHost, this);
         }
         catch (...)
         {
-            return false;
+            ks::rescue::LogStage(L"client.monitor_start_failed", ERROR_NO_SYSTEM_RESOURCES);
+            return ERROR_NO_SYSTEM_RESOURCES;
         }
-        return true;
+        active_ = true;
+        return ERROR_SUCCESS;
     }
 
     void RescueDesktopSession::install(QApplication& application)

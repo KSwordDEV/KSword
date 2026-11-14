@@ -10,6 +10,45 @@
 
 namespace ks::rescue
 {
+    // 输入阶段、Win32 错误和值，追加到 exe 同目录 logs；不在输入 Hook 内调用，保留 LastError。
+    void LogStage(const wchar_t* stage, const DWORD error,
+        const DWORD value, const std::wstring& detail)
+    {
+        const DWORD savedError = ::GetLastError(); // 诊断不能覆盖调用方正在处理的 API 错误。
+        std::array<wchar_t, 32768> path{}; // 当前 exe 路径，用于定位发行目录中的日志。
+        const DWORD length = ::GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (length != 0 && length < path.size())
+        {
+            const std::wstring executable(path.data(), length); // 避免使用不可控的当前工作目录。
+            const std::wstring directory = executable.substr(0, executable.find_last_of(L"\\/")) + L"\\logs";
+            ::CreateDirectoryW(directory.c_str(), nullptr);
+            const std::wstring filename = directory + L"\\sos-rescue-"
+                + std::to_wstring(::GetCurrentProcessId()) + L".log";
+            const HANDLE file = ::CreateFileW(filename.c_str(), FILE_APPEND_DATA,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE)
+            {
+                // 只记录启动状态、错误和桌面名称，不保存键盘输入或继承句柄值。
+                const std::wstring line = std::to_wstring(::GetTickCount64()) + L" " + stage
+                    + L" error=" + std::to_wstring(error) + L" value=" + std::to_wstring(value)
+                    + (detail.empty() ? L"" : L" detail=" + detail) + L"\r\n";
+                const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, line.data(),
+                    static_cast<int>(line.size()), nullptr, 0, nullptr, nullptr);
+                if (bytes > 0)
+                {
+                    std::vector<char> utf8(static_cast<size_t>(bytes)); // 跨语言系统也能读取桌面名。
+                    ::WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()),
+                        utf8.data(), bytes, nullptr, nullptr);
+                    DWORD written = 0; // WriteFile 的实际追加长度。
+                    ::WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+                }
+                ::CloseHandle(file);
+            }
+        }
+        ::SetLastError(savedError);
+    }
+
     DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session)
     {
         DWORD result = ERROR_GEN_FAILURE;
@@ -90,6 +129,49 @@ namespace ks::rescue
             && active != FALSE;
     }
 
+    DWORD BindClientDesktop(const HDESK desktop, const std::wstring& expectedName)
+    {
+        if (expectedName.rfind(kDesktopPrefix, 0) != 0)
+        {
+            LogStage(L"client.desktop_arguments_invalid", ERROR_INVALID_NAME);
+            return ERROR_INVALID_NAME;
+        }
+        const std::wstring inheritedName = DesktopName(desktop); // 核对真实继承对象，而非只相信命令行。
+        if (inheritedName.empty())
+        {
+            LogStage(L"client.inherited_desktop_invalid", ERROR_INVALID_HANDLE);
+            return ERROR_INVALID_HANDLE;
+        }
+        if (inheritedName != expectedName)
+        {
+            LogStage(L"client.inherited_desktop_mismatch", ERROR_INVALID_DATA, 0, inheritedName);
+            return ERROR_INVALID_DATA;
+        }
+
+        const DWORD threadId = ::GetCurrentThreadId(); // 后续创建 Qt 窗口的线程。
+        const std::wstring currentName = DesktopName(::GetThreadDesktop(threadId));
+        if (currentName == expectedName)
+        {
+            // 初始桌面的系统句柄可能不同于继承句柄，已有窗口时重复绑定也可返回 ERROR_BUSY。
+            return ERROR_SUCCESS;
+        }
+        if (!::SetThreadDesktop(desktop))
+        {
+            const DWORD error = ::GetLastError();
+            LogStage(L"client.desktop_bind_failed", error, 0, currentName);
+            return error;
+        }
+
+        // 显式绑定仅在尚未连到目标桌面时发生，成功后读回实际对象。
+        const std::wstring boundName = DesktopName(::GetThreadDesktop(threadId));
+        if (boundName != expectedName)
+        {
+            LogStage(L"client.desktop_mismatch", ERROR_INVALID_DATA, 0, boundName);
+            return ERROR_INVALID_DATA;
+        }
+        return ERROR_SUCCESS;
+    }
+
     HDESK CreatePrivateDesktop(const std::wstring& name)
     {
         PSECURITY_DESCRIPTOR descriptor = nullptr; // LocalAlloc 分配的自相对安全描述符。
@@ -116,6 +198,13 @@ namespace ks::rescue
     bool LaunchClient(const std::wstring& executable, const std::wstring& originalName,
         const ClientHandles& handles, PROCESS_INFORMATION& process, DWORD& error)
     {
+        const std::wstring desktopName = DesktopName(handles.desktop); // 给客户端核对继承的桌面身份。
+        if (desktopName.empty() || originalName.empty() || originalName.find(L'"') != std::wstring::npos)
+        {
+            error = ERROR_INVALID_NAME;
+            return false;
+        }
+
         // HANDLE_LIST 只交付本次会话的四个句柄，原桌面和监护进程的其余句柄留在监护端。
         std::array<HANDLE, 4> inherited{ handles.desktop, handles.ready, handles.leave, handles.host };
         SIZE_T bytes = 0; // 启动属性表分配长度。
@@ -136,18 +225,11 @@ namespace ks::rescue
             return false;
         }
 
-        // 桌面名和句柄均为本进程生成；原桌面名称禁止引号，避免影响内部参数边界。
-        if (originalName.find(L'"') != std::wstring::npos || originalName.empty())
-        {
-            error = ERROR_INVALID_NAME;
-            ::DeleteProcThreadAttributeList(attributes);
-            return false;
-        }
+        // 传递本次创建的桌面名和句柄，供客户端核验绑定。
         const auto number = [](const HANDLE handle)
         {
             return std::to_wstring(reinterpret_cast<ULONG_PTR>(handle));
         };
-        const std::wstring desktopName = DesktopName(handles.desktop); // 白名单桌面的精确对象名。
         std::wstring command = L"\"" + executable + L"\" " + kClientArgument
             + L" \"" + desktopName + L"\" " + number(handles.desktop) + L" "
             + number(handles.ready) + L" " + number(handles.leave) + L" " + number(handles.host)
@@ -156,6 +238,10 @@ namespace ks::rescue
         writable.push_back(L'\0');
         STARTUPINFOEXW startup{}; // 指定继承白名单，不依赖默认桌面的按名称访问。
         startup.StartupInfo.cb = sizeof(startup);
+        // 空字符串让首次 USER32 连接从继承句柄选择桌面。
+        // 省略该字段时现场回归读到的是 Default。传桌面名则会触发 DACL 拒绝按名打开。
+        wchar_t inheritDesktop[] = L"";
+        startup.StartupInfo.lpDesktop = inheritDesktop;
         startup.lpAttributeList = attributes;
         const std::wstring directory = executable.substr(0, executable.find_last_of(L"\\/"));
         const BOOL created = ::CreateProcessW(executable.c_str(), writable.data(), nullptr, nullptr,

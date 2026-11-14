@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryRoot = (Join-Path $PSScriptRoot '..'),
-    [switch]$SkipTaskbarProbe
+    [switch]$SkipTaskbarProbe,
+    [switch]$NativeOnly
 )
 
 # 使用已有 Taskbar Release 中间目录；测试仅创建隐藏桌面，不切换用户输入桌面。
@@ -37,6 +38,9 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue desktop tests failed: $LASTEXITCODE"
     }
+    if ($NativeOnly) {
+        return
+    }
     # 实际 KSword 监护入口在 Qt 前处理门闩和令牌；此探测只走提前返回分支。
     $taskActualHost = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Ksword5.1.exe'
     $taskTaskbar = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Taskbar.exe'
@@ -56,6 +60,10 @@ try {
     & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --client-path-rejection-probe $taskActualHost
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue client path rejection probe failed: $LASTEXITCODE"
+    }
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --client-init-rejection-probe $taskActualHost
+    if ($LASTEXITCODE -ne 0) {
+        throw "Rescue client initialization rejection probe failed: $LASTEXITCODE"
     }
     if (!$SkipTaskbarProbe) {
         & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --taskbar-single-instance-probe $taskTaskbar

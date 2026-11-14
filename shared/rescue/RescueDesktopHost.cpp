@@ -5,53 +5,14 @@
 #include <objbase.h>
 #include <array>
 #include <string>
-#include <vector>
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 
 namespace
 {
+    using ks::rescue::LogStage;
     ULONGLONG physicalReturnTick = 0; // 本监护线程最近一次真实返回组合键的时间，不接受消息伪造。
-
-    // 输入阶段、Win32 错误和值，追加到 exe 同目录 logs；不在输入 Hook 内调用，保留 LastError。
-    void LogStage(const wchar_t* stage, const DWORD error = ERROR_SUCCESS,
-        const DWORD value = 0, const std::wstring& detail = {})
-    {
-        const DWORD savedError = ::GetLastError(); // 诊断不能覆盖调用方正在处理的 API 错误。
-        std::array<wchar_t, 32768> path{}; // 当前 exe 路径，用于定位发行目录中的日志。
-        const DWORD length = ::GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-        if (length != 0 && length < path.size())
-        {
-            const std::wstring executable(path.data(), length); // 避免使用不可控的当前工作目录。
-            const std::wstring directory = executable.substr(0, executable.find_last_of(L"\\/")) + L"\\logs";
-            ::CreateDirectoryW(directory.c_str(), nullptr);
-            const std::wstring filename = directory + L"\\sos-rescue-"
-                + std::to_wstring(::GetCurrentProcessId()) + L".log";
-            const HANDLE file = ::CreateFileW(filename.c_str(), FILE_APPEND_DATA,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (file != INVALID_HANDLE_VALUE)
-            {
-                // 只记录启动状态、错误和桌面名称，不保存键盘输入或继承句柄值。
-                const std::wstring line = std::to_wstring(::GetTickCount64()) + L" " + stage
-                    + L" error=" + std::to_wstring(error) + L" value=" + std::to_wstring(value)
-                    + (detail.empty() ? L"" : L" detail=" + detail) + L"\r\n";
-                const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, line.data(),
-                    static_cast<int>(line.size()), nullptr, 0, nullptr, nullptr);
-                if (bytes > 0)
-                {
-                    std::vector<char> utf8(static_cast<size_t>(bytes)); // 跨语言系统也能读取桌面名。
-                    ::WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()),
-                        utf8.data(), bytes, nullptr, nullptr);
-                    DWORD written = 0; // WriteFile 的实际追加长度。
-                    ::WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
-                }
-                ::CloseHandle(file);
-            }
-        }
-        ::SetLastError(savedError);
-    }
 
     // 查询当前监护进程的真实令牌；返回查询是否成功，输出是否已获管理员提升。
     bool QueryCurrentElevation(bool& elevated)

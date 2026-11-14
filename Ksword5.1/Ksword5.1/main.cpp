@@ -1368,9 +1368,9 @@ int main(int argc, char* argv[])
 
     // 救援客户端先核验白名单继承的桌面/事件，再允许任何 Qt 或启动页创建窗口。
     ks::ui::RescueDesktopSession rescueSession;
-    if (!rescueSession.initializeBeforeQt())
+    if (const DWORD rescueError = rescueSession.initializeBeforeQt(); rescueError != ERROR_SUCCESS)
     {
-        return 2;
+        return static_cast<int>(rescueError);
     }
     // 启动流程：
     // 1) 初始化 DPI 感知；

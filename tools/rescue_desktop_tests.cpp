@@ -52,12 +52,10 @@ namespace
         const std::wstring expected = arguments[2]; // 父进程新建的唯一桌面名。
         const HDESK inherited = reinterpret_cast<HDESK>(std::wcstoull(arguments[3], nullptr, 10));
         const HANDLE ready = reinterpret_cast<HANDLE>(std::wcstoull(arguments[4], nullptr, 10));
-        Check(ks::rescue::DesktopName(inherited) == expected, "inherited desktop is usable");
-        // 创建客户端时显式绑定继承句柄，不能假定 HANDLE_LIST 使 USER32 自动选中它。
-        Check(::SetThreadDesktop(inherited) != FALSE, "explicitly bind the inherited private desktop before windows");
+        // 在显式绑定前使用 USER32，模拟运行库提前访问桌面的情况。
         Check(ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == expected,
-            "client thread is on the intended private desktop");
-
+            "client starts on the private desktop before explicit binding");
+        Check(ks::rescue::DesktopName(inherited) == expected, "inherited desktop is usable");
         // 创建者同一账号也不能凭名称拿到写对象、装 Hook 或修改 DACL 的权限。
         for (const ACCESS_MASK access : { DESKTOP_CREATEWINDOW, DESKTOP_HOOKCONTROL, WRITE_DAC, READ_CONTROL })
         {
@@ -79,6 +77,11 @@ namespace
         Check(window != nullptr, "create hidden window with inherited private desktop handle");
         if (window)
         {
+            // 模拟运行库已创建窗口。正式绑定函数应复用已连接的目标桌面。
+            Check(ks::rescue::BindClientDesktop(inherited, expected) == ERROR_SUCCESS,
+                "accept an already bound client that owns an early window");
+            Check(ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == expected,
+                "client thread stays on the intended private desktop");
             const HDESK original = ::OpenDesktopW(arguments[7], 0, FALSE,
                 DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS);
             Check(original != nullptr, "open original desktop for migration probe");
@@ -108,24 +111,24 @@ namespace
     }
 
     // 启动实际监护 exe 的拒绝分支，检查它在指定时间内以预期错误退出。
-    int RejectedHostProbe(const std::wstring& host, const std::wstring& arguments,
+    int RejectedStartupProbe(const std::wstring& executable, const std::wstring& arguments,
         DWORD expectedError, const char* resultName)
     {
-        std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument + L" " + arguments;
+        std::wstring command = L"\"" + executable + L"\" " + arguments;
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         startup.dwFlags = STARTF_USESHOWWINDOW;
         startup.wShowWindow = SW_HIDE;
         PROCESS_INFORMATION child{}; // 只等待或结束本次启动的探测子进程。
-        const BOOL launched = ::CreateProcessW(host.c_str(), command.data(), nullptr, nullptr,
+        const BOOL launched = ::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
             FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
-        Check(launched != FALSE, "launch actual KSword host for rejection probe");
+        Check(launched != FALSE, "launch actual KSword for startup rejection probe");
         if (!launched)
         {
             return 1;
         }
         const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
-        Check(waited == WAIT_OBJECT_0, "host rejects the request before UI or UAC");
+        Check(waited == WAIT_OBJECT_0, "startup rejects the request before UI or UAC");
         if (waited != WAIT_OBJECT_0)
         {
             ::TerminateProcess(child.hProcess, 1);
@@ -133,7 +136,7 @@ namespace
         }
         DWORD exitCode = 0;
         Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == expectedError,
-            "host returns the expected rejection code");
+            "startup returns the expected rejection code");
         ::CloseHandle(child.hThread);
         ::CloseHandle(child.hProcess);
         std::printf("%s=%s checks=%d failures=%d\n", resultName,
@@ -173,9 +176,10 @@ namespace
         {
             return 1;
         }
-        const std::wstring arguments = std::wstring(ks::rescue::kElevationAttemptArgument) + L" "
+        const std::wstring arguments = std::wstring(ks::rescue::kHostArgument) + L" "
+            + ks::rescue::kElevationAttemptArgument + L" "
             + ks::rescue::kOriginalDesktopArgument + L" \"" + original + L"\"";
-        return RejectedHostProbe(host, arguments, ERROR_ELEVATION_REQUIRED, "RESCUE_ELEVATION_GATE");
+        return RejectedStartupProbe(host, arguments, ERROR_ELEVATION_REQUIRED, "RESCUE_ELEVATION_GATE");
     }
 
     // 已有会话时实际监护入口必须直接结束，不弹 UAC、不创建或切换桌面。
@@ -281,6 +285,13 @@ namespace
 
 int wmain(const int count, wchar_t** arguments)
 {
+    if (count == 3 && std::wstring(arguments[1]) == L"--client-init-rejection-probe")
+    {
+        // 真实客户端收到格式完整但无有效等待句柄的请求时应返回 ERROR_INVALID_HANDLE。
+        const std::wstring request = std::wstring(ks::rescue::kClientArgument)
+            + L" KSword.Rescue.Probe 0 0 0 0 Default";
+        return RejectedStartupProbe(arguments[2], request, ERROR_INVALID_HANDLE, "RESCUE_CLIENT_INIT_REJECTION");
+    }
     if (count == 3 && std::wstring(arguments[1]) == L"--taskbar-single-instance-probe")
         return SessionGuardProbe(arguments[2], true);
     if (count == 3 && std::wstring(arguments[1]) == L"--session-guard-probe")
@@ -294,7 +305,8 @@ int wmain(const int count, wchar_t** arguments)
     if (count == 3 && std::wstring(arguments[1]) == L"--client-path-rejection-probe")
     {
         // 旧监护协议允许指定客户端路径，新入口只允许启动自身模块。
-        return RejectedHostProbe(arguments[2], L"\"" + std::wstring(arguments[2]) + L"\"",
+        const std::wstring request = std::wstring(ks::rescue::kHostArgument) + L" \"" + arguments[2] + L"\"";
+        return RejectedStartupProbe(arguments[2], request,
             ERROR_INVALID_PARAMETER, "RESCUE_CLIENT_PATH_REJECTION");
     }
     if (count > 1 && std::wstring(arguments[1]) == ks::rescue::kClientArgument)

@@ -18,7 +18,7 @@ namespace ks::ui
     public:
         RescueDesktopSession() = default;
         ~RescueDesktopSession() override;
-        bool initializeBeforeQt(); // 失败返回 false，调用者须停止启动，不能退回普通桌面。
+        DWORD initializeBeforeQt(); // 普通启动与救援就绪返回 ERROR_SUCCESS，失败返回 Win32 错误。
         // 返回本实例是否为经过句柄校验的救援实例。
         bool active() const
         {

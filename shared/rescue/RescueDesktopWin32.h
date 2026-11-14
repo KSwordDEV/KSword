@@ -10,6 +10,10 @@
 // 本模块只封装 Win32 救援桌面，不涉及 R0 协议或 Windows 的 Winlogon 桌面。
 namespace ks::rescue
 {
+    // 将启动阶段和 Win32 错误追加到 exe 同目录日志，不记录句柄值或键盘输入。
+    void LogStage(const wchar_t* stage, DWORD error = ERROR_SUCCESS,
+        DWORD value = 0, const std::wstring& detail = {});
+
     // USER32 windows/hooks on the entry thread must not prevent desktop binding.
     // The callback, its hooks and its cleanup all run on the fresh thread.
     DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session);
@@ -37,6 +41,9 @@ namespace ks::rescue
     // 输入桌面句柄，读取对象名或是否为当前输入桌面；失败分别返回空串/false。
     std::wstring DesktopName(HDESK desktop);
     bool IsInputDesktop(HDESK desktop);
+
+    // 核验继承桌面并确保当前线程已绑定。当前桌面已匹配时直接成功，失败记录阶段并返回 Win32 错误。
+    DWORD BindClientDesktop(HDESK desktop, const std::wstring& expectedName);
 
     // 创建私有、可继承桌面。显式 OWNER RIGHTS 拒绝 ACE 同时关闭所有者的隐式改 ACL 权限。
     // 输入唯一名称，输出已授权的创建句柄；其他进程按名称打开将被 DACL 拒绝。
