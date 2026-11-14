@@ -44,6 +44,8 @@ typedef struct _KSW_HWID_COMPLETION_CONTEXT
     UCHAR OldControl;
     PVOID OldContext;
     PIO_COMPLETION_ROUTINE OldRoutine;
+    /* 中文说明：安装方槽位的在途计数，完成例程返回前递减，供卸载路径等待。 */
+    volatile LONG* CompletionInFlightCounter;
     KSWORD_ARK_HWID_DISPATCH_PROFILE Profile;
 } KSW_HWID_COMPLETION_CONTEXT, *PKSW_HWID_COMPLETION_CONTEXT;
 
@@ -607,12 +609,15 @@ KswordARKHwidCompletionRoutine(
     UCHAR oldControl = 0U;
     BOOLEAN callOldRoutine = FALSE;
     NTSTATUS completionStatus = STATUS_SUCCESS;
+    volatile LONG* inFlightCounter = NULL;
 
     /* 中文说明：完成例程先改写返回缓冲，再恢复并调用原完成例程。 */
     if (completionContext != NULL) {
         oldRoutine = completionContext->OldRoutine;
         oldContext = completionContext->OldContext;
         oldControl = completionContext->OldControl;
+        /* 中文说明：计数器指针必须在释放上下文前取出，完成例程返回前还要用它。 */
+        inFlightCounter = completionContext->CompletionInFlightCounter;
         /*
          * 中文说明：改写只在请求成功时做——失败或取消的 IRP，输出缓冲的内容没有意义，
          * 目标驱动甚至可能根本没往里写过。但上下文无论成败都必须在这里释放：
@@ -641,14 +646,25 @@ KswordARKHwidCompletionRoutine(
      * 与"上层是否安装过完成例程"无关，拿它当闸门会在单层设备栈上静默吞掉上层的回调。
      */
     if (oldRoutine != NULL && callOldRoutine != FALSE) {
-        return oldRoutine(Device, Irp, oldContext);
+        /* 中文说明：不能尾调用原例程，本函数还要在它返回后释放在途计数。 */
+        completionStatus = oldRoutine(Device, Irp, oldContext);
+    }
+    else {
+        if (Irp != NULL && Irp->PendingReturned) {
+            IoMarkIrpPending(Irp);
+        }
+        completionStatus = STATUS_SUCCESS;
     }
 
-    if (Irp != NULL && Irp->PendingReturned) {
-        IoMarkIrpPending(Irp);
+    /*
+     * 中文说明：计数递减必须是本函数最后一步。卸载路径看到归零后才会允许驱动映像
+     * 离开内存，之前的任何本模块代码都必须在递减前执行完。
+     */
+    if (inFlightCounter != NULL) {
+        InterlockedDecrement(inFlightCounter);
     }
 
-    return STATUS_SUCCESS;
+    return completionStatus;
 }
 
 
@@ -700,7 +716,8 @@ KswordARKHwidPrepareDispatchCompletion(
     _Inout_ PIRP Irp,
     _Inout_ PIO_STACK_LOCATION IoStack,
     _In_ ULONG TargetFlag,
-    _In_ const KSWORD_ARK_HWID_DISPATCH_PROFILE* Profile
+    _In_ const KSWORD_ARK_HWID_DISPATCH_PROFILE* Profile,
+    _Inout_ volatile LONG* CompletionInFlightCounter
     )
 {
     PKSW_HWID_COMPLETION_CONTEXT completionContext = NULL;
@@ -709,7 +726,7 @@ KswordARKHwidPrepareDispatchCompletion(
     ULONG ioControlCode = 0UL;
 
     /* 中文说明：该入口在被 hook 的目标驱动派遣函数内运行，只安装完成例程。 */
-    if (Irp == NULL || IoStack == NULL || Profile == NULL) {
+    if (Irp == NULL || IoStack == NULL || Profile == NULL || CompletionInFlightCounter == NULL) {
         return FALSE;
     }
 
@@ -737,6 +754,8 @@ KswordARKHwidPrepareDispatchCompletion(
     completionContext->OldControl = IoStack->Control;
     completionContext->OldContext = IoStack->Context;
     completionContext->OldRoutine = IoStack->CompletionRoutine;
+    /* 中文说明：完成例程是本次在途计数的唯一释放点，必须与上下文一起保存。 */
+    completionContext->CompletionInFlightCounter = CompletionInFlightCounter;
     RtlCopyMemory(&completionContext->Profile, Profile, sizeof(completionContext->Profile));
     completionContext->Profile.diskSerial[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
     completionContext->Profile.diskProduct[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
@@ -745,6 +764,11 @@ KswordARKHwidPrepareDispatchCompletion(
     completionContext->Profile.permanentMac[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
     completionContext->Profile.currentMac[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
 
+    /*
+     * 中文说明：完成段计数必须先于完成例程挂接登记，避免同步完成路径在计数
+     * 生效前就进入完成例程；从这里到挂接完成之间没有可失败的步骤。
+     */
+    InterlockedIncrement(CompletionInFlightCounter);
     IoStack->Context = completionContext;
     IoStack->CompletionRoutine = KswordARKHwidCompletionRoutine;
     /*
