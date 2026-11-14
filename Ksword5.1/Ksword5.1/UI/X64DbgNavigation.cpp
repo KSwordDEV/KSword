@@ -104,6 +104,17 @@ namespace ks::ui::x64dbg_navigation
         QSettings settings(settingsPath(), QSettings::IniFormat);
         const QString debugger = settings.value(QStringLiteral("debugger")).toString();
         if (!debugger.isEmpty()) arguments << QStringLiteral("--debugger") << debugger;
+        // 无附加模式开关：用户在 x64dbg-navigation.ini 里配置 [Navigation]
+        // noattach_mode=hvm|kernel 和 noattach_tid=<线程 ID> 后，launcher 会
+        // 把这两项作为子进程环境变量传给 TitanEngine 代理，激活 IndependentFrontend
+        // 的无附加通道（不建立 Windows 调试关系）。两项必须同时设置才生效。
+        const QString noAttachMode = settings.value(QStringLiteral("noattach_mode")).toString();
+        const quint32 noAttachTid = settings.value(QStringLiteral("noattach_tid"), 0).toUInt();
+        if ((noAttachMode == QStringLiteral("hvm") || noAttachMode == QStringLiteral("kernel")) && noAttachTid != 0)
+        {
+            arguments << QStringLiteral("--tid") << QString::number(noAttachTid)
+                      << QStringLiteral("--noattach-mode") << noAttachMode;
+        }
         auto* process = new QProcess(qApp); requests.insert(key, process);
         const QPointer<QWidget> ownerGuard(owner);
         auto* output = new QByteArray();
