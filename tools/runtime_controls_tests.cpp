@@ -2,7 +2,8 @@
 #include "../Ksword5.1/Ksword5.1/UI/ShortcutRegistry.h"
 #include "../Ksword5.1/Ksword5.1/UI/AsyncOperation.h"
 #include "../Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
-#include "../Taskbar/SosHotkeyLauncher.h"
+#include "../shared/rescue/RescueDesktopHost.h"
+#include "../shared/rescue/SosHotkeyLauncher.h"
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QElapsedTimer>
@@ -302,7 +303,7 @@ namespace
     {
         std::atomic<DWORD> error{0};
         std::atomic_int started{0}, finished{0};
-        SosHotkeyLauncher launcher(QCoreApplication::applicationDirPath(), QCoreApplication::applicationFilePath(),
+        SosHotkeyLauncher launcher(QCoreApplication::applicationFilePath(),
             [&](DWORD code) { error.store(code); }, [&](bool active) { if (active) ++started; else ++finished; });
         check(launcher.start(false), "menu dispatcher can start without installing a keyboard hook");
         launcher.requestLaunch();
@@ -320,7 +321,14 @@ namespace
 int main(int argc, char** argv)
 {
     RuntimeTestApplication app(argc, argv);
-    if (app.arguments().contains(QStringLiteral("--ksword-rescue-host"))) return ERROR_NOT_READY;
+    // 真实子进程验证自启动参数：监护入口只携带标记，客户端路径由进程自身确定。
+    const QStringList arguments = app.arguments();
+    const QString hostArgument = QString::fromWCharArray(ks::rescue::kHostArgument);
+    if (arguments.contains(hostArgument))
+    {
+        return arguments.size() == 2 && arguments[1] == hostArgument
+            ? ERROR_NOT_READY : ERROR_INVALID_PARAMETER;
+    }
     const QDir directory(QCoreApplication::applicationDirPath());
     const QString shortcuts = directory.filePath("RuntimeControlTests.shortcuts.ini");
     const QString polling = directory.filePath("RuntimeControlTests.polling.ini");

@@ -1,3 +1,4 @@
+#include "../shared/rescue/RescueDesktopHost.h"
 #include "../shared/rescue/RescueDesktopWin32.h"
 
 #include <cstdio>
@@ -106,8 +107,42 @@ namespace
         return failures == 0 ? 0 : 1;
     }
 
-    // 输入实际 Taskbar/KSword 路径，只在未提升令牌下探测伪造标记；不请求 UAC 或切换桌面。
-    int ElevationGateProbe(const std::wstring& host, const std::wstring& client)
+    // 启动实际监护 exe 的拒绝分支，检查它在指定时间内以预期错误退出。
+    int RejectedHostProbe(const std::wstring& host, const std::wstring& arguments,
+        DWORD expectedError, const char* resultName)
+    {
+        std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument + L" " + arguments;
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION child{}; // 只等待或结束本次启动的探测子进程。
+        const BOOL launched = ::CreateProcessW(host.c_str(), command.data(), nullptr, nullptr,
+            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
+        Check(launched != FALSE, "launch actual KSword host for rejection probe");
+        if (!launched)
+        {
+            return 1;
+        }
+        const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
+        Check(waited == WAIT_OBJECT_0, "host rejects the request before UI or UAC");
+        if (waited != WAIT_OBJECT_0)
+        {
+            ::TerminateProcess(child.hProcess, 1);
+            ::WaitForSingleObject(child.hProcess, 5000);
+        }
+        DWORD exitCode = 0;
+        Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == expectedError,
+            "host returns the expected rejection code");
+        ::CloseHandle(child.hThread);
+        ::CloseHandle(child.hProcess);
+        std::printf("%s=%s checks=%d failures=%d\n", resultName,
+            failures == 0 ? "PASS" : "FAIL", checks, failures);
+        return failures == 0 ? 0 : 1;
+    }
+
+    // 输入实际 KSword 路径，在未提升令牌下验证监护入口要求真实管理员权限。
+    int ElevationGateProbe(const std::wstring& host)
     {
         HANDLE token = nullptr; // 先核验测试进程真实令牌，提升态下必须跳过以免进入救援桌面。
         const BOOL opened = ::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token);
@@ -131,49 +166,30 @@ namespace
             return 0;
         }
 
-        // 内部标记不是提权证据：未提升的真实 Taskbar 应立即拒绝，不能再次弹 UAC。
-        const std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument
-            + L" \"" + client + L"\" --ksword-rescue-elevation-attempted";
-        std::vector<wchar_t> writable(command.begin(), command.end()); // CreateProcess 需要可写参数。
-        writable.push_back(L'\0');
-        STARTUPINFOW startup{}; // 该测试分支不创建窗口，且只启动自己的探测子进程。
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESHOWWINDOW;
-        startup.wShowWindow = SW_HIDE;
-        PROCESS_INFORMATION child{}; // 精确等待本次探测子进程，不接触常驻 Taskbar。
-        const BOOL launched = ::CreateProcessW(host.c_str(), writable.data(), nullptr, nullptr,
-            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
-        Check(launched != FALSE, "launch actual Taskbar with spoofed elevation marker");
-        if (!launched)
+        // 用合法的接替格式进入实际监护入口，验证参数不能代替令牌检查。
+        const std::wstring original = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId()));
+        Check(!original.empty(), "read origin desktop for elevation probe");
+        if (original.empty())
         {
             return 1;
         }
-        const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
-        Check(waited == WAIT_OBJECT_0, "spoofed elevation marker exits without UAC or readiness wait");
-        if (waited != WAIT_OBJECT_0)
-        {
-            ::TerminateProcess(child.hProcess, 1);
-            ::WaitForSingleObject(child.hProcess, 5000);
-        }
-        DWORD exitCode = 0; // 未提升的内部入口必须返回明确失败，不能进入普通或救援 GUI。
-        Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == 2,
-            "unelevated actual Taskbar rejects claimed elevation");
-        ::CloseHandle(child.hThread);
-        ::CloseHandle(child.hProcess);
-        std::printf("RESCUE_ELEVATION_GATE=%s checks=%d failures=%d\n",
-            failures == 0 ? "PASS" : "FAIL", checks, failures);
-        return failures == 0 ? 0 : 1;
+        const std::wstring arguments = std::wstring(ks::rescue::kElevationAttemptArgument) + L" "
+            + ks::rescue::kOriginalDesktopArgument + L" \"" + original + L"\"";
+        return RejectedHostProbe(host, arguments, ERROR_ELEVATION_REQUIRED, "RESCUE_ELEVATION_GATE");
     }
 
     // 已有会话时实际监护入口必须直接结束，不弹 UAC、不创建或切换桌面。
-    int SessionGuardProbe(const std::wstring& host, const std::wstring& client, bool ordinaryTaskbar = false)
+    int SessionGuardProbe(const std::wstring& host, bool ordinaryTaskbar)
     {
-        const HANDLE guard = ::CreateMutexW(nullptr, FALSE,
-            ordinaryTaskbar ? L"Local\\KSword.Taskbar.Instance" : ks::rescue::kSessionGuardName);
+        const HANDLE guard = ::CreateMutexExW(nullptr,
+            ordinaryTaskbar ? L"Local\\KSword.Taskbar.Instance" : ks::rescue::kSessionGuardName, 0, SYNCHRONIZE);
         Check(guard != nullptr, "hold a rescue session guard");
         if (!guard) return 1;
         std::wstring command = L"\"" + host + L"\"";
-        if (!ordinaryTaskbar) command += L" " + std::wstring(ks::rescue::kHostArgument) + L" \"" + client + L"\"";
+        if (!ordinaryTaskbar)
+        {
+            command += L" " + std::wstring(ks::rescue::kHostArgument);
+        }
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION child{};
@@ -266,14 +282,20 @@ namespace
 int wmain(const int count, wchar_t** arguments)
 {
     if (count == 3 && std::wstring(arguments[1]) == L"--taskbar-single-instance-probe")
-        return SessionGuardProbe(arguments[2], L"", true);
-    if (count == 4 && std::wstring(arguments[1]) == L"--session-guard-probe")
+        return SessionGuardProbe(arguments[2], true);
+    if (count == 3 && std::wstring(arguments[1]) == L"--session-guard-probe")
     {
-        return SessionGuardProbe(arguments[2], arguments[3]);
+        return SessionGuardProbe(arguments[2], false);
     }
-    if (count == 4 && std::wstring(arguments[1]) == L"--elevation-gate-probe")
+    if (count == 3 && std::wstring(arguments[1]) == L"--elevation-gate-probe")
     {
-        return ElevationGateProbe(arguments[2], arguments[3]);
+        return ElevationGateProbe(arguments[2]);
+    }
+    if (count == 3 && std::wstring(arguments[1]) == L"--client-path-rejection-probe")
+    {
+        // 旧监护协议允许指定客户端路径，新入口只允许启动自身模块。
+        return RejectedHostProbe(arguments[2], L"\"" + std::wstring(arguments[2]) + L"\"",
+            ERROR_INVALID_PARAMETER, "RESCUE_CLIENT_PATH_REJECTION");
     }
     if (count > 1 && std::wstring(arguments[1]) == ks::rescue::kClientArgument)
     {

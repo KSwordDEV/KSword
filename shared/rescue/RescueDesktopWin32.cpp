@@ -116,7 +116,7 @@ namespace ks::rescue
     bool LaunchClient(const std::wstring& executable, const std::wstring& originalName,
         const ClientHandles& handles, PROCESS_INFORMATION& process, DWORD& error)
     {
-        // HANDLE_LIST 保证只有救援桌面被继承，不暴露原桌面及其他 Taskbar 资源。
+        // HANDLE_LIST 只交付本次会话的四个句柄，原桌面和监护进程的其余句柄留在监护端。
         std::array<HANDLE, 4> inherited{ handles.desktop, handles.ready, handles.leave, handles.host };
         SIZE_T bytes = 0; // 启动属性表分配长度。
         ::InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);

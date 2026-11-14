@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot = (Join-Path $PSScriptRoot '..'))
+param(
+    [string]$RepositoryRoot = (Join-Path $PSScriptRoot '..'),
+    [switch]$SkipTaskbarProbe
+)
 
 # 使用已有 Taskbar Release 中间目录；测试仅创建隐藏桌面，不切换用户输入桌面。
 $ErrorActionPreference = 'Stop'
@@ -34,23 +37,33 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue desktop tests failed: $LASTEXITCODE"
     }
-    # 用实际 Taskbar 检查未提升的内部入口；已经提升的测试宿主跳过，不自动显示 UAC。
-    $taskActualHost = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Taskbar.exe'
-    $taskActualClient = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Ksword5.1.exe'
-    foreach ($taskProbePath in @($taskActualHost, $taskActualClient)) {
+    # 实际 KSword 监护入口在 Qt 前处理门闩和令牌；此探测只走提前返回分支。
+    $taskActualHost = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Ksword5.1.exe'
+    $taskTaskbar = Join-Path $taskRepositoryRoot 'Ksword5.1\x64\Release\Taskbar.exe'
+    $taskProbePaths = @($taskActualHost)
+    if (!$SkipTaskbarProbe) {
+        $taskProbePaths += $taskTaskbar
+    }
+    foreach ($taskProbePath in $taskProbePaths) {
         if (!(Test-Path -LiteralPath $taskProbePath)) {
             throw "Elevation gate probe artifact is missing: $taskProbePath"
         }
     }
-    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --session-guard-probe $taskActualHost $taskActualClient
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --session-guard-probe $taskActualHost
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue session guard probe failed: $LASTEXITCODE"
     }
-    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --taskbar-single-instance-probe $taskActualHost
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --client-path-rejection-probe $taskActualHost
     if ($LASTEXITCODE -ne 0) {
-        throw "Taskbar single-instance probe failed: $LASTEXITCODE"
+        throw "Rescue client path rejection probe failed: $LASTEXITCODE"
     }
-    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --elevation-gate-probe $taskActualHost $taskActualClient
+    if (!$SkipTaskbarProbe) {
+        & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --taskbar-single-instance-probe $taskTaskbar
+        if ($LASTEXITCODE -ne 0) {
+            throw "Taskbar single-instance probe failed: $LASTEXITCODE"
+        }
+    }
+    & (Join-Path $taskOutputDirectory 'RescueDesktopTests.exe') --elevation-gate-probe $taskActualHost
     if ($LASTEXITCODE -ne 0) {
         throw "Rescue elevation gate probe failed: $LASTEXITCODE"
     }

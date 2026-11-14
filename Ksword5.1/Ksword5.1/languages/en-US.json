@@ -1168,7 +1168,6 @@
     "menu.tools.rescue": "Rescue Mode",
     "menu.tools.rescue.tooltip": "Start an administrator rescue instance on a separate desktop and keep this window open. You can also press S O S Enter in sequence. Press Ctrl+Alt+Shift+F10 to return.",
     "rescue.desktop.already_active": "Rescue mode is already active. Use the return button to leave this desktop.",
-    "rescue.desktop.host_missing": "Rescue host is missing: %1\nPlace Taskbar.exe beside the main program and retry.",
     "rescue.desktop.launch_failed": "Unable to start the rescue host. Error code: %1",
     "rescue.desktop.return": "Return to the original desktop and close this rescue instance (Ctrl+Alt+Shift+F10)",
     "rescue.desktop.privilege": "The rescue instance keeps its current privileges. Return to the original desktop to change privileges, then enter the rescue desktop again.",

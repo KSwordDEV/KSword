@@ -1771,10 +1771,13 @@
     <ClCompile Include="UI\RescueDesktopSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Taskbar\SosHotkeyLauncher.cpp">
+    <ClCompile Include="..\..\shared\rescue\SosHotkeyLauncher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\rescue\RescueDesktopHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\PerformanceNavCard.cpp">
@@ -3971,10 +3974,13 @@
     <ClInclude Include="UI\RescueDesktopSession.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Taskbar\SosHotkeyLauncher.h">
+    <ClInclude Include="..\..\shared\rescue\SosHotkeyLauncher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\rescue\RescueDesktopHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\ThemedMessageBox.h">

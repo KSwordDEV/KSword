@@ -22,7 +22,7 @@
 #include "UI/McpHexCanvasAdapter.h"
 #include "UI/UI_All.h"
 #include "../../shared/usermode/KswordArkServiceMode.h"
-#include "../../Taskbar/SosHotkeyLauncher.h"
+#include "../../shared/rescue/SosHotkeyLauncher.h"
 #include "Framework/PrivilegeElevationPrompt.h"
 #include "MinidumpDock/DumpAutoCheck.h"
 #include <QMenu>
@@ -8309,8 +8309,7 @@ void MainWindow::initMenus()
     if (!rescueActive)
     {
         m_sosHotkeyLauncher = std::make_unique<SosHotkeyLauncher>(
-            QCoreApplication::applicationDirPath(),
-            QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("Taskbar.exe")),
+            QCoreApplication::applicationFilePath(),
             [this](DWORD errorCode) {
                 QMetaObject::invokeMethod(this, [this, errorCode]() {
                     if (errorCode == ERROR_CANCELLED) return;
@@ -8530,18 +8529,11 @@ void MainWindow::launchRescueDesktopFromMenu(QAction* action)
         return;
     }
 
-    const QDir directory(QCoreApplication::applicationDirPath());
-    const QString hostPath = directory.filePath(QStringLiteral("Taskbar.exe"));
-    const QString title = ks::i18n::text(QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式"));
-    if (!QFileInfo(hostPath).isFile())
+    // 菜单和 SOS 由同一个启动器派发，监护入口位于当前 KSword exe。
+    if (m_sosHotkeyLauncher)
     {
-        QMessageBox::warning(this, title, ks::i18n::text(QStringLiteral("rescue.desktop.host_missing"),
-            QStringLiteral("缺少救援监护程序：%1\n请将 Taskbar.exe 放在主程序同目录后重试。"))
-            .arg(QDir::toNativeSeparators(hostPath)));
-        return;
+        m_sosHotkeyLauncher->requestLaunch();
     }
-
-    if (m_sosHotkeyLauncher) m_sosHotkeyLauncher->requestLaunch();
 }
 
 void MainWindow::showShortcutManagerFromMenu(bool systemPage)

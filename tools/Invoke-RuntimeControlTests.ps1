@@ -13,7 +13,7 @@ $taskPreviousTemp=$env:TEMP
 $taskPreviousTmp=$env:TMP
 $taskCompile = 'call "' + $taskVcVars + '" && cl /nologo /EHsc /std:c++17 /Zc:__cplusplus /permissive- /utf-8 /MD /W4 /I"' + $taskQt + '\include" /I"' + $taskQt + '\include\QtCore" /I"' + $taskQt + '\include\QtGui"'
 $taskCompilerPrefix = $taskCompile
-$taskCompile += ' /I"' + $taskQt + '\include\QtWidgets" tools\runtime_controls_tests.cpp Ksword5.1\Ksword5.1\Framework\BackgroundTaskRegistry.cpp Ksword5.1\Ksword5.1\UI\ShortcutRegistry.cpp Ksword5.1\Ksword5.1\UI\MemoryWorkbench\WorkbenchActions.cpp Taskbar\SosHotkeyLauncher.cpp'
+$taskCompile += ' /I"' + $taskQt + '\include\QtWidgets" tools\runtime_controls_tests.cpp Ksword5.1\Ksword5.1\Framework\BackgroundTaskRegistry.cpp Ksword5.1\Ksword5.1\UI\ShortcutRegistry.cpp Ksword5.1\Ksword5.1\UI\MemoryWorkbench\WorkbenchActions.cpp shared\rescue\SosHotkeyLauncher.cpp'
 $taskCompile += ' Ksword5.1\Ksword5.1\UI\AsyncOperation.cpp'
 $taskCompile += ' /Fo"' + $taskOutput.Replace('\', '/') + '/" /Fe"' + $taskOutput + '\runtime_controls_tests.exe" /link /LIBPATH:"' + $taskQt + '\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib User32.lib'
 Push-Location -LiteralPath $taskRoot

@@ -29,6 +29,7 @@
 #include "UI/TextSearchReplaceSupport.h"
 #include "Internationalization/LanguageManager.h"
 #include "../../shared/crash/WinCrashHandler.h"
+#include "../../shared/rescue/RescueDesktopHost.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1359,6 +1360,12 @@ namespace
 
 int main(int argc, char* argv[])
 {
+    // 监护入口在 Qt、普通实例互斥和启动设置初始化之前独立运行。
+    if (const auto rescueHostResult = ks::rescue::RunRescueDesktopHostIfRequested())
+    {
+        return *rescueHostResult;
+    }
+
     // 救援客户端先核验白名单继承的桌面/事件，再允许任何 Qt 或启动页创建窗口。
     ks::ui::RescueDesktopSession rescueSession;
     if (!rescueSession.initializeBeforeQt())

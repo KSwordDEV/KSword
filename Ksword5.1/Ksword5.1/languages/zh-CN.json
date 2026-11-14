@@ -1168,7 +1168,6 @@
     "menu.tools.rescue": "救援模式",
     "menu.tools.rescue.tooltip": "在独立桌面启动管理员救援实例，保留当前窗口；也可依次按 S O S Enter，返回快捷键为 Ctrl+Alt+Shift+F10。",
     "rescue.desktop.already_active": "当前已处于救援模式，请使用返回原桌面按钮退出。",
-    "rescue.desktop.host_missing": "缺少救援监护程序：%1\n请将 Taskbar.exe 放在主程序同目录后重试。",
     "rescue.desktop.launch_failed": "无法启动救援监护程序。错误码：%1",
     "rescue.desktop.return": "返回原桌面并关闭救援实例（Ctrl+Alt+Shift+F10）",
     "rescue.desktop.privilege": "救援实例保持当前权限。请返回原桌面后切换权限，再进入救援桌面。",

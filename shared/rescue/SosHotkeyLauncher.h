@@ -23,12 +23,12 @@ class SosHotkeyLauncher final
 public:
     // 构造函数：
     // - 输入 applicationDirectoryPath：Taskbar.exe 所在目录；
-    // - 处理：解析 Ksword5.1.exe 候选路径；
+    // - 处理：解析 Ksword5.1.exe 候选路径，启动该 exe 的监护入口；
     // - 返回：无。
     explicit SosHotkeyLauncher(const QString& applicationDirectoryPath);
-    SosHotkeyLauncher(const QString& applicationDirectoryPath,
-        const QString& rescueHostPath, std::function<void(DWORD)> launchFailure = {},
-        std::function<void(bool)> launchActivity = {});
+    // 输入已知 KSword 路径和启动回调，供主程序直接使用自己的 exe。
+    SosHotkeyLauncher(const QString& kswordExecutablePath,
+        std::function<void(DWORD)> launchFailure, std::function<void(bool)> launchActivity);
 
     // 析构函数：
     // - 处理：停止钩子线程并注销 WH_KEYBOARD_LL；
@@ -109,13 +109,10 @@ private:
     std::atomic<DWORD> m_hookThreadId{ 0 };           // 钩子线程 ID，用于 PostThreadMessage。
     HHOOK m_keyboardHook = nullptr;                  // SetWindowsHookExW 返回的键盘钩子句柄。
     int m_sequenceIndex = 0;                         // 当前已匹配 SOS Enter 序列的位置。
-    ULONGLONG m_lastLaunchTickMs = 0;                // 上次启动主程序的时间，用于防抖。
 
-    std::wstring m_kswordExecutablePath;             // Ksword5.1.exe 绝对路径。
+    std::wstring m_kswordExecutablePath;             // 监护进程和救援实例使用的 KSword exe 绝对路径。
     std::wstring m_kswordWorkingDirectory;           // 主程序启动工作目录。
-    std::wstring m_rescueHostExecutablePath;         // 当前 Taskbar.exe，使用其无 Qt 监护入口。
     HANDLE m_rescueHostProcess = nullptr;            // 避免重复 SOS 创建并发救援会话。
-    std::mutex m_launchMutex;
     std::function<void(DWORD)> m_launchFailure;
     std::function<void(bool)> m_launchActivity;
 };

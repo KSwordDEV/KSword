@@ -13,7 +13,6 @@ namespace ks::rescue
     // USER32 windows/hooks on the entry thread must not prevent desktop binding.
     // The callback, its hooks and its cleanup all run on the fresh thread.
     DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session);
-    inline constexpr wchar_t kHostArgument[] = L"--ksword-rescue-host";
     inline constexpr wchar_t kSessionGuardName[] = L"Local\\KSword.Rescue.Session";
     inline constexpr wchar_t kClientArgument[] = L"--ksword-rescue-desktop";
     inline constexpr wchar_t kDesktopPrefix[] = L"KSword.Rescue.";
