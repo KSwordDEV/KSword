@@ -66,6 +66,8 @@
 #define KSWORD_DEBUGGER_NATIVE 32U
 // Independent user-thread execution channel; never enters the Windows debug loop.
 #define KSWORD_DEBUGGER_NOATTACH 33U
+// Independent ordinary-driver exception transport, sharing the stop document.
+#define KSWORD_DEBUGGER_KERNEL_NOATTACH 34U
 
 // All pointers are encoded as uint64_t so the ABI is stable across adapters.
 typedef struct KSWORD_DEBUGGER_CALL

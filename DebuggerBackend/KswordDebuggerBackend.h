@@ -128,6 +128,8 @@ namespace ksword::debugger
         ark::DriverHandle noAttachDriver_;
         // An uncertain OPEN ACK also reserves this adapter until QUERY/CLOSE recovers it.
         bool noAttachReserved_ = false;
+        // The same session/stop numbers cannot be replayed through another transport.
+        DWORD noAttachTransport_ = 0;
         // 句柄身份与目标身份分别持有；事件对象不能替代真实进程引用。
         struct TargetIdentity
         {

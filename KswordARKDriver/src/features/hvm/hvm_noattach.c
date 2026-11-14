@@ -1,5 +1,7 @@
 #include "hvm_noattach.h"
 #include "hvm_runtime.h"
+/* 两条通道共享确切的控制文件 Cleanup。 */
+VOID KswordARKKernelNoAttachFileCleanup(WDFFILEOBJECT File);
 
 /* 固定非分页会话在所有 VM-exit 读者停止前保持原地址。 */
 KSW_HVM_NOATTACH g_KswordNoAttach;
@@ -92,6 +94,8 @@ static NTSTATUS NaCloseLocked(VOID)
     InterlockedExchange(&g_KswordNoAttach.State, KSWORD_ARK_HVM_NOATTACH_CLOSED);
     /* 最后解除生命周期预约。 */
     InterlockedExchange(&g_KswordNoAttach.Owned, 0L);
+    /* 实际资源排空以后才让另一后端预约。 */
+    KswordARKNoAttachRelease(KNA_OWNER_HVM);
     /* 不存在残留处理器映射。 */
     return STATUS_SUCCESS;
 }
@@ -243,6 +247,8 @@ VOID KswordARKHvmNoAttachFileCleanup(WDFFILEOBJECT File)
 {
     /* 记住关句柄状态，防止 Cleanup 早于 OPEN 最后发布。 */
     InterlockedExchange(&KswordARKHvmNoAttachFileContext(File)->Closing, 1L);
+    /* 普通异常通道同样收到此文件关闭。 */
+    KswordARKKernelNoAttachFileCleanup(File);
     /* 仅撤销由这个确切控制文件持有的会话。 */
     if (KswordARKHvmNoAttachOwned() && g_KswordNoAttach.File == File)
     {
@@ -302,6 +308,8 @@ static ULONG NaCapabilities(VOID)
 {
     /* 使用已经初始化的通用硬件发现结果。 */
     KSW_HVM_RUNTIME *runtime = KswordARKHvmGetRuntime();
+    /* 单独报告已发现的前提，不用一个泛化“不支持”隐藏差异。 */
+    ULONG diagnostics = 0UL;
     /* 能力要求包含真实常驻生命周期，而不只是 CPU 有 MBEC。 */
     const ULONGLONG required =
         KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG | KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
@@ -315,20 +323,26 @@ static ULONG NaCapabilities(VOID)
     {
         return 0UL;
     }
+    /* 已知 VMX 环境才读取相应能力 MSR。 */
+    if (((__readmsr(KSW_IA32_VMX_PROCBASED_CTLS2) >> 32) & KSW_NOATTACH_MBEC_CONTROL) != 0ULL)
+    { diagnostics |= KSWORD_ARK_HVM_NOATTACH_DIAG_MBEC; }
+    /* MTF 不能从虚拟处理器型号或定时器设置推断。 */
+    if ((runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) != 0ULL)
+    { diagnostics |= KSWORD_ARK_HVM_NOATTACH_DIAG_MTF; }
     /* MTF 和 INVEPT 都是这份协议的硬前提。 */
     if ((runtime->FeatureFlags & required) != required)
     {
-        return 0UL;
+        return diagnostics;
     }
     /* Allowed-1 位确认 MBEC 控制能真正写入，而非只猜 CPU 型号。 */
     if (((__readmsr(KSW_IA32_VMX_PROCBASED_CTLS2) >> 32) & KSW_NOATTACH_MBEC_CONTROL) == 0ULL)
     {
-        return 0UL;
+        return diagnostics;
     }
     /* 范围只有单一用户线程及 GPR，不宣称全进程或 XSTATE。 */
     return KSWORD_ARK_HVM_NOATTACH_CAP_SINGLE_USER_THREAD | KSWORD_ARK_HVM_NOATTACH_CAP_GPR |
            KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION | KSWORD_ARK_HVM_NOATTACH_CAP_BREAKPOINT |
-           KSWORD_ARK_HVM_NOATTACH_CAP_SET_GPR;
+           KSWORD_ARK_HVM_NOATTACH_CAP_SET_GPR | diagnostics;
 }
 
 /* 在固定次数内取得一份完整快照；不把撕裂读数当停止现场。 */
@@ -444,6 +458,8 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
     NTSTATUS status = STATUS_SUCCESS;
     /* 状态变更只在同一控制锁内决定。 */
     LONG state;
+    /* 绑定失败也必须归还本次取得的跨后端预约。 */
+    BOOLEAN executionReserved = FALSE;
     /* 先建立可识别的空协议响应。 */
     RtlZeroMemory(Response, sizeof(*Response));
     /* 固定协议版本由新 IOCTL 独立协商。 */
@@ -509,6 +525,10 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
             status = STATUS_ACCESS_DENIED;
             goto Unlock;
         }
+        /* 普通异常通道已经持有停止权时不能接管。 */
+        executionReserved = KswordARKNoAttachTryReserve(KNA_OWNER_HVM);
+        /* 能力查询不代表已经取得资源。 */
+        if (!executionReserved) { status = STATUS_DEVICE_BUSY; goto Unlock; }
         /* 工作项隶属真实控制设备，其 Flush 契约覆盖驱动卸载。 */
         if (g_KswordNoAttach.Work == WDF_NO_HANDLE)
         {
@@ -744,6 +764,8 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
         KswordARKHvmNoAttachQueryBreakpoints(Response);
     }
 Unlock:
+    /* 没有公开本方会话时只解除自己的预约。 */
+    if (executionReserved && !KswordARKHvmNoAttachOwned()) { KswordARKNoAttachRelease(KNA_OWNER_HVM); }
     /* 同 owner 以外的失败不带其它会话的身份。 */
     ExReleasePushLockExclusive(&g_KswordNoAttach.Lock);
     /* 恢复普通 APC 策略。 */

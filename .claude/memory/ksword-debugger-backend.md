@@ -66,3 +66,13 @@
 - 页面离开先询问暂存守卫，取消不能先释放暂停；确认后关闭运行控制期间冻结工作台输入。HVM OPEN 回执丢失时先用同一持有设备文件查询自己会话，再尝试 Close，不能换句柄接管别的页面。
 - 独立内存目标换代时要清退旧 `WorkbenchStatusBar::m_readResultText`；反汇编读取未必产生 HEX baseline/`onProviderJobLanded`，不能等它覆盖旧退出警告。同一已退出目标只换通道仍保留真实警告，不清暂存区脏锁存，也不把空状态写成读取成功。
 - 使用说明与准确验证边界见 `docs/内存调试模式.md`，一手研究及旧 HVM 仍依赖 Windows #DB 的边界见 `docs/不附加单步调试研究.md`。实验 HVM 的源码/编译结果不能替代 MBEC/MTF 实机运行证据；本轮未自动加载新驱动或操作测试 VM。
+
+## 2026-11-13 两套独立执行通道
+
+- HVM 无附加 v2（命令 33 / IOCTL 0x924）与普通驱动 v1（命令 34 / IOCTL 0x938）共用 232/480 字节停止文档，使用独占设备文件、对象创建时间及 sessionId/stopId；跨后端预约禁止互相接管。GUI 入口为内存 → 内存调试，CE `noAttach.useBackend` 与独立 x64dbg `ksna_backend` 选择同一规范 API；它们不进入原生 Titan Windows 调试循环。
+- 普通后端只对精确匹配的 OS 26300 / ntoskrnl 26100.9711、26100.9974 开放私有 ABI。9974 的入口及被调函数完整差分、Resume 唯一被调关系均单独核对，不能把旧 RVA 当作新版本地址。KernelMode 缓冲区与 UserMode 现场分开传入五参 PspGet/SetContextThreadInternal；PsGetContextThread 包装会把同一 mode 同时用于两者，曾实际返回 C0000001。
+- 纯 TF、无地址槽时 Windows 不投影 DR6，连活动陷阱帧中也可能为零；实际分发入口硬件 DR6=FFFF4FF0、帧 DR6=0 已取证。消费者使用同一目标线程入口读取的硬件状态；退休自有 BS 时保留外部原因，由当前异常线程回写，不能靠猜 BS 或私有陷阱帧偏移。
+- 普通异常入口用已验证填充区和一个完整两字节原子入口建立转接。Close 恢复入口与本会话 TF/DR，转接器及模块留驻到重启以保护晚到调用；不实现 PatchGuard 绕过，测试签名和 HVCI 关闭不代表长期稳定性。只支持四个 DR 执行槽、native AMD64 单线程，不修改目标代码。
+- 指定 26H2-11-Pro、内核 9974 实测：CE 完整流程 52 PASS、真实 DR 停止中 Close 28 PASS、Titan 独立命令 34 完整流程 52 PASS。三轮 DebugPort=0、无 Debug Object、其它线程运行、目标字节不变、退出码 0。候选 0CD2F89A195A7CD461896135AF8F486EEFF366A3079C5ADD3846BADFD6462D70，证据 `.codex-build-logs/kernel-noattach-hardware-acceptance.log`；9711 最终修复未再硬件复验。
+- 主程序 CD8777FC... 已在真实窗口检查两种模式浅色宽窗及断点/寄存器工具窗；完整深浅、窄窗、DPI、背景矩阵仍未覆盖。构建/源码/模型不能代替这些项目。
+- 用户明确禁止创建 Hyper-V 检查点；此前本任务创建的两个检查点已删除并合并。测试仅在唯一 Windows VM，不改宿主安全设置；来宾临时策略在后续验收结束后恢复，准确备份在本任务日志中。

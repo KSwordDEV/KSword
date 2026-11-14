@@ -71,7 +71,9 @@ namespace ks::ui
         form->addRow(HvmText("地址"), hvmAddress_);
         auto* once = new QCheckBox(HvmText("命中一次后停用"), breakpoint);
         form->addRow(once);
-        auto* scope = new QLabel(HvmText("只作用于当前选定线程。最多 8 个执行地址；页面映射变化后须删除并重新安装。"), breakpoint);
+        auto* scope = new QLabel(mode_ == 3
+            ? HvmText("只作用于当前选定线程，使用最多 4 个 DR 执行地址。TF/DR 状态可观察，关闭只恢复本会话自己的状态。")
+            : HvmText("只作用于当前选定线程。最多 8 个执行地址；页面映射变化后须删除并重新安装。"), breakpoint);
         scope->setWordWrap(true);
         scope->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         form->addRow(scope);
@@ -194,9 +196,11 @@ namespace ks::ui
         const auto epoch = epoch_;
         const auto handle = hvmHandle_;
         const auto dispatcher = dispatcher_;
-        QThreadPool::globalInstance()->start([this, epoch, handle, dispatcher, request]()
+        const bool kernel = mode_ == 3;
+        QThreadPool::globalInstance()->start([this, epoch, handle, dispatcher, request, kernel]()
         {
-            const auto result = ksword::ark::controlHvmNoAttach(request, handle.get());
+            const auto result = kernel ? ksword::ark::controlKernelNoAttach(request, handle.get())
+                : ksword::ark::controlHvmNoAttach(request, handle.get());
             dispatcher->post([this, epoch, result]()
             {
                 busy_ = false;
@@ -234,6 +238,7 @@ namespace ks::ui
             const auto& bp = hvmResponse_.breakpoints[i];
             const QString values[]{QString::number(bp.id), HvmHex(bp.address),
                 (bp.flags & KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT) ? HvmText("一次性") : HvmText("持续"),
+                (bp.flags & KSWORD_ARK_KERNEL_NOATTACH_BP_PENDING) ? HvmText("等待目标提交") :
                 (bp.flags & KSWORD_ARK_HVM_NOATTACH_BP_STALE) ? HvmText("映射已变化，需重装") :
                 (bp.flags & KSWORD_ARK_HVM_NOATTACH_BP_CONSUMED) ? HvmText("已消费") : HvmText("已安装")};
             for (int column = 0; column < 4; ++column)

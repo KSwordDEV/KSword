@@ -163,13 +163,13 @@ extern "C" unsigned long __stdcall KSwordDebuggerCall(KSWORD_DEBUGGER_CALL* call
     if (!safeCopy(&snapshot, call, sizeof(snapshot))) return ERROR_NOACCESS;
     // This independent channel must not initialize Titan, install its Windows
     // event seam, or start its native-session monitor merely to use an IOCTL.
-    if (snapshot.command == KSWORD_DEBUGGER_NOATTACH) return KSwordBackendCall(call);
+    if (snapshot.command == KSWORD_DEBUGGER_NOATTACH || snapshot.command == KSWORD_DEBUGGER_KERNEL_NOATTACH) return KSwordBackendCall(call);
     if (snapshot.command == KSWORD_DEBUGGER_OPERATION_LAYOUT && snapshot.inputBytes == sizeof(DWORD))
     {
         DWORD requested = 0;
         if (!safeCopy(&requested, reinterpret_cast<const void*>(static_cast<std::uintptr_t>(snapshot.input)), sizeof(requested)))
             return ERROR_NOACCESS;
-        if (requested == KSWORD_DEBUGGER_NOATTACH) return KSwordBackendCall(call);
+        if (requested == KSWORD_DEBUGGER_NOATTACH || requested == KSWORD_DEBUGGER_KERNEL_NOATTACH) return KSwordBackendCall(call);
     }
     const DWORD error = ensureNative(); if (error != ERROR_SUCCESS) return error;
     if (snapshot.command == KSWORD_DEBUGGER_QUERY_ENGINE || snapshot.command == KSWORD_DEBUGGER_QUERY_BREAKPOINT)

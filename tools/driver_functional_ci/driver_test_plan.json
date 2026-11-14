@@ -3055,6 +3055,11 @@
       "detail": "显式 OPEN 会独占准备并启动 Intel MBEC/MTF 常驻；普通 CI 仅做协议、源码与构建检查，不加载驱动、不启动 VM，也不把能力查询当真实单步验收。"
     },
     {
+      "ioctl": "KERNEL_NOATTACH",
+      "reason": "kernel-patch",
+      "detail": "OPEN installs a version-bound kernel exception consumer and boot-resident bridge; TF/DR execution and late-call lifetime require dedicated, explicitly authorized VM acceptance. Ordinary CI must not patch the kernel or create checkpoints."
+    },
+    {
       "ioctl": "CONTROL_IO_TIMER",
       "reason": "no-cli-path",
       "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"

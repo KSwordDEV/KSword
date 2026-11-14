@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include "../../DebuggerBackend/KswordDebuggerApi.h"
 #include "../../shared/driver/KswordArkHvmNoAttachIoctl.h"
+#include "../../shared/driver/KswordArkKernelNoAttachIoctl.h"
 #include <array>
 #include <cerrno>
 #include <cstdio>
@@ -28,8 +29,9 @@ namespace
     Call backendCall = nullptr;
     int pluginHandle = 0;
     bool uncertainOwner = false;
+    bool kernelTransport = false;
     std::uint64_t session = 0, stop = 0;
-    const std::array<const char*, 10> commands{{"ksna_open", "ksna_query", "ksna_pause", "ksna_step", "ksna_run",
+    const std::array<const char*, 11> commands{{"ksna_backend", "ksna_open", "ksna_query", "ksna_pause", "ksna_step", "ksna_run",
         "ksna_close", "ksna_bp", "ksna_bc", "ksna_runto", "ksna_set"}};
 
     template<class T> bool resolve(HMODULE module, const char* name, T& output)
@@ -68,23 +70,24 @@ namespace
     bool send(KSWORD_ARK_HVM_NOATTACH_REQUEST request)
     {
         if (!loadBackend()) { api.log("KSword no-attach backend is missing from KSword/TitanEngine.dll"); return false; }
-        request.version = KSWORD_ARK_HVM_NOATTACH_VERSION; request.size = sizeof(request);
+        request.version = kernelTransport ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION;
+        request.size = sizeof(request);
         request.sessionId = session; request.stopId = stop;
         if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN) uncertainOwner = true;
         KSWORD_ARK_HVM_NOATTACH_RESPONSE response{};
-        KSWORD_DEBUGGER_CALL call{KSWORD_DEBUGGER_API_VERSION, sizeof(call), KSWORD_DEBUGGER_NOATTACH, 0,
+        KSWORD_DEBUGGER_CALL call{KSWORD_DEBUGGER_API_VERSION, sizeof(call), kernelTransport ? KSWORD_DEBUGGER_KERNEL_NOATTACH : KSWORD_DEBUGGER_NOATTACH, 0,
             reinterpret_cast<std::uintptr_t>(&request), reinterpret_cast<std::uintptr_t>(&response),
             sizeof(request), sizeof(response), 0, 0};
         const DWORD transport = backendCall(&call);
         if (transport || call.error || call.bytesReturned != sizeof(response) ||
-            response.version != KSWORD_ARK_HVM_NOATTACH_VERSION || response.size != sizeof(response) ||
-            response.state > KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING || response.breakpointCount > 8)
+            response.version != request.version || response.size != sizeof(response) ||
+            response.state > KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING || response.breakpointCount > (kernelTransport ? 4UL : 8UL))
         {
             char text[128]{}; sprintf_s(text, "KSword no-attach transport failed: %lu; QUERY/CLOSE retains recovery ownership", transport ? transport : call.error);
             api.log(text); stop = 0; return false;
         }
         if (response.sessionId) session = response.sessionId;
-        if (response.status >= 0 && response.state == KSWORD_ARK_HVM_NOATTACH_CLOSED && !response.sessionId)
+        if (response.status >= 0 && (response.state == KSWORD_ARK_HVM_NOATTACH_CLOSED || response.state == KSWORD_ARK_HVM_NOATTACH_UNSUPPORTED) && !response.sessionId)
         { uncertainOwner = false; session = 0; }
         stop = response.status >= 0 && response.state == KSWORD_ARK_HVM_NOATTACH_STOPPED ? response.stopId : 0;
         char text[384]{};
@@ -111,17 +114,27 @@ namespace
         std::lock_guard<std::recursive_mutex> lock(mutex);
         if (argc < 1 || !argv || !argv[0]) return false;
         const std::string name(argv[0]);
+        if (name == "ksna_backend")
+        {
+            if (argc != 2 || session || uncertainOwner || (std::strcmp(argv[1], "hvm") && std::strcmp(argv[1], "kernel")))
+            { api.log("Usage: ksna_backend hvm|kernel; QUERY/CLOSE the current transport first"); return false; }
+            kernelTransport = std::strcmp(argv[1], "kernel") == 0;
+            api.log(kernelTransport ? "Kernel exception transport selected: TF/DR, boot-resident driver bridge; OPEN requires confirm_boot"
+                                    : "HVM transport selected: requires Intel MBEC/MTF");
+            return true;
+        }
         KSWORD_ARK_HVM_NOATTACH_REQUEST request{};
         std::uint64_t value = 0, extra = 0;
         if (name == "ksna_open")
         {
-            if ((argc != 4 && argc != 5) || std::strcmp(argv[3], "confirm") != 0 || api.debugging() ||
+            if ((argc != 4 && argc != 5) || std::strcmp(argv[3], kernelTransport ? "confirm_boot" : "confirm") != 0 || api.debugging() ||
                 session || uncertainOwner || !number(argv[1], 10, value) || !number(argv[2], 10, extra) ||
-                value > MAXDWORD || extra > MAXDWORD || (argc == 5 && std::strcmp(argv[4], "nested") != 0))
-            { api.log("Usage: ksna_open decimalPID, decimalTID, confirm [, nested]; close any native debug session first"); return false; }
+                value > MAXDWORD || extra > MAXDWORD || (argc == 5 && (kernelTransport || std::strcmp(argv[4], "nested") != 0)))
+            { api.log("Usage: ksna_open decimalPID, decimalTID, confirm [, nested] for HVM; confirm_boot for kernel; close any native debug session first"); return false; }
             request.operation = KSWORD_ARK_HVM_NOATTACH_OPEN;
             request.processId = static_cast<unsigned long>(value); request.threadId = static_cast<unsigned long>(extra);
-            request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | (argc == 5 ? KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED : 0UL);
+            request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED | (kernelTransport ? KSWORD_ARK_KERNEL_NOATTACH_HOOK_ACK :
+                (argc == 5 ? KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED : 0UL));
         }
         else if (name == "ksna_query") request.operation = KSWORD_ARK_HVM_NOATTACH_QUERY;
         else if (name == "ksna_pause") request.operation = KSWORD_ARK_HVM_NOATTACH_PAUSE;

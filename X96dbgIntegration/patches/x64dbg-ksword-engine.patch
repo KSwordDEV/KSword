@@ -101,10 +101,10 @@ index e850357..8b5b4bf 100644
  BRIDGE_IMPEXP void DbgUpdateGui(duint disasm_addr, bool stack);
 diff --git a/src/bridge/ksword_engine.h b/src/bridge/ksword_engine.h
 new file mode 100644
-index 0000000..401427e
+index 0000000..1e5a189
 --- /dev/null
 +++ b/src/bridge/ksword_engine.h
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,206 @@
 +#pragma once
 +
 +#include <stdint.h>
@@ -173,6 +173,8 @@ index 0000000..401427e
 +#define KSWORD_DEBUGGER_NATIVE 32U
 +// Independent user-thread execution channel; never enters the Windows debug loop.
 +#define KSWORD_DEBUGGER_NOATTACH 33U
++// Independent ordinary-driver exception transport, sharing the stop document.
++#define KSWORD_DEBUGGER_KERNEL_NOATTACH 34U
 +
 +// All pointers are encoded as uint64_t so the ABI is stable across adapters.
 +typedef struct KSWORD_DEBUGGER_CALL

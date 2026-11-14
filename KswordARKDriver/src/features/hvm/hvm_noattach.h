@@ -4,6 +4,7 @@
 #include "hvm_resident.h"
 
 #include "driver/KswordArkHvmNoAttachIoctl.h"
+#include "../debugger/noattach_ownership.h"
 
 /* 内部发布状态绝不对外表示为已完成停止。 */
 #define KSW_NOATTACH_PUBLISHING 32L

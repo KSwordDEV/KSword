@@ -24,16 +24,17 @@ for relative in ("CheatEnginePlugin/x64/Release/KswordCheatEnginePlugin.dll", "T
     invoke = dll.KSwordDebuggerCall
     invoke.argtypes = [c.POINTER(Call)]
     invoke.restype = c.c_uint32
-    requested = c.c_uint32(33)
-    actual = Layout()
-    packet = Call(1, 48, 3, 0, c.addressof(requested), c.addressof(actual), 4, 24, 0, 0)
-    assert invoke(c.byref(packet)) == 0 and packet.error == 0 and packet.bytesReturned == 24
-    assert (actual.version, actual.command, actual.inputBytes, actual.outputBytes, actual.protocol) == (1, 33, 232, 480, 2)
-    checks += 2
-    packet.outputBytes = 23
-    assert invoke(c.byref(packet)) == 122 and packet.bytesReturned == 0
-    packet.outputBytes = 24; packet.version = 99
-    assert invoke(c.byref(packet)) == 1306
-    checks += 2
-    print("PASS offline no-attach v2 ABI:", relative)
+    for command, protocol in [(33, 2), (34, 1)]:
+        requested = c.c_uint32(command)
+        actual = Layout()
+        packet = Call(1, 48, 3, 0, c.addressof(requested), c.addressof(actual), 4, 24, 0, 0)
+        assert invoke(c.byref(packet)) == 0 and packet.error == 0 and packet.bytesReturned == 24
+        assert (actual.version, actual.command, actual.inputBytes, actual.outputBytes, actual.protocol) == (1, command, 232, 480, protocol)
+        checks += 2
+        packet.outputBytes = 23
+        assert invoke(c.byref(packet)) == 122 and packet.bytesReturned == 0
+        packet.outputBytes = 24; packet.version = 99
+        assert invoke(c.byref(packet)) == 1306
+        checks += 2
+        print("PASS offline no-attach ABI:", relative, command, protocol)
 print("NOATTACH_API_PASS checks=" + str(checks) + " (no device or debug attachment)")

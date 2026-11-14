@@ -8,9 +8,15 @@ import ctypes as c
 import json
 import pefile
 import capstone
+import argparse
 
 root = Path(__file__).resolve().parents[2]
-folder = root / '.codex-build-logs/noattach-r0'
+parser = argparse.ArgumentParser()
+parser.add_argument('--folder', type=Path, default=root / '.codex-build-logs/noattach-r0')
+parser.add_argument('--symbol', action='append', default=[])
+options = parser.parse_args()
+folder = options.folder.resolve()
+assert folder.is_relative_to(root), 'Evidence output must remain in this repository'
 image = folder / 'ntoskrnl.exe'
 identity = json.loads((folder / 'pdb-identity.json').read_text())
 pdb = root / '.deps/symbols' / identity['pdb'] / identity['key'] / identity['pdb']
@@ -45,7 +51,10 @@ disassembler.detail = True
 results = {'identity': identity, 'symbols': {}}
 try:
     names = ['KiDispatchException', 'KeContextFromKframes', 'KeContextToKframes', 'PsSuspendThread', 'PsResumeThread',
-             'KdTrap', 'KdpStub', 'KdpTrap', 'KiDebugRoutine', 'KdpDebugRoutineSelect']
+             'KdTrap', 'KdpStub', 'KdpTrap', 'KiDebugRoutine', 'KdpDebugRoutineSelect',
+             'PsGetContextThread', 'PsSetContextThread', 'PspGetContextThreadInternal',
+             'PspSetContextThreadInternal', 'PspSuspendThread', 'PsMultiResumeThread']
+    names.extend(options.symbol)
     for name in names:
         buffer = c.create_string_buffer(c.sizeof(Symbol) + 512)
         symbol = c.cast(buffer, c.POINTER(Symbol))

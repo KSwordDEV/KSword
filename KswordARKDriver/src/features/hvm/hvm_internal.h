@@ -18,6 +18,8 @@ Environment:
 #pragma once
 
 #include "hvm_runtime.h"
+/* 两条无附加通道共用资源预约与同模块卸载所有权。 */
+#include "../debugger/noattach_ownership.h"
 /* Own the independent debugger protocol in the sole shared wire directory. */
 #include "driver/KswordArkHvmDebugIoctl.h"
 /* KSW_HVM_ACTIVE_CONTROLS is embedded in the runtime below. */

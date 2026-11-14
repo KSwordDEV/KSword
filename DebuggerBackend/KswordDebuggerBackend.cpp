@@ -1,5 +1,6 @@
 #include "KswordDebuggerBackend.h"
 #include "../shared/driver/KswordArkHvmNoAttachIoctl.h"
+#include "../shared/driver/KswordArkKernelNoAttachIoctl.h"
 
 #include <cstring>
 #include <fstream>
@@ -244,22 +245,25 @@ namespace ksword::debugger
         if (call.command == KSWORD_DEBUGGER_OPERATION_LAYOUT && input != nullptr && call.inputBytes == sizeof(DWORD))
         {
             DWORD command = 0; std::memcpy(&command, input, sizeof(command));
-            if (command == KSWORD_DEBUGGER_NOATTACH)
+            if (command == KSWORD_DEBUGGER_NOATTACH || command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
             {
                 if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPERATION_INFO)) return ERROR_INSUFFICIENT_BUFFER;
                 const KSWORD_DEBUGGER_OPERATION_INFO info{KSWORD_DEBUGGER_API_VERSION, command,
                     sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST), sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE),
-                    KSWORD_ARK_HVM_NOATTACH_VERSION, 0};
+                    command == KSWORD_DEBUGGER_KERNEL_NOATTACH ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION, 0};
                 std::memcpy(output, &info, sizeof(info)); call.bytesReturned = sizeof(info);
                 return ERROR_SUCCESS;
             }
         }
-        if (call.command == KSWORD_DEBUGGER_NOATTACH)
+        if (call.command == KSWORD_DEBUGGER_NOATTACH || call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
         {
+            const bool kernelTransport = call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH;
+            const DWORD protocol = kernelTransport ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION;
+            if (noAttachReserved_ && noAttachTransport_ != call.command) return ERROR_BUSY;
             if (input == nullptr || call.inputBytes != sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST)) return ERROR_INVALID_PARAMETER;
             if (output == nullptr || call.outputBytes < sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE)) return ERROR_INSUFFICIENT_BUFFER;
             KSWORD_ARK_HVM_NOATTACH_REQUEST request{}; std::memcpy(&request, input, sizeof(request));
-            if (request.version != KSWORD_ARK_HVM_NOATTACH_VERSION || request.size != sizeof(request)) return ERROR_REVISION_MISMATCH;
+            if (request.version != protocol || request.size != sizeof(request)) return ERROR_REVISION_MISMATCH;
             // A frontend cannot borrow a native stop, or replace an existing debug port, here.
             if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN &&
                 (attachedPid_ != 0 || attachmentOwner_ != AttachmentOwner::none || ownsResident_ ||
@@ -288,17 +292,19 @@ namespace ksword::debugger
             }
             if (!noAttachDriver_.isValid()) noAttachDriver_ = client_.openSilently();
             if (!noAttachDriver_.isValid()) return ERROR_DEVICE_NOT_CONNECTED;
-            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN) noAttachReserved_ = true;
+            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN)
+            { noAttachReserved_ = true; noAttachTransport_ = call.command; }
             KSWORD_ARK_HVM_NOATTACH_RESPONSE response{};
-            const auto result = client_.deviceIoControl(IOCTL_KSWORD_ARK_HVM_NOATTACH, &request, sizeof(request),
+            const auto result = client_.deviceIoControl(kernelTransport ? IOCTL_KSWORD_ARK_KERNEL_NOATTACH : IOCTL_KSWORD_ARK_HVM_NOATTACH, &request, sizeof(request),
                 &response, sizeof(response), &noAttachDriver_);
             if (!result.ok) return result.win32Error;
-            if (result.bytesReturned != sizeof(response) || response.version != KSWORD_ARK_HVM_NOATTACH_VERSION ||
+            if (result.bytesReturned != sizeof(response) || response.version != protocol ||
                 response.size != sizeof(response) || response.state > KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING ||
                 response.breakpointCount > KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS) return ERROR_INVALID_DATA;
             // Only a successful, explicit closed response releases an uncertain owner.
-            if (response.status >= 0 && response.sessionId == 0 && response.state == KSWORD_ARK_HVM_NOATTACH_CLOSED)
-                noAttachReserved_ = false;
+            if (response.status >= 0 && response.sessionId == 0 &&
+                (response.state == KSWORD_ARK_HVM_NOATTACH_CLOSED || response.state == KSWORD_ARK_HVM_NOATTACH_UNSUPPORTED))
+            { noAttachReserved_ = false; noAttachTransport_ = 0; }
             std::memcpy(output, &response, sizeof(response)); call.bytesReturned = sizeof(response);
             return ERROR_SUCCESS; // Preserve NTSTATUS separately; an accepted STEP is not a completed step.
         }
