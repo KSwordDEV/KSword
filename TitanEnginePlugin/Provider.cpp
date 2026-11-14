@@ -58,14 +58,16 @@ namespace ksword::titan
         }
     }
 
-    NativeApi& activeApi() { return *provider.load(std::memory_order_acquire); }
+    NativeApi& activeApi()
+    { return debugger::backend().independentFrontend().selected() ? independentApi() : *provider.load(std::memory_order_acquire); }
     bool replayProvider() { return provider.load(std::memory_order_acquire) != &nativeApi; }
-    bool useHvm() { return hvmSelected.load() && !replayProvider(); }
+    bool useHvm() { return hvmSelected.load() && !replayProvider() && !debugger::backend().independentFrontend().selected(); }
 
     DWORD selectLiveProvider()
     {
         std::lock_guard<std::recursive_mutex> lock(policyMutex);
         if (activeApi().IsFileBeingDebugged()) return ERROR_BUSY;
+        if (debugger::backend().independentFrontend().selected()) return ERROR_SUCCESS;
         const DWORD error = releaseSession();
         if (error != ERROR_SUCCESS) return error;
         provider.store(&nativeApi, std::memory_order_release);
@@ -83,6 +85,7 @@ namespace ksword::titan
         std::lock_guard<std::recursive_mutex> lock(policyMutex);
         if (artifact == nullptr || (kind != UE_SESSION_MINIDUMP && kind != UE_SESSION_TTD))
         { SetLastError(ERROR_INVALID_PARAMETER); return nullptr; }
+        if (debugger::backend().independentFrontend().selected()) { SetLastError(ERROR_BUSY); return nullptr; }
         if (activeApi().IsFileBeingDebugged()) { SetLastError(ERROR_BUSY); return nullptr; }
         DWORD error = releaseSession();
         if (error == ERROR_SUCCESS) error = loadReplay();
@@ -112,7 +115,7 @@ namespace ksword::titan
         info.sessionKind = session.kind; info.capabilities = session.capabilities; info.processId = session.processId;
         info.configuredHvm = hvmSelected.load() ? 1U : 0U;
         info.activeHvm = useHvm() && session.kind == UE_SESSION_LIVE ? 1U : 0U;
-        info.windowsDebugTransport = session.kind == UE_SESSION_LIVE ? 1U : 0U;
+        info.windowsDebugTransport = session.kind == UE_SESSION_LIVE && !debugger::backend().independentFrontend().selected() ? 1U : 0U;
         info.hardwareSlots = 4; info.eptDataGranularity = 4096;
         info.backend = debugger::backend().status();
         KSWORD_DEBUGGER_CALL call{KSWORD_DEBUGGER_API_VERSION, sizeof(call), KSWORD_DEBUGGER_QUERY_POLICY, 0, 0,

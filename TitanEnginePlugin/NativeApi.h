@@ -73,4 +73,5 @@ struct NativeApi {
 };
 extern NativeApi nativeApi;
 DWORD ensureNative();
+NativeApi& independentApi();
 }
