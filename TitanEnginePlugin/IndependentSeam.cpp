@@ -34,7 +34,8 @@ namespace ksword::titan
         // session is retired by the frontend (StopDebug/DetachDebuggerEx).
         std::mutex softwareBreakpointMutex;
         std::map<ULONG_PTR, std::uint32_t> softwareBreakpointIds;
-        std::map<ULONG_PTR, TITANCBSOFTBP> softwareBreakpointCallbacks;
+        struct SoftwareBreakpointRecord { TITANCBSOFTBP callback = nullptr; bool oneshot = false; };
+        std::map<ULONG_PTR, SoftwareBreakpointRecord> softwareBreakpointCallbacks;
         std::array<std::uint32_t, 4> hardwareBreakpointIds{};
         std::array<ULONG_PTR, 4> hardwareBreakpointAddresses{};
         std::array<TITANCBHWBP, 4> hardwareBreakpointCallbacks{};
@@ -200,7 +201,7 @@ namespace ksword::titan
                 std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                 return softwareBreakpointIds.find(address) != softwareBreakpointIds.end();
             };
-            table.SetBPX = [](ULONG_PTR address, DWORD, TITANCBSOFTBP callback) -> bool
+            table.SetBPX = [](ULONG_PTR address, DWORD bpxType, TITANCBSOFTBP callback) -> bool
             {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
@@ -209,13 +210,17 @@ namespace ksword::titan
                     if (softwareBreakpointIds.find(address) != softwareBreakpointIds.end())
                     { SetLastError(ERROR_ALREADY_EXISTS); return false; }
                 }
+                // UE_SINGLESHOOT is the low bit on the TitanBreakpointType mix;
+                // x64dbg's Run to Cursor and Step Out take this path, so the
+                // driver must retire the binding after the first hit.
+                const bool oneshot = (bpxType & UE_SINGLESHOOT) != 0;
                 std::uint32_t id = 0;
-                const DWORD error = frontend.addBreakpoint(address, false, id);
+                const DWORD error = frontend.addBreakpoint(address, oneshot, id);
                 if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
                 {
                     std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                     softwareBreakpointIds[address] = id;
-                    softwareBreakpointCallbacks[address] = callback;
+                    softwareBreakpointCallbacks[address] = {callback, oneshot};
                 }
                 SetLastError(ERROR_SUCCESS); return true;
             };
@@ -425,19 +430,29 @@ namespace ksword::titan
                     {
                         TITANCBSOFTBP softwareCb = nullptr;
                         TITANCBHWBP hardwareCb = nullptr;
+                        ULONG_PTR consumedOneshot = 0;
                         {
                             std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                             for (const auto& entry : softwareBreakpointIds)
                                 if (entry.second == snap.breakpointId)
                                 {
                                     auto it = softwareBreakpointCallbacks.find(entry.first);
-                                    if (it != softwareBreakpointCallbacks.end()) softwareCb = it->second;
+                                    if (it != softwareBreakpointCallbacks.end())
+                                    {
+                                        softwareCb = it->second.callback;
+                                        if (it->second.oneshot) consumedOneshot = entry.first;
+                                    }
                                     break;
                                 }
                             if (softwareCb == nullptr)
                                 for (SIZE_T i = 0; i < hardwareBreakpointIds.size(); ++i)
                                     if (hardwareBreakpointIds[i] == snap.breakpointId)
                                     { hardwareCb = hardwareBreakpointCallbacks[i]; break; }
+                            if (consumedOneshot != 0)
+                            {
+                                softwareBreakpointIds.erase(consumedOneshot);
+                                softwareBreakpointCallbacks.erase(consumedOneshot);
+                            }
                         }
                         if (softwareCb != nullptr) softwareCb();
                         else if (hardwareCb != nullptr) hardwareCb(nullptr);
