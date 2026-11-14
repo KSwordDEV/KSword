@@ -9,6 +9,7 @@
 #include <Windows.h>
 #include <limits>
 #include <array>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -41,6 +42,69 @@ namespace ksword::titan
             softwareBreakpointIds.clear();
             hardwareBreakpointIds = {};
             hardwareBreakpointAddresses = {};
+        }
+
+        // Project a Windows CONTEXT snapshot into the Titan tuple. YMM high
+        // halves are reported as zero because IndependentFrontend does not
+        // read the XSTATE buffer yet; CE/x64dbg show them as zeroed.
+        void projectToTitan(const CONTEXT& source, TITAN_ENGINE_CONTEXT_t& destination) noexcept
+        {
+            destination = {};
+            destination.cax = source.Rax; destination.ccx = source.Rcx;
+            destination.cdx = source.Rdx; destination.cbx = source.Rbx;
+            destination.csp = source.Rsp; destination.cbp = source.Rbp;
+            destination.csi = source.Rsi; destination.cdi = source.Rdi;
+            destination.r8 = source.R8; destination.r9 = source.R9;
+            destination.r10 = source.R10; destination.r11 = source.R11;
+            destination.r12 = source.R12; destination.r13 = source.R13;
+            destination.r14 = source.R14; destination.r15 = source.R15;
+            destination.cip = source.Rip; destination.eflags = source.EFlags;
+            destination.gs = source.SegGs; destination.fs = source.SegFs;
+            destination.es = source.SegEs; destination.ds = source.SegDs;
+            destination.cs = source.SegCs; destination.ss = source.SegSs;
+            destination.dr0 = static_cast<ULONG_PTR>(source.Dr0);
+            destination.dr1 = static_cast<ULONG_PTR>(source.Dr1);
+            destination.dr2 = static_cast<ULONG_PTR>(source.Dr2);
+            destination.dr3 = static_cast<ULONG_PTR>(source.Dr3);
+            destination.dr6 = static_cast<ULONG_PTR>(source.Dr6);
+            destination.dr7 = static_cast<ULONG_PTR>(source.Dr7);
+            destination.x87fpu.ControlWord = source.FltSave.ControlWord;
+            destination.x87fpu.StatusWord = source.FltSave.StatusWord;
+            destination.x87fpu.TagWord = source.FltSave.TagWord;
+            destination.x87fpu.ErrorOffset = source.FltSave.ErrorOffset;
+            destination.x87fpu.ErrorSelector = source.FltSave.ErrorSelector;
+            destination.x87fpu.DataOffset = source.FltSave.DataOffset;
+            destination.x87fpu.DataSelector = source.FltSave.DataSelector;
+            destination.MxCsr = source.FltSave.MxCsr;
+            for (int i = 0; i < 8; ++i)
+                std::memcpy(&destination.RegisterArea[i * 10], &source.FltSave.FloatRegisters[i], 10);
+            for (int i = 0; i < 16; ++i)
+            {
+                destination.XmmRegisters[i].Low = source.FltSave.XmmRegisters[i].Low;
+                destination.XmmRegisters[i].High = static_cast<LONGLONG>(source.FltSave.XmmRegisters[i].High);
+            }
+        }
+
+        // Apply Titan's GPR/DR/segment/EFlags edits onto a captured CONTEXT.
+        // FP/XMM writes are refused by IndependentFrontend, so this helper
+        // only populates the fields writeContext accepts without changes.
+        void applyFromTitan(const TITAN_ENGINE_CONTEXT_t& source, CONTEXT& destination) noexcept
+        {
+            destination.Rax = source.cax; destination.Rcx = source.ccx;
+            destination.Rdx = source.cdx; destination.Rbx = source.cbx;
+            destination.Rsp = source.csp; destination.Rbp = source.cbp;
+            destination.Rsi = source.csi; destination.Rdi = source.cdi;
+            destination.R8 = source.r8; destination.R9 = source.r9;
+            destination.R10 = source.r10; destination.R11 = source.r11;
+            destination.R12 = source.r12; destination.R13 = source.r13;
+            destination.R14 = source.r14; destination.R15 = source.r15;
+            destination.Rip = source.cip; destination.EFlags = static_cast<DWORD>(source.eflags);
+            destination.SegGs = source.gs; destination.SegFs = source.fs;
+            destination.SegEs = source.es; destination.SegDs = source.ds;
+            destination.SegCs = source.cs; destination.SegSs = source.ss;
+            destination.Dr0 = source.dr0; destination.Dr1 = source.dr1;
+            destination.Dr2 = source.dr2; destination.Dr3 = source.dr3;
+            destination.Dr6 = source.dr6; destination.Dr7 = source.dr7;
         }
 
         BOOL readMemoryShim(HANDLE process, LPCVOID address, LPVOID data, SIZE_T bytes, SIZE_T* done)
@@ -158,10 +222,88 @@ namespace ksword::titan
             };
             table.SetMemoryBPXEx = [](ULONG_PTR, SIZE_T, TitanMemoryBreakpointType, bool, TITANCBMEMBP) -> bool { return rejectBool(); };
             table.RemoveMemoryBPX = [](ULONG_PTR, SIZE_T) -> bool { return rejectBool(); };
-            table.GetFullContextDataEx = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
-            table.SetFullContextDataEx = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
-            table.GetContextDataEx = [](HANDLE, TitanRegister) -> ULONG_PTR { return rejectValue<ULONG_PTR>(0); };
-            table.SetContextDataEx = [](HANDLE, TitanRegister, ULONG_PTR) -> bool { return rejectBool(); };
+            table.GetFullContextDataEx = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
+            {
+                if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                const DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                projectToTitan(snapshot, *ctx);
+                return true;
+            };
+            table.SetFullContextDataEx = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
+            {
+                if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                applyFromTitan(*ctx, snapshot);
+                snapshot.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_DEBUG_REGISTERS;
+                error = frontend.writeContext(thread, snapshot);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
+            table.GetContextDataEx = [](HANDLE thread, TitanRegister index) -> ULONG_PTR
+            {
+                TITAN_ENGINE_CONTEXT_t snapshot{};
+                CONTEXT raw{};
+                raw.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                const DWORD error = frontend.readContext(thread, raw);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return 0; }
+                projectToTitan(raw, snapshot);
+                switch (index)
+                {
+                    case UE_RAX: return snapshot.cax; case UE_RCX: return snapshot.ccx;
+                    case UE_RDX: return snapshot.cdx; case UE_RBX: return snapshot.cbx;
+                    case UE_RSP: return snapshot.csp; case UE_RBP: return snapshot.cbp;
+                    case UE_RSI: return snapshot.csi; case UE_RDI: return snapshot.cdi;
+                    case UE_R8: return snapshot.r8; case UE_R9: return snapshot.r9;
+                    case UE_R10: return snapshot.r10; case UE_R11: return snapshot.r11;
+                    case UE_R12: return snapshot.r12; case UE_R13: return snapshot.r13;
+                    case UE_R14: return snapshot.r14; case UE_R15: return snapshot.r15;
+                    case UE_RIP: case UE_CIP: return snapshot.cip;
+                    case UE_EFLAGS: case UE_RFLAGS: return snapshot.eflags;
+                    case UE_CSP: return snapshot.csp;
+                    case UE_DR0: return snapshot.dr0; case UE_DR1: return snapshot.dr1;
+                    case UE_DR2: return snapshot.dr2; case UE_DR3: return snapshot.dr3;
+                    case UE_DR6: return snapshot.dr6; case UE_DR7: return snapshot.dr7;
+                    case UE_SEG_CS: return snapshot.cs; case UE_SEG_DS: return snapshot.ds;
+                    case UE_SEG_ES: return snapshot.es; case UE_SEG_FS: return snapshot.fs;
+                    case UE_SEG_GS: return snapshot.gs; case UE_SEG_SS: return snapshot.ss;
+                    default: SetLastError(ERROR_NOT_SUPPORTED); return 0;
+                }
+            };
+            table.SetContextDataEx = [](HANDLE thread, TitanRegister index, ULONG_PTR value) -> bool
+            {
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                switch (index)
+                {
+                    case UE_RAX: snapshot.Rax = value; break; case UE_RCX: snapshot.Rcx = value; break;
+                    case UE_RDX: snapshot.Rdx = value; break; case UE_RBX: snapshot.Rbx = value; break;
+                    case UE_RSP: snapshot.Rsp = value; break; case UE_RBP: snapshot.Rbp = value; break;
+                    case UE_RSI: snapshot.Rsi = value; break; case UE_RDI: snapshot.Rdi = value; break;
+                    case UE_R8: snapshot.R8 = value; break; case UE_R9: snapshot.R9 = value; break;
+                    case UE_R10: snapshot.R10 = value; break; case UE_R11: snapshot.R11 = value; break;
+                    case UE_R12: snapshot.R12 = value; break; case UE_R13: snapshot.R13 = value; break;
+                    case UE_R14: snapshot.R14 = value; break; case UE_R15: snapshot.R15 = value; break;
+                    case UE_RIP: case UE_CIP: snapshot.Rip = value; break;
+                    case UE_CSP: snapshot.Rsp = value; break;
+                    case UE_EFLAGS: case UE_RFLAGS:
+                        snapshot.EFlags = static_cast<DWORD>(value); break;
+                    default: SetLastError(ERROR_NOT_SUPPORTED); return false;
+                }
+                snapshot.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+                error = frontend.writeContext(thread, snapshot);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
             table.GetAVXContext = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
             table.SetAVXContext = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
             table.GetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
