@@ -113,6 +113,13 @@ KswordARKDriverDispatchUninitialize(
     VOID
     );
 
+// HWID 槽位会在目标驱动上持有 MajorFunction 和 DriverObject 引用；
+// 卸载时必须先恢复入口并等待在途派遣/完成例程退出，再释放这些引用。
+VOID
+KswordARKHwidUninitialize(
+    VOID
+    );
+
 // HAL 表编辑事务在驱动生命周期内记录首次原值；卸载时仅在槽仍等于
 // 本功能最后发布值的情况下原子恢复，避免覆盖第三方并发修改。
 VOID

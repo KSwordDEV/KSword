@@ -568,6 +568,10 @@ KswordARKDriverShutdownCore(VOID)
     // 映像字段或加载器链可能包含自身身份，必须在驱动映像离开前优先恢复。
     KswordARKDriverImageUninitialize();
     KswordARKDriverDispatchUninitialize();
+    // 中文说明：通用派遣编辑可能覆盖在 HWID hook 之上，必须先撤销编辑，
+    // 再恢复 HWID 槽位并等待在途派遣和完成例程退出，避免目标驱动的
+    // MajorFunction 在本驱动映像卸载后仍指向 passthrough/完成例程。
+    KswordARKHwidUninitialize();
     KswordARKDriverCommunicationUninitialize();
     // Release all VMX/VMCS/EPT pages before the driver image can leave memory.
     KswordARKHvmUninitialize();

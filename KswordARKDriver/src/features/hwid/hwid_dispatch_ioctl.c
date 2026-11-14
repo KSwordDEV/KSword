@@ -47,18 +47,27 @@ typedef struct _KSW_HWID_DISPATCH_SLOT
     PDRIVER_DISPATCH OriginalDispatch;
     NTSTATUS LastStatus;
     BOOLEAN Active;
+    /*
+     * 中文说明：派遣帧和挂起完成例程分开计数。目标驱动同步完成 IRP 时完成例程
+     * 会先于 passthrough 返回执行，只靠一个计数会让卸载路径提前放行仍在目标
+     * 驱动栈里的派遣帧；两段计数都归零才允许释放引用和卸载映像。
+     */
+    volatile LONG DispatchInFlight;
+    volatile LONG CompletionInFlight;
 } KSW_HWID_DISPATCH_SLOT, *PKSW_HWID_DISPATCH_SLOT;
 
 static FAST_MUTEX g_KswordHwidDispatchLock;
+/* 中文说明：槽位发布和派遣路径的在途计数用自旋锁保护，派遣可在 DISPATCH_LEVEL 运行。 */
+static KSPIN_LOCK g_KswordHwidDispatchSpinLock;
 static volatile LONG g_KswordHwidDispatchInitialized = 0;
 static ULONG g_KswordHwidDispatchGeneration = 1UL;
 static KSWORD_ARK_HWID_DISPATCH_PROFILE g_KswordHwidActiveProfile;
 static KSW_HWID_DISPATCH_SLOT g_KswordHwidSlots[KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT] = {
-    { KSWORD_ARK_HWID_DISPATCH_TARGET_DISK, L"\\Driver\\Disk", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE },
-    { KSWORD_ARK_HWID_DISPATCH_TARGET_PARTMGR, L"\\Driver\\partmgr", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE },
-    { KSWORD_ARK_HWID_DISPATCH_TARGET_MOUNTMGR, L"\\Driver\\mountmgr", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE },
-    { KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA, L"\\Driver\\nvlddmkm", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE },
-    { KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY, L"\\Driver\\nsiproxy", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE }
+    { KSWORD_ARK_HWID_DISPATCH_TARGET_DISK, L"\\Driver\\Disk", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE, 0L, 0L },
+    { KSWORD_ARK_HWID_DISPATCH_TARGET_PARTMGR, L"\\Driver\\partmgr", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE, 0L, 0L },
+    { KSWORD_ARK_HWID_DISPATCH_TARGET_MOUNTMGR, L"\\Driver\\mountmgr", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE, 0L, 0L },
+    { KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA, L"\\Driver\\nvlddmkm", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE, 0L, 0L },
+    { KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY, L"\\Driver\\nsiproxy", NULL, NULL, STATUS_NOT_SUPPORTED, FALSE, 0L, 0L }
 };
 
 static VOID
@@ -86,6 +95,8 @@ KswordARKHwidEnsureInitialized(
 {
     if (InterlockedCompareExchange(&g_KswordHwidDispatchInitialized, 1L, 0L) == 0L) {
         ExInitializeFastMutex(&g_KswordHwidDispatchLock);
+        /* 中文说明：自旋锁必须先于任何槽位安装初始化，派遣路径拿锁时它已可用。 */
+        KeInitializeSpinLock(&g_KswordHwidDispatchSpinLock);
         RtlZeroMemory(&g_KswordHwidActiveProfile, sizeof(g_KswordHwidActiveProfile));
         g_KswordHwidActiveProfile.size = sizeof(g_KswordHwidActiveProfile);
         g_KswordHwidActiveProfile.version = KSWORD_ARK_HWID_DISPATCH_PROTOCOL_VERSION;
@@ -105,12 +116,13 @@ KswordARKHwidNormalizeProfile(
     );
 
 static KSW_HWID_DISPATCH_SLOT*
-KswordARKHwidFindSlotNoLock(
+KswordARKHwidFindSlotLocked(
     _In_opt_ PDRIVER_OBJECT DriverObject
     )
 {
     ULONG slotIndex = 0UL;
 
+    /* 中文说明：调用方必须持有 g_KswordHwidDispatchSpinLock，槽位字段才能与拆除路径互斥。 */
     if (DriverObject == NULL) {
         return NULL;
     }
@@ -136,28 +148,50 @@ KswordARKHwidDispatchPassthrough(
     PIO_STACK_LOCATION ioStack = NULL;
     KSWORD_ARK_HWID_DISPATCH_PROFILE activeProfile;
     NTSTATUS status = STATUS_INVALID_DEVICE_STATE;
+    KIRQL irql;
 
     RtlZeroMemory(&activeProfile, sizeof(activeProfile));
+    /*
+     * 中文说明：槽位查找与派遣帧登记必须在同一临界区完成。卸载路径先恢复全部
+     * MajorFunction，再逐槽等待两段计数归零，因此登记成功即代表目标驱动对象
+     * 引用在本次派遣和完成例程结束前不会被释放。
+     */
     if (Device != NULL) {
-        targetSlot = KswordARKHwidFindSlotNoLock(Device->DriverObject);
+        KeAcquireSpinLock(&g_KswordHwidDispatchSpinLock, &irql);
+        targetSlot = KswordARKHwidFindSlotLocked(Device->DriverObject);
         if (targetSlot != NULL) {
+            InterlockedIncrement(&targetSlot->DispatchInFlight);
             originalDispatch = targetSlot->OriginalDispatch;
         }
+        KeReleaseSpinLock(&g_KswordHwidDispatchSpinLock, irql);
     }
 
     if (originalDispatch != NULL) {
-        if (Irp != NULL && targetSlot != NULL) {
+        if (Irp != NULL) {
             ioStack = IoGetCurrentIrpStackLocation(Irp);
             KswordARKHwidNormalizeProfile(&activeProfile, &g_KswordHwidActiveProfile);
+            /*
+             * 中文说明：安装完成例程时同时登记完成段计数；目标驱动可能挂起
+             * IRP，完成例程会晚于本函数返回才执行。
+             */
             (VOID)KswordARKHwidPrepareDispatchCompletion(
                 Irp,
                 ioStack,
                 targetSlot->TargetFlag,
-                &activeProfile);
+                &activeProfile,
+                &targetSlot->CompletionInFlight);
         }
-        return originalDispatch(Device, Irp);
+
+        /*
+         * 中文说明：派遣帧计数必须等目标驱动返回后再递减，同步完成路径下
+         * 完成例程已经执行也不影响这里；否则卸载可能提前回到已释放的栈帧。
+         */
+        status = originalDispatch(Device, Irp);
+        InterlockedDecrement(&targetSlot->DispatchInFlight);
+        return status;
     }
 
+    /* 中文说明：槽位已被拆除时不再转发，避免在卸载窗口调用目标驱动的旧派遣。 */
     if (Irp != NULL) {
         Irp->IoStatus.Status = status;
         Irp->IoStatus.Information = 0U;
@@ -244,7 +278,9 @@ KswordARKHwidInstallSlot(
     )
 {
     PDRIVER_OBJECT driverObject = NULL;
+    PDRIVER_DISPATCH originalDispatch = NULL;
     NTSTATUS status = STATUS_SUCCESS;
+    KIRQL irql;
 
     if (Slot == NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -267,18 +303,25 @@ KswordARKHwidInstallSlot(
         return STATUS_SUCCESS;
     }
 
-    Slot->OriginalDispatch = driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
-    if (Slot->OriginalDispatch == NULL) {
+    originalDispatch = driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
+    if (originalDispatch == NULL) {
         ObDereferenceObject(driverObject);
         Slot->OriginalDispatch = NULL;
         Slot->LastStatus = STATUS_INVALID_DEVICE_STATE;
         return STATUS_INVALID_DEVICE_STATE;
     }
 
-    driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = KswordARKHwidDispatchPassthrough;
+    /*
+     * 中文说明：槽位发布和 MajorFunction 替换必须与派遣路径共用同一把自旋锁，
+     * 否则并发的 passthrough 可能看到只写了一半的槽位。
+     */
+    KeAcquireSpinLock(&g_KswordHwidDispatchSpinLock, &irql);
     Slot->DriverObject = driverObject;
+    Slot->OriginalDispatch = originalDispatch;
+    driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = KswordARKHwidDispatchPassthrough;
     Slot->Active = TRUE;
     Slot->LastStatus = STATUS_SUCCESS;
+    KeReleaseSpinLock(&g_KswordHwidDispatchSpinLock, irql);
     return STATUS_SUCCESS;
 }
 
@@ -290,6 +333,8 @@ KswordARKHwidRemoveSlot(
 {
     NTSTATUS status = STATUS_SUCCESS;
     PDRIVER_OBJECT driverObject = NULL;
+    PDRIVER_DISPATCH originalDispatch = NULL;
+    KIRQL irql;
 
     if (Slot == NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -300,17 +345,18 @@ KswordARKHwidRemoveSlot(
         return STATUS_SUCCESS;
     }
 
+    /*
+     * 中文说明：恢复入口和清空槽位在同一把自旋锁内完成，派遣路径不会再取到
+     * 正在拆除的槽位；在途计数由卸载路径统一等待，拆除单个槽位不阻塞调用方。
+     */
+    KeAcquireSpinLock(&g_KswordHwidDispatchSpinLock, &irql);
     driverObject = Slot->DriverObject;
-    if (driverObject == NULL || Slot->OriginalDispatch == NULL) {
-        Slot->DriverObject = NULL;
-        Slot->OriginalDispatch = NULL;
-        Slot->Active = FALSE;
-        Slot->LastStatus = STATUS_INVALID_DEVICE_STATE;
-        return STATUS_INVALID_DEVICE_STATE;
+    originalDispatch = Slot->OriginalDispatch;
+    if (driverObject == NULL || originalDispatch == NULL) {
+        status = STATUS_INVALID_DEVICE_STATE;
     }
-
-    if (driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] == KswordARKHwidDispatchPassthrough) {
-        driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = Slot->OriginalDispatch;
+    else if (driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] == KswordARKHwidDispatchPassthrough) {
+        driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = originalDispatch;
     }
     else {
         status = STATUS_OBJECT_TYPE_MISMATCH;
@@ -318,12 +364,16 @@ KswordARKHwidRemoveSlot(
             *ResponseFlags |= KSWORD_ARK_HWID_DISPATCH_RESPONSE_FLAG_FOREIGN_CHANGE;
         }
     }
-
-    ObDereferenceObject(driverObject);
     Slot->DriverObject = NULL;
     Slot->OriginalDispatch = NULL;
     Slot->Active = FALSE;
     Slot->LastStatus = status;
+    KeReleaseSpinLock(&g_KswordHwidDispatchSpinLock, irql);
+
+    /* 中文说明：无论入口是否被第三方改写，安装时取得的 DriverObject 引用都必须释放。 */
+    if (driverObject != NULL) {
+        ObDereferenceObject(driverObject);
+    }
     return status;
 }
 
@@ -571,4 +621,81 @@ KswordARKHwidIoctlControlDispatch(
         (unsigned int)response->activeTargetFlags,
         (unsigned int)response->failedTargetFlags);
     return status;
+}
+
+static VOID
+KswordARKHwidDrainCounter(
+    _Inout_ volatile LONG* Counter
+    )
+{
+    LARGE_INTEGER retryInterval;
+
+    /* 中文说明：调用方处于 PASSIVE_LEVEL；1ms 相对等待避免卸载路径忙等。 */
+    retryInterval.QuadPart = -10000LL;
+    while (InterlockedCompareExchange(Counter, 0L, 0L) != 0L) {
+        KeDelayExecutionThread(KernelMode, FALSE, &retryInterval);
+    }
+}
+
+VOID
+KswordARKHwidUninitialize(
+    VOID
+    )
+{
+    PDRIVER_OBJECT releaseObjects[KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT] = { NULL };
+    ULONG releaseCount = 0UL;
+    ULONG slotIndex = 0UL;
+    KIRQL irql;
+
+    /* 中文说明：从未处理过 HWID 请求时没有安装过 hook，直接返回。 */
+    if (InterlockedCompareExchange(&g_KswordHwidDispatchInitialized, 0L, 0L) != 2L) {
+        return;
+    }
+
+    ExAcquireFastMutex(&g_KswordHwidDispatchLock);
+    for (slotIndex = 0UL; slotIndex < KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT; ++slotIndex) {
+        KSW_HWID_DISPATCH_SLOT* slot = &g_KswordHwidSlots[slotIndex];
+        PDRIVER_OBJECT driverObject = NULL;
+
+        KeAcquireSpinLock(&g_KswordHwidDispatchSpinLock, &irql);
+        driverObject = slot->DriverObject;
+        /*
+         * 中文说明：只恢复仍由本模块持有的入口；被第三方改写过的槽位保持现状，
+         * 但安装时取得的 DriverObject 引用仍然必须释放。
+         */
+        if (driverObject != NULL &&
+            slot->OriginalDispatch != NULL &&
+            driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] == KswordARKHwidDispatchPassthrough) {
+            driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = slot->OriginalDispatch;
+        }
+        slot->DriverObject = NULL;
+        slot->OriginalDispatch = NULL;
+        slot->Active = FALSE;
+        KeReleaseSpinLock(&g_KswordHwidDispatchSpinLock, irql);
+
+        if (driverObject != NULL) {
+            releaseObjects[releaseCount] = driverObject;
+            ++releaseCount;
+        }
+    }
+    ++g_KswordHwidDispatchGeneration;
+    ExReleaseFastMutex(&g_KswordHwidDispatchLock);
+
+    /*
+     * 中文说明：入口全部恢复后不会再有新的 passthrough 进入。先等所有派遣帧
+     * 退出（此后不会再有新的完成例程被安装），再等挂起的完成例程退出。
+     */
+    for (slotIndex = 0UL; slotIndex < KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT; ++slotIndex) {
+        KswordARKHwidDrainCounter(&g_KswordHwidSlots[slotIndex].DispatchInFlight);
+    }
+    for (slotIndex = 0UL; slotIndex < KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT; ++slotIndex) {
+        KswordARKHwidDrainCounter(&g_KswordHwidSlots[slotIndex].CompletionInFlight);
+    }
+
+    for (slotIndex = 0UL; slotIndex < releaseCount; ++slotIndex) {
+        ObDereferenceObject(releaseObjects[slotIndex]);
+    }
+
+    RtlZeroMemory(&g_KswordHwidActiveProfile, sizeof(g_KswordHwidActiveProfile));
+    InterlockedExchange(&g_KswordHwidDispatchInitialized, 0L);
 }
