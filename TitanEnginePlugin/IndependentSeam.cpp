@@ -34,14 +34,25 @@ namespace ksword::titan
         // session is retired by the frontend (StopDebug/DetachDebuggerEx).
         std::mutex softwareBreakpointMutex;
         std::map<ULONG_PTR, std::uint32_t> softwareBreakpointIds;
+        std::map<ULONG_PTR, TITANCBSOFTBP> softwareBreakpointCallbacks;
         std::array<std::uint32_t, 4> hardwareBreakpointIds{};
         std::array<ULONG_PTR, 4> hardwareBreakpointAddresses{};
+        std::array<TITANCBHWBP, 4> hardwareBreakpointCallbacks{};
+        // Step and pause callbacks are consumed on the next matching stop; a
+        // second StepInto before the first fires overwrites the pending one
+        // because x64dbg waits on the inner callback before issuing another.
+        std::atomic<TITANCBSTEP> pendingStepCallback{nullptr};
+        std::atomic<TITANCBPAUSE> pendingPauseCallback{nullptr};
         void clearBreakpointBindings()
         {
             std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
             softwareBreakpointIds.clear();
+            softwareBreakpointCallbacks.clear();
             hardwareBreakpointIds = {};
             hardwareBreakpointAddresses = {};
+            hardwareBreakpointCallbacks = {};
+            pendingStepCallback.store(nullptr);
+            pendingPauseCallback.store(nullptr);
         }
 
         // Project a Windows CONTEXT snapshot into the Titan tuple. YMM high
@@ -189,7 +200,7 @@ namespace ksword::titan
                 std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                 return softwareBreakpointIds.find(address) != softwareBreakpointIds.end();
             };
-            table.SetBPX = [](ULONG_PTR address, DWORD, TITANCBSOFTBP) -> bool
+            table.SetBPX = [](ULONG_PTR address, DWORD, TITANCBSOFTBP callback) -> bool
             {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
@@ -204,6 +215,7 @@ namespace ksword::titan
                 {
                     std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                     softwareBreakpointIds[address] = id;
+                    softwareBreakpointCallbacks[address] = callback;
                 }
                 SetLastError(ERROR_SUCCESS); return true;
             };
@@ -216,6 +228,7 @@ namespace ksword::titan
                     auto it = softwareBreakpointIds.find(address);
                     if (it == softwareBreakpointIds.end()) { SetLastError(ERROR_NOT_FOUND); return false; }
                     id = it->second; softwareBreakpointIds.erase(it);
+                    softwareBreakpointCallbacks.erase(address);
                 }
                 const DWORD error = frontend.removeBreakpoint(id);
                 SetLastError(error); return error == ERROR_SUCCESS;
@@ -310,19 +323,22 @@ namespace ksword::titan
             table.SetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
             table.GetDebugData = []() -> const DEBUG_EVENT* { return nullptr; };
             table.SetCustomHandler = [](TitanCustomHandler, TITANCALLBACKARG) {};
-            // Step shims resume once; the step boundary stop arrives on the
-            // next driver event. A Titan-shaped callback fan-out still needs
-            // DebugLoop, so these intentionally skip the callback for now.
-            table.StepInto = [](TITANCBSTEP) {
+            // Step shims resume once and record the callback for DebugLoop
+            // to fire when the step-boundary stop arrives from the driver.
+            table.StepInto = [](TITANCBSTEP callback) {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.selected()) { SetLastError(ERROR_INVALID_STATE); return; }
+                pendingStepCallback.store(callback);
                 const DWORD error = frontend.resume(true);
+                if (error != ERROR_SUCCESS) pendingStepCallback.store(nullptr);
                 SetLastError(error);
             };
-            table.StepOver = [](TITANCBSTEP) {
+            table.StepOver = [](TITANCBSTEP callback) {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.selected()) { SetLastError(ERROR_INVALID_STATE); return; }
+                pendingStepCallback.store(callback);
                 const DWORD error = frontend.resume(true);
+                if (error != ERROR_SUCCESS) pendingStepCallback.store(nullptr);
                 SetLastError(error);
             };
             table.GetUnusedHardwareBreakPointRegister = [](LPDWORD slot) -> bool
@@ -333,7 +349,7 @@ namespace ksword::titan
                     if (hardwareBreakpointIds[i] == 0) { *slot = i; return true; }
                 SetLastError(ERROR_NO_MORE_ITEMS); return false;
             };
-            table.SetHardwareBreakPoint = [](ULONG_PTR address, DWORD slot, TitanHardwareBreakpointType, TitanHardwareBreakpointSize, TITANCBHWBP) -> bool
+            table.SetHardwareBreakPoint = [](ULONG_PTR address, DWORD slot, TitanHardwareBreakpointType, TitanHardwareBreakpointSize, TITANCBHWBP callback) -> bool
             {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
@@ -348,6 +364,7 @@ namespace ksword::titan
                 {
                     std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                     hardwareBreakpointIds[slot] = id; hardwareBreakpointAddresses[slot] = address;
+                    hardwareBreakpointCallbacks[slot] = callback;
                 }
                 SetLastError(ERROR_SUCCESS); return true;
             };
@@ -361,6 +378,7 @@ namespace ksword::titan
                     id = hardwareBreakpointIds[slot];
                     if (id == 0) { SetLastError(ERROR_NOT_FOUND); return false; }
                     hardwareBreakpointIds[slot] = 0; hardwareBreakpointAddresses[slot] = 0;
+                    hardwareBreakpointCallbacks[slot] = nullptr;
                 }
                 const DWORD error = frontend.removeBreakpoint(id);
                 SetLastError(error); return error == ERROR_SUCCESS;
@@ -383,7 +401,49 @@ namespace ksword::titan
                   if (error != ERROR_SUCCESS && firstError == ERROR_SUCCESS) firstError = error; }
                 SetLastError(firstError); return firstError == ERROR_SUCCESS;
             };
-            table.DebugLoop = []() { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); };
+            table.DebugLoop = []() {
+                auto& frontend = debugger::backend().independentFrontend();
+                std::uint64_t lastStopId = 0;
+                {
+                    KSWORD_ARK_HVM_NOATTACH_RESPONSE current{};
+                    if (frontend.snapshot(current) == ERROR_SUCCESS) lastStopId = current.stopId;
+                }
+                while (frontend.active())
+                {
+                    KSWORD_ARK_HVM_NOATTACH_RESPONSE snap{};
+                    const DWORD error = frontend.waitForStop(100, lastStopId, snap);
+                    if (error == ERROR_SEM_TIMEOUT) continue;
+                    if (error == ERROR_OPERATION_ABORTED || error == ERROR_PROCESS_ABORTED ||
+                        error == ERROR_INVALID_STATE) break;
+                    if (error != ERROR_SUCCESS) { SetLastError(error); break; }
+                    lastStopId = snap.stopId;
+                    if (auto pauseCb = pendingPauseCallback.exchange(nullptr); pauseCb != nullptr)
+                        pauseCb();
+                    if (snap.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_STEP)
+                    { if (auto cb = pendingStepCallback.exchange(nullptr); cb != nullptr) cb(); }
+                    else if (snap.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT)
+                    {
+                        TITANCBSOFTBP softwareCb = nullptr;
+                        TITANCBHWBP hardwareCb = nullptr;
+                        {
+                            std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                            for (const auto& entry : softwareBreakpointIds)
+                                if (entry.second == snap.breakpointId)
+                                {
+                                    auto it = softwareBreakpointCallbacks.find(entry.first);
+                                    if (it != softwareBreakpointCallbacks.end()) softwareCb = it->second;
+                                    break;
+                                }
+                            if (softwareCb == nullptr)
+                                for (SIZE_T i = 0; i < hardwareBreakpointIds.size(); ++i)
+                                    if (hardwareBreakpointIds[i] == snap.breakpointId)
+                                    { hardwareCb = hardwareBreakpointCallbacks[i]; break; }
+                        }
+                        if (softwareCb != nullptr) softwareCb();
+                        else if (hardwareCb != nullptr) hardwareCb(nullptr);
+                    }
+                }
+            };
             table.SetNextDbgContinueStatus = [](DWORD) {};
             table.AttachDebugger = [](DWORD pid, bool, LPVOID, TITANCALLBACK) -> bool
             {
@@ -421,16 +481,18 @@ namespace ksword::titan
             table.ProcessIsWow64 = [](HANDLE process, PBOOL isWow64) -> bool
             { return IsWow64Process(process, isWow64) != FALSE; };
             table.TitanTerminateProcess = [](HANDLE, DWORD) -> bool { return rejectBool(); };
-            table.RequestPause = [](TitanPausePolicy, TITANCBPAUSE) -> bool
+            table.RequestPause = [](TitanPausePolicy, TITANCBPAUSE callback) -> bool
             {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.selected()) { SetLastError(ERROR_INVALID_STATE); return false; }
+                pendingPauseCallback.store(callback);
                 KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
                 request.version = KSWORD_DEBUGGER_FRONTEND_VERSION;
                 request.size = sizeof(request);
                 request.operation = KSWORD_DEBUGGER_FRONTEND_PAUSE;
                 KSWORD_DEBUGGER_FRONTEND_STATUS status{};
                 const DWORD error = frontend.control(request, status);
+                if (error != ERROR_SUCCESS) pendingPauseCallback.store(nullptr);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
             table.TitanCreateRemoteThread = [](HANDLE, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD) -> HANDLE
