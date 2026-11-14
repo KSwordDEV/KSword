@@ -510,6 +510,11 @@
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ThreadTab.cpp" />
+    <ClCompile Include="ProcessDock\ProcessDock.Console.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsole.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsoleRemote.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsole.h" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsoleRemote.h" />
     <ClCompile Include="ProcessDock\ThreadAffinityMenu.cpp" />
     <ClCompile Include="ProcessDock\ProcessMessageHookWindow.cpp" />
     <ClCompile Include="ProcessDock\ThreadStackWindow.cpp" />

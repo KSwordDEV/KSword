@@ -12954,6 +12954,27 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
         processContextText("process.menu.injection", QStringLiteral("DLL/Shellcode 注入")));
     injectionPageAction->setToolTip(QStringLiteral("打开进程详细信息并直达“操作”页的 DLL/Shellcode 注入区域。"));
     injectionPageAction->setEnabled(!hasBatchSelection);
+    // 强开控制台是进程动作；与注入入口相邻，冻结菜单打开时的目标身份。
+    QAction* forceConsoleAction = contextMenu.addAction(
+        blueTintedIcon(":/Icon/memwb_assemble.svg"),
+        processContextText("process.menu.force_console", QStringLiteral("强开控制台")));
+    forceConsoleAction->setToolTip(processContextText(
+        "process.menu.force_console.tooltip",
+        QStringLiteral("为选中进程创建控制台并设置标准输入输出；使用远程执行，不加载自定义 DLL。")));
+    forceConsoleAction->setEnabled(!contextActionTargets.empty() && std::all_of(
+        contextActionTargets.begin(), contextActionTargets.end(), [](const ProcessActionTarget& target)
+        {
+            return !target.isKernelOnly && target.record.pid > 4U
+                && target.record.creationTime100ns != 0;
+        }));
+    // 混合选区中存在不可执行身份时说明禁用原因，避免只留下灰色动作。
+    if (!forceConsoleAction->isEnabled())
+    {
+        forceConsoleAction->setToolTip(processContextText(
+            "process.menu.force_console.unavailable",
+            QStringLiteral("仅支持具有可验证创建时间的用户态进程；请重新选择目标。")));
+    }
+    contextMenu.setToolTipsVisible(true);
     QAction* scanHotkeyAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_refresh.svg"),
         processContextText("process.menu.hotkeys", QStringLiteral("扫描进程热键")));
@@ -14078,6 +14099,10 @@ void ProcessDock::showBoundProcessContextMenu(const QPoint& globalPosition, cons
             executeOpenMessageHooksAction(contextActionTargets.front().record);
         }
         else if (selectedAction == injectionPageAction) { openSelectedProcessInjectionPage(); }
+        else if (selectedAction == forceConsoleAction)
+        {
+            executeForceConsoleAction(contextActionTargets);
+        }
         else if (selectedAction == scanHotkeyAction) { openSelectedProcessHotkeyScanner(); }
         else if (selectedAction == copyTokenAction) { executeCopyProcessTokenAction(); }
         else if (selectedAction == detailsAction) { openProcessDetailsPlaceholder(); }

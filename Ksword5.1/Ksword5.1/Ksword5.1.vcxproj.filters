@@ -1192,6 +1192,13 @@
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessDock.Console.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ProcessConsole.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsoleRemote.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsole.h" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsoleRemote.h" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

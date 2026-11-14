@@ -4,6 +4,7 @@
 - [进程/窗口准星与 Ctrl 预览](ksword-window-picker.md) — 原生物理坐标、全不透明与默认60°/悬停75°、外部进程信息、全屏、176 项缩放回归及实机验证边界
 
 - [进程列表矩形面积视图与选择保留](ksword-process-metric-area.md) — 度量表头入口、主列表快照同步、树/友好嵌套、聚合行选区、原进程菜单与零值语义
+- [进程强开控制台](ksword-process-console.md) — 无自定义DLL、双位数远程例程、UCRT/STL步骤、超时页保留与真实菜单回读
 
 - [硬件 Dock 字段回填](ksword-hardware-dock.md) — USB/设备栈/HID/总线普通页的后台值投影、采集状态默认折叠与实机验收边界
 
