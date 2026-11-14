@@ -113,7 +113,11 @@ namespace
     {
         std::lock_guard<std::recursive_mutex> lock(mutex);
         if (argc < 1 || !argv || !argv[0]) return false;
-        const std::string name(argv[0]);
+        // x64dbg sets argv[0] to the full original command string (e.g. "ksna_backend hvm"),
+        // not just the command name. Extract the first whitespace/comma-delimited token.
+        std::string name(argv[0]);
+        const auto sep = name.find_first_of(" \t,");
+        if (sep != std::string::npos) name.resize(sep);
         if (name == "ksna_backend")
         {
             if (argc != 2 || session || uncertainOwner || (std::strcmp(argv[1], "hvm") && std::strcmp(argv[1], "kernel")))
