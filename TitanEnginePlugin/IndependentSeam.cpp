@@ -8,6 +8,10 @@
 
 #include <Windows.h>
 #include <limits>
+#include <array>
+#include <map>
+#include <mutex>
+#include <vector>
 
 // Independent transport shim for TitanEngine. Entries that IndependentFrontend
 // cannot cover yet must stay here to keep the native table complete, so
@@ -22,6 +26,22 @@ namespace ksword::titan
         bool rejectBool() { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); return false; }
         template<typename T> T rejectValue(T value)
         { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); return value; }
+
+        // Address<->id bookkeeping for the Independent transport. TitanEngine's
+        // API addresses breakpoints by VA while the driver returns opaque ids;
+        // the shim keeps the translation and clears it whenever the owning
+        // session is retired by the frontend (StopDebug/DetachDebuggerEx).
+        std::mutex softwareBreakpointMutex;
+        std::map<ULONG_PTR, std::uint32_t> softwareBreakpointIds;
+        std::array<std::uint32_t, 4> hardwareBreakpointIds{};
+        std::array<ULONG_PTR, 4> hardwareBreakpointAddresses{};
+        void clearBreakpointBindings()
+        {
+            std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+            softwareBreakpointIds.clear();
+            hardwareBreakpointIds = {};
+            hardwareBreakpointAddresses = {};
+        }
 
         BOOL readMemoryShim(HANDLE process, LPCVOID address, LPVOID data, SIZE_T bytes, SIZE_T* done)
         {
@@ -96,12 +116,46 @@ namespace ksword::titan
                 request.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
                 KSWORD_DEBUGGER_FRONTEND_STATUS status{};
                 const DWORD error = frontend.control(request, status);
+                if (error == ERROR_SUCCESS) clearBreakpointBindings();
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
             table.SetBPXOptions = [](TitanBreakpointType) {};
-            table.IsBPXEnabled = [](ULONG_PTR) -> bool { return rejectBool(); };
-            table.SetBPX = [](ULONG_PTR, DWORD, TITANCBSOFTBP) -> bool { return rejectBool(); };
-            table.DeleteBPX = [](ULONG_PTR) -> bool { return rejectBool(); };
+            table.IsBPXEnabled = [](ULONG_PTR address) -> bool
+            {
+                std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                return softwareBreakpointIds.find(address) != softwareBreakpointIds.end();
+            };
+            table.SetBPX = [](ULONG_PTR address, DWORD, TITANCBSOFTBP) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    if (softwareBreakpointIds.find(address) != softwareBreakpointIds.end())
+                    { SetLastError(ERROR_ALREADY_EXISTS); return false; }
+                }
+                std::uint32_t id = 0;
+                const DWORD error = frontend.addBreakpoint(address, false, id);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    softwareBreakpointIds[address] = id;
+                }
+                SetLastError(ERROR_SUCCESS); return true;
+            };
+            table.DeleteBPX = [](ULONG_PTR address) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                std::uint32_t id = 0;
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    auto it = softwareBreakpointIds.find(address);
+                    if (it == softwareBreakpointIds.end()) { SetLastError(ERROR_NOT_FOUND); return false; }
+                    id = it->second; softwareBreakpointIds.erase(it);
+                }
+                const DWORD error = frontend.removeBreakpoint(id);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
             table.SetMemoryBPXEx = [](ULONG_PTR, SIZE_T, TitanMemoryBreakpointType, bool, TITANCBMEMBP) -> bool { return rejectBool(); };
             table.RemoveMemoryBPX = [](ULONG_PTR, SIZE_T) -> bool { return rejectBool(); };
             table.GetFullContextDataEx = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
@@ -114,12 +168,79 @@ namespace ksword::titan
             table.SetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
             table.GetDebugData = []() -> const DEBUG_EVENT* { return nullptr; };
             table.SetCustomHandler = [](TitanCustomHandler, TITANCALLBACKARG) {};
-            table.StepInto = [](TITANCBSTEP) { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); };
-            table.StepOver = [](TITANCBSTEP) { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); };
-            table.GetUnusedHardwareBreakPointRegister = [](LPDWORD) -> bool { return rejectBool(); };
-            table.SetHardwareBreakPoint = [](ULONG_PTR, DWORD, TitanHardwareBreakpointType, TitanHardwareBreakpointSize, TITANCBHWBP) -> bool { return rejectBool(); };
-            table.DeleteHardwareBreakPoint = [](DWORD) -> bool { return rejectBool(); };
-            table.RemoveAllBreakPoints = [](TitanBreakpointRemoveOption) -> bool { return rejectBool(); };
+            // Step shims resume once; the step boundary stop arrives on the
+            // next driver event. A Titan-shaped callback fan-out still needs
+            // DebugLoop, so these intentionally skip the callback for now.
+            table.StepInto = [](TITANCBSTEP) {
+                auto& frontend = debugger::backend().independentFrontend();
+                if (!frontend.selected()) { SetLastError(ERROR_INVALID_STATE); return; }
+                const DWORD error = frontend.resume(true);
+                SetLastError(error);
+            };
+            table.StepOver = [](TITANCBSTEP) {
+                auto& frontend = debugger::backend().independentFrontend();
+                if (!frontend.selected()) { SetLastError(ERROR_INVALID_STATE); return; }
+                const DWORD error = frontend.resume(true);
+                SetLastError(error);
+            };
+            table.GetUnusedHardwareBreakPointRegister = [](LPDWORD slot) -> bool
+            {
+                if (slot == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                for (DWORD i = 0; i < hardwareBreakpointIds.size(); ++i)
+                    if (hardwareBreakpointIds[i] == 0) { *slot = i; return true; }
+                SetLastError(ERROR_NO_MORE_ITEMS); return false;
+            };
+            table.SetHardwareBreakPoint = [](ULONG_PTR address, DWORD slot, TitanHardwareBreakpointType, TitanHardwareBreakpointSize, TITANCBHWBP) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
+                if (slot >= hardwareBreakpointIds.size()) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    if (hardwareBreakpointIds[slot] != 0) { SetLastError(ERROR_ALREADY_EXISTS); return false; }
+                }
+                std::uint32_t id = 0;
+                const DWORD error = frontend.addBreakpoint(address, false, id);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    hardwareBreakpointIds[slot] = id; hardwareBreakpointAddresses[slot] = address;
+                }
+                SetLastError(ERROR_SUCCESS); return true;
+            };
+            table.DeleteHardwareBreakPoint = [](DWORD slot) -> bool
+            {
+                if (slot >= hardwareBreakpointIds.size()) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                auto& frontend = debugger::backend().independentFrontend();
+                std::uint32_t id = 0;
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    id = hardwareBreakpointIds[slot];
+                    if (id == 0) { SetLastError(ERROR_NOT_FOUND); return false; }
+                    hardwareBreakpointIds[slot] = 0; hardwareBreakpointAddresses[slot] = 0;
+                }
+                const DWORD error = frontend.removeBreakpoint(id);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
+            table.RemoveAllBreakPoints = [](TitanBreakpointRemoveOption) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                std::vector<std::uint32_t> ids;
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    for (const auto& entry : softwareBreakpointIds) ids.push_back(entry.second);
+                    for (auto id : hardwareBreakpointIds) if (id != 0) ids.push_back(id);
+                    softwareBreakpointIds.clear();
+                    hardwareBreakpointIds = {};
+                    hardwareBreakpointAddresses = {};
+                }
+                DWORD firstError = ERROR_SUCCESS;
+                for (auto id : ids)
+                { const DWORD error = frontend.removeBreakpoint(id);
+                  if (error != ERROR_SUCCESS && firstError == ERROR_SUCCESS) firstError = error; }
+                SetLastError(firstError); return firstError == ERROR_SUCCESS;
+            };
             table.DebugLoop = []() { SetLastError(ERROR_CALL_NOT_IMPLEMENTED); };
             table.SetNextDbgContinueStatus = [](DWORD) {};
             table.AttachDebugger = [](DWORD pid, bool, LPVOID, TITANCALLBACK) -> bool
@@ -138,6 +259,7 @@ namespace ksword::titan
                 request.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
                 KSWORD_DEBUGGER_FRONTEND_STATUS status{};
                 const DWORD error = frontend.control(request, status);
+                if (error == ERROR_SUCCESS) clearBreakpointBindings();
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
             table.IsFileBeingDebugged = []() -> bool

@@ -674,6 +674,18 @@ namespace
         require(frontend.addBreakpoint(0x00401000ULL, false, breakpointId) == ERROR_SUCCESS &&
             noAttachModel.breakpoints.size() == 1,
             "Second breakpoint add failed");
+        const auto beforeStep = noAttachModel.stopId;
+        require(frontend.resume(true) == ERROR_SUCCESS && noAttachModel.stopId == beforeStep + 1 &&
+            noAttachModel.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_STEP,
+            "resume(step) did not advance to a fresh STOP_STEP identity");
+        const auto beforeContinue = noAttachModel.stopId;
+        require(frontend.resume(false) == ERROR_SUCCESS && noAttachModel.stopId == beforeContinue + 1 &&
+            noAttachModel.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_FETCH,
+            "resume(continue) did not advance through the driver");
+        const auto beforeRunTo = noAttachModel.stopId;
+        require(frontend.resume(false, 0x00402000ULL) == ERROR_SUCCESS &&
+            noAttachModel.stopId == beforeRunTo + 1,
+            "resume(run_to) did not advance through the driver");
         KSWORD_DEBUGGER_FRONTEND_REQUEST close{};
         close.version = KSWORD_DEBUGGER_FRONTEND_VERSION; close.size = sizeof(close);
         close.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
