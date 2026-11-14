@@ -97,11 +97,28 @@ namespace ksword::titan
             }
         }
 
-        // Apply Titan's GPR/DR/segment/EFlags edits onto a captured CONTEXT.
-        // FP/XMM writes are refused by IndependentFrontend, so this helper
-        // only populates the fields writeContext accepts without changes.
+        // Apply Titan's GPR/DR/segment/EFlags/FP/XMM edits onto a captured
+        // CONTEXT. IndependentFrontend::writeContext now accepts FP/MxCsr/
+        // XMM changes (via SuspendThread + SetThreadContext on the target),
+        // so Titan-driven CPU-panel edits propagate to the real thread.
         void applyFromTitan(const TITAN_ENGINE_CONTEXT_t& source, CONTEXT& destination) noexcept
         {
+            destination.FltSave.ControlWord = static_cast<WORD>(source.x87fpu.ControlWord);
+            destination.FltSave.StatusWord = static_cast<WORD>(source.x87fpu.StatusWord);
+            destination.FltSave.TagWord = static_cast<BYTE>(source.x87fpu.TagWord);
+            destination.FltSave.ErrorOffset = source.x87fpu.ErrorOffset;
+            destination.FltSave.ErrorSelector = static_cast<WORD>(source.x87fpu.ErrorSelector);
+            destination.FltSave.DataOffset = source.x87fpu.DataOffset;
+            destination.FltSave.DataSelector = static_cast<WORD>(source.x87fpu.DataSelector);
+            destination.FltSave.MxCsr = source.MxCsr;
+            destination.MxCsr = source.MxCsr;
+            for (int i = 0; i < 8; ++i)
+                std::memcpy(&destination.FltSave.FloatRegisters[i], &source.RegisterArea[i * 10], 10);
+            for (int i = 0; i < 16; ++i)
+            {
+                destination.FltSave.XmmRegisters[i].Low = source.XmmRegisters[i].Low;
+                destination.FltSave.XmmRegisters[i].High = static_cast<ULONGLONG>(source.XmmRegisters[i].High);
+            }
             destination.Rax = source.cax; destination.Rcx = source.ccx;
             destination.Rdx = source.cdx; destination.Rbx = source.cbx;
             destination.Rsp = source.csp; destination.Rbp = source.cbp;
@@ -260,7 +277,8 @@ namespace ksword::titan
                 DWORD error = frontend.readContext(thread, snapshot);
                 if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
                 applyFromTitan(*ctx, snapshot);
-                snapshot.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_DEBUG_REGISTERS;
+                snapshot.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS |
+                    CONTEXT_DEBUG_REGISTERS | CONTEXT_FLOATING_POINT;
                 error = frontend.writeContext(thread, snapshot);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
@@ -322,8 +340,34 @@ namespace ksword::titan
                 error = frontend.writeContext(thread, snapshot);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
-            table.GetAVXContext = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
-            table.SetAVXContext = [](HANDLE, TITAN_ENGINE_CONTEXT_t*) -> bool { return rejectBool(); };
+            // AVX low 128 bits live in FltSave.XmmRegisters so GetAVXContext
+            // and SetAVXContext work through the same CONTEXT_FLOATING_POINT
+            // path as SetFullContextDataEx; YMM high halves remain zero
+            // until the frontend protocol gains XSTATE support.
+            table.GetAVXContext = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
+            {
+                if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                const DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                projectToTitan(snapshot, *ctx);
+                return true;
+            };
+            table.SetAVXContext = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
+            {
+                if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                auto& frontend = debugger::backend().independentFrontend();
+                DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                applyFromTitan(*ctx, snapshot);
+                snapshot.ContextFlags = CONTEXT_FLOATING_POINT;
+                error = frontend.writeContext(thread, snapshot);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
             table.GetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
             table.SetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
             table.GetDebugData = []() -> const DEBUG_EVENT* { return nullptr; };

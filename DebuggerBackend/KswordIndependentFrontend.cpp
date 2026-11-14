@@ -389,9 +389,25 @@ namespace ksword::debugger
         CONTEXT original{};
         DWORD error = captureContext(original);
         if (error != ERROR_SUCCESS) return error;
-        if ((context.ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT &&
-            (std::memcmp(&context.FltSave, &original.FltSave, sizeof(context.FltSave)) != 0 || context.MxCsr != original.MxCsr))
-            return ERROR_NOT_SUPPORTED;
+        const bool fpuChanged = (context.ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT &&
+            (std::memcmp(&context.FltSave, &original.FltSave, sizeof(context.FltSave)) != 0 || context.MxCsr != original.MxCsr);
+        if (fpuChanged)
+        {
+            // The driver tracks GPR/RIP/RSP as its stop document; x87/SSE
+            // state lives in the saved thread context and is restored on VM
+            // entry. Apply FP under a short SuspendThread window so the
+            // Windows scheduler sees the write before the next resume.
+            const DWORD previous = ::SuspendThread(thread_.native());
+            if (previous == MAXDWORD) return GetLastError();
+            CONTEXT fpu{}; fpu.ContextFlags = CONTEXT_FLOATING_POINT;
+            fpu.FltSave = context.FltSave; fpu.MxCsr = context.MxCsr;
+            const BOOL applied = ::SetThreadContext(thread_.native(), &fpu);
+            const DWORD writeError = applied ? ERROR_SUCCESS : GetLastError();
+            const auto resumed = ::ResumeThread(thread_.native());
+            if (!applied) return writeError;
+            if (resumed == MAXDWORD || resumed == 0) { recovery_ = true; return ERROR_INVALID_STATE; }
+            captured_.FltSave = context.FltSave; captured_.MxCsr = context.MxCsr;
+        }
         if ((context.ContextFlags & CONTEXT_SEGMENTS) == CONTEXT_SEGMENTS &&
             (context.SegDs != original.SegDs || context.SegEs != original.SegEs ||
              context.SegFs != original.SegFs || context.SegGs != original.SegGs)) return ERROR_NOT_SUPPORTED;
