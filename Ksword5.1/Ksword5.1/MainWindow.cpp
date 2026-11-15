@@ -8347,7 +8347,7 @@ void MainWindow::initMenus()
     secureDeskAction->setIconVisibleInMenu(true);
     languageManager.bindText(secureDeskAction, QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面"));
     const QString secureDeskTooltip = QStringLiteral(
-        "触发 Windows 原生 Winlogon 安全桌面；KSwordSecureDesk 覆盖层会自动显示打开 KSword 入口。");
+        "通过锁定工作站切到 Windows 原生 Winlogon 安全桌面；KSwordSecureDesk 覆盖层会自动显示打开 KSword 入口。");
     // QAction 的 toolTip 不支持 LanguageManager::bindToolTip（它只接受 QWidget）。
     // 这里只做一次 setToolTip 即可：UI 文本随菜单项文字一起由 bindText 刷新；
     // 用户切换语言时，自上而下 aboutToShow 的提示文案会在 ShortcutRegistry 内刷新。
@@ -8576,129 +8576,30 @@ void MainWindow::launchSecureDeskFromMenu(QAction* action)
         return;
     }
 
-    // 2) 关键陷阱：主程序已是 elevated 管理员进程，直接 ShellExecute "runas"
-    //    给自己启动的子进程，Windows 会直接继承当前 elevated token，UAC 不弹，
-    //    输入桌面不会切到 Winlogon。必须先把身份降到 shell 层（Explorer 的
-    //    非 elevated 完整 token），再由那个 non-elevated 进程发起 runas，
-    //    这样 UAC 一定弹出、Winlogon 安全桌面也会出现。
-    //
-    //    具体做法：从 Shell 窗口对应进程（通常是 explorer.exe，非 elevated）
-    //    拷贝它的 primary token，用 CreateProcessWithTokenW 启动
-    //    KSwordSecureDesk.exe 的 initial 阶段；该子进程发现自己非 elevated，
-    //    会按既有逻辑走 launchAdminStage（ShellExecute "runas"），此时 UAC
-    //    必弹，Winlogon 桌面被激活，已经常驻的 SYSTEM/UIAccess 覆盖层自动显示。
-    const std::wstring helperPathWide = helperPath.toStdWString();
-    const std::wstring workDirWide = applicationDirectory.absolutePath().toStdWString();
+    // 2) 用户态切输入桌面到 Winlogon 的方法回顾：
+    //    - ShellExecute "runas"：主程序已 elevated 时 Windows 继承 token，
+    //      UAC 完全不弹，桌面也不切；从 elevated 侧盗 Explorer token 再 runas
+    //      仍受 UAC 策略影响（"Elevate without prompting" 下同样不弹）。
+    //    - SendSAS(TRUE)（Ctrl+Alt+Del）：需要 SeTcbPrivilege，admin 账户默认
+    //      没有，也无法 AdjustTokenPrivileges 启用。
+    //    - LockWorkStation()：零特权、系统 API，必然把输入桌面切到 Winlogon，
+    //      是用户态能真正做到"切到 Windows 安全桌面"的唯一可靠路径。
+    //    代价：用户返回主桌面需要重新解锁登录。先弹确认对话框告知 UX，用户
+    //    点同意再执行锁屏。KSwordSecureDesk 覆盖层已常驻 Winlogon 桌面，
+    //    输入桌面切换后按 Phase B 的 "输入桌面!=Default" 规则自动显示。
+    const QString title = ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面"));
+    const QString question = ks::i18n::sourceText(QStringLiteral("即将把输入切换到 Windows 安全桌面（Winlogon）。\n切换后 KSwordSecureDesk 覆盖层会自动出现，可点击\"打开 KSword\"启动安全实例；返回当前桌面需要重新解锁登录。继续吗？"));
+    const auto reply = QMessageBox::question(this, title, question,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (reply != QMessageBox::Yes) return;
 
-    auto launchFailed = [this](DWORD code)
+    // LockWorkStation 异步请求 Winlogon 切桌面；不阻塞 Qt 事件循环。
+    if (!::LockWorkStation())
     {
-        if (code == ERROR_CANCELLED) return;
-        QMessageBox::warning(
-            this,
-            ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面")),
+        const DWORD code = ::GetLastError();
+        QMessageBox::warning(this, title,
             ks::i18n::sourceText(QStringLiteral("触发 Windows 安全桌面失败（代码：%1）。")).arg(code));
-    };
-
-    // Shell 窗口是 Explorer 任务栏；非 UAC 场景它基本保证存在。
-    HWND shellWindow = ::GetShellWindow();
-    HANDLE shellProcess = nullptr;
-    HANDLE shellToken = nullptr;
-    HANDLE primaryToken = nullptr;
-    DWORD shellPid = 0;
-    if (shellWindow)
-    {
-        ::GetWindowThreadProcessId(shellWindow, &shellPid);
     }
-    if (shellPid != 0)
-    {
-        shellProcess = ::OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, shellPid);
-    }
-    if (shellProcess)
-    {
-        if (!::OpenProcessToken(shellProcess, TOKEN_DUPLICATE, &shellToken))
-        {
-            shellToken = nullptr;
-        }
-    }
-    if (shellToken)
-    {
-        if (!::DuplicateTokenEx(
-                shellToken,
-                TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID,
-                nullptr,
-                SecurityImpersonation,
-                TokenPrimary,
-                &primaryToken))
-        {
-            primaryToken = nullptr;
-        }
-    }
-
-    bool launched = false;
-    DWORD lastError = 0;
-    if (primaryToken)
-    {
-        // CreateProcessWithTokenW 需要可写的命令行缓冲区。
-        std::wstring commandLine = L"\"" + helperPathWide + L"\"";
-        std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
-        commandBuffer.push_back(L'\0');
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESHOWWINDOW;
-        startup.wShowWindow = SW_HIDE;
-        PROCESS_INFORMATION procInfo{};
-        if (::CreateProcessWithTokenW(
-                primaryToken,
-                0,
-                helperPathWide.c_str(),
-                commandBuffer.data(),
-                CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
-                nullptr,
-                workDirWide.c_str(),
-                &startup,
-                &procInfo))
-        {
-            launched = true;
-            if (procInfo.hThread) ::CloseHandle(procInfo.hThread);
-            if (procInfo.hProcess) ::CloseHandle(procInfo.hProcess);
-        }
-        else
-        {
-            lastError = ::GetLastError();
-        }
-    }
-    else
-    {
-        lastError = ::GetLastError();
-    }
-
-    if (primaryToken) ::CloseHandle(primaryToken);
-    if (shellToken) ::CloseHandle(shellToken);
-    if (shellProcess) ::CloseHandle(shellProcess);
-
-    if (launched) return;
-
-    // 退路：shell token 降权失败（Explorer 没在跑、安全策略禁止等），回退到直接
-    // ShellExecute "runas"。此时主程序本身是否已 elevated 决定 UAC 是否弹，
-    // 在无法降权时我们已没有更稳妥的办法，至少不让菜单点击完全无反应。
-    SHELLEXECUTEINFOW info = {};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
-    info.hwnd = reinterpret_cast<HWND>(this->winId());
-    info.lpVerb = L"runas";
-    info.lpFile = helperPathWide.c_str();
-    info.lpParameters = nullptr;
-    info.lpDirectory = workDirWide.c_str();
-    info.nShow = SW_HIDE;
-    if (!::ShellExecuteExW(&info))
-    {
-        launchFailed(::GetLastError());
-        return;
-    }
-    if (info.hProcess) ::CloseHandle(info.hProcess);
-    // 从降权失败的路径启动到这里，静默表示 fallback 已尝试。token 盗用失败的
-    // 诊断信息由上一步的 lastError 保留；此处不弹错误以免双重打扰。
-    Q_UNUSED(lastError);
 }
 
 void MainWindow::showShortcutManagerFromMenu(bool systemPage)
