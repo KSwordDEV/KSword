@@ -837,6 +837,42 @@ namespace
         return PrivilegeStage::currentDesktopName().compare(QStringLiteral("Winlogon"), Qt::CaseInsensitive) == 0;
     }
 
+    // inputDesktopName 作用：
+    // - 返回当前被操作系统视为"输入桌面"的桌面对象名（即用户当前看到的桌面）。
+    // - SYSTEM/UIAccess 进程常驻 Winlogon 桌面，其 GetThreadDesktop 永远返回
+    //   Winlogon；判断"是否进入了安全桌面"必须查输入桌面而不是本线程桌面。
+    // - 失败（没有 DESKTOP_READOBJECTS 权限等）时返回空字符串，由调用方按默认
+    //   不激活覆盖层处理。
+    QString inputDesktopName()
+    {
+        HDESK desktop = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+        if (!desktop) return {};
+        DWORD length = 0;
+        GetUserObjectInformationW(desktop, UOI_NAME, nullptr, 0, &length);
+        QString name;
+        if (length > 0)
+        {
+            std::vector<wchar_t> buffer(length + 1, L'\0');
+            if (GetUserObjectInformationW(desktop, UOI_NAME, buffer.data(),
+                                          static_cast<DWORD>(buffer.size() * sizeof(wchar_t)), &length))
+                name = QString::fromWCharArray(buffer.data());
+        }
+        CloseDesktop(desktop);
+        return name;
+    }
+
+    // inputDesktopIsSecure 作用：
+    // - Phase B 的核心判据：只要当前输入桌面不是 "Default"（用户主桌面）就算
+    //   安全/非主桌面，覆盖层应自动显示。Winlogon 覆盖 UAC/锁屏/CAD/安全屏保等
+    //   全部 Windows 安全场景，Screen-saver 也落在非 Default。
+    // - 查不到输入桌面名时保守返回 false，避免在未知状态下泄露面板。
+    bool inputDesktopIsSecure()
+    {
+        const QString name = inputDesktopName();
+        if (name.isEmpty()) return false;
+        return name.compare(QStringLiteral("Default"), Qt::CaseInsensitive) != 0;
+    }
+
     QPixmap removeFlatBackground(const QPixmap& source)
     {
         if (source.isNull()) return source;
@@ -2710,20 +2746,32 @@ SecureDeskWindow::SecureDeskWindow(QWidget* parent)
     contentLayout->setContentsMargins(18, 2, 18, 10);
     contentLayout->setSpacing(5);
 
-    auto* originRow = new QWidget(content);
-    auto* originLayout = new QHBoxLayout(originRow);
+    // m_secureSubtitle：Phase B 新增，仅在非 UAC 的 Winlogon 安全桌面显示，
+    // 替代详尽的发起者信息，给用户一个"覆盖层已出现"的明确说明。
+    m_secureSubtitle = new QLabel(
+        QStringLiteral("已进入 Windows 安全桌面，可从这里打开 KSword。"), content);
+    m_secureSubtitle->setObjectName(QStringLiteral("secureDeskSubtitle"));
+    m_secureSubtitle->setWordWrap(true);
+    m_secureSubtitle->setTextFormat(Qt::PlainText);
+    m_secureSubtitle->setVisible(false);
+    contentLayout->addWidget(m_secureSubtitle);
+
+    // m_uacDetailRow：原本的 originRow 升级为成员，便于 Phase B 整体切换
+    // UAC 详情与极简入口两个显示模式。
+    m_uacDetailRow = new QWidget(content);
+    auto* originLayout = new QHBoxLayout(m_uacDetailRow);
     originLayout->setContentsMargins(0, 0, 0, 0);
     originLayout->setSpacing(9);
-    m_originIconLabel = new QLabel(originRow);
+    m_originIconLabel = new QLabel(m_uacDetailRow);
     m_originIconLabel->setFixedSize(20, 20);
     m_originIconLabel->setAlignment(Qt::AlignCenter);
     m_originIconLabel->setPixmap(removeFlatBackground(applicationIcon.pixmap(20, 20)));
     originLayout->addWidget(m_originIconLabel);
-    m_identityLabel = new QLabel(QStringLiteral("等待 UAC 发起者..."), originRow);
+    m_identityLabel = new QLabel(QStringLiteral("等待 UAC 发起者..."), m_uacDetailRow);
     m_identityLabel->setObjectName(QStringLiteral("uacIdentityLabel"));
     m_identityLabel->setWordWrap(false);
     originLayout->addWidget(m_identityLabel, 1);
-    contentLayout->addWidget(originRow);
+    contentLayout->addWidget(m_uacDetailRow);
 
     m_processLabel = new QLabel(QStringLiteral(
         "启动参数：不可用\n进程位置：不可用\n启动链：不可用\n完整性级别：不可用\n提升类型：不可用\n启动时间：不可用\n运行时长：不可用\n数字签名（发起者）：不可用\n数字签名（目标）：不可用"), content);
@@ -2780,10 +2828,12 @@ SecureDeskWindow::SecureDeskWindow(QWidget* parent)
         const int y = std::max(work.top(), std::min(work.top() + 72, work.bottom() - height() + 1));
         move(x, y);
     }
+    // Phase B：默认处于"安全桌面极简"外观，刷新定时器根据输入桌面决定显隐。
+    applyUacDetailMode(false);
     updateButtons();
-    // The companion is event-driven UI for an actual UAC prompt.  It must not
-    // leave a visible window on the shared Winlogon desktop while the machine
-    // is merely locked (or while no prompt is present).
+    // 构造期不显示：Qt 事件循环还未运行，入口桌面判定要等 QApplication::exec。
+    // 首个刷新周期（见 refreshNow + refreshUacState）会根据输入桌面是否为 Default
+    // 决定自动弹出或继续隐藏，避免闪过旧样式。
     hide();
 }
 
@@ -2937,36 +2987,53 @@ void SecureDeskWindow::refreshUacState()
 
 void SecureDeskWindow::applyScanResult(const UacApplicationIdentity& identity, const ProcessActionState& actionState)
 {
-    // AppInfo evidence may arrive before the native window scan.  It is useful
-    // for correlating the request, but it is not enough to make a visible panel
-    // with no anchor rectangle: otherwise a lock-screen/transition state could
-    // expose a stale panel at its previous position.
+    // Phase B 的三态可见性：
+    // - 输入桌面==Default：隐藏覆盖层。用户在主桌面不应看到它。
+    // - 输入桌面!=Default 且没有 UAC consent：显示极简覆盖层，仅"打开 KSword"。
+    // - 输入桌面!=Default 且有 UAC consent：显示完整 UAC 详情面板（原逻辑）。
     const bool hasVisibleUac = identity.isUac && identity.consentWindow != nullptr &&
                                !identity.windowRect.isEmpty();
-    if (!hasVisibleUac)
+    const bool secureInput = inputDesktopIsSecure();
+    if (!secureInput)
     {
-        // Winlogon is shared by UAC and the lock screen.  Visibility is gated
-        // by positive UAC detection, not by the fact that this process can
-        // access the Winlogon desktop.  Hide immediately on a negative scan so
-        // a stale panel cannot remain visible on the lock screen.
+        // 主桌面：覆盖层必须下线；任何残留会在 Default 桌面上泄露面板。
         if (isVisible())
         {
             hide();
             KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral(
-                "uac-visibility: hidden because no valid UAC window was detected"));
+                "secure-visibility: hidden because input desktop is Default"));
         }
         m_positionedUacWindow = nullptr;
         m_identity = {};
         m_actionState = {};
-        m_originIconLabel->setPixmap(removeFlatBackground(QIcon(QStringLiteral(":/KSwordSecureDesk/KswordLogo.ico")).pixmap(20, 20)));
-        m_identityLabel->setText(QStringLiteral("等待 UAC 发起者..."));
-        m_processLabel->setText(QStringLiteral(
-            "启动参数：不可用\n进程位置：不可用\n启动链：不可用\n完整性级别：不可用\n提升类型：不可用\n启动时间：不可用\n运行时长：不可用\n数字签名（发起者）：不可用\n数字签名（目标）：不可用"));
+        return;
+    }
+    if (!hasVisibleUac)
+    {
+        // 安全桌面但没 UAC：锁屏/CAD/屏保/救援模式触发后的等待态。切极简面板，
+        // 清理 UAC 详情状态，位置贴屏幕右上角默认位置。
+        m_positionedUacWindow = nullptr;
+        m_identity = {};
+        m_actionState = {};
+        applyUacDetailMode(false);
         adjustToContent();
+        repositionToDefaultCorner();
         updateButtons();
+        if (!isVisible())
+        {
+            show();
+            KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral(
+                "secure-visibility: shown (secure desktop without UAC consent)"));
+        }
+        else
+        {
+            SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
         return;
     }
     const bool shouldPosition = m_positionedUacWindow == nullptr || m_positionedUacWindow != identity.consentWindow;
+    applyUacDetailMode(true);
     m_identity = identity;
     m_actionState = actionState;
     if (m_actionState.originResolved)
@@ -3084,6 +3151,43 @@ void SecureDeskWindow::updateButtons()
     m_terminateButton->setEnabled(allowed);
     m_powerShellButton->setEnabled(!m_launchRunning.load() && isWinlogonDesktop());
     m_launchMainButton->setEnabled(!m_launchRunning.load() && isWinlogonDesktop());
+}
+
+// applyUacDetailMode 作用：
+// - 在"UAC 详情模式"与"安全桌面极简模式"之间切换覆盖层内部控件可见性。
+// - UAC 模式：显示发起者图标/标题/详细参数、挂起/结束/PowerShell 三个 UAC 动作。
+// - 极简模式：隐藏上述 UAC 专属控件，露出一行"已进入安全桌面"的简介文案；
+//   "打开 KSword" 按钮在两种模式下都可见，是本覆盖层恒定的一等公民。
+void SecureDeskWindow::applyUacDetailMode(bool showUacDetails)
+{
+    if (m_uacDetailRow) m_uacDetailRow->setVisible(showUacDetails);
+    if (m_processLabel) m_processLabel->setVisible(showUacDetails);
+    if (m_suspendButton) m_suspendButton->setVisible(showUacDetails);
+    if (m_terminateButton) m_terminateButton->setVisible(showUacDetails);
+    if (m_powerShellButton) m_powerShellButton->setVisible(showUacDetails);
+    if (m_secureSubtitle) m_secureSubtitle->setVisible(!showUacDetails);
+}
+
+// repositionToDefaultCorner 作用：
+// - 非 UAC 场景下，面板没有可锚定的 UAC 矩形。把窗口贴到主屏右上，避免浮在
+//   屏幕正中央遮挡锁屏/CAD 的系统 UI；同时保持原来的 TOPMOST 层级。
+void SecureDeskWindow::repositionToDefaultCorner()
+{
+    QScreen* screen = QGuiApplication::primaryScreen();
+    if (!screen) return;
+    const QRect work = screen->availableGeometry();
+    const int x = std::max(work.left(), work.right() - width() - 24);
+    const int y = std::max(work.top(), std::min(work.top() + 72, work.bottom() - height() + 1));
+    HWND ownWindow = reinterpret_cast<HWND>(winId());
+    if (ownWindow)
+    {
+        SetWindowPos(ownWindow, HWND_TOPMOST, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+    else
+    {
+        move(x, y);
+    }
 }
 
 void SecureDeskWindow::showStatus(const QString& status, bool error)

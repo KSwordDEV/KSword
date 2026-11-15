@@ -253,6 +253,8 @@ private:
     void applyScanResult(const UacApplicationIdentity& identity, const ProcessActionState& actionState);
     void adjustToContent();
     void repositionBesideUac(const UacApplicationIdentity& identity);
+    void repositionToDefaultCorner();           // 非 UAC 场景把窗口贴屏幕右上
+    void applyUacDetailMode(bool showUacDetails); // Phase B：切换 UAC/非 UAC 面板
     void updateButtons();
     void showStatus(const QString& status, bool error = false);
     void launchMainOnSecureDesktop();
@@ -265,6 +267,8 @@ private:
     QLabel* m_originIconLabel = nullptr;
     QLabel* m_identityLabel = nullptr;
     QLabel* m_processLabel = nullptr;
+    QLabel* m_secureSubtitle = nullptr;       // 非 UAC 的安全桌面场景下的简介文案
+    QWidget* m_uacDetailRow = nullptr;         // originRow 容器，整体切换可见
     QPushButton* m_suspendButton = nullptr;
     QPushButton* m_terminateButton = nullptr;
     QPushButton* m_powerShellButton = nullptr;
