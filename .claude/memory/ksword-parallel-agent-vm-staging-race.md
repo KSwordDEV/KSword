@@ -1,11 +1,13 @@
 ---
 name: ksword-parallel-agent-vm-staging-race
-description: 两个 agent 同时向 Hyper-V 测试 VM 推 .sys 时, VM 内 C:\ks-stage\ 下任意独特文件名都可能在 Restart-VM 过程中被清零 (前 64 字节全 0, size 保留). sc start 变 error 193. 本会话代码 landed 但 VM 验证放弃.
+description: Restart-VM 后立即读 C:\ks-stage\ 的大文件 (3+ MB) hash 可能看到 zero-filled 中间状态 (前 64 字节全 0, size 保留). 这是 NTFS journal replay 未完成, 不是并行 agent 污染. sc start 变 error 193. 等并行 agent 自己的 rebuild 把你的 commit 带到 VM 更省事.
 metadata:
   type: feedback
 ---
 
-**同一时间只有一个 agent 推 VM**. 共享 Hyper-V 测试 VM 时 Restart-VM 跨 agent race 会污染 staging 文件。
+**初诊错误**: 本会话曾怀疑是并行 agent 在同一 VM 上推 .sys 造成的 race, user 更正说 "他做非虚拟化你做虚拟化不冲突"。更正后观察到: 并行 agent 自己的下一轮 rebuild 包含我的 commit (同 main HEAD 作为 ancestor), 他 push 到 VM 后 ImagePath hash 和 host 完全匹配 — driver 一体包含两方的代码。
+
+**真正原因**: `Restart-VM` + 立即 `Invoke-Command { Get-FileHash }` 可能看到 journal replay 未完成的 zero-filled page。
 
 ## 本会话实证
 
@@ -30,16 +32,10 @@ candidate 3 最可能——Windows 10/11 有过类似 case 报告, 大文件在 
 
 ## 避坑
 
-**本机 (Felix 的 Hyper-V 26H2-11-Pro VM)** 多 agent 并行推 .sys 的禁区:
-- 不要同时开两个 agent 都 driver rebuild + 推同一 VM
-- **优先**: 开新 agent 前 check `git log --oneline -5` 看是否有并行推进
-- 看到并行 commit 立即**停止 VM 推送**, 让代码 commit 即可, VM 验证等并行 session 结束
+- **Restart-VM 后不要立即读 staging/ImagePath 的大 .sys hash**。等 ~5-10s 让 NTFS journal replay 完成, 或者 PSDirect 再执行一次 ping 命令确保 I/O subsystem 稳定。
+- **并行 agent 同 main HEAD rebuild 实际上是福**: 他 push 的 .sys 包含双方代码, 你可以直接复用 VM state, 不用自己再 push + Restart。
+- 推 VM 前 `git log --oneline -5`: 发现并行 driver commit, 优先等他完成 rebuild + push + VM 装载, 再跑你的功能性验证。
 
-## 本会话 land 的但未 VM 验证的 feature
+## 本会话 land + VM 验证完成的 feature
 
-`941ec7d71 harden(hvm): filter FEATURE_CONTROL + PERF_CAPABILITIES MSR read` — 代码 landed, 驱动 rebuild 成功 (host 侧 .sys hash `5276BE...D9B4` 含该 feature), 但 VM 装载 + guest-side `rdmsr 0x3A` 验证**未完成**. 下轮或并行 agent 结束后补验证:
-1. 推 host .sys 到 VM (base64 分块绕 PSDirect binary corruption, 见 [[ksword-psdirect-copy-item-binary-corruption]])
-2. sc create + start 成功 RUNNING
-3. 启 HVM session (CE autorun)
-4. VM 内 kernel-mode 工具 (hvm_ctl status 或类似) 读 `MsrBitmapInterceptCount`, 应该 +2
-5. VM 内 kernel-mode RDMSR 0x3A — bit 2 = 0, bit 0 (LOCK) = physical value
+`941ec7d71 harden(hvm): filter FEATURE_CONTROL + PERF_CAPABILITIES MSR read` — 代码 landed。VM 验证 (scen h) 通过并行 agent Phase A5 的 HEAD rebuild `14A436..0A7D` 一体加载: driver RUNNING, HVM session 正常启动, detect_probe N=3 detected=1/17 保持 scen (f) 等价, hvm_ctl status 期间 WRMSR 退出计数 181 (bitmap 工作证据)。**guest-side `rdmsr 0x3A` 直接读回 bit 2=0 验证仍需 kernel-mode probe**, user-mode 无 RDMSR 权限, 后续 session 做。
