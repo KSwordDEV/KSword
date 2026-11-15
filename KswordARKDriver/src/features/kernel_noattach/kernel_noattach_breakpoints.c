@@ -110,8 +110,63 @@ NTSTATUS KnaEditBreakpoint(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST *Request)
                 return STATUS_SUCCESS;
             }
         }
+        /* 内存观察不占 DR，可直接在控制路径清理；目标线程不需要参与提交。 */
+        for (i = 0UL; i < 4UL; ++i)
+        {
+            if (g_Kna.MemoryWatches[i].id == Request->breakpointId && Request->breakpointId != 0UL)
+            {
+                /* 清空槽即时可用；R3 另行恢复页面保护。 */
+                RtlZeroMemory(&g_Kna.MemoryWatches[i], sizeof(g_Kna.MemoryWatches[i]));
+                return STATUS_SUCCESS;
+            }
+        }
         /* 不存在的 ID 不冒充删除成功。 */
         return STATUS_NOT_FOUND;
+    }
+    /* 内存观察走独立的存储和校验路径。 */
+    if ((Request->breakpointFlags & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WATCH) != 0UL)
+    {
+        const ULONG memoryAccepted = KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WATCH |
+                                     KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_TYPE_MASK;
+        const ULONG types = Request->breakpointFlags & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_TYPE_MASK;
+        /* 至多一位访问类型，未设任何位表示任意访问。 */
+        const BOOLEAN typeConflict = types != 0UL && (types & (types - 1UL)) != 0UL;
+        /* 一次性运行到地址不属于内存观察语义。 */
+        if (Request->operation == KSWORD_ARK_HVM_NOATTACH_RUN_TO ||
+            (Request->breakpointFlags & ~memoryAccepted) != 0UL || typeConflict ||
+            Request->address == 0ULL || Request->minimumRsp == 0ULL ||
+            Request->address > (ULONGLONG)(ULONG_PTR)MmHighestUserAddress ||
+            Request->minimumRsp > (ULONGLONG)(ULONG_PTR)MmHighestUserAddress ||
+            Request->address + Request->minimumRsp < Request->address ||
+            Request->address + Request->minimumRsp - 1ULL > (ULONGLONG)(ULONG_PTR)MmHighestUserAddress)
+        { return STATUS_INVALID_PARAMETER; }
+        /* 四条内存观察容量和与其它观察的重叠分别核对。 */
+        for (i = 0UL; i < 4UL; ++i)
+        {
+            if (g_Kna.MemoryWatches[i].id != 0UL)
+            {
+                const ULONGLONG aStart = g_Kna.MemoryWatches[i].address;
+                const ULONGLONG aEnd = aStart + g_Kna.MemoryWatches[i].minimumRsp;
+                const ULONGLONG bStart = Request->address;
+                const ULONGLONG bEnd = bStart + Request->minimumRsp;
+                /* 重叠区间不允许静默覆盖旧配置。 */
+                if (aStart < bEnd && bStart < aEnd) { return STATUS_OBJECT_NAME_COLLISION; }
+            }
+            if (g_Kna.MemoryWatches[i].id == 0UL && freeSlot == 4UL) { freeSlot = i; }
+        }
+        /* 容量不足保留旧配置。 */
+        if (freeSlot == 4UL) { return STATUS_INSUFFICIENT_RESOURCES; }
+        /* 非零 ID，不复用。 */
+        if (++g_Kna.NextId == 0UL) { ++g_Kna.NextId; }
+        g_Kna.MemoryWatches[freeSlot].id = g_Kna.NextId;
+        /* 仅保存请求的 flags 组合；未设任何类型位表示任意访问。 */
+        g_Kna.MemoryWatches[freeSlot].flags = Request->breakpointFlags;
+        g_Kna.MemoryWatches[freeSlot].address = Request->address;
+        /* 内存观察不固定物理页。 */
+        g_Kna.MemoryWatches[freeSlot].physicalPage = 0ULL;
+        /* 复用 minimumRsp 字段存储观察范围长度。 */
+        g_Kna.MemoryWatches[freeSlot].minimumRsp = Request->minimumRsp;
+        return STATUS_SUCCESS;
     }
     /* 允许的位集合：执行断点语义 + 观察点类型 + 观察点宽度。 */
     const ULONG accepted = KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT |

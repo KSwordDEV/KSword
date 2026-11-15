@@ -31,6 +31,141 @@ static VOID KnaEditRegisters(PCONTEXT Context, const KSWORD_ARK_KERNEL_NOATTACH_
 #undef KNA_SET
 }
 
+/* 返回命中的内存观察 slot (0..3) 或 4 表示未命中；调用方必须持 StateLock。 */
+static ULONG KnaMemoryWatchHit(const EXCEPTION_RECORD *Record)
+{
+    ULONG accessType;
+    ULONGLONG faultAddr;
+    /* 只有带访问类型和故障地址的用户态 AV 才考虑匹配。 */
+    if (Record->ExceptionCode != STATUS_ACCESS_VIOLATION || Record->NumberParameters < 2UL) { return 4UL; }
+    /* Windows AV 参数：ExceptionInformation[0]=0 读 / 1 写 / 8 执行，[1]=故障地址。 */
+    accessType = (ULONG)Record->ExceptionInformation[0];
+    faultAddr = Record->ExceptionInformation[1];
+    for (ULONG i = 0UL; i < 4UL; ++i)
+    {
+        const KSWORD_ARK_HVM_NOATTACH_BREAKPOINT *watch = &g_Kna.MemoryWatches[i];
+        ULONG typeBits;
+        /* 空槽不参与匹配。 */
+        if (watch->id == 0UL) { continue; }
+        /* 故障地址必须落在 [address, address + length) 的半开区间内。 */
+        if (faultAddr < watch->address || faultAddr >= watch->address + watch->minimumRsp) { continue; }
+        typeBits = watch->flags & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_TYPE_MASK;
+        /* 未设任何类型位表示任意访问均触发。 */
+        if (typeBits != 0UL)
+        {
+            /* 类型与 AV 参数单独核对，不混淆读/写/执行三种语义。 */
+            BOOLEAN matched = FALSE;
+            if ((typeBits & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_READ) != 0UL && accessType == 0UL) { matched = TRUE; }
+            if ((typeBits & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WRITE) != 0UL && accessType == 1UL) { matched = TRUE; }
+            if ((typeBits & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_EXEC) != 0UL && accessType == 8UL) { matched = TRUE; }
+            if (!matched) { continue; }
+        }
+        return i;
+    }
+    return 4UL;
+}
+
+/* 内存观察命中走独立的 publish/wait 流程；回归 TRUE 表示已消费本次 AV，返回调用点后 target 重试故障指令。 */
+static BOOLEAN KnaMemoryWatchDispatch(PEXCEPTION_RECORD Record, PVOID Exception, PVOID Trap, KPROCESSOR_MODE Mode)
+{
+    KIRQL irql;
+    BOOLEAN handled = FALSE;
+    ULONG slot, id;
+    PCONTEXT context;
+    /* wait loop 调 KeWaitForSingleObject 要求 <= APC_LEVEL，更高 IRQL 直接放行到原分发器。 */
+    if (KeGetCurrentIrql() > APC_LEVEL) { return FALSE; }
+    /* Observer 与 session identity 都在短锁内核对，不跨帧转换持有。 */
+    KeAcquireSpinLock(&g_Kna.StateLock, &irql);
+    /* 必须由同一个绑定线程命中，关闭过程中不接受新观察。 */
+    if (!g_Kna.Owned || g_Kna.Thread != PsGetCurrentThread() || g_Kna.Observer != 0L || g_Kna.Closing)
+    { KeReleaseSpinLock(&g_Kna.StateLock, irql); return FALSE; }
+    slot = KnaMemoryWatchHit(Record);
+    /* 未命中让原异常分发器处理。 */
+    if (slot >= 4UL) { KeReleaseSpinLock(&g_Kna.StateLock, irql); return FALSE; }
+    /* 从这里到 LeaveObserver，Close 不得释放 Context。 */
+    InterlockedExchange(&g_Kna.Observer, 1L);
+    KeClearEvent(&g_Kna.ObserverIdle);
+    /* 命中即退休 memory watch；R3 另行恢复页面保护让 target 重试故障指令。 */
+    id = g_Kna.MemoryWatches[slot].id;
+    RtlZeroMemory(&g_Kna.MemoryWatches[slot], sizeof(g_Kna.MemoryWatches[slot]));
+    context = g_Kna.Context;
+    KeReleaseSpinLock(&g_Kna.StateLock, irql);
+    /* 捕获当前 trap 帧投影成规范上下文。 */
+    RtlZeroMemory(context, sizeof(*context));
+    context->ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_DEBUG_REGISTERS;
+    KnaReadFrames(Trap, Exception, context);
+    /* 发布停点身份；控制面随后用 breakpointId 找到对应的 R3 记录并恢复保护。 */
+    KeAcquireSpinLock(&g_Kna.StateLock, &irql);
+    g_Kna.Action = 0UL;
+    KeClearEvent(&g_Kna.ContinueEvent);
+    if (!g_Kna.Closing) { KnaPublish(context, KSWORD_ARK_HVM_NOATTACH_STOP_MEMORY_WATCH, id); }
+    KeReleaseSpinLock(&g_Kna.StateLock, irql);
+    /* 等待 R3 发来的下一个命令；超时唤醒只用于检查 lease 和 Closing。 */
+    for (;;)
+    {
+        LARGE_INTEGER timeout;
+        ULONG action;
+        KSWORD_ARK_KERNEL_NOATTACH_REQUEST command;
+        KeAcquireSpinLock(&g_Kna.StateLock, &irql);
+        if (!g_Kna.Closing && KeQueryInterruptTime() > g_Kna.LeaseDeadline) { InterlockedExchange(&g_Kna.Closing, 1L); }
+        action = g_Kna.Closing ? KSWORD_ARK_HVM_NOATTACH_CLOSE : g_Kna.Action;
+        g_Kna.Action = 0UL;
+        command = g_Kna.Pending;
+        KeReleaseSpinLock(&g_Kna.StateLock, irql);
+        /* 无命令时短超时等待，避免忙轮询。 */
+        if (action == 0UL)
+        {
+            timeout.QuadPart = -1000000LL;
+            (void)KeWaitForSingleObject(&g_Kna.ContinueEvent, Executive, KernelMode, FALSE, &timeout);
+            continue;
+        }
+        /* 关闭保持优先：撤销 DR 并归还目标线程。 */
+        if (action == KSWORD_ARK_HVM_NOATTACH_CLOSE)
+        {
+            KnaApplyDebug(context, TRUE);
+            context->EFlags &= ~0x100UL;
+            KnaWriteFrames(Trap, Exception, context, CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS, Mode);
+            KnaRevoke();
+            handled = TRUE;
+            break;
+        }
+        /* GPR 修改复用公共映射。 */
+        if (action == KSWORD_ARK_HVM_NOATTACH_SET_GPR) { KnaEditRegisters(context, &command); }
+        /* 行配置变化通过 ApplyDebug 映射回 DR。 */
+        KnaApplyDebug(context, FALSE);
+        /* 配置/寄存器编辑与执行命令分开处理：前者需要新停点，后者让目标继续。 */
+        if (action == KSWORD_ARK_HVM_NOATTACH_ADD_BREAKPOINT ||
+            action == KSWORD_ARK_HVM_NOATTACH_REMOVE_BREAKPOINT ||
+            action == KSWORD_ARK_HVM_NOATTACH_SET_GPR)
+        {
+            KnaWriteFrames(Trap, Exception, context, CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_DEBUG_REGISTERS, Mode);
+            KeAcquireSpinLock(&g_Kna.StateLock, &irql);
+            for (ULONG i = 0UL; i < 4UL; ++i)
+            {
+                g_Kna.Rows[i].flags &= ~KSWORD_ARK_KERNEL_NOATTACH_BP_PENDING;
+                if (action == KSWORD_ARK_HVM_NOATTACH_REMOVE_BREAKPOINT && g_Kna.Rows[i].id == command.breakpointId)
+                { RtlZeroMemory(&g_Kna.Rows[i], sizeof(g_Kna.Rows[i])); }
+            }
+            KeClearEvent(&g_Kna.ContinueEvent);
+            if (!g_Kna.Closing) { KnaPublish(context, KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT, 0UL); }
+            KeReleaseSpinLock(&g_Kna.StateLock, irql);
+            continue;
+        }
+        /* STEP/CONTINUE/RUN_TO：memory watch 命中后 target 重试故障指令，R3 已恢复保护即可正常继续。
+         * STEP 仍可设置 TF 让目标重试完成后再次停下，供用户继续调试；CONTINUE 不干扰目标标志。 */
+        KeAcquireSpinLock(&g_Kna.StateLock, &irql);
+        if (action == KSWORD_ARK_HVM_NOATTACH_STEP)
+        { context->EFlags |= 0x100UL; g_Kna.OwnTf = TRUE; g_Kna.State = KSWORD_ARK_HVM_NOATTACH_STEP_PENDING; }
+        else { context->EFlags &= ~0x100UL; g_Kna.State = KSWORD_ARK_HVM_NOATTACH_RUNNING; }
+        KeReleaseSpinLock(&g_Kna.StateLock, irql);
+        KnaWriteFrames(Trap, Exception, context, CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_DEBUG_REGISTERS, Mode);
+        handled = TRUE;
+        break;
+    }
+    KnaLeaveObserver();
+    return handled;
+}
+
 BOOLEAN KnaObserve(PEXCEPTION_RECORD Record, PVOID Exception, PVOID Trap, KPROCESSOR_MODE Mode, BOOLEAN FirstChance)
 {
     /* 高于 DISPATCH_LEVEL 不做帧转换、加锁或任何等待。 */
@@ -46,6 +181,10 @@ BOOLEAN KnaObserve(PEXCEPTION_RECORD Record, PVOID Exception, PVOID Trap, KPROCE
     /* 未初始化、无会话或不支持的异常阶段保持原分发。 */
     if (g_Kna.Initialized != 2L || !FirstChance || entryIrql > DISPATCH_LEVEL || Record == NULL)
     { return FALSE; }
+    /* 用户态 AV 先交给 memory watch 匹配；命中则独立消费，不走下面的 single-step 分支。 */
+    if (Mode == UserMode && Record->ExceptionCode == STATUS_ACCESS_VIOLATION &&
+        KnaMemoryWatchDispatch(Record, Exception, Trap, Mode))
+    { return TRUE; }
     /* 只以强对象身份判断线程，不比较可能复用的 CPU/PID。 */
     KeAcquireSpinLock(&g_Kna.StateLock, &irql);
     /* 普通目标异常只有自有 TF 尚未完成时才需要取消步进。 */

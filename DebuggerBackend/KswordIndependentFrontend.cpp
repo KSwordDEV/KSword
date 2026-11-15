@@ -208,12 +208,17 @@ namespace ksword::debugger
 
     void IndependentFrontend::resetSession()
     {
+        // Attempt to restore any outstanding memory watch protections before
+        // the process handle drops, so sessions ending with a live watch
+        // leave the target pages back at their original protection.
+        for (std::size_t i = 0; i < memoryWatches_.size(); ++i)
+            retireMemoryWatchLocked(i);
         ++phaseGeneration_;
         process_.reset(); thread_.reset(); pid_ = tid_ = 0; stop_ = {};
         reserved_ = recovery_ = stepIntent_ = false; capturedStop_ = 0; captured_ = {};
-        hardware_ = {}; software_ = {}; logicalDr6_ = 0; ceEvent_ = CeEvent::none;
-        ceBootstrap_ = true; ceSoftwareRip_ = false; ceDeliveredStop_ = 0;
-        stepOverTarget_ = 0;
+        hardware_ = {}; software_ = {}; memoryWatches_ = {}; logicalDr6_ = 0;
+        ceEvent_ = CeEvent::none; ceBootstrap_ = true; ceSoftwareRip_ = false;
+        ceDeliveredStop_ = 0; stepOverTarget_ = 0;
     }
 
     DWORD IndependentFrontend::close()
@@ -261,7 +266,19 @@ namespace ksword::debugger
                 if (error != ERROR_SUCCESS) return error;
                 if (recovery_ || stop_.state == KSWORD_ARK_HVM_NOATTACH_EXITED || !stop_.sessionId) return ERROR_INVALID_STATE;
                 if (stop_.state == KSWORD_ARK_HVM_NOATTACH_STOPPED && stop_.stopId && stop_.stopId != after)
-                { response = stop_; return ERROR_SUCCESS; }
+                {
+                    // Memory watch hits retire their own slot in the driver;
+                    // the frontend mirrors that by restoring the tightened
+                    // protection and clearing its record before the caller
+                    // sees the stop. The caller still receives breakpointId
+                    // in `response` for its own callback lookup.
+                    if (stop_.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_MEMORY_WATCH && stop_.breakpointId != 0)
+                    {
+                        const std::size_t slot = findMemoryWatch(stop_.breakpointId);
+                        if (slot < memoryWatches_.size()) retireMemoryWatchLocked(slot);
+                    }
+                    response = stop_; return ERROR_SUCCESS;
+                }
             }
             if (GetTickCount64() >= deadline) break;
             Sleep(waitInterval);
@@ -330,6 +347,138 @@ namespace ksword::debugger
         KSWORD_ARK_HVM_NOATTACH_REQUEST edits{}; edits.breakpointId = id;
         const auto error = request(KSWORD_ARK_HVM_NOATTACH_REMOVE_BREAKPOINT, &edits);
         return error == ERROR_SUCCESS ? finishContextRequest() : error;
+    }
+
+    std::size_t IndependentFrontend::findMemoryWatch(std::uint32_t id) const
+    {
+        for (std::size_t i = 0; i < memoryWatches_.size(); ++i)
+            if (memoryWatches_[i].id == id && id != 0) return i;
+        return memoryWatches_.size();
+    }
+
+    DWORD IndependentFrontend::tightenedProtection(DWORD original, MemoryWatchType type)
+    {
+        // Preserve non-protection bits (PAGE_GUARD / PAGE_NOCACHE etc) when
+        // changing only the access rights; callers see the same family on
+        // restore. When the source page is PAGE_GUARD we still lift it so
+        // our matcher owns the first-chance AV instead of Windows' guard.
+        const DWORD modifiers = original & ~0xFFU;
+        switch (type)
+        {
+            case MemoryWatchType::write:   return PAGE_READONLY | modifiers;
+            case MemoryWatchType::execute: return PAGE_READWRITE | modifiers;
+            case MemoryWatchType::read:
+            case MemoryWatchType::any:
+            default:                        return PAGE_NOACCESS;
+        }
+    }
+
+    void IndependentFrontend::retireMemoryWatchLocked(std::size_t index)
+    {
+        if (index >= memoryWatches_.size() || memoryWatches_[index].id == 0) return;
+        auto& record = memoryWatches_[index];
+        if (process_.isValid() && record.length != 0)
+        {
+            DWORD previous = 0;
+            (void)::VirtualProtectEx(process_.native(), reinterpret_cast<void*>(record.address),
+                record.length, record.originalProtection, &previous);
+        }
+        record = {};
+    }
+
+    DWORD IndependentFrontend::addMemoryWatch(std::uint64_t address, SIZE_T length,
+        MemoryWatchType type, std::uint32_t& id)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        id = 0;
+        if (!reserved_ || recovery_ || stop_.state != KSWORD_ARK_HVM_NOATTACH_STOPPED || !stop_.stopId)
+            return ERROR_INVALID_STATE;
+        if (address == 0 || length == 0 ||
+            address + length < address || address + length - 1 < address) return ERROR_INVALID_PARAMETER;
+        // Local slot allocation mirrors the driver's four-entry table.
+        std::size_t slot = memoryWatches_.size();
+        for (std::size_t i = 0; i < memoryWatches_.size(); ++i)
+        {
+            if (memoryWatches_[i].id == 0) { if (slot == memoryWatches_.size()) slot = i; }
+            else if (memoryWatches_[i].address < address + length &&
+                     address < memoryWatches_[i].address + memoryWatches_[i].length)
+                return ERROR_ALREADY_EXISTS;
+        }
+        if (slot == memoryWatches_.size()) return ERROR_NO_MORE_ITEMS;
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!::VirtualQueryEx(process_.native(), reinterpret_cast<void*>(address), &mbi, sizeof(mbi)))
+            return GetLastError();
+        if (mbi.State != MEM_COMMIT) return ERROR_INVALID_ADDRESS;
+        const DWORD originalProtection = mbi.Protect;
+        const DWORD tightened = tightenedProtection(originalProtection, type);
+        DWORD previous = 0;
+        if (!::VirtualProtectEx(process_.native(), reinterpret_cast<void*>(address), length,
+                                tightened, &previous)) return GetLastError();
+        DWORD protocolFlags = KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WATCH;
+        switch (type)
+        {
+            case MemoryWatchType::read:    protocolFlags |= KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_READ; break;
+            case MemoryWatchType::write:   protocolFlags |= KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WRITE; break;
+            case MemoryWatchType::execute: protocolFlags |= KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_EXEC; break;
+            case MemoryWatchType::any:     break;
+        }
+        KSWORD_ARK_HVM_NOATTACH_REQUEST edits{};
+        edits.address = address;
+        edits.breakpointFlags = protocolFlags;
+        // Protocol reuses the minimumRsp field as the watch byte length.
+        edits.minimumRsp = static_cast<std::uint64_t>(length);
+        DWORD error = request(KSWORD_ARK_HVM_NOATTACH_ADD_BREAKPOINT, &edits);
+        if (error == ERROR_SUCCESS) error = finishContextRequest();
+        if (error != ERROR_SUCCESS)
+        {
+            DWORD rollback = 0;
+            (void)::VirtualProtectEx(process_.native(), reinterpret_cast<void*>(address),
+                length, originalProtection, &rollback);
+            return error;
+        }
+        // The driver returns the newly assigned id through the breakpoints
+        // list, tagged with MEMORY_WATCH so it never aliases a DR row.
+        std::uint32_t driverId = 0;
+        for (ULONG i = 0; i < stop_.breakpointCount; ++i)
+        {
+            const auto& entry = stop_.breakpoints[i];
+            if (entry.address == address &&
+                (entry.flags & KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WATCH) != 0 &&
+                entry.minimumRsp == static_cast<std::uint64_t>(length))
+            { driverId = entry.id; break; }
+        }
+        if (driverId == 0)
+        {
+            DWORD rollback = 0;
+            (void)::VirtualProtectEx(process_.native(), reinterpret_cast<void*>(address),
+                length, originalProtection, &rollback);
+            recovery_ = true;
+            return ERROR_INVALID_DATA;
+        }
+        memoryWatches_[slot] = MemoryWatchBinding{driverId, address, length, originalProtection, type};
+        id = driverId;
+        return ERROR_SUCCESS;
+    }
+
+    DWORD IndependentFrontend::removeMemoryWatch(std::uint32_t id)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        if (!reserved_ || recovery_ || !id) return ERROR_INVALID_STATE;
+        const std::size_t slot = findMemoryWatch(id);
+        if (slot == memoryWatches_.size()) return ERROR_NOT_FOUND;
+        if (stop_.state == KSWORD_ARK_HVM_NOATTACH_STOPPED && stop_.stopId != 0)
+        {
+            KSWORD_ARK_HVM_NOATTACH_REQUEST edits{};
+            edits.breakpointId = id;
+            DWORD error = request(KSWORD_ARK_HVM_NOATTACH_REMOVE_BREAKPOINT, &edits);
+            if (error == ERROR_SUCCESS) error = finishContextRequest();
+            // STATUS_NOT_FOUND simply means the driver already retired the
+            // slot (hit auto-retire or explicit race). Both cases need the
+            // page protection restored, so keep going on NOT_FOUND.
+            if (error != ERROR_SUCCESS && error != ERROR_NOT_FOUND) return error;
+        }
+        retireMemoryWatchLocked(slot);
+        return ERROR_SUCCESS;
     }
 
     bool IndependentFrontend::targetThread(HANDLE thread) const

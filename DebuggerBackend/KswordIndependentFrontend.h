@@ -41,6 +41,19 @@ namespace ksword::debugger
         // flags together.
         DWORD addBreakpoint(std::uint64_t address, DWORD protocolFlags, std::uint32_t& id);
         DWORD removeBreakpoint(std::uint32_t id);
+        // Page-level memory watchpoints: VirtualProtectEx tightens the
+        // requested range, the kernel no-attach driver's exception
+        // dispatcher consumes the resulting first-chance AV, and a stop
+        // publishes with reason KSWORD_ARK_HVM_NOATTACH_STOP_MEMORY_WATCH.
+        // On hit the frontend atomically removes the watch and restores
+        // the original protection so the target retries its fault
+        // instruction once the user resumes. HVM backend refuses.
+        enum class MemoryWatchType : std::uint32_t { any = 0, read = 1, write = 2, execute = 4 };
+        // Caller-side callback registries (Titan softwareBreakpointCallbacks
+        // style) live in the shim; this layer tracks only the range and the
+        // original protection so it can restore them on retire.
+        DWORD addMemoryWatch(std::uint64_t address, SIZE_T length, MemoryWatchType type, std::uint32_t& id);
+        DWORD removeMemoryWatch(std::uint32_t id);
         DWORD readContext(HANDLE thread, CONTEXT&);
         DWORD writeContext(HANDLE thread, const CONTEXT&);
         // XSTATE-aware variants accept a caller-allocated CONTEXT_EX (sized
@@ -64,6 +77,22 @@ namespace ksword::debugger
 
     private:
         struct Binding { std::uint64_t address = 0; std::uint32_t id = 0; BYTE original = 0; };
+        struct MemoryWatchBinding
+        {
+            std::uint32_t id = 0;
+            std::uint64_t address = 0;
+            SIZE_T length = 0;
+            DWORD originalProtection = 0;
+            MemoryWatchType type = MemoryWatchType::any;
+        };
+        // Return the slot index carrying `id` or memoryWatches_.size() when absent.
+        std::size_t findMemoryWatch(std::uint32_t id) const;
+        // Compute the tightened page protection for the requested watch type
+        // starting from the caller's original protection flags.
+        static DWORD tightenedProtection(DWORD original, MemoryWatchType type);
+        // Restore the caller's original protection and clear the slot.
+        // Caller holds backend_.mutex_ and `index` is the slot to reset.
+        void retireMemoryWatchLocked(std::size_t index);
         DWORD request(ULONG operation, const KSWORD_ARK_HVM_NOATTACH_REQUEST* edits = nullptr);
         DWORD finishContextRequest();
         DWORD captureContext(CONTEXT&);
@@ -80,6 +109,7 @@ namespace ksword::debugger
         std::uint64_t capturedStop_ = 0;
         std::array<Binding, 4> hardware_{};
         std::array<Binding, 8> software_{};
+        std::array<MemoryWatchBinding, 4> memoryWatches_{};
         std::uint64_t logicalDr6_ = 0;
         enum class CeEvent { none, process, initial, stop, exit };
         CeEvent ceEvent_ = CeEvent::none;

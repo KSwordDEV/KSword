@@ -66,6 +66,8 @@ typedef struct _KNA_SESSION
     ULONGLONG BaselineDr[6];
     /* 硬件槽位与公开 ID 的映射不依赖首行选择。 */
     KSWORD_ARK_HVM_NOATTACH_BREAKPOINT Rows[4];
+    /* 页级内存观察，通过异常分发器接管用户态 AV；独立于 DR 槽。 */
+    KSWORD_ARK_HVM_NOATTACH_BREAKPOINT MemoryWatches[4];
     /* 零 ID 表示未占用，公开序号只递增。 */
     ULONG NextId;
     /* 当前命令在请求时冻结，不借用已完成的 IOCTL 内存。 */

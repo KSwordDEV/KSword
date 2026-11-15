@@ -66,6 +66,8 @@
 #define KSWORD_ARK_HVM_NOATTACH_STOP_BREAKPOINT 3UL
 /* 整数寄存器修改已提交的新停点，不代表执行了指令。 */
 #define KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT 4UL
+/* 内存范围观察命中；breakpointId 对应命中时即退休的观察点。 */
+#define KSWORD_ARK_HVM_NOATTACH_STOP_MEMORY_WATCH 5UL
 /* 此能力不表示支持整个进程或内核态停止。 */
 #define KSWORD_ARK_HVM_NOATTACH_CAP_SINGLE_USER_THREAD 1UL
 /* 仅表示 GPR、RIP、RSP 和 RFLAGS；明确不包含 XSTATE。 */
@@ -106,6 +108,18 @@
 /* 观察点宽度位集合，默认一字节；至多设一位。 */
 #define KSWORD_ARK_HVM_NOATTACH_BP_SIZE_MASK                                                                 \
     (KSWORD_ARK_HVM_NOATTACH_BP_SIZE_2 | KSWORD_ARK_HVM_NOATTACH_BP_SIZE_4 | KSWORD_ARK_HVM_NOATTACH_BP_SIZE_8)
+/* 内存范围观察；仅普通驱动后端通过异常分发器接管用户态 AV 完成。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WATCH 0x80UL
+/* 内存观察读访问。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_READ 0x400UL
+/* 内存观察写访问。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WRITE 0x800UL
+/* 内存观察执行访问；DEP 页触发的指令取指也归此类。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_EXEC 0x1000UL
+/* 内存观察类型位集合；未设任何位代表任意访问均触发。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_TYPE_MASK                                                          \
+    (KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_READ | KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_WRITE |                      \
+     KSWORD_ARK_HVM_NOATTACH_BP_MEMORY_EXEC)
 /* 查询发现 VA/PFN 改变；必须删除后重新安装。 */
 #define KSWORD_ARK_HVM_NOATTACH_BP_STALE 0x200UL
 /* 位 0..14 为保存帧顺序的 GPR，位 15/16 为 RIP/RSP。 */

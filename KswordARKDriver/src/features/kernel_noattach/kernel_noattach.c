@@ -385,6 +385,8 @@ NTSTATUS KswordARKKernelNoAttachControl(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST
         g_Kna.TargetEvents = 0L; g_Kna.LastCode = 0UL; g_Kna.LastFrameDr6 = 0ULL; g_Kna.LastHardwareDr6 = 0ULL;
         /* 无断点状态不伪造安装。 */
         RtlZeroMemory(g_Kna.Rows, sizeof(g_Kna.Rows));
+        /* 新会话不复用上一个会话的内存观察配置。 */
+        RtlZeroMemory(g_Kna.MemoryWatches, sizeof(g_Kna.MemoryWatches));
         /* 保存文件所有者的准确时间。 */
         g_Kna.OwnerCreation = Request->ownerCreationTime;
         /* OPEN 不立即暂停目标。 */
@@ -478,6 +480,8 @@ NTSTATUS KswordARKKernelNoAttachControl(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST
         Response->breakpointCount = 0UL;
         /* 完整遍历四个真实槽。 */
         for (ULONG i = 0UL; i < 4UL; ++i) { if (g_Kna.Rows[i].id != 0UL) { Response->breakpoints[Response->breakpointCount++] = g_Kna.Rows[i]; } }
+        /* 内存观察以同一个结构投影到响应，id 与 DR 槽使用同一个全局递增序列。 */
+        for (ULONG i = 0UL; i < 4UL; ++i) { if (g_Kna.MemoryWatches[i].id != 0UL) { Response->breakpoints[Response->breakpointCount++] = g_Kna.MemoryWatches[i]; } }
         /* 非当前停止绝不泄露可消费的历史寄存器。 */
         if (Response->state != KSWORD_ARK_HVM_NOATTACH_STOPPED)
         {

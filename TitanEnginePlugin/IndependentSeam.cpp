@@ -45,6 +45,12 @@ namespace ksword::titan
         // because x64dbg waits on the inner callback before issuing another.
         std::atomic<TITANCBSTEP> pendingStepCallback{nullptr};
         std::atomic<TITANCBPAUSE> pendingPauseCallback{nullptr};
+        // Memory BPX bookkeeping: driver returns opaque ids, but the Titan
+        // callback is keyed off the caller's (address, length) pair. The
+        // shim mirrors that identity here, then looks up the callback by
+        // driver id when a MEMORY_WATCH stop surfaces from DebugLoop.
+        struct MemoryBreakpointRecord { ULONG_PTR address = 0; SIZE_T length = 0; TITANCBMEMBP callback = nullptr; };
+        std::map<std::uint32_t, MemoryBreakpointRecord> memoryBreakpointCallbacks;
         void clearBreakpointBindings()
         {
             std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
@@ -53,6 +59,7 @@ namespace ksword::titan
             hardwareBreakpointIds = {};
             hardwareBreakpointAddresses = {};
             hardwareBreakpointCallbacks = {};
+            memoryBreakpointCallbacks.clear();
             pendingStepCallback.store(nullptr);
             pendingPauseCallback.store(nullptr);
         }
@@ -303,8 +310,52 @@ namespace ksword::titan
                 const DWORD error = frontend.removeBreakpoint(id);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
-            table.SetMemoryBPXEx = [](ULONG_PTR, SIZE_T, TitanMemoryBreakpointType, bool, TITANCBMEMBP) -> bool { return rejectBool(); };
-            table.RemoveMemoryBPX = [](ULONG_PTR, SIZE_T) -> bool { return rejectBool(); };
+            // VirtualProtectEx + kernel AV dispatch provide page-level
+            // watch semantics. The driver auto-retires the slot on hit and
+            // the frontend restores the page protection before DebugLoop
+            // sees the stop, so RestoreOnHit maps to "fire the callback and
+            // retire" exactly. Persistent watches are not supported yet;
+            // callers must re-arm after each hit if they need re-entry.
+            table.SetMemoryBPXEx = [](ULONG_PTR address, SIZE_T bytes, TitanMemoryBreakpointType type,
+                                      bool /*restoreOnHit*/, TITANCBMEMBP callback) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
+                using WatchType = debugger::IndependentFrontend::MemoryWatchType;
+                WatchType mapped = WatchType::any;
+                switch (type)
+                {
+                    case UE_MEMORY:         mapped = WatchType::any; break;
+                    case UE_MEMORY_READ:    mapped = WatchType::read; break;
+                    case UE_MEMORY_WRITE:   mapped = WatchType::write; break;
+                    case UE_MEMORY_EXECUTE: mapped = WatchType::execute; break;
+                    default: SetLastError(ERROR_INVALID_PARAMETER); return false;
+                }
+                std::uint32_t id = 0;
+                const DWORD error = frontend.addMemoryWatch(address, bytes, mapped, id);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    memoryBreakpointCallbacks[id] = MemoryBreakpointRecord{address, bytes, callback};
+                }
+                SetLastError(ERROR_SUCCESS); return true;
+            };
+            table.RemoveMemoryBPX = [](ULONG_PTR address, SIZE_T bytes) -> bool
+            {
+                auto& frontend = debugger::backend().independentFrontend();
+                std::uint32_t id = 0;
+                {
+                    std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                    for (auto it = memoryBreakpointCallbacks.begin(); it != memoryBreakpointCallbacks.end(); ++it)
+                    {
+                        if (it->second.address == address && it->second.length == bytes)
+                        { id = it->first; memoryBreakpointCallbacks.erase(it); break; }
+                    }
+                }
+                if (id == 0) { SetLastError(ERROR_NOT_FOUND); return false; }
+                const DWORD error = frontend.removeMemoryWatch(id);
+                SetLastError(error); return error == ERROR_SUCCESS;
+            };
             table.GetFullContextDataEx = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
             {
                 if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
@@ -743,6 +794,21 @@ namespace ksword::titan
                         }
                         if (softwareCb != nullptr) softwareCb();
                         else if (hardwareCb != nullptr) hardwareCb(nullptr);
+                    }
+                    else if (snap.stopReason == KSWORD_ARK_HVM_NOATTACH_STOP_MEMORY_WATCH)
+                    {
+                        // Driver + frontend have already retired the watch
+                        // and restored the page protection; only the Titan
+                        // callback remains. Erase our record while holding
+                        // the shim mutex so re-adds get a fresh slot.
+                        TITANCBMEMBP memoryCb = nullptr;
+                        {
+                            std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
+                            auto it = memoryBreakpointCallbacks.find(snap.breakpointId);
+                            if (it != memoryBreakpointCallbacks.end())
+                            { memoryCb = it->second.callback; memoryBreakpointCallbacks.erase(it); }
+                        }
+                        if (memoryCb != nullptr) memoryCb(nullptr);
                     }
                 }
             };
