@@ -145,8 +145,33 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
     if (!KswordARKRuntimeAddressIsExecutable(&view, (ULONG_PTR)handlerPageFault, 1U) ||
         !KswordARKRuntimeAddressIsExecutable(&view, (ULONG_PTR)handlerDebug, 1U))
     { return STATUS_NOT_FOUND; }
-    /* Phase A1 收尾：Image 信息已固定，IDT handler 已经确认在 ntoskrnl 内。七个符号
-     * 的 function pointer 全部保留为 NULL，待 Phase A2+ 接入发现逻辑。 */
+    /* Phase A2 bring-up：扫 KeBugCheckEx 的 callers，为后续 KiDispatchException 发现
+     * 建立候选池。KiDispatchException 走 unhandled 分支经 KiBugCheckDispatch 调
+     * KeBugCheckEx；反向两级 call graph 的中间节点就是 KiBugCheckDispatch。本阶段
+     * 仅收集直接 callers 并记日志，Phase A3 再在候选上做第二级反查。 */
+    {
+        UNICODE_STRING nameBugCheck = RTL_CONSTANT_STRING(L"KeBugCheckEx");
+        PVOID bugCheck = MmGetSystemRoutineAddress(&nameBugCheck);
+        if (bugCheck != NULL)
+        {
+            KSW_RUNTIME_CALL_SITE callers[32];
+            ULONG callerCount = KswordARKRuntimeFindCallersOfRoutine(
+                &view, (ULONG_PTR)bugCheck, callers, RTL_NUMBER_OF(callers));
+            ULONG index;
+            DbgPrint("[KnaResolveSymbols] KeBugCheckEx=%p: %u direct callers\n",
+                     bugCheck, callerCount);
+            for (index = 0UL; index < callerCount && index < 5UL; ++index)
+            {
+                DbgPrint("[KnaResolveSymbols]   caller[%u] routine=%p call@%p opcode=0x%02X\n",
+                         index,
+                         (PVOID)callers[index].CallerRoutine,
+                         (PVOID)callers[index].CallInstruction,
+                         callers[index].Opcode);
+            }
+        }
+    }
+    /* Image 信息与 IDT handler 已落定，KeBugCheckEx 反向 callers 已记录。七个符号
+     * 的 function pointer 仍保持 NULL；Phase A3 开始填入 KiDispatchException 等。 */
     return STATUS_SUCCESS;
 }
 

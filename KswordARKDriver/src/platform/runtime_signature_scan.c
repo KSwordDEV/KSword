@@ -892,3 +892,181 @@ KswordARKRuntimeCollectExecutableDataReferenceBatch(
     *CursorRva = View->Size;
     return referenceCount;
 }
+
+BOOLEAN
+KswordARKRuntimeFindEnclosingRoutine(
+    _In_ const KSW_RUNTIME_IMAGE_VIEW* View,
+    _In_ ULONG_PTR InstructionAddress,
+    _Out_ PULONG_PTR RoutineEntryOut
+    )
+/*++
+
+Routine Description:
+
+    Locate the RUNTIME_FUNCTION entry whose [BeginAddress, EndAddress) RVA
+    range contains InstructionAddress. Uses the PE exception directory, so
+    it works on any x64 image without needing symbols.
+
+Return Value:
+
+    TRUE iff a matching function entry exists; FALSE otherwise. On success
+    *RoutineEntryOut is the linear address of the enclosing function's entry.
+
+--*/
+{
+    IMAGE_DOS_HEADER dos;
+    IMAGE_NT_HEADERS64 nt;
+    IMAGE_DATA_DIRECTORY directory;
+    ULONG rva = 0UL;
+    ULONG left = 0UL;
+    ULONG right = 0UL;
+
+    if (View == NULL || RoutineEntryOut == NULL) {
+        return FALSE;
+    }
+    *RoutineEntryOut = 0U;
+    if (!KswordARKRuntimeAddressIsExecutable(View, InstructionAddress, 1U) ||
+        !KswordARKRuntimeReadMemory((const VOID*)View->Base, &dos, sizeof(dos)) ||
+        dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew <= 0L ||
+        !KswordARKRuntimeAddressInImage(View, View->Base + (ULONG)dos.e_lfanew, sizeof(nt)) ||
+        !KswordARKRuntimeReadMemory((const VOID*)(View->Base + (ULONG)dos.e_lfanew), &nt, sizeof(nt)) ||
+        nt.Signature != IMAGE_NT_SIGNATURE || nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+        nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+        nt.OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXCEPTION) {
+        return FALSE;
+    }
+    directory = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
+    if (directory.VirtualAddress == 0UL || directory.Size == 0UL ||
+        directory.Size % sizeof(IMAGE_RUNTIME_FUNCTION_ENTRY) != 0UL ||
+        !KswordARKRuntimeAddressInImage(View, View->Base + directory.VirtualAddress, directory.Size)) {
+        return FALSE;
+    }
+    rva = (ULONG)(InstructionAddress - View->Base);
+    right = directory.Size / sizeof(IMAGE_RUNTIME_FUNCTION_ENTRY);
+    while (left < right) {
+        ULONG middle = left + (right - left) / 2UL;
+        IMAGE_RUNTIME_FUNCTION_ENTRY entry;
+        ULONG_PTR address = View->Base + directory.VirtualAddress +
+            (SIZE_T)middle * sizeof(entry);
+
+        if (!KswordARKRuntimeReadMemory((const VOID*)address, &entry, sizeof(entry)) ||
+            entry.BeginAddress >= entry.EndAddress || entry.EndAddress > View->Size) {
+            return FALSE;
+        }
+        if (rva < entry.BeginAddress) {
+            right = middle;
+        }
+        else if (rva >= entry.EndAddress) {
+            left = middle + 1UL;
+        }
+        else {
+            *RoutineEntryOut = View->Base + entry.BeginAddress;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+ULONG
+KswordARKRuntimeFindCallersOfRoutine(
+    _In_ const KSW_RUNTIME_IMAGE_VIEW* View,
+    _In_ ULONG_PTR TargetAddress,
+    _Out_writes_(CallerCapacity) KSW_RUNTIME_CALL_SITE* Callers,
+    _In_ ULONG CallerCapacity
+    )
+/*++
+
+Routine Description:
+
+    Scan every executable section of View for direct E8/E9 rel32 instructions
+    whose decoded target equals TargetAddress. Each site is collapsed to its
+    enclosing RUNTIME_FUNCTION entry via the PE exception directory and added
+    to Callers, de-duplicated by (CallerRoutine). Returns the number of
+    unique callers recorded (capped at CallerCapacity).
+
+    This is a byte-level scan, not a disassembly; a false positive is possible
+    when a data byte in an executable section happens to be 0xE8 or 0xE9 and
+    the following four bytes resolve to TargetAddress. Callers are expected
+    to validate candidates downstream (e.g. by inspecting the enclosing
+    function's prologue or its own call targets).
+
+Return Value:
+
+    Number of unique caller routines recorded (0..CallerCapacity).
+
+--*/
+{
+    ULONG sectionIndex = 0UL;
+    ULONG count = 0UL;
+
+    if (View == NULL || Callers == NULL || CallerCapacity == 0UL) {
+        return 0UL;
+    }
+    for (sectionIndex = 0UL;
+         sectionIndex < View->SectionCount && count < CallerCapacity;
+         ++sectionIndex) {
+        const KSW_RUNTIME_IMAGE_SECTION* section = &View->Sections[sectionIndex];
+        ULONG_PTR cursor;
+
+        if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0UL ||
+            section->End <= section->Start) {
+            continue;
+        }
+        /* Scan window holds a full E8/E9 rel32 (5 bytes). */
+        if (section->End < section->Start + 5U) {
+            continue;
+        }
+        cursor = section->Start;
+        while (cursor <= section->End - 5U && count < CallerCapacity) {
+            UCHAR opcode = 0U;
+            UCHAR bytes[5];
+            LONG displacement = 0L;
+            ULONG_PTR target = 0U;
+            ULONG_PTR enclosing = 0U;
+            ULONG duplicateIndex = 0UL;
+            BOOLEAN duplicate = FALSE;
+
+            if (!KswordARKRuntimeReadMemory((const VOID*)cursor, &opcode, sizeof(opcode))) {
+                ++cursor;
+                continue;
+            }
+            if (opcode != 0xE8U && opcode != 0xE9U) {
+                ++cursor;
+                continue;
+            }
+            if (!KswordARKRuntimeReadMemory((const VOID*)cursor, bytes, sizeof(bytes))) {
+                ++cursor;
+                continue;
+            }
+            RtlCopyMemory(&displacement, bytes + 1UL, sizeof(displacement));
+            /* Overflow-safe target computation: cursor + 5 + sign-extended rel32. */
+            if (cursor > MAXULONG_PTR - 5U) {
+                break;
+            }
+            target = cursor + 5U + (ULONG_PTR)(LONG_PTR)displacement;
+            if (target != TargetAddress) {
+                ++cursor;
+                continue;
+            }
+            if (!KswordARKRuntimeFindEnclosingRoutine(View, cursor, &enclosing) ||
+                enclosing == 0U) {
+                ++cursor;
+                continue;
+            }
+            for (duplicateIndex = 0UL; duplicateIndex < count; ++duplicateIndex) {
+                if (Callers[duplicateIndex].CallerRoutine == enclosing) {
+                    duplicate = TRUE;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                Callers[count].CallerRoutine = enclosing;
+                Callers[count].CallInstruction = cursor;
+                Callers[count].Opcode = opcode;
+                ++count;
+            }
+            ++cursor;
+        }
+    }
+    return count;
+}
