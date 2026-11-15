@@ -88,8 +88,24 @@
 #define KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT 1UL
 /* 栈已展开到请求深度才命中，供调用步过使用。 */
 #define KSWORD_ARK_HVM_NOATTACH_BP_STACK_FILTER 2UL
+/* 数据写入即触发；仅普通驱动后端在物理 DR 槽上实现。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_WATCH_WRITE 4UL
+/* 数据读写均触发；仅普通驱动后端。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_WATCH_READWRITE 8UL
+/* 观察点二字节访问宽度，默认为一字节；仅与 WATCH_* 组合时生效。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_SIZE_2 0x10UL
+/* 观察点四字节访问宽度。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_SIZE_4 0x20UL
+/* 观察点八字节访问宽度，长模式下由 DR7 LEN=10b 表示。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_SIZE_8 0x40UL
 /* 查询显示该断点已消费，不再具备执行资格。 */
 #define KSWORD_ARK_HVM_NOATTACH_BP_CONSUMED 0x100UL
+/* 观察点类型与宽度位集合；执行断点不得设任何一位。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_WATCH_MASK                                                                \
+    (KSWORD_ARK_HVM_NOATTACH_BP_WATCH_WRITE | KSWORD_ARK_HVM_NOATTACH_BP_WATCH_READWRITE)
+/* 观察点宽度位集合，默认一字节；至多设一位。 */
+#define KSWORD_ARK_HVM_NOATTACH_BP_SIZE_MASK                                                                 \
+    (KSWORD_ARK_HVM_NOATTACH_BP_SIZE_2 | KSWORD_ARK_HVM_NOATTACH_BP_SIZE_4 | KSWORD_ARK_HVM_NOATTACH_BP_SIZE_8)
 /* 查询发现 VA/PFN 改变；必须删除后重新安装。 */
 #define KSWORD_ARK_HVM_NOATTACH_BP_STALE 0x200UL
 /* 位 0..14 为保存帧顺序的 GPR，位 15/16 为 RIP/RSP。 */

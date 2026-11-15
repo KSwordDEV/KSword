@@ -30,7 +30,16 @@ namespace ksword::debugger
         // Waits without holding the backend lock across the polling interval.
         DWORD waitForStop(DWORD milliseconds, std::uint64_t after, KSWORD_ARK_HVM_NOATTACH_RESPONSE&);
         DWORD snapshot(KSWORD_ARK_HVM_NOATTACH_RESPONSE&);
+        // Execute-only wrapper over the protocol-flag overload; kept for the
+        // CE bridge, Titan software BPX, and IndependentFrontend's own hw
+        // regen path, which all install plain execute breakpoints.
         DWORD addBreakpoint(std::uint64_t address, bool once, std::uint32_t& id);
+        // Protocol-flag overload accepts WATCH_WRITE/WATCH_READWRITE and
+        // SIZE_* bits for DR-backed data watchpoints on the kernel backend;
+        // HVM rejects them because EPT execution views cannot witness data
+        // accesses. Callers OR the appropriate KSWORD_ARK_HVM_NOATTACH_BP_*
+        // flags together.
+        DWORD addBreakpoint(std::uint64_t address, DWORD protocolFlags, std::uint32_t& id);
         DWORD removeBreakpoint(std::uint32_t id);
         DWORD readContext(HANDLE thread, CONTEXT&);
         DWORD writeContext(HANDLE thread, const CONTEXT&);

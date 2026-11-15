@@ -618,17 +618,40 @@ namespace ksword::titan
                     if (hardwareBreakpointIds[i] == 0) { *slot = i; return true; }
                 SetLastError(ERROR_NO_MORE_ITEMS); return false;
             };
-            table.SetHardwareBreakPoint = [](ULONG_PTR address, DWORD slot, TitanHardwareBreakpointType, TitanHardwareBreakpointSize, TITANCBHWBP callback) -> bool
+            table.SetHardwareBreakPoint = [](ULONG_PTR address, DWORD slot, TitanHardwareBreakpointType type,
+                                             TitanHardwareBreakpointSize size, TITANCBHWBP callback) -> bool
             {
                 auto& frontend = debugger::backend().independentFrontend();
                 if (!frontend.active()) { SetLastError(ERROR_INVALID_STATE); return false; }
                 if (slot >= hardwareBreakpointIds.size()) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                // Titan type/size map to protocol watch + size flags. Execute
+                // breakpoints keep SIZE=1 (DR7 LEN=00) because R0's KnaHit
+                // only accepts an execute hit when RIP matches row->address.
+                DWORD flags = 0;
+                switch (type)
+                {
+                    case UE_HARDWARE_EXECUTE: break;
+                    case UE_HARDWARE_WRITE: flags |= KSWORD_ARK_HVM_NOATTACH_BP_WATCH_WRITE; break;
+                    case UE_HARDWARE_READWRITE: flags |= KSWORD_ARK_HVM_NOATTACH_BP_WATCH_READWRITE; break;
+                    default: SetLastError(ERROR_INVALID_PARAMETER); return false;
+                }
+                if (type != UE_HARDWARE_EXECUTE)
+                {
+                    switch (size)
+                    {
+                        case UE_HARDWARE_SIZE_1: break;
+                        case UE_HARDWARE_SIZE_2: flags |= KSWORD_ARK_HVM_NOATTACH_BP_SIZE_2; break;
+                        case UE_HARDWARE_SIZE_4: flags |= KSWORD_ARK_HVM_NOATTACH_BP_SIZE_4; break;
+                        case UE_HARDWARE_SIZE_8: flags |= KSWORD_ARK_HVM_NOATTACH_BP_SIZE_8; break;
+                        default: SetLastError(ERROR_INVALID_PARAMETER); return false;
+                    }
+                }
                 {
                     std::lock_guard<std::mutex> lock(softwareBreakpointMutex);
                     if (hardwareBreakpointIds[slot] != 0) { SetLastError(ERROR_ALREADY_EXISTS); return false; }
                 }
                 std::uint32_t id = 0;
-                const DWORD error = frontend.addBreakpoint(address, false, id);
+                const DWORD error = frontend.addBreakpoint(address, flags, id);
                 if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
                 {
                     std::lock_guard<std::mutex> lock(softwareBreakpointMutex);

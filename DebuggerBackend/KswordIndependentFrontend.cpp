@@ -302,12 +302,17 @@ namespace ksword::debugger
 
     DWORD IndependentFrontend::addBreakpoint(std::uint64_t address, bool once, std::uint32_t& id)
     {
+        return addBreakpoint(address, once ? KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT : 0UL, id);
+    }
+
+    DWORD IndependentFrontend::addBreakpoint(std::uint64_t address, DWORD protocolFlags, std::uint32_t& id)
+    {
         std::lock_guard lock(backend_.mutex_);
         id = 0;
         if (!reserved_ || recovery_ || stop_.state != KSWORD_ARK_HVM_NOATTACH_STOPPED || !stop_.stopId) return ERROR_INVALID_STATE;
         KSWORD_ARK_HVM_NOATTACH_REQUEST edits{};
         edits.address = address;
-        if (once) edits.breakpointFlags = KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT;
+        edits.breakpointFlags = protocolFlags;
         DWORD error = request(KSWORD_ARK_HVM_NOATTACH_ADD_BREAKPOINT, &edits);
         if (error == ERROR_SUCCESS) error = finishContextRequest();
         if (error != ERROR_SUCCESS) return error;

@@ -303,6 +303,10 @@ NTSTATUS KswordARKHvmNoAttachEditBreakpoint(const KSWORD_ARK_HVM_NOATTACH_REQUES
     {
         /* 当前 x64 版本只接受用户空间精确执行地址。 */
         KSWORD_ARK_HVM_NOATTACH_BREAKPOINT *row;
+        /* 观察点语义依赖 DR R/W，仅普通驱动后端能提供；EPT 执行视图无法实现数据断点。 */
+        if ((Request->breakpointFlags & (KSWORD_ARK_HVM_NOATTACH_BP_WATCH_MASK |
+                                         KSWORD_ARK_HVM_NOATTACH_BP_SIZE_MASK)) != 0UL)
+        { return STATUS_NOT_SUPPORTED; }
         /* 地址、容量和所有保留位必须在 pin 之前核对。 */
         if (Request->address == 0ULL || Request->address > (ULONGLONG)(ULONG_PTR)MmHighestUserAddress ||
             (Request->breakpointFlags & ~(KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT |
