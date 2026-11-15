@@ -145,33 +145,74 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
     if (!KswordARKRuntimeAddressIsExecutable(&view, (ULONG_PTR)handlerPageFault, 1U) ||
         !KswordARKRuntimeAddressIsExecutable(&view, (ULONG_PTR)handlerDebug, 1U))
     { return STATUS_NOT_FOUND; }
-    /* Phase A2 bring-up：扫 KeBugCheckEx 的 callers，为后续 KiDispatchException 发现
-     * 建立候选池。KiDispatchException 走 unhandled 分支经 KiBugCheckDispatch 调
-     * KeBugCheckEx；反向两级 call graph 的中间节点就是 KiBugCheckDispatch。本阶段
-     * 仅收集直接 callers 并记日志，Phase A3 再在候选上做第二级反查。 */
+    /* Phase A3 bring-up：对 KeBugCheckEx 做反向两级 call-graph 扫描。KiDispatchException
+     * 在 unhandled exception 分支里通过 KiBugCheckDispatch 调 KeBugCheckEx，所以：
+     *   L1 = KeBugCheckEx 的直接 callers（含 KiBugCheckDispatch 等 panic wrapper）
+     *   L2 = L1 中每个 caller 的 callers（KiDispatchException 应落在此集合）
+     * 本阶段只收集并记日志；Phase A4 加 KiPageFault forward trace + prologue 验证
+     * 将 L2 narrow 到 KiDispatchException。 */
     {
         UNICODE_STRING nameBugCheck = RTL_CONSTANT_STRING(L"KeBugCheckEx");
         PVOID bugCheck = MmGetSystemRoutineAddress(&nameBugCheck);
         if (bugCheck != NULL)
         {
-            KSW_RUNTIME_CALL_SITE callers[32];
-            ULONG callerCount = KswordARKRuntimeFindCallersOfRoutine(
-                &view, (ULONG_PTR)bugCheck, callers, RTL_NUMBER_OF(callers));
-            ULONG index;
-            DbgPrint("[KnaResolveSymbols] KeBugCheckEx=%p: %u direct callers\n",
-                     bugCheck, callerCount);
-            for (index = 0UL; index < callerCount && index < 5UL; ++index)
+            KSW_RUNTIME_CALL_SITE l1[32];
+            KSW_RUNTIME_CALL_SITE l2[128];
+            ULONG l1Count;
+            ULONG l2Count = 0UL;
+            ULONG l1Index;
+            ULONG logIndex;
+            /* L1：扫整个 ntoskrnl .text 找 call KeBugCheckEx。 */
+            l1Count = KswordARKRuntimeFindCallersOfRoutine(
+                &view, (ULONG_PTR)bugCheck, l1, RTL_NUMBER_OF(l1));
+            DbgPrint("[KnaResolveSymbols] KeBugCheckEx=%p L1 callers=%u\n", bugCheck, l1Count);
+            for (logIndex = 0UL; logIndex < l1Count && logIndex < 5UL; ++logIndex)
             {
-                DbgPrint("[KnaResolveSymbols]   caller[%u] routine=%p call@%p opcode=0x%02X\n",
-                         index,
-                         (PVOID)callers[index].CallerRoutine,
-                         (PVOID)callers[index].CallInstruction,
-                         callers[index].Opcode);
+                DbgPrint("[KnaResolveSymbols]   L1[%u] routine=%p call@%p opcode=0x%02X\n",
+                         logIndex,
+                         (PVOID)l1[logIndex].CallerRoutine,
+                         (PVOID)l1[logIndex].CallInstruction,
+                         l1[logIndex].Opcode);
+            }
+            /* L2：对每个 L1 caller 再反向 scan，收集它们的 callers，按 routine 去重。 */
+            for (l1Index = 0UL;
+                 l1Index < l1Count && l2Count < RTL_NUMBER_OF(l2);
+                 ++l1Index)
+            {
+                KSW_RUNTIME_CALL_SITE buffer[32];
+                ULONG bufferCount = KswordARKRuntimeFindCallersOfRoutine(
+                    &view, l1[l1Index].CallerRoutine, buffer, RTL_NUMBER_OF(buffer));
+                ULONG i;
+                for (i = 0UL; i < bufferCount && l2Count < RTL_NUMBER_OF(l2); ++i)
+                {
+                    ULONG j;
+                    BOOLEAN duplicate = FALSE;
+                    /* L1 caller 本身也可能出现在二级反向结果中（例如彼此调用）；跳过。 */
+                    for (j = 0UL; j < l1Count; ++j)
+                    {
+                        if (l1[j].CallerRoutine == buffer[i].CallerRoutine)
+                        { duplicate = TRUE; break; }
+                    }
+                    if (duplicate) { continue; }
+                    for (j = 0UL; j < l2Count; ++j)
+                    {
+                        if (l2[j].CallerRoutine == buffer[i].CallerRoutine)
+                        { duplicate = TRUE; break; }
+                    }
+                    if (!duplicate) { l2[l2Count++] = buffer[i]; }
+                }
+            }
+            DbgPrint("[KnaResolveSymbols] L2 candidates (reachable to KeBugCheckEx in 2 hops, excl. L1): %u\n",
+                     l2Count);
+            for (logIndex = 0UL; logIndex < l2Count && logIndex < 10UL; ++logIndex)
+            {
+                DbgPrint("[KnaResolveSymbols]   L2[%u] routine=%p\n",
+                         logIndex, (PVOID)l2[logIndex].CallerRoutine);
             }
         }
     }
-    /* Image 信息与 IDT handler 已落定，KeBugCheckEx 反向 callers 已记录。七个符号
-     * 的 function pointer 仍保持 NULL；Phase A3 开始填入 KiDispatchException 等。 */
+    /* Image / IDT / L1 / L2 已就位。七个符号 function pointer 仍保持 NULL；Phase A4
+     * 用 KiPageFault 前向 trace 的 call targets 与 L2 取交集，收敛 KiDispatchException。 */
     return STATUS_SUCCESS;
 }
 
