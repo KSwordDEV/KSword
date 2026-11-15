@@ -916,6 +916,9 @@ KswordARKHvmExitHandleCpuid(
         !Context->Nested.Enabled) {
         /* Clear the VMX capability bit in guest CPUID.1:ECX. */
         registers[2] &= ~(1L << 5);
+        /* Clear the SMX capability bit — paired with VMX in IA32_FEATURE_CONTROL;
+         * a naive detector flagging "VMX hidden but SMX present" is a contradiction. */
+        registers[2] &= ~(1L << 6);
     }
     /*
      * Hide the outer hypervisor's identity from guest user mode when asked.
