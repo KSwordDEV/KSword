@@ -8334,8 +8334,31 @@ void MainWindow::initMenus()
             QStringLiteral("救援监听由独立线程处理，退出主程序时注销；不允许暂停恢复入口。"));
     }
 
+    // KSword 安全桌面入口（Phase C）：
+    // - 不同于"救援模式"的私有 Win32 桌面方案，这里直接触发 Windows 原生
+    //   Winlogon 安全桌面（通过 UAC runas）；
+    // - 常驻 Winlogon 的 KSwordSecureDesk 覆盖层会因输入桌面切换自动弹出，
+    //   显示"打开 KSword"按钮供用户进入 SYSTEM/UIAccess 的 KSword 实例；
+    // - 该入口与"救援模式"并列保留，两条救援路径各自有不同的使用场景。
+    QAction* const secureDeskAction = m_toolsMenu->addAction(
+        ks::ui::MakeThemeAccentIcon(QIcon(QStringLiteral(":/Icon/process_uncritical.svg"))),
+        QStringLiteral("KSword 安全桌面"));
+    secureDeskAction->setObjectName(QStringLiteral("ks_secure_desk_action"));
+    secureDeskAction->setIconVisibleInMenu(true);
+    languageManager.bindText(secureDeskAction, QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面"));
+    const QString secureDeskTooltip = QStringLiteral(
+        "触发 Windows 原生 Winlogon 安全桌面；KSwordSecureDesk 覆盖层会自动显示打开 KSword 入口。");
+    // QAction 的 toolTip 不支持 LanguageManager::bindToolTip（它只接受 QWidget）。
+    // 这里只做一次 setToolTip 即可：UI 文本随菜单项文字一起由 bindText 刷新；
+    // 用户切换语言时，自上而下 aboutToShow 的提示文案会在 ShortcutRegistry 内刷新。
+    secureDeskAction->setToolTip(secureDeskTooltip);
+    connect(secureDeskAction, &QAction::triggered, this, [this, secureDeskAction]() {
+        launchSecureDeskFromMenu(secureDeskAction);
+    });
+
     auto& shortcuts = ks::ui::ShortcutRegistry::instance();
     shortcuts.bindAction(QStringLiteral("app.rescue"), QStringLiteral("打开救援模式"), QStringLiteral("application"), rescueAction);
+    shortcuts.bindAction(QStringLiteral("app.secure_desk"), QStringLiteral("打开 KSword 安全桌面"), QStringLiteral("application"), secureDeskAction);
     ks::ui::ShortcutRegistry::Command sosCommand;
     sosCommand.id = QStringLiteral("rescue.sos");
     sosCommand.title = QStringLiteral("SOS 救援序列");
@@ -8534,6 +8557,58 @@ void MainWindow::launchRescueDesktopFromMenu(QAction* action)
     {
         m_sosHotkeyLauncher->requestLaunch();
     }
+}
+
+void MainWindow::launchSecureDeskFromMenu(QAction* action)
+{
+    if (!action || !action->isEnabled()) return;
+
+    // 1) 定位同目录 KSwordSecureDesk.exe；这里是 SYSTEM/UIAccess 常驻覆盖层
+    //    的唯一合法宿主，缺失直接提示用户。
+    const QDir applicationDirectory(QCoreApplication::applicationDirPath());
+    const QString helperPath = applicationDirectory.absoluteFilePath(QStringLiteral("KSwordSecureDesk.exe"));
+    if (!QFileInfo(helperPath).isFile())
+    {
+        QMessageBox::warning(
+            this,
+            ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面")),
+            ks::i18n::sourceText(QStringLiteral("未找到同目录 KSwordSecureDesk.exe，无法进入安全桌面。")));
+        return;
+    }
+
+    // 2) 用 ShellExecute runas 触发 UAC。即使当前进程已是管理员，runas 也会把
+    //    输入桌面切到 Winlogon 展示 consent 对话框；KSwordSecureDesk 覆盖层
+    //    常驻在 Winlogon 桌面上，看到桌面切换事件后自动弹出"打开 KSword"入口。
+    //    这里启动的助手实例本身并不在 UAC 上有业务动作：它负责的是把覆盖层
+    //    的 SYSTEM/UIAccess 三阶段提权链再激活一次，保证在用户停留在安全桌面
+    //    期间覆盖层处在运行态。
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    info.hwnd = reinterpret_cast<HWND>(this->winId());
+    info.lpVerb = L"runas";
+    const std::wstring helperPathWide = helperPath.toStdWString();
+    info.lpFile = helperPathWide.c_str();
+    info.lpParameters = nullptr;
+    const std::wstring workDirWide = applicationDirectory.absolutePath().toStdWString();
+    info.lpDirectory = workDirWide.c_str();
+    info.nShow = SW_HIDE;
+    const BOOL launched = ::ShellExecuteExW(&info);
+    if (!launched)
+    {
+        const DWORD code = ::GetLastError();
+        if (code == ERROR_CANCELLED)
+        {
+            // 用户在 UAC 上点"否"：不是失败，静默返回主桌面。
+            return;
+        }
+        QMessageBox::warning(
+            this,
+            ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面")),
+            ks::i18n::sourceText(QStringLiteral("触发 Windows 安全桌面失败（代码：%1）。")).arg(code));
+        return;
+    }
+    if (info.hProcess) ::CloseHandle(info.hProcess);
 }
 
 void MainWindow::showShortcutManagerFromMenu(bool systemPage)

@@ -453,6 +453,12 @@ private:
     // openProjectPageFromMenu 作用：打开一个项目相关外链，失败时按 failureTitle 提示。
     void openProjectPageFromMenu(const QString& urlText, const QString& failureTitle);
     void launchRescueDesktopFromMenu(QAction* action);
+    // launchSecureDeskFromMenu 作用：
+    // - 发起一次 UAC runas，让当前输入桌面切到 Windows 原生 Winlogon 安全桌面；
+    // - 常驻 Winlogon 的 KSwordSecureDesk 覆盖层会因输入桌面切换自动显现，
+    //   用户可直接点击其中的"打开 KSword"按钮；
+    // - 不打断当前主窗口；用户在 UAC 上点"否/取消"会原路返回，不影响 KSword。
+    void launchSecureDeskFromMenu(QAction* action);
     std::unique_ptr<SosHotkeyLauncher> m_sosHotkeyLauncher;
     QPointer<ks::ui::ShortcutManagerDialog> m_shortcutManagerWindow;
     QPointer<ks::ui::TaskManagerDialog> m_taskManagerWindow;
