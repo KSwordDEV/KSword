@@ -39,6 +39,9 @@ typedef struct _KNA_RESOLVED_SYMBOLS
     USHORT KiDispatchExceptionWord;
     PUCHAR PatchArea;
     ULONG PatchAreaBytes;
+    /* Phase A7a oracle 校验结果：七个函数地址均与当前 build 的 KnaProfiles 条目
+     * 对应项逐字节一致。TRUE 表示 production 调用点可用 Out->* 替代硬编码 RVA。 */
+    BOOLEAN OracleMatched;
 } KNA_RESOLVED_SYMBOLS;
 
 /* 当前实现为 Phase A0 骨架，直接返回 STATUS_NOT_SUPPORTED；后续阶段逐步填入

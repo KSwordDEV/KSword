@@ -203,10 +203,27 @@ NTSTATUS KnaResolveThreadApis(VOID)
 {
     /* 只有精确身份匹配后才能组成私有函数指针。 */
     if (!KnaImage()) { return STATUS_NOT_SUPPORTED; }
-    /* 两个 NTSTATUS ABI 由该映像的实际调用和返回路径核对。 */
-    g_Kna.Suspend = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Suspend);
-    /* 不把旧版本的 HANDLE ABI 误用成线程对象 ABI。 */
-    g_Kna.Resume = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Resume);
+    /* Phase A7b: 当 runtime 发现 (symbols.c) 与 KnaProfiles oracle 完全一致时，Suspend
+     * / Resume 用 Out->* 作为 production 源。这是最低风险 switch：Ke* 两函数是 Win10+
+     * 导出，Out 取值与 KnaProfile RVA 指向同一物理地址；但代码路径从"硬编码表"迁移
+     * 到"运行时发现+oracle 校验"，为 A8 删除 KnaProfiles 铺路。 */
+    {
+        KNA_RESOLVED_SYMBOLS resolved;
+        RtlZeroMemory(&resolved, sizeof(resolved));
+        if (NT_SUCCESS(KnaResolveSymbols(&resolved)) && resolved.OracleMatched &&
+            resolved.KeSuspendThread != NULL && resolved.KeResumeThread != NULL)
+        {
+            g_Kna.Suspend = (KNA_THREAD_COUNT)resolved.KeSuspendThread;
+            g_Kna.Resume = (KNA_THREAD_COUNT)resolved.KeResumeThread;
+        }
+        else
+        {
+            /* 无 oracle 匹配时严格 fallback 到硬编码 RVA，避免未验证的发现结果进入
+             * 内核调用链。两个 NTSTATUS ABI 由该映像的实际调用和返回路径核对。 */
+            g_Kna.Suspend = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Suspend);
+            g_Kna.Resume = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Resume);
+        }
+    }
     /* 缺失导出不回退到无消费者的用户态单步。 */
     g_Kna.GetContext = KnaGetUserContext;
     /* SET 使用 KernelMode 缓冲区与 UserMode 现场的独立包装。 */

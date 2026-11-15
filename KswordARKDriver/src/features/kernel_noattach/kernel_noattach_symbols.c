@@ -595,6 +595,7 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
                          Out->KeResumeThread, expected.KeResumeThread);
             if (kiOk && fromOk && toOk && getCtxOk && setCtxOk && suspOk && resOk)
             {
+                Out->OracleMatched = TRUE;
                 DbgPrint("[KnaResolveSymbols] oracle: ALL SEVEN MATCH -- runtime discovery ready for production switch\n");
             }
         }
