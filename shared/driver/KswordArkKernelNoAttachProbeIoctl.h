@@ -19,10 +19,12 @@
 
 /* 只读 IDT 布局：取 IDTR 基址/界限、IDT[vector] 原始 16 字节 descriptor。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_QUERY_IDT 0UL
-/* 关键 go/no-go：SEH 包装的 RtlCopyMemory no-op 写 IDT[vector]，验 HVCI 是否已 EPT-RO。 */
+/* v1 直写 IDT：Windows 11 26300 本 VA 的 PTE 已 RO → BugCheck 0xBE，SEH 挡不住。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_NOOP_WRITE 1UL
 /* 只读 KiInterruptDescriptorTable（如 Phase A 已解析），不执行副作用。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_STATUS 2UL
+/* v3 PFN alias 变体：MDL + MmMapLockedPagesSpecifyCache 建立独立 RW 别名 VA，走别名写。 */
+#define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_ALIAS_WRITE 3UL
 
 /* 探针状态位：操作已完成且未触发 SEH。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED 0x00000001UL
@@ -70,7 +72,7 @@ typedef struct _KSWORD_ARK_KERNEL_NOATTACH_PROBE_RESPONSE
     unsigned long long ReadbackHigh;
     /* install 到当前查询的 100ns 时间戳（KeQueryInterruptTime），用于 wall-clock 推断。 */
     unsigned long long QueryTick;
-    /* 保留字段，必须填零以便后续扩展。 */
-    unsigned long long Reserved;
+    /* PROBE_IDT_ALIAS_WRITE 回填的 alias VA（0 表示未分配或已释放），其它操作保持 0。 */
+    unsigned long long AliasVa;
 } KSWORD_ARK_KERNEL_NOATTACH_PROBE_RESPONSE;
 #pragma pack(pop)

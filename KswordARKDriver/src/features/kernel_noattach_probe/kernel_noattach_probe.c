@@ -258,6 +258,155 @@ KnapProbeNoopWrite(
 #endif
 }
 
+/* v3 变体：用 MDL + MmMapLockedPagesSpecifyCache 建立 IDT 页的独立 RW alias VA。 */
+static NTSTATUS
+KnapProbeAliasWrite(
+    _In_ ULONG Vector,
+    _Inout_ KSWORD_ARK_KERNEL_NOATTACH_PROBE_RESPONSE* Response)
+{
+#if defined(_M_AMD64) || defined(_M_X64)
+    /* 保存旧 affinity 以便 unmap/unlock 之前恢复。 */
+    GROUP_AFFINITY oldAffinity = {0};
+    /* 本地 IDTR 快照。 */
+    KNAP_IDTR_LAYOUT idtr = {0};
+    /* 目标 IDT entry 的原 VA（可能 PTE RO）。 */
+    PVOID targetVa = NULL;
+    /* 原值 + alias 读/写副本。 */
+    KNAP_IDT_ENTRY original = {0};
+    KNAP_IDT_ENTRY aliasReadback = {0};
+    KNAP_IDT_ENTRY originalVaReadback = {0};
+    /* MDL 与 alias VA。 */
+    PMDL mdl = NULL;
+    PVOID aliasVa = NULL;
+    /* 为了 unlock 时的状态跟踪。 */
+    BOOLEAN pagesLocked = FALSE;
+    BOOLEAN pagesMapped = FALSE;
+    /* SEH 命中标记与异常代码。 */
+    BOOLEAN sehFired = FALSE;
+    ULONG sehCode = 0UL;
+    BOOLEAN readOk = FALSE;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    /* Vector 越界立即拒绝，不分配任何资源。 */
+    if (Vector >= KNAP_MAX_VECTOR) { return STATUS_INVALID_PARAMETER; }
+    /* Pin 到当前 CPU，保证 __sidt 与 PFN 查询一致。 */
+    KnapPinCurrentCpu(&oldAffinity);
+    __sidt(&idtr.Limit);
+    if (((ULONG)idtr.Limit + 1U) < (Vector + 1U) * sizeof(KNAP_IDT_ENTRY))
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        return STATUS_INVALID_PARAMETER;
+    }
+    targetVa = (PVOID)(idtr.Base + Vector * sizeof(KNAP_IDT_ENTRY));
+    /* 先 SEH 读原值。 */
+    __try
+    {
+        RtlCopyMemory(&original, targetVa, sizeof(original));
+        readOk = TRUE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        sehFired = TRUE;
+        sehCode = GetExceptionCode();
+    }
+    /* 响应字段先回填基础 IDTR 与原值。 */
+    Response->IdtLimit = (unsigned long)idtr.Limit;
+    Response->IdtBase = (unsigned long long)idtr.Base;
+    if (readOk)
+    {
+        KnapCopyEntryBytes(&original, &Response->EntryLow, &Response->EntryHigh);
+    }
+    /* 读失败就直接返回：alias 没法基于失败的原值做 no-op 写。 */
+    if (!readOk)
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        Response->SehCode = sehCode;
+        return STATUS_SUCCESS;
+    }
+    /* 为 IDT entry 分配跨越其整页的 MDL（entry 可能跨 16B 但一定不跨页）。 */
+    mdl = IoAllocateMdl(targetVa, sizeof(KNAP_IDT_ENTRY), FALSE, FALSE, NULL);
+    if (mdl == NULL)
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        Response->SehCode = (ULONG)STATUS_INSUFFICIENT_RESOURCES;
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        return STATUS_SUCCESS;
+    }
+    /* IDT 在非分页内存中，可以直接 MmBuildMdlForNonPagedPool；SEH 捕 build/map 异常。 */
+    __try
+    {
+        MmBuildMdlForNonPagedPool(mdl);
+        pagesLocked = TRUE;
+        /* MmCached + KernelMode 返回新建的独立 alias VA，PTE 由 Mi 新建。 */
+        aliasVa = MmMapLockedPagesSpecifyCache(mdl, KernelMode, MmCached, NULL, FALSE, NormalPagePriority);
+        if (aliasVa != NULL)
+        {
+            pagesMapped = TRUE;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        sehFired = TRUE;
+        sehCode = GetExceptionCode();
+    }
+    if (aliasVa != NULL && !sehFired)
+    {
+        /* 把 aliasVa 回填给 R3，便于诊断。 */
+        Response->AliasVa = (unsigned long long)(ULONG_PTR)aliasVa;
+        /* 在 alias VA 上 no-op 写：把 original 16 bytes 写回同一 PFN 的 alias 映射。 */
+        __try
+        {
+            RtlCopyMemory(aliasVa, &original, sizeof(original));
+            /* 从 alias 读回，验证 alias VA 可写。 */
+            RtlCopyMemory(&aliasReadback, aliasVa, sizeof(aliasReadback));
+            /* 从原 VA 读回，验证写透到底层物理页。 */
+            RtlCopyMemory(&originalVaReadback, targetVa, sizeof(originalVaReadback));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            sehFired = TRUE;
+            sehCode = GetExceptionCode();
+        }
+    }
+    /* 清理 alias 映射。 */
+    if (pagesMapped && aliasVa != NULL)
+    {
+        MmUnmapLockedPages(aliasVa, mdl);
+    }
+    /* MmBuildMdlForNonPagedPool 不要求 unlock，但 IoFreeMdl 必须成对调用。 */
+    if (mdl != NULL)
+    {
+        IoFreeMdl(mdl);
+    }
+    /* 恢复 affinity。 */
+    KeRevertToUserGroupAffinityThread(&oldAffinity);
+    /* 回填 readback，供 R3 对比。 */
+    if (!sehFired)
+    {
+        KnapCopyEntryBytes(&aliasReadback, &Response->ReadbackLow, &Response->ReadbackHigh);
+        if (Response->ReadbackLow == Response->EntryLow &&
+            Response->ReadbackHigh == Response->EntryHigh)
+        {
+            Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_READBACK_MATCH;
+        }
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED;
+    }
+    else
+    {
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        Response->SehCode = sehCode;
+    }
+    UNREFERENCED_PARAMETER(originalVaReadback);
+    UNREFERENCED_PARAMETER(pagesLocked);
+    return status;
+#else
+    UNREFERENCED_PARAMETER(Vector);
+    UNREFERENCED_PARAMETER(Response);
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 /* 对外 IOCTL handler：校验 WDF 缓冲区，分发到三种操作。 */
 NTSTATUS
 KswordARKKernelNoAttachProbeIoctl(
@@ -338,6 +487,15 @@ KswordARKKernelNoAttachProbeIoctl(
         {
             response.StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED;
         }
+        break;
+    case KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_ALIAS_WRITE:
+        /* v3 alias 变体：必须 Confirm=1，走 MDL + MmMapLockedPagesSpecifyCache。 */
+        if (request.Confirm != 1UL)
+        {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        status = KnapProbeAliasWrite(request.Vector, &response);
         break;
     default:
         /* 未知操作码不触发任何副作用。 */

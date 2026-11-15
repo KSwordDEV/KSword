@@ -20,7 +20,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('QueryOnly','NoopWrite')][string]$Mode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite')][string]$Mode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 
@@ -46,8 +46,12 @@ $IOCTL_PROBE    = [uint32]((0x22 -shl 16) -bor (0x2 -shl 14) -bor (0x940 -shl 2)
 
 Write-Host ("Mode={0} Vector={1} IOCTL=0x{2:X8}" -f $Mode, $Vector, $IOCTL_PROBE)
 
-$op = if ($Mode -eq 'QueryOnly') { [uint32]0 } else { [uint32]1 }
-$confirm = if ($Mode -eq 'NoopWrite') { [uint32]1 } else { [uint32]0 }
+$op = switch ($Mode) {
+    'QueryOnly'  { [uint32]0 }
+    'NoopWrite'  { [uint32]1 }
+    'AliasWrite' { [uint32]3 }
+}
+$confirm = if ($Mode -in 'NoopWrite','AliasWrite') { [uint32]1 } else { [uint32]0 }
 
 $h = [Win32.KSwordB3]::CreateFileW('\\.\KswordARKLog', $GENERIC_WRITE, [uint32]3, [IntPtr]::Zero, $OPEN_EXISTING, [uint32]0, [IntPtr]::Zero)
 if ($h -eq $INVALID_HANDLE) {
@@ -83,6 +87,7 @@ try {
         $ReadbackLow = [BitConverter]::ToUInt64($resp, 40)
         $ReadbackHigh= [BitConverter]::ToUInt64($resp, 48)
         $QueryTick   = [BitConverter]::ToUInt64($resp, 56)
+        $AliasVa     = [BitConverter]::ToUInt64($resp, 64)
         $info = [pscustomobject]@{
             Mode          = $Mode
             Vector        = $Vector
@@ -100,6 +105,7 @@ try {
             ReadbackLow   = ('0x{0:X16}' -f $ReadbackLow)
             ReadbackHigh  = ('0x{0:X16}' -f $ReadbackHigh)
             QueryTick     = $QueryTick
+            AliasVa       = ('0x{0:X16}' -f $AliasVa)
             Completed     = (($StatusFlags -band 0x1) -ne 0)
             SehFired      = (($StatusFlags -band 0x2) -ne 0)
             ReadbackMatch = (($StatusFlags -band 0x4) -ne 0)

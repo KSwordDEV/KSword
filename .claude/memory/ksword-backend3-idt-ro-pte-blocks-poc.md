@@ -1,6 +1,6 @@
 ---
 name: ksword-backend3-idt-ro-pte-blocks-poc
-description: Backend 3 "VTL0 kernel 直接写 IDT 建立 #DB trampoline" 在 Windows 11 26300 (24H2) **HVCI off / VBS off** 下就已经 BugCheck 0xBE。原因是 IDT 页 PTE bit1=0 (RO)，Windows 自己的 kernel memory hardening 把 IDT lock，不需要 HVCI 参与。SEH 挡不住 0xBE。推翻 workflow #3 实验的预期（它假设 HVCI off → 写 IDT success / PatchGuard 唯一 blocker）。
+description: Backend 3 直接 RtlCopyMemory 写 IDT 在 26300 HVCI off 下立即 BugCheck 0xBE（PTE bit1=0）。但 **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) 建立的 alias VA 可写**，v3 实测 6/6 PASS，no-op 写 3 分钟后 VM 存活无 PatchGuard 触发。IDT 内容实际修改（非 no-op）预期分钟级触发 PG 0x109。
 metadata:
   type: project
 ---
@@ -47,31 +47,70 @@ Workflow `hvci-compat-noattach-debug-research` (run `wf_6cb063bc-79d`) 的 next_
 
 ## 对 Backend 3 架构的影响
 
-Workflow synthesis 给的 ranked path #1 "IDT remap + DR hardware breakpoints (signed driver, short-window probe)"，其核心前提 "write IDT[1] 到 driver 自己的 #DB trampoline" **在 Windows 11 26300 上结构性不可行**：
+Workflow synthesis 给的 ranked path #1 "IDT remap + DR hardware breakpoints (signed driver, short-window probe)" 原路径（直接 RtlCopyMemory 写 IDT）**在 Windows 11 26300 上结构性不可行**，但 **MDL alias 变体打开新通路**：
 
-| 变体 | 可行性 |
-|---|---|
-| PASSIVE_LEVEL + CPU affinity + `RtlCopyMemory` 直写 | **死** (0xBE，本次实证) |
-| DISPATCH_LEVEL + 同上 | 更糟，先 0xA (IRQL_NOT_LESS_OR_EQUAL) |
-| `MmCopyMemory` with `MM_COPY_MEMORY_VIRTUAL` | 预期同 0xBE（相同 VA 写路径） |
-| CR0.WP=0 临时禁用 + 写 + CR0.WP=1 | **死**（见 [[ksword-cet-breaks-cr0-wp-trick]]，CET 下老写法 0xA/0x1AA） |
-| `MmMapIoSpaceEx(PFN, PAGE_READWRITE)` 别名 + 新 VA 写 | 未测，可能被 KDP 覆盖 PFN-level 保护；下一轮 PoC 候选 |
-| 修改 IDT 页 PTE bit1=1 + 写 + 复原 | 未测，但 KDP/HVPT 覆盖页表修改路径，也可能 crash |
-| VMX root (Backend 2) 写 EPT 别名 | **work 但是 Backend 2，与 HVCI 冲突** |
+| 变体 | 结果 | 实证 |
+|---|---|---|
+| PASSIVE_LEVEL + CPU affinity + `RtlCopyMemory` 直写 | **死** 0xBE | 两份 minidump (v1/v2) |
+| DISPATCH_LEVEL + 同上 | 更糟，先 0xA (IRQL_NOT_LESS_OR_EQUAL) | v1 实证 |
+| `MmCopyMemory` with `MM_COPY_MEMORY_VIRTUAL` | 预期同 0xBE | 未测，同 VA 路径 |
+| CR0.WP=0 临时禁用 + 写 + CR0.WP=1 | **死** 0xA/0x1AA | 见 [[ksword-cet-breaks-cr0-wp-trick]] |
+| **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) → alias 写** | **PASS** | v3 实证，6/6 稳定，3 分钟 PG 未触发 |
+| `MmMapIoSpaceEx(PFN, PAGE_READWRITE)` 别名 | 未测，预期同 MDL 路径 | — |
+| 修改 IDT 页 PTE bit1=1 + 写 + 复原 | 未测 | KDP/HVPT 可能覆盖 |
+| VMX root (Backend 2) 写 EPT 别名 | 架构性和 HVCI 冲突 | 不考虑 |
 
-**唯一尚未排除的 VTL0 kernel 写 IDT 路径**：PFN remap 到 RW 别名（走 `MmMapIoSpaceEx` 或自建 MDL）。但 2025-11 Windows 11 KDP static set 可能已覆盖 IDT PFN，所以此路径的成功率存疑。
+## v3 MDL alias 实测细节 (2026-11-15)
+
+Driver v3 hash `FDC900675B1E6A89...`，在同一 `26H2-11-Pro` VM `VBS=0 / HVCI=off / TestSigning=on` 环境：
+
+- **Vector=1 (#DB entry) AliasWrite**：`AliasVa=0xFFFF9080C5377010`, `StatusFlags=0x5` (COMPLETED | READBACK_MATCH), `SehFired=False`, IDT[1] handler = `0xFFFFF803CFEC7280` (KiDebugTrapOrFault)。
+- **Vector=0x2F × 5 次 round AliasWrite**：每次 AliasVa 不同（MDL 每次分配新 kernel VA 范围 `0xFFFF9080C5xxx2F0` ~ `0xFFFF9080C67E22F0`），全部 `StatusFlags=0x5`, `SehFired=False`。
+- **稳定性**：no-op 写（写回原值）6 轮无一例 crash。
+- **PatchGuard 观察**：写完后 180s wall-clock，VM 存活（uptime=278s）。因为内容没变，PG 的 IDT content checksum 看到的还是原值。
+
+## 关于 PatchGuard 对真实 handler 修改的预期
+
+**No-op 写**（本次测）PG 不触发，因为 PG 比对的是内容 checksum。
+
+**真实修改**（Backend 3 产品路径要改 handler offset 指到 driver .text trampoline）：内容会变，PG 读到新 checksum 触发 `0x109 (CRITICAL_STRUCTURE_CORRUPTION)`。节奏是分钟级（Tetrane RS4 分析 + 2026-era PatchGuard 写入）。这是**唯一** 剩下的 blocker，workflow 对 "短窗口探针 (seconds to a few minutes)" 的定位**现在真实可操作**。
+
+## 推翻 workflow #3 的原假设
+
+Workflow `hvci-compat-noattach-debug-research` (run `wf_6cb063bc-79d`) 的 next_experiments 第 3 条原文：
+
+> Verify HVCI's EPT coverage of KiInterruptDescriptorTable: use the driver to attempt a plain MmCopyMemory write to &KiInterruptDescriptorTable[1] under HVCI on. **Success means PatchGuard is the only blocker for Backend 3** (confirms Bitdefender HVMI's inference). Failure (EPT violation / 0x139) means Microsoft extended the EPT-RO set and Backend 3 needs to route the write through an alternate primitive before PatchGuard even becomes relevant.
+
+Workflow 把 "plain write" 当成单一动作，没区分直接 VA 写和 alias 写。实测细化为：
+
+- **直接 VA RtlCopyMemory/MmCopyMemory (VA 路径)**：**HVCI off 就死** (0xBE PTE RO)，不需要开 HVCI，KDP/HVCI 甚至不参与。
+- **MDL alias 写 (PFN 路径)**：**HVCI off 下 PASS**，PatchGuard **是** 唯一 blocker（node 内容修改时）。
+
+所以 workflow 原假设 "Success means PatchGuard is the only blocker" 对 **alias 路径** 成立，对 **VA 直写** 不成立。
 
 ## How to apply
 
-- 任何涉及 "VTL0 kernel driver 修改 IDT/GDT/SSDT/其它 Mi-protected kernel data" 的 feature 建议，**不能假设 HVCI off 就能直接 RtlCopyMemory 写**。Windows 11 24H2+ 已默认把这些页 PTE 标 RO。
-- Backend 3 的 workflow 排名要降级：Rank 1 从 "research-only" 降 "reject"，除非后续 PFN remap 变体实验成功。
-- 测试这类改动不能用 "SEH 包写 + 看捕没捕" 的套路 — 0xBE 挡不住，VM 直接 crash。改用离线签名验证 / 静态页表检查。
+- 任何涉及 "VTL0 kernel driver 修改 IDT/GDT/SSDT/其它 Mi-protected kernel data" 的 feature 建议，**不能**假设 HVCI off 就能直接 RtlCopyMemory 写。Windows 11 24H2+ 已默认把这些页 PTE 标 RO。**要走 MDL alias**（`IoAllocateMdl` + `MmBuildMdlForNonPagedPool` + `MmMapLockedPagesSpecifyCache(MmCached, KernelMode)`），alias VA 是独立 PTE 默认 RW。
+- Backend 3 的 workflow rank 1 **不降级**：MDL alias 路径打开了可行性。剩下的 blocker 是 PatchGuard IDT checksum。产品定位 "signed driver short-window probe" 真实可操作。
+- 下一轮 PoC（workflow next_experiment #2 升级版）：用 MDL alias 把 IDT[0x2F] 的某字节改 1（必非 no-op），定时器每秒读回，记录 install 到 PG 0x109 的 wall-clock。决定短窗口窗口期。
+- 测试直写路径不能用 "SEH 包写 + 看捕没捕" 的套路 — 0xBE 挡不住，VM 直接 crash。MDL alias 下 SEH 可用（本次 __try 成功捕所有错误场景）。
 - 相关：[[ksword-vbs-hvci-kdp-hvpt-distinction]]（KDP 与 HVPT 各自保护面）、[[ksword-cet-breaks-cr0-wp-trick]]（CR0.WP 技巧在 CET 下爆）、[[ksword-rxpf-is-half-useless-without-shadow-idt]]（RXPF 影子 IDT 路线被 LIDT 拦截）。
 
 ## 证据链
 
+### 直写变体（v1/v2，blocked by 0xBE）
 - 驱动 build v2 hash `E9F4F2C3FE777AE6...`，含 PASSIVE_LEVEL + `KeSetSystemGroupAffinityThread` + `__try/__except` PoC 代码。
 - QueryOnly 完整响应：`IdtLimit=0xFFF, IdtBase=0xFFFFF8000C1BD000, EntryLow=0x79CC8E0400107280, EntryHigh=0xFFFFF800, Completed=True, SehFired=False`。
 - NoopWrite Vector=0x2F → BugCheck 0xBE，Arg1 对齐 IDT entry 边界，Arg2 PTE bit1=0。
 - Minidump: `dev/backend3-dumps/111526-5937-01.dmp` (v2) + `111526-6140-01.dmp` (v1 DISPATCH_LEVEL)，均 bugcheck `0xBE`。
-- PoC 代码：`KswordARKDriver/src/features/kernel_noattach_probe/`、`shared/driver/KswordArkKernelNoAttachProbeIoctl.h`、`tools/kernel_noattach_probe/{Test,Deploy}-Backend3Probe.ps1`。
+
+### MDL alias 变体（v3，PASS）
+- 驱动 build v3 hash `FDC900675B1E6A89...`，含 `KnapProbeAliasWrite` 实现。
+- AliasWrite Vector=1：`AliasVa=0xFFFF9080C5377010`, StatusFlags=0x5 (COMPLETED|READBACK_MATCH), SehFired=False。
+- AliasWrite Vector=0x2F × 5 轮：每次 AliasVa 新（0xFFFF9080C5xx～0xFFFF9080C67E 范围），全部 PASS。
+- 3 分钟后 VM 存活 uptime=278s，PG 对 no-op 写不敏感。
+
+### PoC 代码
+- `KswordARKDriver/src/features/kernel_noattach_probe/kernel_noattach_probe.c`：核心 KnapReadIdtAndEntry / KnapProbeNoopWrite / KnapProbeAliasWrite。
+- `shared/driver/KswordArkKernelNoAttachProbeIoctl.h`：IOCTL 0x940，三个 op (QUERY_IDT / PROBE_IDT_NOOP_WRITE / PROBE_IDT_ALIAS_WRITE)。
+- `tools/kernel_noattach_probe/{Test,Deploy}-Backend3Probe.ps1`：R3 测试 + VM 部署脚本。

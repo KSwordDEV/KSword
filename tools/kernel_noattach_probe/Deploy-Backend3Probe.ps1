@@ -22,7 +22,7 @@
 param(
     [string]$VMName = '26H2-11-Pro',
     [string]$SysPath = 'Ksword5.1\x64\Release\KswordARK.sys',
-    [ValidateSet('QueryOnly','NoopWrite')][string]$ProbeMode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite')][string]$ProbeMode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 
@@ -87,8 +87,8 @@ $startResult = Invoke-Command -VMName $VMName -Credential $cred -ScriptBlock {
 Write-Host ("sc start: state={0} elapsedS={1}" -f $startResult.State, $startResult.ElapsedS)
 Write-Host $startResult.StartOut
 
-if ($startResult.State -ne 'Running') {
-    throw "Driver did not reach Running state"
+if ("$($startResult.State)" -ne 'Running') {
+    throw "Driver did not reach Running state (saw $($startResult.State))"
 }
 
 # 5. 跑 probe
