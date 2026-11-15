@@ -46,8 +46,8 @@ namespace ks::rescue
     DWORD BindClientDesktop(HDESK desktop, const std::wstring& expectedName);
 
     // 创建私有、可继承桌面。显式 OWNER RIGHTS 拒绝 ACE 同时关闭所有者的隐式改 ACL 权限。
-    // 输入唯一名称，输出已授权的创建句柄；其他进程按名称打开将被 DACL 拒绝。
-    HDESK CreatePrivateDesktop(const std::wstring& name);
+    // 内部生成不可预测的名称，输出已授权的创建句柄；其他进程按名称打开将被 DACL 拒绝。
+    HDESK CreatePrivateDesktop();
 
     // 用明确的继承白名单创建救援客户端；输入路径/原桌面名/四个句柄，输出进程句柄及错误码。
     bool LaunchClient(const std::wstring& executable, const std::wstring& originalName,

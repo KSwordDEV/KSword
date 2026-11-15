@@ -233,11 +233,11 @@ namespace
         HWND window = ::CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP,
             -32000, -32000, 1, 1, nullptr, nullptr, type.hInstance, nullptr);
         Check(window != nullptr, "entry thread already owns a hidden window");
-        const auto name = std::wstring(ks::rescue::kDesktopPrefix) + L"BusyProbe." + std::to_wstring(::GetCurrentProcessId());
-        HDESK desktop = ks::rescue::CreatePrivateDesktop(name);
+        HDESK desktop = ks::rescue::CreatePrivateDesktop();
         Check(desktop != nullptr, "create test desktop without switching input");
         if (window && desktop)
         {
+            const auto name = ks::rescue::DesktopName(desktop);
             const BOOL bound = ::SetThreadDesktop(desktop);
             const DWORD error = ::GetLastError();
             Check(!bound && error == ERROR_BUSY, "old entry-thread binding reproduces ERROR_BUSY");
@@ -316,13 +316,20 @@ int wmain(const int count, wchar_t** arguments)
     InputPolicyTests();
     BusyEntryThreadProbe();
     const std::wstring original = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId()));
-    const std::wstring name = std::wstring(ks::rescue::kDesktopPrefix) + L"Tests."
-        + std::to_wstring(::GetCurrentProcessId()) + L"." + std::to_wstring(::GetTickCount64());
     ks::rescue::ClientHandles handles; // 正式启动函数需要的最小继承集合。
-    handles.desktop = ks::rescue::CreatePrivateDesktop(name);
+    handles.desktop = ks::rescue::CreatePrivateDesktop();
     Check(handles.desktop != nullptr, "create owner-rights protected private desktop");
     if (handles.desktop)
     {
+        const auto name = ks::rescue::DesktopName(handles.desktop);
+        const std::wstring prefix = ks::rescue::kDesktopPrefix;
+        Check(name.rfind(prefix, 0) == 0 && name.size() == prefix.size() + 32
+            && name.find_first_not_of(L"0123456789abcdef", prefix.size()) == std::wstring::npos,
+            "production desktop name contains a 128-bit random suffix");
+        HDESK second = ks::rescue::CreatePrivateDesktop();
+        Check(second && ks::rescue::DesktopName(second) != name,
+            "two concurrent private desktops have different names");
+        if (second) ::CloseDesktop(second);
         Check(!ks::rescue::IsInputDesktop(handles.desktop), "private test desktop never becomes input desktop");
         SECURITY_ATTRIBUTES security{}; // 未命名测试事件的继承属性。
         security.nLength = sizeof(security);

@@ -1,11 +1,13 @@
 #include "RescueDesktopWin32.h"
 
+#include <bcrypt.h>
 #include <sddl.h>
 #include <array>
 #include <vector>
 #include <thread>
 
 #pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Bcrypt.lib")
 #pragma comment(lib, "User32.lib")
 
 namespace ks::rescue
@@ -172,8 +174,25 @@ namespace ks::rescue
         return ERROR_SUCCESS;
     }
 
-    HDESK CreatePrivateDesktop(const std::wstring& name)
+    HDESK CreatePrivateDesktop()
     {
+        // CreateDesktopW may open an existing object and ignore our security descriptor.
+        // Keep the name unpredictable until Windows has created the desktop.
+        std::array<UCHAR, 16> randomBytes{};
+        if (BCryptGenRandom(nullptr, randomBytes.data(), static_cast<ULONG>(randomBytes.size()),
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+        {
+            ::SetLastError(ERROR_GEN_FAILURE);
+            return nullptr;
+        }
+        constexpr wchar_t hex[] = L"0123456789abcdef";
+        std::wstring name = kDesktopPrefix;
+        for (const UCHAR byte : randomBytes)
+        {
+            name += hex[byte >> 4];
+            name += hex[byte & 0x0f];
+        }
+
         PSECURITY_DESCRIPTOR descriptor = nullptr; // LocalAlloc 分配的自相对安全描述符。
         if (!::ConvertStringSecurityDescriptorToSecurityDescriptorW(
             L"D:P(D;;GA;;;OW)", SDDL_REVISION_1, &descriptor, nullptr))

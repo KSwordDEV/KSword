@@ -188,15 +188,13 @@ namespace
             }
             const std::wstring originalName = ks::rescue::DesktopName(original_); // 返回时的目标。
             LogStage(L"original.opened", ERROR_SUCCESS, 0, originalName);
-            const std::wstring name = std::wstring(ks::rescue::kDesktopPrefix)
-                + std::to_wstring(::GetCurrentProcessId()) + L"." + std::to_wstring(::GetTickCount64());
-            handles_.desktop = ks::rescue::CreatePrivateDesktop(name);
+            handles_.desktop = ks::rescue::CreatePrivateDesktop();
             if (!handles_.desktop)
             {
                 LogStage(L"private.create_failed", ::GetLastError());
                 return false;
             }
-            LogStage(L"private.created", ERROR_SUCCESS, 0, name);
+            LogStage(L"private.created", ERROR_SUCCESS, 0, ks::rescue::DesktopName(handles_.desktop));
             if (!::SetThreadDesktop(handles_.desktop))
             {
                 LogStage(L"private.bind_failed", ::GetLastError());
