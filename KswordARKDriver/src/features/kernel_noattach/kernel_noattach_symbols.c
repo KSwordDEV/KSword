@@ -30,6 +30,45 @@ typedef struct _KNA_IDT_GATE
 C_ASSERT(sizeof(KNA_IDTR_SNAPSHOT) == 10);
 C_ASSERT(sizeof(KNA_IDT_GATE) == 16);
 
+/* 在函数体 [RoutineStart, RoutineStart + RoutineBytes) 内扫 E8/E9 rel32 直接调用
+ * 目标；去重后写入 Targets。可能有 false positive（jump table 数据与 opcode 字节
+ * 混淆）但调用方通常与反向结果取交集，交集自然收敛到真实函数。 */
+static ULONG KnaCollectDirectCallTargetsInRange(
+    const KSW_RUNTIME_IMAGE_VIEW *View,
+    ULONG_PTR RoutineStart,
+    ULONG RoutineBytes,
+    ULONG_PTR *Targets,
+    ULONG TargetCapacity)
+{
+    /* 预算核对；小于一条 E8/E9 rel32 长度不扫。 */
+    ULONG count = 0UL;
+    ULONG_PTR cursor;
+    ULONG_PTR limit;
+    if (View == NULL || Targets == NULL || TargetCapacity == 0UL || RoutineBytes < 5UL) { return 0UL; }
+    limit = RoutineStart + RoutineBytes - 5UL;
+    for (cursor = RoutineStart; cursor <= limit && count < TargetCapacity; ++cursor)
+    {
+        UCHAR bytes[5];
+        LONG displacement = 0L;
+        ULONG_PTR target;
+        ULONG i;
+        BOOLEAN duplicate = FALSE;
+        /* 读 5 字节窗口；读失败跳过（不中断扫描）。 */
+        if (!KswordARKRuntimeReadMemory((const VOID *)cursor, bytes, sizeof(bytes))) { continue; }
+        if (bytes[0] != 0xE8U && bytes[0] != 0xE9U) { continue; }
+        RtlCopyMemory(&displacement, bytes + 1, sizeof(displacement));
+        /* 溢出保护；下一指令地址不得越过 ULONG_PTR 上界。 */
+        if (cursor > MAXULONG_PTR - 5U) { break; }
+        target = cursor + 5U + (ULONG_PTR)(LONG_PTR)displacement;
+        /* 丢弃不落在当前映像可执行范围的 target；jump table 数据多在只读区。 */
+        if (!KswordARKRuntimeAddressIsExecutable(View, target, 1U)) { continue; }
+        for (i = 0UL; i < count; ++i)
+        { if (Targets[i] == target) { duplicate = TRUE; break; } }
+        if (!duplicate) { Targets[count++] = target; }
+    }
+    return count;
+}
+
 /* 读指定 IDT vector 的 handler 线性地址。成功返回非零线性地址；失败返回 NULL。
  * 不触发任何内核分配或等待，可在任意 IRQL 调用。 */
 static PVOID KnaReadIdtHandler(UCHAR Vector)
@@ -209,10 +248,65 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
                 DbgPrint("[KnaResolveSymbols]   L2[%u] routine=%p\n",
                          logIndex, (PVOID)l2[logIndex].CallerRoutine);
             }
+            /* Phase A4：从 IDT vector 14 (#PF) handler 所在函数的函数体内采集直接
+             * call 目标；与 L2 取交集。KiDispatchException 应在 KiPageFault 的
+             * 直接下游 call 目标中（可能经 KiPageFaultHelper 一类小 wrapper），
+             * 并同时在 L2 之内。 */
+            {
+                ULONG_PTR pfBegin = 0U;
+                ULONG pfBytes = 0UL;
+                if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)handlerPageFault,
+                                                          &pfBegin, &pfBytes) &&
+                    pfBytes > 0UL)
+                {
+                    ULONG_PTR pfTargets[64];
+                    ULONG pfTargetCount = KnaCollectDirectCallTargetsInRange(
+                        &view, pfBegin, pfBytes, pfTargets, RTL_NUMBER_OF(pfTargets));
+                    ULONG intersect = 0UL;
+                    ULONG_PTR dispatchCandidate = 0U;
+                    ULONG pfIndex;
+                    DbgPrint("[KnaResolveSymbols] KiPageFault@%p bytes=%u direct call_targets=%u\n",
+                             (PVOID)pfBegin, pfBytes, pfTargetCount);
+                    /* 对每个目标回查其 enclosing routine（call 可能指到某函数中段），
+                     * 然后与 L2 做 routine 维度交集。 */
+                    for (pfIndex = 0UL; pfIndex < pfTargetCount; ++pfIndex)
+                    {
+                        ULONG_PTR enclosing = 0U;
+                        ULONG targetL2;
+                        if (!KswordARKRuntimeFindEnclosingRoutine(&view, pfTargets[pfIndex],
+                                                                   &enclosing, NULL))
+                        { continue; }
+                        for (targetL2 = 0UL; targetL2 < l2Count; ++targetL2)
+                        {
+                            if (l2[targetL2].CallerRoutine == enclosing)
+                            {
+                                DbgPrint("[KnaResolveSymbols]   intersect: routine=%p\n",
+                                         (PVOID)enclosing);
+                                ++intersect;
+                                if (dispatchCandidate == 0U) { dispatchCandidate = enclosing; }
+                                break;
+                            }
+                        }
+                    }
+                    DbgPrint("[KnaResolveSymbols] L2 ∩ KiPageFault.call_targets count=%u\n", intersect);
+                    /* 唯一交集 = KiDispatchException 候选确认；production 路径仍走
+                     * KnaProfiles（Phase A7 再切换）。 */
+                    if (intersect == 1UL)
+                    {
+                        Out->KiDispatchException = (PVOID)dispatchCandidate;
+                        DbgPrint("[KnaResolveSymbols] KiDispatchException candidate CONFIRMED: %p\n",
+                                 (PVOID)dispatchCandidate);
+                    }
+                    else
+                    {
+                        DbgPrint("[KnaResolveSymbols] intersect !=1; need cross-check with KiDebugTrapOrFault path\n");
+                    }
+                }
+            }
         }
     }
-    /* Image / IDT / L1 / L2 已就位。七个符号 function pointer 仍保持 NULL；Phase A4
-     * 用 KiPageFault 前向 trace 的 call targets 与 L2 取交集，收敛 KiDispatchException。 */
+    /* Phase A4 完成：若 L2 ∩ KiPageFault.targets 唯一则 KiDispatchException 已填；否则
+     * 保持 NULL 等待后续 cross-check（Phase A5）。七个符号中其余 6 个仍 NULL。 */
     return STATUS_SUCCESS;
 }
 

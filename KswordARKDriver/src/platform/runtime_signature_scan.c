@@ -897,7 +897,8 @@ BOOLEAN
 KswordARKRuntimeFindEnclosingRoutine(
     _In_ const KSW_RUNTIME_IMAGE_VIEW* View,
     _In_ ULONG_PTR InstructionAddress,
-    _Out_ PULONG_PTR RoutineEntryOut
+    _Out_ PULONG_PTR RoutineEntryOut,
+    _Out_opt_ PULONG RoutineBytesOut
     )
 /*++
 
@@ -910,7 +911,9 @@ Routine Description:
 Return Value:
 
     TRUE iff a matching function entry exists; FALSE otherwise. On success
-    *RoutineEntryOut is the linear address of the enclosing function's entry.
+    *RoutineEntryOut is the linear address of the enclosing function's entry
+    and, when RoutineBytesOut is non-NULL, *RoutineBytesOut receives the
+    function body size (EndAddress - BeginAddress) in bytes.
 
 --*/
 {
@@ -925,6 +928,9 @@ Return Value:
         return FALSE;
     }
     *RoutineEntryOut = 0U;
+    if (RoutineBytesOut != NULL) {
+        *RoutineBytesOut = 0UL;
+    }
     if (!KswordARKRuntimeAddressIsExecutable(View, InstructionAddress, 1U) ||
         !KswordARKRuntimeReadMemory((const VOID*)View->Base, &dos, sizeof(dos)) ||
         dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew <= 0L ||
@@ -961,6 +967,9 @@ Return Value:
         }
         else {
             *RoutineEntryOut = View->Base + entry.BeginAddress;
+            if (RoutineBytesOut != NULL) {
+                *RoutineBytesOut = entry.EndAddress - entry.BeginAddress;
+            }
             return TRUE;
         }
     }
@@ -1048,7 +1057,7 @@ Return Value:
                 ++cursor;
                 continue;
             }
-            if (!KswordARKRuntimeFindEnclosingRoutine(View, cursor, &enclosing) ||
+            if (!KswordARKRuntimeFindEnclosingRoutine(View, cursor, &enclosing, NULL) ||
                 enclosing == 0U) {
                 ++cursor;
                 continue;

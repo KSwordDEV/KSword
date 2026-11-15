@@ -123,12 +123,14 @@ KswordARKRuntimeCollectExecutableDataReferenceBatch(
     );
 
 /* 返回包含指定指令地址的 RUNTIME_FUNCTION.BeginAddress 对应的线性入口；没找到
- * 返回 FALSE。基于 PE 异常目录（x64 unwind 表），不依赖 PDB 或符号。 */
+ * 返回 FALSE。基于 PE 异常目录（x64 unwind 表），不依赖 PDB 或符号。
+ * RoutineBytesOut 为可选输出，用于后续按 [begin, begin + bytes) 扫描函数体。 */
 BOOLEAN
 KswordARKRuntimeFindEnclosingRoutine(
     _In_ const KSW_RUNTIME_IMAGE_VIEW* View,
     _In_ ULONG_PTR InstructionAddress,
-    _Out_ PULONG_PTR RoutineEntryOut
+    _Out_ PULONG_PTR RoutineEntryOut,
+    _Out_opt_ PULONG RoutineBytesOut
     );
 
 /* 在 View 的所有可执行节内扫 E8/E9 rel32，收集目标 == TargetAddress 的 caller。
