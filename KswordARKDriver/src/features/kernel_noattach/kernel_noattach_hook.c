@@ -190,6 +190,11 @@ typedef NTSTATUS(NTAPI *KNA_CONTEXT_INTERNAL)(PETHREAD Thread, PCONTEXT Context,
 static KNA_CONTEXT_INTERNAL KnaGetContextInternalFn;
 static KNA_CONTEXT_INTERNAL KnaSetContextInternalFn;
 
+/* Phase A7d: Frame 转换函数指针由 KnaResolveThreadApis 填；默认 NULL，oracle 一致
+ * 时取 resolved.KeContextFromKframes / KeContextToKframes，否则 fallback 到硬编码。 */
+static KNA_FROM_FRAMES KnaFromFramesFn;
+static KNA_TO_FRAMES KnaToFramesFn;
+
 /* 内核非分页缓冲区必须配 KernelMode；本调试器需要的现场仍明确为 UserMode。 */
 static NTSTATUS NTAPI KnaGetUserContext(PETHREAD Thread, PCONTEXT Context, KPROCESSOR_MODE BufferMode)
 {
@@ -239,6 +244,18 @@ NTSTATUS KnaResolveThreadApis(VOID)
             KnaGetContextInternalFn = (KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->GetContext);
             KnaSetContextInternalFn = (KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->SetContext);
         }
+        /* Frame 转换（3 参读、5 参写）：Read 路径只收集 DR6/EFlags，Write 回写可选
+         * CONTEXT_DEBUG_REGISTERS 组。 */
+        if (oracleOk && resolved.KeContextFromKframes != NULL && resolved.KeContextToKframes != NULL)
+        {
+            KnaFromFramesFn = (KNA_FROM_FRAMES)resolved.KeContextFromKframes;
+            KnaToFramesFn = (KNA_TO_FRAMES)resolved.KeContextToKframes;
+        }
+        else
+        {
+            KnaFromFramesFn = (KNA_FROM_FRAMES)(KnaNt + KnaProfile->From);
+            KnaToFramesFn = (KNA_TO_FRAMES)(KnaNt + KnaProfile->To);
+        }
     }
     /* 缺失导出不回退到无消费者的用户态单步。 */
     g_Kna.GetContext = KnaGetUserContext;
@@ -246,14 +263,15 @@ NTSTATUS KnaResolveThreadApis(VOID)
     g_Kna.SetContext = KnaSetUserContext;
     /* 完整控制链才算可用。 */
     return g_Kna.GetContext != NULL && g_Kna.SetContext != NULL &&
-           KnaGetContextInternalFn != NULL && KnaSetContextInternalFn != NULL
+           KnaGetContextInternalFn != NULL && KnaSetContextInternalFn != NULL &&
+           KnaFromFramesFn != NULL && KnaToFramesFn != NULL
            ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 VOID KnaReadFrames(PVOID Trap, PVOID Exception, PCONTEXT Context)
 {
     /* 三参版本不借用另一个 build 的帧偏移。 */
-    ((KNA_FROM_FRAMES)(KnaNt + KnaProfile->From))(Trap, Exception, Context);
+    KnaFromFramesFn(Trap, Exception, Context);
     /* 保留 Windows 实际投影值，诊断必须能区分帧与硬件来源。 */
     g_Kna.LastFrameDr6 = Context->Dr6; g_Kna.LastFlags = Context->EFlags;
     /* 纯 TF 未启用地址槽时 Windows 不保存帧 DR6，但进入分发器时硬件 BS 仍真实存在。 */
@@ -267,7 +285,7 @@ VOID KnaReadFrames(PVOID Trap, PVOID Exception, PCONTEXT Context)
 VOID KnaWriteFrames(PVOID Trap, PVOID Exception, PCONTEXT Context, ULONG Flags, KPROCESSOR_MODE Mode)
 {
     /* 不回写未声明的 SIMD/XSTATE 内容。 */
-    ((KNA_TO_FRAMES)(KnaNt + KnaProfile->To))(Trap, Exception, Context, Flags, Mode);
+    KnaToFramesFn(Trap, Exception, Context, Flags, Mode);
     /* 无地址槽时返回路径不会恢复帧 DR6；当前异常线程仍须实际退休自己消费的状态位。 */
     if ((Flags & CONTEXT_DEBUG_REGISTERS) == CONTEXT_DEBUG_REGISTERS)
     {
