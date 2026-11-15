@@ -30,6 +30,41 @@ typedef struct _KNA_IDT_GATE
 C_ASSERT(sizeof(KNA_IDTR_SNAPSHOT) == 10);
 C_ASSERT(sizeof(KNA_IDT_GATE) == 16);
 
+/* 扫入口前方最多 MaxScanBytes 字节的 0xCC padding 连续段，返回起点和字节数。
+ * 现有 KiDispatchException 入口字节由 compiler /hotpatch 生成；它被 CC-padded 到
+ * 16 字节边界，正好放一条 6-byte REX.W jmp + 8-byte 绝对目标的 bridge。本函数
+ * 让 driver 自适应其它可能的 padding 长度而非写死 16。 */
+static VOID KnaDiscoverPadBeforeRoutine(
+    const KSW_RUNTIME_IMAGE_VIEW *View,
+    PUCHAR EntryAddress,
+    ULONG MaxScanBytes,
+    PUCHAR *PatchStartOut,
+    PULONG PatchBytesOut)
+{
+    UCHAR buffer[64];
+    LONG i;
+    ULONG padLength = 0UL;
+    *PatchStartOut = NULL;
+    *PatchBytesOut = 0UL;
+    if (View == NULL || EntryAddress == NULL || MaxScanBytes == 0UL ||
+        MaxScanBytes > sizeof(buffer)) { return; }
+    /* 入口前方整个窗口必须落在可执行节内；跨界扫描不可信。 */
+    if (!KswordARKRuntimeAddressIsExecutable(View, (ULONG_PTR)EntryAddress - MaxScanBytes, MaxScanBytes))
+    { return; }
+    if (!KswordARKRuntimeReadMemory(EntryAddress - MaxScanBytes, buffer, MaxScanBytes)) { return; }
+    /* 从紧挨入口的那个字节反向数连续 0xCC；遇到任何非 0xCC 停止。 */
+    for (i = (LONG)MaxScanBytes - 1L; i >= 0L; --i)
+    {
+        if (buffer[i] != 0xCCU) { break; }
+        ++padLength;
+    }
+    if (padLength > 0UL)
+    {
+        *PatchStartOut = EntryAddress - padLength;
+        *PatchBytesOut = padLength;
+    }
+}
+
 /* 对两个 call-target 集合各自回查 enclosing routine，再按 routine 维度取交集。
  * 返回交集 routine 入口数量，去重写入 Out。供发现时交叉两条路径使用。 */
 static ULONG KnaIntersectCallTargetRoutines(
@@ -477,8 +512,44 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
             }
         }
     }
-    /* Phase A5 完成：七个符号 Out 字段按能力填入。production 路径仍是 KnaProfiles；
-     * Phase A6 做 patch space 自适应，Phase A7 做 oracle 验证并切换。 */
+    /* Phase A6: 发现 KiDispatchException 入口字节与前方 0xCC padding 空间。替代原来
+     * 硬编码 "前 16 字节必须是 0xCC" + "入口必须是 0x5540" 的组合判定；允许可变
+     * 长度 padding 和任意 compiler /hotpatch 兼容入口字节。实际的入口 patching 逻辑
+     * 在 Phase A7 一并切换为使用 Out 的字段，当前仅做发现并记日志。 */
+    if (Out->KiDispatchException != NULL)
+    {
+        USHORT entryWord = 0U;
+        PUCHAR patchStart = NULL;
+        ULONG patchBytes = 0UL;
+        /* 入口首 2 字节：当前热补丁原子替换单位。记录此值，让 Phase A7 据实际入口
+         * 组合生成 forward 跳转，而不是只接受 0x5540 (push rbp with REX prefix)。 */
+        if (KswordARKRuntimeReadMemory(Out->KiDispatchException, &entryWord, sizeof(entryWord)))
+        {
+            Out->KiDispatchExceptionWord = entryWord;
+            DbgPrint("[KnaResolveSymbols] KiDispatchException@%p entry_word=0x%04X\n",
+                     Out->KiDispatchException, entryWord);
+        }
+        /* 搜索入口前方最多 32 字节 0xCC padding。14 字节放 6 字节 FF /4 间接 jmp +
+         * 8 字节 absolute target 已足够现有 bridge；不足的 build 由 Phase A7 的
+         * trampoline fallback 兜底。 */
+        KnaDiscoverPadBeforeRoutine(&view, (PUCHAR)Out->KiDispatchException, 32UL,
+                                     &patchStart, &patchBytes);
+        if (patchStart != NULL && patchBytes >= 14UL)
+        {
+            Out->PatchArea = patchStart;
+            Out->PatchAreaBytes = patchBytes;
+            DbgPrint("[KnaResolveSymbols] KiDispatchException pad bytes=%u start=%p (>=14 OK)\n",
+                     patchBytes, patchStart);
+        }
+        else
+        {
+            DbgPrint("[KnaResolveSymbols] KiDispatchException pad bytes=%u (need>=14), A7 trampoline fallback required\n",
+                     patchBytes);
+        }
+    }
+    /* Phase A6 完成：Out 带 KiDispatchExceptionWord 与 PatchArea / PatchAreaBytes，
+     * 覆盖入口字节与 patch space 的两个自适应维度。production 路径仍是 KnaProfiles；
+     * Phase A7 做 oracle 验证、trampoline fallback 与 hook 路径切换。 */
     return STATUS_SUCCESS;
 }
 
