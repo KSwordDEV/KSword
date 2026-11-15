@@ -185,43 +185,59 @@ BOOLEAN KnaLookupProfileAddresses(KNA_RESOLVED_SYMBOLS *Expected)
 typedef NTSTATUS(NTAPI *KNA_CONTEXT_INTERNAL)(PETHREAD Thread, PCONTEXT Context,
     KPROCESSOR_MODE BufferMode, KPROCESSOR_MODE ContextMode, ULONG Flags);
 
+/* Phase A7c：Get/Set Internal 函数指针由 KnaResolveThreadApis 填充；默认 NULL，
+ * oracle 一致时取 resolved.Ps*ContextInternal，否则 fallback 到硬编码 RVA。 */
+static KNA_CONTEXT_INTERNAL KnaGetContextInternalFn;
+static KNA_CONTEXT_INTERNAL KnaSetContextInternalFn;
+
 /* 内核非分页缓冲区必须配 KernelMode；本调试器需要的现场仍明确为 UserMode。 */
 static NTSTATUS NTAPI KnaGetUserContext(PETHREAD Thread, PCONTEXT Context, KPROCESSOR_MODE BufferMode)
 {
     /* 两个已登记映像的完整内部函数体均已逐指令核对；不读取 KTHREAD 私有字段。 */
-    return ((KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->GetContext))(Thread, Context, BufferMode, UserMode, 1UL);
+    return KnaGetContextInternalFn(Thread, Context, BufferMode, UserMode, 1UL);
 }
 
 /* 设置同样分离两个模式，保留 Windows 自己的用户现场合法性验证。 */
 static NTSTATUS NTAPI KnaSetUserContext(PETHREAD Thread, PCONTEXT Context, KPROCESSOR_MODE BufferMode)
 {
     /* 不使用 UserMode 探测内核缓冲区，也不把目标当作内核现场修改。 */
-    return ((KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->SetContext))(Thread, Context, BufferMode, UserMode, 1UL);
+    return KnaSetContextInternalFn(Thread, Context, BufferMode, UserMode, 1UL);
 }
 
 NTSTATUS KnaResolveThreadApis(VOID)
 {
     /* 只有精确身份匹配后才能组成私有函数指针。 */
     if (!KnaImage()) { return STATUS_NOT_SUPPORTED; }
-    /* Phase A7b: 当 runtime 发现 (symbols.c) 与 KnaProfiles oracle 完全一致时，Suspend
-     * / Resume 用 Out->* 作为 production 源。这是最低风险 switch：Ke* 两函数是 Win10+
-     * 导出，Out 取值与 KnaProfile RVA 指向同一物理地址；但代码路径从"硬编码表"迁移
-     * 到"运行时发现+oracle 校验"，为 A8 删除 KnaProfiles 铺路。 */
+    /* Phase A7b/A7c: 当 runtime 发现 (symbols.c) 与 KnaProfiles oracle 完全一致时，
+     * Suspend/Resume 和 PsGet/SetContextInternal 都改用 Out->* 作为 production 源。
+     * 两类 switch 共享同一个 oracle 结果，一荣俱荣一损俱损；任意一侧 oracle 条件
+     * 不满足即 fallback 到硬编码 RVA，不让未验证的发现结果进入内核调用链。 */
     {
         KNA_RESOLVED_SYMBOLS resolved;
+        BOOLEAN oracleOk;
         RtlZeroMemory(&resolved, sizeof(resolved));
-        if (NT_SUCCESS(KnaResolveSymbols(&resolved)) && resolved.OracleMatched &&
-            resolved.KeSuspendThread != NULL && resolved.KeResumeThread != NULL)
+        oracleOk = NT_SUCCESS(KnaResolveSymbols(&resolved)) && resolved.OracleMatched;
+        /* Suspend/Resume 两个 NTSTATUS ABI 由该映像的实际调用和返回路径核对。 */
+        if (oracleOk && resolved.KeSuspendThread != NULL && resolved.KeResumeThread != NULL)
         {
             g_Kna.Suspend = (KNA_THREAD_COUNT)resolved.KeSuspendThread;
             g_Kna.Resume = (KNA_THREAD_COUNT)resolved.KeResumeThread;
         }
         else
         {
-            /* 无 oracle 匹配时严格 fallback 到硬编码 RVA，避免未验证的发现结果进入
-             * 内核调用链。两个 NTSTATUS ABI 由该映像的实际调用和返回路径核对。 */
             g_Kna.Suspend = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Suspend);
             g_Kna.Resume = (KNA_THREAD_COUNT)(KnaNt + KnaProfile->Resume);
+        }
+        /* Context 内部 5 参 ABI；UserMode 现场只在包装器内部固定。 */
+        if (oracleOk && resolved.PsGetContextInternal != NULL && resolved.PsSetContextInternal != NULL)
+        {
+            KnaGetContextInternalFn = (KNA_CONTEXT_INTERNAL)resolved.PsGetContextInternal;
+            KnaSetContextInternalFn = (KNA_CONTEXT_INTERNAL)resolved.PsSetContextInternal;
+        }
+        else
+        {
+            KnaGetContextInternalFn = (KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->GetContext);
+            KnaSetContextInternalFn = (KNA_CONTEXT_INTERNAL)(KnaNt + KnaProfile->SetContext);
         }
     }
     /* 缺失导出不回退到无消费者的用户态单步。 */
@@ -229,7 +245,9 @@ NTSTATUS KnaResolveThreadApis(VOID)
     /* SET 使用 KernelMode 缓冲区与 UserMode 现场的独立包装。 */
     g_Kna.SetContext = KnaSetUserContext;
     /* 完整控制链才算可用。 */
-    return g_Kna.GetContext != NULL && g_Kna.SetContext != NULL ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    return g_Kna.GetContext != NULL && g_Kna.SetContext != NULL &&
+           KnaGetContextInternalFn != NULL && KnaSetContextInternalFn != NULL
+           ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 VOID KnaReadFrames(PVOID Trap, PVOID Exception, PCONTEXT Context)
