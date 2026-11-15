@@ -547,9 +547,65 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
                      patchBytes);
         }
     }
-    /* Phase A6 完成：Out 带 KiDispatchExceptionWord 与 PatchArea / PatchAreaBytes，
-     * 覆盖入口字节与 patch space 的两个自适应维度。production 路径仍是 KnaProfiles；
-     * Phase A7 做 oracle 验证、trampoline fallback 与 hook 路径切换。 */
+    /* Phase A7a: oracle 校验。查当前 build 的 KnaProfiles 匹配到的"预期"7 个地址，
+     * 和 runtime 发现的 Out->* 逐字段对比并记日志。本 commit 不改变 production 行为
+     * （仍走 KnaProfiles），后续 A7b/A7c/A7d 在 oracle 全绿前提下逐步切换 hook /
+     * context / suspend-resume 路径使用 Out->*。 */
+    {
+        KNA_RESOLVED_SYMBOLS expected;
+        if (KnaLookupProfileAddresses(&expected))
+        {
+            BOOLEAN kiOk = Out->KiDispatchException != NULL &&
+                Out->KiDispatchException == expected.KiDispatchException;
+            BOOLEAN fromOk = Out->KeContextFromKframes != NULL &&
+                Out->KeContextFromKframes == expected.KeContextFromKframes;
+            BOOLEAN toOk = Out->KeContextToKframes != NULL &&
+                Out->KeContextToKframes == expected.KeContextToKframes;
+            BOOLEAN getCtxOk = Out->PsGetContextInternal != NULL &&
+                Out->PsGetContextInternal == expected.PsGetContextInternal;
+            BOOLEAN setCtxOk = Out->PsSetContextInternal != NULL &&
+                Out->PsSetContextInternal == expected.PsSetContextInternal;
+            BOOLEAN suspOk = Out->KeSuspendThread != NULL &&
+                Out->KeSuspendThread == expected.KeSuspendThread;
+            BOOLEAN resOk = Out->KeResumeThread != NULL &&
+                Out->KeResumeThread == expected.KeResumeThread;
+            DbgPrint("[KnaResolveSymbols] oracle: KiDisp=%d From=%d To=%d GetCtx=%d SetCtx=%d Susp=%d Res=%d\n",
+                     kiOk, fromOk, toOk, getCtxOk, setCtxOk, suspOk, resOk);
+            /* 对每个失败的字段打印期待与实际，方便跨 build 定位。 */
+            if (!kiOk)
+                DbgPrint("[KnaResolveSymbols]   KiDispatchException: got %p expected %p\n",
+                         Out->KiDispatchException, expected.KiDispatchException);
+            if (!fromOk)
+                DbgPrint("[KnaResolveSymbols]   KeContextFromKframes: got %p expected %p\n",
+                         Out->KeContextFromKframes, expected.KeContextFromKframes);
+            if (!toOk)
+                DbgPrint("[KnaResolveSymbols]   KeContextToKframes:   got %p expected %p\n",
+                         Out->KeContextToKframes, expected.KeContextToKframes);
+            if (!getCtxOk)
+                DbgPrint("[KnaResolveSymbols]   PsGetContextInternal: got %p expected %p\n",
+                         Out->PsGetContextInternal, expected.PsGetContextInternal);
+            if (!setCtxOk)
+                DbgPrint("[KnaResolveSymbols]   PsSetContextInternal: got %p expected %p\n",
+                         Out->PsSetContextInternal, expected.PsSetContextInternal);
+            if (!suspOk)
+                DbgPrint("[KnaResolveSymbols]   KeSuspendThread:      got %p expected %p\n",
+                         Out->KeSuspendThread, expected.KeSuspendThread);
+            if (!resOk)
+                DbgPrint("[KnaResolveSymbols]   KeResumeThread:       got %p expected %p\n",
+                         Out->KeResumeThread, expected.KeResumeThread);
+            if (kiOk && fromOk && toOk && getCtxOk && setCtxOk && suspOk && resOk)
+            {
+                DbgPrint("[KnaResolveSymbols] oracle: ALL SEVEN MATCH -- runtime discovery ready for production switch\n");
+            }
+        }
+        else
+        {
+            /* 当前 build 不在 KnaProfiles 内：oracle 不可用，但 runtime 发现仍可参考。 */
+            DbgPrint("[KnaResolveSymbols] oracle: no KnaProfiles match for this build; runtime discovery stands alone\n");
+        }
+    }
+    /* Phase A7a 完成：oracle 校验落地，为后续 Phase A7b/A7c/A7d 的 production 切换
+     * 提供 safety net。production 仍走 KnaProfiles，以免未全量验证就蓝屏。 */
     return STATUS_SUCCESS;
 }
 

@@ -45,4 +45,9 @@ typedef struct _KNA_RESOLVED_SYMBOLS
  * IDT 读取、call graph 反向追踪、.pdata 函数边界确认等能力。 */
 NTSTATUS KnaResolveSymbols(KNA_RESOLVED_SYMBOLS *Out);
 
+/* 查询 hook.c 内 KnaProfiles 对当前映像匹配到的"预期"地址集合；当尚未匹配到任何
+ * profile 时返回 FALSE。供 symbols.c 的 bring-up 对比 runtime 发现与硬编码表。
+ * 返回 TRUE 时填 Expected->KnaNt + 七个函数地址（Expected 其余字段保持零）。 */
+BOOLEAN KnaLookupProfileAddresses(KNA_RESOLVED_SYMBOLS *Expected);
+
 EXTERN_C_END

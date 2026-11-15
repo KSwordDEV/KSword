@@ -159,6 +159,28 @@ ULONG KnaCapabilities(VOID)
            KSWORD_ARK_KERNEL_NOATTACH_CAP_EXCEPTION | KSWORD_ARK_KERNEL_NOATTACH_CAP_BOOT_RESIDENT;
 }
 
+BOOLEAN KnaLookupProfileAddresses(KNA_RESOLVED_SYMBOLS *Expected)
+{
+    /* oracle 比对接口：把当前 build 匹配到的 profile 7 个 RVA 投影成线性地址
+     * 返回给 symbols.c。filtering + match 逻辑完全复用 KnaImage()，因此每台机器
+     * 只会返回与 KnaProfiles 表精确匹配的 PE/RSDS 条目对应的地址。 */
+    if (Expected == NULL) { return FALSE; }
+    /* 保守清零；失败时不残留任何字段。 */
+    RtlZeroMemory(Expected, sizeof(*Expected));
+    /* 第一次调用触发 KnaProfile/KnaNt 的解析；idempotent。 */
+    if (!KnaImage() || KnaNt == NULL || KnaProfile == NULL) { return FALSE; }
+    /* 各字段逐一从 profile 投影；顺序与 KNA_RESOLVED_SYMBOLS 字段匹配。 */
+    Expected->KnaNt = KnaNt;
+    Expected->KiDispatchException = KnaNt + KnaProfile->Dispatch;
+    Expected->KeContextFromKframes = KnaNt + KnaProfile->From;
+    Expected->KeContextToKframes = KnaNt + KnaProfile->To;
+    Expected->KeSuspendThread = KnaNt + KnaProfile->Suspend;
+    Expected->KeResumeThread = KnaNt + KnaProfile->Resume;
+    Expected->PsGetContextInternal = KnaNt + KnaProfile->GetContext;
+    Expected->PsSetContextInternal = KnaNt + KnaProfile->SetContext;
+    return TRUE;
+}
+
 /* PsGetContextThread 的公开包装会把同一 mode 同时用于缓冲区和现场。 */
 typedef NTSTATUS(NTAPI *KNA_CONTEXT_INTERNAL)(PETHREAD Thread, PCONTEXT Context,
     KPROCESSOR_MODE BufferMode, KPROCESSOR_MODE ContextMode, ULONG Flags);
