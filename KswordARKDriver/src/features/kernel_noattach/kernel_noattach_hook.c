@@ -1,4 +1,5 @@
 #include "kernel_noattach.h"
+#include "kernel_noattach_symbols.h"
 #include "../../platform/runtime_signature_scan.h"
 #include <ntimage.h>
 #include <intrin.h>
@@ -146,6 +147,10 @@ static BOOLEAN KnaImage(VOID)
 
 ULONG KnaCapabilities(VOID)
 {
+    /* Phase A1 bring-up：预热动态符号发现。当前只填 Image 身份和 IDT handler 验证，
+     * 结果尚未被 production 路径消费；仅用来确认 driver load + 查询链路下 helper 不
+     * 产生副作用。后续阶段才会替代下面的 KnaImage() 匹配。 */
+    (void)KnaResolveSymbols(NULL);
     /* 查询只验证身份与前提，不安装转接器。 */
     if (!KnaImage() || KnaExport(L"PsGetContextThread") == NULL || KnaExport(L"PsSetContextThread") == NULL)
     { return 0UL; }
