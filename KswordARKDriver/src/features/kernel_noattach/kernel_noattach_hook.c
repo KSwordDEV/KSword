@@ -373,11 +373,16 @@ static ULONG_PTR KnaPatchIpi(ULONG_PTR Parameter)
     return (ULONG_PTR)arrived;
 }
 
+/* Phase A7e: hook 安装用的目标入口由 KnaInstallHook 决定（oracle 匹配时取
+ * resolved.KiDispatchException，否则回退到 KnaNt + KnaProfile->Dispatch）；
+ * 记在此静态变量供 KnaPatchEntry / KnaPrepareBridge / KnaDeactivateHook 共用。 */
+static PUCHAR KnaHookEntry;
+
 /* 内核代码页的映射和锁页只在普通控制面处理。 */
-static NTSTATUS KnaPatchEntry(USHORT Expected, USHORT Desired)
+static NTSTATUS KnaPatchEntry(PUCHAR Entry, USHORT Expected, USHORT Desired)
 {
-    /* 描述符只覆盖当前已验证内核中的入口字。 */
-    PMDL mdl = IoAllocateMdl(KnaNt + KnaProfile->Dispatch, sizeof(USHORT), FALSE, FALSE, NULL);
+    /* 描述符只覆盖本次 install 已锁定的目标入口字；地址由上层核对身份后传入。 */
+    PMDL mdl = IoAllocateMdl(Entry, sizeof(USHORT), FALSE, FALSE, NULL);
     /* 保存映射失败的准确原因。 */
     NTSTATUS status = STATUS_INSUFFICIENT_RESOURCES;
     /* 只释放成功取得的锁页引用。 */
@@ -433,10 +438,10 @@ BOOLEAN KswordARKKernelNoAttachDriverPinned(PDRIVER_OBJECT Driver, PDRIVER_UNLOA
 }
 
 /* 准备失败可以重试，不能将只分配了转接器误当作桥已经写入。 */
-static NTSTATUS KnaPrepareBridge(const UCHAR *Bridge)
+static NTSTATUS KnaPrepareBridge(PUCHAR Entry, const UCHAR *Bridge)
 {
-    /* 描述符只覆盖已核对的十四字节填充。 */
-    PMDL mdl = IoAllocateMdl(KnaNt + KnaProfile->Dispatch - 16UL, 14UL, FALSE, FALSE, NULL);
+    /* 描述符只覆盖已核对的十四字节填充；A7e 保持 16 字节 pad + 14 字节 bridge 布局。 */
+    PMDL mdl = IoAllocateMdl(Entry - 16UL, 14UL, FALSE, FALSE, NULL);
     /* 映射与锁页有独立所有权。 */
     PVOID alias = NULL;
     /* 失败 probe 不拥有页面锁。 */
@@ -475,6 +480,8 @@ NTSTATUS KnaInstallHook(WDFFILEOBJECT File)
     typedef PVOID(NTAPI *ALLOCATE)(POOL_FLAGS, SIZE_T, ULONG);
     /* 一页转接器直到重启都由留驻模块拥有。 */
     PUCHAR trampoline;
+    /* 本次 install 真正使用的 Dispatch 入口（oracle 一致时取 resolved.KiDispatchException）。 */
+    PUCHAR entry;
     /* 只在普通内核申请可执行池，能力门已拒绝 HVCI。 */
     ALLOCATE allocate = (ALLOCATE)KnaExport(L"ExAllocatePool2");
     /* 保存模块卸载槽位的精确所有者。 */
@@ -485,8 +492,27 @@ NTSTATUS KnaInstallHook(WDFFILEOBJECT File)
     if (!KnaImage() || allocate == NULL) { return STATUS_NOT_SUPPORTED; }
     /* 本模块已经拥有的入口可重复开启会话。 */
     if (KnaInstalled) { return STATUS_SUCCESS; }
+    /* Phase A7e: oracle 一致时用 runtime 发现的 KiDispatchException 作为 Dispatch 入口；
+     * 失败则严格 fallback 到 KnaNt + KnaProfile->Dispatch。入口字节、hook 字节、pad
+     * 长度（16 字节）与 bridge 布局（14 字节）都保持不变，等 Phase A8 建立跨 build
+     * 矩阵后再 relax。 */
+    {
+        KNA_RESOLVED_SYMBOLS resolved;
+        RtlZeroMemory(&resolved, sizeof(resolved));
+        if (NT_SUCCESS(KnaResolveSymbols(&resolved)) && resolved.OracleMatched &&
+            resolved.KiDispatchException != NULL)
+        {
+            entry = (PUCHAR)resolved.KiDispatchException;
+        }
+        else
+        {
+            entry = KnaNt + KnaProfile->Dispatch;
+        }
+    }
+    /* 后续重装 / 卸载共用同一条路径；此处记录即为 KnaDeactivateHook 的入口来源。 */
+    KnaHookEntry = entry;
     /* 当前代码必须仍是原始的完整两字节首指令。 */
-    if (!KswordARKRuntimeReadMemory(KnaNt + KnaProfile->Dispatch, &original, sizeof(original)) || original != KnaOriginalWord)
+    if (!KswordARKRuntimeReadMemory(entry, &original, sizeof(original)) || original != KnaOriginalWord)
     { return STATUS_OBJECT_NAME_COLLISION; }
     /* 再次开启只重装入口，不重分配或改变永久转接器。 */
     if (KnaOriginal != NULL)
@@ -499,19 +525,19 @@ NTSTATUS KnaInstallHook(WDFFILEOBJECT File)
             /* 绝对目标由本模块固定，不来自调用方。 */
             *(PVOID *)(bridge + 6) = (PVOID)KnaDispatch;
             /* 准备失败仍不执行内核入口修改。 */
-            status = KnaPrepareBridge(bridge);
+            status = KnaPrepareBridge(entry, bridge);
             /* 不将失败降级为可调用入口。 */
             if (!NT_SUCCESS(status)) { return status; }
         }
         /* 只改回自己完整验证过的那个入口字。 */
-        status = KnaPatchEntry(KnaOriginalWord, KnaHookWord);
+        status = KnaPatchEntry(entry, KnaOriginalWord, KnaHookWord);
         /* 实际成功之后才公开安装状态。 */
         if (NT_SUCCESS(status)) { InterlockedExchange(&KnaInstalled, 1L); }
         /* 返回硬件同步结果。 */
         return status;
     }
     /* 此填充区由本次 PDB/PE 的函数边界核对，不是全内核代码洞扫描。 */
-    if (!KswordARKRuntimeReadMemory(KnaNt + KnaProfile->Dispatch - 16UL, padding, sizeof(padding))) { return STATUS_DATA_ERROR; }
+    if (!KswordARKRuntimeReadMemory(entry - 16UL, padding, sizeof(padding))) { return STATUS_DATA_ERROR; }
     /* 所有十六字节必须保持原始 INT3 填充。 */
     for (ULONG i = 0UL; i < sizeof(padding); ++i) { if (padding[i] != 0xCCU) { return STATUS_OBJECT_NAME_COLLISION; } }
     /* 先准备完整转接器，入口仍然未修改。 */
@@ -523,7 +549,7 @@ NTSTATUS KnaInstallHook(WDFFILEOBJECT File)
     /* 绝对转移与寄存器无关，不破坏 Windows 参数。 */
     RtlCopyMemory(trampoline + 2, bridge, 6);
     /* 转回首指令之后的原始分发路径。 */
-    *(PVOID *)(trampoline + 8) = KnaNt + KnaProfile->Dispatch + 2UL;
+    *(PVOID *)(trampoline + 8) = entry + 2UL;
     /* 进入新入口之前必须阻止模块被卸载。 */
     KnaUnload = driver->DriverUnload;
     /* 不接管未知的外部卸载门。 */
@@ -538,9 +564,9 @@ NTSTATUS KnaInstallHook(WDFFILEOBJECT File)
     /* 把绝对目标写入尚未可达的填充区转接器。 */
     *(PVOID *)(bridge + 6) = (PVOID)KnaDispatch;
     /* 桥的完整准备状态与内存分配状态分别记账。 */
-    status = KnaPrepareBridge(bridge);
+    status = KnaPrepareBridge(entry, bridge);
     /* 转接器完整以后才允许任何处理器进入。 */
-    if (NT_SUCCESS(status)) { status = KnaPatchEntry(KnaOriginalWord, KnaHookWord); }
+    if (NT_SUCCESS(status)) { status = KnaPatchEntry(entry, KnaOriginalWord, KnaHookWord); }
     /* 实际提交成功才公布安装状态。 */
     if (NT_SUCCESS(status)) { InterlockedExchange(&KnaInstalled, 1L); }
     /* 永久门在失败时也不能盲目释放已发布的转接地址。 */
@@ -553,8 +579,10 @@ NTSTATUS KnaDeactivateHook(VOID)
     NTSTATUS status;
     /* 已关闭时保持幂等。 */
     if (!KnaInstalled) { return STATUS_SUCCESS; }
+    /* 必须有一个 install 过的入口记录；否则没得撤销。 */
+    if (KnaHookEntry == NULL) { return STATUS_INVALID_DEVICE_STATE; }
     /* 原子恢复完整首指令，转接区继续承接可能晚到的旧跳转。 */
-    status = KnaPatchEntry(KnaHookWord, KnaOriginalWord);
+    status = KnaPatchEntry(KnaHookEntry, KnaHookWord, KnaOriginalWord);
     /* 未成功恢复入口不能伪报关闭成功。 */
     if (NT_SUCCESS(status)) { InterlockedExchange(&KnaInstalled, 0L); }
     /* 模块与转接区保持到重启，杜绝晚到指令落入释放内存。 */
