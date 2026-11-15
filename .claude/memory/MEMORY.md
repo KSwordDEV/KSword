@@ -83,3 +83,4 @@
 - [Light R3 shared backend migration](ksword-r3-backend-migration.md) — 逐功能迁移至 shared、保留行为、HostX64 编译与测试后独立提交
 - [Serena 迁移的项目历史记忆](serena-imported-memory.md) — 迁移原文，包含旧工具引用，使用前核验。
 - [PSDirect Copy-Item -ToSession 对大 binary 静默损坏](ksword-psdirect-copy-item-binary-corruption.md) — WinRM 对 3+MB kernel driver .sys 产生 corruption（size 不变 hash 变），sc start error 193；用 base64 encode + Add-Content 分块 512KB 绕过；判据：VM 侧 Get-FileHash 必须与 host 一致
+- [TSC_OFFSETTING 在 Hyper-V Gen2 来宾结构性不可行](ksword-tsc-offsetting-hyperv-gen2-structural-limit.md) — Gen2 无 HPET、Hyper-V 参考 TSC 页周期重写撕开累积偏置、CPL=3 可读共享页旁路驱动；本机 N=30 实测 timing P50=8842 min=7985, 全部 > 1000 阈值；项目 docs/虚拟化规范要点.md:576 已自认 "RDTSC 可补偿但跨线程 race 难掩盖"
