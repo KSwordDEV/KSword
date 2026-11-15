@@ -80,6 +80,95 @@ static BOOLEAN KnaInitialize(VOID)
     return InterlockedCompareExchange(&g_Kna.Initialized, 0L, 0L) == 2L;
 }
 
+NTSTATUS KnaAttachThread(ULONG ThreadId, ULONGLONG ThreadCreationTime)
+{
+    /* PsLookupThreadByThreadId 要求 <= APC_LEVEL；调用方持 ControlLock 已经保证。 */
+    PETHREAD thread = NULL;
+    /* Suspend 的前一次计数仅用于日志审计。 */
+    ULONG previous = 0UL;
+    /* 每一步失败都归还已取得的引用。 */
+    NTSTATUS status;
+    /* 附加线程容量和主控线程均在 session 内固定。 */
+    if (g_Kna.Suspend == NULL || g_Kna.Resume == NULL) { return STATUS_DEVICE_NOT_READY; }
+    /* 空闲槽位检查先于任何对象操作。 */
+    if (g_Kna.AdditionalThreadCount >= RTL_NUMBER_OF(g_Kna.AdditionalThreads)) { return STATUS_INSUFFICIENT_RESOURCES; }
+    /* 任何非法 TID 直接拒绝，不保留部分状态。 */
+    if (ThreadId == 0UL || ThreadCreationTime == 0ULL) { return STATUS_INVALID_CID; }
+    /* 唯一的真实线程对象引用在此建立。 */
+    status = PsLookupThreadByThreadId(ULongToHandle(ThreadId), &thread);
+    /* 失败不假装添加成功。 */
+    if (!NT_SUCCESS(status)) { return status; }
+    /* 必须与本会话 primary 线程属于同一进程，且不是 primary 自己。 */
+    if (PsGetThreadProcess(thread) != g_Kna.Process ||
+        (ULONGLONG)PsGetThreadCreateTime(thread) != ThreadCreationTime ||
+        PsIsThreadTerminating(thread) || thread == g_Kna.Thread)
+    { ObDereferenceObject(thread); return STATUS_INVALID_CID; }
+    /* 重复 attach 同一线程不堆积挂起计数。 */
+    for (ULONG i = 0UL; i < g_Kna.AdditionalThreadCount; ++i)
+    { if (g_Kna.AdditionalThreads[i] == thread) { ObDereferenceObject(thread); return STATUS_OBJECT_NAME_COLLISION; } }
+    /* OS 层挂起；primary 不受影响。 */
+    status = g_Kna.Suspend(thread, &previous);
+    /* 挂起失败时不保留部分状态。 */
+    if (!NT_SUCCESS(status)) { ObDereferenceObject(thread); return status; }
+    /* 引用保留直到 DetachThread 或会话关闭。 */
+    g_Kna.AdditionalThreads[g_Kna.AdditionalThreadCount++] = thread;
+    /* 挂起前次计数仅参考，不影响状态。 */
+    UNREFERENCED_PARAMETER(previous);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS KnaDetachThread(ULONG ThreadId)
+{
+    /* 遍历受控线程数组，找到匹配 ID 的条目。 */
+    ULONG count = 0UL;
+    /* 恢复操作结果独立记录。 */
+    NTSTATUS status;
+    /* 空容量明确表达为未找到。 */
+    if (g_Kna.Resume == NULL) { return STATUS_DEVICE_NOT_READY; }
+    for (ULONG i = 0UL; i < g_Kna.AdditionalThreadCount; ++i)
+    {
+        /* 使用对象派生的真实 TID，不信任外部填入。 */
+        if (HandleToULong(PsGetThreadId(g_Kna.AdditionalThreads[i])) != ThreadId) { continue; }
+        /* 归还线程前先恢复挂起，Resume 失败不释放对象。 */
+        status = g_Kna.Resume(g_Kna.AdditionalThreads[i], &count);
+        /* 恢复失败让控制方重试，不丢失引用。 */
+        if (!NT_SUCCESS(status)) { return status; }
+        /* 恢复完成以后才释放最后一条引用。 */
+        ObDereferenceObject(g_Kna.AdditionalThreads[i]);
+        /* 压缩数组保持前段紧凑。 */
+        for (ULONG j = i + 1UL; j < g_Kna.AdditionalThreadCount; ++j)
+        { g_Kna.AdditionalThreads[j - 1UL] = g_Kna.AdditionalThreads[j]; }
+        /* 尾位清零避免悬垂引用被误用。 */
+        g_Kna.AdditionalThreads[--g_Kna.AdditionalThreadCount] = NULL;
+        return STATUS_SUCCESS;
+    }
+    /* 不存在的 ID 不冒充成功。 */
+    return STATUS_NOT_FOUND;
+}
+
+VOID KnaDetachAllThreads(VOID)
+{
+    /* Close 路径复用：逐个 Resume + Dereference，忽略个别 Resume 失败避免卡住 Close。 */
+    for (ULONG i = 0UL; i < g_Kna.AdditionalThreadCount; ++i)
+    {
+        /* 空槽不参与；数组本应紧凑但保留一次 defensive 校验。 */
+        PETHREAD thread = g_Kna.AdditionalThreads[i];
+        if (thread != NULL)
+        {
+            /* 中间参数仅为 API 签名，Close 不需要前次计数。 */
+            ULONG count = 0UL;
+            /* 返回码记入会话诊断；此处不中断 Close。 */
+            (void)(g_Kna.Resume != NULL ? g_Kna.Resume(thread, &count) : STATUS_DEVICE_NOT_READY);
+            /* 对象引用独立归还，不依赖 Resume 成功。 */
+            ObDereferenceObject(thread);
+            /* 槽位清零防止重复释放。 */
+            g_Kna.AdditionalThreads[i] = NULL;
+        }
+    }
+    /* 批量释放完才清计数。 */
+    g_Kna.AdditionalThreadCount = 0UL;
+}
+
 /* 只有目标状态已恢复、真实观察者排空后才能调用。 */
 static VOID KnaReleaseIdentity(VOID)
 {
@@ -93,6 +182,8 @@ static VOID KnaReleaseIdentity(VOID)
     g_Kna.State = KSWORD_ARK_HVM_NOATTACH_CLOSED;
     /* 释放会阻塞或回调的对象之前解除短锁。 */
     KeReleaseSpinLock(&g_Kna.StateLock, irql);
+    /* 附加线程在控制路径下释放，避免悬垂的 OS 挂起计数。 */
+    KnaDetachAllThreads();
     /* 非分页上下文只由本会话分配。 */
     if (g_Kna.Context != NULL) { ExFreePoolWithTag(g_Kna.Context, 'cNkK'); g_Kna.Context = NULL; }
     /* Capture 与异常现场是不同的缓冲区。 */
@@ -294,7 +385,7 @@ NTSTATUS KswordARKKernelNoAttachControl(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST
     Response->state = Response->capabilities != 0UL ? KSWORD_ARK_HVM_NOATTACH_CLOSED : KSWORD_ARK_HVM_NOATTACH_UNSUPPORTED;
     /* 请求边界验证在任何引用、注册或修改之前完成。 */
     if (!KnaInitialize() || Request->version != KSWORD_ARK_KERNEL_NOATTACH_VERSION || Request->size != sizeof(*Request) ||
-        Request->operation > KSWORD_ARK_HVM_NOATTACH_SET_GPR ||
+        Request->operation > KSWORD_ARK_HVM_NOATTACH_DETACH_THREAD ||
         (Request->flags & ~(KSWORD_ARK_HVM_NOATTACH_CONFIRMED | KSWORD_ARK_KERNEL_NOATTACH_HOOK_ACK)) != 0UL ||
         OwnerPid <= 4UL || File == WDF_NO_HANDLE || Request->ownerCreationTime == 0ULL)
     { Response->status = STATUS_INVALID_PARAMETER; return STATUS_SUCCESS; }
@@ -409,11 +500,14 @@ NTSTATUS KswordARKKernelNoAttachControl(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST
         /* 丢失 OPEN ACK 时允许同文件以零 sessionId 查询找回。 */
         if ((Request->operation != KSWORD_ARK_HVM_NOATTACH_QUERY || Request->sessionId != 0ULL) &&
             Request->sessionId != g_Kna.Snapshot.sessionId) { status = STATUS_REVISION_MISMATCH; goto Unlock; }
-        /* 非零目标限制必须仍与本会话匹配。 */
+        /* ATTACH/DETACH 的 threadId 对应附加线程而非 primary，因此跳过 primary-only 校验。 */
+        BOOLEAN threadScopeOp = (Request->operation == KSWORD_ARK_HVM_NOATTACH_ATTACH_THREAD ||
+                                 Request->operation == KSWORD_ARK_HVM_NOATTACH_DETACH_THREAD);
+        /* 非零目标限制必须仍与本会话匹配；processId 对附加线程仍须相同。 */
         if ((Request->processId != 0UL && Request->processId != g_Kna.Snapshot.processId) ||
-            (Request->threadId != 0UL && Request->threadId != g_Kna.Snapshot.threadId) ||
+            (!threadScopeOp && Request->threadId != 0UL && Request->threadId != g_Kna.Snapshot.threadId) ||
             (Request->processCreationTime != 0ULL && Request->processCreationTime != g_Kna.Snapshot.processCreationTime) ||
-            (Request->threadCreationTime != 0ULL && Request->threadCreationTime != g_Kna.Snapshot.threadCreationTime))
+            (!threadScopeOp && Request->threadCreationTime != 0ULL && Request->threadCreationTime != g_Kna.Snapshot.threadCreationTime))
         { status = STATUS_INVALID_CID; goto Unlock; }
         /* 关闭不需要已经过期的 stopId。 */
         if (Request->operation == KSWORD_ARK_HVM_NOATTACH_CLOSE) { status = KnaCloseLocked(); }
@@ -423,6 +517,11 @@ NTSTATUS KswordARKKernelNoAttachControl(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST
         else if (g_Kna.Closing) { status = STATUS_DEVICE_NOT_READY; }
         /* 主动暂停由明确的独立请求触发。 */
         else if (Request->operation == KSWORD_ARK_HVM_NOATTACH_PAUSE) { status = KnaRequestPause(); }
+        /* ATTACH/DETACH 不要求当前停点，纯粹 OS 层挂起管理。 */
+        else if (Request->operation == KSWORD_ARK_HVM_NOATTACH_ATTACH_THREAD)
+        { status = KnaAttachThread(Request->threadId, Request->threadCreationTime); }
+        else if (Request->operation == KSWORD_ARK_HVM_NOATTACH_DETACH_THREAD)
+        { status = KnaDetachThread(Request->threadId); }
         else
         {
             /* 在同一短锁内占用停点和检查代次，杜绝 ABA。 */

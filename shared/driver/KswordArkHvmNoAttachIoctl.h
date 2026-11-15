@@ -30,6 +30,12 @@
 #define KSWORD_ARK_HVM_NOATTACH_RUN_TO 8UL
 /* 在下一次匹配取指处提交整数寄存器修改，再产生新停点。 */
 #define KSWORD_ARK_HVM_NOATTACH_SET_GPR 9UL
+/* 将 target 进程内的附加线程纳入本会话并显式暂停；主控线程照旧独立调试。
+ * 附加线程在 session 活动期间被 OS 挂起，不会独立触发断点或 AV，因此规避
+ * 主控路径的 observer gate 并发竞争。 */
+#define KSWORD_ARK_HVM_NOATTACH_ATTACH_THREAD 10UL
+/* 撤销 attach_thread 的挂起并归还线程对象引用。 */
+#define KSWORD_ARK_HVM_NOATTACH_DETACH_THREAD 11UL
 /* OPEN 要求调用方明确确认执行实验操作。 */
 #define KSWORD_ARK_HVM_NOATTACH_CONFIRMED 1UL
 /* 不能因裸机能力缺失而推断允许嵌套运行。 */

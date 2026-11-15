@@ -466,6 +466,38 @@ namespace ksword::debugger
         return ERROR_SUCCESS;
     }
 
+    DWORD IndependentFrontend::attachThread(DWORD tid)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        if (!reserved_ || recovery_ || !tid) return ERROR_INVALID_STATE;
+        // Resolve the attached thread's creation time via a short-lived
+        // THREAD_QUERY_LIMITED_INFORMATION handle so the driver's identity
+        // check stays strict on PID reuse.
+        HANDLE threadHandle = ::OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
+        if (threadHandle == nullptr) return GetLastError();
+        FILETIME created{}, exited{}, kernel{}, user{};
+        const BOOL ok = ::GetThreadTimes(threadHandle, &created, &exited, &kernel, &user);
+        const DWORD queryError = ok ? ERROR_SUCCESS : GetLastError();
+        ::CloseHandle(threadHandle);
+        if (!ok) return queryError;
+        KSWORD_ARK_HVM_NOATTACH_REQUEST edits{};
+        edits.threadId = tid;
+        edits.threadCreationTime = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) |
+            created.dwLowDateTime;
+        edits.processId = pid_;
+        return request(KSWORD_ARK_HVM_NOATTACH_ATTACH_THREAD, &edits);
+    }
+
+    DWORD IndependentFrontend::detachThread(DWORD tid)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        if (!reserved_ || recovery_ || !tid) return ERROR_INVALID_STATE;
+        KSWORD_ARK_HVM_NOATTACH_REQUEST edits{};
+        edits.threadId = tid;
+        edits.processId = pid_;
+        return request(KSWORD_ARK_HVM_NOATTACH_DETACH_THREAD, &edits);
+    }
+
     DWORD IndependentFrontend::removeMemoryWatch(std::uint32_t id)
     {
         std::lock_guard lock(backend_.mutex_);

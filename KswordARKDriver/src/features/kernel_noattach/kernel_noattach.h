@@ -40,8 +40,12 @@ typedef struct _KNA_SESSION
     ULONGLONG Generation, OwnerCreation, StopCounter, LeaseDeadline;
     /* 强引用一直保留到目标状态恢复并且观察者排空。 */
     PEPROCESS Owner, Process;
-    /* 只控制一个原生 x64 用户线程。 */
+    /* 只控制一个原生 x64 用户线程（primary）。 */
     PETHREAD Thread;
+    /* 附加线程挂起列表：OS 层 suspend，不参与 KnaObserve 分发。 */
+    PETHREAD AdditionalThreads[7];
+    /* 已挂起的附加线程计数；primary 不计入。 */
+    ULONG AdditionalThreadCount;
     /* 唯一控制文件的关闭会撤销停止。 */
     WDFFILEOBJECT File;
     /* 接管、恢复和能力读取均来自已核对的实际函数。 */
@@ -110,6 +114,12 @@ NTSTATUS KnaEditBreakpoint(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST *Request);
 VOID KnaApplyDebug(PCONTEXT Context, BOOLEAN Restore);
 /* 清除本会话自己生成的调试原因，不清除外部异常。 */
 ULONG KnaHit(PCONTEXT Context);
+/* 将指定线程纳入附加挂起列表；调用方持 ControlLock，且已核对线程属于本会话进程。 */
+NTSTATUS KnaAttachThread(ULONG ThreadId, ULONGLONG ThreadCreationTime);
+/* 撤销附加线程的挂起并归还引用；调用方持 ControlLock。 */
+NTSTATUS KnaDetachThread(ULONG ThreadId);
+/* 批量释放所有附加线程；退出会话前复用。 */
+VOID KnaDetachAllThreads(VOID);
 /* 控制文件关闭立即通知真实异常消费者。 */
 VOID KswordARKKernelNoAttachFileCleanup(WDFFILEOBJECT File);
 /* 固定协议的控制面。 */

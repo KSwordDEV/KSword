@@ -54,6 +54,13 @@ namespace ksword::debugger
         // original protection so it can restore them on retire.
         DWORD addMemoryWatch(std::uint64_t address, SIZE_T length, MemoryWatchType type, std::uint32_t& id);
         DWORD removeMemoryWatch(std::uint32_t id);
+        // Additional-thread suspension. Each attached thread is paused by
+        // the OS for the lifetime of the session (or until detachThread)
+        // and does not participate in KnaObserve's dispatch, so concurrent
+        // DR / AV hits from other threads cannot race the observer gate
+        // and crash the target. Kernel backend only; HVM refuses.
+        DWORD attachThread(DWORD tid);
+        DWORD detachThread(DWORD tid);
         DWORD readContext(HANDLE thread, CONTEXT&);
         DWORD writeContext(HANDLE thread, const CONTEXT&);
         // XSTATE-aware variants accept a caller-allocated CONTEXT_EX (sized
