@@ -1371,6 +1371,13 @@ KswordARKHvmAllocateProcessorResourcesLocked(
          * to correct the answer.
          */
         KswordARKHvmMsrArmVmxCapabilityInterceptLocked(Runtime);
+        /*
+         * 相邻 arm detection MSR 拦截, 与 VMX cap arm 共用唯一一次 bitmap
+         * 预留时机: 一旦 guest 的首次 RDMSR 发生在 arm 之前, 它看到的是物理
+         * 值, 后续再拦也补不回来。放在同一个条件分支内是让"bitmap 已存在"
+         * 成为两边的唯一前提。
+         */
+        KswordARKHvmMsrArmDetectionInterceptLocked(Runtime);
     }
     groupCount = KeQueryActiveGroupCount();
     for (group = 0U;

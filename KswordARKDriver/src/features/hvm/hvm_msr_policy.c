@@ -135,6 +135,36 @@ KswordARKHvmMsrArmVmxCapabilityInterceptLocked(
     }
 }
 
+VOID
+KswordARKHvmMsrArmDetectionInterceptLocked(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    /* 无 bitmap 就没法 arm, 原因同 VMX capability arm。 */
+    if (Runtime == NULL || Runtime->MsrBitmapVirtual == NULL) {
+        /* 没有预留 bitmap 页就不再继续设位。 */
+        return;
+    }
+    /*
+     * 仅 reads。写入这两个 MSR 架构上要么是只读 (PERF_CAPABILITIES),
+     * 要么只能在 UEFI BIOS 阶段 LOCK 之前写 (FEATURE_CONTROL), 已经锁定后
+     * 写会架构级 #GP。处理器自己交付这个 #GP 不需要我们再搭一层仿真。
+     * 用 SetBit 让其走正常 bitmap 维护路径, 与 VMX capability arm 对齐,
+     * 保 MsrBitmapInterceptCount 的计数在 arm/disarm 时都准确。
+     */
+    KswordARKHvmMsrPolicySetBit(
+        Runtime,
+        KSWORD_ARK_HVM_DETECTION_MSR_FEATURE_CONTROL,
+        FALSE,
+        TRUE);
+    /* PERF_CAPABILITIES 同样只拦截 read。 */
+    KswordARKHvmMsrPolicySetBit(
+        Runtime,
+        KSWORD_ARK_HVM_DETECTION_MSR_PERF_CAPABILITIES,
+        FALSE,
+        TRUE);
+}
+
 /* Return the active policy covering one index and direction. */
 static KSW_HVM_MSR_POLICY_SLOT*
 KswordARKHvmMsrPolicyFind(

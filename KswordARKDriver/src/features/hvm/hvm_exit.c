@@ -2869,6 +2869,15 @@ KswordARKHvmResidentVmExitDispatchBody(
             /* Continue at the instruction following the MSR read. */
             handled = KswordARKHvmExitAdvanceRip(
                 telemetry.InstructionLength);
+        } else if (KswordARKHvmExitFilterDetectionMsr(Frame, isWrite)) {
+            /*
+             * Detection-surface filter 与 VMX cap filter 并列, 放在 policy
+             * engine 之前的理由相同: 一条 user-mode 下发的 policy 不得把
+             * FEATURE_CONTROL / PERF_CAPABILITIES 又变回原始物理值, 否则
+             * CPUID.1:ECX[5]=0 与 MSR 0x3A bit 2=1 的矛盾又会暴露出来。
+             */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
         } else {
             /*
              * An index inside the bitmap only exits because a policy opened a
