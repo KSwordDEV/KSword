@@ -908,8 +908,45 @@ KswordARKHvmExitHandleCpuid(
         /* Avoid another outer-hypervisor exit for the captured vendor leaf. */
         RtlCopyMemory(registers, Context->CpuidVendorLeaf, sizeof(registers));
     } else {
-        /* Forward dynamic leaves, including CR4-sensitive OSXSAVE, unchanged. */
-        __cpuidex(registers, (int)leaf, (int)subleaf);
+        /* 命中动态叶缓存时跳过嵌套 __cpuidex 的 L0 回程退出。 */
+        BOOLEAN hit = FALSE;
+        /* leaf 1 暂不缓存：CR4.OSXSAVE 翻转在当前 Cr4PinnedMask 下不保证 MOV_CR 退出。 */
+        /* 隐藏范围 0x40000000..0x400000FF 的 Hv 标识叶也不缓存：后置变换会将结果清零。 */
+        const BOOLEAN cacheable = (leaf != 1UL) &&
+            !(leaf >= 0x40000000UL && leaf <= 0x400000FFUL);
+        if (cacheable) {
+            /* 线性扫描 8 条；条数小于一级缓存行，简单循环比哈希更稳。 */
+            ULONG cacheIdx;
+            for (cacheIdx = 0UL; cacheIdx < KSW_HVM_CPUID_CACHE_ENTRIES; ++cacheIdx) {
+                const KSW_HVM_CPUID_CACHE_ENTRY* entry = &Context->CpuidCache[cacheIdx];
+                if (entry->Valid &&
+                    entry->Leaf == leaf &&
+                    entry->Subleaf == subleaf) {
+                    /* 原寄存器值按序复制，让 handler 后续的 hide-VMX/hide-Hv 变换照常施加。 */
+                    RtlCopyMemory(registers, entry->Registers, sizeof(registers));
+                    ++Context->CpuidCacheHits;
+                    hit = TRUE;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
+            /* Forward dynamic leaves, including CR4-sensitive OSXSAVE, unchanged. */
+            __cpuidex(registers, (int)leaf, (int)subleaf);
+            if (cacheable) {
+                /* 插入 LRU 推进位置的槽；旧内容被覆盖，Valid 升为 TRUE。 */
+                KSW_HVM_CPUID_CACHE_ENTRY* slot = &Context->CpuidCache[Context->CpuidCacheNext];
+                slot->Leaf = leaf;
+                slot->Subleaf = subleaf;
+                /* 保存原始 host 寄存器；后置变换读的是 handler 本地 registers[]。 */
+                RtlCopyMemory(slot->Registers, registers, sizeof(slot->Registers));
+                slot->Valid = TRUE;
+                /* 推进环形指针；%= 对 ULONG 2 的幂容量编译为 AND，不走除法。 */
+                Context->CpuidCacheNext =
+                    (Context->CpuidCacheNext + 1UL) % KSW_HVM_CPUID_CACHE_ENTRIES;
+            }
+            ++Context->CpuidCacheMisses;
+        }
     }
     /* Hide guest VMX exposure unless nested dispatch was explicitly enabled. */
     if (leaf == 1UL &&
