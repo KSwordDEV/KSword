@@ -388,10 +388,11 @@ namespace ksword::titan
                 error = frontend.writeContext(thread, snapshot);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
-            // AVX low 128 bits live in FltSave.XmmRegisters so GetAVXContext
-            // and SetAVXContext work through the same CONTEXT_FLOATING_POINT
-            // path as SetFullContextDataEx; YMM high halves remain zero
-            // until the frontend protocol gains XSTATE support.
+            // XMM low 128 travels in FltSave while YMM high 128 and ZMM
+            // extensions live in the XSAVE area. Fetch the extension via the
+            // frontend's XSTATE primitive and compose the full view; if the
+            // CPU/OS does not expose XSTATE the XMM-only result is still a
+            // correct AVX snapshot (YMM high reads as zero on such parts).
             table.GetAVXContext = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
             {
                 if (ctx == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
@@ -401,7 +402,33 @@ namespace ksword::titan
                 const DWORD error = frontend.readContext(thread, snapshot);
                 if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
                 projectToTitan(snapshot, *ctx);
-                return true;
+                const DWORD64 enabled = GetEnabledXStateFeatures();
+                const DWORD64 avxMask = XSTATE_MASK_AVX & enabled;
+                if (avxMask == 0) { SetLastError(ERROR_SUCCESS); return true; }
+                const DWORD flags = CONTEXT_FLOATING_POINT | CONTEXT_XSTATE;
+                DWORD required = 0;
+                InitializeContext(nullptr, flags, nullptr, &required);
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                std::vector<BYTE> buffer(required);
+                PCONTEXT xctx = nullptr;
+                if (!InitializeContext(buffer.data(), flags, &xctx, &required) ||
+                    !SetXStateFeaturesMask(xctx, avxMask))
+                { SetLastError(ERROR_SUCCESS); return true; }
+                if (frontend.readXStateContext(thread, xctx) != ERROR_SUCCESS)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                DWORD length = 0;
+                const auto* avx = static_cast<const M128A*>(LocateXStateFeature(xctx, XSTATE_AVX, &length));
+                if (avx != nullptr && length >= 16 * sizeof(M128A))
+                {
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        ctx->YmmRegisters[i].Low = ctx->XmmRegisters[i];
+                        ctx->YmmRegisters[i].High.Low = avx[i].Low;
+                        ctx->YmmRegisters[i].High.High = avx[i].High;
+                    }
+                }
+                SetLastError(ERROR_SUCCESS); return true;
             };
             table.SetAVXContext = [](HANDLE thread, TITAN_ENGINE_CONTEXT_t* ctx) -> bool
             {
@@ -414,10 +441,155 @@ namespace ksword::titan
                 applyFromTitan(*ctx, snapshot);
                 snapshot.ContextFlags = CONTEXT_FLOATING_POINT;
                 error = frontend.writeContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                const DWORD64 enabled = GetEnabledXStateFeatures();
+                const DWORD64 avxMask = XSTATE_MASK_AVX & enabled;
+                if (avxMask == 0) { SetLastError(ERROR_SUCCESS); return true; }
+                const DWORD flags = CONTEXT_FLOATING_POINT | CONTEXT_XSTATE;
+                DWORD required = 0;
+                InitializeContext(nullptr, flags, nullptr, &required);
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                std::vector<BYTE> buffer(required);
+                PCONTEXT xctx = nullptr;
+                if (!InitializeContext(buffer.data(), flags, &xctx, &required) ||
+                    !SetXStateFeaturesMask(xctx, avxMask))
+                { SetLastError(ERROR_SUCCESS); return true; }
+                // Round-trip to preserve features we do not touch (MXCSR, etc).
+                if (frontend.readXStateContext(thread, xctx) != ERROR_SUCCESS)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                DWORD length = 0;
+                auto* avx = static_cast<M128A*>(LocateXStateFeature(xctx, XSTATE_AVX, &length));
+                if (avx != nullptr && length >= 16 * sizeof(M128A))
+                {
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        avx[i].Low = ctx->YmmRegisters[i].High.Low;
+                        avx[i].High = ctx->YmmRegisters[i].High.High;
+                    }
+                    error = frontend.writeXStateContext(thread, xctx);
+                    if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                }
+                SetLastError(ERROR_SUCCESS); return true;
+            };
+            // AVX-512 widens ZMM0-15 into XSAVE's high-256 region, exposes
+            // ZMM16-31 as a full 512-bit extension, and surfaces the eight
+            // opmask (k0-k7) registers. When the CPU or OS does not advertise
+            // AVX-512 the shim still returns whatever XMM/AVX state the host
+            // thread has, with the AVX-512 half zeroed.
+            table.GetAVX512Context = [](HANDLE thread, TITAN_ENGINE_CONTEXT_AVX512_t* titcontext) -> bool
+            {
+                if (titcontext == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                std::memset(titcontext, 0, sizeof(*titcontext));
+                auto& frontend = debugger::backend().independentFrontend();
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                const DWORD fpError = frontend.readContext(thread, snapshot);
+                if (fpError != ERROR_SUCCESS) { SetLastError(fpError); return false; }
+                for (int i = 0; i < 16; ++i)
+                {
+                    titcontext->ZmmRegisters[i].Low.Low.Low = snapshot.FltSave.XmmRegisters[i].Low;
+                    titcontext->ZmmRegisters[i].Low.Low.High =
+                        static_cast<LONGLONG>(snapshot.FltSave.XmmRegisters[i].High);
+                }
+                const DWORD64 enabled = GetEnabledXStateFeatures();
+                const DWORD64 desired = (XSTATE_MASK_AVX | XSTATE_MASK_AVX512) & enabled;
+                if (desired == 0) { SetLastError(ERROR_SUCCESS); return true; }
+                const DWORD flags = CONTEXT_FLOATING_POINT | CONTEXT_XSTATE;
+                DWORD required = 0;
+                InitializeContext(nullptr, flags, nullptr, &required);
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                std::vector<BYTE> buffer(required);
+                PCONTEXT xctx = nullptr;
+                if (!InitializeContext(buffer.data(), flags, &xctx, &required) ||
+                    !SetXStateFeaturesMask(xctx, desired))
+                { SetLastError(ERROR_SUCCESS); return true; }
+                if (frontend.readXStateContext(thread, xctx) != ERROR_SUCCESS)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                DWORD length = 0;
+                const auto* avx = static_cast<const M128A*>(LocateXStateFeature(xctx, XSTATE_AVX, &length));
+                if (avx != nullptr && length >= 16 * sizeof(M128A))
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        titcontext->ZmmRegisters[i].Low.High.Low = avx[i].Low;
+                        titcontext->ZmmRegisters[i].Low.High.High = avx[i].High;
+                    }
+                length = 0;
+                const auto* zmmHi = static_cast<const BYTE*>(LocateXStateFeature(xctx, XSTATE_AVX512_ZMM_H, &length));
+                if (zmmHi != nullptr && length >= 16U * 32U)
+                    for (int i = 0; i < 16; ++i)
+                        std::memcpy(&titcontext->ZmmRegisters[i].High, zmmHi + i * 32, 32);
+                length = 0;
+                const auto* zmm16 = static_cast<const BYTE*>(LocateXStateFeature(xctx, XSTATE_AVX512_ZMM, &length));
+                if (zmm16 != nullptr && length >= 16U * 64U)
+                    for (int i = 0; i < 16; ++i)
+                        std::memcpy(&titcontext->ZmmRegisters[16 + i], zmm16 + i * 64, 64);
+                length = 0;
+                const auto* kmask = static_cast<const DWORD64*>(LocateXStateFeature(xctx, XSTATE_AVX512_KMASK, &length));
+                if (kmask != nullptr && length >= 8 * sizeof(DWORD64))
+                    for (int i = 0; i < 8; ++i)
+                        titcontext->Opmask[i] = kmask[i];
+                SetLastError(ERROR_SUCCESS); return true;
+            };
+            table.SetAVX512Context = [](HANDLE thread, TITAN_ENGINE_CONTEXT_AVX512_t* titcontext) -> bool
+            {
+                if (titcontext == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                auto& frontend = debugger::backend().independentFrontend();
+                CONTEXT snapshot{};
+                snapshot.ContextFlags = CONTEXT_ALL;
+                DWORD error = frontend.readContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                for (int i = 0; i < 16; ++i)
+                {
+                    snapshot.FltSave.XmmRegisters[i].Low = titcontext->ZmmRegisters[i].Low.Low.Low;
+                    snapshot.FltSave.XmmRegisters[i].High =
+                        static_cast<ULONGLONG>(titcontext->ZmmRegisters[i].Low.Low.High);
+                }
+                snapshot.ContextFlags = CONTEXT_FLOATING_POINT;
+                error = frontend.writeContext(thread, snapshot);
+                if (error != ERROR_SUCCESS) { SetLastError(error); return false; }
+                const DWORD64 enabled = GetEnabledXStateFeatures();
+                const DWORD64 desired = (XSTATE_MASK_AVX | XSTATE_MASK_AVX512) & enabled;
+                if (desired == 0) { SetLastError(ERROR_SUCCESS); return true; }
+                const DWORD flags = CONTEXT_FLOATING_POINT | CONTEXT_XSTATE;
+                DWORD required = 0;
+                InitializeContext(nullptr, flags, nullptr, &required);
+                if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                std::vector<BYTE> buffer(required);
+                PCONTEXT xctx = nullptr;
+                if (!InitializeContext(buffer.data(), flags, &xctx, &required) ||
+                    !SetXStateFeaturesMask(xctx, desired))
+                { SetLastError(ERROR_SUCCESS); return true; }
+                if (frontend.readXStateContext(thread, xctx) != ERROR_SUCCESS)
+                { SetLastError(ERROR_SUCCESS); return true; }
+                DWORD length = 0;
+                auto* avx = static_cast<M128A*>(LocateXStateFeature(xctx, XSTATE_AVX, &length));
+                if (avx != nullptr && length >= 16 * sizeof(M128A))
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        avx[i].Low = titcontext->ZmmRegisters[i].Low.High.Low;
+                        avx[i].High = titcontext->ZmmRegisters[i].Low.High.High;
+                    }
+                length = 0;
+                auto* zmmHi = static_cast<BYTE*>(LocateXStateFeature(xctx, XSTATE_AVX512_ZMM_H, &length));
+                if (zmmHi != nullptr && length >= 16U * 32U)
+                    for (int i = 0; i < 16; ++i)
+                        std::memcpy(zmmHi + i * 32, &titcontext->ZmmRegisters[i].High, 32);
+                length = 0;
+                auto* zmm16 = static_cast<BYTE*>(LocateXStateFeature(xctx, XSTATE_AVX512_ZMM, &length));
+                if (zmm16 != nullptr && length >= 16U * 64U)
+                    for (int i = 0; i < 16; ++i)
+                        std::memcpy(zmm16 + i * 64, &titcontext->ZmmRegisters[16 + i], 64);
+                length = 0;
+                auto* kmask = static_cast<DWORD64*>(LocateXStateFeature(xctx, XSTATE_AVX512_KMASK, &length));
+                if (kmask != nullptr && length >= 8 * sizeof(DWORD64))
+                    for (int i = 0; i < 8; ++i)
+                        kmask[i] = titcontext->Opmask[i];
+                error = frontend.writeXStateContext(thread, xctx);
                 SetLastError(error); return error == ERROR_SUCCESS;
             };
-            table.GetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
-            table.SetAVX512Context = [](HANDLE, TITAN_ENGINE_CONTEXT_AVX512_t*) -> bool { return rejectBool(); };
             table.GetDebugData = []() -> const DEBUG_EVENT* { return nullptr; };
             table.SetCustomHandler = [](TitanCustomHandler, TITANCALLBACKARG) {};
             // Step shims resume once and record the callback for DebugLoop

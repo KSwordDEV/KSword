@@ -34,6 +34,13 @@ namespace ksword::debugger
         DWORD removeBreakpoint(std::uint32_t id);
         DWORD readContext(HANDLE thread, CONTEXT&);
         DWORD writeContext(HANDLE thread, const CONTEXT&);
+        // XSTATE-aware variants accept a caller-allocated CONTEXT_EX (sized
+        // via InitializeContext with CONTEXT_XSTATE). Required features must
+        // already be set on the context with SetXStateFeaturesMask. The
+        // driver still owns the stop point; these routines only drain live
+        // AVX/AVX-512 register files via SuspendThread + Get/SetThreadContext.
+        DWORD readXStateContext(HANDLE thread, PCONTEXT context);
+        DWORD writeXStateContext(HANDLE thread, const CONTEXT* context);
         bool takeStepIntent();
         std::uint64_t takeStepOverTarget();
         DWORD processInfo(PROCESS_INFORMATION&);

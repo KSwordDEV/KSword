@@ -465,6 +465,36 @@ namespace ksword::debugger
         return ERROR_SUCCESS;
     }
 
+    DWORD IndependentFrontend::readXStateContext(HANDLE thread, PCONTEXT context)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        if (!targetThread(thread) || context == nullptr) return ERROR_INVALID_HANDLE;
+        if (recovery_ || stop_.state != KSWORD_ARK_HVM_NOATTACH_STOPPED) return ERROR_NOT_READY;
+        // Suspend the single bound thread briefly so the Windows scheduler
+        // flushes its saved XSTATE buffer. Driver-side stop remains in effect.
+        const DWORD previous = ::SuspendThread(thread_.native());
+        if (previous == MAXDWORD) return GetLastError();
+        const BOOL read = ::GetThreadContext(thread_.native(), context);
+        const DWORD error = read ? ERROR_SUCCESS : GetLastError();
+        const auto resumed = ::ResumeThread(thread_.native());
+        if (resumed == MAXDWORD || resumed == 0) { recovery_ = true; return ERROR_INVALID_STATE; }
+        return error;
+    }
+
+    DWORD IndependentFrontend::writeXStateContext(HANDLE thread, const CONTEXT* context)
+    {
+        std::lock_guard lock(backend_.mutex_);
+        if (!targetThread(thread) || context == nullptr) return ERROR_INVALID_HANDLE;
+        if (recovery_ || stop_.state != KSWORD_ARK_HVM_NOATTACH_STOPPED) return ERROR_NOT_READY;
+        const DWORD previous = ::SuspendThread(thread_.native());
+        if (previous == MAXDWORD) return GetLastError();
+        const BOOL written = ::SetThreadContext(thread_.native(), const_cast<PCONTEXT>(context));
+        const DWORD error = written ? ERROR_SUCCESS : GetLastError();
+        const auto resumed = ::ResumeThread(thread_.native());
+        if (resumed == MAXDWORD || resumed == 0) { recovery_ = true; return ERROR_INVALID_STATE; }
+        return error;
+    }
+
     bool IndependentFrontend::takeStepIntent()
     { std::lock_guard lock(backend_.mutex_); return stepIntent_; }
 
