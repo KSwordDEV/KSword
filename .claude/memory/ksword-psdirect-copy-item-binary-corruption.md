@@ -1,11 +1,17 @@
 ---
 name: ksword-psdirect-copy-item-binary-corruption
-description: WinRM/PSDirect 的 Copy-Item -ToSession 对 kernel driver .sys 这类 ≥3 MB binary 产生 silent corruption，表现为 host hash 与推送后 VM hash 不一致、sc start error 193。用 base64 encode + Add-Content 分块 512KB/块绕过。
+description: Restart-VM 后立即读 staging 的大 .sys hash 可能看到 journal replay 中间状态 (前 64 字节全 0, size 保留)。曾被误判为 Copy-Item -ToSession binary corruption，修订后真因是 NTFS journal replay 未完成。base64 分块传输之所以生效，是多次 Add-Content 间隔给 journal replay 时间，不是 bypass Copy-Item bug。
 metadata:
   type: feedback
 ---
 
-PSDirect 的 `Copy-Item -ToSession` 对较大的 kernel driver .sys 会产生**静默 binary corruption**——不是报错，而是推送成功后 hash 变了。
+## 修订说明 (2026-11-15)
+
+本记忆最初归因为 `Copy-Item -ToSession` 的 binary corruption bug，**修订后真因**是 **NTFS journal replay 在 Restart-VM 后未完成**，参见 [[ksword-parallel-agent-vm-staging-race]] (commit be99acdb8 user correction)。下面保留原始观察作故障排查参考，归因章节整体更正。
+
+## 原始观察 (客观事实)
+
+PSDirect 的 `Copy-Item -ToSession` 推 3.6 MB kernel driver .sys，host hash 与 **后续** 读到的 VM hash 不一致。
 
 **可复现场景**: Hyper-V PSDirect session，`Copy-Item -ToSession $sess -Path <KswordARK.sys 3.6 MB> -Destination C:\ks-stage\ -Force`。
 
@@ -16,7 +22,13 @@ PSDirect 的 `Copy-Item -ToSession` 对较大的 kernel driver .sys 会产生**�
 
 **症状**: 后续 `sc start KswordARK` 失败 `error 193 (0xC1 is not a valid Win32 application)` — PE header 已损坏，内核无法加载。
 
-**Why**: WinRM/SOAP 层对大 binary 传输可能触发编码/反编码 bug（可能与 PS 5.1 的 PowerShell Remoting Serialization 相关）。小文件 (.lua / .ps1) 没观察到，CheatEnginePlugin.dll 460 KB 没观察到；3.6 MB .sys 观察到。
+**Why (已修订)**: ~~WinRM/SOAP 层对大 binary 传输 bug~~ **真因是 NTFS journal replay 在 Restart-VM 后未完成**。具体时序:
+1. Copy-Item 到 staging — 立刻读 hash **与 host 一致** ✓
+2. sc delete + Restart-VM — VM 重启
+3. Restart 后 PSDirect 重入, 读 staging hash **看到前 64 字节全 0** ← 这里被误判
+4. Copy staging → ks-vm → sc start error 193
+
+小文件 (.lua / .ps1 < 1 MB, CheatEnginePlugin.dll 460 KB) 没观察到, 因为 journal replay 对小文件很快完成。3.6 MB .sys 处于边界。
 
 **How to apply**: 推 kernel driver .sys 或其他 ≥1-2 MB binary 到 Hyper-V VM 时，先推 base64 encode 的 text 文件，VM 侧 decode:
 
@@ -44,4 +56,9 @@ Invoke-Command -Session $sess -ScriptBlock {
 
 本会话 3.6 MB .sys 分 10 chunks (base64 ~4.8 MB), 全部成功, 推送后 VM hash 与 host 完全一致。
 
-**判据记忆**: **推 binary 永远在 VM 侧 Get-FileHash 核验与 host 一致**。记忆 [[ksword-build-output-raced]] 记录了产物被并行会话重写的问题，判据相同（hash mismatch）但成因不同——该条是 concurrent rebuild 覆盖，本条是 transit corruption。
+**为什么 base64 分块 workaround 生效 (修订)**:
+~~~bypass Copy-Item bug~~ **真实机制**: `Add-Content` 10 次分块每次 ~0.3-0.5s, 中间隔 PSDirect 往返延迟, 10 次合计 5-10 秒。这段时间足够 NTFS journal replay 完成, 所以最后 Base64 decode + WriteAllBytes 时看到的 staging page 已经稳定, 不再是 zero-filled 中间状态。
+
+**判据记忆**: **Restart-VM 后不要立即读 staging 大文件 hash — 等 5-10 秒**。
+- 相关 [[ksword-parallel-agent-vm-staging-race]] — 同一现象的完整分析
+- 相关 [[ksword-build-output-raced]] — 另一类 hash mismatch (并行 rebuild 覆盖), 判据相同但成因不同
