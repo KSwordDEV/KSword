@@ -7,6 +7,7 @@
 #pragma warning(pop)
 
 #include <Windows.h>
+#include <TlHelp32.h>
 #include <limits>
 #include <array>
 #include <cstring>
@@ -151,6 +152,37 @@ namespace ksword::titan
             if (!debugger::backend().retainTarget(process, false, target)) return FALSE;
             return debugger::backend().writeMemory(target.native(), address, data, bytes, done);
         }
+
+        // PEB / TEB queries only read live kernel bookkeeping and never
+        // establish a Windows debugger relationship. Resolve ntdll entry
+        // points once so repeated calls stay cheap.
+        ULONG_PTR pebFromProcess(HANDLE process)
+        {
+            using NtQIP = LONG(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+            static const auto query = reinterpret_cast<NtQIP>(
+                GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess"));
+            if (!query) return 0;
+            struct { LONG ExitStatus; ULONG_PTR PebBaseAddress; ULONG_PTR AffinityMask;
+                LONG BasePriority; ULONG_PTR UniqueProcessId;
+                ULONG_PTR InheritedFromUniqueProcessId; } information{};
+            ULONG returned = 0;
+            return query(process, 0, &information, sizeof(information), &returned) >= 0
+                ? information.PebBaseAddress : 0;
+        }
+
+        ULONG_PTR tebFromThread(HANDLE thread)
+        {
+            using NtQIT = LONG(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+            static const auto query = reinterpret_cast<NtQIT>(
+                GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread"));
+            if (!query) return 0;
+            struct { LONG ExitStatus; ULONG_PTR TebBaseAddress;
+                struct { HANDLE UniqueProcess; HANDLE UniqueThread; } Cid;
+                ULONG_PTR AffinityMask; LONG Priority; LONG BasePriority; } information{};
+            ULONG returned = 0;
+            return query(thread, 0, &information, sizeof(information), &returned) >= 0
+                ? information.TebBaseAddress : 0;
+        }
     }
 
     NativeApi& independentApi()
@@ -187,8 +219,24 @@ namespace ksword::titan
                 if (!debugger::backend().retainTarget(process, false, target)) return false;
                 return debugger::backend().protectMemory(target.native(), address, bytes, protection, previous) != FALSE;
             };
-            table.GetPEBLocation = [](HANDLE) -> ULONG_PTR { return rejectValue<ULONG_PTR>(0); };
-            table.GetTEBLocation = [](HANDLE) -> ULONG_PTR { return rejectValue<ULONG_PTR>(0); };
+            // Pure Windows bookkeeping queries, no debugger relationship.
+            // Callers (x64dbg CPU panel, Titan info widgets) open their own
+            // PROCESS_QUERY_INFORMATION / THREAD_QUERY_LIMITED_INFORMATION
+            // handle, so these shims do not consult the Independent frontend.
+            table.GetPEBLocation = [](HANDLE process) -> ULONG_PTR
+            {
+                if (process == nullptr) { SetLastError(ERROR_INVALID_HANDLE); return 0; }
+                const auto peb = pebFromProcess(process);
+                SetLastError(peb != 0 ? ERROR_SUCCESS : ERROR_INVALID_HANDLE);
+                return peb;
+            };
+            table.GetTEBLocation = [](HANDLE thread) -> ULONG_PTR
+            {
+                if (thread == nullptr) { SetLastError(ERROR_INVALID_HANDLE); return 0; }
+                const auto teb = tebFromThread(thread);
+                SetLastError(teb != 0 ? ERROR_SUCCESS : ERROR_INVALID_HANDLE);
+                return teb;
+            };
             table.InitDebugW = [](const wchar_t*, const wchar_t*, const wchar_t*) -> PROCESS_INFORMATION*
             { return rejectValue<PROCESS_INFORMATION*>(nullptr); };
             table.InitReplayW = [](const wchar_t*, TitanSessionKind) -> PROCESS_INFORMATION*
@@ -535,7 +583,36 @@ namespace ksword::titan
                 DWORD size = static_cast<DWORD>(chars);
                 return QueryFullProcessImageNameW(process, 0, path, &size) != FALSE;
             };
-            table.TitanGetModulePathW = [](HANDLE, ULONG_PTR, LPWSTR, SIZE_T) -> bool { return rejectBool(); };
+            // Module enumeration uses the live loader snapshot; it is not
+            // tied to a stop and therefore not routed through the frontend.
+            table.TitanGetModulePathW = [](HANDLE process, ULONG_PTR base, LPWSTR path, SIZE_T chars) -> bool
+            {
+                if (process == nullptr || path == nullptr || chars == 0 ||
+                    chars > (std::numeric_limits<DWORD>::max)())
+                { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+                const DWORD pid = GetProcessId(process);
+                if (pid == 0) { SetLastError(ERROR_INVALID_HANDLE); return false; }
+                HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+                if (snapshot == INVALID_HANDLE_VALUE) return false;
+                MODULEENTRY32W entry{};
+                entry.dwSize = sizeof(entry);
+                DWORD completion = ERROR_MOD_NOT_FOUND;
+                bool copied = false;
+                if (Module32FirstW(snapshot, &entry))
+                {
+                    do
+                    {
+                        if (reinterpret_cast<ULONG_PTR>(entry.modBaseAddr) != base) continue;
+                        const SIZE_T length = std::wcslen(entry.szExePath);
+                        if (length >= chars) { completion = ERROR_INSUFFICIENT_BUFFER; break; }
+                        std::memcpy(path, entry.szExePath, (length + 1) * sizeof(wchar_t));
+                        completion = ERROR_SUCCESS; copied = true; break;
+                    } while (Module32NextW(snapshot, &entry));
+                }
+                CloseHandle(snapshot);
+                SetLastError(completion);
+                return copied;
+            };
             table.TitanCloseHandle = [](HANDLE handle) -> bool { return ::CloseHandle(handle) != FALSE; };
             table.ProcessIsWow64 = [](HANDLE process, PBOOL isWow64) -> bool
             { return IsWow64Process(process, isWow64) != FALSE; };
