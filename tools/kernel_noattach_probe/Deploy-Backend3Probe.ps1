@@ -9,20 +9,22 @@
     宿主侧新 .sys 路径。默认 Ksword5.1\x64\Release\KswordARK.sys。
 
 .PARAMETER ProbeMode
-    QueryOnly | NoopWrite。默认 QueryOnly。
+    QueryOnly | NoopWrite | AliasWrite | Trip。默认 QueryOnly。
+    Trip：destructive，alias 改 IDT[vector].IstAndType，预期触发 PG BugCheck 0x109。
 
 .PARAMETER Vector
-    IDT 向量。默认 1。
+    IDT 向量。默认 1。Trip 推荐 0x2F。
 
 .EXAMPLE
     .\Deploy-Backend3Probe.ps1
     .\Deploy-Backend3Probe.ps1 -ProbeMode NoopWrite
+    .\Deploy-Backend3Probe.ps1 -ProbeMode Trip -Vector 0x2F
 #>
 [CmdletBinding()]
 param(
     [string]$VMName = '26H2-11-Pro',
     [string]$SysPath = 'Ksword5.1\x64\Release\KswordARK.sys',
-    [ValidateSet('QueryOnly','NoopWrite','AliasWrite')][string]$ProbeMode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip')][string]$ProbeMode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 
@@ -74,21 +76,23 @@ if (-not $copyResult.HashMatch) { throw "VM .sys hash mismatch - abort" }
 # 4. 启服务
 Write-Host "Starting KswordARK service..."
 $startResult = Invoke-Command -VMName $VMName -Credential $cred -ScriptBlock {
+    # 在 VM 侧完成比较，避免 PS Remoting 将 ServiceControllerStatus enum 反序列化成 int 后 host 侧字符串比较恒失败。
     $t0 = [DateTime]::UtcNow
     $out = & sc.exe start KswordARK 2>&1
     $dt = ([DateTime]::UtcNow - $t0).TotalSeconds
     $svc = Get-Service KswordARK -EA SilentlyContinue
     [pscustomobject]@{
-        StartOut = ($out -join "`n")
-        State    = if ($svc) { $svc.Status } else { 'absent' }
-        ElapsedS = [math]::Round($dt, 2)
+        StartOut  = ($out -join "`n")
+        StateName = if ($svc) { $svc.Status.ToString() } else { 'absent' }
+        IsRunning = if ($svc) { ($svc.Status -eq 'Running') } else { $false }
+        ElapsedS  = [math]::Round($dt, 2)
     }
 }
-Write-Host ("sc start: state={0} elapsedS={1}" -f $startResult.State, $startResult.ElapsedS)
+Write-Host ("sc start: state={0} elapsedS={1}" -f $startResult.StateName, $startResult.ElapsedS)
 Write-Host $startResult.StartOut
 
-if ("$($startResult.State)" -ne 'Running') {
-    throw "Driver did not reach Running state (saw $($startResult.State))"
+if (-not $startResult.IsRunning) {
+    throw "Driver did not reach Running state (saw $($startResult.StateName))"
 }
 
 # 5. 跑 probe

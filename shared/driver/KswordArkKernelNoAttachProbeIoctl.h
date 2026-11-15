@@ -25,6 +25,8 @@
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_STATUS 2UL
 /* v3 PFN alias 变体：MDL + MmMapLockedPagesSpecifyCache 建立独立 RW 别名 VA，走别名写。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_ALIAS_WRITE 3UL
+/* v4 destructive：alias 写 IDT[vector] 的 IstAndType ^= 0x0100，Type 从 0xE 翻到 0xF 让 PG checksum 失配。 */
+#define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_CHECKSUM_TRIP 4UL
 
 /* 探针状态位：操作已完成且未触发 SEH。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED 0x00000001UL

@@ -1,6 +1,6 @@
 ---
 name: ksword-backend3-idt-ro-pte-blocks-poc
-description: Backend 3 直接 RtlCopyMemory 写 IDT 在 26300 HVCI off 下立即 BugCheck 0xBE（PTE bit1=0）。但 **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) 建立的 alias VA 可写**，v3 实测 6/6 PASS，no-op 写 3 分钟后 VM 存活无 PatchGuard 触发。IDT 内容实际修改（非 no-op）预期分钟级触发 PG 0x109。
+description: Backend 3 直接 RtlCopyMemory 写 IDT 在 26300 HVCI off 下立即 BugCheck 0xBE（PTE bit1=0）。但 **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) 建立的 alias VA 可写**，v3 实测 6/6 PASS。v4 实测 CPU 0 的 IDT[0x2F].IstAndType 从 0x8E00 flip 到 0x8F00（Type 0xE→0xF），**25+ 分钟未触发 PatchGuard，修改保持**；但每 CPU 有独立 IDT，其它核未受影响。
 metadata:
   type: project
 ---
@@ -111,6 +111,36 @@ Workflow 把 "plain write" 当成单一动作，没区分直接 VA 写和 alias 
 - 3 分钟后 VM 存活 uptime=278s，PG 对 no-op 写不敏感。
 
 ### PoC 代码
-- `KswordARKDriver/src/features/kernel_noattach_probe/kernel_noattach_probe.c`：核心 KnapReadIdtAndEntry / KnapProbeNoopWrite / KnapProbeAliasWrite。
-- `shared/driver/KswordArkKernelNoAttachProbeIoctl.h`：IOCTL 0x940，三个 op (QUERY_IDT / PROBE_IDT_NOOP_WRITE / PROBE_IDT_ALIAS_WRITE)。
+- `KswordARKDriver/src/features/kernel_noattach_probe/kernel_noattach_probe.c`：核心 KnapReadIdtAndEntry / KnapProbeNoopWrite / KnapProbeAliasWrite / KnapProbeChecksumTrip。
+- `shared/driver/KswordArkKernelNoAttachProbeIoctl.h`：IOCTL 0x940，四个 op (QUERY_IDT / PROBE_IDT_NOOP_WRITE / STATUS / PROBE_IDT_ALIAS_WRITE / PROBE_IDT_CHECKSUM_TRIP)。
 - `tools/kernel_noattach_probe/{Test,Deploy}-Backend3Probe.ps1`：R3 测试 + VM 部署脚本。
+
+## v4 Trip 实测 (2026-11-15)
+
+Driver v4 hash `077BCCA38A64E63F...`，加入 `KnapProbeChecksumTrip`：`IstAndType ^= 0x0100` 把 Type 0xE (Interrupt Gate) flip 到 0xF (Trap Gate)。Vector=0x2F (APIC Spurious)。
+
+**单核 Trip 后 25+ 分钟未触发 PatchGuard**：
+- **install_walltime** = 2026-11-15T15:44:59-05:00，Trip IOCTL 返回 `StatusFlags=0x5` (COMPLETED | READBACK_MATCH)，`ReadbackLow=0xB5CC8F0000102C80`（原 `0xB5CC8E0000102C80`），`AliasVa=0xFFFFD08134F292F0`。
+- **monitor loop** 轮询 Get-VM `HeartBeat/Uptime` 每 2s，`MonitorTimeoutSec=1500`。实测 1502.1s（25 分钟）内 VM 持续 `State=Running`, `HeartBeat=OkApplicationsUnknown`，Uptime 单调递增，无 BugCheck。
+- **Deploy 脚本 bug**：PS Remoting 把 `ServiceControllerStatus` enum 反序列化成 int（4），`"$($state)" -ne 'Running'` 永远真。第一次 harness 跑 25 分钟其实根本没发 Trip 就 throw 了（但 `sc start` 成功，所以 driver 已启）。修法是让 VM 侧提前 `.ToString()` 并返回 bool。第二次 harness 直接 Invoke-Command 把 Test-Backend3Probe 的 Trip body 投到已加载 driver 上。
+
+**per-CPU IDT 的关键发现**：
+- Hyper-V VM 4 vCPU，4 个独立 IDT base：
+  - CPU 0: `0xFFFFF800481DD000`（高低不同的 region，疑似 BSP boot-time 分配）
+  - CPU 1: `0xFFFFD0812FFE3000`
+  - CPU 2: `0xFFFFD08130060000`
+  - CPU 3: `0xFFFFD081300AD000`
+- Trip IOCTL 恰好由 CPU 0 的线程处理 → **只改到 CPU 0 的 IDT**；CPUs 1-3 保持原 `EntryLow=0xB5CC8E...`。
+- Trip 25 分钟后用 ProcessorAffinity 把 QueryOnly 轮流打到四个核：CPU 0 仍显示 `0xB5CC8F...`（trip 保持），CPUs 1-3 显示 `0xB5CC8E...`（未改）。
+- **判据差点被 per-CPU IDT 骗翻**：第一次 QueryOnly 刚好打在某非 CPU 0 的核，看到原值，一度以为 "IDT 被静默 restore"。得 per-CPU 遍历才证伪。
+
+**解读**：
+- 修改**保持 25+ 分钟**，不是被某种自愈机制复原；只是查询时读错了 CPU。
+- PG 对 vector 0x2F 的 IstAndType flip 在当前 window 内**未触发 0x109**。可能原因（未落地证据，列出不作决策）：PG IDT 覆盖范围不含 vector 0x2F / 不含 IstAndType.Type 字段 / 检查 cadence 远超 25 分钟 / 只覆盖 CPU N 的 IDT 而我们改的恰好是 CPU 0 以外。
+- Backend 3 任何依赖 "把所有调用捕到探针 handler" 的产品路径都要**同时改所有 CPU 的 IDT**，因此 IOCTL 需要能 broadcast (`KeGenericCallDpc` 或 affinity 遍历) 而不是只打当前核。
+
+## How to apply（追加）
+
+- MDL alias 写在 "VBS=0 / HVCI=off / TestSigning=on" 签名驱动下**结构性可行**：trip 25+ 分钟保持，PG 未触发（vector 0x2F / IstAndType flip 这个特定组合，不代表其它字段/向量 PG 也不覆盖）。
+- 任何 "改 IDT 做拦截" 的 PoC 下一步必须 broadcast 到所有 CPU，然后多核同步 verify。单核 trip 的 "25 分钟未触发" 不能推广到多核 trip。
+- PS Remoting 的 enum 反序列化：host 侧 `$obj.EnumField -eq 'Name'` 对任何 ServiceControllerStatus / ProcessPriorityClass 等 enum 恒失败（返回 int），必须在 VM 侧完成字符串化再回传。

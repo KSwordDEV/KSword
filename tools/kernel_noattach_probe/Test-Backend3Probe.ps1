@@ -9,18 +9,20 @@
       HVCI on 时可能触发 BugCheck 0x139/0x109，必须在授权 VM 内运行。
 
 .PARAMETER Mode
-    QueryOnly | NoopWrite。默认 QueryOnly。
+    QueryOnly | NoopWrite | AliasWrite | Trip。默认 QueryOnly。
+    Trip：alias 写 IstAndType ^= 0x0100，改 Type 0xE→0xF，等 PG checksum 发现后 0x109。
 
 .PARAMETER Vector
-    IDT 向量号 0..255，默认 1 (#DB)。
+    IDT 向量号 0..255，默认 1 (#DB)。Trip 建议 0x2F。
 
 .EXAMPLE
     .\Test-Backend3Probe.ps1 -Mode QueryOnly
     .\Test-Backend3Probe.ps1 -Mode NoopWrite -Vector 0x2F
+    .\Test-Backend3Probe.ps1 -Mode Trip -Vector 0x2F
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('QueryOnly','NoopWrite','AliasWrite')][string]$Mode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip')][string]$Mode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 
@@ -50,8 +52,9 @@ $op = switch ($Mode) {
     'QueryOnly'  { [uint32]0 }
     'NoopWrite'  { [uint32]1 }
     'AliasWrite' { [uint32]3 }
+    'Trip'       { [uint32]4 }
 }
-$confirm = if ($Mode -in 'NoopWrite','AliasWrite') { [uint32]1 } else { [uint32]0 }
+$confirm = if ($Mode -in 'NoopWrite','AliasWrite','Trip') { [uint32]1 } else { [uint32]0 }
 
 $h = [Win32.KSwordB3]::CreateFileW('\\.\KswordARKLog', $GENERIC_WRITE, [uint32]3, [IntPtr]::Zero, $OPEN_EXISTING, [uint32]0, [IntPtr]::Zero)
 if ($h -eq $INVALID_HANDLE) {

@@ -407,6 +407,147 @@ KnapProbeAliasWrite(
 #endif
 }
 
+/* v4 destructive：alias 写修改 IDT[vector] 的 Type 字段，触发 PG IDT checksum 失配。 */
+static NTSTATUS
+KnapProbeChecksumTrip(
+    _In_ ULONG Vector,
+    _Inout_ KSWORD_ARK_KERNEL_NOATTACH_PROBE_RESPONSE* Response)
+{
+#if defined(_M_AMD64) || defined(_M_X64)
+    /* 保存旧 affinity，退出前恢复。 */
+    GROUP_AFFINITY oldAffinity = {0};
+    /* 本地 IDTR 快照。 */
+    KNAP_IDTR_LAYOUT idtr = {0};
+    /* 目标 IDT entry 的原始 VA。 */
+    PVOID targetVa = NULL;
+    /* 原值 + 修改副本 + alias 读回。 */
+    KNAP_IDT_ENTRY original = {0};
+    KNAP_IDT_ENTRY tripped = {0};
+    KNAP_IDT_ENTRY aliasReadback = {0};
+    /* MDL 与 alias VA。 */
+    PMDL mdl = NULL;
+    PVOID aliasVa = NULL;
+    /* 跟踪映射状态，退出前成对清理。 */
+    BOOLEAN pagesMapped = FALSE;
+    /* SEH 命中标记与异常代码。 */
+    BOOLEAN sehFired = FALSE;
+    ULONG sehCode = 0UL;
+    BOOLEAN readOk = FALSE;
+
+    /* Vector 越界立即拒绝，不分配任何资源。 */
+    if (Vector >= KNAP_MAX_VECTOR) { return STATUS_INVALID_PARAMETER; }
+    /* 固定到当前 CPU，保证 __sidt 与后续访问同 IDT。 */
+    KnapPinCurrentCpu(&oldAffinity);
+    __sidt(&idtr.Limit);
+    if (((ULONG)idtr.Limit + 1U) < (Vector + 1U) * sizeof(KNAP_IDT_ENTRY))
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        return STATUS_INVALID_PARAMETER;
+    }
+    targetVa = (PVOID)(idtr.Base + Vector * sizeof(KNAP_IDT_ENTRY));
+    /* 读原值到栈：SEH 包住，若读失败连 PG trip 也不启动。 */
+    __try
+    {
+        RtlCopyMemory(&original, targetVa, sizeof(original));
+        readOk = TRUE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        sehFired = TRUE;
+        sehCode = GetExceptionCode();
+    }
+    /* 预填 IDTR 与原值供 R3 诊断。 */
+    Response->IdtLimit = (unsigned long)idtr.Limit;
+    Response->IdtBase = (unsigned long long)idtr.Base;
+    if (readOk)
+    {
+        KnapCopyEntryBytes(&original, &Response->EntryLow, &Response->EntryHigh);
+    }
+    /* 读失败就直接退出，不执行破坏性写。 */
+    if (!readOk)
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        Response->SehCode = sehCode;
+        return STATUS_SUCCESS;
+    }
+    /* 构造修改后的 entry：IstAndType ^= 0x0100 把 Type 从 0xE (Interrupt Gate) 翻到 0xF (Trap Gate)。 */
+    /* 该改动对已 Present 的 vector 几乎无运行时影响，只让 IDT 字节内容变化。 */
+    tripped = original;
+    tripped.IstAndType ^= 0x0100;
+    /* 分配 MDL 跨越 entry 所属页。 */
+    mdl = IoAllocateMdl(targetVa, sizeof(KNAP_IDT_ENTRY), FALSE, FALSE, NULL);
+    if (mdl == NULL)
+    {
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+        Response->SehCode = (ULONG)STATUS_INSUFFICIENT_RESOURCES;
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        return STATUS_SUCCESS;
+    }
+    /* IDT 是非分页，直接 build；MmMapLockedPagesSpecifyCache 返回新 PTE 的 alias VA。 */
+    __try
+    {
+        MmBuildMdlForNonPagedPool(mdl);
+        aliasVa = MmMapLockedPagesSpecifyCache(mdl, KernelMode, MmCached, NULL, FALSE, NormalPagePriority);
+        if (aliasVa != NULL) { pagesMapped = TRUE; }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        sehFired = TRUE;
+        sehCode = GetExceptionCode();
+    }
+    /* 有 alias VA 才做 destructive 写。 */
+    if (aliasVa != NULL && !sehFired)
+    {
+        Response->AliasVa = (unsigned long long)(ULONG_PTR)aliasVa;
+        __try
+        {
+            /* 把修改后 entry 写进 alias VA，底层同一 PFN，原 VA 读回也会变。 */
+            RtlCopyMemory(aliasVa, &tripped, sizeof(tripped));
+            /* 从 alias VA 读回验证落地。 */
+            RtlCopyMemory(&aliasReadback, aliasVa, sizeof(aliasReadback));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            sehFired = TRUE;
+            sehCode = GetExceptionCode();
+        }
+    }
+    /* 清理 alias 映射与 MDL。 */
+    if (pagesMapped && aliasVa != NULL)
+    {
+        MmUnmapLockedPages(aliasVa, mdl);
+    }
+    if (mdl != NULL)
+    {
+        IoFreeMdl(mdl);
+    }
+    /* 恢复 affinity。 */
+    KeRevertToUserGroupAffinityThread(&oldAffinity);
+    if (!sehFired)
+    {
+        /* 读回字段：tripped 后的 16 字节，R3 据此确认 IstAndType 已改。 */
+        KnapCopyEntryBytes(&aliasReadback, &Response->ReadbackLow, &Response->ReadbackHigh);
+        /* READBACK_MATCH 这里的语义是"读回等于已修改副本"，不是等于原值。 */
+        if (aliasReadback.IstAndType == tripped.IstAndType)
+        {
+            Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_READBACK_MATCH;
+        }
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED;
+    }
+    else
+    {
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+        Response->SehCode = sehCode;
+    }
+    return STATUS_SUCCESS;
+#else
+    UNREFERENCED_PARAMETER(Vector);
+    UNREFERENCED_PARAMETER(Response);
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 /* 对外 IOCTL handler：校验 WDF 缓冲区，分发到三种操作。 */
 NTSTATUS
 KswordARKKernelNoAttachProbeIoctl(
@@ -496,6 +637,15 @@ KswordARKKernelNoAttachProbeIoctl(
             break;
         }
         status = KnapProbeAliasWrite(request.Vector, &response);
+        break;
+    case KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_CHECKSUM_TRIP:
+        /* v4 destructive：必须 Confirm=1，写入会被 PG IDT checksum 识别并最终导致 0x109。 */
+        if (request.Confirm != 1UL)
+        {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        status = KnapProbeChecksumTrip(request.Vector, &response);
         break;
     default:
         /* 未知操作码不触发任何副作用。 */
