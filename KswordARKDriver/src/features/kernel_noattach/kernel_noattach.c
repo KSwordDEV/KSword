@@ -244,10 +244,11 @@ static NTSTATUS KnaBind(const KSWORD_ARK_KERNEL_NOATTACH_REQUEST *Request, PEPRO
     status = KnaRequireNoDebugPort(g_Kna.Process);
     /* 已有调试关系不被本后端抢占。 */
     if (!NT_SUCCESS(status)) { return status; }
-    /* WOW64 与 x64 上下文不可互换。 */
+    /* WOW64 x86 target 由 x64 KiDispatchException 分发器统一接管；32-bit 用户代码的
+     * Eip/Eax 等出现在 x64 CONTEXT 低 32 位，执行断点与 GPR 读写在该语义下等效。 */
     WOW64 wow64 = (WOW64)MmGetSystemRoutineAddress(&name);
-    /* 没有可靠架构判据时不继续。 */
-    if (wow64 == NULL || wow64(g_Kna.Process) != NULL) { return STATUS_NOT_SUPPORTED; }
+    /* 需要架构判据来至少区分 WOW64 和其它非 x86/x64 情况；缺失则按最保守拒绝。 */
+    if (wow64 == NULL) { return STATUS_NOT_SUPPORTED; }
     /* 固定线程对象直到全部异常消费者排空。 */
     status = PsLookupThreadByThreadId(ULongToHandle(Request->threadId), &g_Kna.Thread);
     /* 无效 TID 不推断成功。 */

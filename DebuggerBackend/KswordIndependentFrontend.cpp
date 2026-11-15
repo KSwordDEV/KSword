@@ -42,13 +42,19 @@ namespace ksword::debugger
             return query && query(process, 7, &port, sizeof(port), nullptr) >= 0 && port == 0;
         }
 
-        bool nativeX64(HANDLE process)
+        bool supportedTarget(HANDLE process)
         {
             using Query = BOOL (WINAPI*)(HANDLE, USHORT*, USHORT*);
             const auto query = reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2"));
             USHORT image = 0, machine = 0;
-            return query && query(process, &image, &machine) && image == IMAGE_FILE_MACHINE_UNKNOWN &&
-                machine == IMAGE_FILE_MACHINE_AMD64;
+            if (!query || !query(process, &image, &machine)) return false;
+            // Both native x64 (image == UNKNOWN) and WoW64 x86 (image == I386) run
+            // under our x64 KiDispatchException hook. 32-bit targets expose their
+            // Eip / Eax / ... through the low 32 bits of the x64 CONTEXT the
+            // driver returns, so execute breakpoints and GPR edits are correct
+            // even though the frontend never speaks the WOW64_CONTEXT ABI.
+            return machine == IMAGE_FILE_MACHINE_AMD64 &&
+                (image == IMAGE_FILE_MACHINE_UNKNOWN || image == IMAGE_FILE_MACHINE_I386);
         }
 
         KSWORD_ARK_HVM_NOATTACH_GPR registers(const CONTEXT& source)
@@ -178,7 +184,7 @@ namespace ksword::debugger
         thread_.reset(::OpenThread(THREAD_QUERY_INFORMATION | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT |
             THREAD_SUSPEND_RESUME | SYNCHRONIZE, FALSE, configuredTid_));
         if (!thread_.isValid()) { const auto error = GetLastError(); resetSession(); return error; }
-        if (!nativeX64(process_.native()) || !noWindowsDebugRelationship(process_.native()) ||
+        if (!supportedTarget(process_.native()) || !noWindowsDebugRelationship(process_.native()) ||
             GetProcessIdOfThread(thread_.native()) != pid || WaitForSingleObject(process_.native(), 0) != WAIT_TIMEOUT ||
             WaitForSingleObject(thread_.native(), 0) != WAIT_TIMEOUT)
         { resetSession(); return ERROR_NOT_SUPPORTED; }
