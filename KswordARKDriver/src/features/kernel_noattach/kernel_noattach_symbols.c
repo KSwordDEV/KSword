@@ -525,9 +525,34 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
          * 组合生成 forward 跳转，而不是只接受 0x5540 (push rbp with REX prefix)。 */
         if (KswordARKRuntimeReadMemory(Out->KiDispatchException, &entryWord, sizeof(entryWord)))
         {
+            /* 硬化 Predicate P4: entry word 白名单验证，排除指向错误位置的候选。
+             * 9711/9974 两 build 实测均为 0x5540 (REX+PUSH RBP)。其他合理 compiler
+             * /hotpatch prologue 也接受；空字节与 0xCC 填充为严重异常信号。 */
+            static const USHORT KnaKiDispatchEntryWhitelist[] = {
+                0x5540U,  /* REX+PUSH RBP — observed on 26100.9711 and 26100.9974. */
+                0x5340U,  /* REX+PUSH RBX — compiler variant for different frame reg. */
+                0x5553U,  /* PUSH RBP + PUSH RBX back-to-back (uncommon non-REX form). */
+                0x4055U,  /* Legacy equivalent of 0x5540 byte order on some toolchains. */
+                0x4053U,  /* Legacy equivalent of 0x5340 byte order. */
+            };
+            ULONG wIndex;
+            BOOLEAN wordKnown = FALSE;
+            /* 线性扫描白名单；条数固定极少，无需哈希。 */
+            for (wIndex = 0UL; wIndex < RTL_NUMBER_OF(KnaKiDispatchEntryWhitelist); ++wIndex)
+            {
+                if (entryWord == KnaKiDispatchEntryWhitelist[wIndex]) { wordKnown = TRUE; break; }
+            }
             Out->KiDispatchExceptionWord = entryWord;
-            DbgPrint("[KnaResolveSymbols] KiDispatchException@%p entry_word=0x%04X\n",
-                     Out->KiDispatchException, entryWord);
+            DbgPrint("[KnaResolveSymbols] KiDispatchException@%p entry_word=0x%04X whitelist=%d\n",
+                     Out->KiDispatchException, entryWord, (int)wordKnown);
+            /* 空字节 (读到未初始化区) 或 0xCC 填充 (指向 padding 不是函数) 为严重
+             * 异常信号，记入日志便于后续 session 跨 build 定位。production 仍走
+             * KnaProfiles oracle 兜底，本检查不自行改写判定。 */
+            if (entryWord == 0x0000U || entryWord == 0xCCCCU)
+            {
+                DbgPrint("[KnaResolveSymbols]   entry_word is null/padding — likely wrong routine; "
+                         "do NOT trust runtime discovery for this build\n");
+            }
         }
         /* 搜索入口前方最多 32 字节 0xCC padding。14 字节放 6 字节 FF /4 间接 jmp +
          * 8 字节 absolute target 已足够现有 bridge；不足的 build 由 Phase A7 的
@@ -545,6 +570,113 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
         {
             DbgPrint("[KnaResolveSymbols] KiDispatchException pad bytes=%u (need>=14), A7 trampoline fallback required\n",
                      patchBytes);
+        }
+    }
+    /* 硬化 Design 3 S8: KeContext 对偶 distinctness check。From 和 To 是两个独立
+     * 函数 (读路径转换 trap frame → CONTEXT 和反向)。两者相等意味着交集偶然命中
+     * 共享 leaf helper (如 XMM 保存)，候选不可信。production 走 KnaProfiles 时
+     * 不触发此分支；runtime discovery 返回错位置时此处清零防止下游误用。 */
+    if (Out->KeContextFromKframes != NULL &&
+        Out->KeContextToKframes != NULL &&
+        Out->KeContextFromKframes == Out->KeContextToKframes)
+    {
+        DbgPrint("[KnaResolveSymbols] KeContext From/To CONFLICT: both resolve to %p — "
+                 "distinctness violation, clearing both\n",
+                 Out->KeContextFromKframes);
+        Out->KeContextFromKframes = NULL;
+        Out->KeContextToKframes = NULL;
+    }
+    /* 硬化 Design 1/3 body size bounds: KiDispatchException 约 [0x400, 0x4000] 字节
+     * (26100.9711 实测 2063 bytes = 0x80F, 在 bound 内)；KeContextFromKframes /
+     * KeContextToKframes 各约 [128, 2048] 字节。bound 外的 candidate 属于 trace
+     * 偶然命中小 helper 或跨到不同函数，清 NULL 以防下游安装 hook 到错位置。 */
+    if (Out->KiDispatchException != NULL)
+    {
+        ULONG_PTR dispBegin = 0U;
+        ULONG dispBytes = 0UL;
+        /* 复用 .pdata 查询取得函数体大小，不另做扫描。 */
+        if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)Out->KiDispatchException,
+                                                  &dispBegin, &dispBytes))
+        {
+            DbgPrint("[KnaResolveSymbols] KiDispatchException body bytes=%u (expect [0x400,0x4000])\n",
+                     dispBytes);
+            if (dispBytes < 0x400UL || dispBytes > 0x4000UL)
+            {
+                DbgPrint("[KnaResolveSymbols]   KiDispatchException size OUT OF BOUND — clearing candidate\n");
+                Out->KiDispatchException = NULL;
+            }
+        }
+    }
+    if (Out->KeContextFromKframes != NULL)
+    {
+        ULONG_PTR begin = 0U;
+        ULONG bytes = 0UL;
+        if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)Out->KeContextFromKframes,
+                                                  &begin, &bytes))
+        {
+            DbgPrint("[KnaResolveSymbols] KeContextFromKframes body bytes=%u (expect [128,2048])\n", bytes);
+            if (bytes < 128UL || bytes > 2048UL)
+            {
+                DbgPrint("[KnaResolveSymbols]   KeContextFromKframes size OUT OF BOUND — clearing\n");
+                Out->KeContextFromKframes = NULL;
+            }
+        }
+    }
+    if (Out->KeContextToKframes != NULL)
+    {
+        ULONG_PTR begin = 0U;
+        ULONG bytes = 0UL;
+        if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)Out->KeContextToKframes,
+                                                  &begin, &bytes))
+        {
+            DbgPrint("[KnaResolveSymbols] KeContextToKframes body bytes=%u (expect [128,2048])\n", bytes);
+            if (bytes < 128UL || bytes > 2048UL)
+            {
+                DbgPrint("[KnaResolveSymbols]   KeContextToKframes size OUT OF BOUND — clearing\n");
+                Out->KeContextToKframes = NULL;
+            }
+        }
+    }
+    /* 硬化 Design 1 Step 13: IDT[0x01] (#DB, KiDebugTrapOrFault) forward trace 独立
+     * cross-check。同一 KiDispatchException 应同时落在 #PF 路径和 #DB 路径的下游
+     * call 目标集合里 —— 任何只命中单一 trap 向量的候选是单点失败风险 (比如外部
+     * 挂钩只劫持 vector 14 时会产生虚假交集)。深度 1 已足以覆盖 Windows 异常派发
+     * 结构，不做多层以避免扫描爆炸。 */
+    if (Out->KiDispatchException != NULL && handlerDebug != NULL)
+    {
+        ULONG_PTR dbBegin = 0U;
+        ULONG dbBytes = 0UL;
+        if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)handlerDebug, &dbBegin, &dbBytes) &&
+            dbBytes > 0UL)
+        {
+            ULONG_PTR dbTargets[64];
+            ULONG dbTargetCount = KnaCollectDirectCallTargetsInRange(
+                &view, dbBegin, dbBytes, dbTargets, RTL_NUMBER_OF(dbTargets));
+            BOOLEAN inDbSet = FALSE;
+            ULONG dbIndex;
+            ULONG_PTR dispEnclosing = 0U;
+            /* 把 dispatch candidate 解回 enclosing routine 以进行 routine 维度比较。 */
+            if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)Out->KiDispatchException,
+                                                      &dispEnclosing, NULL))
+            {
+                for (dbIndex = 0UL; dbIndex < dbTargetCount; ++dbIndex)
+                {
+                    ULONG_PTR encl = 0U;
+                    if (!KswordARKRuntimeFindEnclosingRoutine(&view, dbTargets[dbIndex], &encl, NULL))
+                    { continue; }
+                    if (encl == dispEnclosing) { inDbSet = TRUE; break; }
+                }
+            }
+            DbgPrint("[KnaResolveSymbols] IDT[0x01] forward depth-1 targets=%u KiDispatch_in_F'=%d\n",
+                     dbTargetCount, (int)inDbSet);
+            /* 预期 inDbSet=TRUE；FALSE 不立即清 candidate (允许 Microsoft 调整派发
+             * 结构导致 depth-1 不足以覆盖)，仅警告以便后续 build 发现时提升为
+             * fail-closed。production 仍走 KnaProfiles oracle。 */
+            if (!inDbSet)
+            {
+                DbgPrint("[KnaResolveSymbols]   WARN: KiDispatchException candidate not reachable "
+                         "from #DB path at depth 1; may need deeper BFS for this build\n");
+            }
         }
     }
     /* Phase A7a: oracle 校验。查当前 build 的 KnaProfiles 匹配到的"预期"7 个地址，
