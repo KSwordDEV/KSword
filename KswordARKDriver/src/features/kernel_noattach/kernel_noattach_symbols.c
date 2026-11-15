@@ -30,6 +30,40 @@ typedef struct _KNA_IDT_GATE
 C_ASSERT(sizeof(KNA_IDTR_SNAPSHOT) == 10);
 C_ASSERT(sizeof(KNA_IDT_GATE) == 16);
 
+/* 对两个 call-target 集合各自回查 enclosing routine，再按 routine 维度取交集。
+ * 返回交集 routine 入口数量，去重写入 Out。供发现时交叉两条路径使用。 */
+static ULONG KnaIntersectCallTargetRoutines(
+    const KSW_RUNTIME_IMAGE_VIEW *View,
+    const ULONG_PTR *A, ULONG ACount,
+    const ULONG_PTR *B, ULONG BCount,
+    ULONG_PTR *Out, ULONG OutCapacity)
+{
+    /* 空输入或零容量直接返回零。 */
+    ULONG count = 0UL;
+    ULONG i;
+    if (View == NULL || Out == NULL || OutCapacity == 0UL) { return 0UL; }
+    for (i = 0UL; i < ACount && count < OutCapacity; ++i)
+    {
+        ULONG_PTR encA = 0U;
+        ULONG j;
+        /* 回查 A[i] 的 enclosing routine；查不到直接跳过本项。 */
+        if (!KswordARKRuntimeFindEnclosingRoutine(View, A[i], &encA, NULL)) { continue; }
+        for (j = 0UL; j < BCount; ++j)
+        {
+            ULONG_PTR encB = 0U;
+            ULONG k;
+            BOOLEAN duplicate = FALSE;
+            if (!KswordARKRuntimeFindEnclosingRoutine(View, B[j], &encB, NULL)) { continue; }
+            if (encA != encB) { continue; }
+            /* 交集按 routine entry 去重。 */
+            for (k = 0UL; k < count; ++k) { if (Out[k] == encA) { duplicate = TRUE; break; } }
+            if (!duplicate) { Out[count++] = encA; }
+            break;
+        }
+    }
+    return count;
+}
+
 /* 在函数体 [RoutineStart, RoutineStart + RoutineBytes) 内扫 E8/E9 rel32 直接调用
  * 目标；去重后写入 Targets。可能有 false positive（jump table 数据与 opcode 字节
  * 混淆）但调用方通常与反向结果取交集，交集自然收敛到真实函数。 */
@@ -305,8 +339,146 @@ static NTSTATUS KnaResolveInternal(KNA_RESOLVED_SYMBOLS *Out)
             }
         }
     }
-    /* Phase A4 完成：若 L2 ∩ KiPageFault.targets 唯一则 KiDispatchException 已填；否则
-     * 保持 NULL 等待后续 cross-check（Phase A5）。七个符号中其余 6 个仍 NULL。 */
+    /* Phase A5: 发现另外 6 个符号的候选。所有路径都以导出函数作为锚点，并在可能时
+     * 与 KiDispatchException 的 call targets 交叉验证。本阶段只填 Out 字段并记录，
+     * production 路径仍走 KnaProfiles；Phase A7 整体切换。 */
+    {
+        UNICODE_STRING nameGetCtx = RTL_CONSTANT_STRING(L"PsGetContextThread");
+        UNICODE_STRING nameSetCtx = RTL_CONSTANT_STRING(L"PsSetContextThread");
+        UNICODE_STRING nameSuspend = RTL_CONSTANT_STRING(L"KeSuspendThread");
+        UNICODE_STRING nameResume = RTL_CONSTANT_STRING(L"KeResumeThread");
+        PVOID psGet = MmGetSystemRoutineAddress(&nameGetCtx);
+        PVOID psSet = MmGetSystemRoutineAddress(&nameSetCtx);
+        PVOID keS = MmGetSystemRoutineAddress(&nameSuspend);
+        PVOID keR = MmGetSystemRoutineAddress(&nameResume);
+        ULONG_PTR psGetInternal = 0U;
+        ULONG_PTR psSetInternal = 0U;
+        ULONG_PTR dispatchBegin = 0U;
+        ULONG dispatchBytes = 0UL;
+        ULONG_PTR dispatchTargets[128];
+        ULONG dispatchTargetCount = 0UL;
+        /* KeSuspendThread / KeResumeThread：Win10+ 多数 build 直接导出；缺失按 NULL
+         * 保留，由 KnaProfiles 路径兜底直到 Phase A7。 */
+        if (keS != NULL)
+        { Out->KeSuspendThread = keS; DbgPrint("[KnaResolveSymbols] KeSuspendThread=%p (export)\n", keS); }
+        if (keR != NULL)
+        { Out->KeResumeThread = keR; DbgPrint("[KnaResolveSymbols] KeResumeThread=%p (export)\n", keR); }
+        /* 预采集 KiDispatchException 的 call targets 供两处 cross-check 使用。 */
+        if (Out->KiDispatchException != NULL &&
+            KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)Out->KiDispatchException,
+                                                  &dispatchBegin, &dispatchBytes) &&
+            dispatchBytes > 0UL)
+        {
+            dispatchTargetCount = KnaCollectDirectCallTargetsInRange(
+                &view, dispatchBegin, dispatchBytes, dispatchTargets, RTL_NUMBER_OF(dispatchTargets));
+            DbgPrint("[KnaResolveSymbols] KiDispatchException@%p bytes=%u call_targets=%u\n",
+                     (PVOID)dispatchBegin, dispatchBytes, dispatchTargetCount);
+        }
+        /* PsGet/SetContextInternal：exported wrapper 函数体一般极小（thin shim），其直接
+         * call target 中唯一一个即为 Internal 版本。 */
+        if (psGet != NULL)
+        {
+            ULONG_PTR begin = 0U;
+            ULONG bytes = 0UL;
+            if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)psGet, &begin, &bytes) && bytes > 0UL)
+            {
+                ULONG_PTR targets[8];
+                ULONG targetCount = KnaCollectDirectCallTargetsInRange(
+                    &view, begin, bytes, targets, RTL_NUMBER_OF(targets));
+                DbgPrint("[KnaResolveSymbols] PsGetContextThread@%p bytes=%u direct_calls=%u\n",
+                         psGet, bytes, targetCount);
+                /* 唯一 call target：确认为 Internal。多个目标暂不认定（可能有 ExSystemExceptionFilter 等 wrapper 调用）。 */
+                if (targetCount == 1UL)
+                {
+                    ULONG_PTR enclosing = 0U;
+                    if (KswordARKRuntimeFindEnclosingRoutine(&view, targets[0], &enclosing, NULL) &&
+                        enclosing != 0U)
+                    {
+                        psGetInternal = enclosing;
+                        Out->PsGetContextInternal = (PVOID)enclosing;
+                        DbgPrint("[KnaResolveSymbols] PsGetContextInternal CONFIRMED: %p\n", (PVOID)enclosing);
+                    }
+                }
+            }
+        }
+        if (psSet != NULL)
+        {
+            ULONG_PTR begin = 0U;
+            ULONG bytes = 0UL;
+            if (KswordARKRuntimeFindEnclosingRoutine(&view, (ULONG_PTR)psSet, &begin, &bytes) && bytes > 0UL)
+            {
+                ULONG_PTR targets[8];
+                ULONG targetCount = KnaCollectDirectCallTargetsInRange(
+                    &view, begin, bytes, targets, RTL_NUMBER_OF(targets));
+                DbgPrint("[KnaResolveSymbols] PsSetContextThread@%p bytes=%u direct_calls=%u\n",
+                         psSet, bytes, targetCount);
+                if (targetCount == 1UL)
+                {
+                    ULONG_PTR enclosing = 0U;
+                    if (KswordARKRuntimeFindEnclosingRoutine(&view, targets[0], &enclosing, NULL) &&
+                        enclosing != 0U)
+                    {
+                        psSetInternal = enclosing;
+                        Out->PsSetContextInternal = (PVOID)enclosing;
+                        DbgPrint("[KnaResolveSymbols] PsSetContextInternal CONFIRMED: %p\n", (PVOID)enclosing);
+                    }
+                }
+            }
+        }
+        /* KeContextFromKframes / KeContextToKframes：在 Internal 的直接 call targets ∩
+         * KiDispatchException 的直接 call targets 中。两边都会调同一个 frame 转换
+         * 函数（From 在读路径、To 在写路径）。 */
+        if (psGetInternal != 0U && dispatchTargetCount > 0UL)
+        {
+            ULONG_PTR internalBegin = 0U;
+            ULONG internalBytes = 0UL;
+            if (KswordARKRuntimeFindEnclosingRoutine(&view, psGetInternal,
+                                                     &internalBegin, &internalBytes) &&
+                internalBytes > 0UL)
+            {
+                ULONG_PTR internalTargets[32];
+                ULONG internalCount = KnaCollectDirectCallTargetsInRange(
+                    &view, internalBegin, internalBytes, internalTargets, RTL_NUMBER_OF(internalTargets));
+                ULONG_PTR cross[8];
+                ULONG crossCount = KnaIntersectCallTargetRoutines(
+                    &view, internalTargets, internalCount, dispatchTargets, dispatchTargetCount,
+                    cross, RTL_NUMBER_OF(cross));
+                DbgPrint("[KnaResolveSymbols] PsGetContextInternal direct_calls=%u ∩ dispatch=%u\n",
+                         internalCount, crossCount);
+                if (crossCount == 1UL)
+                {
+                    Out->KeContextFromKframes = (PVOID)cross[0];
+                    DbgPrint("[KnaResolveSymbols] KeContextFromKframes CONFIRMED: %p\n", (PVOID)cross[0]);
+                }
+            }
+        }
+        if (psSetInternal != 0U && dispatchTargetCount > 0UL)
+        {
+            ULONG_PTR internalBegin = 0U;
+            ULONG internalBytes = 0UL;
+            if (KswordARKRuntimeFindEnclosingRoutine(&view, psSetInternal,
+                                                     &internalBegin, &internalBytes) &&
+                internalBytes > 0UL)
+            {
+                ULONG_PTR internalTargets[32];
+                ULONG internalCount = KnaCollectDirectCallTargetsInRange(
+                    &view, internalBegin, internalBytes, internalTargets, RTL_NUMBER_OF(internalTargets));
+                ULONG_PTR cross[8];
+                ULONG crossCount = KnaIntersectCallTargetRoutines(
+                    &view, internalTargets, internalCount, dispatchTargets, dispatchTargetCount,
+                    cross, RTL_NUMBER_OF(cross));
+                DbgPrint("[KnaResolveSymbols] PsSetContextInternal direct_calls=%u ∩ dispatch=%u\n",
+                         internalCount, crossCount);
+                if (crossCount == 1UL)
+                {
+                    Out->KeContextToKframes = (PVOID)cross[0];
+                    DbgPrint("[KnaResolveSymbols] KeContextToKframes CONFIRMED: %p\n", (PVOID)cross[0]);
+                }
+            }
+        }
+    }
+    /* Phase A5 完成：七个符号 Out 字段按能力填入。production 路径仍是 KnaProfiles；
+     * Phase A6 做 patch space 自适应，Phase A7 做 oracle 验证并切换。 */
     return STATUS_SUCCESS;
 }
 
