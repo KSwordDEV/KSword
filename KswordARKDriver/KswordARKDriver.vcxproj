@@ -132,6 +132,7 @@
     <ClCompile Include="src\features\kernel_noattach\kernel_noattach_hook.c" />
     <ClCompile Include="src\features\kernel_noattach\kernel_noattach_symbols.c" />
     <ClCompile Include="src\features\kernel_noattach\kernel_noattach_ioctl.c" />
+    <ClCompile Include="src\features\kernel_noattach_probe\kernel_noattach_probe.c" />
     <ClCompile Include="src\features\hvm\hvm_debug_ioctl.c"><EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet></ClCompile>
     <ClCompile Include="src\features\debugger\debugger.c" />
     <ClCompile Include="src\features\debugger\debugger_ioctl.c" />
@@ -628,6 +629,8 @@
     <ClInclude Include="src\features\kernel_noattach\kernel_noattach_symbols.h" />
     <ClInclude Include="src\features\debugger\noattach_ownership.h" />
     <ClInclude Include="..\shared\driver\KswordArkKernelNoAttachIoctl.h" />
+    <ClInclude Include="..\shared\driver\KswordArkKernelNoAttachProbeIoctl.h" />
+    <ClInclude Include="src\features\kernel_noattach_probe\kernel_noattach_probe.h" />
     <ClInclude Include="..\shared\driver\KswordArkHvmNoAttachIoctl.h" />
     <ClInclude Include="src\features\debugger\debugger.h" />
     <ClInclude Include="src\features\debugger\debugger_identity.h" />

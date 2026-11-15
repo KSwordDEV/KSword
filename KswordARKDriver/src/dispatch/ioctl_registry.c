@@ -29,6 +29,7 @@ Environment:
 #include "driver/KswordArkHvmDebugIoctl.h"
 #include "driver/KswordArkHvmNoAttachIoctl.h"
 #include "driver/KswordArkKernelNoAttachIoctl.h"
+#include "driver/KswordArkKernelNoAttachProbeIoctl.h"
 #include "driver/KswordArkDebuggerIoctl.h"
 #include "driver/KswordArkDdmaIoctl.h"
 #include "ark/ark_storage_controller.h"
@@ -155,6 +156,8 @@ NTSTATUS KswordARKHvmIoctlDebug(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, 
 NTSTATUS KswordARKHvmIoctlNoAttach(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 /* 普通异常通道与 VMX 通道分别注册。 */
 NTSTATUS KswordARKKernelIoctlNoAttach(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+/* Backend 3 PoC：HVCI 下 IDT 写入可行性探针，独立出口不依赖其它 feature 持有。 */
+NTSTATUS KswordARKKernelNoAttachProbeIoctl(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 /* General debugger operations stay in their feature module. */
 NTSTATUS KswordARKDebuggerIoctlControl(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKHvmIoctlMemory(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -381,6 +384,8 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     /* 新通道不借用旧原生调试会话或 guest #DB。 */
     { IOCTL_KSWORD_ARK_HVM_NOATTACH, KswordARKHvmIoctlNoAttach, "IOCTL_KSWORD_ARK_HVM_NOATTACH", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_KERNEL_NOATTACH, KswordARKKernelIoctlNoAttach, "IOCTL_KSWORD_ARK_KERNEL_NOATTACH", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    /* Backend 3 PoC：只测 HVCI 是否已把 IDT 加入 EPT-RO，不装 trampoline、不改语义。 */
+    { IOCTL_KSWORD_ARK_KERNEL_NOATTACH_PROBE, KswordARKKernelNoAttachProbeIoctl, "IOCTL_KSWORD_ARK_KERNEL_NOATTACH_PROBE", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_DEBUGGER, KswordARKDebuggerIoctlControl, "IOCTL_KSWORD_ARK_DEBUGGER", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_HVM_MEMORY, KswordARKHvmIoctlMemory, "IOCTL_KSWORD_ARK_HVM_MEMORY", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_HVM_VIEW, KswordARKHvmIoctlView, "IOCTL_KSWORD_ARK_HVM_VIEW", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
