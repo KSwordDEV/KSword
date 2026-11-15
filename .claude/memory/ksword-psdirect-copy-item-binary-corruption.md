@@ -60,5 +60,32 @@ Invoke-Command -Session $sess -ScriptBlock {
 ~~~bypass Copy-Item bug~~ **真实机制**: `Add-Content` 10 次分块每次 ~0.3-0.5s, 中间隔 PSDirect 往返延迟, 10 次合计 5-10 秒。这段时间足够 NTFS journal replay 完成, 所以最后 Base64 decode + WriteAllBytes 时看到的 staging page 已经稳定, 不再是 zero-filled 中间状态。
 
 **判据记忆**: **Restart-VM 后不要立即读 staging 大文件 hash — 等 5-10 秒**。
+
+## 更可靠的替代: Copy-VMFile (Hyper-V Guest Service Interface)
+
+2026-11-15 新实证: `Copy-VMFile -Name <vm> -SourcePath ... -DestinationPath ... -FileSource Host` 走 Hyper-V Guest Service Interface (VMBus), **传输忠实无 PSDirect base64 corruption**:
+
+```powershell
+# 前置: 启用 VM 的 Guest Service Interface
+Enable-VMIntegrationService -VMName '26H2-11-Pro' -Name 'Guest Service Interface'
+
+# 推 .sys (host 3.6 MB → VM staging)
+Copy-VMFile -Name '26H2-11-Pro' `
+    -SourcePath (Resolve-Path 'Ksword5.1\x64\Release\KswordARK.sys').Path `
+    -DestinationPath 'C:\ks-stage\KswordARK.sys' `
+    -CreateFullPath -FileSource Host -Force
+```
+
+实测本会话 driver 硬化版 3.6 MB .sys 走 Copy-VMFile **一次推送 hash 完全一致**。相比 PSDirect base64 分块 (需 10 次 Add-Content + decode + 可能传输 corruption)，Copy-VMFile 单条命令完成。
+
+**适用场景**:
+- 大 binary (3+ MB) 推 VM
+- 对完整性有强要求 (kernel driver signature verification)
+
+**限制**:
+- VM 必须启用 Guest Service Interface (默认通常 off, 需先 Enable-VMIntegrationService)
+- host sandbox 可能挡 (部分 Claude Code 环境 refuse)
+- 单方向 Host → VM (或 VM → Host 用 -FileSource VirtualMachine); 不支持双向 batch
+
 - 相关 [[ksword-parallel-agent-vm-staging-race]] — 同一现象的完整分析
 - 相关 [[ksword-build-output-raced]] — 另一类 hash mismatch (并行 rebuild 覆盖), 判据相同但成因不同
