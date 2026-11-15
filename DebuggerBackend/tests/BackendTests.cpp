@@ -48,6 +48,9 @@ namespace
         unsigned long nextBreakpointId = 0;
         unsigned long processId = 0, threadId = 0;
         std::map<unsigned long, unsigned long long> breakpoints;
+        // Driver's view of per-breakpoint flags, so tests can observe the
+        // exact protocol bits (ONESHOT / WATCH_* / SIZE_*) the frontend sent.
+        std::map<unsigned long, unsigned long> breakpointFlags;
         bool unsupported = false;
     } noAttachModel;
     void require(bool condition, const char* message)
@@ -323,6 +326,7 @@ namespace ksword::ark
                     "Breakpoint edits require a held stop identity");
                 ++noAttachModel.nextBreakpointId;
                 noAttachModel.breakpoints[noAttachModel.nextBreakpointId] = request.address;
+                noAttachModel.breakpointFlags[noAttachModel.nextBreakpointId] = request.breakpointFlags;
                 ++noAttachModel.stopId;
                 noAttachModel.stopReason = KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT;
             }
@@ -330,6 +334,7 @@ namespace ksword::ark
             {
                 require(noAttachModel.breakpoints.erase(request.breakpointId) == 1,
                     "REMOVE_BREAKPOINT missed the recorded id");
+                noAttachModel.breakpointFlags.erase(request.breakpointId);
                 ++noAttachModel.stopId;
                 noAttachModel.stopReason = KSWORD_ARK_HVM_NOATTACH_STOP_CONTEXT;
             }
@@ -338,6 +343,7 @@ namespace ksword::ark
                 noAttachModel.state = KSWORD_ARK_HVM_NOATTACH_CLOSED;
                 noAttachModel.sessionId = 0; noAttachModel.stopId = 0;
                 noAttachModel.stopReason = 0; noAttachModel.breakpoints.clear();
+                noAttachModel.breakpointFlags.clear();
             }
             response.state = noAttachModel.state;
             response.sessionId = noAttachModel.sessionId;
@@ -668,9 +674,36 @@ namespace
             breakpointId != 0 && noAttachModel.breakpoints.size() == 1 &&
             noAttachModel.breakpoints.begin()->second == 0x00401000ULL,
             "Breakpoint add did not record the frontend-owned id");
+        require(noAttachModel.breakpointFlags.at(breakpointId) == 0UL,
+            "Execute breakpoint overload leaked non-zero protocol flags");
         require(frontend.removeBreakpoint(breakpointId) == ERROR_SUCCESS &&
             noAttachModel.breakpoints.empty(),
             "Breakpoint remove did not retire the recorded id");
+        // Oneshot execute breakpoint: the bool wrapper forwards ONESHOT only.
+        std::uint32_t onceId = 0;
+        require(frontend.addBreakpoint(0x00401008ULL, true, onceId) == ERROR_SUCCESS &&
+            noAttachModel.breakpointFlags.at(onceId) == KSWORD_ARK_HVM_NOATTACH_BP_ONESHOT,
+            "bool addBreakpoint(once=true) did not forward ONESHOT");
+        require(frontend.removeBreakpoint(onceId) == ERROR_SUCCESS,
+            "Oneshot execute breakpoint remove failed");
+        // Watch-write size=4 observes the protocol-flag overload surface.
+        std::uint32_t watchWriteId = 0;
+        const DWORD watchWriteFlags = KSWORD_ARK_HVM_NOATTACH_BP_WATCH_WRITE |
+            KSWORD_ARK_HVM_NOATTACH_BP_SIZE_4;
+        require(frontend.addBreakpoint(0x00500000ULL, watchWriteFlags, watchWriteId) == ERROR_SUCCESS &&
+            noAttachModel.breakpointFlags.at(watchWriteId) == watchWriteFlags,
+            "Protocol-flag addBreakpoint did not forward WATCH_WRITE|SIZE_4 to the driver");
+        require(frontend.removeBreakpoint(watchWriteId) == ERROR_SUCCESS,
+            "Watch-write breakpoint remove failed");
+        // Watch-readwrite size=8 covers the alternate protocol combination.
+        std::uint32_t watchRwId = 0;
+        const DWORD watchRwFlags = KSWORD_ARK_HVM_NOATTACH_BP_WATCH_READWRITE |
+            KSWORD_ARK_HVM_NOATTACH_BP_SIZE_8;
+        require(frontend.addBreakpoint(0x00500100ULL, watchRwFlags, watchRwId) == ERROR_SUCCESS &&
+            noAttachModel.breakpointFlags.at(watchRwId) == watchRwFlags,
+            "Protocol-flag addBreakpoint did not forward WATCH_READWRITE|SIZE_8 to the driver");
+        require(frontend.removeBreakpoint(watchRwId) == ERROR_SUCCESS,
+            "Watch-readwrite breakpoint remove failed");
         require(frontend.addBreakpoint(0x00401000ULL, false, breakpointId) == ERROR_SUCCESS &&
             noAttachModel.breakpoints.size() == 1,
             "Second breakpoint add failed");
