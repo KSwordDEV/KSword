@@ -8576,39 +8576,129 @@ void MainWindow::launchSecureDeskFromMenu(QAction* action)
         return;
     }
 
-    // 2) 用 ShellExecute runas 触发 UAC。即使当前进程已是管理员，runas 也会把
-    //    输入桌面切到 Winlogon 展示 consent 对话框；KSwordSecureDesk 覆盖层
-    //    常驻在 Winlogon 桌面上，看到桌面切换事件后自动弹出"打开 KSword"入口。
-    //    这里启动的助手实例本身并不在 UAC 上有业务动作：它负责的是把覆盖层
-    //    的 SYSTEM/UIAccess 三阶段提权链再激活一次，保证在用户停留在安全桌面
-    //    期间覆盖层处在运行态。
-    SHELLEXECUTEINFOW info = {};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
-    info.hwnd = reinterpret_cast<HWND>(this->winId());
-    info.lpVerb = L"runas";
+    // 2) 关键陷阱：主程序已是 elevated 管理员进程，直接 ShellExecute "runas"
+    //    给自己启动的子进程，Windows 会直接继承当前 elevated token，UAC 不弹，
+    //    输入桌面不会切到 Winlogon。必须先把身份降到 shell 层（Explorer 的
+    //    非 elevated 完整 token），再由那个 non-elevated 进程发起 runas，
+    //    这样 UAC 一定弹出、Winlogon 安全桌面也会出现。
+    //
+    //    具体做法：从 Shell 窗口对应进程（通常是 explorer.exe，非 elevated）
+    //    拷贝它的 primary token，用 CreateProcessWithTokenW 启动
+    //    KSwordSecureDesk.exe 的 initial 阶段；该子进程发现自己非 elevated，
+    //    会按既有逻辑走 launchAdminStage（ShellExecute "runas"），此时 UAC
+    //    必弹，Winlogon 桌面被激活，已经常驻的 SYSTEM/UIAccess 覆盖层自动显示。
     const std::wstring helperPathWide = helperPath.toStdWString();
-    info.lpFile = helperPathWide.c_str();
-    info.lpParameters = nullptr;
     const std::wstring workDirWide = applicationDirectory.absolutePath().toStdWString();
-    info.lpDirectory = workDirWide.c_str();
-    info.nShow = SW_HIDE;
-    const BOOL launched = ::ShellExecuteExW(&info);
-    if (!launched)
+
+    auto launchFailed = [this](DWORD code)
     {
-        const DWORD code = ::GetLastError();
-        if (code == ERROR_CANCELLED)
-        {
-            // 用户在 UAC 上点"否"：不是失败，静默返回主桌面。
-            return;
-        }
+        if (code == ERROR_CANCELLED) return;
         QMessageBox::warning(
             this,
             ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面")),
             ks::i18n::sourceText(QStringLiteral("触发 Windows 安全桌面失败（代码：%1）。")).arg(code));
+    };
+
+    // Shell 窗口是 Explorer 任务栏；非 UAC 场景它基本保证存在。
+    HWND shellWindow = ::GetShellWindow();
+    HANDLE shellProcess = nullptr;
+    HANDLE shellToken = nullptr;
+    HANDLE primaryToken = nullptr;
+    DWORD shellPid = 0;
+    if (shellWindow)
+    {
+        ::GetWindowThreadProcessId(shellWindow, &shellPid);
+    }
+    if (shellPid != 0)
+    {
+        shellProcess = ::OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, shellPid);
+    }
+    if (shellProcess)
+    {
+        if (!::OpenProcessToken(shellProcess, TOKEN_DUPLICATE, &shellToken))
+        {
+            shellToken = nullptr;
+        }
+    }
+    if (shellToken)
+    {
+        if (!::DuplicateTokenEx(
+                shellToken,
+                TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID,
+                nullptr,
+                SecurityImpersonation,
+                TokenPrimary,
+                &primaryToken))
+        {
+            primaryToken = nullptr;
+        }
+    }
+
+    bool launched = false;
+    DWORD lastError = 0;
+    if (primaryToken)
+    {
+        // CreateProcessWithTokenW 需要可写的命令行缓冲区。
+        std::wstring commandLine = L"\"" + helperPathWide + L"\"";
+        std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
+        commandBuffer.push_back(L'\0');
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION procInfo{};
+        if (::CreateProcessWithTokenW(
+                primaryToken,
+                0,
+                helperPathWide.c_str(),
+                commandBuffer.data(),
+                CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+                nullptr,
+                workDirWide.c_str(),
+                &startup,
+                &procInfo))
+        {
+            launched = true;
+            if (procInfo.hThread) ::CloseHandle(procInfo.hThread);
+            if (procInfo.hProcess) ::CloseHandle(procInfo.hProcess);
+        }
+        else
+        {
+            lastError = ::GetLastError();
+        }
+    }
+    else
+    {
+        lastError = ::GetLastError();
+    }
+
+    if (primaryToken) ::CloseHandle(primaryToken);
+    if (shellToken) ::CloseHandle(shellToken);
+    if (shellProcess) ::CloseHandle(shellProcess);
+
+    if (launched) return;
+
+    // 退路：shell token 降权失败（Explorer 没在跑、安全策略禁止等），回退到直接
+    // ShellExecute "runas"。此时主程序本身是否已 elevated 决定 UAC 是否弹，
+    // 在无法降权时我们已没有更稳妥的办法，至少不让菜单点击完全无反应。
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
+    info.hwnd = reinterpret_cast<HWND>(this->winId());
+    info.lpVerb = L"runas";
+    info.lpFile = helperPathWide.c_str();
+    info.lpParameters = nullptr;
+    info.lpDirectory = workDirWide.c_str();
+    info.nShow = SW_HIDE;
+    if (!::ShellExecuteExW(&info))
+    {
+        launchFailed(::GetLastError());
         return;
     }
     if (info.hProcess) ::CloseHandle(info.hProcess);
+    // 从降权失败的路径启动到这里，静默表示 fallback 已尝试。token 盗用失败的
+    // 诊断信息由上一步的 lastError 保留；此处不弹错误以免双重打扰。
+    Q_UNUSED(lastError);
 }
 
 void MainWindow::showShortcutManagerFromMenu(bool systemPage)
