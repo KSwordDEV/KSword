@@ -3786,8 +3786,14 @@ NTSTATUS KswordARKHvmNoAttachLifecycle(BOOLEAN Start, ULONG Flags)
 
     /* 现有准备接口只读取经过固定的 flags。 */
 
+    /* HIDE_HYPERVISOR：被 attach 的 user-mode 目标进程不该看到
+     * CPUID.1:ECX[31] 和 0x4000_0000..0x4000_00FF 的 Hv 标识 leaf；
+     * noAttach session 触发的 bring-up 之前不透传此位，与 CE/x64dbg
+     * Backend::startOwnedHvm 现已显式打开 HIDE_HYPERVISOR 保持一致。
+     * 只影响 CPL=3 CPUID；内核与嵌套派发仍能看到真实外层 Hv 身份。 */
     request.flags =
         KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+        KSWORD_ARK_HVM_CONTROL_FLAG_HIDE_HYPERVISOR |
 
         ((Flags & KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED) != 0UL ? KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED
                                                                : 0UL);

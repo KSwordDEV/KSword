@@ -66,8 +66,16 @@ namespace ksword::debugger
         { log("HVM start refused: an owned Shadow view is missing; restore/reinstall the affected patches or breakpoints"); return ERROR_INVALID_STATE; }
         const auto state = client_.queryHvmStatus();
         if (!state.io.ok) return state.io.win32Error;
+        // startOwnedHvm 走的 CE/x64dbg 独立前端不经过主程序 UI 的 g_hideHypervisor，
+        // 而被 attach 的目标进程绝不该看到 CPUID.1:ECX[31] 和 Hv 标识 leaf。
+        // 显式把 hideHypervisor=true 固化在后端自己的 bring-up 处，与 VMX/SMX 清位同层。
         const auto result = client_.controlHvm(KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
-            state.response.generation, true, true, true, true);
+            state.response.generation,
+            /*force*/ true, /*allowNested*/ true, /*uiConfirmed*/ true,
+            /*enableEptEvents*/ true, /*enableNestedVmx*/ false, /*enableEvmcs*/ false,
+            /*enableVe*/ false, /*enableVmFunc*/ false, /*enableLocalEpt*/ false,
+            /*enableEptpSwitch*/ false, /*soakMilliseconds*/ 0,
+            /*hideHypervisor*/ true);
         if (!result.io.ok) return result.io.win32Error;
         if (result.response.status != KSWORD_ARK_HVM_CONTROL_STATUS_OK)
         { log(result.io.message); return rejectedOperation(result.response.lastStatus); }
