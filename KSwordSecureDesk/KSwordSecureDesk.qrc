@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/KswordUacDesk">
+    <qresource prefix="/KSwordSecureDesk">
         <file alias="KswordLogo.ico">../Ksword5.1/Ksword5.1/Resource/Logo/KswordLogo.ico</file>
     </qresource>
 </RCC>

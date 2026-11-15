@@ -1,5 +1,5 @@
 #include <Windows.h>
-#include "UacDesk.h"
+#include "SecureDesk.h"
 #include "UacScanWorker.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
 
@@ -66,13 +66,13 @@ namespace
 {
     constexpr wchar_t kWinlogonDesktop[] = L"winsta0\\Winlogon";
     constexpr wchar_t kWinlogonDesktopName[] = L"Winlogon";
-    constexpr wchar_t kOwnerMutexPrefix[] = L"Global\\KswordUacDesk.Owner.";
-    constexpr wchar_t kReadyEventPrefix[] = L"Global\\KswordUacDesk.Ready.";
+    constexpr wchar_t kOwnerMutexPrefix[] = L"Global\\KSwordSecureDesk.Owner.";
+    constexpr wchar_t kReadyEventPrefix[] = L"Global\\KSwordSecureDesk.Ready.";
     constexpr ULONGLONG kLuaDiagnosticKeyword = 0x8000000000000000ULL;
     constexpr ULONGLONG kSystemAlpcKeyword = 0x0000000000000001ULL;
     constexpr GUID kUacAlpcEtwSessionGuid =
         {0x7a2d2d2c, 0x8ca4, 0x4a95, {0x9c, 0x84, 0x4f, 0x65, 0x6e, 0x9c, 0x7b, 0x1e}};
-    constexpr wchar_t kEtwSessionPrefix[] = L"KswordUacDesk.";
+    constexpr wchar_t kEtwSessionPrefix[] = L"KSwordSecureDesk.";
     constexpr DWORD kDesktopSwitchEvent = EVENT_SYSTEM_DESKTOPSWITCH;
     constexpr ULONG kAlpcSendEvent = 33;
     constexpr ULONG kAlpcReceiveEvent = 34;
@@ -153,8 +153,8 @@ namespace
     {
         const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddHHmmsszzz"));
         const QString stem = component.isEmpty()
-            ? QStringLiteral("KswordUacDesk")
-            : QStringLiteral("KswordUacDesk.") + component;
+            ? QStringLiteral("KSwordSecureDesk")
+            : QStringLiteral("KSwordSecureDesk.") + component;
         return QStringLiteral("%1.%2.%3").arg(stem, timestamp).arg(GetCurrentProcessId());
     }
 
@@ -863,10 +863,10 @@ namespace
         return QPixmap::fromImage(image);
     }
 
-    class UacBrandHeaderWidget final : public QWidget
+    class SecureDeskBrandHeaderWidget final : public QWidget
     {
     public:
-        explicit UacBrandHeaderWidget(const QIcon& icon, QWidget* parent = nullptr)
+        explicit SecureDeskBrandHeaderWidget(const QIcon& icon, QWidget* parent = nullptr)
             : QWidget(parent),
               m_iconPixmap(removeFlatBackground(icon.pixmap(QSize(32, 32))))
         {
@@ -2671,12 +2671,14 @@ UacScanResult collectUacScan(DWORD companionPid, const UacScanOriginHint& origin
     return budget.canceled() ? UacScanResult{} : result;
 }
 
-UacDeskWindow::UacDeskWindow(QWidget* parent)
+SecureDeskWindow::SecureDeskWindow(QWidget* parent)
     : QMainWindow(parent)
 {
+    // UacScanWorker 用途：异步扫描 Winlogon 桌面上的 UAC consent 窗口与发起者
+    // 进程信息；无 UAC 时仍需触发 Phase B 的输入桌面刷新。
     m_scanWorker = std::make_unique<UacScanWorker>();
-    setWindowTitle(QStringLiteral("Ksword UAC 诊断"));
-    const QIcon applicationIcon(QStringLiteral(":/KswordUacDesk/KswordLogo.ico"));
+    setWindowTitle(QStringLiteral("KSword 安全桌面"));
+    const QIcon applicationIcon(QStringLiteral(":/KSwordSecureDesk/KswordLogo.ico"));
     setWindowIcon(applicationIcon);
     setAttribute(Qt::WA_ShowWithoutActivating, true);
     // Winlogon 桌面没有普通 Shell 窗口管理链路。Tool + TopMost 是保证该独立
@@ -2693,7 +2695,7 @@ UacDeskWindow::UacDeskWindow(QWidget* parent)
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    m_brandHeader = new UacBrandHeaderWidget(applicationIcon, root);
+    m_brandHeader = new SecureDeskBrandHeaderWidget(applicationIcon, root);
     m_dragHandle = m_brandHeader;
     m_dragHandle->setCursor(Qt::OpenHandCursor);
     m_dragHandle->installEventFilter(this);
@@ -2785,9 +2787,9 @@ UacDeskWindow::UacDeskWindow(QWidget* parent)
     hide();
 }
 
-UacDeskWindow::~UacDeskWindow()
+SecureDeskWindow::~SecureDeskWindow()
 {
-    KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral("window: UacDeskWindow destructor"));
+    KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral("window: SecureDeskWindow destructor"));
     m_refreshTimer.stop();
     m_scanStop = true;
     m_scanGeneration.fetch_add(1);
@@ -2800,7 +2802,7 @@ UacDeskWindow::~UacDeskWindow()
     if (m_parentProcess) CloseHandle(m_parentProcess);
 }
 
-bool UacDeskWindow::setParentWatch(HANDLE processHandle, quint64 creationTime)
+bool SecureDeskWindow::setParentWatch(HANDLE processHandle, quint64 creationTime)
 {
     m_parentProcess = processHandle;
     if (!m_parentProcess) return true;
@@ -2834,14 +2836,14 @@ bool UacDeskWindow::setParentWatch(HANDLE processHandle, quint64 creationTime)
     return true;
 }
 
-void UacDeskWindow::setInitialStatus(const QString& status) { showStatus(status); }
+void SecureDeskWindow::setInitialStatus(const QString& status) { showStatus(status); }
 
-void UacDeskWindow::refreshNow()
+void SecureDeskWindow::refreshNow()
 {
     refreshUacState();
 }
 
-void UacDeskWindow::notifyUacActivity()
+void SecureDeskWindow::notifyUacActivity()
 {
     m_fastPollUntilMs = GetTickCount64() + 5000;
     if (m_refreshTimer.interval() != 75)
@@ -2852,7 +2854,7 @@ void UacDeskWindow::notifyUacActivity()
     }
 }
 
-void UacDeskWindow::refreshAppearance()
+void SecureDeskWindow::refreshAppearance()
 {
     applySystemPalette();
     setStyleSheet(uacDeskSystemStyle());
@@ -2861,7 +2863,7 @@ void UacDeskWindow::refreshAppearance()
         m_brandHeader->update();
 }
 
-void UacDeskWindow::adjustToContent()
+void SecureDeskWindow::adjustToContent()
 {
     if (!centralWidget()) return;
     centralWidget()->layout()->activate();
@@ -2870,7 +2872,7 @@ void UacDeskWindow::adjustToContent()
         resize(width(), desiredHeight);
 }
 
-bool UacDeskWindow::eventFilter(QObject* watched, QEvent* event)
+bool SecureDeskWindow::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched != m_dragHandle)
         return QMainWindow::eventFilter(watched, event);
@@ -2905,14 +2907,14 @@ bool UacDeskWindow::eventFilter(QObject* watched, QEvent* event)
     return QMainWindow::eventFilter(watched, event);
 }
 
-void UacDeskWindow::changeEvent(QEvent* event)
+void SecureDeskWindow::changeEvent(QEvent* event)
 {
     QMainWindow::changeEvent(event);
     if (event && event->type() == QEvent::ApplicationPaletteChange)
         refreshAppearance();
 }
 
-void UacDeskWindow::refreshUacState()
+void SecureDeskWindow::refreshUacState()
 {
     const quint64 now = GetTickCount64();
     if (m_fastPollUntilMs != 0 && now >= m_fastPollUntilMs)
@@ -2933,7 +2935,7 @@ void UacDeskWindow::refreshUacState()
     if (!admitted && m_identity.isUac) applyScanResult({}, {});
 }
 
-void UacDeskWindow::applyScanResult(const UacApplicationIdentity& identity, const ProcessActionState& actionState)
+void SecureDeskWindow::applyScanResult(const UacApplicationIdentity& identity, const ProcessActionState& actionState)
 {
     // AppInfo evidence may arrive before the native window scan.  It is useful
     // for correlating the request, but it is not enough to make a visible panel
@@ -2956,7 +2958,7 @@ void UacDeskWindow::applyScanResult(const UacApplicationIdentity& identity, cons
         m_positionedUacWindow = nullptr;
         m_identity = {};
         m_actionState = {};
-        m_originIconLabel->setPixmap(removeFlatBackground(QIcon(QStringLiteral(":/KswordUacDesk/KswordLogo.ico")).pixmap(20, 20)));
+        m_originIconLabel->setPixmap(removeFlatBackground(QIcon(QStringLiteral(":/KSwordSecureDesk/KswordLogo.ico")).pixmap(20, 20)));
         m_identityLabel->setText(QStringLiteral("等待 UAC 发起者..."));
         m_processLabel->setText(QStringLiteral(
             "启动参数：不可用\n进程位置：不可用\n启动链：不可用\n完整性级别：不可用\n提升类型：不可用\n启动时间：不可用\n运行时长：不可用\n数字签名（发起者）：不可用\n数字签名（目标）：不可用"));
@@ -2971,7 +2973,7 @@ void UacDeskWindow::applyScanResult(const UacApplicationIdentity& identity, cons
     {
         const QString processName = ProcessInspector::fileName(m_actionState.origin.imagePath);
         const QIcon icon = m_actionState.originIcon.isNull()
-            ? QIcon(QStringLiteral(":/KswordUacDesk/KswordLogo.ico"))
+            ? QIcon(QStringLiteral(":/KSwordSecureDesk/KswordLogo.ico"))
             : m_actionState.originIcon;
         m_originIconLabel->setPixmap(removeFlatBackground(icon.pixmap(20, 20)));
         m_identityLabel->setText(QStringLiteral("%1 · PID %2")
@@ -2991,7 +2993,7 @@ void UacDeskWindow::applyScanResult(const UacApplicationIdentity& identity, cons
     }
     else
     {
-        m_originIconLabel->setPixmap(removeFlatBackground(QIcon(QStringLiteral(":/KswordUacDesk/KswordLogo.ico")).pixmap(20, 20)));
+        m_originIconLabel->setPixmap(removeFlatBackground(QIcon(QStringLiteral(":/KSwordSecureDesk/KswordLogo.ico")).pixmap(20, 20)));
         m_identityLabel->setText(QStringLiteral("UAC 已出现，正在读取发起者..."));
         m_processLabel->setText(QStringLiteral(
             "启动参数：不可用\n进程位置：不可用\n启动链：不可用\n完整性级别：不可用\n提升类型：不可用\n启动时间：不可用\n运行时长：不可用\n数字签名（发起者）：不可用\n数字签名（目标）：不可用"));
@@ -3022,7 +3024,7 @@ void UacDeskWindow::applyScanResult(const UacApplicationIdentity& identity, cons
     }
 }
 
-void UacDeskWindow::repositionBesideUac(const UacApplicationIdentity& identity)
+void SecureDeskWindow::repositionBesideUac(const UacApplicationIdentity& identity)
 {
     if (!identity.consentWindow || identity.windowRect.isEmpty()) return;
     RECT nativeUac{};
@@ -3075,7 +3077,7 @@ void UacDeskWindow::repositionBesideUac(const UacApplicationIdentity& identity)
                                            .arg(nativeUac.right).arg(nativeUac.top));
 }
 
-void UacDeskWindow::updateButtons()
+void SecureDeskWindow::updateButtons()
 {
     const bool allowed = m_actionState.unique && !m_actionState.protectedProcess && !m_actionRunning.load() && isWinlogonDesktop();
     m_suspendButton->setEnabled(allowed);
@@ -3084,14 +3086,14 @@ void UacDeskWindow::updateButtons()
     m_launchMainButton->setEnabled(!m_launchRunning.load() && isWinlogonDesktop());
 }
 
-void UacDeskWindow::showStatus(const QString& status, bool error)
+void SecureDeskWindow::showStatus(const QString& status, bool error)
 {
     Q_UNUSED(status);
     Q_UNUSED(error);
     KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral("ui-status: %1").arg(status));
 }
 
-void UacDeskWindow::launchMainOnSecureDesktop()
+void SecureDeskWindow::launchMainOnSecureDesktop()
 {
     if (m_launchRunning.exchange(true)) return;
     if (m_launchThread.joinable()) m_launchThread.join();
@@ -3126,7 +3128,7 @@ void UacDeskWindow::launchMainOnSecureDesktop()
     });
 }
 
-void UacDeskWindow::launchPowerShellOnSecureDesktop()
+void SecureDeskWindow::launchPowerShellOnSecureDesktop()
 {
     if (m_launchRunning.exchange(true)) return;
     if (m_launchThread.joinable()) m_launchThread.join();
@@ -3164,7 +3166,7 @@ void UacDeskWindow::launchPowerShellOnSecureDesktop()
     });
 }
 
-void UacDeskWindow::runProcessAction(int action)
+void SecureDeskWindow::runProcessAction(int action)
 {
     if (!m_actionState.unique || m_actionState.protectedProcess)
     {

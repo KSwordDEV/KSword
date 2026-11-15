@@ -46,15 +46,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="UacDesk.cpp" />
+    <ClCompile Include="SecureDesk.cpp" />
     <ClCompile Include="UacScanWorker.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="UacDesk.h" />
+    <ClInclude Include="SecureDesk.h" />
     <ClInclude Include="UacScanWorker.h" />
   </ItemGroup>
   <ItemGroup>
-    <QtRcc Include="KswordUacDesk.qrc" />
+    <QtRcc Include="KSwordSecureDesk.qrc" />
   </ItemGroup>
   <Import Project="$(QtMsBuild)\qt.targets" Condition="Exists('$(QtMsBuild)\qt.targets')" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

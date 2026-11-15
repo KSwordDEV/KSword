@@ -789,13 +789,19 @@ namespace
         return created;
     }
 
-    bool tryLaunchUacDeskCompanion()
+    // tryLaunchSecureDeskCompanion 作用：
+    // - 定位 Ksword5.1.exe 同目录下的 KSwordSecureDesk.exe；若不存在直接返回 false。
+    // - 以隐藏窗口的方式拉起助手进程；助手自身完成 SYSTEM/UIAccess 三阶段提权，
+    //   然后常驻 Winlogon 桌面充当"KSword 安全桌面覆盖层"。
+    // - 返回：true=助手已启动；false=助手文件缺失或 CreateProcess 失败。
+    bool tryLaunchSecureDeskCompanion()
     {
         const std::wstring mainPath = queryCurrentExecutablePath();
         if (mainPath.empty()) return false;
         const std::wstring directory = resolveExecutableDirectoryPath(mainPath);
         if (directory.empty()) return false;
-        const std::wstring helperPath = directory + L"\\KswordUacDesk.exe";
+        // helperPath 用途：助手固定与主程序同目录发布，名称 KSwordSecureDesk.exe。
+        const std::wstring helperPath = directory + L"\\KSwordSecureDesk.exe";
         if (::GetFileAttributesW(helperPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
         std::wstring commandLine = L"\"" + helperPath + L"\"";
         std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
@@ -1959,7 +1965,7 @@ int main(int argc, char* argv[])
     {
         QTimer::singleShot(0, &window, []()
             {
-                (void)tryLaunchUacDeskCompanion();
+                (void)tryLaunchSecureDeskCompanion();
             });
     }
 

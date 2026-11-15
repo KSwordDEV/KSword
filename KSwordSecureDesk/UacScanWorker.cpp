@@ -523,7 +523,7 @@ int runUacScanCollector(const QStringList& args)
 
     // Qt's GUI thread may initialize an STA. Preserve the old scanner's MTA
     // worker while the collector's own Qt loop services icon/platform requests.
-    // This join exists only in the killable child, never in UacDeskWindow.
+    // This join exists only in the killable child, never in SecureDeskWindow.
     std::thread worker([owner]
     {
         owner->exitCode.store(collectorLoop(owner));
