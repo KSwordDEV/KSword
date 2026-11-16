@@ -1,6 +1,6 @@
 ---
 name: ksword-backend3-idt-ro-pte-blocks-poc
-description: Backend 3 直接 RtlCopyMemory 写 IDT 在 26300 HVCI off 下立即 BugCheck 0xBE（PTE bit1=0）。但 **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) 建立的 alias VA 可写**，v3 实测 6/6 PASS。v4 实测 CPU 0 的 IDT[0x2F].IstAndType 从 0x8E00 flip 到 0x8F00（Type 0xE→0xF），**25+ 分钟未触发 PatchGuard，修改保持**；但每 CPU 有独立 IDT，其它核未受影响。
+description: Backend 3 直接 RtlCopyMemory 写 IDT 在 26300 HVCI off 下立即 BugCheck 0xBE（PTE bit1=0）。但 **MDL + MmBuildMdlForNonPagedPool + MmMapLockedPagesSpecifyCache(MmCached, KernelMode) 建立的 alias VA 可写**，v3 实测 6/6 PASS。v4 单核 trip 25+ 分钟未触发 PG（可能 PG 没扫到那核）。**v5 广播 trip 到 4 核在 install+295.7s (≈5 分钟) 触发 BugCheck 0x109 Arg4=2 "A processor IDT"**，PG 窗口实测得到。
 metadata:
   type: project
 ---
@@ -144,3 +144,48 @@ Driver v4 hash `077BCCA38A64E63F...`，加入 `KnapProbeChecksumTrip`：`IstAndT
 - MDL alias 写在 "VBS=0 / HVCI=off / TestSigning=on" 签名驱动下**结构性可行**：trip 25+ 分钟保持，PG 未触发（vector 0x2F / IstAndType flip 这个特定组合，不代表其它字段/向量 PG 也不覆盖）。
 - 任何 "改 IDT 做拦截" 的 PoC 下一步必须 broadcast 到所有 CPU，然后多核同步 verify。单核 trip 的 "25 分钟未触发" 不能推广到多核 trip。
 - PS Remoting 的 enum 反序列化：host 侧 `$obj.EnumField -eq 'Name'` 对任何 ServiceControllerStatus / ProcessPriorityClass 等 enum 恒失败（返回 int），必须在 VM 侧完成字符串化再回传。
+
+## v5 TripAll 实测 (2026-11-16)
+
+Driver v5 hash `63CA37F74C25783E...`，加入 `KnapProbeChecksumTripAll`：遍历 `KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS)` 的每个全局 CPU 索引，各自 pin + MDL alias + IstAndType ^= 0x0100。Response.AliasVa 兼载 `((errorMask << 48) | (cpuCount << 32) | trippedMask)`。
+
+**四核广播落地**：Pre-TripAll 重启 VM → 发 IOCTL op=5 Vector=47 → 事后 ProcessorAffinity 轮询四核 QueryOnly，所有 4 个 IDT base 的 EntryLow 都显示 `0xD2CC8F0000102C80`（原 `0xD2CC8E...`），Type=0xF 落地。
+
+**PG 实际窗口**：
+- `install_walltime = 2026-11-16T08:32:42 UTC-5`（Deploy TripAll 返回时刻，upper bound）
+- `crash_detected   = 2026-11-16T08:37:38`（Get-VM `HeartBeat=LostCommunication`）
+- **window = 295.7 s ≈ 4 min 56 s**
+- VM auto-reboot 46s 后 recover
+- Minidump `111626-6062-01.dmp` → 复制到 `output/pg-tripall-111626-6062-01.dmp`
+
+**BugCheck 0x109 Arg 解码**：
+```
+Arg1 = 0xa39fd3e81fd03513   PG internal cookie/hash
+Arg2 = 0xb3b6e06e7253f524   PG internal cookie/hash
+Arg3 = 0xFFFFF806651FD000   CPU 0 IDT base（和 per-CPU readback 里 CPU 0 的 IdtBase 完全对齐）
+Arg4 = 0x2                  "A processor IDT" (Microsoft 文档明文)
+```
+
+**关键解读**：
+- PG **覆盖** x64 IDT gate descriptor 的 IstAndType 字段（否则 Type 翻一位根本不会触发）。
+- PG 覆盖 vector 0x2F 的 descriptor（APIC Spurious Interrupt vector 在 PG 的扫描集中）。
+- PG 扫描是周期性的，本次四核广播后 **5 分钟内** 命中第一次扫描。
+- Arg3 返回 CPU 0 的 IDT base，说明 PG 在该次扫描中命中 CPU 0 的那份；但四核都被 trip 所以无论先扫哪个都会触发。
+- v4 单核（只 CPU 0）25 分钟未触发**不是**因为 PG 不覆盖，而很可能是 PG 的 IDT 扫描在那 25 分钟里恰好没扫到 CPU 0（或采样频率/覆盖策略有 per-CPU 偏置）。v5 四核同 trip 规避了这种 selection bias。
+
+**产品意义**：
+- Backend 3 "signed driver short-window probe" 的 window ≈ **5 分钟**。install → trip → 完成 probe 工作 → self-restore 必须在这窗口内完成。
+- 任何常驻型 IDT 修改在此环境下**走不通**；只能短窗口原位复原。
+- RESTORE 路径必须对所有 trip 过的 CPU 都复原，一个 CPU 漏掉照样 BugCheck。
+
+## How to apply（追加 v5）
+
+- Backend 3 的产品路径：固定上界 ~5 min 窗口，probe 后严格自恢复（相同 MDL alias 把 original 写回每个 CPU），四核 trip 必须四核 restore。
+- 相关：[[ksword-rxpf-signed-comparison-bug]]（RXPF 另一条 HVCI 旁路路径的边界条件）；RXPF/IDT 并列的时候，IDT 窗口短但 DSE/HVCI-off 下 cover 广，RXPF 窗口无（restore 保留 NX）但场景窄。
+- 复测时**先 broadcast 再 verify 每 CPU**，别只看 Trip 单次 IOCTL 响应的 AliasVa/TrippedMask：驱动端自报的 "全核已改" 不等于每 CPU 的 IDT 实际是新值，必须在 R3 用 ProcessorAffinity 轮 QueryOnly 交叉确认（如 [[ksword-crossview-dangling-reference]] 那样）。
+
+## PowerShell 5.1 坑（本轮新增）
+
+- 数字字面量后缀 `ul` / `us` 不被 Windows PowerShell 5.1 识别（PS 7+ 才支持）。`[ScriptBlock]::Create($text)` 调用在遇到 `0xFFFFFFFFul` 时直接 ParseError。要用 `[uint64]0xFFFFFFFF` cast + `-band` 组合表达。该脚本会被 Invoke-Command 跨 VM runspace 传过去 parse，对 PS 版本依赖必须按 VM 侧的 PowerShell 5.1 写。
+- `-shl` 对 `[uint32]`：PS 5.1 把 `[uint32]1 -shl 31` 的结果推成负 int32 再往 uint64 cast 失败。用 `[uint64]1 -shl N` 全程 uint64 计算。
+- Invoke-Command 返回单项时 `$result.NewDumps` 是单对象而非数组，`.Count` 属性不存在；用 `@($x).Count` 或 `($x | Measure).Count`。

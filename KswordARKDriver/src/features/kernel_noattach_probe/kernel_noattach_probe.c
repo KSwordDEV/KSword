@@ -548,6 +548,188 @@ KnapProbeChecksumTrip(
 #endif
 }
 
+/* v5 destructive broadcast：遍历所有 CPU 各自 pin + MDL alias + IstAndType 翻位。 */
+/* 用 Response.AliasVa 兼载：低 32 位为 trippedCpuMask（最高支持 32 核），高 32 位为 cpuCount。 */
+static NTSTATUS
+KnapProbeChecksumTripAll(
+    _In_ ULONG Vector,
+    _Inout_ KSWORD_ARK_KERNEL_NOATTACH_PROBE_RESPONSE* Response)
+{
+#if defined(_M_AMD64) || defined(_M_X64)
+    /* 累积位掩码：bit N = 第 N 个全局 CPU 索引已成功 trip。 */
+    ULONG trippedMask = 0UL;
+    /* 累积位掩码：bit N = 第 N 个 CPU 遇到 SEH 或分配失败。 */
+    ULONG errorMask = 0UL;
+    /* 系统总处理器数，跨所有 processor group。 */
+    ULONG cpuCount = (ULONG)KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    /* 全局处理器索引，超过 32 核时后续不再累加掩码位。 */
+    ULONG cpuIndex = 0UL;
+    /* 累积任何一次写时命中的最后一个 SEH code，调试用。 */
+    ULONG lastSehCode = 0UL;
+    /* 最后一次处理的 CPU 对应的 IDTR 与 entry，回填给 R3 诊断。 */
+    KNAP_IDTR_LAYOUT lastIdtr = {0};
+    KNAP_IDT_ENTRY lastOriginal = {0};
+    KNAP_IDT_ENTRY lastReadback = {0};
+    BOOLEAN lastReadbackValid = FALSE;
+
+    /* Vector 越界立即拒绝，不进入 CPU 循环。 */
+    if (Vector >= KNAP_MAX_VECTOR) { return STATUS_INVALID_PARAMETER; }
+    /* 系统上报 0 核视为异常，保护响应路径。 */
+    if (cpuCount == 0UL || cpuCount > 256UL) { return STATUS_UNSUCCESSFUL; }
+
+    /* 遍历每个全局 CPU 索引，逐核 pin + trip。 */
+    for (cpuIndex = 0UL; cpuIndex < cpuCount; cpuIndex++)
+    {
+        /* 单核上下文变量：affinity、IDTR、entry、MDL、alias VA、读写副本、SEH 状态。 */
+        PROCESSOR_NUMBER proc = {0};
+        GROUP_AFFINITY target = {0};
+        GROUP_AFFINITY oldAffinity = {0};
+        KNAP_IDTR_LAYOUT idtr = {0};
+        PVOID targetVa = NULL;
+        KNAP_IDT_ENTRY original = {0};
+        KNAP_IDT_ENTRY tripped = {0};
+        KNAP_IDT_ENTRY readback = {0};
+        PMDL mdl = NULL;
+        PVOID aliasVa = NULL;
+        BOOLEAN pagesMapped = FALSE;
+        BOOLEAN sehFired = FALSE;
+        BOOLEAN readOk = FALSE;
+        NTSTATUS idxStatus = STATUS_SUCCESS;
+
+        /* 把全局索引解为 (Group, Number)，失败则跳过该核并标记 error。 */
+        idxStatus = KeGetProcessorNumberFromIndex(cpuIndex, &proc);
+        if (!NT_SUCCESS(idxStatus))
+        {
+            if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+            continue;
+        }
+        /* 组装 group affinity 并 pin 当前线程到该核。 */
+        target.Group = proc.Group;
+        target.Mask = (KAFFINITY)((KAFFINITY)1 << proc.Number);
+        KeSetSystemGroupAffinityThread(&target, &oldAffinity);
+        /* 读取本核 IDTR。 */
+        __sidt(&idtr.Limit);
+        lastIdtr = idtr;
+        if (((ULONG)idtr.Limit + 1U) < (Vector + 1U) * sizeof(KNAP_IDT_ENTRY))
+        {
+            KeRevertToUserGroupAffinityThread(&oldAffinity);
+            if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+            continue;
+        }
+        targetVa = (PVOID)(idtr.Base + Vector * sizeof(KNAP_IDT_ENTRY));
+        /* SEH 读原值。 */
+        __try
+        {
+            RtlCopyMemory(&original, targetVa, sizeof(original));
+            readOk = TRUE;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            sehFired = TRUE;
+            lastSehCode = GetExceptionCode();
+        }
+        if (!readOk)
+        {
+            KeRevertToUserGroupAffinityThread(&oldAffinity);
+            if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+            continue;
+        }
+        /* 构造修改后 entry：IstAndType ^= 0x0100 翻 Type 0xE→0xF。 */
+        tripped = original;
+        tripped.IstAndType ^= 0x0100;
+        /* 为该核的 IDT entry 分配 MDL。 */
+        mdl = IoAllocateMdl(targetVa, sizeof(KNAP_IDT_ENTRY), FALSE, FALSE, NULL);
+        if (mdl == NULL)
+        {
+            KeRevertToUserGroupAffinityThread(&oldAffinity);
+            if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+            continue;
+        }
+        /* IDT 非分页，直接 build；MmMapLockedPagesSpecifyCache 返回独立 PTE 的 alias VA。 */
+        __try
+        {
+            MmBuildMdlForNonPagedPool(mdl);
+            aliasVa = MmMapLockedPagesSpecifyCache(mdl, KernelMode, MmCached, NULL, FALSE, NormalPagePriority);
+            if (aliasVa != NULL) { pagesMapped = TRUE; }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            sehFired = TRUE;
+            lastSehCode = GetExceptionCode();
+        }
+        /* 通过 alias VA 写修改副本 + 读回。 */
+        if (aliasVa != NULL && !sehFired)
+        {
+            __try
+            {
+                RtlCopyMemory(aliasVa, &tripped, sizeof(tripped));
+                RtlCopyMemory(&readback, aliasVa, sizeof(readback));
+                /* 读回确认 IstAndType 已改。 */
+                if (readback.IstAndType == tripped.IstAndType)
+                {
+                    if (cpuIndex < 32UL) { trippedMask |= (1UL << cpuIndex); }
+                    lastReadback = readback;
+                    lastReadbackValid = TRUE;
+                }
+                else
+                {
+                    if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                sehFired = TRUE;
+                lastSehCode = GetExceptionCode();
+                if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+            }
+        }
+        else if (!sehFired)
+        {
+            /* 没有 SEH 但 alias VA 为空：映射失败。 */
+            if (cpuIndex < 32UL) { errorMask |= (1UL << cpuIndex); }
+        }
+        /* 清理 alias + MDL。 */
+        if (pagesMapped && aliasVa != NULL) { MmUnmapLockedPages(aliasVa, mdl); }
+        if (mdl != NULL) { IoFreeMdl(mdl); }
+        /* 保留最后一次的 original，便于 R3 诊断（所有核的 original 应该相同）。 */
+        lastOriginal = original;
+        /* 恢复 affinity 再进入下一个核。 */
+        KeRevertToUserGroupAffinityThread(&oldAffinity);
+    }
+    /* IDTR/EntryLow/EntryHigh 回填最后一次处理的 CPU 对应值。 */
+    Response->IdtLimit = (unsigned long)lastIdtr.Limit;
+    Response->IdtBase = (unsigned long long)lastIdtr.Base;
+    KnapCopyEntryBytes(&lastOriginal, &Response->EntryLow, &Response->EntryHigh);
+    if (lastReadbackValid)
+    {
+        KnapCopyEntryBytes(&lastReadback, &Response->ReadbackLow, &Response->ReadbackHigh);
+    }
+    /* trippedMask + errorMask 打包到 AliasVa：低 32 位 trippedMask，高 32 位 ((errorMask << 16) | cpuCount)。 */
+    /* cpuCount 占 16 位足够（最高 256 核保护已前面挡了）。 */
+    Response->AliasVa = ((unsigned long long)errorMask << 48)
+                     | ((unsigned long long)(cpuCount & 0xFFFFU) << 32)
+                     | ((unsigned long long)trippedMask);
+    /* SEH code 回填最后一次命中的异常。 */
+    Response->SehCode = lastSehCode;
+    /* 若至少一个核被成功 trip，视作 COMPLETED；读回验证也通过视作 READBACK_MATCH。 */
+    if (trippedMask != 0UL)
+    {
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED;
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_READBACK_MATCH;
+    }
+    /* 任何核触发 SEH 都标记 SEH_FIRED，便于 R3 快速发现问题。 */
+    if (lastSehCode != 0UL)
+    {
+        Response->StatusFlags |= KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_SEH_FIRED;
+    }
+    return STATUS_SUCCESS;
+#else
+    UNREFERENCED_PARAMETER(Vector);
+    UNREFERENCED_PARAMETER(Response);
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 /* 对外 IOCTL handler：校验 WDF 缓冲区，分发到三种操作。 */
 NTSTATUS
 KswordARKKernelNoAttachProbeIoctl(
@@ -646,6 +828,15 @@ KswordARKKernelNoAttachProbeIoctl(
             break;
         }
         status = KnapProbeChecksumTrip(request.Vector, &response);
+        break;
+    case KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_CHECKSUM_TRIP_ALL:
+        /* v5 destructive broadcast：必须 Confirm=1，遍历每核各自 alias 写入。 */
+        if (request.Confirm != 1UL)
+        {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        status = KnapProbeChecksumTripAll(request.Vector, &response);
         break;
     default:
         /* 未知操作码不触发任何副作用。 */

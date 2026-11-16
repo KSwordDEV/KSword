@@ -27,6 +27,8 @@
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_ALIAS_WRITE 3UL
 /* v4 destructive：alias 写 IDT[vector] 的 IstAndType ^= 0x0100，Type 从 0xE 翻到 0xF 让 PG checksum 失配。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_CHECKSUM_TRIP 4UL
+/* v5 destructive broadcast：遍历所有 CPU 各自 pin + MDL alias + IstAndType 翻位，验证 PG 是否只覆盖子集核。 */
+#define KSWORD_ARK_KERNEL_NOATTACH_PROBE_OP_PROBE_IDT_CHECKSUM_TRIP_ALL 5UL
 
 /* 探针状态位：操作已完成且未触发 SEH。 */
 #define KSWORD_ARK_KERNEL_NOATTACH_PROBE_FLAG_COMPLETED 0x00000001UL

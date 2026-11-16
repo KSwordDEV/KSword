@@ -24,7 +24,7 @@
 param(
     [string]$VMName = '26H2-11-Pro',
     [string]$SysPath = 'Ksword5.1\x64\Release\KswordARK.sys',
-    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip')][string]$ProbeMode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip','TripAll')][string]$ProbeMode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 

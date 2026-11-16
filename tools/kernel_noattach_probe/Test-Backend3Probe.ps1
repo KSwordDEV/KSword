@@ -9,20 +9,22 @@
       HVCI on 时可能触发 BugCheck 0x139/0x109，必须在授权 VM 内运行。
 
 .PARAMETER Mode
-    QueryOnly | NoopWrite | AliasWrite | Trip。默认 QueryOnly。
-    Trip：alias 写 IstAndType ^= 0x0100，改 Type 0xE→0xF，等 PG checksum 发现后 0x109。
+    QueryOnly | NoopWrite | AliasWrite | Trip | TripAll。默认 QueryOnly。
+    Trip：alias 写 IstAndType ^= 0x0100 单核。
+    TripAll：遍历全部 CPU，每核各自 alias 写 ^= 0x0100。AliasVa 字段兼载 trippedMask/cpuCount/errorMask。
 
 .PARAMETER Vector
-    IDT 向量号 0..255，默认 1 (#DB)。Trip 建议 0x2F。
+    IDT 向量号 0..255，默认 1 (#DB)。Trip/TripAll 建议 0x2F。
 
 .EXAMPLE
     .\Test-Backend3Probe.ps1 -Mode QueryOnly
     .\Test-Backend3Probe.ps1 -Mode NoopWrite -Vector 0x2F
     .\Test-Backend3Probe.ps1 -Mode Trip -Vector 0x2F
+    .\Test-Backend3Probe.ps1 -Mode TripAll -Vector 0x2F
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip')][string]$Mode = 'QueryOnly',
+    [ValidateSet('QueryOnly','NoopWrite','AliasWrite','Trip','TripAll')][string]$Mode = 'QueryOnly',
     [ValidateRange(0,255)][int]$Vector = 1
 )
 
@@ -53,8 +55,9 @@ $op = switch ($Mode) {
     'NoopWrite'  { [uint32]1 }
     'AliasWrite' { [uint32]3 }
     'Trip'       { [uint32]4 }
+    'TripAll'    { [uint32]5 }
 }
-$confirm = if ($Mode -in 'NoopWrite','AliasWrite','Trip') { [uint32]1 } else { [uint32]0 }
+$confirm = if ($Mode -in 'NoopWrite','AliasWrite','Trip','TripAll') { [uint32]1 } else { [uint32]0 }
 
 $h = [Win32.KSwordB3]::CreateFileW('\\.\KswordARKLog', $GENERIC_WRITE, [uint32]3, [IntPtr]::Zero, $OPEN_EXISTING, [uint32]0, [IntPtr]::Zero)
 if ($h -eq $INVALID_HANDLE) {
@@ -112,6 +115,27 @@ try {
             Completed     = (($StatusFlags -band 0x1) -ne 0)
             SehFired      = (($StatusFlags -band 0x2) -ne 0)
             ReadbackMatch = (($StatusFlags -band 0x4) -ne 0)
+        }
+        # TripAll 把 trippedMask/cpuCount/errorMask 塞进 AliasVa，拆出来便于 R3 判定。
+        # Windows PowerShell 5.1 不认 `ul` 字面量后缀，必须用 [uint64] cast 掩码。
+        if ($Mode -eq 'TripAll') {
+            $mask32       = [uint64]0xFFFFFFFF
+            $mask16       = [uint64]0xFFFF
+            $trippedMask  = [uint32]($AliasVa -band $mask32)
+            $cpuCount     = [uint32](($AliasVa -shr 32) -band $mask16)
+            $errorMask    = [uint32](($AliasVa -shr 48) -band $mask16)
+            $info | Add-Member -NotePropertyName TrippedMask -NotePropertyValue ('0x{0:X8}' -f $trippedMask)
+            $info | Add-Member -NotePropertyName ErrorMask   -NotePropertyValue ('0x{0:X8}' -f $errorMask)
+            $info | Add-Member -NotePropertyName CpuCount    -NotePropertyValue $cpuCount
+            if ($cpuCount -gt 0) {
+                # [uint32]1 -shl 31 在 PS 5.1 会推成负 int32 再 cast 失败；用 uint64 全程计算。
+                $trippedCpus = @()
+                for ($i = 0; $i -lt $cpuCount; $i++) {
+                    $bit = [uint64]1 -shl $i
+                    if (([uint64]$trippedMask -band $bit) -ne 0) { $trippedCpus += $i }
+                }
+                $info | Add-Member -NotePropertyName TrippedCpus -NotePropertyValue $trippedCpus
+            }
         }
         $info | Format-List
         $info
