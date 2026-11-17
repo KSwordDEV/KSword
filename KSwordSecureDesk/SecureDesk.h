@@ -229,11 +229,18 @@ private:
     static QString readUiAutomationName(HWND hwnd, const UacScanCancellation* cancel);
 };
 
-class UacDeskWindow final : public QMainWindow
+// SecureDeskWindow 作用：
+// - KSword 安全桌面覆盖层主窗口，常驻 Winlogon 桌面（SYSTEM/UIAccess）。
+// - 当前输入桌面不是 Default（即进入 Winlogon 安全桌面：UAC/锁屏/Ctrl+Alt+Del/
+//   安全屏保等），显示覆盖层；UAC 场景额外展示 UAC 发起者详情与处置动作；
+//   非 UAC 场景（锁屏/CAD/屏保）仅显示"打开 KSword"入口。
+// - 覆盖层本身不离开 Winlogon 桌面；"打开 KSword" 在同一 Winlogon 桌面创建
+//   SYSTEM/UIAccess 的 Ksword5.1.exe。
+class SecureDeskWindow final : public QMainWindow
 {
 public:
-    explicit UacDeskWindow(QWidget* parent = nullptr);
-    ~UacDeskWindow() override;
+    explicit SecureDeskWindow(QWidget* parent = nullptr);
+    ~SecureDeskWindow() override;
 
     bool setParentWatch(HANDLE processHandle, quint64 creationTime);
     void setInitialStatus(const QString& status);
@@ -246,6 +253,8 @@ private:
     void applyScanResult(const UacApplicationIdentity& identity, const ProcessActionState& actionState);
     void adjustToContent();
     void repositionBesideUac(const UacApplicationIdentity& identity);
+    void repositionToDefaultCorner();           // 非 UAC 场景把窗口贴屏幕右上
+    void applyUacDetailMode(bool showUacDetails); // Phase B：切换 UAC/非 UAC 面板
     void updateButtons();
     void showStatus(const QString& status, bool error = false);
     void launchMainOnSecureDesktop();
@@ -258,6 +267,8 @@ private:
     QLabel* m_originIconLabel = nullptr;
     QLabel* m_identityLabel = nullptr;
     QLabel* m_processLabel = nullptr;
+    QLabel* m_secureSubtitle = nullptr;       // 非 UAC 的安全桌面场景下的简介文案
+    QWidget* m_uacDetailRow = nullptr;         // originRow 容器，整体切换可见
     QPushButton* m_suspendButton = nullptr;
     QPushButton* m_terminateButton = nullptr;
     QPushButton* m_powerShellButton = nullptr;

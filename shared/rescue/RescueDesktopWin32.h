@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -9,7 +10,14 @@
 // 本模块只封装 Win32 救援桌面，不涉及 R0 协议或 Windows 的 Winlogon 桌面。
 namespace ks::rescue
 {
-    inline constexpr wchar_t kHostArgument[] = L"--ksword-rescue-host";
+    // 将启动阶段和 Win32 错误追加到 exe 同目录日志，不记录句柄值或键盘输入。
+    void LogStage(const wchar_t* stage, DWORD error = ERROR_SUCCESS,
+        DWORD value = 0, const std::wstring& detail = {});
+
+    // USER32 windows/hooks on the entry thread must not prevent desktop binding.
+    // The callback, its hooks and its cleanup all run on the fresh thread.
+    DWORD RunDesktopSessionOnFreshThread(const std::function<DWORD()>& session);
+    inline constexpr wchar_t kSessionGuardName[] = L"Local\\KSword.Rescue.Session";
     inline constexpr wchar_t kClientArgument[] = L"--ksword-rescue-desktop";
     inline constexpr wchar_t kDesktopPrefix[] = L"KSword.Rescue.";
     inline constexpr int kReturnHotkeyId = 0x4b53;
@@ -34,9 +42,12 @@ namespace ks::rescue
     std::wstring DesktopName(HDESK desktop);
     bool IsInputDesktop(HDESK desktop);
 
+    // 核验继承桌面并确保当前线程已绑定。当前桌面已匹配时直接成功，失败记录阶段并返回 Win32 错误。
+    DWORD BindClientDesktop(HDESK desktop, const std::wstring& expectedName);
+
     // 创建私有、可继承桌面。显式 OWNER RIGHTS 拒绝 ACE 同时关闭所有者的隐式改 ACL 权限。
-    // 输入唯一名称，输出已授权的创建句柄；其他进程按名称打开将被 DACL 拒绝。
-    HDESK CreatePrivateDesktop(const std::wstring& name);
+    // 内部生成不可预测的名称，输出已授权的创建句柄；其他进程按名称打开将被 DACL 拒绝。
+    HDESK CreatePrivateDesktop();
 
     // 用明确的继承白名单创建救援客户端；输入路径/原桌面名/四个句柄，输出进程句柄及错误码。
     bool LaunchClient(const std::wstring& executable, const std::wstring& originalName,

@@ -1,5 +1,7 @@
 #include "hvm_noattach.h"
 #include "hvm_runtime.h"
+/* 两条通道共享确切的控制文件 Cleanup。 */
+VOID KswordARKKernelNoAttachFileCleanup(WDFFILEOBJECT File);
 
 /* 固定非分页会话在所有 VM-exit 读者停止前保持原地址。 */
 KSW_HVM_NOATTACH g_KswordNoAttach;
@@ -27,6 +29,8 @@ NTKERNELAPI BOOLEAN PsIsThreadTerminating(PETHREAD Thread);
 /* 仅在全部处理器离开 VMX 后释放引用和文件对象。 */
 static VOID NaReleaseIdentity(VOID)
 {
+    /* 只有完整全核退出后才归还全部断点 backing 锁。 */
+    KswordARKHvmNoAttachReleasePins();
     /* 文件引用不阻止 Cleanup，但保留回调比较的对象身份。 */
     if (g_KswordNoAttach.File != WDF_NO_HANDLE)
     {
@@ -90,6 +94,8 @@ static NTSTATUS NaCloseLocked(VOID)
     InterlockedExchange(&g_KswordNoAttach.State, KSWORD_ARK_HVM_NOATTACH_CLOSED);
     /* 最后解除生命周期预约。 */
     InterlockedExchange(&g_KswordNoAttach.Owned, 0L);
+    /* 实际资源排空以后才让另一后端预约。 */
+    KswordARKNoAttachRelease(KNA_OWNER_HVM);
     /* 不存在残留处理器映射。 */
     return STATUS_SUCCESS;
 }
@@ -241,6 +247,8 @@ VOID KswordARKHvmNoAttachFileCleanup(WDFFILEOBJECT File)
 {
     /* 记住关句柄状态，防止 Cleanup 早于 OPEN 最后发布。 */
     InterlockedExchange(&KswordARKHvmNoAttachFileContext(File)->Closing, 1L);
+    /* 普通异常通道同样收到此文件关闭。 */
+    KswordARKKernelNoAttachFileCleanup(File);
     /* 仅撤销由这个确切控制文件持有的会话。 */
     if (KswordARKHvmNoAttachOwned() && g_KswordNoAttach.File == File)
     {
@@ -300,9 +308,11 @@ static ULONG NaCapabilities(VOID)
 {
     /* 使用已经初始化的通用硬件发现结果。 */
     KSW_HVM_RUNTIME *runtime = KswordARKHvmGetRuntime();
+    /* 单独报告已发现的前提，不用一个泛化“不支持”隐藏差异。 */
+    ULONG diagnostics = 0UL;
     /* 能力要求包含真实常驻生命周期，而不只是 CPU 有 MBEC。 */
     const ULONGLONG required =
-        KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG | KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
+        KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
         KSWORD_ARK_HVM_FEATURE_EPT | KSWORD_ARK_HVM_FEATURE_EPT_WB | KSWORD_ARK_HVM_FEATURE_EPT_4_LEVEL |
         KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM | KSWORD_ARK_HVM_FEATURE_MULTICORE_RENDEZVOUS |
         KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED;
@@ -313,19 +323,31 @@ static ULONG NaCapabilities(VOID)
     {
         return 0UL;
     }
-    /* MTF 和 INVEPT 都是这份协议的硬前提。 */
+    /* 已知 VMX 环境才读取相应能力 MSR。 */
+    if (((__readmsr(KSW_IA32_VMX_PROCBASED_CTLS2) >> 32) & KSW_NOATTACH_MBEC_CONTROL) != 0ULL)
+    { diagnostics |= KSWORD_ARK_HVM_NOATTACH_DIAG_MBEC; }
+    /* MTF 不能从虚拟处理器型号或定时器设置推断。 */
+    if ((runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) != 0ULL)
+    { diagnostics |= KSWORD_ARK_HVM_NOATTACH_DIAG_MTF; }
+    /* 无 MTF 时必须具备能在事件投递前归还 TF 的实际 VMX 控制。 */
+    if ((runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) == 0ULL &&
+        !KswordARKHvmNoAttachTfAvailable()) { return diagnostics; }
+    /* INVEPT、MBEC 和完整生命周期仍为硬前提。 */
     if ((runtime->FeatureFlags & required) != required)
     {
-        return 0UL;
+        return diagnostics;
     }
     /* Allowed-1 位确认 MBEC 控制能真正写入，而非只猜 CPU 型号。 */
     if (((__readmsr(KSW_IA32_VMX_PROCBASED_CTLS2) >> 32) & KSW_NOATTACH_MBEC_CONTROL) == 0ULL)
     {
-        return 0UL;
+        return diagnostics;
     }
     /* 范围只有单一用户线程及 GPR，不宣称全进程或 XSTATE。 */
     return KSWORD_ARK_HVM_NOATTACH_CAP_SINGLE_USER_THREAD | KSWORD_ARK_HVM_NOATTACH_CAP_GPR |
-           KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION;
+           KSWORD_ARK_HVM_NOATTACH_CAP_EXECUTION | KSWORD_ARK_HVM_NOATTACH_CAP_BREAKPOINT |
+           KSWORD_ARK_HVM_NOATTACH_CAP_SET_GPR | diagnostics |
+           ((runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) == 0ULL
+               ? KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF : 0UL);
 }
 
 /* 在固定次数内取得一份完整快照；不把撕裂读数当停止现场。 */
@@ -441,6 +463,8 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
     NTSTATUS status = STATUS_SUCCESS;
     /* 状态变更只在同一控制锁内决定。 */
     LONG state;
+    /* 绑定失败也必须归还本次取得的跨后端预约。 */
+    BOOLEAN executionReserved = FALSE;
     /* 先建立可识别的空协议响应。 */
     RtlZeroMemory(Response, sizeof(*Response));
     /* 固定协议版本由新 IOCTL 独立协商。 */
@@ -451,7 +475,7 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
     Response->capabilities = NaCapabilities();
     /* 拒绝未定义操作、未知标志、内核发起者和已关闭文件。 */
     if (Request->version != KSWORD_ARK_HVM_NOATTACH_VERSION || Request->size != sizeof(*Request) ||
-        Request->operation > KSWORD_ARK_HVM_NOATTACH_CLOSE ||
+        Request->operation > KSWORD_ARK_HVM_NOATTACH_SET_GPR ||
         (Request->flags & ~(KSWORD_ARK_HVM_NOATTACH_CONFIRMED | KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED)) !=
             0UL ||
         OwnerPid <= 4UL || File == WDF_NO_HANDLE || Request->ownerCreationTime == 0ULL)
@@ -506,6 +530,10 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
             status = STATUS_ACCESS_DENIED;
             goto Unlock;
         }
+        /* 普通异常通道已经持有停止权时不能接管。 */
+        executionReserved = KswordARKNoAttachTryReserve(KNA_OWNER_HVM);
+        /* 能力查询不代表已经取得资源。 */
+        if (!executionReserved) { status = STATUS_DEVICE_BUSY; goto Unlock; }
         /* 工作项隶属真实控制设备，其 Flush 契约覆盖驱动卸载。 */
         if (g_KswordNoAttach.Work == WDF_NO_HANDLE)
         {
@@ -533,6 +561,20 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
         RtlZeroMemory(&g_KswordNoAttach.Snapshot, sizeof(g_KswordNoAttach.Snapshot));
         /* 把强身份写入唯一会话文档。 */
         g_KswordNoAttach.Snapshot = *Response;
+        /* 模式在准备资源前固定，MTF 可用时不会修改来宾 TF。 */
+        g_KswordNoAttach.UseTf = (Response->capabilities & KSWORD_ARK_HVM_NOATTACH_CAP_VMX_TF) != 0UL;
+        /* 每次会话的边界诊断独立，不借用上一个目标的记录。 */
+        g_KswordNoAttach.TfArmStage = 0UL; g_KswordNoAttach.TfPrecheckReject = 0UL; g_KswordNoAttach.TfExitReason = 0UL;
+        /* 新会话不继承在途 IRQ 重试。 */
+        g_KswordNoAttach.TfRetryAfterInterrupt = 0L; g_KswordNoAttach.TfRetryCount = 0UL;
+        /* 没有真实 TF 退出前不保留旧资格。 */
+        g_KswordNoAttach.TfExitQualification = 0ULL; g_KswordNoAttach.TfExitInfo = 0ULL;
+        /* 每个记录值均来自本次尝试。 */
+        RtlZeroMemory(g_KswordNoAttach.TfBoundary, sizeof(g_KswordNoAttach.TfBoundary));
+        /* 新会话不复用之前的断点 ID 或待提交寄存器命令。 */
+        g_KswordNoAttach.NextBreakpointId = 0UL;
+        /* 未提交的编辑不能流入新会话。 */
+        g_KswordNoAttach.PendingRegisterMask = 0ULL;
         /* 在准备资源之前就分配可恢复的 sessionId。 */
         g_KswordNoAttach.Snapshot.sessionId = (ULONGLONG)InterlockedIncrement64(&g_NoAttachGeneration);
         /* 保存本会话的进程 ID。 */
@@ -629,6 +671,11 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
             /* 只有硬件确认清理后才释放 refs 与 reservation。 */
             status = NaCloseLocked();
         }
+        else if (Request->operation >= KSWORD_ARK_HVM_NOATTACH_ADD_BREAKPOINT)
+        {
+            /* 断点配置、运行到地址和寄存器写入都核对真实当前停点。 */
+            status = KswordARKHvmNoAttachEditStopped(Request);
+        }
         else if (Request->operation == KSWORD_ARK_HVM_NOATTACH_PAUSE)
         {
             /* 已停止或已有请求时保持幂等，不重发 stopId。 */
@@ -676,6 +723,23 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
                 /* 返回明确的代次错误。 */
                 goto Unlock;
             }
+            /* TF 只在普通控制面取得下一条指令的固定读取来源。 */
+            if (Request->operation == KSWORD_ARK_HVM_NOATTACH_STEP)
+            {
+                /* 预算只属于这一次已经核对 stopId 的明确请求。 */
+                g_KswordNoAttach.TfRetryAfterInterrupt = 0L; g_KswordNoAttach.TfRetryCount = 0UL;
+                /* 准备失败时必须保持原停止和 stopId。 */
+                status = KswordARKHvmNoAttachPinStepCode(g_KswordNoAttach.Snapshot.rip);
+                /* 不发布没有检查来源的执行请求。 */
+                if (!NT_SUCCESS(status))
+                {
+                    /* 与退出竞争失败时不能复活旧停止。 */
+                    (void)InterlockedCompareExchange(&g_KswordNoAttach.State, KSWORD_ARK_HVM_NOATTACH_STOPPED,
+                                                     KSW_NOATTACH_COMMAND_RESERVING);
+                    /* 保留原错误。 */
+                    goto Unlock;
+                }
+            }
             /* CAS 单次消费刚才独占并重新核对的停止。 */
             if (InterlockedCompareExchange(&g_KswordNoAttach.State,
                                            Request->operation == KSWORD_ARK_HVM_NOATTACH_STEP
@@ -720,9 +784,20 @@ NTSTATUS KswordARKHvmNoAttachControl(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Requ
         if (Response->state != KSWORD_ARK_HVM_NOATTACH_STOPPED)
         {
             Response->stopReason = 0UL;
+            /* 非停止回执不携带可消费的历史 stopId 或伪装为当前的寄存器。 */
+            Response->stopId = 0ULL;
+            /* 规范上下文区域与 GPR 保存帧连续且固定。 */
+            RtlZeroMemory(&Response->rip, FIELD_OFFSET(KSWORD_ARK_HVM_NOATTACH_RESPONSE, breakpointId) -
+                                         FIELD_OFFSET(KSWORD_ARK_HVM_NOATTACH_RESPONSE, rip));
+            /* 历史命中不能成为当前命中身份。 */
+            Response->breakpointId = 0UL;
         }
+        /* 配置文档独立于停止现场，所有前端使用同一份真实能力与映射状态。 */
+        KswordARKHvmNoAttachQueryBreakpoints(Response);
     }
 Unlock:
+    /* 没有公开本方会话时只解除自己的预约。 */
+    if (executionReserved && !KswordARKHvmNoAttachOwned()) { KswordARKNoAttachRelease(KNA_OWNER_HVM); }
     /* 同 owner 以外的失败不带其它会话的身份。 */
     ExReleasePushLockExclusive(&g_KswordNoAttach.Lock);
     /* 恢复普通 APC 策略。 */

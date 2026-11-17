@@ -12,6 +12,9 @@ namespace ks::ui
     // 只为逐页确认的配置、编辑或工具窗口启用平面主题；属性和详情窗口不调用。
     // window 保留原来的布局、业务信号和关闭语义，主题更新仅替换本模块拥有的样式。
     void StyleSecondaryWindow(QWidget* window);
+    // Management windows retain their list/inline controls and top-level tabs.
+    // Only structural rewriting is disabled; standard control theming remains active.
+    void StyleSecondaryManagerWindow(QWidget* window);
 
     // tabs 保留页序、惰性构建和键盘路由，仅改为顶部文字导航与细选中线。
     void StyleSecondaryTabs(QTabWidget* tabs);

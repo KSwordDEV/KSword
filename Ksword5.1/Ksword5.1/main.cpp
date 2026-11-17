@@ -16,6 +16,7 @@
 
 #include "Framework.h"
 #include "Framework/ReleaseMetadata.h"
+#include "Framework/BackgroundTaskRegistry.h"
 #include "UI/ThemedMessageBox.h"
 #include "UI/GlobalDialogTheme.h"
 #include "UI/GlobalRefreshShortcut.h"
@@ -28,6 +29,7 @@
 #include "UI/TextSearchReplaceSupport.h"
 #include "Internationalization/LanguageManager.h"
 #include "../../shared/crash/WinCrashHandler.h"
+#include "../../shared/rescue/RescueDesktopHost.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -50,18 +52,23 @@
 
 namespace
 {
-#if KSWORD_PERF_TRACE_ENABLED
-    class TracedKswordApplication final : public QApplication
+    class KswordApplication final : public QApplication
     {
     public:
         using QApplication::QApplication;
         bool notify(QObject* receiver, QEvent* event) override
         {
+#if KSWORD_PERF_TRACE_ENABLED
             ks::ui::PerfNotifyScope dispatch(receiver, event ? static_cast<int>(event->type()) : -1, event);
+#endif
+            if (ks::ui::BackgroundTaskRegistry::cpuAnalysisEnabled() || ks::ui::TaskCpuScope::hasCurrent())
+            {
+                const ks::ui::TaskCpuScope measurement(ks::ui::BackgroundTaskRegistry::cpuTokenForEvent(receiver, event));
+                return QApplication::notify(receiver, event);
+            }
             return QApplication::notify(receiver, event);
         }
     };
-#endif
 
     constexpr wchar_t kUnlockerKeyName[] = L"Ksword.FileUnlocker";
     constexpr wchar_t kKswordMainWindowPropertyName[] = L"KswordARK.MainWindow.Singleton.Release";
@@ -782,13 +789,19 @@ namespace
         return created;
     }
 
-    bool tryLaunchUacDeskCompanion()
+    // tryLaunchSecureDeskCompanion 作用：
+    // - 定位 Ksword5.1.exe 同目录下的 KSwordSecureDesk.exe；若不存在直接返回 false。
+    // - 以隐藏窗口的方式拉起助手进程；助手自身完成 SYSTEM/UIAccess 三阶段提权，
+    //   然后常驻 Winlogon 桌面充当"KSword 安全桌面覆盖层"。
+    // - 返回：true=助手已启动；false=助手文件缺失或 CreateProcess 失败。
+    bool tryLaunchSecureDeskCompanion()
     {
         const std::wstring mainPath = queryCurrentExecutablePath();
         if (mainPath.empty()) return false;
         const std::wstring directory = resolveExecutableDirectoryPath(mainPath);
         if (directory.empty()) return false;
-        const std::wstring helperPath = directory + L"\\KswordUacDesk.exe";
+        // helperPath 用途：助手固定与主程序同目录发布，名称 KSwordSecureDesk.exe。
+        const std::wstring helperPath = directory + L"\\KSwordSecureDesk.exe";
         if (::GetFileAttributesW(helperPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
         std::wstring commandLine = L"\"" + helperPath + L"\"";
         std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
@@ -1353,11 +1366,17 @@ namespace
 
 int main(int argc, char* argv[])
 {
+    // 监护入口在 Qt、普通实例互斥和启动设置初始化之前独立运行。
+    if (const auto rescueHostResult = ks::rescue::RunRescueDesktopHostIfRequested())
+    {
+        return *rescueHostResult;
+    }
+
     // 救援客户端先核验白名单继承的桌面/事件，再允许任何 Qt 或启动页创建窗口。
     ks::ui::RescueDesktopSession rescueSession;
-    if (!rescueSession.initializeBeforeQt())
+    if (const DWORD rescueError = rescueSession.initializeBeforeQt(); rescueError != ERROR_SUCCESS)
     {
-        return 2;
+        return static_cast<int>(rescueError);
     }
     // 启动流程：
     // 1) 初始化 DPI 感知；
@@ -1627,11 +1646,7 @@ int main(int argc, char* argv[])
     }
 
     startupTraceRaw("before QApplication construction");
-#if KSWORD_PERF_TRACE_ENABLED
-    TracedKswordApplication app(argc, argv);
-#else
-    QApplication app(argc, argv);
-#endif
+    KswordApplication app(argc, argv);
     // 组织名/应用名必须在任何 QSettings 之前设置：默认构造的 QSettings 会取这两个值定位
     // HKCU\Software\<组织>\<应用>。组织名为空时 Qt 的 Windows 注册表后端直接置 AccessError，
     // 读永远拿默认值、写被静默丢弃——本程序此前正是这种状态，导致
@@ -1950,7 +1965,7 @@ int main(int argc, char* argv[])
     {
         QTimer::singleShot(0, &window, []()
             {
-                (void)tryLaunchUacDeskCompanion();
+                (void)tryLaunchSecureDeskCompanion();
             });
     }
 

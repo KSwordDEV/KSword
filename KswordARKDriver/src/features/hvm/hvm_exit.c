@@ -908,14 +908,54 @@ KswordARKHvmExitHandleCpuid(
         /* Avoid another outer-hypervisor exit for the captured vendor leaf. */
         RtlCopyMemory(registers, Context->CpuidVendorLeaf, sizeof(registers));
     } else {
-        /* Forward dynamic leaves, including CR4-sensitive OSXSAVE, unchanged. */
-        __cpuidex(registers, (int)leaf, (int)subleaf);
+        /* 命中动态叶缓存时跳过嵌套 __cpuidex 的 L0 回程退出。 */
+        BOOLEAN hit = FALSE;
+        /* leaf 1 暂不缓存：CR4.OSXSAVE 翻转在当前 Cr4PinnedMask 下不保证 MOV_CR 退出。 */
+        /* 隐藏范围 0x40000000..0x400000FF 的 Hv 标识叶也不缓存：后置变换会将结果清零。 */
+        const BOOLEAN cacheable = (leaf != 1UL) &&
+            !(leaf >= 0x40000000UL && leaf <= 0x400000FFUL);
+        if (cacheable) {
+            /* 线性扫描 8 条；条数小于一级缓存行，简单循环比哈希更稳。 */
+            ULONG cacheIdx;
+            for (cacheIdx = 0UL; cacheIdx < KSW_HVM_CPUID_CACHE_ENTRIES; ++cacheIdx) {
+                const KSW_HVM_CPUID_CACHE_ENTRY* entry = &Context->CpuidCache[cacheIdx];
+                if (entry->Valid &&
+                    entry->Leaf == leaf &&
+                    entry->Subleaf == subleaf) {
+                    /* 原寄存器值按序复制，让 handler 后续的 hide-VMX/hide-Hv 变换照常施加。 */
+                    RtlCopyMemory(registers, entry->Registers, sizeof(registers));
+                    ++Context->CpuidCacheHits;
+                    hit = TRUE;
+                    break;
+                }
+            }
+        }
+        if (!hit) {
+            /* Forward dynamic leaves, including CR4-sensitive OSXSAVE, unchanged. */
+            __cpuidex(registers, (int)leaf, (int)subleaf);
+            if (cacheable) {
+                /* 插入 LRU 推进位置的槽；旧内容被覆盖，Valid 升为 TRUE。 */
+                KSW_HVM_CPUID_CACHE_ENTRY* slot = &Context->CpuidCache[Context->CpuidCacheNext];
+                slot->Leaf = leaf;
+                slot->Subleaf = subleaf;
+                /* 保存原始 host 寄存器；后置变换读的是 handler 本地 registers[]。 */
+                RtlCopyMemory(slot->Registers, registers, sizeof(slot->Registers));
+                slot->Valid = TRUE;
+                /* 推进环形指针；%= 对 ULONG 2 的幂容量编译为 AND，不走除法。 */
+                Context->CpuidCacheNext =
+                    (Context->CpuidCacheNext + 1UL) % KSW_HVM_CPUID_CACHE_ENTRIES;
+            }
+            ++Context->CpuidCacheMisses;
+        }
     }
     /* Hide guest VMX exposure unless nested dispatch was explicitly enabled. */
     if (leaf == 1UL &&
         !Context->Nested.Enabled) {
         /* Clear the VMX capability bit in guest CPUID.1:ECX. */
         registers[2] &= ~(1L << 5);
+        /* Clear the SMX capability bit — paired with VMX in IA32_FEATURE_CONTROL;
+         * a naive detector flagging "VMX hidden but SMX present" is a contradiction. */
+        registers[2] &= ~(1L << 6);
     }
     /*
      * Hide the outer hypervisor's identity from guest user mode when asked.
@@ -2481,7 +2521,7 @@ KswordARKHvmResidentVmExitDispatchBody(
     }
     /* 原有全核故障退出门优先；不附加门禁不能阻止其它处理器回滚。 */
     {
-        /* 模块只认领自己制造的 MBEC 取指与单次 MTF，不向 guest 注入异常。 */
+        /* 只消费自有取指/执行边界，无关真实异常保持体系结构投递。 */
         ULONG noAttachAction = KSW_HVM_EXIT_ACTION_RESUME;
         /* 保持现有 VMCALL STOP 的精确 RIP 续跑路径。 */
         if (KswordARKHvmNoAttachHandleExit(Context, Frame, basicReason, telemetry.Qualification, &noAttachAction)) {
@@ -2827,6 +2867,15 @@ KswordARKHvmResidentVmExitDispatchBody(
          */
         if (KswordARKHvmExitFilterVmxCapabilityMsr(Frame, isWrite)) {
             /* Continue at the instruction following the MSR read. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        } else if (KswordARKHvmExitFilterDetectionMsr(Frame, isWrite)) {
+            /*
+             * Detection-surface filter 与 VMX cap filter 并列, 放在 policy
+             * engine 之前的理由相同: 一条 user-mode 下发的 policy 不得把
+             * FEATURE_CONTROL / PERF_CAPABILITIES 又变回原始物理值, 否则
+             * CPUID.1:ECX[5]=0 与 MSR 0x3A bit 2=1 的矛盾又会暴露出来。
+             */
             handled = KswordARKHvmExitAdvanceRip(
                 telemetry.InstructionLength);
         } else {

@@ -83,5 +83,6 @@ namespace ks::process
     void EnumerateUserModeHotkeysForProcesses(
         const std::vector<UserModeHotkeyProcessTarget>& targets,
         const UserModeHotkeyBatchCallback& progressCallback,
-        QString* diagnosticTextOut = nullptr);
+        QString* diagnosticTextOut = nullptr,
+        const std::function<bool()>& canceled = {});
 }

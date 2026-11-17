@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><Filter Include="源文件"><UniqueIdentifier>{8C7DCC4B-5D0C-4B03-8FA7-ED0E847E5AE2}</UniqueIdentifier><Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions></Filter><Filter Include="头文件"><UniqueIdentifier>{74D852C3-366D-41D0-9A10-0B985FB6CE92}</UniqueIdentifier><Extensions>h;hh;hpp;hxx;inl;inc</Extensions></Filter></ItemGroup>
+  <ItemGroup><ClCompile Include="main.cpp"><Filter>源文件</Filter></ClCompile><ClCompile Include="SecureDesk.cpp"><Filter>源文件</Filter></ClCompile><ClCompile Include="UacScanWorker.cpp"><Filter>源文件</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClInclude Include="SecureDesk.h"><Filter>头文件</Filter></ClInclude><ClInclude Include="UacScanWorker.h"><Filter>头文件</Filter></ClInclude></ItemGroup>
+  <ItemGroup><QtRcc Include="KSwordSecureDesk.qrc"><Filter>源文件</Filter></QtRcc></ItemGroup>
+</Project>

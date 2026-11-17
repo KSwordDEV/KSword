@@ -48,7 +48,9 @@ local optionFields = {"mode", "shadowMemoryWrites", "allowFallback", "logFallbac
     "nativeContextFallback", "nativeSuspendFallback", "maxShadowPages"}
 local versions = {[16] = 6, [17] = 6, [18] = 2, [19] = 6, [20] = 6,
     [21] = 1, [22] = 1, [23] = 1, [24] = 1, [25] = 2, [26] = 1,
-    [27] = 1, [28] = 9, [29] = 1, [30] = 4, [31] = 1, [32] = 1}
+    [27] = 1, [28] = 9, [29] = 1, [30] = 4, [31] = 1, [32] = 1, [33] = 2, [34] = 1}
+local noAttachMock = {state = 0, session = 0, stop = 0, status = 0, reason = 0}
+local noAttachRequest, noAttachBadResponse = {}, false
 function executeCodeLocalEx(address, parameter, destination, flags)
     if address == 3 then
         assert(flags == 9 and parameter.type == 4 and destination.type == 4)
@@ -95,8 +97,30 @@ function executeCodeLocalEx(address, parameter, destination, flags)
         local requested = readIntegerLocal(input)
         assert(versions[requested] ~= nil)
         writeIntegerLocal(output, 1); writeIntegerLocal(output + 4, requested)
-        writeIntegerLocal(output + 8, 64); writeIntegerLocal(output + 12, 64)
+        writeIntegerLocal(output + 8, (requested == 33 or requested == 34) and 232 or 64)
+        writeIntegerLocal(output + 12, (requested == 33 or requested == 34) and 480 or 64)
         writeIntegerLocal(output + 16, versions[requested]); returned = 24
+    elseif command == 33 or command == 34 then
+        local protocol = command == 34 and 1 or 2
+        assert(readIntegerLocal(input) == protocol and readIntegerLocal(input + 4) == 232)
+        assert(readIntegerLocal(parameter + 32) == 232 and readIntegerLocal(parameter + 36) == 480)
+        noAttachRequest = {command = command, operation = readIntegerLocal(input + 8), flags = readIntegerLocal(input + 12),
+            pid = readIntegerLocal(input + 16), tid = readIntegerLocal(input + 20),
+            session = readQwordLocal(input + 48), stop = readQwordLocal(input + 56),
+            address = readQwordLocal(input + 64), id = readIntegerLocal(input + 72),
+            bpFlags = readIntegerLocal(input + 76), minimumRsp = readQwordLocal(input + 80),
+            mask = readQwordLocal(input + 88), rax = readQwordLocal(input + 96)}
+        writeIntegerLocal(output, protocol); writeIntegerLocal(output + 4, 480)
+        writeIntegerLocal(output + 8, noAttachMock.status)
+        writeIntegerLocal(output + 12, noAttachBadResponse and 99 or noAttachMock.state)
+        writeIntegerLocal(output + 16, 31); writeIntegerLocal(output + 20, noAttachMock.reason)
+        writeIntegerLocal(output + 24, 800); writeIntegerLocal(output + 28, 801)
+        writeQwordLocal(output + 32, noAttachMock.session); writeQwordLocal(output + 40, noAttachMock.stop)
+        writeQwordLocal(output + 64, 0x12340000); writeQwordLocal(output + 72, 0x70000000)
+        writeQwordLocal(output + 80, 0x202); writeQwordLocal(output + 96, 0x12345678)
+        writeIntegerLocal(output + 220, 1); writeIntegerLocal(output + 224, 42)
+        writeIntegerLocal(output + 228, 1); writeQwordLocal(output + 232, 0x12345678)
+        returned = 480
     else
         assert(readIntegerLocal(input) == versions[command] and readIntegerLocal(input + 4) == 64)
         writeIntegerLocal(output, versions[command]); writeIntegerLocal(output + 4, 64); returned = 64
@@ -135,11 +159,51 @@ local commandCount = 0
 for name in pairs(api.hvm.commands) do
     local packet = api.hvm.packet(name)
     packet.write32(8, 0).write64(16, 0x1234)
-    assert(not pcall(packet.write64, 60, 1))
-    local bytes, errorCode = packet.send(); assert(errorCode == 0 and #bytes == 64)
+    assert(not pcall(packet.write64, packet.input.Size - 4, 1))
+    local bytes, errorCode = packet.send(); assert(errorCode == 0 and #bytes == ((name == "noAttach" or name == "kernelNoAttach") and 480 or 64))
     packet.destroy(); packet.destroy(); commandCount = commandCount + 1
 end
-assert(commandCount == 17 and next(allocations) == nil)
+assert(commandCount == 19 and next(allocations) == nil)
+
+-- Exercise the independent channel's actual Lua serializer and stop semantics.
+local na = api.noAttach
+assert(not pcall(na.open, 800, 801, false))
+noAttachMock.state, noAttachMock.session = 1, 99
+local opened = assert(na.open(800, 801, true, true))
+assert(noAttachRequest.flags == 3 and noAttachRequest.pid == 800 and noAttachRequest.tid == 801)
+assert(opened.state == 1 and opened.rip == nil and na.sessionId == 99 and na.stopId == 0)
+assert(not pcall(na.step) and not pcall(na.open, 800, 801, true))
+noAttachMock.state, noAttachMock.stop, noAttachMock.reason = 3, 123, 3
+local stopped = assert(na.query())
+assert(stopped.rip == 0x12340000 and stopped.registers.rax == 0x12345678 and stopped.breakpoints[1].id == 42)
+na.addBreakpoint(0x12345678, true)
+assert(noAttachRequest.operation == 6 and noAttachRequest.address == 0x12345678 and noAttachRequest.bpFlags == 1 and noAttachRequest.stop == 123)
+na.setRegister(0, 0x11223344)
+assert(noAttachRequest.operation == 9 and noAttachRequest.mask == 1 and noAttachRequest.rax == 0x11223344)
+assert(not pcall(na.setRegister, 17, 1))
+na.removeBreakpoint(42); assert(noAttachRequest.operation == 7 and noAttachRequest.id == 42)
+na.runTo(0x12345678, 0x70000000)
+assert(noAttachRequest.operation == 8 and noAttachRequest.bpFlags == 3 and noAttachRequest.minimumRsp == 0x70000000)
+noAttachMock.state, noAttachMock.stop, noAttachMock.reason = 4, 0, 0
+local pending = assert(na.step())
+assert(pending.state == 4 and pending.rip == nil and pending.registers == nil and na.stopId == 0)
+assert(not pcall(na.continue))
+noAttachMock.status = 0xC0000059
+local rejectedNa = assert(na.query()); assert(rejectedNa.status < 0 and na.sessionId == 99 and na.stopId == 0)
+noAttachBadResponse = true
+local invalidNa, invalidError = na.query(); assert(invalidNa == nil and invalidError == 13)
+noAttachBadResponse = false
+noAttachMock.state, noAttachMock.session, noAttachMock.stop, noAttachMock.status = 0, 0, 0, 0
+assert(na.close().state == 0 and na.sessionId == 0 and na.stopId == 0)
+na.useBackend("kernel")
+noAttachMock.state, noAttachMock.session = 1, 101
+assert(na.open(800, 801, true, false).sessionId == 101)
+assert(noAttachRequest.command == 34 and noAttachRequest.flags == 5)
+assert(not pcall(na.useBackend, "hvm"))
+noAttachMock.state, noAttachMock.session = 0, 0
+assert(na.close().state == 0)
+na.useBackend("hvm")
+assert(next(allocations) == nil)
 
 -- Exercise the actual autorun timer and session files entirely in memory.
 local environment = {KSWORD_CE_BRIDGE_STATUS_FILE = "status", KSWORD_CE_LOG_FILE = "log",
@@ -210,4 +274,4 @@ assert(loadfile(backend_bootstrap_file))(); KSwordBackendTimer.OnTimer()
 assert(selected and api.options().mode == 1 and not api.options().allowFallback and api.options().maxShadowPages == 4)
 assert(next(allocations) == nil)
 io = realIo
-print("PASS: Lua policy ABI, ordinary freeze defaults/Shadow opt-in, actual ACK rollback, persistence/reload, restore failures, title-only integration")
+print("PASS: Lua policy ABI, freeze/Shadow policy, ACK rollback, persistence, and independent no-attach v2 serialization/current-stop gating")

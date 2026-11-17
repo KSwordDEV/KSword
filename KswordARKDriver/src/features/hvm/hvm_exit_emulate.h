@@ -87,6 +87,19 @@ KswordARKHvmExitFilterVmxCapabilityMsr(
     _In_ BOOLEAN IsWrite
     );
 
+/*
+ * Detection-surface MSR 读过滤。
+ * 覆盖 FEATURE_CONTROL (0x3A) 与 PERF_CAPABILITIES (0x345), 与
+ * CPUID.1:ECX[5] 的 VMX 隐藏保持跨 facet 一致。放在 MsrPolicyApply
+ * 之前, 使 user-mode 策略下发不能意外把这些洞再打开。
+ * 返回 TRUE 表示请求已完全在此服务; FALSE 则让调用方继续走正常链。
+ */
+BOOLEAN
+KswordARKHvmExitFilterDetectionMsr(
+    _Inout_ KSW_HVM_GPR_FRAME* Frame,
+    _In_ BOOLEAN IsWrite
+    );
+
 BOOLEAN
 KswordARKHvmExitEmulateMsr(
     _Inout_ KSW_HVM_GPR_FRAME* Frame,

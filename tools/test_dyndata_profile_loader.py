@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
     std::cout << "DYNDATA_QT_LOADER_PASS profiles=" << count << " negative_cases=4 current_items=248" << std::endl;
 }
 '''
-    generated = root / ".codex-build-logs/dyndata-profile-loader"
+    generated = root / "tools/tests/dyndata_profile_loader"
     generated.mkdir(parents=True, exist_ok=True)
     (generated / "DynDataProfileLoaderTests.cpp").write_text(harness, encoding="utf-8")
     bundled_qt = root / ".deps/Qt/6.9.3/msvc2022_64"
@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-<PropertyGroup><OutDir>$(ProjectDir)x64\Release\</OutDir><IntDir>$(ProjectDir)x64\obj\</IntDir></PropertyGroup>
+<PropertyGroup><OutDir>{escape(str(root / "Ksword5.1/x64/Release"))}\</OutDir><IntDir>$(ProjectDir)x64\obj\</IntDir></PropertyGroup>
 <ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>{escape(str(root))};{escape(str(qt/'include'))};{escape(str(qt/'include/QtCore'))};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><AdditionalLibraryDirectories>{escape(str(qt/'lib'))};%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories><AdditionalDependencies>Qt6Core.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
 <ItemGroup><ClCompile Include="DynDataProfileLoaderTests.cpp" /></ItemGroup>
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" /></Project>'''
@@ -138,20 +138,17 @@ int main(int argc, char** argv) {
     (generated / "DynDataProfileLoaderTests.vcxproj.filters").write_text(
         '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup>'
         '<ClCompile Include="DynDataProfileLoaderTests.cpp" /></ItemGroup></Project>', encoding="utf-8")
-    subprocess.run([str(msbuild), str(project_path), "/t:Build", "/p:Configuration=Release", "/p:Platform=x64",
-                    "/p:PreferredToolArchitecture=x64", "/p:PROCESSOR_ARCHITECTURE=AMD64",
-                    "/p:PROCESSOR_ARCHITEW6432=AMD64", "/m:1", "/v:minimal", "/nologo"], check=True)
-    # Deploy only the Core and compiler runtimes into this standalone fixture.
-    # Some host process launch policies do not search added PATH directories.
-    destination = generated / "x64/Release"
-    shutil.copy2(qt / "bin/Qt6Core.dll", destination / "Qt6Core.dll")
-    for runtime in (root / "Ksword5.1/x64/Release").glob("*140*.dll"):
-        shutil.copy2(runtime, destination / runtime.name)
-    environment = os.environ.copy()
-    environment["PATH"] = str(qt / "bin") + os.pathsep + str(root / "Ksword5.1/x64/Release") + os.pathsep + environment.get("PATH", "")
-    subprocess.run([str(generated / "x64/Release/DynDataProfileLoaderTests.exe"),
-                    str((root / args.pack).resolve())],
-                   cwd=root, env=environment, check=True)
+    try:
+        subprocess.run([str(msbuild), str(project_path), "/t:Build", "/p:Configuration=Release", "/p:Platform=x64",
+                        "/p:PreferredToolArchitecture=x64", "/p:PROCESSOR_ARCHITECTURE=AMD64",
+                        "/p:PROCESSOR_ARCHITEW6432=AMD64", "/m:1", "/v:minimal", "/nologo"],
+                       check=True, creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        subprocess.run([str(root / "Ksword5.1/x64/Release/DynDataProfileLoaderTests.exe"),
+                        str((root / args.pack).resolve())], cwd=root, check=True)
+    finally:
+        project_path.unlink(missing_ok=True)
+        project_path.with_suffix('.vcxproj.filters').unlink(missing_ok=True)
+        (generated / "DynDataProfileLoaderTests.cpp").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 #include "MainWindow.h"
 #include "UI/ToolbarMetrics.h"
 #include "UI/KernelHookWizard.h"
+#include "UI/RuntimeControlPages.h"
+#include "UI/ShortcutRegistry.h"
+#include "Framework/BackgroundTaskRegistry.h"
 #include "UI/SecondaryPageLayout.h"
 #include "UI/MainSurfaceStyle.h"
 #include "UI/PageControlStyle.h"
@@ -19,6 +22,7 @@
 #include "UI/McpHexCanvasAdapter.h"
 #include "UI/UI_All.h"
 #include "../../shared/usermode/KswordArkServiceMode.h"
+#include "../../shared/rescue/SosHotkeyLauncher.h"
 #include "Framework/PrivilegeElevationPrompt.h"
 #include "MinidumpDock/DumpAutoCheck.h"
 #include <QMenu>
@@ -127,6 +131,7 @@
 #include "UI/CommandExecutionPopup.h"
 #include "UI/WindowChrome.h"
 #include "UI/SvgThemeIconManager.h"
+#include "UI/ThemeAccentIcon.h"
 #include "UI/ThemeControlGlyphs.h"
 #include "UI/DockThemeIcons.h"
 #include "UI/SmoothScrollSupport.h"
@@ -1579,7 +1584,7 @@ namespace
             return;
         }
 
-        const QColor backgroundColor = KswordTheme::SurfaceColor();
+        const QColor backgroundColor = KswordTheme::SurfaceAltColor();
         QPalette popupPalette = targetWidget->palette();
         popupPalette.setColor(QPalette::Window, backgroundColor);
         popupPalette.setColor(QPalette::Base, backgroundColor);
@@ -1592,6 +1597,8 @@ namespace
             QPalette::HighlightedText,
             KswordTheme::MaximumContrastMonochromeColor(KswordTheme::ControlAccentColor()));
         popupPalette.setColor(QPalette::Mid, KswordTheme::BorderColor());
+        popupPalette.setColor(QPalette::Disabled, QPalette::Text,
+            KswordTheme::EnsureTextContrast(KswordTheme::TextDisabledColor(), backgroundColor, 3.0));
         if (targetWidget->palette() != popupPalette)
         {
             targetWidget->setPalette(popupPalette);
@@ -1638,8 +1645,7 @@ namespace
             popupContainer != comboBox &&
             popupContainer->windowFlags().testFlag(Qt::Popup);
 
-        const bool autoThemed = itemView->property(kKswordComboPopupAutoThemedPropertyName).toBool();
-        if (!autoThemed && !itemView->styleSheet().trimmed().isEmpty())
+        if (comboBox->property("ksword_combo_popup_custom").toBool())
         {
             return;
         }
@@ -1647,15 +1653,15 @@ namespace
         if (hasDedicatedPopupContainer)
         {
             applyOpaqueComboPopupPalette(popupContainer);
+            popupContainer->setProperty("ksword_combo_popup_container", true);
             const QString popupContainerStyle = QStringLiteral(
-                "QFrame{"
+                "QFrame[ksword_combo_popup_container=\"true\"]{"
                 "  background-color:%1 !important;"
                 "  color:%2 !important;"
-                "  border:1px solid %3 !important;"
+                "  border:none !important;"
                 "}")
-                .arg(KswordTheme::SurfaceColorHex())
-                .arg(KswordTheme::TextPrimaryColorHex())
-                .arg(KswordTheme::BorderColorHex());
+                .arg(KswordTheme::SurfaceAltColorHex())
+                .arg(KswordTheme::TextPrimaryColorHex());
             if (popupContainer->styleSheet() != popupContainerStyle)
             {
                 popupContainer->setStyleSheet(popupContainerStyle);
@@ -5648,6 +5654,8 @@ MainWindow::MainWindow(
 
 MainWindow::~MainWindow()
 {
+    // 在 QObject 子树销毁前停止独立 SOS 线程，取消后续跨线程通知。
+    m_sosHotkeyLauncher.reset();
     // Stop input/focus observers before QWidget/ADS starts destroying its child windows.
     delete m_mouselessNavigation;
     m_mouselessNavigation = nullptr;
@@ -8162,6 +8170,7 @@ void MainWindow::initMenus()
     }
 
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
+    ks::ui::InstallCommonShortcutCatalog();
 
     // 功能入口容器：挂在标题栏的应用标识之后。
     // 采用 Windows 常规菜单栏形态——少数几个顶级项，每项展开为下拉菜单，
@@ -8214,6 +8223,8 @@ void MainWindow::initMenus()
     languageManager.bindText(exitAction, QStringLiteral("menu.exit"), QStringLiteral("退出"));
     exitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     exitAction->setShortcutContext(Qt::WindowShortcut);
+    ks::ui::ShortcutRegistry::instance().bindAction(QStringLiteral("app.exit"), QStringLiteral("退出 KSword"),
+        QStringLiteral("application"), exitAction);
     connect(exitAction, &QAction::triggered, this, &MainWindow::close);
     addAction(exitAction);
 
@@ -8256,11 +8267,12 @@ void MainWindow::initMenus()
     m_toolsMenuButton = new QToolButton(titleActionContainer);
     m_toolsMenuButton->setObjectName(QStringLiteral("ksToolsMenuButton"));
     m_toolsMenuButton->setText(QStringLiteral("工具"));
-    m_toolsMenuButton->setToolTip(QStringLiteral("内核 Hook 向导等高级工具"));
+    m_toolsMenuButton->setToolTip(QStringLiteral("救援、快捷键、后台任务与辅助工具"));
     languageManager.bindText(m_toolsMenuButton, QStringLiteral("menu.tools"), QStringLiteral("工具"));
-    languageManager.bindToolTip(m_toolsMenuButton, QStringLiteral("menu.tools.tooltip"), QStringLiteral("内核 Hook 向导等高级工具"));
+    languageManager.bindToolTip(m_toolsMenuButton, QStringLiteral("menu.tools.tooltip"), QStringLiteral("救援、快捷键、后台任务与辅助工具"));
     m_toolsMenu = new QMenu(m_toolsMenuButton);
     m_toolsMenu->setObjectName(QStringLiteral("ksToolsMenu"));
+    m_toolsMenu->setToolTipsVisible(true);
     configureTitleMenuButton(m_toolsMenuButton, m_toolsMenu);
 
     QAction* const kernelHookWizardAction = m_toolsMenu->addAction(QStringLiteral("内核 Hook 向导"));
@@ -8268,6 +8280,128 @@ void MainWindow::initMenus()
     connect(kernelHookWizardAction, &QAction::triggered, this, [this]() {
         // Wizard 自己管生命周期 (WA_DeleteOnClose)；菜单只给入口。
         ks::ui::KernelHookWizard::openWizard(this);
+    });
+
+    QAction* const rescueAction = m_toolsMenu->addAction(
+        ks::ui::MakeThemeAccentIcon(QIcon(QStringLiteral(":/Icon/process_critical.svg"))),
+        QStringLiteral("救援模式"));
+    rescueAction->setObjectName(QStringLiteral("ks_rescue_mode_action"));
+    rescueAction->setIconVisibleInMenu(true);
+    languageManager.bindText(rescueAction, QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式"));
+    const bool rescueActive = qApp->property("ksword_rescue_desktop").toBool();
+    rescueAction->setEnabled(!rescueActive);
+    const QPointer<QAction> rescueGuard(rescueAction);
+    const auto updateRescueToolTip = [rescueGuard, rescueActive]() {
+        if (!rescueGuard) return;
+        const QString description = rescueGuard->property("ks_rescue_session_active").toBool()
+            ? ks::i18n::sourceText(QStringLiteral("救援会话正在启动或运行。")) : ks::i18n::text(
+            rescueActive ? QStringLiteral("rescue.desktop.already_active") : QStringLiteral("menu.tools.rescue.tooltip"),
+            rescueActive ? QStringLiteral("当前已处于救援模式，请使用返回原桌面按钮退出。")
+                         : QStringLiteral("在独立桌面启动管理员救援实例，保留当前窗口；也可依次按 S O S Enter，返回快捷键为 Ctrl+Alt+Shift+F10。"));
+        rescueGuard->setToolTip(description);
+        ks::ui::ShortcutRegistry::instance().setShortcutHint(QStringLiteral("app.rescue"), rescueGuard.data(), description);
+    };
+    updateRescueToolTip();
+    connect(m_toolsMenu, &QMenu::aboutToShow, rescueAction, updateRescueToolTip);
+    connect(rescueAction, &QAction::triggered, this, [this, rescueAction]() {
+        launchRescueDesktopFromMenu(rescueAction);
+    });
+    if (!rescueActive)
+    {
+        m_sosHotkeyLauncher = std::make_unique<SosHotkeyLauncher>(
+            QCoreApplication::applicationFilePath(),
+            [this](DWORD errorCode) {
+                QMetaObject::invokeMethod(this, [this, errorCode]() {
+                    if (errorCode == ERROR_CANCELLED) return;
+                    QMessageBox::warning(this,
+                        ks::i18n::text(QStringLiteral("menu.tools.rescue"), QStringLiteral("救援模式")),
+                        ks::i18n::sourceText(QStringLiteral("救援模式启动失败（代码：%1）。请重试；详情见同目录 logs/sos-rescue-*.log。"))
+                            .arg(errorCode));
+                }, Qt::QueuedConnection);
+            },
+            [this, rescueGuard, updateRescueToolTip](bool active) {
+                QMetaObject::invokeMethod(this, [rescueGuard, updateRescueToolTip, active]() {
+                    if (!rescueGuard) return;
+                    rescueGuard->setProperty("ks_rescue_session_active", active);
+                    rescueGuard->setEnabled(!active);
+                    updateRescueToolTip();
+                }, Qt::QueuedConnection);
+            });
+        m_sosHotkeyLauncher->start();
+        ks::ui::BackgroundTaskRegistry::instance().addExternal(QStringLiteral("rescue.sos_listener"),
+            QStringLiteral("SOS 键盘监听"), QStringLiteral("救援"), this,
+            {[this]() { return m_sosHotkeyLauncher && m_sosHotkeyLauncher->isRunning(); }, {}, {}},
+            QStringLiteral("救援监听由独立线程处理，退出主程序时注销；不允许暂停恢复入口。"));
+    }
+
+    // KSword 安全桌面入口（Phase C）：
+    // - 不同于"救援模式"的私有 Win32 桌面方案，这里直接触发 Windows 原生
+    //   Winlogon 安全桌面（通过 UAC runas）；
+    // - 常驻 Winlogon 的 KSwordSecureDesk 覆盖层会因输入桌面切换自动弹出，
+    //   显示"打开 KSword"按钮供用户进入 SYSTEM/UIAccess 的 KSword 实例；
+    // - 该入口与"救援模式"并列保留，两条救援路径各自有不同的使用场景。
+    QAction* const secureDeskAction = m_toolsMenu->addAction(
+        ks::ui::MakeThemeAccentIcon(QIcon(QStringLiteral(":/Icon/process_uncritical.svg"))),
+        QStringLiteral("KSword 安全桌面"));
+    secureDeskAction->setObjectName(QStringLiteral("ks_secure_desk_action"));
+    secureDeskAction->setIconVisibleInMenu(true);
+    languageManager.bindText(secureDeskAction, QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面"));
+    const QString secureDeskTooltip = QStringLiteral(
+        "通过锁定工作站切到 Windows 原生 Winlogon 安全桌面；KSwordSecureDesk 覆盖层会自动显示打开 KSword 入口。");
+    // QAction 的 toolTip 不支持 LanguageManager::bindToolTip（它只接受 QWidget）。
+    // 这里只做一次 setToolTip 即可：UI 文本随菜单项文字一起由 bindText 刷新；
+    // 用户切换语言时，自上而下 aboutToShow 的提示文案会在 ShortcutRegistry 内刷新。
+    secureDeskAction->setToolTip(secureDeskTooltip);
+    connect(secureDeskAction, &QAction::triggered, this, [this, secureDeskAction]() {
+        launchSecureDeskFromMenu(secureDeskAction);
+    });
+
+    auto& shortcuts = ks::ui::ShortcutRegistry::instance();
+    shortcuts.bindAction(QStringLiteral("app.rescue"), QStringLiteral("打开救援模式"), QStringLiteral("application"), rescueAction);
+    shortcuts.bindAction(QStringLiteral("app.secure_desk"), QStringLiteral("打开 KSword 安全桌面"), QStringLiteral("application"), secureDeskAction);
+    ks::ui::ShortcutRegistry::Command sosCommand;
+    sosCommand.id = QStringLiteral("rescue.sos");
+    sosCommand.title = QStringLiteral("SOS 救援序列");
+    sosCommand.context = QStringLiteral("system");
+    sosCommand.defaults = QKeySequence(QStringLiteral("S, O, S, Return"));
+    sosCommand.sequence = true;
+    sosCommand.editable = false;
+    sosCommand.restriction = QStringLiteral("救援序列与返回键保留固定入口，避免丢失恢复路径。");
+    shortcuts.define(sosCommand);
+    sosCommand.id = QStringLiteral("rescue.return");
+    sosCommand.title = QStringLiteral("返回原桌面");
+    sosCommand.defaults = QKeySequence(QStringLiteral("Ctrl+Alt+Shift+F10"));
+    sosCommand.sequence = false;
+    shortcuts.define(sosCommand);
+
+    QAction* const taskbarAction = m_toolsMenu->addAction(ks::i18n::sourceText(QStringLiteral("Taskbar")));
+    taskbarAction->setObjectName(QStringLiteral("ks_taskbar_launch_action"));
+    taskbarAction->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
+    taskbarAction->setIconVisibleInMenu(true);
+    shortcuts.bindAction(QStringLiteral("app.taskbar"), QStringLiteral("打开 Taskbar"), QStringLiteral("application"), taskbarAction);
+    connect(taskbarAction, &QAction::triggered, this, [this]() {
+        const QString executable = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("Taskbar.exe"));
+        if (!QProcess::startDetached(executable, {}, QCoreApplication::applicationDirPath()))
+            QMessageBox::warning(this, QStringLiteral("Taskbar"), ks::i18n::sourceText(QStringLiteral("无法启动 Taskbar，请确认它位于主程序同目录。")));
+    });
+    QAction* const shortcutManagerAction = m_toolsMenu->addAction(ks::i18n::sourceText(QStringLiteral("快捷键管理")));
+    shortcutManagerAction->setObjectName(QStringLiteral("ks_shortcut_manager_action"));
+    shortcutManagerAction->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    shortcutManagerAction->setIconVisibleInMenu(true);
+    shortcuts.bindAction(QStringLiteral("app.shortcuts"), QStringLiteral("打开快捷键管理"), QStringLiteral("application"), shortcutManagerAction);
+    connect(shortcutManagerAction, &QAction::triggered, this, [this]() { showShortcutManagerFromMenu(); });
+    QAction* const backgroundAction = m_toolsMenu->addAction(ks::i18n::sourceText(QStringLiteral("后台任务")));
+    backgroundAction->setObjectName(QStringLiteral("ks_background_tasks_action"));
+    backgroundAction->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    backgroundAction->setIconVisibleInMenu(true);
+    shortcuts.bindAction(QStringLiteral("app.background_tasks"), QStringLiteral("打开后台任务"), QStringLiteral("application"), backgroundAction);
+    connect(backgroundAction, &QAction::triggered, this, [this]() {
+        if (m_dockCurrentOp && m_dockCurrentOp->isFloating()) m_dockCurrentOp->toggleView(false);
+        if (!m_taskManagerWindow) m_taskManagerWindow = new ks::ui::TaskManagerDialog(this);
+        m_taskManagerWindow->showBackgroundTasks();
+        m_taskManagerWindow->show();
+        m_taskManagerWindow->raise();
+        m_taskManagerWindow->activateWindow();
     });
 
     // ======== 窗口 ========
@@ -8409,6 +8543,84 @@ void MainWindow::refreshTitleActionButtonStyles()
             button->setStyleSheet(topActionButtonStyle);
         }
     }
+}
+
+void MainWindow::launchRescueDesktopFromMenu(QAction* action)
+{
+    if (!action->isEnabled() || qApp->property("ksword_rescue_desktop").toBool())
+    {
+        return;
+    }
+
+    // 菜单和 SOS 由同一个启动器派发，监护入口位于当前 KSword exe。
+    if (m_sosHotkeyLauncher)
+    {
+        m_sosHotkeyLauncher->requestLaunch();
+    }
+}
+
+void MainWindow::launchSecureDeskFromMenu(QAction* action)
+{
+    if (!action || !action->isEnabled()) return;
+
+    // 1) 定位同目录 KSwordSecureDesk.exe；这里是 SYSTEM/UIAccess 常驻覆盖层
+    //    的唯一合法宿主，缺失直接提示用户。
+    const QDir applicationDirectory(QCoreApplication::applicationDirPath());
+    const QString helperPath = applicationDirectory.absoluteFilePath(QStringLiteral("KSwordSecureDesk.exe"));
+    if (!QFileInfo(helperPath).isFile())
+    {
+        QMessageBox::warning(
+            this,
+            ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面")),
+            ks::i18n::sourceText(QStringLiteral("未找到同目录 KSwordSecureDesk.exe，无法进入安全桌面。")));
+        return;
+    }
+
+    // 2) 用户态切输入桌面到 Winlogon 的方法回顾：
+    //    - ShellExecute "runas"：主程序已 elevated 时 Windows 继承 token，
+    //      UAC 完全不弹，桌面也不切；从 elevated 侧盗 Explorer token 再 runas
+    //      仍受 UAC 策略影响（"Elevate without prompting" 下同样不弹）。
+    //    - SendSAS(TRUE)（Ctrl+Alt+Del）：需要 SeTcbPrivilege，admin 账户默认
+    //      没有，也无法 AdjustTokenPrivileges 启用。
+    //    - LockWorkStation()：零特权、系统 API，必然把输入桌面切到 Winlogon，
+    //      是用户态能真正做到"切到 Windows 安全桌面"的唯一可靠路径。
+    //    代价：用户返回主桌面需要重新解锁登录。先弹确认对话框告知 UX，用户
+    //    点同意再执行锁屏。KSwordSecureDesk 覆盖层已常驻 Winlogon 桌面，
+    //    输入桌面切换后按 Phase B 的 "输入桌面!=Default" 规则自动显示。
+    const QString title = ks::i18n::text(QStringLiteral("menu.tools.secure_desk"), QStringLiteral("KSword 安全桌面"));
+    const QString question = ks::i18n::sourceText(QStringLiteral("即将把输入切换到 Windows 安全桌面（Winlogon）。\n切换后 KSwordSecureDesk 覆盖层会自动出现，可点击\"打开 KSword\"启动安全实例；返回当前桌面需要重新解锁登录。继续吗？"));
+    const auto reply = QMessageBox::question(this, title, question,
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (reply != QMessageBox::Yes) return;
+
+    // LockWorkStation 异步请求 Winlogon 切桌面；不阻塞 Qt 事件循环。
+    if (!::LockWorkStation())
+    {
+        const DWORD code = ::GetLastError();
+        QMessageBox::warning(this, title,
+            ks::i18n::sourceText(QStringLiteral("触发 Windows 安全桌面失败（代码：%1）。")).arg(code));
+    }
+}
+
+void MainWindow::showShortcutManagerFromMenu(bool systemPage)
+{
+    if (!m_shortcutManagerWindow)
+    {
+        m_shortcutManagerWindow = new ks::ui::ShortcutManagerDialog(this,
+            [this](QWidget* parent) -> QWidget* {
+                ensureDockContentInitialized(m_dockWindow);
+                if (!m_windowWidget) return nullptr;
+                m_windowWidget->openShortcutManager = [this]() { showShortcutManagerFromMenu(true); };
+                return m_windowWidget->createShortcutManagementPage(parent);
+            },
+            [this](const QString& keys) {
+                if (m_windowWidget) m_windowWidget->findShortcutOccupancy(keys);
+            });
+    }
+    if (systemPage) m_shortcutManagerWindow->showSystemPage();
+    m_shortcutManagerWindow->show();
+    m_shortcutManagerWindow->raise();
+    m_shortcutManagerWindow->activateWindow();
 }
 
 void MainWindow::openProjectPageFromMenu(const QString& urlText, const QString& failureTitle)
@@ -9055,6 +9267,8 @@ void MainWindow::initPrivilegeStatusButtons()
     // 定时刷新权限状态，保证按钮颜色与实际权限一致。
     m_privilegeStatusTimer = new QTimer(this);
     m_privilegeStatusTimer->setInterval(1500);
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("app.privilege_status"),
+        QStringLiteral("权限与驱动状态"), QStringLiteral("主窗口"), m_privilegeStatusTimer, {});
     connect(m_privilegeStatusTimer, &QTimer::timeout, this, [this]() {
         refreshPrivilegeStatusButtons();
     });
@@ -12882,19 +13096,8 @@ void MainWindow::attachMiscHotkeyManagerLink(MiscDock* miscDock)
 
 bool MainWindow::activateWindowHotkeyManagement()
 {
-    if (!m_dockWindow) return false;
-    const QPointer<MainWindow> owner(this);
-    const QPointer<ads::CDockWidget> dock(m_dockWindow);
-    ensureDockContentInitialized(dock.data());
-    if (!owner || !dock || !m_windowWidget) return false;
-    const QPointer<WindowDock> page(m_windowWidget);
-    dock->toggleView(true);
-    if (!owner || !dock || !page) return false;
-    withTemporaryNonTopMostForDockSwitch([dock]() { if (dock) dock->raise(); });
-    if (!owner || !dock || !page) return false;
-    dock->setAsCurrentTab();
-    if (!owner || !dock || !page) return false;
-    return page->activateHotkeyManagement() != nullptr;
+    showShortcutManagerFromMenu(true);
+    return !m_shortcutManagerWindow.isNull();
 }
 
 void MainWindow::checkRecentCrashDumps()

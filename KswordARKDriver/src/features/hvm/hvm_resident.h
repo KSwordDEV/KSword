@@ -38,6 +38,22 @@ Environment:
 /* Preserve x87, MMX, MXCSR, and XMM0-XMM15 across VM-exit C dispatch. */
 #define KSW_HVM_FX_STATE_BYTES 512UL
 
+/* CPUID 动态叶结果缓存容量；每个 vCPU 保留 8 条最近 CPUID 命中。 */
+#define KSW_HVM_CPUID_CACHE_ENTRIES 8UL
+
+/* 单条 CPUID 缓存记录；匹配 (leaf, subleaf) 后直接回填四寄存器。 */
+typedef struct _KSW_HVM_CPUID_CACHE_ENTRY
+{
+    /* 匹配 CPUID.EAX 输入 leaf；Valid==FALSE 时 leaf/subleaf 不参与比较。 */
+    ULONG Leaf;
+    /* 匹配 CPUID.ECX 输入 subleaf；对无 subleaf 的叶永远以 0 保存。 */
+    ULONG Subleaf;
+    /* 命中时按原顺序回填的 eax/ebx/ecx/edx；存的是 __cpuidex 原始主机值。 */
+    int Registers[4];
+    /* 条目是否可用；首次 miss 后置 TRUE，启动前清零保证不复用上一轮内容。 */
+    BOOLEAN Valid;
+} KSW_HVM_CPUID_CACHE_ENTRY;
+
 /* Own one processor's resident VMX continuation and nonblocking exit state. */
 typedef struct _KSW_HVM_RESIDENT_VCPU
 {
@@ -276,6 +292,22 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     ULONG HltLastInterruptibility;
     /* CPUID.0 has no dynamic OS state; refresh on this CPU at each insertion. */
     int CpuidVendorLeaf[4];
+    /* 无附加断点仅在此处理器临时切回正常 EPTP。 */
+    BOOLEAN NoAttachBypass;
+    /* 同一 EPTP 的 bank 重用前在本处理器执行 INVEPT。 */
+    ULONGLONG NoAttachWatchGeneration;
+    /* 追加字段不改变汇编依赖的既有成员偏移。 */
+    BOOLEAN NoAttachTfArmed;
+    /* 恢复原始控制；普通算术产生的新 RFLAGS 状态必须保留。 */
+    ULONGLONG NoAttachTfPin, NoAttachTfBitmap;
+    /* CPUID 动态叶缓存 8 条；位置严格 append 在 struct 末尾以保护汇编偏移 C_ASSERT。 */
+    KSW_HVM_CPUID_CACHE_ENTRY CpuidCache[KSW_HVM_CPUID_CACHE_ENTRIES];
+    /* 下一次 miss 的 LRU 插入位置；环形推进，不维护真正的 LRU 链表以保持 handler 短。 */
+    ULONG CpuidCacheNext;
+    /* 命中计数；仅通过 kd !process 扩展观察，不走 R0/R3 协议。 */
+    ULONGLONG CpuidCacheHits;
+    /* 错失计数；与 Hits 配合用于手工计算命中率。 */
+    ULONGLONG CpuidCacheMisses;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START

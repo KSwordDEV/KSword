@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "MonitorPanelWidget.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../../../shared/ui/KsPainterChart.h"
@@ -245,6 +246,7 @@ struct MonitorPanelWidget::SamplingState final
     {
         std::shared_ptr<SamplingReceipt> receipt;
         std::function<void()> completion; // Constructed on GUI; only handed to the existing dispatcher.
+        ks::ui::TaskCpuToken cpu = ks::ui::TaskCpuScope::capture();
     };
     struct NetworkBaseline { std::uint64_t rx = 0, tx = 0, timeMs = 0; };
     SamplingState(int count, std::shared_ptr<ks::ui::AsyncUiDispatcher> target)
@@ -340,6 +342,7 @@ struct MonitorPanelWidget::SamplingState final
                     value = std::move(*pending);
                     pending.reset();
                 }
+                const ks::ui::TaskCpuScope measurement(value.cpu, ks::ui::TaskCpuPhase::Worker);
                 try { collect(value.receipt->sample); }
                 catch (...) { value.receipt->sample = {}; } // A failed round is a gap, never a stuck gate.
                 value.receipt->sample.sampleTimeMs = QDateTime::currentMSecsSinceEpoch();
@@ -563,6 +566,13 @@ MonitorPanelWidget::MonitorPanelWidget(QWidget* parent)
     // - UI 只消费完成值和投影，不执行原生查询。
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(1000);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_monitor_metrics;
+    taskPolicy_monitor_metrics.canPause = true;
+    taskPolicy_monitor_metrics.canChangeInterval = true;
+    taskPolicy_monitor_metrics.allowMultipleInstances = false;
+    taskPolicy_monitor_metrics.minimumIntervalMs = 50;
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("monitor.metrics"),
+        QStringLiteral("系统指标采样"), QStringLiteral("监控"), m_refreshTimer, std::move(taskPolicy_monitor_metrics));
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
         refreshMetrics();
     });

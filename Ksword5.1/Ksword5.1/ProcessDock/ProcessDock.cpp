@@ -1,5 +1,7 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "../UI/KeyboardItemActivation.h"
 #include "ProcessDock.h"
+#include "../UI/ShortcutRegistry.h"
 #include <map>
 #include <stdexcept>
 #include "ProcessActivitySeriesCache.h"
@@ -7200,6 +7202,8 @@ void ProcessDock::initializeConnections()
     // - 仅在“进程列表”页且存在选中行时执行“结束进程组合动作”。
     QShortcut* terminateShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_E), this);
     terminateShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    ks::ui::ShortcutRegistry::instance().bindShortcut(QStringLiteral("process.terminate"), QStringLiteral("结束选中进程"),
+        QStringLiteral("process"), terminateShortcut);
     connect(terminateShortcut, &QShortcut::activated, this, [this]() {
         if (m_sideTabWidget == nullptr || m_sideTabWidget->currentWidget() != m_processListPage)
         {
@@ -7330,6 +7334,15 @@ void ProcessDock::initializeTimer()
     // - 下方进程表格是否重绘由独立“列表刷新(s)”输入框节流。
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(refreshIntervalMillisecondsFromInput());
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_process_monitor;
+    taskPolicy_process_monitor.canPause = true;
+    taskPolicy_process_monitor.canChangeInterval = false;
+    taskPolicy_process_monitor.allowMultipleInstances = false;
+    taskPolicy_process_monitor.minimumIntervalMs = 50;
+    taskPolicy_process_monitor.restriction = QStringLiteral("间隔沿用原页面设置；暂停只阻止后续采样。");
+    taskPolicy_process_monitor.eligible = [this]() { return m_monitoringEnabled && isProcessActivityRefreshAllowedNow(); };
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("process.monitor"),
+        QStringLiteral("进程活动采样"), QStringLiteral("进程"), m_refreshTimer, std::move(taskPolicy_process_monitor));
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
         requestAsyncRefresh(false);
     });
@@ -7971,6 +7984,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     // 否则内层 QueuedConnection lambda 在工作线程里无法再引用 requestAsyncRefresh 的参数。
     const bool forceUiRefresh = forceRefresh;
     QRunnable* backgroundTask = QRunnable::create([
+        cpu = ks::ui::TaskCpuScope::capture(),
         guard,
         localTicket,
         strategyIndex,
@@ -7992,6 +8006,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
         cpuCoreCaptureGeneration,
         cpuCoreSnapshotDue,
         previousCpuCoreUsageSnapshot]() mutable {
+        const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Worker);
         std::unordered_map<std::uint32_t, NetworkTrafficCounters> networkTrafficSnapshot;
         const auto networkHealth = networkService ? networkService->SnapshotHealth() : ks::network::ProcessNetworkEtwHealth{};
         bool networkSnapshotValid = false;
@@ -8060,10 +8075,12 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
 
         // 结果通过队列连接回主线程更新 UI。
         QMetaObject::invokeMethod(guard, [
+            cpu,
             guard,
             localTicket,
             refreshResult = std::move(refreshResult),
             forceUiRefresh]() mutable {
+            const ks::ui::TaskCpuScope measurement(cpu, ks::ui::TaskCpuPhase::Completion);
             if (guard == nullptr)
             {
                 return;

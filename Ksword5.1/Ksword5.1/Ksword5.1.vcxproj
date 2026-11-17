@@ -223,6 +223,10 @@
     <ClCompile Include="Framework\NotificationCardManager.cpp" />
     <ClCompile Include="Framework\DestructiveActionConfirmation.cpp" />
     <ClCompile Include="Framework\Progress.cpp" />
+    <ClCompile Include="Framework\BackgroundTaskRegistry.cpp" />
+    <ClCompile Include="UI\ShortcutRegistry.cpp" />
+    <ClCompile Include="UI\BackgroundTaskPage.cpp" />
+    <ClCompile Include="UI\ShortcutManagerDialog.cpp" />
     <ClCompile Include="Framework\TaskSnapshotFeed.cpp" />
     <ClCompile Include="Framework\ProgressDockWidget.cpp" />
     <ClCompile Include="Framework\CustomTitleBar.cpp" />
@@ -382,6 +386,7 @@
     <ClCompile Include="MemoryDock\MemoryDebugPage.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugProcessCatalog.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.cpp" />
+    <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.Hvm.cpp" />
     <ClCompile Include="MemoryDock\MemoryDebugThreadSession.cpp" />
     <ClCompile Include="ArkDriverClient\ArkHvmNoAttachClient.cpp" />
     <ClCompile Include="..\..\shared\debug\CooperativeDebugClient.cpp" />
@@ -602,7 +607,9 @@
     <ClCompile Include="UI\CommandExecutionPopup.cpp" />
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\RescueDesktopSession.cpp" />
+    <ClCompile Include="..\..\shared\rescue\SosHotkeyLauncher.cpp" />
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp" />
+    <ClCompile Include="..\..\shared\rescue\RescueDesktopHost.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.Edit.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.Input.cpp" />
@@ -942,6 +949,10 @@
     <ClInclude Include="Framework\DestructiveActionConfirmation.h" />
     <ClInclude Include="Framework\PrivilegeElevationPrompt.h" />
     <ClInclude Include="Framework\ProgressDockWidget.h" />
+    <ClInclude Include="Framework\BackgroundTaskRegistry.h" />
+    <ClInclude Include="Framework\TaskCpuMeasurement.h" />
+    <ClInclude Include="UI\ShortcutRegistry.h" />
+    <ClInclude Include="UI\RuntimeControlPages.h" />
     <ClInclude Include="Framework\TaskSnapshotFeed.h" />
     <ClInclude Include="Framework\StartupSplash.h" />
     <ClInclude Include="Framework\StartupSplashLayout.h" />
@@ -1347,7 +1358,9 @@
     <QtMoc Include="UI\CommandExecutionPopup.h" />
     <ClInclude Include="UI\WindowChrome.h" />
     <ClInclude Include="UI\RescueDesktopSession.h" />
+    <ClInclude Include="..\..\shared\rescue\SosHotkeyLauncher.h" />
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h" />
+    <ClInclude Include="..\..\shared\rescue\RescueDesktopHost.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasOverviewBar.h" />

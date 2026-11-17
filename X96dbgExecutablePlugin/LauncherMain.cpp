@@ -20,7 +20,8 @@ namespace
     struct Arguments
     {
         std::wstring command, debugger;
-        DWORD pid = 0, hostPid = 0;
+        DWORD pid = 0, hostPid = 0, noAttachTid = 0;
+        std::wstring noAttachMode; // L"", L"hvm" or L"kernel"
         HWND parent = nullptr;
         std::uint64_t createTime = 0, address = 0;
         ksword::x64dbg_navigation::View view = ksword::x64dbg_navigation::View::Disassembly;
@@ -28,6 +29,8 @@ namespace
     };
     HWND gWindow = nullptr;
     HANDLE gDebugger = nullptr, gHost = nullptr;
+    DWORD gNoAttachTid = 0U;
+    std::wstring gNoAttachMode;
     std::wstring gLogPath, gSessionDirectory;
     // 随机命名克隆目录；非空时在调试器退出后一并清理。
     std::wstring gClonedPayloadDirectory;
@@ -125,6 +128,13 @@ namespace
             else if (option == L"--host-pid") { if (!number(argv[++index], MAXDWORD, value)) return args; args.hostPid = static_cast<DWORD>(value); }
             else if (option == L"--parent-hwnd") { if (!number(argv[++index], UINTPTR_MAX, value)) return args; args.parent = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(value)); }
             else if (option == L"--target-kind") { if (std::wstring(argv[++index]) != L"process") return args; }
+            else if (option == L"--tid") { if (!number(argv[++index], MAXDWORD, value)) return args; args.noAttachTid = static_cast<DWORD>(value); }
+            else if (option == L"--noattach-mode")
+            {
+                const std::wstring mode(argv[++index]);
+                if (mode != L"hvm" && mode != L"kernel") return args;
+                args.noAttachMode = mode;
+            }
             else if (option == L"--path" || option == L"--process-name") ++index;
             else return args;
         }
@@ -137,6 +147,8 @@ namespace
         else args.valid = args.parent == nullptr && args.hostPid == 0 && ((args.command == L"attach" || args.command == L"navigate") ? args.pid != 0 : args.pid == 0)
             && (args.command != L"navigate" || args.createTime != 0)
             && (args.command == L"navigate" || (args.createTime == 0 && args.address == 0 && args.debugger.empty()));
+        // No-attach selection is optional; both parts must match when supplied.
+        if (args.valid && (args.noAttachTid != 0U) != !args.noAttachMode.empty()) args.valid = false;
         return args;
     }
     bool amd64(const std::wstring& path, std::string& error)
@@ -210,6 +222,11 @@ namespace
         entries.push_back(L"KSWORD_DEBUGGER_CONTROL_FILE=" + gLogPath + L".control");
         entries.push_back(L"KSWORD_DEBUGGER_STATE_FILE=" + gLogPath + L".state");
         entries.push_back(L"KSWORD_DEBUGGER_SESSION_ID=" + sessionId);
+        if (gNoAttachTid != 0U && !gNoAttachMode.empty())
+        {
+            entries.push_back(L"KSWORD_DEBUGGER_NOATTACH_MODE=" + gNoAttachMode);
+            entries.push_back(L"KSWORD_DEBUGGER_NOATTACH_TID=" + std::to_wstring(gNoAttachTid));
+        }
         if (freshAttach) entries.push_back(L"KSWORD_NAVIGATION_FRESH_ATTACH=1");
         std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return _wcsicmp(a.c_str(), b.c_str()) < 0; });
         std::vector<wchar_t> block;
@@ -464,6 +481,11 @@ int wmain(int argc, wchar_t* argv[])
 {
     const auto args = parse(argc, argv);
     if (!args.valid) { emit("error", "\"code\":\"invalid_arguments\",\"message\":\"Expected --ksword-plugin info|check|attach|navigate|tab with valid target/host arguments.\""); return 2; }
+    // Propagate the no-attach selection into the child env block built by
+    // environment(). gNoAttachMode stays empty when the caller omits the
+    // option, leaving the default attach path untouched.
+    gNoAttachTid = args.noAttachTid;
+    gNoAttachMode = args.noAttachMode;
     if (args.command == L"tab") return tab(args);
     if (args.command == L"navigate") return navigation(args);
     if (args.command == L"attach")

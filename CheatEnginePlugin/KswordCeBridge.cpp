@@ -1,5 +1,6 @@
 #include "KswordCeBridge.h"
 #include "../DebuggerBackend/KswordDebuggerBackend.h"
+#include "../shared/driver/KswordArkKernelNoAttachIoctl.h"
 
 #include <mutex>
 #include <limits>
@@ -46,6 +47,69 @@ namespace ksword::ce
         {
             try { return action(); }
             catch (...) { SetLastError(ERROR_GEN_FAILURE); return failure; }
+        }
+
+        // Environment-driven no-attach selector. Set BEFORE launching CE:
+        //   KSWORD_DEBUGGER_NOATTACH_MODE=hvm  (EPT + MTF/VMX-TF transport)
+        //   KSWORD_DEBUGGER_NOATTACH_MODE=kernel (ordinary-driver DR + TF transport)
+        //   KSWORD_DEBUGGER_NOATTACH_TID=<decimal thread id to hold>
+        // Any other value or missing TID keeps CE on its default attach path.
+        DWORD readDecimal(const wchar_t* name)
+        {
+            wchar_t buffer[32]{};
+            const DWORD read = GetEnvironmentVariableW(name, buffer, _countof(buffer));
+            if (read == 0 || read >= _countof(buffer)) return 0;
+            DWORD value = 0;
+            for (DWORD i = 0; i < read; ++i)
+            {
+                if (buffer[i] < L'0' || buffer[i] > L'9') return 0;
+                if (value > (std::numeric_limits<DWORD>::max)() / 10) return 0;
+                value = value * 10 + static_cast<DWORD>(buffer[i] - L'0');
+            }
+            return value;
+        }
+        DWORD readMode()
+        {
+            wchar_t buffer[16]{};
+            const DWORD read = GetEnvironmentVariableW(L"KSWORD_DEBUGGER_NOATTACH_MODE", buffer, _countof(buffer));
+            if (read == 0 || read >= _countof(buffer)) return 0;
+            if (read == 3 && _wcsnicmp(buffer, L"hvm", 3) == 0) return KSWORD_DEBUGGER_NOATTACH;
+            if (read == 6 && _wcsnicmp(buffer, L"kernel", 6) == 0) return KSWORD_DEBUGGER_KERNEL_NOATTACH;
+            return 0;
+        }
+        DWORD armIndependentFrontend(DWORD pid)
+        {
+            const DWORD mode = readMode();
+            if (mode == 0) return ERROR_SUCCESS;
+            const DWORD tid = readDecimal(L"KSWORD_DEBUGGER_NOATTACH_TID");
+            if (tid == 0 || pid <= 4) return ERROR_SUCCESS;
+            auto& frontend = debugger::backend().independentFrontend();
+            if (frontend.selected()) return ERROR_SUCCESS;
+            KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
+            request.version = KSWORD_DEBUGGER_FRONTEND_VERSION;
+            request.size = sizeof(request);
+            request.operation = KSWORD_DEBUGGER_FRONTEND_SELECT;
+            request.command = mode;
+            request.flags = KSWORD_ARK_HVM_NOATTACH_CONFIRMED |
+                (mode == KSWORD_DEBUGGER_KERNEL_NOATTACH ? KSWORD_ARK_KERNEL_NOATTACH_HOOK_ACK : 0);
+            request.processId = pid; request.threadId = tid;
+            KSWORD_DEBUGGER_FRONTEND_STATUS status{};
+            const DWORD error = frontend.control(request, status);
+            debugger::backend().log(error == ERROR_SUCCESS ?
+                "CE no-attach SELECT accepted: mode=" + std::to_string(mode) + " PID=" + std::to_string(pid) + " TID=" + std::to_string(tid) :
+                "CE no-attach SELECT refused: error=" + std::to_string(error) + " mode=" + std::to_string(mode) + " PID=" + std::to_string(pid) + " TID=" + std::to_string(tid));
+            return error;
+        }
+        void disarmIndependentFrontend()
+        {
+            auto& frontend = debugger::backend().independentFrontend();
+            if (!frontend.selected() || frontend.active()) return;
+            KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
+            request.version = KSWORD_DEBUGGER_FRONTEND_VERSION;
+            request.size = sizeof(request);
+            request.operation = KSWORD_DEBUGGER_FRONTEND_CLOSE;
+            KSWORD_DEBUGGER_FRONTEND_STATUS status{};
+            (void)frontend.control(request, status);
         }
 
         HANDLE WINAPI openProcess(DWORD access, BOOL inherit, DWORD pid)
@@ -107,7 +171,13 @@ namespace ksword::ce
         BOOL WINAPI continueEvent(DWORD pid, DWORD tid, DWORD status)
         { return boundary([&] { return debugger::backend().continueEvent(pid, tid, status); }, FALSE); }
         BOOL WINAPI attach(DWORD pid)
-        { return boundary([&] { return debugger::backend().attach(pid); }, FALSE); }
+        { return boundary([&] {
+            const DWORD armError = armIndependentFrontend(pid);
+            if (armError != ERROR_SUCCESS) { SetLastError(armError); return FALSE; }
+            const BOOL ok = debugger::backend().attach(pid);
+            if (!ok) { const DWORD saved = GetLastError(); disarmIndependentFrontend(); SetLastError(saved); }
+            return ok;
+        }, FALSE); }
         BOOL WINAPI protectMemory(HANDLE process, LPVOID address, SIZE_T bytes, DWORD protection, PDWORD previous)
         { return boundary([&] {
             g_dataProtection = {};

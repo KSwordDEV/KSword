@@ -1,6 +1,6 @@
 #pragma once
 
-#include "UacDesk.h"
+#include "SecureDesk.h"
 
 class QWinEventNotifier;
 

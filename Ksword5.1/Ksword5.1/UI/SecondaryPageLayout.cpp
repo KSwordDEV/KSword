@@ -449,6 +449,13 @@ namespace ks::ui
         return content ? new SecondaryFormScroll(content, parent) : nullptr;
     }
 
+    void StyleSecondaryManagerWindow(QWidget* window)
+    {
+        if (!window) return;
+        window->setProperty("ksword_secondary_keep_layout", true);
+        StyleSecondaryWindow(window);
+    }
+
     void StyleSecondaryWindow(QWidget* window)
     {
         if (window == nullptr || window->property("ksword_secondary_window").toBool())
@@ -491,14 +498,6 @@ namespace ks::ui
             const QString rules = QStringLiteral(
                 "QWidget[ksword_secondary_window=\"true\"]{background:%1;color:%2;}"
                 "QWidget[ksword_secondary_window=\"true\"] QLabel{background:transparent;}"
-                "QWidget[ksword_secondary_window=\"true\"] QLineEdit,"
-                "QWidget[ksword_secondary_window=\"true\"] QComboBox,"
-                "QWidget[ksword_secondary_window=\"true\"] QAbstractSpinBox{"
-                "background:%3;color:%2;border:1px solid %4;border-radius:4px;}"
-                "QWidget[ksword_secondary_window=\"true\"] QLineEdit:disabled{color:%5;}"
-                "QWidget[ksword_secondary_window=\"true\"] QComboBox:disabled{color:%5;}"
-                "QWidget[ksword_secondary_window=\"true\"] QAbstractSpinBox:disabled{color:%5;}"
-                "QWidget[ksword_secondary_window=\"true\"] QLineEdit[ksword_page_search_style=\"true\"]{border:0;}"
                 "QWidget[ksword_secondary_window=\"true\"] QScrollArea#ks_adaptive_page_scroll{border:0;background:transparent;}"
                 "QWidget[ksword_secondary_window=\"true\"] QMenu{background:%3;color:%2;border:1px solid %4;}"
                 "QWidget[ksword_secondary_window=\"true\"] QMenu::item:selected{background:%6;color:%7;}"

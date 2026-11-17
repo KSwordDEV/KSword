@@ -321,6 +321,12 @@
     </ClInclude>
     <ClInclude Include="src\features\hvm\hvm_debug.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_noattach.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\features\kernel_noattach\kernel_noattach.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\features\kernel_noattach\kernel_noattach_symbols.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\features\debugger\noattach_ownership.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkKernelNoAttachIoctl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkKernelNoAttachProbeIoctl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\features\kernel_noattach_probe\kernel_noattach_probe.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\shared\driver\KswordArkHvmNoAttachIoctl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\debugger\debugger.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\debugger\debugger_identity.h"><Filter>Header Files</Filter></ClInclude>
@@ -910,7 +916,18 @@
     <ClCompile Include="src\features\hvm\hvm_debug.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_exit.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_boundary.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_breakpoints.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_noattach_commands.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_noattach_ioctl.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_context.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_breakpoints.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_events.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_hook.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_symbols.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach\kernel_noattach_ioctl.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\kernel_noattach_probe\kernel_noattach_probe.c"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\features\hvm\hvm_debug_ioctl.c"><Filter>Source Files\Features\HVM</Filter></ClCompile>
     <ClCompile Include="src\features\debugger\debugger.c"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\features\debugger\debugger_ioctl.c"><Filter>Source Files</Filter></ClCompile>

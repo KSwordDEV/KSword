@@ -66,3 +66,20 @@
 - 页面离开先询问暂存守卫，取消不能先释放暂停；确认后关闭运行控制期间冻结工作台输入。HVM OPEN 回执丢失时先用同一持有设备文件查询自己会话，再尝试 Close，不能换句柄接管别的页面。
 - 独立内存目标换代时要清退旧 `WorkbenchStatusBar::m_readResultText`；反汇编读取未必产生 HEX baseline/`onProviderJobLanded`，不能等它覆盖旧退出警告。同一已退出目标只换通道仍保留真实警告，不清暂存区脏锁存，也不把空状态写成读取成功。
 - 使用说明与准确验证边界见 `docs/内存调试模式.md`，一手研究及旧 HVM 仍依赖 Windows #DB 的边界见 `docs/不附加单步调试研究.md`。实验 HVM 的源码/编译结果不能替代 MBEC/MTF 实机运行证据；本轮未自动加载新驱动或操作测试 VM。
+
+## 2026-11-13 两套独立执行通道
+
+- HVM 无附加 v2（命令 33 / IOCTL 0x924）与普通驱动 v1（命令 34 / IOCTL 0x938）共用 232/480 字节停止文档，使用独占设备文件、对象创建时间及 sessionId/stopId；跨后端预约禁止互相接管。GUI 入口为内存 → 内存调试，CE `noAttach.useBackend` 与独立 x64dbg `ksna_backend` 选择同一规范 API；它们不进入原生 Titan Windows 调试循环。
+- 普通后端只对精确匹配的 OS 26300 / ntoskrnl 26100.9711、26100.9974 开放私有 ABI。9974 的入口及被调函数完整差分、Resume 唯一被调关系均单独核对，不能把旧 RVA 当作新版本地址。KernelMode 缓冲区与 UserMode 现场分开传入五参 PspGet/SetContextThreadInternal；PsGetContextThread 包装会把同一 mode 同时用于两者，曾实际返回 C0000001。
+- 纯 TF、无地址槽时 Windows 不投影 DR6，连活动陷阱帧中也可能为零；实际分发入口硬件 DR6=FFFF4FF0、帧 DR6=0 已取证。消费者使用同一目标线程入口读取的硬件状态；退休自有 BS 时保留外部原因，由当前异常线程回写，不能靠猜 BS 或私有陷阱帧偏移。
+- 普通异常入口用已验证填充区和一个完整两字节原子入口建立转接。Close 恢复入口与本会话 TF/DR，转接器及模块留驻到重启以保护晚到调用；不实现 PatchGuard 绕过，测试签名和 HVCI 关闭不代表长期稳定性。只支持四个 DR 执行槽、native AMD64 单线程，不修改目标代码。
+- 指定 26H2-11-Pro、内核 9974 实测：CE 完整流程 52 PASS、真实 DR 停止中 Close 28 PASS、Titan 独立命令 34 完整流程 52 PASS。三轮 DebugPort=0、无 Debug Object、其它线程运行、目标字节不变、退出码 0。候选 0CD2F89A195A7CD461896135AF8F486EEFF366A3079C5ADD3846BADFD6462D70，证据 `.codex-build-logs/kernel-noattach-hardware-acceptance.log`；9711 最终修复未再硬件复验。
+- 主程序 CD8777FC... 已在真实窗口检查两种模式浅色宽窗及断点/寄存器工具窗；完整深浅、窄窗、DPI、背景矩阵仍未覆盖。构建/源码/模型不能代替这些项目。
+- 用户明确禁止创建 Hyper-V 检查点；此前本任务创建的两个检查点已删除并合并。测试仅在唯一 Windows VM，不改宿主安全设置；来宾临时策略在后续验收结束后恢复，准确备份在本任务日志中。
+
+- **2026-11-13 最终 HVM 备用边界**：保留 MTF 优先；缺 MTF 的 Intel MBEC 来宾通过明确 `CAP_VMX_TF=0x20` 使用 VMX 拦截 TF/#DB。只读/NX MDL 系统映射在普通控制面建立；root 只检查固定 backing 的保守指令类别。同步异常/IRQ/NMI 投递前恢复 TF，真实故障保留 CR2/错误码；特殊指令、可写代码与并发自修改不在支持范围。
+- **实测 IRQ/RF**：第一次 TF STEP 被 IRQ 打断，trace arm=204、exit=1、完整边界字段已保存；仅在原 RIP/RSP、全部 GPR、CR3 与普通 flags 匹配时，给同一次已消费 STEP 最多 64 次重试。CPU 会在 EPT fault/retry 修改 RF，不能因此将已经发布的 STEP 再覆盖成 FETCH；RF 仅从身份比较排除，其它 flags/GPR 仍严格核对。
+- **首轮 HVM 7F/8**：匹配驱动 PDB 的转储明确落在 hvm_entry.asm native-return 换到用户 RSP 后的 push。独立恢复现在归还拦截并保留资源，实际 VMXOFF 交给内核控制面 Close；正常继续也仅在当前物理页被监视时逐指令旁路。后续 HVM 停止中关闭、重复开启和普通留驻后重开均通过。
+- **最终同一 SYS 实机**：签名副本 `0BEDB0407F525BBF9FBEB16C4CFDC639FCB12E687FEB53CE37808C2DA76B7C60`，HVM/CE 48、HVM/Titan 48、HVM 停止中 Close 26、普通 CE 52、普通留驻后 HVM 48 PASS；DebugPort=0、无 Debug Object、字节不变、目标退出 0、最后 VMX processors=0/0。HVM 实际为 VMX_TF_EPT，不应宣称物理 MTF 已在此 VM 验收。生产 VMCS 夹具 119、普通事件夹具 23、离线 ABI 16 均通过。
+- **最终恢复**：原 Windows BCD、Secure Boot On、VBS 状态 2、内存完整性服务运行、测试签名 Off；测试服务/BCD/暂存目录已移除，VM 正常关机、启动 4 GB、nested False、Checkpoint Disabled/Automatic False/Count 0。准确字段见 `.codex-build-logs/noattach-vm-restored-guest.json` 与 `noattach-vm-restored-hyperv.json`。宿主安全设置未变。
+- **最终主程序**：Release/x64 811510712AADEF50BD3B2AF26085DBF3C61B6FA4E540337DDA9C56CEB173E125，Build/双语门禁 PASS，真实页面机制说明已查看；完整深浅/窄窗/DPI/背景矩阵未覆盖，不应将基本 GUI 验收扩大为全矩阵通过。独立 x64dbg 命令插件未接管原生 CPU/F7/F9 事件投影。

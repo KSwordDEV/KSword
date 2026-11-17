@@ -24,6 +24,7 @@
 namespace ks::ui { class AsyncOperation; }
 
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QTableWidget;
 class QTabWidget;
@@ -55,6 +56,9 @@ public:
 
     // 从杂项等入口进入唯一的热键管理页；仅切页，不启动第二份扫描。
     QWidget* activateHotkeyManagement();
+    QWidget* createShortcutManagementPage(QWidget* parent);
+    void findShortcutOccupancy(const QString& keyText);
+    std::function<void()> openShortcutManager;
 
     // refreshThemeVisuals 作用：
     // - 重新生成审计表格、现有单元格和列预设按钮依赖主题颜色的视觉状态；
@@ -84,7 +88,7 @@ private:
     // - 在后台线程采集各审计页快照与表格行模型；
     // - 结果通过 queued connection 回投 UI。
     void reconcileAuditRefreshState();
-    void requestAsyncRefresh();
+    void requestAsyncRefresh(bool hotkeysOnly = false);
     void updateRegisteredHotkeyClearAction();
     void clearSelectedRegisteredHotkeys();
 
@@ -127,6 +131,13 @@ private:
     QWidget* m_hotkeyHookPage = nullptr;    // m_hotkeyHookPage：热键/钩子页。
     QTabWidget* m_hotkeyHookInnerTabs = nullptr; // 唯一热键页内的程序快捷键/注册热键/消息钩子导航。
     QWidget* m_programShortcutPage = nullptr; // 杂项直达的真实视图身份，不依赖内层索引。
+    QWidget* m_registeredShortcutPage = nullptr;
+    QPointer<QWidget> m_shortcutManagementPage;
+    QTabWidget* m_shortcutManagementTabs = nullptr;
+    QPushButton* m_refreshRegisteredHotkeysButton = nullptr;
+    QLineEdit* m_filterRegisteredHotkeysEdit = nullptr;
+    QLabel* m_registeredHotkeySampleStatus = nullptr;
+    QString m_registeredHotkeyLastSample;
     QWidget* m_clipboardPage = nullptr;     // m_clipboardPage：剪贴板/message-only 页。
     QWidget* m_displayPage = nullptr;       // m_displayPage：GPU/显示/watchdog 页。
 

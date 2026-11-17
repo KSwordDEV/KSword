@@ -116,9 +116,9 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 ## SOS 救援桌面（2026-10-03）
 
-- `S O S Enter` 通过 `Taskbar/RescueDesktopHost.cpp` 的独立无 Qt 引导入口先请求 UAC，再由管理员监护进程启动私有 Win32 桌面中的高权限 KSword。取消/提权失败/令牌查询失败均结束本次启动；内部提权尝试标记不能跳过真实 `TokenElevation` 校验。常驻 Taskbar 不必整体提升，UAC 等待不占用 SOS Hook 线程。已有实例留在原桌面；救援桌面不是 Winlogon/UAC 安全桌面，既有 HWND 不能跨桌面平移。
+- KSword 菜单和 `S O S Enter` 共用 `Ksword5.1.exe` 的监护入口，Taskbar 可以转发 SOS。监护端按需请求 UAC，校验真实 `TokenElevation` 后启动私有 Win32 桌面里的管理员实例。原实例留在原桌面。见 [SOS 救援桌面](../../docs/SOS救援桌面.md)。
 - 原桌面名称必须在 UAC 前捕获并传给高权限入口；批准后按名称 `OpenDesktopW`，等原桌面重新活动与 KSword 就绪再切入，避免此时 `OpenInputDesktop` 取到 UAC 安全桌面。每个引导/监护进程把阶段及 Win32 错误写入 exe 同目录 `logs/sos-rescue-<PID>.log`，不记录输入或句柄。2026-10-03 修正后，用户确认窗口正常且管理员状态已启用；日志确认真实令牌提升、客户端就绪、切入、返回和双方正常退出。此验收只覆盖该次正常 UAC/桌面流程，不扩展为锁屏、焦点骚扰或所有输入方式的验收。
-- 桌面 DACL 不含允许 ACE，并拒绝 OWNER RIGHTS 的全部访问，避免同账号所有者依靠隐式 `WRITE_DAC` 重新开放桌面。只向客户端继承救援桌面、两个未命名事件和监护进程同步句柄。`HANDLE_LIST` 可继承桌面句柄，但实测不能假设 USER32 自动选中它；`UI/RescueDesktopSession` 必须在 Qt/启动页创建窗口前显式绑定并回读桌面名。
+- 桌面 DACL 不含允许 ACE，并拒绝 OWNER RIGHTS 的全部访问，避免同账号所有者依靠隐式 `WRITE_DAC` 重新开放桌面。只向客户端继承救援桌面、两个未命名事件和监护进程同步句柄。2026-11-14 原生回归证实，`lpDesktop` 为 null 时客户端首次 USER32 连接到 Default，传私有桌面名时又受 DACL 按名打开限制。空字符串使 Windows 从白名单继承句柄选择初始桌面。`BindClientDesktop` 核对继承句柄和当前桌面，已在目标桌面时直接成功。线程有窗口时更换为同一对象的另一桌面句柄也实测返回 `ERROR_BUSY`。初始化错误写入客户端 PID 对应的救援日志并作为退出码返回。
 - 独立监护线程的鼠标/键盘低级 Hook 检查注入标志；客户端再检查原生消息来源与非自然 Qt 点击/键盘事件。`IMO_HARDWARE` 可能来自 UIAccess 注入，不能只靠它证明物理设备。虚拟 HID、驱动级输入和进程被篡改超出 R3 鉴真能力。
 - 返回按钮和物理 `Ctrl+Alt+Shift+F10` 恢复原桌面。监护进程等待窗口/过滤器就绪后才切入；退出恢复只作用于活动的救援桌面，不覆盖 UAC/锁屏。客户端备用观察线程不依赖 Qt；正常退出不自动停止其他实例正在使用的 R0 服务。救援模式不得自动缩放/提权重启，也不能透传这些内部句柄参数去做权限接管。
 - `tools/Invoke-RescueDesktopTests.ps1` 在已有 Taskbar Release 中间目录做真实隐藏桌面回归：按名称访问拒绝、继承/绑定、已有窗口迁移 `ERROR_BUSY`、窗口过程拒绝 SendMessage/PostMessage；测试不切换输入桌面。完整切入、真实鼠标/键盘与中文输入法、锁屏及骚扰条件下的 GUI 验收另行记录，不从编译或该回归推断。

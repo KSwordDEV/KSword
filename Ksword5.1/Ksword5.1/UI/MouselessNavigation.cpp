@@ -1,4 +1,6 @@
 #include "MouselessNavigation.h"
+#include "ShortcutRegistry.h"
+#include <QKeySequenceEdit>
 // Navigation/layout map: main title and active Dock branch -> shared region controller;
 // Settings > Startup -> existing SecondaryPageLayout form; Welcome -> existing page root;
 // first activation / F1 / Welcome guide -> inline toolbar on the main workspace.
@@ -252,6 +254,23 @@ ks::ui::MouselessNavigation::MouselessNavigation(QWidget* mainWindow, QWidget* t
       m_dismissTransientPanels(std::move(dismissTransientPanels))
 {
     m_clock.start();
+    auto& registry = ShortcutRegistry::instance();
+    const auto add = [this, &registry](const char* id, const QString& title, const QString& keys, bool editable = true) {
+        ShortcutRegistry::Command command{QString::fromLatin1(id), title, QStringLiteral("navigation"),
+            QStringLiteral("仅在无鼠标模式的原有作用范围内生效。"), QKeySequence(keys), {}};
+        command.editable = editable;
+        registry.define(command);
+        registry.attach(command.id, this, [](const QKeySequence&, QString*) { return true; });
+    };
+    add("keyboard.help", QStringLiteral("无鼠标模式教程"), QStringLiteral("F1"));
+    add("keyboard.tutorial_next", QStringLiteral("教程下一步"), QStringLiteral("F8"));
+    add("keyboard.tutorial_previous", QStringLiteral("教程上一步"), QStringLiteral("Shift+F8"));
+    add("keyboard.focus_next", QStringLiteral("下一个操作区域"), QStringLiteral("F6"));
+    add("keyboard.focus_previous", QStringLiteral("上一个操作区域"), QStringLiteral("Shift+F6"));
+    add("keyboard.scope_next", QStringLiteral("下一个搜索范围"), QStringLiteral("Ctrl+Alt+S"));
+    add("keyboard.scope_previous", QStringLiteral("上一个搜索范围"), QStringLiteral("Ctrl+Alt+Shift+S"));
+    add("keyboard.recover", QStringLiteral("恢复键盘焦点"), QStringLiteral("Ctrl+Alt+Home"), false);
+    add("keyboard.mode_gesture", QStringLiteral("无鼠标模式：Ctrl + 连按两次 Alt"), {}, false);
     qApp->installEventFilter(this);
     qApp->installNativeEventFilter(this);
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget*, QWidget* focus) {
@@ -745,6 +764,9 @@ bool ks::ui::MouselessNavigation::eventFilter(QObject* object, QEvent* event)
     if (m_tipOverlay && object == m_tipOverlay->parentWidget() && type == QEvent::Resize) hideKeyTips();
     if (type != QEvent::KeyPress && type != QEvent::KeyRelease && type != QEvent::ShortcutOverride) return false;
     auto* key = static_cast<QKeyEvent*>(event);
+    for (QWidget* editor = QApplication::focusWidget(); editor; editor = editor->parentWidget())
+        if (qobject_cast<QKeySequenceEdit*>(editor)) return false;
+    const auto& bindings = ShortcutRegistry::instance();
     const auto modifiers = key->modifiers();
     const bool control = modifiers.testFlag(Qt::ControlModifier);
     const bool alt = modifiers.testFlag(Qt::AltModifier);
@@ -753,7 +775,7 @@ bool ks::ui::MouselessNavigation::eventFilter(QObject* object, QEvent* event)
     if (modifiers.testFlag(Qt::GroupSwitchModifier)) return false; // AltGr text input is not a navigation command.
     const bool plain = !control && !alt && !meta;
     const bool tab = (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) && !control && !alt && !meta;
-    const bool recovery = key->key() == Qt::Key_Home && control && alt && !meta;
+    const bool recovery = bindings.matches(QStringLiteral("keyboard.recover"), key);
     const bool tipsDigit = m_tipOverlay && key->key() >= Qt::Key_0 && key->key() <= Qt::Key_9 && !control && !meta;
     const bool altKey = key->key() == Qt::Key_Alt && !control && !shift && !meta;
     QWidget* focus = QApplication::focusWidget();
@@ -769,10 +791,13 @@ bool ks::ui::MouselessNavigation::eventFilter(QObject* object, QEvent* event)
     const bool menuKey = key->key() == Qt::Key_Menu
         || (key->key() == Qt::Key_F10 && shift && !control && !alt && !meta);
     const bool onMainWindow = navigationWindow() == m_mainWindow && !nativePopup;
-    const bool help = key->key() == Qt::Key_F1 && plain && onMainWindow;
-    const bool tutorialStep = key->key() == Qt::Key_F8 && plain && onMainWindow && m_tutorial;
-    const bool f6 = key->key() == Qt::Key_F6 && plain;
-    const bool searchScope = control && alt && !meta && key->key() == Qt::Key_S && focus
+    const bool help = bindings.matches(QStringLiteral("keyboard.help"), key) && onMainWindow;
+    const bool tutorialPrevious = bindings.matches(QStringLiteral("keyboard.tutorial_previous"), key);
+    const bool tutorialStep = (bindings.matches(QStringLiteral("keyboard.tutorial_next"), key) || tutorialPrevious) && onMainWindow && m_tutorial;
+    const bool previousRegion = bindings.matches(QStringLiteral("keyboard.focus_previous"), key);
+    const bool f6 = bindings.matches(QStringLiteral("keyboard.focus_next"), key) || previousRegion;
+    const bool searchScope = (bindings.matches(QStringLiteral("keyboard.scope_next"), key)
+        || bindings.matches(QStringLiteral("keyboard.scope_previous"), key)) && focus
         && focus->property("ksword_mouseless_search_input").toBool();
     if (type == QEvent::ShortcutOverride)
     {
@@ -793,7 +818,7 @@ bool ks::ui::MouselessNavigation::eventFilter(QObject* object, QEvent* event)
     }
     if (recovery) { recoverFocus(); return true; }
     if (help) { if (!key->isAutoRepeat()) showTutorial(); return true; }
-    if (tutorialStep) { if (!key->isAutoRepeat()) advanceTutorial(shift ? -1 : 1); return true; }
+    if (tutorialStep) { if (!key->isAutoRepeat()) advanceTutorial(tutorialPrevious ? -1 : 1); return true; }
     if (altKey)
     {
         if (nativePopup) return false;
@@ -827,7 +852,7 @@ bool ks::ui::MouselessNavigation::eventFilter(QObject* object, QEvent* event)
     if (m_tipOverlay && key->key() == Qt::Key_Escape) { hideKeyTips(); return true; }
     if ((tab && !nativePopup) || f6)
     {
-        moveFocus(shift || key->key() == Qt::Key_Backtab, f6);
+        moveFocus(f6 ? previousRegion : (shift || key->key() == Qt::Key_Backtab), f6);
         return true;
     }
     if (m_tipOverlay) hideKeyTips();

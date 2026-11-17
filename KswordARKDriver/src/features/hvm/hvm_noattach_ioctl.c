@@ -1,4 +1,10 @@
 #include "hvm_noattach.h"
+#include <ntstrsafe.h>
+#include "ark/ark_log.h"
+/* 用户态和内核态的固定宽度 ABI 必须一致。 */
+C_ASSERT(sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST) == 232);
+/* 完整停止现场及八条配置不能被编译选项改变。 */
+C_ASSERT(sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE) == 480);
 
 /* wdm.h 内联声明可能因 include 顺序不可见，同 debugger_ioctl.c。 */
 NTKERNELAPI ULONG IoGetRequestorProcessId(_In_ PIRP Irp);
@@ -59,7 +65,7 @@ NTSTATUS KswordARKHvmIoctlNoAttach(WDFDEVICE Device, WDFREQUEST Request, size_t 
         return status;
     }
     /* 输入长度必须完整。 */
-    if (InputBufferLength < sizeof(copy) || inputBytes < sizeof(copy))
+    if (InputBufferLength != sizeof(copy) || inputBytes < sizeof(copy))
     {
         return STATUS_INFO_LENGTH_MISMATCH;
     }
@@ -82,6 +88,25 @@ NTSTATUS KswordARKHvmIoctlNoAttach(WDFDEVICE Device, WDFREQUEST Request, size_t 
     /* owner 来自 WDF requestor，而不是输入的 PID。 */
     status = KswordARKHvmNoAttachControl(&copy, (KSWORD_ARK_HVM_NOATTACH_RESPONSE *)output,
                                          IoGetRequestorProcessId(irp), WdfRequestGetFileObject(Request));
+    /* 仅普通控制面格式化最后的真实 TF 边界诊断，root 不调用日志通道。 */
+    if (copy.operation == KSWORD_ARK_HVM_NOATTACH_CLOSE && g_KswordNoAttach.UseTf)
+    {
+        /* 固定预算不包含任何目标用户数据。 */
+        CHAR message[384];
+        /* 所有值均来自本会话的实际 VMCS 读取，而非停止快照推导。 */
+        if (NT_SUCCESS(RtlStringCbPrintfA(message, sizeof(message),
+            "HVM no-attach TF trace: arm=%lu pre=%lu exit=%lu retries=%lu qual=%I64X info=%I64X pin=%I64X exits=%I64X entry=%I64X vector=%I64X pending=%I64X block=%I64X flags=%I64X dr7=%I64X debug=%I64X",
+            g_KswordNoAttach.TfArmStage, g_KswordNoAttach.TfPrecheckReject, g_KswordNoAttach.TfExitReason,
+            g_KswordNoAttach.TfRetryCount,
+            g_KswordNoAttach.TfExitQualification, g_KswordNoAttach.TfExitInfo,
+            g_KswordNoAttach.TfBoundary[0], g_KswordNoAttach.TfBoundary[1], g_KswordNoAttach.TfBoundary[2],
+            g_KswordNoAttach.TfBoundary[3], g_KswordNoAttach.TfBoundary[4], g_KswordNoAttach.TfBoundary[5],
+            g_KswordNoAttach.TfBoundary[6], g_KswordNoAttach.TfBoundary[7], g_KswordNoAttach.TfBoundary[8])))
+        {
+            /* 诊断日志失败不改变已确认的关闭结果。 */
+            (void)KswordARKDriverEnqueueLogFrame(Device, "Info", message);
+        }
+    }
     /* 通信成功时返回完整固定文档，语义 NTSTATUS 留在响应内。 */
     if (NT_SUCCESS(status))
     {

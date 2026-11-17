@@ -4,6 +4,7 @@
 #include <QResizeEvent>
 #include <QStyle>
 #include "RegistryDock.h"
+#include "../UI/ShortcutRegistry.h"
 #include "RegistryNavigationSchema.h"
 #include "../UI/AsyncOperation.h"
 #include "RegistryValueEditorWidget.h"
@@ -406,6 +407,7 @@ void RegistryDock::initializeWorkbenchControls()
     auto addShortcut = [this](const QKeySequence& keys, const std::function<void()>& callback) {
         auto* shortcut = new QShortcut(keys, m_registryEditorPage);
         shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        ks::ui::ShortcutRegistry::instance().bindDefaultShortcut(QStringLiteral("registry"), shortcut);
         connect(shortcut, &QShortcut::activated, this, callback);
     };
     addShortcut(QKeySequence(QStringLiteral("Ctrl+L")), [this]() { m_pathEdit->setFocus(); m_pathEdit->selectAll(); });

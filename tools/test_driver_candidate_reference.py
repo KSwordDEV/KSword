@@ -14,7 +14,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -361,22 +360,23 @@ def main() -> None:
     ])
     environment = os.environ.copy()
     environment["PATH"] = str(Path(cxx).parent) + os.pathsep + environment.get("PATH", "")
-    temporary_root = ROOT / ".codex-tmp" / "candidate-reference-tests"
-    if not temporary_root.resolve().is_relative_to(ROOT.resolve()):
-        raise SystemExit("Regression temporary directory must remain inside the repository.")
-    temporary_root.mkdir(parents=True, exist_ok=True)
-    temporary = temporary_root / f"case-{uuid.uuid4().hex}"
-    temporary.mkdir()
+    generated = ROOT / "tools/tests/candidate_reference_generated"
+    destination = ROOT / "Ksword5.1/x64/Release"
+    if not generated.resolve().is_relative_to(ROOT.resolve()):
+        raise SystemExit("Regression configuration must remain inside the repository.")
+    generated.mkdir(parents=True, exist_ok=True)
+    destination.mkdir(parents=True, exist_ok=True)
+    source = generated / "regression.cpp"
+    binary = destination / ("DriverCandidateReferenceTests.exe" if os.name == "nt" else "DriverCandidateReferenceTests")
+    priority = {"creationflags": subprocess.BELOW_NORMAL_PRIORITY_CLASS} if os.name == "nt" else {}
     try:
-        source = temporary / "regression.cpp"
-        binary = temporary / ("regression.exe" if os.name == "nt" else "regression")
         source.write_text(HARNESS.replace("/*PRODUCTION*/", production), encoding="utf-8")
-        subprocess.run([cxx, "-std=c++17", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(binary)],
-                       check=True, env=environment)
+        subprocess.run([cxx, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-static", str(source), "-o", str(binary)],
+                       check=True, env=environment, **priority)
         subprocess.run([str(binary)], check=True, env=environment)
     finally:
-        if temporary.resolve().is_relative_to(temporary_root.resolve()):
-            shutil.rmtree(temporary)
+        source.unlink(missing_ok=True)
+
 
 
 if __name__ == "__main__":

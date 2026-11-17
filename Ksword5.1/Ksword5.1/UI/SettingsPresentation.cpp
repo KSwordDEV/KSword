@@ -18,6 +18,7 @@ namespace
     // 不依赖主题代次，避免遗漏显式局部规则被替换后的重新接管。
     void applySettingsRules(QWidget* widget, const QString& rules)
     {
+        widget->setProperty("ksword_settings_style_block", rules);
         if (widget->styleSheet() != rules) widget->setStyleSheet(rules);
     }
 
@@ -218,7 +219,6 @@ namespace ks::ui
                 return;
             }
             // 输入面比窗口稍亮，边界使用低饱和中性色；不再用大片亮灰块分隔每一行。
-            const QColor input = KswordTheme::BlendColors(KswordTheme::WindowColor(), KswordTheme::SurfaceAltColor(), 70);
             QString rules = QStringLiteral(
                 "QWidget[ksword_settings_content=\"true\"]{background:transparent;color:__TEXT__; }"
                 // 表单正文与控件文案同级，避免全局按钮半粗体让右列显得更重。
@@ -227,18 +227,9 @@ namespace ks::ui
                 "QWidget[ksword_settings_content=\"true\"] QLineEdit,"
                 "QWidget[ksword_settings_content=\"true\"] QComboBox,"
                 "QWidget[ksword_settings_content=\"true\"] QAbstractSpinBox{font-weight:400;}"
-                "QWidget[ksword_settings_content=\"true\"] QLineEdit,"
-                "QWidget[ksword_settings_content=\"true\"] QComboBox,"
-                "QWidget[ksword_settings_content=\"true\"] QAbstractSpinBox{"
-                "background:__INPUT__;color:__TEXT__;border:1px solid __BORDER__;border-radius:5px;}"
-                "QWidget[ksword_settings_content=\"true\"] QComboBox::drop-down{background:transparent;border:0;}"
-                "QWidget[ksword_settings_content=\"true\"] QLineEdit:disabled{color:__DISABLED__; }"
-                "QWidget[ksword_settings_content=\"true\"] QComboBox:disabled{color:__DISABLED__; }"
                 "QWidget[ksword_settings_content=\"true\"] QLabel[ksword_settings_hint=\"true\"]{color:__SECONDARY__; }"
                 "QWidget[ksword_settings_content=\"true\"] QLabel:disabled{color:__DISABLED__; }");
-            rules.replace(QStringLiteral("__INPUT__"), input.name());
             rules.replace(QStringLiteral("__TEXT__"), KswordTheme::TextPrimaryColor().name());
-            rules.replace(QStringLiteral("__BORDER__"), KswordTheme::BorderColor().name());
             rules.replace(QStringLiteral("__DISABLED__"), KswordTheme::TextDisabledColor().name());
             rules.replace(QStringLiteral("__SECONDARY__"), KswordTheme::EnsureTextContrast(
                 KswordTheme::TextSecondaryColor(), KswordTheme::WindowColor(), 4.5).name());

@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.20)
+project(KSwordNoAttachCoreTests LANGUAGES CXX)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate_core_fixture.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/production.cpp" COMMAND_ERROR_IS_FATAL ANY)
+add_executable(NoAttachCoreTests "${CMAKE_CURRENT_BINARY_DIR}/production.cpp")
+target_include_directories(NoAttachCoreTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(NoAttachCoreTests PRIVATE cxx_std_17)
+target_compile_definitions(NoAttachCoreTests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(NoAttachCoreTests PRIVATE /W4 /WX /utf-8 /Z7)
+set_property(TARGET NoAttachCoreTests PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+enable_testing()
+add_test(NAME NoAttachProductionCore COMMAND NoAttachCoreTests)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/generate_kernel_fixture.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/kernel-production.cpp" COMMAND_ERROR_IS_FATAL ANY)
+add_executable(KernelNoAttachEventTests "${CMAKE_CURRENT_BINARY_DIR}/kernel-production.cpp")
+target_include_directories(KernelNoAttachEventTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(KernelNoAttachEventTests PRIVATE cxx_std_17)
+target_compile_definitions(KernelNoAttachEventTests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(KernelNoAttachEventTests PRIVATE /W4 /WX /utf-8 /Z7)
+set_property(TARGET KernelNoAttachEventTests PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+add_test(NAME KernelNoAttachEvents COMMAND KernelNoAttachEventTests)
+add_executable(NoAttachLiveProbe LiveProbe.cpp)
+target_compile_features(NoAttachLiveProbe PRIVATE cxx_std_17)
+target_compile_definitions(NoAttachLiveProbe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(NoAttachLiveProbe PRIVATE /W4 /WX /utf-8 /Z7)
+set_property(TARGET NoAttachLiveProbe PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+# The live probe is intentionally excluded from CTest: it starts VMX and must
+# only be invoked explicitly inside the selected test machine. Do not create
+# Hyper-V checkpoints; the user has explicitly prohibited them.

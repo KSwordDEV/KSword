@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "KernelNavigationCatalog.h"
 #include "KernelDock.h"
 #include "../UI/TableContextMenu.h"
@@ -2032,6 +2033,13 @@ private:
         m_eventLogFlushTimer = new QTimer(this);
         m_eventLogFlushTimer->setSingleShot(true);
         m_eventLogFlushTimer->setInterval(16);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_kernel_callback_events;
+    taskPolicy_kernel_callback_events.canPause = false;
+    taskPolicy_kernel_callback_events.canChangeInterval = false;
+    taskPolicy_kernel_callback_events.minimumIntervalMs = 1;
+    taskPolicy_kernel_callback_events.restriction = QStringLiteral("事件队列必须随会话排空；请使用所属页面的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("kernel.callback_events"), QStringLiteral("回调事件排空"),
+        QStringLiteral("事件采集"), m_eventLogFlushTimer, std::move(taskPolicy_kernel_callback_events));
         connect(m_eventLogFlushTimer, &QTimer::timeout, this, [this]() { flushEventLogWindow(); });
         connect(openArchiveButton, &QPushButton::clicked, this, [this]() { openCompleteEventLog(); });
         m_eventLogEditor->installEventFilter(this);
@@ -2120,6 +2128,13 @@ private:
 
         m_fileMonitorDrainTimer = new QTimer(m_hostPage);
         m_fileMonitorDrainTimer->setInterval(1500);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_kernel_file_events;
+    taskPolicy_kernel_file_events.canPause = false;
+    taskPolicy_kernel_file_events.canChangeInterval = false;
+    taskPolicy_kernel_file_events.minimumIntervalMs = 1;
+    taskPolicy_kernel_file_events.restriction = QStringLiteral("事件队列必须随会话排空；请使用所属页面的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("kernel.file_events"), QStringLiteral("文件监控事件排空"),
+        QStringLiteral("事件采集"), m_fileMonitorDrainTimer, std::move(taskPolicy_kernel_file_events));
 
         mainSplitter->setStretchFactor(0, 3);
         mainSplitter->setStretchFactor(1, 7);

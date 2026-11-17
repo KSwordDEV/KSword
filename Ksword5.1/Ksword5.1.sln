@@ -7,7 +7,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Ksword5.1", "Ksword5.1\Kswo
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DwmZOrderAgent", "..\DwmZOrderAgent\DwmZOrderAgent.vcxproj", "{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KswordUacDesk", "..\KswordUacDesk\KswordUacDesk.vcxproj", "{C761D9C1-6F9F-4F54-9AF6-8DCB89524E8A}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KSwordSecureDesk", "..\KSwordSecureDesk\KSwordSecureDesk.vcxproj", "{C761D9C1-6F9F-4F54-9AF6-8DCB89524E8A}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Taskbar", "..\Taskbar\Taskbar.vcxproj", "{F695C34B-DEFC-4DA4-A7C8-7133C07A1BC3}"
 EndProject

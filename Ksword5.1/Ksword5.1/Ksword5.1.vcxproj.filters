@@ -822,6 +822,9 @@
     <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MemoryDock\MemoryDebugExecutionPanel.Hvm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MemoryDock\MemoryDebugThreadSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1784,7 +1787,13 @@
     <ClCompile Include="UI\RescueDesktopSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\shared\rescue\SosHotkeyLauncher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\rescue\RescueDesktopHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\PerformanceNavCard.cpp">
@@ -1989,6 +1998,18 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Framework\Progress.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Framework\BackgroundTaskRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ShortcutRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\BackgroundTaskPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ShortcutManagerDialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Framework\TaskSnapshotFeed.cpp">
@@ -3474,6 +3495,18 @@
     <ClInclude Include="Framework\ProgressDockWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Framework\BackgroundTaskRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Framework\TaskCpuMeasurement.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\ShortcutRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\RuntimeControlPages.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Framework\TaskSnapshotFeed.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -3975,7 +4008,13 @@
     <ClInclude Include="UI\RescueDesktopSession.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\shared\rescue\SosHotkeyLauncher.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\rescue\RescueDesktopHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\ThemedMessageBox.h">

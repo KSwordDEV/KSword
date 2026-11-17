@@ -36,6 +36,8 @@
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerBackend.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerMemory.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerDebug.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\DebuggerBackend\KswordIndependentFrontend.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="..\DebuggerBackend\KswordIndependentFrontend.h"><Filter>Header Files</Filter></ClInclude>
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerNative.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHvm.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverClient.cpp">

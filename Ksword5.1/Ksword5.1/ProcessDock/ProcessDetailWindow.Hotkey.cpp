@@ -907,7 +907,7 @@ namespace
 
     void collectShellShortcutHotkeyCandidates(
         std::vector<ShellShortcutHotkeyCandidate>& candidates,
-        QString& diagnosticText)
+        QString& diagnosticText, const std::function<bool()>& canceled = {})
     {
         HRESULT comResult = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         const bool needsUninitialize = SUCCEEDED(comResult);
@@ -922,6 +922,7 @@ namespace
         const QStringList roots = shortcutSearchRoots();
         for (const QString& rootPath : roots)
         {
+            if (canceled && canceled()) break;
             QDirIterator shortcutIterator(
                 rootPath,
                 QStringList{ QStringLiteral("*.lnk") },
@@ -929,6 +930,7 @@ namespace
                 QDirIterator::Subdirectories);
             while (shortcutIterator.hasNext())
             {
+                if (canceled && canceled()) break;
                 const QString shortcutPath = shortcutIterator.next();
                 IShellLinkW* shellLink = nullptr;
                 HRESULT createResult = ::CoCreateInstance(
@@ -1824,11 +1826,13 @@ std::vector<ks::process::UserModeHotkeyRecord> ks::process::EnumerateUserModeHot
 void ks::process::EnumerateUserModeHotkeysForProcesses(
     const std::vector<UserModeHotkeyProcessTarget>& targets,
     const UserModeHotkeyBatchCallback& progressCallback,
-    QString* const diagnosticTextOut)
+    QString* const diagnosticTextOut,
+    const std::function<bool()>& canceled)
 {
     QString sharedDiagnosticText = QStringLiteral("R3 窗口/菜单/资源/.lnk");
     std::vector<ShellShortcutHotkeyCandidate> sharedShortcutCandidates;
-    collectShellShortcutHotkeyCandidates(sharedShortcutCandidates, sharedDiagnosticText);
+    collectShellShortcutHotkeyCandidates(sharedShortcutCandidates, sharedDiagnosticText, canceled);
+    if (canceled && canceled()) return;
 
     const std::uint32_t totalProcessCount = static_cast<std::uint32_t>(targets.size());
     if (totalProcessCount == 0U)
@@ -1852,6 +1856,7 @@ void ks::process::EnumerateUserModeHotkeysForProcesses(
     for (unsigned int workerIndex = 0U; workerIndex < workerCount; ++workerIndex)
     {
         workers.emplace_back([&targets,
+                              &canceled,
                               &progressCallback,
                               &sharedShortcutCandidates,
                               &nextTargetIndex,
@@ -1860,6 +1865,7 @@ void ks::process::EnumerateUserModeHotkeysForProcesses(
         {
             for (;;)
             {
+                if (canceled && canceled()) return;
                 const std::size_t targetIndex = nextTargetIndex.fetch_add(1U);
                 if (targetIndex >= targets.size())
                 {

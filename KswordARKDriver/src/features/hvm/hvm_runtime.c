@@ -714,6 +714,15 @@ KswordARKHvmArmUnloadGuard(
      */
     captured = Runtime->DriverObject->DriverUnload;
     if (captured == NULL) {
+        /* 同模块普通异常转接器已永久留驻时，借用其准确卸载所有权。 */
+        if (KswordARKKernelNoAttachDriverPinned(Runtime->DriverObject, &Runtime->OriginalDriverUnload)) {
+            /* 该门不是未知第三方 NULL，HVM 仍维护自己的运行期计数。 */
+            InterlockedExchange(&Runtime->UnloadGuardArmed, 1L);
+            /* 停止 HVM 时也不能解除另一个后端的永久引用。 */
+            KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED);
+            /* 没有改写外部槽位。 */
+            return STATUS_SUCCESS;
+        }
         return STATUS_INVALID_DEVICE_STATE;
     }
     /* Remove only the exact unload entry observed one instruction ago. */
@@ -750,6 +759,15 @@ KswordARKHvmDisarmUnloadGuard(
     if (Runtime->DriverObject == NULL ||
         Runtime->OriginalDriverUnload == NULL) {
         return STATUS_INVALID_DEVICE_STATE;
+    }
+    /* 普通异常转接器仍可能承接晚到调用，不能替它解除模块留驻。 */
+    if (KswordARKKernelNoAttachDriverPinned(Runtime->DriverObject, NULL)) {
+        /* 只退休 HVM 自己的租约。 */
+        InterlockedExchange(&Runtime->UnloadGuardArmed, 0L);
+        /* 永久模块门仍保持原样。 */
+        KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED);
+        /* 本方全核资源仍按原流程确认退出。 */
+        return STATUS_SUCCESS;
     }
     /* Restore the original entry only when the guarded slot is still NULL. */
     previous = InterlockedCompareExchangePointer(
@@ -1353,6 +1371,13 @@ KswordARKHvmAllocateProcessorResourcesLocked(
          * to correct the answer.
          */
         KswordARKHvmMsrArmVmxCapabilityInterceptLocked(Runtime);
+        /*
+         * 相邻 arm detection MSR 拦截, 与 VMX cap arm 共用唯一一次 bitmap
+         * 预留时机: 一旦 guest 的首次 RDMSR 发生在 arm 之前, 它看到的是物理
+         * 值, 后续再拦也补不回来。放在同一个条件分支内是让"bitmap 已存在"
+         * 成为两边的唯一前提。
+         */
+        KswordARKHvmMsrArmDetectionInterceptLocked(Runtime);
     }
     groupCount = KeQueryActiveGroupCount();
     for (group = 0U;
@@ -3294,7 +3319,7 @@ KswordARKHvmControl(
     oldStateFlags = g_KswordHvm.StateFlags;
     oldGeneration = g_KswordHvm.Generation;
     /* 独占会话期间外部 STOP/TEARDOWN 也不能抢走本模块资源。 */
-    if (KswordARKHvmNoAttachOwned()) {
+    if (KswordARKNoAttachReserved()) {
         /* 只读状态使用 QUERY，不能借 CONTROL 修改保留的硬件所有权。 */
         status = STATUS_DEVICE_BUSY;
         /* 保留通用协议的明确忙状态。 */
@@ -3768,8 +3793,14 @@ NTSTATUS KswordARKHvmNoAttachLifecycle(BOOLEAN Start, ULONG Flags)
 
     /* 现有准备接口只读取经过固定的 flags。 */
 
+    /* HIDE_HYPERVISOR：被 attach 的 user-mode 目标进程不该看到
+     * CPUID.1:ECX[31] 和 0x4000_0000..0x4000_00FF 的 Hv 标识 leaf；
+     * noAttach session 触发的 bring-up 之前不透传此位，与 CE/x64dbg
+     * Backend::startOwnedHvm 现已显式打开 HIDE_HYPERVISOR 保持一致。
+     * 只影响 CPL=3 CPUID；内核与嵌套派发仍能看到真实外层 Hv 身份。 */
     request.flags =
         KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+        KSWORD_ARK_HVM_CONTROL_FLAG_HIDE_HYPERVISOR |
 
         ((Flags & KSWORD_ARK_HVM_NOATTACH_ALLOW_NESTED) != 0UL ? KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED
                                                                : 0UL);

@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "../UI/KeyboardItemActivation.h"
 #include "NetworkDock.NavigationData.h"
 #include "../UI/StructuredFieldView.h"
@@ -2706,6 +2707,13 @@ void NetworkFirewallPage::initializeUi()
 
     m_liveFlushTimer = new QTimer(this);
     m_liveFlushTimer->setInterval(250);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_network_firewall_events;
+    taskPolicy_network_firewall_events.canPause = false;
+    taskPolicy_network_firewall_events.canChangeInterval = false;
+    taskPolicy_network_firewall_events.minimumIntervalMs = 1;
+    taskPolicy_network_firewall_events.restriction = QStringLiteral("事件队列必须随会话排空；请使用所属页面的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("network.firewall_events"), QStringLiteral("防火墙事件排空"),
+        QStringLiteral("事件采集"), m_liveFlushTimer, std::move(taskPolicy_network_firewall_events));
 }
 
 void NetworkFirewallPage::initializeEventMonitorUi()

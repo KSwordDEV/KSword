@@ -7,6 +7,7 @@
 #include <QAbstractSpinBox>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QKeySequenceEdit>
 #include <QLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -171,6 +172,7 @@ namespace ks::ui
         {
             const auto* label = qobject_cast<QLabel*>(widget);
             return qobject_cast<QAbstractButton*>(widget) || qobject_cast<QLineEdit*>(widget)
+                || qobject_cast<QKeySequenceEdit*>(widget)
                 || qobject_cast<QComboBox*>(widget) || qobject_cast<QAbstractSpinBox*>(widget)
                 || widget->property("ksword_segmented_control").toBool()
                 || (label && !label->wordWrap());

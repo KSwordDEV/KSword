@@ -1,4 +1,5 @@
 #include "WorkbenchActions.h"
+#include "../ShortcutRegistry.h"
 
 // ============================================================
 // WorkbenchActions.cpp
@@ -23,6 +24,14 @@ namespace ks::ui
     {
         // kActionCount：动作总数，直接等于哨兵 Count 的数值，恒随枚举增减同步。
         constexpr int kActionCount = static_cast<int>(WorkbenchActionId::Count);
+        constexpr const char* kShortcutIds[] = {
+            "memory.address", "memory.back", "memory.forward", "memory.reread", "memory.write_mode",
+            "memory.find", "memory.find_next", "memory.find_previous", "memory.undo", "memory.redo",
+            "memory.apply", "memory.discard", "memory.bookmark", "memory.sidebar", "memory.inspector",
+            "memory.disasm", "memory.int3", "memory.tab_hex", "memory.tab_disasm", "memory.tab_text",
+            "memory.tab_compare", "memory.focus_next", "memory.focus_previous", "memory.escape"
+        };
+        static_assert(std::size(kShortcutIds) == kActionCount);
 
         // kSpecs：动作表。tooltip 里的快捷键文字与 shortcut 字段手动保持一致——
         // 两者都改动才算改完一行，这也是为什么不做成"自动从 QKeySequence 生成文字"：
@@ -116,6 +125,29 @@ namespace ks::ui
         }
     }
 
+    void RegisterWorkbenchShortcutCatalog()
+    {
+        auto& registry = ShortcutRegistry::instance();
+        for (int i = 0; i < kActionCount; ++i)
+        {
+            const auto& spec = Specs()[static_cast<std::size_t>(i)];
+            ShortcutRegistry::Command command{QString::fromLatin1(kShortcutIds[i]), spec.tooltip,
+                QStringLiteral("memory"), {}, spec.shortcut, {}};
+            if (i == static_cast<int>(WorkbenchActionId::EscapeOrCancel))
+            {
+                command.editable = false;
+                command.restriction = spec.tooltip;
+            }
+            registry.define(command);
+            if (!spec.alternateShortcut.isEmpty())
+            {
+                command.id += QStringLiteral(".alternate");
+                command.defaults = spec.alternateShortcut;
+                registry.define(command);
+            }
+        }
+    }
+
     // WorkbenchActionSpecFor：按下标取表项；下标用枚举值直接转换，顺序已在表里注释对齐。
     const WorkbenchActionSpec& WorkbenchActionSpecFor(const WorkbenchActionId id)
     {
@@ -163,6 +195,9 @@ namespace ks::ui
         const WorkbenchActionSpec& spec = WorkbenchActionSpecFor(id);
         auto* shortcut = new QShortcut(spec.shortcut, host);
         shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        RegisterWorkbenchShortcutCatalog();
+        ShortcutRegistry::instance().attach(QString::fromLatin1(kShortcutIds[index]), shortcut,
+            [shortcut](const QKeySequence& keys, QString*) { shortcut->setKey(keys); return true; });
         return shortcut;
     }
 
@@ -191,6 +226,9 @@ namespace ks::ui
         }
         auto* shortcut = new QShortcut(spec.alternateShortcut, host);
         shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        RegisterWorkbenchShortcutCatalog();
+        ShortcutRegistry::instance().attach(QString::fromLatin1(kShortcutIds[index]) + QStringLiteral(".alternate"), shortcut,
+            [shortcut](const QKeySequence& keys, QString*) { shortcut->setKey(keys); return true; });
         return shortcut;
     }
 }

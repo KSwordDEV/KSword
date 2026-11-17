@@ -18,7 +18,7 @@ return function(appendLog, bridgePath)
     local commands = {status = 16, control = 17, memory = 18, eptRule = 19,
         events = 20, view = 21, crPolicy = 22, msrPolicy = 23, domain = 24,
         process = 25, inject = 26, platform = 27, metrics = 28,
-        nestedProbe = 29, nestedPage = 30, breakpoint = 31, native = 32}
+        nestedProbe = 29, nestedPage = 30, breakpoint = 31, native = 32, noAttach = 33, kernelNoAttach = 34}
 
     local function buffer(size)
         local stream = createMemoryStream()
@@ -219,5 +219,111 @@ return function(appendLog, bridgePath)
         return packet
     end
     api.hvm.commands = commands
+    -- Independent execution channel. These calls never invoke CE's debugProcess,
+    -- debug_continueFromBreakpoint, VEH debugger, TF stepping or DR breakpoint API.
+    local noAttach = {sessionId = 0, stopId = 0, backend = "hvm", uncertain = false}
+    api.noAttach = noAttach
+    local function noAttachCall(operation, options)
+        options = options or {}
+        local request = buffer(232)
+        local kernel = noAttach.backend == "kernel"
+        local protocol = kernel and 1 or 2
+        writeIntegerLocal(request.Memory, protocol)
+        writeIntegerLocal(request.Memory + 4, 232)
+        writeIntegerLocal(request.Memory + 8, operation)
+        writeIntegerLocal(request.Memory + 12, options.flags or 0)
+        writeIntegerLocal(request.Memory + 16, options.pid or 0)
+        writeIntegerLocal(request.Memory + 20, options.tid or 0)
+        writeQwordLocal(request.Memory + 48, noAttach.sessionId)
+        writeQwordLocal(request.Memory + 56, noAttach.stopId)
+        writeQwordLocal(request.Memory + 64, options.address or 0)
+        writeIntegerLocal(request.Memory + 72, options.breakpointId or 0)
+        writeIntegerLocal(request.Memory + 76, options.breakpointFlags or 0)
+        writeQwordLocal(request.Memory + 80, options.minimumRsp or 0)
+        if options.registerIndex ~= nil then
+            writeQwordLocal(request.Memory + 88, 1 << options.registerIndex)
+            writeQwordLocal(request.Memory + 96 + options.registerIndex * 8, options.value)
+        end
+        if operation == 1 then noAttach.uncertain = true end
+        local output, transport, returned = invoke(kernel and 34 or 33, request, 480)
+        request.destroy()
+        if transport ~= 0 then output.destroy(); return nil, transport end
+        if returned ~= 480 or readIntegerLocal(output.Memory) ~= protocol or readIntegerLocal(output.Memory + 4) ~= 480 then
+            output.destroy(); return nil, 13
+        end
+        local status = readIntegerLocal(output.Memory + 8)
+        if status >= 0x80000000 then status = status - 0x100000000 end
+        local result = {status = status, state = readIntegerLocal(output.Memory + 12),
+            capabilities = readIntegerLocal(output.Memory + 16), reason = readIntegerLocal(output.Memory + 20),
+            pid = readIntegerLocal(output.Memory + 24), tid = readIntegerLocal(output.Memory + 28),
+            sessionId = readQwordLocal(output.Memory + 32), stopId = readQwordLocal(output.Memory + 40),
+            breakpointId = readIntegerLocal(output.Memory + 216), breakpoints = {}}
+        if result.state < 0 or result.state > 11 then output.destroy(); return nil, 13 end
+        -- Historical registers are never exposed as a current stop.
+        local currentStop = status >= 0 and result.state == 3 and result.stopId or 0
+        if status >= 0 and result.state == 3 and
+            (result.sessionId == 0 or currentStop == 0 or result.reason < 1 or result.reason > 4) then
+            output.destroy(); return nil, 13
+        end
+        if currentStop ~= 0 then
+            result.rip = readQwordLocal(output.Memory + 64)
+            result.rsp = readQwordLocal(output.Memory + 72)
+            result.rflags = readQwordLocal(output.Memory + 80)
+            result.registers = {}
+            local names = {"rax","rcx","rdx","rbx","rbp","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"}
+            for index, name in ipairs(names) do result.registers[name] = readQwordLocal(output.Memory + 88 + index * 8) end
+        end
+        local count = readIntegerLocal(output.Memory + 220)
+        if count < 0 or count > (kernel and 4 or 8) then output.destroy(); return nil, 13 end
+        for index = 0, count - 1 do
+            local at = output.Memory + 224 + index * 32
+            result.breakpoints[#result.breakpoints + 1] = {id = readIntegerLocal(at), flags = readIntegerLocal(at + 4),
+                address = readQwordLocal(at + 8), physicalPage = readQwordLocal(at + 16), minimumRsp = readQwordLocal(at + 24)}
+        end
+        output.destroy()
+        -- Commit cached command authority only after validating the whole response.
+        if result.sessionId ~= 0 then noAttach.sessionId = result.sessionId; noAttach.uncertain = false end
+        if status >= 0 and (result.state == 0 or result.state == 9) and result.sessionId == 0 then
+            noAttach.sessionId = 0; noAttach.uncertain = false
+        end
+        noAttach.stopId = currentStop
+        noAttach.last = result
+        if status < 0 then appendLog("No-attach request rejected: NTSTATUS=" .. string.format("%08X", status & 0xffffffff)) end
+        return result, 0
+    end
+    function noAttach.useBackend(backend)
+        assert(backend == "hvm" or backend == "kernel", "Choose hvm or kernel")
+        assert(noAttach.sessionId == 0 and not noAttach.uncertain, "QUERY/CLOSE the current transport first")
+        noAttach.backend, noAttach.stopId, noAttach.last = backend, 0, nil
+        if backend == "kernel" then appendLog("Kernel no-attach: version-bound exception hook, TF/DR; driver bridge remains resident until reboot") end
+    end
+    function noAttach.query() return noAttachCall(0) end
+    function noAttach.open(pid, tid, confirmed, allowNested)
+        assert(confirmed == true, "Explicit no-attach HVM startup confirmation is required")
+        assert(noAttach.sessionId == 0 and not noAttach.uncertain, "Close or recover the existing no-attach session first")
+        assert(type(pid) == "number" and pid > 4 and type(tid) == "number" and tid > 0, "Select a process and thread")
+        assert(noAttach.backend ~= "kernel" or not allowNested, "Nested virtualization applies only to the HVM transport")
+        return noAttachCall(1, {pid = pid, tid = tid, flags = noAttach.backend == "kernel" and 5 or (allowNested and 3 or 1)})
+    end
+    function noAttach.pause() return noAttachCall(2) end
+    function noAttach.step() assert(noAttach.stopId ~= 0, "Query the current stop first"); return noAttachCall(3) end
+    function noAttach.continue() assert(noAttach.stopId ~= 0, "Query the current stop first"); return noAttachCall(4) end
+    function noAttach.close() return noAttachCall(5) end
+    function noAttach.addBreakpoint(address, once)
+        assert(noAttach.stopId ~= 0, "Query the current stop first")
+        return noAttachCall(6, {address = address, breakpointFlags = once and 1 or 0})
+    end
+    function noAttach.removeBreakpoint(id)
+        assert(noAttach.stopId ~= 0, "Query the current stop first")
+        return noAttachCall(7, {breakpointId = id})
+    end
+    function noAttach.runTo(address, minimumRsp)
+        assert(noAttach.stopId ~= 0, "Query the current stop first")
+        return noAttachCall(8, {address = address, minimumRsp = minimumRsp, breakpointFlags = minimumRsp and 3 or 1})
+    end
+    function noAttach.setRegister(index, value)
+        assert(noAttach.stopId ~= 0 and index >= 0 and index < 17 and index == math.floor(index), "Select a current integer register")
+        return noAttachCall(9, {registerIndex = index, value = value})
+    end
     return api
 end

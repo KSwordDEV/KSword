@@ -1,65 +1,24 @@
 #include "RescueDesktopHost.h"
-#include "../shared/rescue/RescueDesktopWin32.h"
+#include "RescueDesktopWin32.h"
 
 #include <shellapi.h>
 #include <objbase.h>
 #include <array>
 #include <string>
-#include <vector>
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 
 namespace
 {
-    constexpr wchar_t kElevationAttemptArgument[] = L"--ksword-rescue-elevation-attempted";
-    constexpr wchar_t kOriginalDesktopArgument[] = L"--ksword-rescue-origin-desktop";
+    using ks::rescue::LogStage;
     ULONGLONG physicalReturnTick = 0; // 本监护线程最近一次真实返回组合键的时间，不接受消息伪造。
-
-    // 输入阶段、Win32 错误和值，追加到 exe 同目录 logs；不在输入 Hook 内调用，保留 LastError。
-    void LogStage(const wchar_t* stage, const DWORD error = ERROR_SUCCESS,
-        const DWORD value = 0, const std::wstring& detail = {})
-    {
-        const DWORD savedError = ::GetLastError(); // 诊断不能覆盖调用方正在处理的 API 错误。
-        std::array<wchar_t, 32768> path{}; // 当前 exe 路径，用于定位发行目录中的日志。
-        const DWORD length = ::GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-        if (length != 0 && length < path.size())
-        {
-            const std::wstring executable(path.data(), length); // 避免使用不可控的当前工作目录。
-            const std::wstring directory = executable.substr(0, executable.find_last_of(L"\\/")) + L"\\logs";
-            ::CreateDirectoryW(directory.c_str(), nullptr);
-            const std::wstring filename = directory + L"\\sos-rescue-"
-                + std::to_wstring(::GetCurrentProcessId()) + L".log";
-            const HANDLE file = ::CreateFileW(filename.c_str(), FILE_APPEND_DATA,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (file != INVALID_HANDLE_VALUE)
-            {
-                // 只记录启动状态、错误和桌面名称，不保存键盘输入或继承句柄值。
-                const std::wstring line = std::to_wstring(::GetTickCount64()) + L" " + stage
-                    + L" error=" + std::to_wstring(error) + L" value=" + std::to_wstring(value)
-                    + (detail.empty() ? L"" : L" detail=" + detail) + L"\r\n";
-                const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, line.data(),
-                    static_cast<int>(line.size()), nullptr, 0, nullptr, nullptr);
-                if (bytes > 0)
-                {
-                    std::vector<char> utf8(static_cast<size_t>(bytes)); // 跨语言系统也能读取桌面名。
-                    ::WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()),
-                        utf8.data(), bytes, nullptr, nullptr);
-                    DWORD written = 0; // WriteFile 的实际追加长度。
-                    ::WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
-                }
-                ::CloseHandle(file);
-            }
-        }
-        ::SetLastError(savedError);
-    }
 
     // 查询当前监护进程的真实令牌；返回查询是否成功，输出是否已获管理员提升。
     bool QueryCurrentElevation(bool& elevated)
     {
         elevated = false;
-        HANDLE token = nullptr; // 只查询令牌，不改变当前 Taskbar 或其他进程的权限。
+        HANDLE token = nullptr; // 当前监护进程的令牌查询句柄。
         if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
         {
             return false;
@@ -75,25 +34,14 @@ namespace
         return queried != FALSE;
     }
 
-    // 在原桌面请求 UAC 后等待高权限监护进程；取消/失败返回 2，不创建低权限救援桌面。
+    // 输入当前 exe 与原桌面名称，在原桌面请求 UAC，返回高权限监护进程的退出码。
     int LaunchElevatedHostAndWait(const std::wstring& executable, const std::wstring& originalName)
     {
-        if (executable.empty() || executable.find(L'"') != std::wstring::npos)
-        {
-            return 2;
-        }
-        std::array<wchar_t, 32768> selfPath{}; // 精确启动当前 Taskbar，避免 PATH 或工作目录替换。
-        const DWORD length = ::GetModuleFileNameW(nullptr, selfPath.data(),
-            static_cast<DWORD>(selfPath.size()));
-        if (length == 0 || length >= selfPath.size())
-        {
-            return 2;
-        }
+        // UAC 接替入口只传原桌面。管理员监护进程从自身模块路径确定要启动的救援实例。
         const std::wstring parameters = std::wstring(ks::rescue::kHostArgument)
-            + L" \"" + executable + L"\" " + kElevationAttemptArgument
-            + L" " + kOriginalDesktopArgument + L" \"" + originalName + L"\"";
-        const std::wstring directory(selfPath.data(), length); // 高权限监护入口的 exe 同目录。
-        const std::wstring workingDirectory = directory.substr(0, directory.find_last_of(L"\\/"));
+            + L" " + ks::rescue::kElevationAttemptArgument
+            + L" " + ks::rescue::kOriginalDesktopArgument + L" \"" + originalName + L"\"";
+        const std::wstring workingDirectory = executable.substr(0, executable.find_last_of(L"\\/"));
 
         // ShellExecuteEx 使用 COM；本入口还没有 Qt、Hook 或桌面句柄，UAC 不阻塞 SOS Hook 线程。
         const HRESULT initialized = ::CoInitializeEx(nullptr,
@@ -103,11 +51,11 @@ namespace
             LogStage(L"uac.com_init", static_cast<DWORD>(initialized));
             return 2;
         }
-        SHELLEXECUTEINFOW request{}; // 只提权独立监护进程，常驻 Taskbar 保持原身份。
+        SHELLEXECUTEINFOW request{}; // 用当前 KSword exe 进入独立的管理员监护入口。
         request.cbSize = sizeof(request);
         request.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
         request.lpVerb = L"runas";
-        request.lpFile = selfPath.data();
+        request.lpFile = executable.c_str();
         request.lpParameters = parameters.c_str();
         request.lpDirectory = workingDirectory.c_str();
         request.nShow = SW_HIDE;
@@ -115,19 +63,20 @@ namespace
         const BOOL launched = ::ShellExecuteExW(&request);
         if (!launched || !request.hProcess)
         {
-            LogStage(L"uac.launch_failed", launched ? ERROR_INVALID_HANDLE : ::GetLastError());
+            const DWORD error = launched ? ERROR_INVALID_HANDLE : ::GetLastError();
+            LogStage(L"uac.launch_failed", error);
             if (request.hProcess)
             {
                 ::CloseHandle(request.hProcess);
             }
             ::CoUninitialize();
-            ::OutputDebugStringW(L"[Taskbar][SOS] UAC was canceled or elevation failed.\n");
-            return 2;
+            ::OutputDebugStringW(L"[KSword][SOS] UAC was canceled or elevation failed.\n");
+            return static_cast<int>(error);
         }
 
         LogStage(L"uac.host_started", ERROR_SUCCESS, ::GetProcessId(request.hProcess));
 
-        // 保留引导进程到整个救援会话结束，普通 Taskbar 可继续用该进程句柄防止并发 SOS。
+        // 保留引导进程到整个救援会话结束，让发起方持续持有会话进程句柄。
         const DWORD waited = ::WaitForSingleObject(request.hProcess, INFINITE);
         DWORD exitCode = 2; // 保留高权限监护会话的最终退出状态。
         const BOOL readExit = waited == WAIT_OBJECT_0
@@ -239,15 +188,13 @@ namespace
             }
             const std::wstring originalName = ks::rescue::DesktopName(original_); // 返回时的目标。
             LogStage(L"original.opened", ERROR_SUCCESS, 0, originalName);
-            const std::wstring name = std::wstring(ks::rescue::kDesktopPrefix)
-                + std::to_wstring(::GetCurrentProcessId()) + L"." + std::to_wstring(::GetTickCount64());
-            handles_.desktop = ks::rescue::CreatePrivateDesktop(name);
+            handles_.desktop = ks::rescue::CreatePrivateDesktop();
             if (!handles_.desktop)
             {
                 LogStage(L"private.create_failed", ::GetLastError());
                 return false;
             }
-            LogStage(L"private.created", ERROR_SUCCESS, 0, name);
+            LogStage(L"private.created", ERROR_SUCCESS, 0, ks::rescue::DesktopName(handles_.desktop));
             if (!::SetThreadDesktop(handles_.desktop))
             {
                 LogStage(L"private.bind_failed", ::GetLastError());
@@ -428,7 +375,7 @@ namespace
     };
 }
 
-int RunRescueDesktopHostIfRequested()
+std::optional<int> ks::rescue::RunRescueDesktopHostIfRequested()
 {
     int count = 0; // CommandLineToArgvW 返回的参数数量。
     wchar_t** arguments = ::CommandLineToArgvW(::GetCommandLineW(), &count);
@@ -438,25 +385,56 @@ int RunRescueDesktopHostIfRequested()
         return 2;
     }
     const bool requested = count >= 2 && std::wstring(arguments[1]) == ks::rescue::kHostArgument;
-    const bool elevationAttempted = requested && (count == 4 || count == 6)
-        && std::wstring(arguments[3]) == kElevationAttemptArgument;
-    const bool originHandoff = elevationAttempted && count == 6
-        && std::wstring(arguments[4]) == kOriginalDesktopArgument;
-    const std::wstring executable = requested && (count == 3 || (count == 4 && elevationAttempted)
-        || originHandoff) ? arguments[2] : L"";
-    const std::wstring originalName = originHandoff ? arguments[5] : L"";
+    const bool elevationAttempted = requested && count == 5
+        && std::wstring(arguments[2]) == kElevationAttemptArgument
+        && std::wstring(arguments[3]) == kOriginalDesktopArgument;
+    const std::wstring originalName = elevationAttempted ? arguments[4] : L""; // UAC 前记录的返回目标。
     ::LocalFree(arguments);
     if (!requested)
     {
-        return -1;
+        return std::nullopt;
     }
     LogStage(L"entry", ERROR_SUCCESS, static_cast<DWORD>(count),
         ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())));
-    if (executable.empty() || (originHandoff
-        && (originalName.empty() || originalName.find_first_of(L"\\/\"") != std::wstring::npos)))
+    // 内部入口只接受无参数的首次启动或带桌面名的 UAC 接替，客户端恒为当前 exe。
+    if (count != 2 && (!elevationAttempted
+        || originalName.empty() || originalName.find_first_of(L"\\/\"") != std::wstring::npos))
     {
         LogStage(L"entry.invalid_arguments", ERROR_INVALID_PARAMETER);
-        return 2;
+        return ERROR_INVALID_PARAMETER;
+    }
+    std::array<wchar_t, 32768> selfPath{}; // 进程模块的绝对路径，供提权和救援实例启动共用。
+    const DWORD length = ::GetModuleFileNameW(nullptr, selfPath.data(), static_cast<DWORD>(selfPath.size()));
+    if (length == 0 || length >= selfPath.size())
+    {
+        const DWORD error = length == 0 ? ::GetLastError() : ERROR_INSUFFICIENT_BUFFER;
+        LogStage(L"entry.executable_path_failed", error);
+        return static_cast<int>(error);
+    }
+    const std::wstring executable(selfPath.data(), length);
+
+    // 普通主程序和 Taskbar 都监听 SOS；只有首个引导进程持有会话名，避免一次按键启动两份。
+    // UAC 接替进程借用仍存活的引导进程所持门闩，不重复获取。
+    struct LaunchGuard
+    {
+        HANDLE handle = nullptr;
+        ~LaunchGuard() { if (handle) ::CloseHandle(handle); }
+    } launchGuard;
+    if (!elevationAttempted)
+    {
+        // 只保留门闩句柄，便于不同提升状态的发起方识别已存在的会话。
+        launchGuard.handle = ::CreateMutexExW(nullptr, ks::rescue::kSessionGuardName, 0, SYNCHRONIZE);
+        const DWORD error = ::GetLastError();
+        if (!launchGuard.handle)
+        {
+            LogStage(L"entry.session_guard_failed", error);
+            return static_cast<int>(error);
+        }
+        if (error == ERROR_ALREADY_EXISTS)
+        {
+            LogStage(L"entry.session_already_active");
+            return 0;
+        }
     }
 
     // 先提升监护进程，再建立私有桌面和句柄；客户端直接继承管理员令牌，不在救援桌面内重启。
@@ -464,7 +442,7 @@ int RunRescueDesktopHostIfRequested()
     if (!QueryCurrentElevation(elevated))
     {
         LogStage(L"elevation.query_failed", ::GetLastError());
-        ::OutputDebugStringW(L"[Taskbar][SOS] Cannot verify the rescue host elevation token.\n");
+        ::OutputDebugStringW(L"[KSword][SOS] Cannot verify the rescue host elevation token.\n");
         return 2;
     }
     LogStage(L"elevation.state", ERROR_SUCCESS, elevated ? 1 : 0);
@@ -474,8 +452,8 @@ int RunRescueDesktopHostIfRequested()
         {
             LogStage(L"elevation.still_unelevated", ERROR_ELEVATION_REQUIRED);
             // 即使命令行声称已提权，也必须核验真实令牌；失败只结束，不循环弹 UAC。
-            ::OutputDebugStringW(L"[Taskbar][SOS] Rescue host is still not elevated after UAC.\n");
-            return 2;
+            ::OutputDebugStringW(L"[KSword][SOS] Rescue host is still not elevated after UAC.\n");
+            return ERROR_ELEVATION_REQUIRED;
         }
         // UAC 前记录输入桌面，避免批准后把尚在活动的安全桌面当成返回目标。
         const HDESK beforeUac = ::OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
@@ -495,11 +473,15 @@ int RunRescueDesktopHostIfRequested()
         return LaunchElevatedHostAndWait(executable, sourceName);
     }
 
-    HostSession session; // 独立进程在所有退出分支都自动清理并尝试恢复原桌面。
-    if (!session.start(executable, originalName))
-    {
-        ::OutputDebugStringW(L"[Taskbar][SOS] Rescue desktop initialization failed.\n");
-        return 2;
-    }
-    return session.run();
+    // 入口线程可能已有 USER32 对象。桌面绑定、消息循环和会话清理统一在新线程执行。
+    return static_cast<int>(ks::rescue::RunDesktopSessionOnFreshThread([&]() -> DWORD {
+        HostSession session;
+        if (!session.start(executable, originalName))
+        {
+            const DWORD error = ::GetLastError();
+            LogStage(L"session.start_failed", error);
+            return error ? error : ERROR_GEN_FAILURE;
+        }
+        return static_cast<DWORD>(session.run());
+    }));
 }

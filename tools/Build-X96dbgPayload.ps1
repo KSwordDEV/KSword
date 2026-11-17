@@ -120,4 +120,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Navigation bridge build failed.' }
 $navigationBridge = Join-Path $RepositoryRoot '.deps\x64dbg-navigation\x64\Release\KSwordNavigation.dp64'
 New-Item -ItemType Directory -Path (Join-Path $outputRoot 'plugins') -Force | Out-Null
 Copy-Item -LiteralPath $navigationBridge -Destination (Join-Path $outputRoot 'plugins\KSwordNavigation.dp64') -Force
+& (Join-Path $PSScriptRoot 'Build-X64DbgNavigation.ps1') -Platform x64 -Configuration Release -Component NoAttach
+if ($LASTEXITCODE -ne 0) { throw 'No-attach control bridge build failed.' }
+$noAttachBridge = Join-Path $RepositoryRoot '.deps\x64dbg-noattach\x64\Release\KSwordNoAttach.dp64'
+Copy-Item -LiteralPath $noAttachBridge -Destination (Join-Path $outputRoot 'plugins\KSwordNoAttach.dp64') -Force
 Write-Output "X64DBG_PAYLOAD=$outputRoot"

@@ -15,6 +15,7 @@
 class QLabel;
 class QScrollArea;
 class QTimer;
+class QTabWidget;
 class QVBoxLayout;
 
 class ProgressDockWidget final : public QWidget
@@ -24,12 +25,13 @@ public:
     // - 初始化滚动区域与卡片容器；
     // - 启动定时刷新任务卡片。
     // 参数 parent：Qt 父对象。
-    explicit ProgressDockWidget(QWidget* parent = nullptr);
+    explicit ProgressDockWidget(QWidget* parent = nullptr, bool managementWindow = false);
 
     // refreshThemeVisuals 作用：
     // - 主题切换后重新套用当前操作面板背景和文字样式；
     // - 原位更新卡片，保留滚动位置与 QWidget 身份。
     void refreshThemeVisuals();
+    void showBackgroundTasks();
 
 private:
     // initializeUi 作用：
@@ -86,10 +88,13 @@ private:
     void retranslateUi();
 
 protected:
+    void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;
 
 private:
     QVBoxLayout* m_rootLayout = nullptr;        // 根布局。
+    QTabWidget* m_taskTabs = nullptr;
+    bool m_managementWindow = false;
     QScrollArea* m_scrollArea = nullptr;        // 滚动容器。
     QWidget* m_scrollContent = nullptr;         // 滚动内容根控件。
     QVBoxLayout* m_cardLayout = nullptr;        // 卡片垂直布局。

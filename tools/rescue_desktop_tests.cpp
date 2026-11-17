@@ -1,3 +1,4 @@
+#include "../shared/rescue/RescueDesktopHost.h"
 #include "../shared/rescue/RescueDesktopWin32.h"
 
 #include <cstdio>
@@ -51,12 +52,10 @@ namespace
         const std::wstring expected = arguments[2]; // 父进程新建的唯一桌面名。
         const HDESK inherited = reinterpret_cast<HDESK>(std::wcstoull(arguments[3], nullptr, 10));
         const HANDLE ready = reinterpret_cast<HANDLE>(std::wcstoull(arguments[4], nullptr, 10));
-        Check(ks::rescue::DesktopName(inherited) == expected, "inherited desktop is usable");
-        // 创建客户端时显式绑定继承句柄，不能假定 HANDLE_LIST 使 USER32 自动选中它。
-        Check(::SetThreadDesktop(inherited) != FALSE, "explicitly bind the inherited private desktop before windows");
+        // 在显式绑定前使用 USER32，模拟运行库提前访问桌面的情况。
         Check(ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == expected,
-            "client thread is on the intended private desktop");
-
+            "client starts on the private desktop before explicit binding");
+        Check(ks::rescue::DesktopName(inherited) == expected, "inherited desktop is usable");
         // 创建者同一账号也不能凭名称拿到写对象、装 Hook 或修改 DACL 的权限。
         for (const ACCESS_MASK access : { DESKTOP_CREATEWINDOW, DESKTOP_HOOKCONTROL, WRITE_DAC, READ_CONTROL })
         {
@@ -78,6 +77,11 @@ namespace
         Check(window != nullptr, "create hidden window with inherited private desktop handle");
         if (window)
         {
+            // 模拟运行库已创建窗口。正式绑定函数应复用已连接的目标桌面。
+            Check(ks::rescue::BindClientDesktop(inherited, expected) == ERROR_SUCCESS,
+                "accept an already bound client that owns an early window");
+            Check(ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == expected,
+                "client thread stays on the intended private desktop");
             const HDESK original = ::OpenDesktopW(arguments[7], 0, FALSE,
                 DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS);
             Check(original != nullptr, "open original desktop for migration probe");
@@ -106,8 +110,42 @@ namespace
         return failures == 0 ? 0 : 1;
     }
 
-    // 输入实际 Taskbar/KSword 路径，只在未提升令牌下探测伪造标记；不请求 UAC 或切换桌面。
-    int ElevationGateProbe(const std::wstring& host, const std::wstring& client)
+    // 启动实际监护 exe 的拒绝分支，检查它在指定时间内以预期错误退出。
+    int RejectedStartupProbe(const std::wstring& executable, const std::wstring& arguments,
+        DWORD expectedError, const char* resultName)
+    {
+        std::wstring command = L"\"" + executable + L"\" " + arguments;
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION child{}; // 只等待或结束本次启动的探测子进程。
+        const BOOL launched = ::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
+            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
+        Check(launched != FALSE, "launch actual KSword for startup rejection probe");
+        if (!launched)
+        {
+            return 1;
+        }
+        const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
+        Check(waited == WAIT_OBJECT_0, "startup rejects the request before UI or UAC");
+        if (waited != WAIT_OBJECT_0)
+        {
+            ::TerminateProcess(child.hProcess, 1);
+            ::WaitForSingleObject(child.hProcess, 5000);
+        }
+        DWORD exitCode = 0;
+        Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == expectedError,
+            "startup returns the expected rejection code");
+        ::CloseHandle(child.hThread);
+        ::CloseHandle(child.hProcess);
+        std::printf("%s=%s checks=%d failures=%d\n", resultName,
+            failures == 0 ? "PASS" : "FAIL", checks, failures);
+        return failures == 0 ? 0 : 1;
+    }
+
+    // 输入实际 KSword 路径，在未提升令牌下验证监护入口要求真实管理员权限。
+    int ElevationGateProbe(const std::wstring& host)
     {
         HANDLE token = nullptr; // 先核验测试进程真实令牌，提升态下必须跳过以免进入救援桌面。
         const BOOL opened = ::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token);
@@ -131,38 +169,93 @@ namespace
             return 0;
         }
 
-        // 内部标记不是提权证据：未提升的真实 Taskbar 应立即拒绝，不能再次弹 UAC。
-        const std::wstring command = L"\"" + host + L"\" " + ks::rescue::kHostArgument
-            + L" \"" + client + L"\" --ksword-rescue-elevation-attempted";
-        std::vector<wchar_t> writable(command.begin(), command.end()); // CreateProcess 需要可写参数。
-        writable.push_back(L'\0');
-        STARTUPINFOW startup{}; // 该测试分支不创建窗口，且只启动自己的探测子进程。
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESHOWWINDOW;
-        startup.wShowWindow = SW_HIDE;
-        PROCESS_INFORMATION child{}; // 精确等待本次探测子进程，不接触常驻 Taskbar。
-        const BOOL launched = ::CreateProcessW(host.c_str(), writable.data(), nullptr, nullptr,
-            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
-        Check(launched != FALSE, "launch actual Taskbar with spoofed elevation marker");
-        if (!launched)
+        // 用合法的接替格式进入实际监护入口，验证参数不能代替令牌检查。
+        const std::wstring original = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId()));
+        Check(!original.empty(), "read origin desktop for elevation probe");
+        if (original.empty())
         {
             return 1;
         }
-        const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
-        Check(waited == WAIT_OBJECT_0, "spoofed elevation marker exits without UAC or readiness wait");
-        if (waited != WAIT_OBJECT_0)
+        const std::wstring arguments = std::wstring(ks::rescue::kHostArgument) + L" "
+            + ks::rescue::kElevationAttemptArgument + L" "
+            + ks::rescue::kOriginalDesktopArgument + L" \"" + original + L"\"";
+        return RejectedStartupProbe(host, arguments, ERROR_ELEVATION_REQUIRED, "RESCUE_ELEVATION_GATE");
+    }
+
+    // 已有会话时实际监护入口必须直接结束，不弹 UAC、不创建或切换桌面。
+    int SessionGuardProbe(const std::wstring& host, bool ordinaryTaskbar)
+    {
+        const HANDLE guard = ::CreateMutexExW(nullptr,
+            ordinaryTaskbar ? L"Local\\KSword.Taskbar.Instance" : ks::rescue::kSessionGuardName, 0, SYNCHRONIZE);
+        Check(guard != nullptr, "hold a rescue session guard");
+        if (!guard) return 1;
+        std::wstring command = L"\"" + host + L"\"";
+        if (!ordinaryTaskbar)
         {
-            ::TerminateProcess(child.hProcess, 1);
-            ::WaitForSingleObject(child.hProcess, 5000);
+            command += L" " + std::wstring(ks::rescue::kHostArgument);
         }
-        DWORD exitCode = 0; // 未提升的内部入口必须返回明确失败，不能进入普通或救援 GUI。
-        Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == 2,
-            "unelevated actual Taskbar rejects claimed elevation");
-        ::CloseHandle(child.hThread);
-        ::CloseHandle(child.hProcess);
-        std::printf("RESCUE_ELEVATION_GATE=%s checks=%d failures=%d\n",
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION child{};
+        const BOOL launched = ::CreateProcessW(host.c_str(), command.data(), nullptr, nullptr,
+            FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &child);
+        Check(launched != FALSE, "launch actual host while a rescue session is active");
+        if (launched)
+        {
+            const DWORD waited = ::WaitForSingleObject(child.hProcess, 10000);
+            Check(waited == WAIT_OBJECT_0, "duplicate host exits before UAC or desktop creation");
+            if (waited != WAIT_OBJECT_0)
+            {
+                ::TerminateProcess(child.hProcess, 1);
+                ::WaitForSingleObject(child.hProcess, 5000);
+            }
+            DWORD exitCode = 1;
+            Check(::GetExitCodeProcess(child.hProcess, &exitCode) && exitCode == 0,
+                "duplicate host reports an existing session");
+            ::CloseHandle(child.hThread);
+            ::CloseHandle(child.hProcess);
+        }
+        ::CloseHandle(guard);
+        std::printf("%s=%s checks=%d failures=%d\n", ordinaryTaskbar ? "TASKBAR_SINGLE_INSTANCE" : "RESCUE_SESSION_GUARD",
             failures == 0 ? "PASS" : "FAIL", checks, failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    void BusyEntryThreadProbe()
+    {
+        const auto entryId = ::GetCurrentThreadId();
+        const auto original = ks::rescue::DesktopName(::GetThreadDesktop(entryId));
+        WNDCLASSW type{};
+        type.hInstance = ::GetModuleHandleW(nullptr);
+        type.lpfnWndProc = ::DefWindowProcW;
+        type.lpszClassName = L"KSword.Rescue.BusyEntryProbe";
+        Check(::RegisterClassW(&type) != 0, "register entry-thread window class");
+        HWND window = ::CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP,
+            -32000, -32000, 1, 1, nullptr, nullptr, type.hInstance, nullptr);
+        Check(window != nullptr, "entry thread already owns a hidden window");
+        HDESK desktop = ks::rescue::CreatePrivateDesktop();
+        Check(desktop != nullptr, "create test desktop without switching input");
+        if (window && desktop)
+        {
+            const auto name = ks::rescue::DesktopName(desktop);
+            const BOOL bound = ::SetThreadDesktop(desktop);
+            const DWORD error = ::GetLastError();
+            Check(!bound && error == ERROR_BUSY, "old entry-thread binding reproduces ERROR_BUSY");
+            const DWORD result = ks::rescue::RunDesktopSessionOnFreshThread([&]() -> DWORD {
+                if (::GetCurrentThreadId() == entryId) return ERROR_INVALID_THREAD_ID;
+                HDESK previous = ::GetThreadDesktop(::GetCurrentThreadId());
+                if (!::SetThreadDesktop(desktop)) return ::GetLastError();
+                const bool correct = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId())) == name;
+                if (!::SetThreadDesktop(previous)) return ::GetLastError();
+                return correct ? ERROR_SUCCESS : ERROR_INVALID_DATA;
+            });
+            Check(result == ERROR_SUCCESS, "production fresh-thread adapter binds despite a busy entry thread");
+            Check(ks::rescue::DesktopName(::GetThreadDesktop(entryId)) == original, "entry thread remains on original desktop");
+            Check(!ks::rescue::IsInputDesktop(desktop), "probe never switches the input desktop");
+        }
+        if (window) ::DestroyWindow(window);
+        if (desktop) ::CloseDesktop(desktop);
+        ::UnregisterClassW(type.lpszClassName, type.hInstance);
     }
 
     void InputPolicyTests()
@@ -192,23 +285,51 @@ namespace
 
 int wmain(const int count, wchar_t** arguments)
 {
-    if (count == 4 && std::wstring(arguments[1]) == L"--elevation-gate-probe")
+    if (count == 3 && std::wstring(arguments[1]) == L"--client-init-rejection-probe")
     {
-        return ElevationGateProbe(arguments[2], arguments[3]);
+        // 真实客户端收到格式完整但无有效等待句柄的请求时应返回 ERROR_INVALID_HANDLE。
+        const std::wstring request = std::wstring(ks::rescue::kClientArgument)
+            + L" KSword.Rescue.Probe 0 0 0 0 Default";
+        return RejectedStartupProbe(arguments[2], request, ERROR_INVALID_HANDLE, "RESCUE_CLIENT_INIT_REJECTION");
+    }
+    if (count == 3 && std::wstring(arguments[1]) == L"--taskbar-single-instance-probe")
+        return SessionGuardProbe(arguments[2], true);
+    if (count == 3 && std::wstring(arguments[1]) == L"--session-guard-probe")
+    {
+        return SessionGuardProbe(arguments[2], false);
+    }
+    if (count == 3 && std::wstring(arguments[1]) == L"--elevation-gate-probe")
+    {
+        return ElevationGateProbe(arguments[2]);
+    }
+    if (count == 3 && std::wstring(arguments[1]) == L"--client-path-rejection-probe")
+    {
+        // 旧监护协议允许指定客户端路径，新入口只允许启动自身模块。
+        const std::wstring request = std::wstring(ks::rescue::kHostArgument) + L" \"" + arguments[2] + L"\"";
+        return RejectedStartupProbe(arguments[2], request,
+            ERROR_INVALID_PARAMETER, "RESCUE_CLIENT_PATH_REJECTION");
     }
     if (count > 1 && std::wstring(arguments[1]) == ks::rescue::kClientArgument)
     {
         return ChildProbe(count, arguments);
     }
     InputPolicyTests();
+    BusyEntryThreadProbe();
     const std::wstring original = ks::rescue::DesktopName(::GetThreadDesktop(::GetCurrentThreadId()));
-    const std::wstring name = std::wstring(ks::rescue::kDesktopPrefix) + L"Tests."
-        + std::to_wstring(::GetCurrentProcessId()) + L"." + std::to_wstring(::GetTickCount64());
     ks::rescue::ClientHandles handles; // 正式启动函数需要的最小继承集合。
-    handles.desktop = ks::rescue::CreatePrivateDesktop(name);
+    handles.desktop = ks::rescue::CreatePrivateDesktop();
     Check(handles.desktop != nullptr, "create owner-rights protected private desktop");
     if (handles.desktop)
     {
+        const auto name = ks::rescue::DesktopName(handles.desktop);
+        const std::wstring prefix = ks::rescue::kDesktopPrefix;
+        Check(name.rfind(prefix, 0) == 0 && name.size() == prefix.size() + 32
+            && name.find_first_not_of(L"0123456789abcdef", prefix.size()) == std::wstring::npos,
+            "production desktop name contains a 128-bit random suffix");
+        HDESK second = ks::rescue::CreatePrivateDesktop();
+        Check(second && ks::rescue::DesktopName(second) != name,
+            "two concurrent private desktops have different names");
+        if (second) ::CloseDesktop(second);
         Check(!ks::rescue::IsInputDesktop(handles.desktop), "private test desktop never becomes input desktop");
         SECURITY_ATTRIBUTES security{}; // 未命名测试事件的继承属性。
         security.nLength = sizeof(security);

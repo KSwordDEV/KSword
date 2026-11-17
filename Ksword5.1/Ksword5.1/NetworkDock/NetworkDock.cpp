@@ -1,3 +1,4 @@
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "NetworkDock.NavigationData.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/AsyncUiDispatcher.h"
@@ -201,6 +202,14 @@ NetworkDock::NetworkDock(QWidget* parent, const ConstructScope scope)
     // - 避免“每包一个 invokeMethod”把事件循环塞爆。
     m_packetFlushTimer = new QTimer(this);
     m_packetFlushTimer->setInterval(50);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_network_packet_drain;
+    taskPolicy_network_packet_drain.canPause = false;
+    taskPolicy_network_packet_drain.canChangeInterval = false;
+    taskPolicy_network_packet_drain.allowMultipleInstances = false;
+    taskPolicy_network_packet_drain.minimumIntervalMs = 50;
+    taskPolicy_network_packet_drain.restriction = QStringLiteral("此任务维持事件排空或窗口生命周期，请使用所属功能的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("network.packet_drain"),
+        QStringLiteral("报文队列排空"), QStringLiteral("网络"), m_packetFlushTimer, std::move(taskPolicy_network_packet_drain));
     connect(m_packetFlushTimer, &QTimer::timeout, this, [this]()
         {
             flushPendingPacketsToUi();
@@ -214,6 +223,14 @@ NetworkDock::NetworkDock(QWidget* parent, const ConstructScope scope)
     // - 独立“连接管理”页已移除，不再创建其旧轮询器。
     m_r0TrafficRefreshTimer = new QTimer(this);
     m_r0TrafficRefreshTimer->setInterval(250);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_network_r0_traffic;
+    taskPolicy_network_r0_traffic.canPause = false;
+    taskPolicy_network_r0_traffic.canChangeInterval = false;
+    taskPolicy_network_r0_traffic.allowMultipleInstances = false;
+    taskPolicy_network_r0_traffic.minimumIntervalMs = 50;
+    taskPolicy_network_r0_traffic.restriction = QStringLiteral("此任务维持事件排空或窗口生命周期，请使用所属功能的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("network.r0_traffic"),
+        QStringLiteral("内核流量采集"), QStringLiteral("网络"), m_r0TrafficRefreshTimer, std::move(taskPolicy_network_r0_traffic));
     connect(m_r0TrafficRefreshTimer, &QTimer::timeout, this, [this]()
         {
             if (!m_monitorRunning || m_monitorSource != TrafficMonitorSource::R0)
@@ -228,6 +245,13 @@ NetworkDock::NetworkDock(QWidget* parent, const ConstructScope scope)
     // - 下载后台独立运行；只有下载页实际可见时才构造任务表和分段表。
     m_multiDownloadRefreshTimer = new QTimer(this);
     m_multiDownloadRefreshTimer->setInterval(180);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_network_download_view;
+    taskPolicy_network_download_view.canPause = true;
+    taskPolicy_network_download_view.canChangeInterval = true;
+    taskPolicy_network_download_view.allowMultipleInstances = false;
+    taskPolicy_network_download_view.minimumIntervalMs = 50;
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("network.download_view"),
+        QStringLiteral("下载进度展示"), QStringLiteral("网络"), m_multiDownloadRefreshTimer, std::move(taskPolicy_network_download_view));
     connect(m_multiDownloadRefreshTimer, &QTimer::timeout, this, [this]()
         {
             if (!isVisible() || m_sideTabWidget == nullptr

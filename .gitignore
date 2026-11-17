@@ -88,3 +88,8 @@ docs/next/logs/*full*.dmp
 # Local generated CMake and standalone-test outputs.
 /build/
 /.out/
+
+# Fixed standalone regression project configurations and intermediate files.
+/tools/tests/candidate_reference_generated/
+/tools/tests/process_lifetime_profile/
+/tools/tests/dyndata_profile_loader/

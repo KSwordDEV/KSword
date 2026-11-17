@@ -64,13 +64,7 @@
     <ClCompile Include="DisplayRestartMonitor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="SosHotkeyLauncher.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="RescueDesktopHost.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\shared\rescue\RescueDesktopWin32.cpp">
+    <ClCompile Include="..\shared\rescue\SosHotkeyLauncher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="AudioAnalyze.cpp">
@@ -140,13 +134,10 @@
     <ClInclude Include="Function.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SosHotkeyLauncher.h">
+    <ClInclude Include="..\shared\rescue\SosHotkeyLauncher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="RescueDesktopHost.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\shared\rescue\RescueDesktopWin32.h">
+    <ClInclude Include="..\shared\rescue\RescueDesktopHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -6,7 +6,6 @@ profile matching, EX projection and readiness readback are compiled unchanged.
 """
 from pathlib import Path
 import os
-import shutil
 import subprocess
 from xml.sax.saxutils import escape
 
@@ -21,7 +20,7 @@ def main():
     if not msbuild.is_file():
         msbuild = Path(r"D:\Software\VS\MSBuild\Current\Bin\amd64\MSBuild.exe")
     assert msbuild.is_file() and msbuild.parent.name == "amd64"
-    generated = ROOT / ".codex-build-logs/process-lifetime-profile"
+    generated = ROOT / "tools/tests/process_lifetime_profile"
     generated.mkdir(parents=True, exist_ok=True)
     sources = ["tools/tests/process_lifetime_profile_prepare.cpp"] + [
         f"Ksword5.1/Ksword5.1/ArkDriverClient/{name}.cpp" for name in
@@ -34,20 +33,20 @@ def main():
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-<PropertyGroup><OutDir>$(ProjectDir)x64\Release\</OutDir><IntDir>$(ProjectDir)x64\obj\</IntDir><TargetName>ProcessLifetimePrepareTests</TargetName></PropertyGroup>
+<PropertyGroup><OutDir>{escape(str(ROOT / "Ksword5.1/x64/Release"))}\</OutDir><IntDir>$(ProjectDir)x64\obj\</IntDir><TargetName>ProcessLifetimePrepareTests</TargetName></PropertyGroup>
 <ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>{escape(str(ROOT))};{escape(str(qt/'include'))};{escape(str(qt/'include/QtCore'))};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><AdditionalLibraryDirectories>{escape(str(qt/'lib'))};%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories><AdditionalDependencies>Qt6Core.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
 <ItemGroup>{items}</ItemGroup><Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" /></Project>'''
     path = generated / "ProcessLifetimePrepareTests.vcxproj"
     path.write_text(project, encoding="utf-8")
-    subprocess.run([str(msbuild), str(path), "/t:Build", "/p:Configuration=Release", "/p:Platform=x64",
-                    "/p:PreferredToolArchitecture=x64", "/p:PROCESSOR_ARCHITECTURE=AMD64",
-                    "/p:PROCESSOR_ARCHITEW6432=AMD64", "/m:1", "/v:minimal", "/nologo"], check=True)
-    destination = generated / "x64/Release"
-    shutil.copy2(qt / "bin/Qt6Core.dll", destination / "Qt6Core.dll")
-    for runtime in (ROOT / "Ksword5.1/x64/Release").glob("*140*.dll"):
-        shutil.copy2(runtime, destination / runtime.name)
-    subprocess.run([str(destination / "ProcessLifetimePrepareTests.exe"),
-                    str(ROOT / "Ksword5.1/x64/Release/profiles/ark_dyndata_pack_v4.json.qz")], check=True)
+    try:
+        subprocess.run([str(msbuild), str(path), "/t:Build", "/p:Configuration=Release", "/p:Platform=x64",
+                        "/p:PreferredToolArchitecture=x64", "/p:PROCESSOR_ARCHITECTURE=AMD64",
+                        "/p:PROCESSOR_ARCHITEW6432=AMD64", "/m:1", "/v:minimal", "/nologo"],
+                       check=True, creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        subprocess.run([str(ROOT / "Ksword5.1/x64/Release/ProcessLifetimePrepareTests.exe"),
+                        str(ROOT / "Ksword5.1/x64/Release/profiles/ark_dyndata_pack_v4.json.qz")], check=True)
+    finally:
+        path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

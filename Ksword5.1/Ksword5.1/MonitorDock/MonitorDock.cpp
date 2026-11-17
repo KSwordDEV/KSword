@@ -6,6 +6,7 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/TableContextMenu.h"
 #include "MonitorDock.h"
+#include "../Framework/BackgroundTaskRegistry.h"
 #include "../UI/CompleteExport.h"
 #include "MonitorNavigationSchema.h"
 #include "../../../shared/ui/KsPainterChart.h"
@@ -4667,6 +4668,24 @@ MonitorDock::MonitorDock(QWidget* parent)
 
     initializeUi();
     initializeConnections();
+    ks::ui::BackgroundTaskRegistry::instance().addExternal(QStringLiteral("monitor.wmi_events"),
+        QStringLiteral("WMI 事件订阅"), QStringLiteral("监控"), this,
+        {[this]() { return m_wmiSubscribeRunning.load(); },
+         [this]() { return m_wmiSubscribePaused.load(); },
+         [this](bool paused) {
+             if (!m_wmiPauseSubscribeButton || !m_wmiPauseSubscribeButton->isEnabled()) return false;
+             if (m_wmiSubscribePaused.load() != paused) m_wmiPauseSubscribeButton->click();
+             return m_wmiSubscribePaused.load() == paused;
+         }}, QStringLiteral("通过原有订阅流程暂停或继续；停止与过滤条件仍在 WMI 页面管理。"));
+    ks::ui::BackgroundTaskRegistry::instance().addExternal(QStringLiteral("monitor.etw_events"),
+        QStringLiteral("ETW 事件捕获"), QStringLiteral("监控"), this,
+        {[this]() { return m_etwCaptureRunning.load(); },
+         [this]() { return m_etwCapturePaused.load(); },
+         [this](bool paused) {
+             if (!m_etwPauseButton || !m_etwPauseButton->isEnabled()) return false;
+             if (m_etwCapturePaused.load() != paused) m_etwPauseButton->click();
+             return m_etwCapturePaused.load() == paused;
+         }}, QStringLiteral("通过原有捕获流程暂停或继续；停止、归档与过滤仍在 ETW 页面管理。"));
 
     // 顶部四宫格性能图已迁移到“监视面板”Dock（MonitorPanelWidget），
     // 当前 MonitorDock 仅负责 WMI/ETW 实时监控逻辑。
@@ -4674,6 +4693,13 @@ MonitorDock::MonitorDock(QWidget* parent)
     // WMI 事件表刷新节流：后台线程先入队，主线程按 100ms 批量刷入，避免事件风暴卡 UI。
     m_wmiUiUpdateTimer = new QTimer(this);
     m_wmiUiUpdateTimer->setInterval(100);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_monitor_wmi_drain;
+    taskPolicy_monitor_wmi_drain.canPause = false;
+    taskPolicy_monitor_wmi_drain.canChangeInterval = false;
+    taskPolicy_monitor_wmi_drain.minimumIntervalMs = 1;
+    taskPolicy_monitor_wmi_drain.restriction = QStringLiteral("事件队列必须随会话排空；请使用所属页面的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("monitor.wmi_drain"), QStringLiteral("WMI 事件排空"),
+        QStringLiteral("事件采集"), m_wmiUiUpdateTimer, std::move(taskPolicy_monitor_wmi_drain));
     connect(m_wmiUiUpdateTimer, &QTimer::timeout, this, [this]() {
         flushWmiPendingRows();
     });
@@ -6418,6 +6444,13 @@ void MonitorDock::initializeEtwTab()
 
     m_etwUiUpdateTimer = new QTimer(this);
     m_etwUiUpdateTimer->setInterval(50);
+    ks::ui::BackgroundTaskRegistry::Policy taskPolicy_monitor_etw_drain;
+    taskPolicy_monitor_etw_drain.canPause = false;
+    taskPolicy_monitor_etw_drain.canChangeInterval = false;
+    taskPolicy_monitor_etw_drain.minimumIntervalMs = 1;
+    taskPolicy_monitor_etw_drain.restriction = QStringLiteral("事件队列必须随会话排空；请使用所属页面的停止入口。");
+    ks::ui::BackgroundTaskRegistry::instance().addTimer(QStringLiteral("monitor.etw_drain"), QStringLiteral("ETW 事件排空"),
+        QStringLiteral("事件采集"), m_etwUiUpdateTimer, std::move(taskPolicy_monitor_etw_drain));
 
     // 规则编辑和时间轴拖动可能连续触发几十次变更。只在输入稳定后启动一次磁盘扫描。
     m_etwArchiveFilterDebounceTimer = new QTimer(this);

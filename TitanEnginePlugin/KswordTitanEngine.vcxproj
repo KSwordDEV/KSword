@@ -88,12 +88,15 @@
     <ClCompile Include="NativeSeam.cpp" />
     <ClCompile Include="Proxy.cpp" />
     <ClCompile Include="Control.cpp" />
+    <ClCompile Include="IndependentSeam.cpp" />
     <ClCompile Include="Forwarders.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerBackend.cpp">
       <PreprocessorDefinitions>KSwordDebuggerCall=KSwordBackendCall;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerMemory.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerDebug.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordIndependentFrontend.cpp" />
+    <ClInclude Include="..\DebuggerBackend\KswordIndependentFrontend.h" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerNative.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverClient.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverError.cpp" />

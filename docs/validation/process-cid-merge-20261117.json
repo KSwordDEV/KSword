@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-17",
+  "localFeatureCommit": "0864c787e",
+  "localBuildPolicyCommit": "ac1dcf0ae",
+  "mergedRemote": "eed71a4759a64d345c3e6448e820529b3e541768",
+  "resolvedConflicts": {
+    "Ksword5.1/Ksword5.1/languages/en-US.json": "retain both sets of source translations; unique JSON keys",
+    "Ksword5.1/Ksword5.1/languages/zh-CN.json": "retain both sets of source translations; unique JSON keys",
+    "tools/Invoke-KSwordBuildCheck.ps1": "retain BelowNormal priority and upstream fixed IntDir TEMP/TMP management; restore both in finally"
+  },
+  "validation": {
+    "mainBuild": "BUILD_RESULT=SUCCESS EXIT_CODE=0",
+    "mainLog": ".codex-build-logs/cid-merge-main.log",
+    "driverBuild": "Release/x64 /WX; Universal API; INF/CAT errors=None warnings=None",
+    "driverLog": ".codex-build-logs/cid-merge-driver.log",
+    "productionCandidateAndVetoCases": 62,
+    "profilePreparationCases": 19,
+    "profileParserProfiles": 2932,
+    "profileParserRejectCases": 4,
+    "profileLog": ".codex-build-logs/cid-merge-profile-tests.log",
+    "i18nSourceStrings": 30682,
+    "trackedJsonFiles": 2348,
+    "ioctlPlanGate": "registered=231 covered=150 excluded=81 cases=135 dangerous=40",
+    "buildPriority": "actual MSBuild and child processes observed BelowNormal"
+  },
+  "testOutputPolicy": {
+    "output": "Ksword5.1/x64/Release",
+    "configurations": [
+      "tools/tests/candidate_reference_generated",
+      "tools/tests/process_lifetime_profile",
+      "tools/tests/dyndata_profile_loader"
+    ],
+    "generatedConfigurationsRemoved": true,
+    "runtime": "reuse formal Release Qt/compiler runtime; no fixture runtime copy"
+  },
+  "processCore": "git diff ac1dcf0ae for shared process IOCTL and process actions/crossview/lifetime/protected-CID source is empty",
+  "vmEvidence": "docs/validation/process-cid-simple-20261117.json",
+  "artifacts": [
+    {
+      "path": "Ksword5.1/x64/Release/Ksword5.1.exe",
+      "bytes": 33750528,
+      "sha256": "587E8214AB2C8E6A643E9FF4D40C30B18F46D883997C61B939D7DF2805F15E56"
+    },
+    {
+      "path": "Ksword5.1/x64/Release/KswordARK.sys",
+      "bytes": 3636736,
+      "sha256": "E16F8558D5D6A80B2B1A8D0BA85A8B83F7F561098229950C66B5D28728540239"
+    }
+  ],
+  "scope": "integration builds and native regressions; previous VM record remains specific to its recorded binaries; no new GUI or physical-host driver validation"
+}

@@ -1429,6 +1429,13 @@ KswordARKHvmResidentStartCurrent(
         Context->ApicId = KswordARKHvmReadInitialApicId();
         /* Cache only the invariant vendor/max-basic leaf on its owning CPU. */
         __cpuidex(Context->CpuidVendorLeaf, 0, 0);
+        /* 清空 CPUID 动态缓存；上一轮残留会在新一代 host CPUID 上返回陈旧外层响应。 */
+        RtlZeroMemory(Context->CpuidCache, sizeof(Context->CpuidCache));
+        /* 重置 LRU 推进位置到 0；条目全 Valid==FALSE 时走任意顺序都不影响结果。 */
+        Context->CpuidCacheNext = 0UL;
+        /* 命中/错失计数在每次 resident start 重置，避免跨启动叠加看不清本次比率。 */
+        Context->CpuidCacheHits = 0ULL;
+        Context->CpuidCacheMisses = 0ULL;
         /* Publish active ownership before any valid VM exit can occur. */
         InterlockedExchange(&Context->Active, 1L);
         /*
@@ -1597,6 +1604,8 @@ KswordARKHvmResidentDeactivateCurrent(
         /* Report that no safe devirtualization occurred. */
         return FALSE;
     }
+    /* TF 的处理器本地责任必须先归还，不能让 VMXOFF 将私有 TF 带回 Windows。 */
+    if (!KswordARKHvmNoAttachTfDisarm(Context)) { return FALSE; }
     /*
      * A fail-closed exit is a whole-machine event, so publish it before this
      * processor does anything else.

@@ -66,8 +66,16 @@ namespace ksword::debugger
         { log("HVM start refused: an owned Shadow view is missing; restore/reinstall the affected patches or breakpoints"); return ERROR_INVALID_STATE; }
         const auto state = client_.queryHvmStatus();
         if (!state.io.ok) return state.io.win32Error;
+        // startOwnedHvm 走的 CE/x64dbg 独立前端不经过主程序 UI 的 g_hideHypervisor，
+        // 而被 attach 的目标进程绝不该看到 CPUID.1:ECX[31] 和 Hv 标识 leaf。
+        // 显式把 hideHypervisor=true 固化在后端自己的 bring-up 处，与 VMX/SMX 清位同层。
         const auto result = client_.controlHvm(KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
-            state.response.generation, true, true, true, true);
+            state.response.generation,
+            /*force*/ true, /*allowNested*/ true, /*uiConfirmed*/ true,
+            /*enableEptEvents*/ true, /*enableNestedVmx*/ false, /*enableEvmcs*/ false,
+            /*enableVe*/ false, /*enableVmFunc*/ false, /*enableLocalEpt*/ false,
+            /*enableEptpSwitch*/ false, /*soakMilliseconds*/ 0,
+            /*hideHypervisor*/ true);
         if (!result.io.ok) return result.io.win32Error;
         if (result.response.status != KSWORD_ARK_HVM_CONTROL_STATUS_OK)
         { log(result.io.message); return rejectedOperation(result.response.lastStatus); }
@@ -206,6 +214,7 @@ namespace ksword::debugger
     DWORD Backend::observeNativeSession(DWORD pid, std::uint64_t* generation)
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (noAttachReserved_) return ERROR_BUSY;
         if (generation != nullptr) *generation = 0;
         if (!driver_.isValid()) return ERROR_DEVICE_NOT_CONNECTED;
         if (pid == 0) return ERROR_INVALID_PARAMETER;
@@ -468,6 +477,8 @@ namespace ksword::debugger
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (context == nullptr) { SetLastError(ERROR_INVALID_PARAMETER); return FALSE; }
+        if (independent_.active())
+        { const auto error = independent_.readContext(thread, *context); SetLastError(error); return error == ERROR_SUCCESS; }
         TargetLease lease;
         if (!pinTarget(thread, true, lease)) return FALSE;
         thread = lease.identity.native();
@@ -538,6 +549,12 @@ namespace ksword::debugger
 
     BOOL Backend::setContext(HANDLE thread, const CONTEXT* context)
     {
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (independent_.active())
+        {
+            const auto error = context ? independent_.writeContext(thread, *context) : ERROR_INVALID_PARAMETER;
+            SetLastError(error); return error == ERROR_SUCCESS;
+        }
         return applyDebugContext(thread, context, nullptr, nullptr);
     }
 
@@ -684,7 +701,14 @@ namespace ksword::debugger
 
     BOOL Backend::attach(DWORD pid)
     {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::unique_lock<std::recursive_mutex> lock(mutex_);
+        if (independent_.selected())
+        {
+            lock.unlock();
+            const auto error = independent_.start(pid);
+            SetLastError(error); return error == ERROR_SUCCESS;
+        }
+        if (noAttachReserved_) { SetLastError(ERROR_BUSY); return FALSE; }
         if (attachedPid_ != 0)
         { SetLastError(ERROR_BUSY); return FALSE; }
         ark::DriverHandle identity(openIdentityProcess(pid));
@@ -706,6 +730,7 @@ namespace ksword::debugger
 
     BOOL Backend::waitEvent(LPDEBUG_EVENT event, DWORD milliseconds)
     {
+        if (independent_.selected()) return independent_.waitCeEvent(event, milliseconds);
         {
             std::lock_guard<std::recursive_mutex> lock(mutex_);
             if (attachmentOwner_ == AttachmentOwner::native)
@@ -759,6 +784,7 @@ NextEvent:
     BOOL Backend::continueEvent(DWORD pid, DWORD tid, DWORD continueStatus)
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (independent_.selected()) return independent_.continueCeEvent(pid, tid, continueStatus);
         if (shadowRecoveryRequired_)
         { log("Continue refused: Shadow rollback requires a full restore"); SetLastError(ERROR_INVALID_STATE); return FALSE; }
         if (attachmentOwner_ == AttachmentOwner::native)
@@ -818,6 +844,7 @@ NextEvent:
     bool Backend::shutdown()
     {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (independent_.selected() && independent_.close() != ERROR_SUCCESS) return false;
         bool restart = false;
         if ((hasHvmBreakpointRules() || hasShadowViews()) && pauseOwnedHvm(restart) != ERROR_SUCCESS) return false;
         while (!breakpoints_.empty())

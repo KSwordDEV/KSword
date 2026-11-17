@@ -1,4 +1,6 @@
 #include "KswordDebuggerBackend.h"
+#include "../shared/driver/KswordArkHvmNoAttachIoctl.h"
+#include "../shared/driver/KswordArkKernelNoAttachIoctl.h"
 
 #include <cstring>
 #include <fstream>
@@ -239,6 +241,97 @@ namespace ksword::debugger
             return ERROR_REVISION_MISMATCH;
         auto* output = reinterpret_cast<void*>(static_cast<std::uintptr_t>(call.output));
         const auto* input = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(call.input));
+        // Layout discovery works offline and never opens a device or starts HVM.
+        if (call.command == KSWORD_DEBUGGER_OPERATION_LAYOUT && input != nullptr && call.inputBytes == sizeof(DWORD))
+        {
+            DWORD command = 0; std::memcpy(&command, input, sizeof(command));
+            if (command == KSWORD_DEBUGGER_FRONTEND_NOATTACH)
+            {
+                if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPERATION_INFO)) return ERROR_INSUFFICIENT_BUFFER;
+                const KSWORD_DEBUGGER_OPERATION_INFO info{KSWORD_DEBUGGER_API_VERSION, command,
+                    sizeof(KSWORD_DEBUGGER_FRONTEND_REQUEST), sizeof(KSWORD_DEBUGGER_FRONTEND_STATUS),
+                    KSWORD_DEBUGGER_FRONTEND_VERSION, 0};
+                std::memcpy(output, &info, sizeof(info)); call.bytesReturned = sizeof(info);
+                return ERROR_SUCCESS;
+            }
+            if (command == KSWORD_DEBUGGER_NOATTACH || command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
+            {
+                if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPERATION_INFO)) return ERROR_INSUFFICIENT_BUFFER;
+                const KSWORD_DEBUGGER_OPERATION_INFO info{KSWORD_DEBUGGER_API_VERSION, command,
+                    sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST), sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE),
+                    command == KSWORD_DEBUGGER_KERNEL_NOATTACH ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION, 0};
+                std::memcpy(output, &info, sizeof(info)); call.bytesReturned = sizeof(info);
+                return ERROR_SUCCESS;
+            }
+        }
+        if (call.command == KSWORD_DEBUGGER_FRONTEND_NOATTACH)
+        {
+            if (input == nullptr || call.inputBytes != sizeof(KSWORD_DEBUGGER_FRONTEND_REQUEST)) return ERROR_INVALID_PARAMETER;
+            if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_FRONTEND_STATUS)) return ERROR_INSUFFICIENT_BUFFER;
+            KSWORD_DEBUGGER_FRONTEND_REQUEST request{};
+            KSWORD_DEBUGGER_FRONTEND_STATUS response{};
+            std::memcpy(&request, input, sizeof(request));
+            const DWORD result = independent_.control(request, response);
+            std::memcpy(output, &response, sizeof(response)); call.bytesReturned = sizeof(response);
+            return result;
+        }
+        if (call.command == KSWORD_DEBUGGER_NOATTACH || call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH)
+        {
+            if (independent_.selected() && !independentDispatch_) return ERROR_BUSY;
+            const bool kernelTransport = call.command == KSWORD_DEBUGGER_KERNEL_NOATTACH;
+            const DWORD protocol = kernelTransport ? KSWORD_ARK_KERNEL_NOATTACH_VERSION : KSWORD_ARK_HVM_NOATTACH_VERSION;
+            if (noAttachReserved_ && noAttachTransport_ != call.command) return ERROR_BUSY;
+            if (input == nullptr || call.inputBytes != sizeof(KSWORD_ARK_HVM_NOATTACH_REQUEST)) return ERROR_INVALID_PARAMETER;
+            if (output == nullptr || call.outputBytes < sizeof(KSWORD_ARK_HVM_NOATTACH_RESPONSE)) return ERROR_INSUFFICIENT_BUFFER;
+            KSWORD_ARK_HVM_NOATTACH_REQUEST request{}; std::memcpy(&request, input, sizeof(request));
+            if (request.version != protocol || request.size != sizeof(request)) return ERROR_REVISION_MISMATCH;
+            // A frontend cannot borrow a native stop, or replace an existing debug port, here.
+            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN &&
+                (attachedPid_ != 0 || attachmentOwner_ != AttachmentOwner::none || ownsResident_ ||
+                 !breakpoints_.empty() || hasShadowViews() || noAttachReserved_)) return ERROR_BUSY;
+            FILETIME created{}, exited{}, kernel{}, user{};
+            if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return GetLastError();
+            request.ownerCreationTime = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN)
+            {
+                // Script/command frontends may ask this facade to freeze identities at request time.
+                ark::DriverHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, request.processId));
+                if (!process.isValid()) return GetLastError();
+                ark::DriverHandle thread(OpenThread(THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, request.threadId));
+                if (!thread.isValid()) return GetLastError();
+                if (GetProcessIdOfThread(thread.native()) != request.processId ||
+                    WaitForSingleObject(process.native(), 0) != WAIT_TIMEOUT ||
+                    WaitForSingleObject(thread.native(), 0) != WAIT_TIMEOUT) return ERROR_INVALID_PARAMETER;
+                if (!GetProcessTimes(process.native(), &created, &exited, &kernel, &user)) return GetLastError();
+                const auto processCreation = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+                if (!GetThreadTimes(thread.native(), &created, &exited, &kernel, &user)) return GetLastError();
+                const auto threadCreation = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+                if ((request.processCreationTime != 0 && request.processCreationTime != processCreation) ||
+                    (request.threadCreationTime != 0 && request.threadCreationTime != threadCreation)) return ERROR_INVALID_DATA;
+                request.processCreationTime = processCreation;
+                request.threadCreationTime = threadCreation;
+            }
+            if (!noAttachDriver_.isValid()) noAttachDriver_ = client_.openSilently();
+            if (!noAttachDriver_.isValid()) return ERROR_DEVICE_NOT_CONNECTED;
+            if (request.operation == KSWORD_ARK_HVM_NOATTACH_OPEN)
+            { noAttachReserved_ = true; noAttachTransport_ = call.command; }
+            KSWORD_ARK_HVM_NOATTACH_RESPONSE response{};
+            const auto result = client_.deviceIoControl(kernelTransport ? IOCTL_KSWORD_ARK_KERNEL_NOATTACH : IOCTL_KSWORD_ARK_HVM_NOATTACH, &request, sizeof(request),
+                &response, sizeof(response), &noAttachDriver_);
+            if (!result.ok) return result.win32Error;
+            if (result.bytesReturned != sizeof(response) || response.version != protocol ||
+                response.size != sizeof(response) || response.state > KSWORD_ARK_HVM_NOATTACH_CONTEXT_PENDING ||
+                response.breakpointCount > KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS) return ERROR_INVALID_DATA;
+            // Only a successful, explicit closed response releases an uncertain owner.
+            if (response.status >= 0 && response.sessionId == 0 &&
+                (response.state == KSWORD_ARK_HVM_NOATTACH_CLOSED || response.state == KSWORD_ARK_HVM_NOATTACH_UNSUPPORTED))
+            { noAttachReserved_ = false; noAttachTransport_ = 0; }
+            std::memcpy(output, &response, sizeof(response)); call.bytesReturned = sizeof(response);
+            return ERROR_SUCCESS; // Preserve NTSTATUS separately; an accepted STEP is not a completed step.
+        }
+        // Keep the legacy raw native/HVM control plane out of this independent lifecycle.
+        if ((noAttachReserved_ || independent_.selected()) && call.command >= KSWORD_DEBUGGER_HVM_STATUS && call.command <= KSWORD_DEBUGGER_NATIVE)
+            return ERROR_BUSY;
         if (call.command == KSWORD_DEBUGGER_GET_OPTIONS || call.command == KSWORD_DEBUGGER_SET_OPTIONS)
         {
             if (output == nullptr || call.outputBytes < sizeof(KSWORD_DEBUGGER_OPTIONS)) return ERROR_INSUFFICIENT_BUFFER;

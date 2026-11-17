@@ -740,6 +740,63 @@ KswordArkHvmFilterVmxCapabilityMsr(
 
 
 /* ------------------------------------------------------------------ */
+/* Detection-surface MSR filter: close CPUID.1 hide 的配套洞。          */
+/* CPUID.1:ECX[5] (VMX) 被 handler 清 0 后, FEATURE_CONTROL (0x3A)      */
+/* bit 2 (ENABLE_VMXON_OUTSIDE_SMX) 读物理值还是 1 (KSword 做了 VMXON), */
+/* 一行 rdmsr 直接对 CPUID 形成矛盾 —— 可靠 hypervisor tell。           */
+/* 下面的 filter 把 FEATURE_CONTROL 的 VMXON 使能位清掉, 保留 LOCK;     */
+/* PERF_CAPABILITIES 零化 PEBS/LBR format 位防 PMU 侧探测。             */
+/* ------------------------------------------------------------------ */
+
+/* IA32_FEATURE_CONTROL (0x3A): BIOS/firmware 锁定 VMX 启动门。 */
+#define KSWORD_ARK_HVM_DETECTION_MSR_FEATURE_CONTROL 0x3AUL
+
+/* IA32_PERF_CAPABILITIES (0x345): PEBS/LBR/PT 格式位对外可见。 */
+#define KSWORD_ARK_HVM_DETECTION_MSR_PERF_CAPABILITIES 0x345UL
+
+/* FEATURE_CONTROL bit 0: LOCK 位, 需保留以让 Windows 内核仍能识别锁定。 */
+#define KSWORD_ARK_HVM_FEATURE_CONTROL_LOCK (1ULL << 0)
+
+/* FEATURE_CONTROL bit 1 + bit 2: VMXON 使能位, 对 CPL=3 必须清为 0 保一致性。 */
+#define KSWORD_ARK_HVM_FEATURE_CONTROL_VMXON_MASK ((1ULL << 1) | (1ULL << 2))
+
+/* 判断索引是否属于本 detection MSR 过滤器覆盖的范围。 */
+static __inline int
+KswordArkHvmIsDetectionMsr(
+    unsigned long MsrIndex
+    )
+{
+    /* 当前覆盖两个 MSR, 直接比较两个常量更短且无分支成本。 */
+    return (MsrIndex == KSWORD_ARK_HVM_DETECTION_MSR_FEATURE_CONTROL ||
+            MsrIndex == KSWORD_ARK_HVM_DETECTION_MSR_PERF_CAPABILITIES) ? 1 : 0;
+}
+
+/* 把物理 MSR 读回值缩小成来宾应观察到的值。 */
+/* 保留的位: FEATURE_CONTROL.LOCK (bit 0) — 防 Windows 把未锁 flag 当异常。 */
+/* 清掉的位: FEATURE_CONTROL VMXON 使能 (bits 1-2) — 与 CPUID.1 的 VMX 隐藏配平。*/
+/* PERF_CAPABILITIES: 整体零化, 不宣布任何 PMU 高阶能力避免行为联动不一致。 */
+static __inline unsigned long long
+KswordArkHvmFilterDetectionMsr(
+    unsigned long MsrIndex,
+    unsigned long long HostValue
+    )
+{
+    switch (MsrIndex) {
+    case KSWORD_ARK_HVM_DETECTION_MSR_FEATURE_CONTROL:
+        /* LOCK 必须按物理锁状态透传; 其余 VMX 使能位全部清 0。 */
+        return HostValue & KSWORD_ARK_HVM_FEATURE_CONTROL_LOCK;
+    case KSWORD_ARK_HVM_DETECTION_MSR_PERF_CAPABILITIES:
+        /* 整体零化, 与 "无 PMU 扩展" 的最朴素形态保持一致。 */
+        (void)HostValue;
+        return 0ULL;
+    default:
+        /* 不在覆盖范围的索引不应该走到这里, 保守返回原值。 */
+        return HostValue;
+    }
+}
+
+
+/* ------------------------------------------------------------------ */
 /* Nested EPT: L2 GPA -> L1 GPA -> KSword backing page.                 */
 /* Return ownership separately: an outer denial is not an L1 fault.    */
 /* ------------------------------------------------------------------ */

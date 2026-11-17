@@ -123,9 +123,7 @@
     <ClCompile Include="Function.cpp" />
     <ClCompile Include="Override.cpp" />
     <ClCompile Include="DisplayRestartMonitor.cpp" />
-    <ClCompile Include="SosHotkeyLauncher.cpp" />
-    <ClCompile Include="RescueDesktopHost.cpp" />
-    <ClCompile Include="..\shared\rescue\RescueDesktopWin32.cpp" />
+    <ClCompile Include="..\shared\rescue\SosHotkeyLauncher.cpp" />
     <ClCompile Include="TaskbarEarthquakeAudioPlayer.cpp" />
     <ClCompile Include="TaskbarEarthquakeClient.cpp" />
     <ClCompile Include="TaskbarNotificationService.cpp" />
@@ -162,9 +160,8 @@
     <ClInclude Include="PageOverviewWindow.h" />
     <ClInclude Include="PageOverviewBackdrop.h" />
     <ClInclude Include="..\shared\usermode\KswordPageNavigation.h" />
-    <ClInclude Include="SosHotkeyLauncher.h" />
-    <ClInclude Include="RescueDesktopHost.h" />
-    <ClInclude Include="..\shared\rescue\RescueDesktopWin32.h" />
+    <ClInclude Include="..\shared\rescue\SosHotkeyLauncher.h" />
+    <ClInclude Include="..\shared\rescue\RescueDesktopHost.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

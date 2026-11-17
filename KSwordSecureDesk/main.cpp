@@ -1,4 +1,4 @@
-#include "UacDesk.h"
+#include "SecureDesk.h"
 #include "UacScanWorker.h"
 
 #include <QApplication>
@@ -82,7 +82,8 @@ namespace
 
     bool acquireOwner(DWORD sessionId, HANDLE& mutex)
     {
-        const QString name = QStringLiteral("Global\\KswordUacDesk.Owner.%1").arg(sessionId);
+        // 会话级单实例保护：同一会话下只允许一个 KSwordSecureDesk 覆盖层运行。
+        const QString name = QStringLiteral("Global\\KSwordSecureDesk.Owner.%1").arg(sessionId);
         mutex = CreateMutexW(nullptr, TRUE, name.toStdWString().c_str());
         return mutex != nullptr && GetLastError() != ERROR_ALREADY_EXISTS;
     }
@@ -100,13 +101,13 @@ namespace
         DWORD parentPid = 0;
         quint64 parentCreation = 0;
         parentIdentityForKsword(parentPid, parentCreation);
-        HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, QStringLiteral("Global\\KswordUacDesk.Ready.%1").arg(GetCurrentProcessId()).toStdWString().c_str());
+        HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, QStringLiteral("Global\\KSwordSecureDesk.Ready.%1").arg(GetCurrentProcessId()).toStdWString().c_str());
         if (!ready)
         {
             KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral("initial: CreateEvent failed"));
             return 2;
         }
-        const QString handoff = QStringLiteral("Global\\KswordUacDesk.Ready.%1").arg(GetCurrentProcessId());
+        const QString handoff = QStringLiteral("Global\\KSwordSecureDesk.Ready.%1").arg(GetCurrentProcessId());
         QStringList next = stageArgs(QStringLiteral("system"), handoff, parentPid, parentCreation);
         QString error;
         const bool launched = PrivilegeStage::isProcessElevated()
@@ -144,7 +145,7 @@ namespace
         KSWORD_UAC_DIAGNOSTIC_LOG(QStringLiteral("admin: handoff=%1 eventHandle=%2").arg(handoff).arg(reinterpret_cast<quintptr>(ready), 0, 16));
         if (handoff.isEmpty())
         {
-            handoff = QStringLiteral("Global\\KswordUacDesk.Ready.%1").arg(GetCurrentProcessId());
+            handoff = QStringLiteral("Global\\KSwordSecureDesk.Ready.%1").arg(GetCurrentProcessId());
             ready = CreateEventW(nullptr, TRUE, FALSE, handoff.toStdWString().c_str());
         }
         QString error;
@@ -208,7 +209,7 @@ namespace
             }
         }
 
-        app.setApplicationName(QStringLiteral("KswordUacDesk"));
+        app.setApplicationName(QStringLiteral("KSwordSecureDesk"));
         // Keep the standalone companion aligned with Ksword's normal UI:
         // start from the Qt/Windows system font baseline and set the rendering
         // strategy before any widgets are constructed.  Do not force a font
@@ -229,7 +230,7 @@ namespace
                        .arg(systemFont.family())
                        .arg(systemFont.families().join(QStringLiteral(",")))
                        .arg(systemFont.pointSizeF(), 0, 'f', 2));
-        UacDeskWindow window;
+        SecureDeskWindow window;
         window.setInitialStatus(QStringLiteral("SYSTEM/UIAccess 已接管，正在等待 UAC 安全桌面事件"));
         if (!window.setParentWatch(parent, parentCreation))
         {

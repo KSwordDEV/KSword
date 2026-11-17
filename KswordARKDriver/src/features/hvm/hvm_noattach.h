@@ -4,15 +4,54 @@
 #include "hvm_resident.h"
 
 #include "driver/KswordArkHvmNoAttachIoctl.h"
+#include "../debugger/noattach_ownership.h"
 
 /* 内部发布状态绝不对外表示为已完成停止。 */
-#define KSW_NOATTACH_PUBLISHING 11L
+#define KSW_NOATTACH_PUBLISHING 32L
 /* 命令先占用停止，再检查 stopId，防止 STOPPED 状态 ABA。 */
-#define KSW_NOATTACH_COMMAND_RESERVING 12L
+#define KSW_NOATTACH_COMMAND_RESERVING 33L
 /* Intel 将 MBEC 定义为次级处理器控制的第 22 位。 */
 #define KSW_NOATTACH_MBEC_CONTROL (1UL << 22)
 /* 启用 MBEC 后，此 EPT 位允许用户态指令取指。 */
 #define KSW_NOATTACH_USER_EXECUTE (1ULL << 10)
+/* 每个地址最多复制三层子表；两个 bank 在进入常驻前全部预分配。 */
+#define KSW_NA_BANK_PAGES (1UL + 3UL * KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS)
+/* 失效旧映射仍保留 pin 到全核退出，容量明确有界。 */
+#define KSW_NA_MAX_PINS 64UL
+
+/* 活动 bank 的表与行在下一次全核屏障前都不可重用。 */
+typedef struct _KSW_NA_BANK
+{
+    /* 表页面统一由运行时 EPT 分配台账退休。 */
+    KSW_HVM_EPT_PAGE Pages[KSW_NA_BANK_PAGES];
+    /* 重建只使用已分配的页面，不在 VMX root 分配。 */
+    ULONG Used;
+    /* 配置行数量包含已消费的一次性记录。 */
+    ULONG Count;
+    /* 每次 bank 重建都推进代次，逐核 INVEPT 后才能使用。 */
+    ULONGLONG Generation;
+    /* 已消费与失效的行只以原子位掩码撤销资格。 */
+    volatile LONG Disabled;
+    /* 失效掩码用于区别正常的一次性消费。 */
+    volatile LONG Stale;
+    /* EPTP 不随此 bank 的重复使用改变。 */
+    ULONGLONG Eptp;
+    /* 不可变精确地址、物理页和栈深过滤。 */
+    KSWORD_ARK_HVM_NOATTACH_BREAKPOINT Rows[KSWORD_ARK_HVM_NOATTACH_MAX_BREAKPOINTS];
+} KSW_NA_BANK;
+
+/* 普通控制路径持有的页面锁，从不在 VMX root 解引用 MDL。 */
+typedef struct _KSW_NA_PIN
+{
+    /* pin 在整个会话保留，避免旧 EPT/并发取指引用被释放。 */
+    PMDL Mdl;
+    /* 保存安装时的虚拟页。 */
+    ULONGLONG Address;
+    /* 保存安装时的真实 backing 页。 */
+    ULONGLONG Physical;
+    /* TF 边界仅从预先锁定的只读系统映射检查指令，不在 root 读取用户虚拟地址。 */
+    PVOID Mapping;
+} KSW_NA_PIN;
 
 /* 保留一份不可变目标绑定，直到全部常驻读者排空。 */
 typedef struct _KSW_HVM_NOATTACH
@@ -37,6 +76,16 @@ typedef struct _KSW_HVM_NOATTACH
     BOOLEAN Initialized;
     /* 驱动卸载排空回调前，停止排入新工作。 */
     BOOLEAN ShuttingDown;
+    /* MTF 可用时始终优先；此位只选择明确报告的 VMX TF 边界。 */
+    BOOLEAN UseTf;
+    /* 固定诊断只记录实际体系结构值，不能作为停止或执行授权。 */
+    ULONG TfArmStage, TfPrecheckReject, TfExitReason;
+    /* 中断前未执行指令时可有界重试，不能消费另一份普通寄存器现场。 */
+    volatile LONG TfRetryAfterInterrupt;
+    /* 单次请求限制重试预算，避免永远隐藏无法执行的边界。 */
+    ULONG TfRetryCount;
+    /* root 只写固定存储，普通 CLOSE 负责格式化审计。 */
+    ULONGLONG TfExitQualification, TfExitInfo, TfBoundary[9];
     /* 在驱动生命周期内保留异步关闭工作项。 */
     WDFWORKITEM Work;
     /* 绑定真实请求方对象，不信任调用方提供的 PID。 */
@@ -57,6 +106,22 @@ typedef struct _KSW_HVM_NOATTACH
     ULONGLONG UserGateEptp;
     /* 禁止监督态取指，以截获每次返回用户态。 */
     ULONGLONG KernelGateEptp;
+    /* 双缓冲发布完整配置，避免全局临时放宽权限。 */
+    KSW_NA_BANK Banks[2];
+    /* 活动 bank 的索引以 acquire/release 原子操作发布。 */
+    volatile LONG ActiveBank;
+    /* 后续配置变更和 CPU 缓存分别核对该代次。 */
+    ULONGLONG BankGeneration;
+    /* 断点 ID 在同一会话内只递增。 */
+    ULONG NextBreakpointId;
+    /* 所有锁页引用在完整全核退出后统一清理。 */
+    KSW_NA_PIN Pins[KSW_NA_MAX_PINS];
+    /* 明确限制会话累计锁页资源。 */
+    ULONG PinCount;
+    /* 待提交寄存器只在命令占用态由控制面写入。 */
+    KSWORD_ARK_HVM_NOATTACH_GPR PendingRegisters;
+    /* 根模式只提交用户请求的整数寄存器位。 */
+    ULONGLONG PendingRegisterMask;
     /* 当前停止证据与历史 HVM 事件环分开保存。 */
     KSWORD_ARK_HVM_NOATTACH_RESPONSE Snapshot;
 } KSW_HVM_NOATTACH;
@@ -72,6 +137,17 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(KSW_HVM_NOATTACH_FILE_CONTEXT, KswordARKHvmNo
 
 /* 单会话存储位于非分页内存，地址在驱动生命周期内固定。 */
 extern KSW_HVM_NOATTACH g_KswordNoAttach;
+/* 所需中断拦截和退出控制必须确实可用。 */
+BOOLEAN KswordARKHvmNoAttachTfAvailable(VOID);
+/* 只在普通控制面锁定当前停止指令的 backing。 */
+NTSTATUS KswordARKHvmNoAttachPinStepCode(ULONGLONG Address);
+/* TF 控制始终按处理器记账；失败会归还已修改的 VMCS 字段。 */
+BOOLEAN KswordARKHvmNoAttachTfEnable(KSW_HVM_RESIDENT_VCPU *Context, BOOLEAN Enable);
+/* 任意退出或 VMXOFF 前都必须先归还自有 TF 和临时拦截。 */
+BOOLEAN KswordARKHvmNoAttachTfDisarm(KSW_HVM_RESIDENT_VCPU *Context);
+/* 只将纯自有 BS 映射成完成；真实其它异常保持体系结构投递。 */
+BOOLEAN KswordARKHvmNoAttachTfRetire(KSW_HVM_RESIDENT_VCPU *Context, ULONG *Reason,
+    ULONGLONG Qualification, BOOLEAN *Forwarded);
 /* 初始化生命周期回调，不进入 VMX。 */
 NTSTATUS KswordARKHvmNoAttachInitialize(VOID);
 /* 既有运行时销毁前，先撤销、排空并退休本会话。 */
@@ -99,3 +175,13 @@ BOOLEAN KswordARKHvmNoAttachHandleExit(KSW_HVM_RESIDENT_VCPU *Context, KSW_HVM_G
                                        ULONGLONG Qualification, ULONG *Action);
 /* 在每个 CPU 请求一次无副作用的超调用，使 PAUSE 和 CONTINUE 生效。 */
 NTSTATUS KswordARKHvmNoAttachRendezvous(KSW_HVM_RUNTIME *Runtime);
+/* 以下函数由持有独立控制锁的 PASSIVE_LEVEL 路径调用。 */
+NTSTATUS KswordARKHvmNoAttachPrepareBanks(KSW_HVM_RUNTIME *Runtime);
+/* 配置变更发布后执行全核屏障；失败保留全部资源进入恢复。 */
+NTSTATUS KswordARKHvmNoAttachEditBreakpoint(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Request);
+/* 每次状态查询重新核对有效行的 VA/PFN，不静默迁移断点。 */
+VOID KswordARKHvmNoAttachQueryBreakpoints(KSWORD_ARK_HVM_NOATTACH_RESPONSE *Response);
+/* 完整全核退出以后才解除锁页引用。 */
+VOID KswordARKHvmNoAttachReleasePins(VOID);
+/* 停点编辑与运行到地址共享一次性 stopId 的占用和提交规则。 */
+NTSTATUS KswordARKHvmNoAttachEditStopped(const KSWORD_ARK_HVM_NOATTACH_REQUEST *Request);

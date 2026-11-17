@@ -336,6 +336,55 @@ KswordARKHvmExitFilterVmxCapabilityMsr(
 }
 
 BOOLEAN
+KswordARKHvmExitFilterDetectionMsr(
+    _Inout_ KSW_HVM_GPR_FRAME* Frame,
+    _In_ BOOLEAN IsWrite
+    )
+{
+    /* MSR 索引在退出保存的 ECX 里。 */
+    ULONG index = 0UL;
+    /* 物理读回与过滤后的值共用一个变量, 省去冗余拷贝。 */
+    ULONGLONG value = 0ULL;
+
+    /* 无 frame 就无处回填, 请求等于无效, 和 VMX cap filter 同策略。 */
+    if (Frame == NULL) {
+        /* 请求未服务, 让上层决定 fail-closed。 */
+        return FALSE;
+    }
+    /* 从 guest 保存的 ECX 取架构 MSR 索引。 */
+    index = (ULONG)Frame->Rcx;
+    /* 只处理我们宣称覆盖的索引, 其他的交还调用方。 */
+    if (!KswordArkHvmIsDetectionMsr(index)) {
+        /* 不是我们负责的 MSR, 显式让出。 */
+        return FALSE;
+    }
+    /*
+     * 写路径不服务, 原因与 VMX cap filter 一致:
+     * FEATURE_CONTROL 一旦 LOCK 为 1, WRMSR 架构 #GP; PERF_CAPABILITIES 只读。
+     * 处理器自身交付这个 #GP, 我们额外仿真只是重复一次已经免费的 fault。
+     */
+    if (IsWrite != FALSE) {
+        /* 写不在覆盖范围, 让上层继续原有 fail-closed 流程。 */
+        return FALSE;
+    }
+    /*
+     * 读物理 MSR 再收窄, 不缓存。
+     *
+     * FEATURE_CONTROL 的 LOCK 位要跟随物理锁定状态, 一次 RDMSR 不构成热点;
+     * 不建静态缓存避免与 Windows 启动期 BIOS 解锁 → 锁定的跃迁错位。
+     */
+    value = __readmsr(index);
+    /* 应用 shared filter: 清 VMXON 使能位 / PMU 能力位。 */
+    value = KswordArkHvmFilterDetectionMsr(index, value);
+    /* 低 32 位按 RDMSR 架构放进 EAX。 */
+    Frame->Rax = (ULONGLONG)(ULONG)value;
+    /* 高 32 位按 RDMSR 架构放进 EDX。 */
+    Frame->Rdx = (ULONGLONG)(ULONG)(value >> 32);
+    /* 请求完整服务。 */
+    return TRUE;
+}
+
+BOOLEAN
 KswordARKHvmExitEmulateMsr(
     _Inout_ KSW_HVM_GPR_FRAME* Frame,
     _In_ BOOLEAN IsWrite,

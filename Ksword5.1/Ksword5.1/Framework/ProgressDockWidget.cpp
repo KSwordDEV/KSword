@@ -1,5 +1,8 @@
 #include "ProgressDockWidget.h"
 #include "TaskSnapshotFeed.h"
+#include "../UI/RuntimeControlPages.h"
+#include "../UI/PageControlStyle.h"
+#include <QTabWidget>
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
 
@@ -27,8 +30,8 @@ namespace
     }
 }
 
-ProgressDockWidget::ProgressDockWidget(QWidget* parent)
-    : QWidget(parent)
+ProgressDockWidget::ProgressDockWidget(QWidget* parent, bool managementWindow)
+    : QWidget(parent), m_managementWindow(managementWindow)
 {
     // 构造时完成 UI 与定时器初始化，并先做一次首刷。
     initializeUi();
@@ -88,7 +91,29 @@ void ProgressDockWidget::initializeUi()
 
     // 把内容控件挂到滚动区域，再挂到根布局。
     m_scrollArea->setWidget(m_scrollContent);
-    m_rootLayout->addWidget(m_scrollArea);
+    if (m_managementWindow)
+    {
+        m_taskTabs = new QTabWidget(this);
+        ks::ui::StylePageTabs(m_taskTabs);
+        m_taskTabs->addTab(m_scrollArea, ks::i18n::sourceText(QStringLiteral("单次任务")));
+        m_taskTabs->addTab(new ks::ui::BackgroundTaskPage(m_taskTabs), ks::i18n::sourceText(QStringLiteral("常驻任务")));
+        connect(m_taskTabs, &QTabWidget::currentChanged, this, [this](int index) {
+            if (index == 0) refreshTaskCards(true);
+        });
+        m_rootLayout->addWidget(m_taskTabs);
+    }
+    else m_rootLayout->addWidget(m_scrollArea);
+}
+
+void ProgressDockWidget::showBackgroundTasks()
+{
+    if (m_taskTabs) m_taskTabs->setCurrentIndex(1);
+}
+
+void ProgressDockWidget::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refreshTaskCards(true);
 }
 
 void ProgressDockWidget::applyTransparentBackgroundPolicy()
@@ -98,8 +123,7 @@ void ProgressDockWidget::applyTransparentBackgroundPolicy()
     // - QScrollArea；
     // - viewport；
     // - 承载卡片的滚动内容层。
-    setStyleIfChanged(this,
-        QStringLiteral(
+    const QString surfaceStyle = QStringLiteral(
         "#ksProgressDockRoot,"
         "#ksProgressDockScrollArea,"
         "#ksProgressDockViewport,"
@@ -116,7 +140,9 @@ void ProgressDockWidget::applyTransparentBackgroundPolicy()
         "#ksProgressDockRoot QProgressBar{"
         "  color:%1;"
         "}")
-        .arg(buildHighContrastTextHex()));
+        .arg(buildHighContrastTextHex());
+    setProperty("ksword_progress_surface_style_block", surfaceStyle);
+    setStyleIfChanged(this, surfaceStyle);
 }
 
 void ProgressDockWidget::initializeSnapshotFeed()
@@ -175,6 +201,7 @@ void ProgressDockWidget::refreshTaskCards(const bool forceRefresh)
 void ProgressDockWidget::applyTaskSnapshot(
     const std::shared_ptr<const kProgressSnapshot>& snapshot, const bool forceRefresh)
 {
+    if (!isVisible() || (m_taskTabs && m_taskTabs->currentIndex() != 0)) return;
     if (!snapshot || snapshot->revision < m_lastRevision ||
         (!forceRefresh && snapshot->revision == m_lastRevision))
     {

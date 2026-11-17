@@ -30,6 +30,8 @@ namespace
     {
         std::wstring command;
         DWORD targetProcessId = 0U;
+        DWORD targetThreadId = 0U;
+        std::wstring noAttachMode; // L"", L"hvm" or L"kernel"
         HWND parentWindow = nullptr;
         DWORD hostProcessId = 0U;
         bool valid = false;
@@ -252,6 +254,31 @@ namespace
                 }
                 ++index;
             }
+            else if (argument == L"--tid")
+            {
+                if (!parseUnsignedProcessId(
+                        argv[index + 1],
+                        &parsed.targetThreadId))
+                {
+                    return parsed;
+                }
+                ++index;
+            }
+            else if (argument == L"--noattach-mode")
+            {
+                const std::wstring mode = argv[index + 1];
+                if (mode != L"hvm" && mode != L"kernel")
+                {
+                    return parsed;
+                }
+                parsed.noAttachMode = mode;
+                ++index;
+            }
+        }
+        // No-attach selection is optional; both parts must match when supplied.
+        if ((parsed.targetThreadId != 0U) != !parsed.noAttachMode.empty())
+        {
+            return parsed;
         }
         if (parsed.command == L"launch")
         {
@@ -433,7 +460,9 @@ namespace
         DWORD* const cheatEngineProcessIdOut,
         HANDLE* const cheatEngineProcessHandleOut = nullptr,
         std::wstring* const logPathOut = nullptr,
-        const std::atomic_bool* canceled = nullptr)
+        const std::atomic_bool* canceled = nullptr,
+        const DWORD noAttachThreadId = 0U,
+        const std::wstring& noAttachMode = {})
     {
         if (cheatEngineProcessIdOut != nullptr)
         {
@@ -527,6 +556,27 @@ namespace
                 "Cannot prepare CE bridge environment", ceExecutable, error);
             discardClonedPayload();
             return BridgeStatus::launchFailed;
+        }
+        // Opt-in no-attach channel: the CE bridge DLL checks these two
+        // variables in its initialize hook and arms IndependentFrontend
+        // before the first attach. Both must be set together; a missing
+        // value leaves the child on the default attach path.
+        if (noAttachThreadId != 0U && !noAttachMode.empty())
+        {
+            if (::SetEnvironmentVariableW(
+                    L"KSWORD_DEBUGGER_NOATTACH_MODE",
+                    noAttachMode.c_str()) == FALSE ||
+                ::SetEnvironmentVariableW(
+                    L"KSWORD_DEBUGGER_NOATTACH_TID",
+                    std::to_wstring(noAttachThreadId).c_str()) == FALSE)
+            {
+                const DWORD error = ::GetLastError();
+                gLaunchFailureMessage = windowsFailure(
+                    "Cannot propagate KSword no-attach selection to CE",
+                    ceExecutable, error);
+                discardClonedPayload();
+                return BridgeStatus::launchFailed;
+            }
         }
 
         std::wstring commandLine = L"\"" + ceExecutable + L"\"";
@@ -1052,7 +1102,12 @@ int wmain(const int argc, wchar_t* const argv[])
     const BridgeStatus bridgeStatus = launchCheatEngine(
         pluginDirectory,
         arguments.targetProcessId,
-        &cheatEngineProcessId);
+        &cheatEngineProcessId,
+        nullptr,
+        nullptr,
+        nullptr,
+        arguments.targetThreadId,
+        arguments.noAttachMode);
     if (bridgeStatus == BridgeStatus::launchFailed)
     {
         ::MessageBoxW(

@@ -169,6 +169,7 @@ namespace
             {
                 // 参数骨架只保留布局，普通控件仍接标准主题；专业保护标记继续保留原含义。
                 if (parent->property("ksword_detail_keep_layout").toBool()
+                    || parent->property("ksword_secondary_keep_layout").toBool()
                     || parent->property("ksword_parameter_workspace").toBool())
                 {
                     return true;
@@ -658,7 +659,8 @@ namespace
 
 void ks::ui::InstallDetailWindowFramework(QWidget* window)
 {
-    if (!window || !window->isWindow() || window->property("ksword_detail_keep_layout").toBool())
+    if (!window || !window->isWindow() || window->property("ksword_detail_keep_layout").toBool()
+        || window->property("ksword_secondary_keep_layout").toBool())
     {
         return;
     }
@@ -675,7 +677,8 @@ void ks::ui::InstallDetailWindowFramework(QWidget* window)
 
 void ks::ui::PrepareDetailWindowForShow(QWidget* window)
 {
-    if (!window || window->property("ksword_detail_keep_layout").toBool())
+    if (!window || window->property("ksword_detail_keep_layout").toBool()
+        || window->property("ksword_secondary_keep_layout").toBool())
     {
         return;
     }
