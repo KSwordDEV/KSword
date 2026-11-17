@@ -173,6 +173,12 @@ namespace ksword::ark
         std::uint64_t sectionObjectAddress = 0;
         std::uint64_t dynDataCapabilityMask = 0;
         std::uint64_t creationTime100ns = 0;
+        std::uint64_t processObjectAddress = 0;
+        std::uint64_t exitTime100ns = 0;
+        std::uint32_t exitEvidence = 0;
+        std::uint32_t observedProcessId = 0;
+        std::uint32_t activeThreadCount = 0;
+        long exitWaitStatus = 0;
         std::string imageName;
         std::string imagePath;
     };
@@ -202,20 +208,10 @@ namespace ksword::ark
         std::vector<KSWORD_ARK_MODULE_ENTRY> entries; // 当前页映像记录。
     };
 
-    // 只有完整 CID/活动链表对照、独立对象引用和存活证据同时成立，
-    // R0-only 行才允许进入主进程列表；弱证据仍保留给 CrossView 诊断。
+    // Discovery is independent of liveness. Only the shared strict two-sample policy excludes.
     inline bool isTrustedHiddenProcessFlags(const std::uint32_t flags) noexcept
     {
-        constexpr std::uint32_t required =
-            KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED |
-            KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST |
-            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED |
-            KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE;
-        constexpr std::uint32_t rejected =
-            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED |
-            KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED |
-            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
-        return (flags & required) == required && (flags & rejected) == 0U;
+        return (flags & KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED) != 0U;
     }
 
     // ProcessVisibilityResult 承载 R0 可恢复隐藏标记的更新结果。

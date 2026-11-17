@@ -427,6 +427,9 @@ namespace ks::process
         std::string gpuEngineText;                 // 占用最高的 GPU 引擎名称，例如 "GPU 0 - 3D"。
 
         // ======== R0 / EPROCESS 扩展信息（Phase 2） ========
+        std::uint64_t r0ProcessObjectAddress = 0; // Frozen object identity, never a user-supplied action pointer.
+        std::uint32_t r0ExitEvidence = 0; // Strict residue proof, not a liveness admission gate.
+        std::uint32_t r0ObservedProcessId = 0; // Preserve the EPROCESS field separately from CID.
         std::uint32_t r0Flags = 0;          // R0 枚举行原始 flags，例如隐藏进程标记。
         std::uint32_t r0FieldFlags = 0;     // KSWORD_ARK_PROCESS_FIELD_* 可用性位图。
         std::uint32_t r0Status = KSWORD_ARK_PROCESS_R0_STATUS_UNAVAILABLE; // R0 扩展读取状态。

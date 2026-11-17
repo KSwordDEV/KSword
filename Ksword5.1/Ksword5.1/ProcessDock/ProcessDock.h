@@ -463,6 +463,7 @@ private:
     // RefreshResult：后台线程刷新结果对象。
     struct RefreshResult
     {
+        std::unordered_map<std::string, ksword::ark::ProcessEntry> nextExitObservations; // Includes excluded residue, preventing alternating visibility.
         std::unordered_map<std::string, CacheEntry> nextCache;                    // 下一轮缓存。
         std::unordered_map<std::string, ks::process::CounterSample> nextCounters; // 下一轮计数器样本。
         std::uint64_t networkCaptureGeneration = 0;
@@ -1211,7 +1212,8 @@ private:
         const std::unordered_map<std::string, CacheEntry>& previousCache,
         const std::unordered_map<std::string, ks::process::CounterSample>& previousCounters,
         const std::unordered_map<std::uint32_t, NetworkTrafficCounters>& networkTrafficSnapshot,
-        std::uint32_t logicalCpuCount, bool networkSnapshotAvailable = true, std::uint64_t networkSnapshotTick100ns = 0);
+        std::uint32_t logicalCpuCount, bool networkSnapshotAvailable = true, std::uint64_t networkSnapshotTick100ns = 0,
+        const std::unordered_map<std::string, ksword::ark::ProcessEntry>& previousExitObservations = {});
 
     // ======== 进程网络吞吐采样 ========
     bool hasVisibleProcessDetailConsumer() const;
@@ -1439,6 +1441,7 @@ private:
     std::chrono::steady_clock::time_point m_lastProcessTableRebuildTime{}; // 最近一次进程表重绘时间。
 
     // ======== 数据缓存 ========
+    std::unordered_map<std::string, ksword::ark::ProcessEntry> m_exitObservations; // Last accepted refresh only; not a permanent death blacklist.
     std::unordered_map<std::string, CacheEntry> m_cacheByIdentity; // 进程缓存（PID+CreateTime）。
     std::unordered_set<std::string> m_affinityRestoreCompletedIdentityKeys; // 已成功恢复或明确无规则的进程实例。
     std::unordered_map<std::string, AffinityRestoreRetryState> m_affinityRestoreRetryByIdentity; // 暂时失败且等待重试的进程实例。

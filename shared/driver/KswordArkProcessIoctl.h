@@ -366,7 +366,7 @@ typedef struct _KSWORD_ARK_PROCESS_TOKEN_PRIVILEGE_RESPONSE
         METHOD_BUFFERED, \
         FILE_ANY_ACCESS)
 
-#define KSWORD_ARK_ENUM_PROCESS_PROTOCOL_VERSION 3UL
+#define KSWORD_ARK_ENUM_PROCESS_PROTOCOL_VERSION 4UL
 #define KSWORD_ARK_ENUM_PROCESS_FLAG_SCAN_CID_TABLE 0x00000001UL
 
 // Phase-2 EPROCESS offset sentinel shared by R0 protocol and R3 UI models.
@@ -397,9 +397,24 @@ typedef struct _KSWORD_ARK_PROCESS_TOKEN_PRIVILEGE_RESPONSE
 // referenced through ObReferenceObjectByPointer and passed type, identity,
 // lifetime and (when available) ObjectTable checks.
 #define KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE 0x00000040UL
-// CID_TABLE_UNCONFIRMED keeps weak or incomplete CID evidence in diagnostics;
-// it is an explicit veto for the trusted R3 hidden-process predicate.
+// CID_TABLE_UNCONFIRMED records weak or incomplete source comparison.
+// It is diagnostic and never vetoes discovery or independently proven exit evidence.
 #define KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED      0x00000080UL
+// v4 separates object identity, lifetime evidence and source completeness.
+#define KSWORD_ARK_PROCESS_FLAG_OBJECT_REFERENCED         0x00000100UL
+#define KSWORD_ARK_PROCESS_FLAG_PID_FIELD_MISMATCH        0x00000200UL
+#define KSWORD_ARK_PROCESS_FLAG_THREAD_OWNER_ENUMERATED   0x00000400UL
+#define KSWORD_ARK_PROCESS_EXIT_REFERENCE                 0x00000001UL
+#define KSWORD_ARK_PROCESS_EXIT_SIGNALED                  0x00000002UL
+#define KSWORD_ARK_PROCESS_EXIT_TIME_VALID                0x00000004UL
+#define KSWORD_ARK_PROCESS_EXIT_CALLED                    0x00000008UL
+#define KSWORD_ARK_PROCESS_EXIT_ZERO_THREADS              0x00000010UL
+#define KSWORD_ARK_PROCESS_EXIT_NO_OBJECT_TABLE           0x00000020UL
+#define KSWORD_ARK_PROCESS_EXIT_THREAD_LIST_QUIET         0x00000040UL
+#define KSWORD_ARK_PROCESS_EXIT_CID_THREADS_QUIET          0x00000080UL
+// Reference + process signal + exit-path accessor + complete CID-thread view.
+// Offset-dependent timestamps, counts and teardown fields remain diagnostics.
+#define KSWORD_ARK_PROCESS_EXIT_REQUIRED                 0x0000008BUL
 
 #define KSWORD_ARK_PROCESS_VISIBILITY_ACTION_HIDE 1UL
 #define KSWORD_ARK_PROCESS_VISIBILITY_ACTION_UNHIDE 2UL
@@ -887,7 +902,37 @@ typedef struct _KSWORD_ARK_PROCESS_ENTRY
     // v3 stable process identity sampled from the referenced EPROCESS object.
     // Zero means the CID evidence row could not be referenced safely.
     unsigned long long creationTime100ns;
+    // v4 evidence is sampled only while holding a verified object reference.
+    unsigned long long processObjectAddress;
+    unsigned long long exitTime100ns;
+    unsigned long exitEvidence;
+    unsigned long observedProcessId;
+    unsigned long activeThreadCount;
+    long exitWaitStatus;
 } KSWORD_ARK_PROCESS_ENTRY;
+
+// Shared by the GUI and native regression probe. Missing evidence never excludes.
+static __inline int KswordArkProcessExitEvidenceComplete(
+    unsigned long evidence, unsigned long flags,
+    unsigned long long objectAddress, unsigned long long createTime)
+{
+    return objectAddress != 0ULL && createTime != 0ULL &&
+        (flags & KSWORD_ARK_PROCESS_FLAG_PID_FIELD_MISMATCH) == 0UL &&
+        (evidence & KSWORD_ARK_PROCESS_EXIT_REQUIRED) == KSWORD_ARK_PROCESS_EXIT_REQUIRED;
+}
+
+// Two independently collected, consecutive observations of the same identity.
+static __inline int KswordArkProcessExitedResidual(
+    unsigned long evidence, unsigned long flags,
+    unsigned long long objectAddress, unsigned long long createTime,
+    unsigned long previousEvidence, unsigned long previousFlags,
+    unsigned long long previousObjectAddress, unsigned long long previousCreateTime)
+{
+    return objectAddress == previousObjectAddress && createTime == previousCreateTime &&
+        KswordArkProcessExitEvidenceComplete(evidence, flags, objectAddress, createTime) &&
+        KswordArkProcessExitEvidenceComplete(previousEvidence, previousFlags,
+            previousObjectAddress, previousCreateTime);
+}
 
 typedef struct _KSWORD_ARK_ENUM_PROCESS_RESPONSE
 {

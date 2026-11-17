@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-17",
+  "requiredEvidenceMask": "0x8b",
+  "method": {
+    "required": [
+      "referenced EPROCESS identity",
+      "exact process wait STATUS_SUCCESS",
+      "PsGetProcessExitProcessCalled",
+      "no unfinished CID thread for the same EPROCESS"
+    ],
+    "confirmation": "two independent observations of the same nonzero object and creation time, no PID mismatch",
+    "diagnosticOnly": [
+      "ExitTime",
+      "ActiveThreads",
+      "ObjectTable"
+    ],
+    "removedRequirements": [
+      "process thread-list walk",
+      "exact profile preparation before process enumeration"
+    ],
+    "cidWalker": "existing protected or lookup-backed CID traversal; guarded public dispatcher observations classify opposite-kind and signaled retained slots",
+    "ownerHint": "existing runtime PsGetThreadProcess accessor layout supplies a guarded scalar owner observation; unreferenced hints may veto only, never authorize access or become discovery references",
+    "concurrency": "reread removed slots; at most three collections for PARTIAL_COPY/DELETE_PENDING; every positive unfinished-owner veto persists; final incomplete view never excludes"
+  },
+  "vms": [
+    {
+      "os": "win10",
+      "kernel": "10.0.19041.631",
+      "noExternalProfileApplied": true,
+      "missingExitTimeField": "[12] id=106 flags=0x4 source=0 offset=0xffffffff capabilityMask=0x8000 field='_EPROCESS.ExitTime' sourceName='Unavailable' feature='EPROCESS Optional Fields'",
+      "fieldsRaw": ".codex-tmp\\cid-simple-win10\\fields1.txt",
+      "waves": [
+        {
+          "wave": 1,
+          "raw": ".codex-tmp\\cid-simple-win10\\final1.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 1
+          },
+          "churn": 33,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xab": 256
+          }
+        },
+        {
+          "wave": 2,
+          "raw": ".codex-tmp\\cid-simple-win10\\final2.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "churn": 33,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xab": 256
+          }
+        },
+        {
+          "wave": 3,
+          "raw": ".codex-tmp\\cid-simple-win10\\final3.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 1
+          },
+          "churn": 32,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xab": 256
+          }
+        }
+      ],
+      "systemAudit": {
+        "systemAudit": true,
+        "rounds": 20,
+        "normalObservations": 2460,
+        "excludedResidues": 260,
+        "unexplainedCandidates": 0
+      },
+      "systemAuditRaw": ".codex-tmp\\cid-simple-win10\\final-audit.jsonl",
+      "deployment": {
+        "TestServiceExists": false,
+        "TestChildren": 0,
+        "Files": [
+          {
+            "Path": "C:\\Users\\Administrator\\Desktop\\Ksword-nice\\Ksword5.1.exe",
+            "Hash": "08CC6B8E9E06B713F96BE8988CB91025353940E7A7A4366BEB16C419945A1C4A"
+          },
+          {
+            "Path": "C:\\Users\\Administrator\\Desktop\\Ksword-nice\\KswordARK.sys",
+            "Hash": "CDD1F993B40CE39A1D4F82F0BA781457BC5CE542658944AFA56994ED87BE6AB5"
+          }
+        ],
+        "TestCertificate": "VM-only A84878E06F0BA61325E808610443A931D68DA8F3",
+        "Desktop": "C:\\Users\\Administrator\\Desktop\\Ksword-nice",
+        "Backup": "C:\\Users\\Administrator\\Desktop\\Ksword-nice\\backups\\cid-simple-20261117"
+      }
+    },
+    {
+      "os": "win11",
+      "kernel": "10.0.26100.9711",
+      "noExternalProfileApplied": true,
+      "missingExitTimeField": "[12] id=106 flags=0x4 source=0 offset=0xffffffff capabilityMask=0x8000 field='_EPROCESS.ExitTime' sourceName='Unavailable' feature='EPROCESS Optional Fields'",
+      "fieldsRaw": ".codex-tmp\\cid-simple-win11\\fields1.txt",
+      "waves": [
+        {
+          "wave": 1,
+          "raw": ".codex-tmp\\cid-simple-win11\\final1.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "churn": 43,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xbb": 256
+          }
+        },
+        {
+          "wave": 2,
+          "raw": ".codex-tmp\\cid-simple-win11\\final2.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "churn": 46,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xbb": 256
+          }
+        },
+        {
+          "wave": 3,
+          "raw": ".codex-tmp\\cid-simple-win11\\final3.jsonl",
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "churn": 43,
+          "consumerForgedSignalChecks": 256,
+          "restoredHiddenTargets": 18,
+          "exitEvidenceDistribution": {
+            "0xbb": 256
+          }
+        }
+      ],
+      "systemAudit": {
+        "systemAudit": true,
+        "rounds": 20,
+        "normalObservations": 1960,
+        "excludedResidues": 120,
+        "unexplainedCandidates": 0
+      },
+      "systemAuditRaw": ".codex-tmp\\cid-simple-win11\\final-audit.jsonl",
+      "deployment": {
+        "TestServiceExists": false,
+        "TestChildren": 0,
+        "Files": [
+          {
+            "Path": "C:\\Users\\User\\Desktop\\Release\\Ksword5.1.exe",
+            "Hash": "08CC6B8E9E06B713F96BE8988CB91025353940E7A7A4366BEB16C419945A1C4A"
+          },
+          {
+            "Path": "C:\\Users\\User\\Desktop\\Release\\KswordARK.sys",
+            "Hash": "CDD1F993B40CE39A1D4F82F0BA781457BC5CE542658944AFA56994ED87BE6AB5"
+          }
+        ],
+        "TestCertificate": "VM-only A84878E06F0BA61325E808610443A931D68DA8F3",
+        "Desktop": "C:\\Users\\User\\Desktop\\Release",
+        "Backup": "C:\\Users\\User\\Desktop\\Release\\backups\\cid-simple-20261117"
+      }
+    }
+  ],
+  "totals": {
+    "decisionsAfterFirstObservation": 3072,
+    "hiddenDetections": 1056,
+    "deadObjectsObserved": 1536,
+    "falsePositive": 0,
+    "falseNegative": 0,
+    "residueVisible": 0,
+    "consumerForgedSignalChecks": 1536,
+    "restoredHiddenTargets": 108,
+    "churn": 230
+  },
+  "artifacts": [
+    {
+      "path": "E:\\Projects\\Ksword5.1\\Ksword5.1\\x64\\Release\\Ksword5.1.exe",
+      "bytes": 33312256,
+      "sha256": "08CC6B8E9E06B713F96BE8988CB91025353940E7A7A4366BEB16C419945A1C4A"
+    },
+    {
+      "path": "E:\\Projects\\Ksword5.1\\Ksword5.1\\x64\\Release\\KswordARK.sys",
+      "bytes": 3593728,
+      "sha256": "044AE19C69EDA266CEAFBD038DCAE45B162C8E2153D8B6FEA6748FB3CA75C177"
+    },
+    {
+      "path": "E:\\Projects\\Ksword5.1\\.codex-tmp\\cid-lab\\KswordARK.sys",
+      "bytes": 3595080,
+      "sha256": "CDD1F993B40CE39A1D4F82F0BA781457BC5CE542658944AFA56994ED87BE6AB5"
+    },
+    {
+      "path": "E:\\Projects\\Ksword5.1\\.codex-tmp\\cid-lab\\cid_probe.exe",
+      "bytes": 909397,
+      "sha256": "C375996431D434AAFBEE5BC169F9A43CF827B0A47742180133F1E411CA5515FD"
+    }
+  ],
+  "validation": {
+    "productionReferenceAndVetoTests": 62,
+    "sharedPolicyCases": 28,
+    "ioctlPlanGate": "registered=229 covered=150 excluded=79 cases=135 dangerous=40",
+    "driverBuild": "Release/x64 MSVC/WDK /WX; Universal API; INF/CAT errors=0 warnings=0",
+    "driverBuildLog": ".codex-tmp/cid-simple-driver-final.log",
+    "mainBuild": "BUILD_RESULT=SUCCESS EXIT_CODE=0; i18n/theme gates passed",
+    "mainBuildLog": ".codex-tmp/cid-simple-main-low.log",
+    "mainRawLog": ".codex-build-logs/ksword-build-check-20261117-101914.raw.log",
+    "buildPriority": "BelowNormal default, real child inherited BelowNormal"
+  },
+  "issuesResolved": [
+    "0xff mandatory offset-dependent evidence replaced by 0x8b; ProcessDock no longer prepares an EX profile",
+    "lifetime scan now uses the generic CID fallback instead of protected-only traversal",
+    "mixed/retired slots no longer poison every process; unreferenced unfinished thread CID 76 on Win11 receives an owner-local veto",
+    "transient concurrent removal receives bounded independent re-collection while all positive unfinished-owner vetoes remain"
+  ],
+  "earlierFailureEvidence": [
+    ".codex-tmp/cid-simple-win10/cold1.jsonl",
+    ".codex-tmp/cid-simple-win11/thread-diag.jsonl",
+    ".codex-tmp/cid-simple-win11-dispatcher.log"
+  ],
+  "coverage": {
+    "actualHidden": [
+      "PID-field modification",
+      "ActiveProcessLinks unlink",
+      "both",
+      "suspended variants"
+    ],
+    "exitCodes": [
+      0,
+      259
+    ],
+    "heldObjects": "process and primary-thread handles retained",
+    "r3Omission": "consumer-level source omission",
+    "forgedSignals": "consumer-level signal and exit-path simulation with actual R0 thread evidence, no kernel signal write injection",
+    "gui": "no CUA, GUI or offscreen GUI automation",
+    "physicalHost": "new driver not loaded",
+    "vm11BootChange": "testsigning enabled and rebooted; lab certificate retained in VM stores only for desktop test binaries",
+    "snapshot": "Codex-Cid-Simple-Before-20261117 on both VMs; no rollback after deployment"
+  }
+}

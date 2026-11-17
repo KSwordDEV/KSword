@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-17",
+  "status": "fixed-and-deployed",
+  "supersedesCoverageClaimOf": "process-cid-lifetime-20261117.json",
+  "userReportedRegression": [
+    "Windows 11 showed many ordinary exited residues in red alongside the intentionally hidden Notepad.",
+    "Windows 10 showed ordinary exited residues in red on the first refresh, cleared on the second."
+  ],
+  "rootCause": {
+    "description": "Lifetime evidence collection depended on offsets loaded by a lazy KernelDock page. MainWindow deferred profile application until that widget existed. Two observations could not compensate for missing layout fields. Earlier VM tests manually applied an EX profile before enumeration and missed actual startup.",
+    "evidence": "With the exact user-provided driver, cold loading before profile application reproduced 256/256 ordinary retained-dead observations incorrectly visible on both tested kernels. Applying the exact matched profile removed these errors without changing the strict death predicate.",
+    "win10Missing": [
+      "EPROCESS.ExitTime",
+      "EPROCESS.ActiveThreads",
+      "EPROCESS.ThreadListHead",
+      "ETHREAD.ThreadListEntry",
+      "other CID scan layout fields"
+    ],
+    "win11Missing": [
+      "EPROCESS.ExitTime",
+      "EPROCESS.ThreadListHead",
+      "ETHREAD.ThreadListEntry",
+      "HANDLE_TABLE.HandleContentionEvent",
+      "other layout fields"
+    ]
+  },
+  "implementation": {
+    "sharedParser": "ArkDriverClient/ArkLocalDynDataProfile.cpp/.h; existing parsing, identity checks, v4-to-EX projection and contextual diagnostics moved out of the widget translation unit. KernelDock continues to use that same implementation.",
+    "preparation": "ArkDriverClient/ArkProcessLifetimeProfile.cpp/.h; background-only, serialized preparation; query actual required fields, find exact local profile, apply EX, query actual fields again.",
+    "consumer": "ProcessDock::buildRefreshResult completes this preparation before its first kernel enumeration, independent of KernelDock initialization.",
+    "strictPolicyUnchanged": "All eight evidence bits, same nonzero object and creation identity, no PID contradiction, both independently collected observations. Unknown evidence never authorizes exclusion.",
+    "driverChangedInThisFollowup": false,
+    "r3OnlyBoundary": "ProcessDock first opens the device silently and holds that connection through preparation. If no device is ready, it skips preparation IOCTLs and preserves the prior R3-only no-prompt path."
+  },
+  "kernels": {
+    "win10": {
+      "kernelVersion": "10.0.19041.631",
+      "profileV4Items": 224,
+      "finalColdWaves": [
+        {
+          "wave": 1,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 38,
+          "evidence": ".codex-tmp/cid-win10-prepared1.jsonl",
+          "sha256": "d1fedfd60d82b0413a4c79002df87a1a560a3dbc098a2414ad61dc1bc17c5fef",
+          "preparationEvidence": ".codex-tmp/cid-win10-prepared1.txt"
+        },
+        {
+          "wave": 2,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 37,
+          "evidence": ".codex-tmp/cid-win10-prepared2.jsonl",
+          "sha256": "ff8ff88e6605a7ccdf0b8a51ddb618c1e9b592047daf6819b46ceb85c8c3317c",
+          "preparationEvidence": ".codex-tmp/cid-win10-prepared2.txt"
+        },
+        {
+          "wave": 3,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 37,
+          "evidence": ".codex-tmp/cid-win10-prepared3.jsonl",
+          "sha256": "2c07513271a37502bf08f65fc639efe31e389f812c1e503a508f9bc1b342cd9a",
+          "preparationEvidence": ".codex-tmp/cid-win10-prepared3.txt"
+        }
+      ],
+      "wholeSystemAudit": {
+        "systemAudit": true,
+        "rounds": 20,
+        "normalObservations": 2540,
+        "excludedResidues": 140,
+        "unexplainedCandidates": 0
+      },
+      "auditEvidence": ".codex-tmp/cid-win10-prepared-audit.jsonl",
+      "auditSha256": "0084fccae00d5248ea94a11712b6b17413fba4131776ec70d1f0f0f8faba6132",
+      "deployment": {
+        "destination": "C:/Users/Administrator/Desktop/Ksword-nice",
+        "applicationAndProfileDeployed": true,
+        "driverPreservedSha256": "64ab7858ea96c30e643d1fa6f6afc04e1aba231e41c4c28b9f204dce9d9e78eb",
+        "backupDirectory": "C:/Users/Administrator/Desktop/Ksword-nice/backups/cid-cold-layout-20261117",
+        "testServiceRemoved": true,
+        "testChildrenRemaining": 0,
+        "deploymentEvidence": ".codex-tmp/cid-win10-cold-deployment.log"
+      }
+    },
+    "win11": {
+      "kernelVersion": "10.0.26100.9711",
+      "profileV4Items": 247,
+      "finalColdWaves": [
+        {
+          "wave": 1,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 48,
+          "evidence": ".codex-tmp/cid-win11-prepared1.jsonl",
+          "sha256": "e9b25ef31b589931c25a72dab4c49320b4e2843d84ee51499d8c13bd2daec678",
+          "preparationEvidence": ".codex-tmp/cid-win11-prepared1.txt"
+        },
+        {
+          "wave": 2,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 0
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 48,
+          "evidence": ".codex-tmp/cid-win11-prepared2.jsonl",
+          "sha256": "9d0fd023cacc07f231846561e6dcb28a78e75ea49dfafd645d9e399f730c3203",
+          "preparationEvidence": ".codex-tmp/cid-win11-prepared2.txt"
+        },
+        {
+          "wave": 3,
+          "coldDriverReload": true,
+          "concurrentChurn": true,
+          "summary": {
+            "summary": true,
+            "targets": 64,
+            "decisionsAfterFirstObservation": 512,
+            "hiddenDetections": 176,
+            "deadObjectsObserved": 256,
+            "falsePositive": 0,
+            "falseNegative": 0,
+            "residueVisible": 0,
+            "incompleteEnumerations": 1
+          },
+          "restoration": {
+            "restoration": true,
+            "normalAgain": 18
+          },
+          "backgroundCompletionsAtReport": 51,
+          "evidence": ".codex-tmp/cid-win11-prepared3.jsonl",
+          "sha256": "0ec631d3d076e2160f2b24b4c666b2fc4ee85a4d61e6c5267b3b31794431ea1d",
+          "preparationEvidence": ".codex-tmp/cid-win11-prepared3.txt"
+        }
+      ],
+      "wholeSystemAudit": {
+        "systemAudit": true,
+        "rounds": 20,
+        "normalObservations": 1963,
+        "excludedResidues": 40,
+        "unexplainedCandidates": 0
+      },
+      "auditEvidence": ".codex-tmp/cid-win11-prepared-audit.jsonl",
+      "auditSha256": "919a4dff4ded7e191cfc005512ecc023ecf212410bf7e9257902ede3d64f9b44",
+      "deployment": {
+        "destination": "C:/Users/User/Desktop/Release",
+        "applicationAndProfileDeployed": true,
+        "driverPreservedSha256": "64ab7858ea96c30e643d1fa6f6afc04e1aba231e41c4c28b9f204dce9d9e78eb",
+        "backupDirectory": "C:/Users/User/Desktop/Release/backups/cid-cold-layout-20261117",
+        "testServiceRemoved": true,
+        "testChildrenRemaining": 0,
+        "deploymentEvidence": ".codex-tmp/cid-win11-cold-deployment.log"
+      }
+    }
+  },
+  "baselineFailures": {
+    "win10": {
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 256,
+        "falseNegative": 0,
+        "residueVisible": 256
+      },
+      "evidence": ".codex-tmp/cid-win10-cold.jsonl",
+      "sha256": "ab6ed66161d174823ad3afa658ddf4d1a1131f6bfaed426c33e5527d3ddbea04",
+      "fieldsEvidence": ".codex-tmp/cid-win10-cold-fields.txt"
+    },
+    "win11": {
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 256,
+        "falseNegative": 0,
+        "residueVisible": 256
+      },
+      "evidence": ".codex-tmp/cid-win11-cold.jsonl",
+      "sha256": "2820c42a6fcd2bf19c2044d0181a9ea94f1b6efeb83ad087bcaa15b795d524b7",
+      "fieldsEvidence": ".codex-tmp/cid-win11-cold-fields.txt"
+    }
+  },
+  "aggregateFinal": {
+    "controlledDecisions": 3072,
+    "anomalyDetections": 1056,
+    "deadObjectsExcluded": 1536,
+    "falsePositive": 0,
+    "falseNegative": 0
+  },
+  "fixtureCorrection": {
+    "initialIssue": "The old VM fixture asserted returnedCount==totalCount and aborted when normal concurrent churn produced an explicitly partial source. Production already consumes returned rows and keeps source completeness distinct from lifetime evidence.",
+    "change": "The fixture now records every enumeration header and validates every controlled target even when a source is partial. Row bounds, target discovery, strict exclusion and zero-error assertions are retained.",
+    "observedFinalPartialSource": {
+      "kernel": "Win11 26100.9711",
+      "wave": 3,
+      "call": 8,
+      "returned": 189,
+      "total": 190,
+      "falsePositive": 0,
+      "falseNegative": 0
+    },
+    "notClaimed": "This does not claim that every incomplete source can prove death or that unreferenced objects were typed."
+  },
+  "offlineTests": {
+    "productionPreparationAndIOCTLCodecs": 19,
+    "productionProfileProjection": "2932 profiles and 4 rejection cases",
+    "candidateReferenceAndValidator": 44,
+    "strictPolicy": 25,
+    "functionalPlanGate": "registered=229 covered=150 excluded=79 cases=135 dangerous=40"
+  },
+  "build": {
+    "configuration": "Release/x64 HostX64 MSVC",
+    "result": "BUILD_RESULT=SUCCESS; EXIT_CODE=0",
+    "i18nSourceStrings": 30468,
+    "themeAudit": "passed",
+    "log": ".codex-tmp/cid-profile-final-build.log",
+    "mainBytes": 33317376,
+    "mainSha256": "531711cb71b9c027de8a156108fc59bd90e42795716891d15e334037cdc0a87f",
+    "profilePackSha256": "dc9f19f9d03c348f769faecad0ff8a8b05234a0c40a9fd93cd379a90855d3ed3"
+  },
+  "guiValidation": "User prohibited computer use/window automation, so no GUI or offscreen GUI was launched. Source integration, the production backend and strict shared predicate were validated; user screenshots are the GUI regression evidence.",
+  "connectionGuide": {
+    "path": "E:/VMs/Windows11-24H2/连接说明.txt",
+    "script": "E:/VMs/Windows11-24H2/Invoke-KSwordVM.ps1",
+    "validatedUser": "DESKTOP-O83P0R8\\User",
+    "address": "192.168.172.128",
+    "transport": "SSH public key; strict known-host verification; no password change",
+    "oldAccount": "sshd could not resolve codexvm; do not use the old default script without changing the account."
+  },
+  "limits": [
+    "Results cover exact tested kernels 19041.631 and 26100.9711; they are not a guarantee for all Windows versions or privileged coordinated evidence tampering.",
+    "The source-omission scenario in the controlled suite remains a consumer simulation, not an injected R3 API hook.",
+    "Snapshots from before this follow-up were preserved, but were not reverted after deployment; doing so would undo the repaired SSH access and final application deployment."
+  ],
+  "methodSupersededBy": "docs/validation/process-cid-simple-20261117.json"
+}

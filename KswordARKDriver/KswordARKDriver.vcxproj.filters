@@ -225,6 +225,7 @@
     <ClInclude Include="src\features\hwid\hwid_dispatch_hooks.h">
       <Filter>Source Files\Features\Hwid</Filter>
     </ClInclude>
+    <ClInclude Include="src\features\process\process_lifetime.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\process\process_crossview.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1134,6 +1135,8 @@
     <ClCompile Include="src\features\bugcheck\bugcheck_shield.c">
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\process\process_lifetime.c"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\features\process\process_cid_reference.c"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\features\process\process_actions.c">
       <Filter>Source Files\Features</Filter>
     </ClCompile>

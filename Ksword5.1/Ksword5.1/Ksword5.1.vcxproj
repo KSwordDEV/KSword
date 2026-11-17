@@ -842,6 +842,8 @@
     <ClCompile Include="ArkDriverClient\ArkDriverCapability.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverDynData.cpp" />
     <ClCompile Include="ArkDriverClient\ArkRuntimeDynData.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkLocalDynDataProfile.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkProcessLifetimeProfile.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCapabilities.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp" />
@@ -1468,6 +1470,8 @@
     <ClInclude Include="ArkDriverClient\ArkDriverClient.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverTypes.h" />
     <ClInclude Include="ArkDriverClient\ArkRuntimeDynData.h" />
+    <ClInclude Include="ArkDriverClient\ArkLocalDynDataProfile.h" />
+    <ClInclude Include="ArkDriverClient\ArkProcessLifetimeProfile.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverError.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h" />
     <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h" />

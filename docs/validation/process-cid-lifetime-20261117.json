@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-17",
+  "sourceCommitBase": "453de3f1ac427d0df4a9f10cd405a439f844db9e",
+  "workingTreeChanges": true,
+  "outcome": "All final non-destructive controlled and system-inventory checks passed. The separately destructive CID-removal exit crashed Windows as documented below.",
+  "rootCauses": [
+    "ActiveProcessLinks validator supplied NULL IDs to an exact-identity reference helper that rejects NULL.",
+    "The consumer required missing active-list membership and stable-liveness flags, suppressing valid supplemental candidates.",
+    "PID field mismatches and incomplete comparisons were treated as discovery rejection rather than anomaly evidence."
+  ],
+  "policy": {
+    "normal": "Matching public identity without a contradictory PID observation.",
+    "abnormal": "Retained supplemental or contradictory candidate; displayed red. No alive-proof admission requirement.",
+    "excludeOnly": "Same nonzero EPROCESS address and creation identity, every evidence bit present in both independently collected observations, no PID contradiction. Cold-start confirmation is collected inside the background refresh before presentation.",
+    "requiredMask": "0xff",
+    "evidence": [
+      "Safely referenced typed process object.",
+      "Exact zero-time wait STATUS_SUCCESS; STATUS_TIMEOUT is not exit.",
+      "Nonzero ExitTime >= nonzero creation time.",
+      "PsGetProcessExitProcessCalled semantic accessor true.",
+      "Successfully read ActiveThreads == 0.",
+      "Successfully read ObjectTable == NULL.",
+      "Complete consistent owner thread-list walk: no unfinished thread.",
+      "Complete protected CID thread scan: no unfinished thread with the same owner object."
+    ],
+    "unknownEvidence": "Missing offset, failed read, partial source or identity contradiction does not establish death.",
+    "exitCode": "No exit-code equality condition; controlled exit codes 0 and 259 both tested.",
+    "noDeathBlacklist": true
+  },
+  "environment": {
+    "vmx": "E:/VMs/Windows10-20H2/Windows 10 x64.vmx",
+    "guestOs": "Windows 10 Home 20H2 x64, build 19042",
+    "kernelVersion": "10.0.19041.631",
+    "kernelPdbGuid": "F923DA2D-238E-7C7C-E180-B962B19A3781",
+    "kernelPdbAge": 1,
+    "profile": "ntoskrnl_amd64_10.0.19041.631_f923da2d238e7c7ce180b962b19a37811",
+    "profileExApplied": 186,
+    "profileExRejected": 0,
+    "access": "WinRM HTTPS / vmrun; no GUI automation"
+  },
+  "controlledScenariosPerWave": {
+    "ordinaryRunning": 6,
+    "ordinarySuspended": 4,
+    "consumerSimulatedPublicSourceOmission": 4,
+    "ordinaryExited0HeldByHandle": 16,
+    "ordinaryExited259HeldByHandle": 16,
+    "livePidFieldChanged": 4,
+    "liveUnlinked": 4,
+    "livePidChangedAndUnlinked": 4,
+    "suspendedPidChanged": 2,
+    "suspendedUnlinked": 2,
+    "suspendedPidChangedAndUnlinked": 2
+  },
+  "finalWaves": [
+    {
+      "wave": 5,
+      "concurrentChurn": false,
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "residueVisible": 0
+      },
+      "restoration": {
+        "restoration": true,
+        "normalAgain": 18
+      },
+      "churn": {
+        "churn": true,
+        "completed": 0
+      },
+      "rawEvidence": ".codex-tmp/cid-round5.jsonl",
+      "sha256": "56428dba2f1781cd5c1e942477375c277a6940b29de45f0f632f2d3b048a0fb1"
+    },
+    {
+      "wave": 6,
+      "concurrentChurn": true,
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "residueVisible": 0
+      },
+      "restoration": {
+        "restoration": true,
+        "normalAgain": 18
+      },
+      "churn": {
+        "churn": true,
+        "completed": 46
+      },
+      "rawEvidence": ".codex-tmp/cid-round6.jsonl",
+      "sha256": "daa529a3dbb493427cebc94ba52843583a19615553b7421df50b1cac0a655716"
+    },
+    {
+      "wave": 7,
+      "concurrentChurn": true,
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "residueVisible": 0
+      },
+      "restoration": {
+        "restoration": true,
+        "normalAgain": 18
+      },
+      "churn": {
+        "churn": true,
+        "completed": 45
+      },
+      "rawEvidence": ".codex-tmp/cid-round7.jsonl",
+      "sha256": "17521d2af9d87431aa688961253ad3a59d24ad5e753142f82a91bd544c4a68ee"
+    },
+    {
+      "wave": 8,
+      "concurrentChurn": true,
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "residueVisible": 0
+      },
+      "restoration": {
+        "restoration": true,
+        "normalAgain": 18
+      },
+      "churn": {
+        "churn": true,
+        "completed": 46
+      },
+      "rawEvidence": ".codex-tmp/cid-round8.jsonl",
+      "sha256": "0c840e28aa915a9151db6f76a97842d661ee0391850d00fc23ce61ddcaa9d97d"
+    },
+    {
+      "wave": 9,
+      "concurrentChurn": true,
+      "summary": {
+        "summary": true,
+        "targets": 64,
+        "decisionsAfterFirstObservation": 512,
+        "hiddenDetections": 176,
+        "deadObjectsObserved": 256,
+        "falsePositive": 0,
+        "falseNegative": 0,
+        "residueVisible": 0
+      },
+      "restoration": {
+        "restoration": true,
+        "normalAgain": 18
+      },
+      "churn": {
+        "churn": true,
+        "completed": 46
+      },
+      "rawEvidence": ".codex-tmp/cid-round9.jsonl",
+      "sha256": "f4407d82d0f8b04ce72e6b685fb3d5720ad6da14a680e667a8023a49903b26b1"
+    }
+  ],
+  "aggregate": {
+    "waves": 5,
+    "presentedRoundsPerWave": 8,
+    "controlledDecisions": 2560,
+    "anomalyDetections": 880,
+    "ordinaryDeadObjectObservationsExcluded": 1280,
+    "ordinaryLiveOrSuspendedObservations": 400,
+    "falsePositive": 0,
+    "falseNegative": 0,
+    "restoredToNormal": 90,
+    "reportedBackgroundChildCompletions": 183
+  },
+  "wholeSystemAudit": {
+    "result": {
+      "systemAudit": true,
+      "rounds": 20,
+      "normalObservations": 2460,
+      "excludedResidues": 100,
+      "unexplainedCandidates": 0
+    },
+    "rawEvidence": ".codex-tmp/cid-system-audit.jsonl",
+    "sha256": "9fe4c7607bac436dcba7ce74cb44c871330149393f21ab31e6dbf9d234e00e28",
+    "method": "Twenty pairs of independently collected kernel snapshots; public snapshots before and after account for normal enumeration timing. No controlled hidden children remain."
+  },
+  "destructiveBoundary": {
+    "purpose": "Remove the controlled live process PID CID slot using the existing DKOM operation; active list also unlinked.",
+    "foundThroughReferencedThreadOwners": 12,
+    "falseNegative": 0,
+    "ordinaryProcessCidSourceFabricated": false,
+    "cleanupResult": "Guest bugcheck 0x3b/c0000005 at nt!PspClearProcessThreadCidRefs+0x35 when the child exited. Exact-symbol dump analysis confirms the same cleanup failure as the earlier experiment.",
+    "interpretation": "This build tolerated the removed PID slot while the process ran, but failed during ordinary exit cleanup. This is not proof that CID deletion always crashes immediately on every Windows version.",
+    "notPartOfStableSuitePass": true,
+    "rawEvidence": ".codex-tmp/cid-removal-final.jsonl",
+    "evidenceSha256": "23e293d3c5caae95cbc3853796f46cd8640816adbe611b22bcb094cc308c171d",
+    "dump": ".codex-tmp/cid-removal-final.dmp",
+    "dumpSha256": "7eeeec726d7bfe953634d35e340307d3323ff183ecd21c24dd8b56ed227c6bca",
+    "analysis": ".codex-tmp/cid-removal-final-analysis.log"
+  },
+  "offlineRegression": {
+    "candidateReferenceAndActualActiveListValidatorCases": 44,
+    "strictSharedPolicyCases": 25,
+    "driverFunctionalPlanGate": "registered=229 covered=150 excluded=79 cases=135 dangerous=40"
+  },
+  "build": {
+    "main": "Release/x64 BUILD_RESULT=SUCCESS EXIT_CODE=0; HostX64 compiler/linker; i18n passed 30468 source strings.",
+    "mainLog": ".codex-tmp/cid-main-complete.log",
+    "driver": "Release/x64 MSVC/WDK /WX; Universal API validator passed; INF/CAT generation Errors=None Warnings=None. Task-specific signed copy successfully loaded in guest.",
+    "driverLog": ".codex-tmp/cid-driver-verified.log",
+    "artifacts": [
+      {
+        "path": "Ksword5.1/x64/Release/Ksword5.1.exe",
+        "bytes": 33311232,
+        "sha256": "53e6594e236a5dc5a22cac9df76c3e75ec976ee82ed0f008c59fce49feae8a78"
+      },
+      {
+        "path": "Ksword5.1/x64/Release/KswordARK.sys",
+        "bytes": 3592192,
+        "sha256": "35ea9dec75a3e32e559029a4e145528935ec9d71bbcdf6dcb5c308135d7a0e78"
+      },
+      {
+        "path": ".codex-tmp/cid-lab/KswordARK.sys",
+        "bytes": 3593544,
+        "sha256": "cbb1ceaa71b8766afb54a8973fb115b026845acd0fed72b4e172ce1c2eaa0357"
+      },
+      {
+        "path": ".codex-tmp/cid-lab/cid_probe.exe",
+        "bytes": 908799,
+        "sha256": "d1874e8b1781a92b1b540e359ce7bd434a7754db066c0afd8367f7e493ef2ac5"
+      }
+    ]
+  },
+  "reproduce": {
+    "compileProbe": "g++ -std=c++17 -O2 -Wall -Wextra -Werror -static tools/tests/process_cid_lifetime_vm.cpp -ladvapi32 -o cid_probe.exe",
+    "safeHostPolicy": "cid_probe.exe --policy",
+    "safeHostReference": "python tools/test_driver_candidate_reference.py",
+    "guestReadOnlyAudit": "cid_probe.exe --audit",
+    "guestMutationOnly": "On a snapshot-protected VMware guest, set KSWORD_CID_VM_LAB=1, load the v4 driver and the exact matched EX profile, then run cid_probe.exe --suite and --stress.",
+    "destructiveWarning": "--destructive-cid-removal additionally requires KSWORD_CID_VM_DESTRUCTIVE; it removes a CID slot and is expected to crash this kernel during cleanup. Do not run on a host."
+  },
+  "restoration": {
+    "snapshot": "Codex-CidLiveness-Before-20261117",
+    "reverted": true,
+    "guestRunningAfterRevert": true,
+    "testServicesPresent": false,
+    "testProcesses": 0,
+    "labFolderPresent": false,
+    "originalUserExeAndDriverPreserved": true,
+    "evidence": ".codex-tmp/cid-vm-restored.log"
+  },
+  "validationLimits": [
+    "The actual tested guest is Windows 10 20H2, not Windows 11; no cross-version zero-error claim.",
+    "The four public-source omissions per wave are consumer simulations, not injected API hooks.",
+    "The shared production exclusion predicate and real driver were tested; real GUI rendering/interactions were not automated because the user prohibited computer use.",
+    "A privileged attacker able to forge all lifecycle and thread evidence together is outside the proof supplied by this conjunction.",
+    "If every process and thread CID entry is removed, a CID-only source cannot promise discovery; no such universal guarantee is claimed.",
+    "Zero observed errors is limited to these recorded scenarios and observations."
+  ],
+  "followupCorrection": {
+    "report": "process-cid-cold-start-20261117.json",
+    "reason": "The original zero-error measurements used an already-applied EX profile. Actual cold startup exposed missing-layout false positives on Win10 and Win11. The follow-up fixes startup ordering, retests real cold reloads, and deploys final binaries to both guests."
+  }
+}

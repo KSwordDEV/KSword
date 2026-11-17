@@ -27,10 +27,12 @@ def main() -> None:
     parser.add_argument("--source-ref", help="Use a Git revision to demonstrate the old loader failure")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    source_path = "Ksword5.1/Ksword5.1/KernelDock/KernelDock.DynData.cpp"
+    source_path = ("Ksword5.1/Ksword5.1/KernelDock/KernelDock.DynData.cpp" if args.source_ref
+                   else "Ksword5.1/Ksword5.1/ArkDriverClient/ArkLocalDynDataProfile.cpp")
     source = (subprocess.check_output(["git", "show", f"{args.source_ref}:{source_path}"], cwd=root).decode("utf-8-sig")
               if args.source_ref else (root / source_path).read_text(encoding="utf-8-sig"))
-    units = [definition(source, "struct", "LocalPdbProfile")]
+    type_source = source if args.source_ref else (root / "Ksword5.1/Ksword5.1/ArkDriverClient/ArkLocalDynDataProfile.h").read_text(encoding="utf-8-sig")
+    units = [definition(type_source, "struct", "LocalPdbProfile")]
     units.extend(definition(source, "bool", name) for name in
                  ("fieldIdIsCallbackGlobal", "fieldIdIsCallbackOffset"))
     units.append(function(source, "void", "appendProfileExItem"))

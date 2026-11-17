@@ -2180,6 +2180,12 @@
     <ClCompile Include="ArkDriverClient\ArkRuntimeDynData.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkLocalDynDataProfile.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkProcessLifetimeProfile.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverCapabilities.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
@@ -3185,6 +3191,12 @@
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
     <ClInclude Include="ArkDriverClient\ArkRuntimeDynData.h">
+      <Filter>Header Files\ArkDriverClient</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkLocalDynDataProfile.h">
+      <Filter>Header Files\ArkDriverClient</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkProcessLifetimeProfile.h">
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
     <ClInclude Include="ArkDriverClient\ArkDriverError.h">

@@ -3594,6 +3594,7 @@
     "process.table.cell.admin_yes": "■ Yes",
     "process.table.cell.admin_no": "■ No",
     "process.table.cell.protection_source_tooltip": "Protection field source: %1",
+    "process.table.cell.kernel_anomaly_tooltip": "Anomalous process: %1\nCID: %2; object PID: %3\nExit evidence: 0x%4 / 0x%5\nEvidence is incomplete or inconsistent; this process remains visible.",
     "process.table.cell.handle_table_source_tooltip": "Handle table field source: %1",
     "process.table.cell.section_object_source_tooltip": "SectionObject field source: %1",
     "process.table.cell.memory_used_tooltip": "Memory used: total working set (including shared pages).",
@@ -7927,6 +7928,9 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    ", anomalous=": ", anomalous=",
+    ", excludedResidue=": ", excludedResidue=",
+    "异常进程：%1\nCID：%2；对象 PID：%3\n退出证据：0x%4 / 0x%5\n证据不完整或存在矛盾，保留显示。": "Anomalous process: %1\nCID: %2; object PID: %3\nExit evidence: 0x%4 / 0x%5\nEvidence is incomplete or inconsistent; this process remains visible.",
     "查询本机 LSA 策略分配；自身及其组模式递归解析本地组并保留来源。域组与动态登录组不保证完整，结果不等于进程令牌。": "Queries local LSA assignments. Account and groups mode follows local group membership and preserves sources. Domain and dynamic logon groups may be incomplete; results are not a process token.",
     "账户权限查询": "Account rights lookup",
     "权限分配反查": "Assigned account lookup",

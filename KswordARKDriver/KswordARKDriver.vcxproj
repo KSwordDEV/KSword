@@ -246,6 +246,8 @@
     <ClCompile Include="src\features\bugcheck\bugcheck_ioctl.c" />
     <ClCompile Include="src\features\bugcheck\bugcheck_guard.c" />
     <ClCompile Include="src\features\bugcheck\bugcheck_shield.c" />
+    <ClCompile Include="src\features\process\process_lifetime.c" />
+    <ClCompile Include="src\features\process\process_cid_reference.c" />
     <ClCompile Include="src\features\process\process_actions.c" />
     <ClCompile Include="src\features\process\process_crossview.c" />
     <ClCompile Include="src\features\process\process_detail.c" />
@@ -492,6 +494,7 @@
     <ClInclude Include="include\ark\ark_callback.h" />
     <ClInclude Include="include\ark\ark_kernel.h" />
     <ClInclude Include="src\features\process\process_extended.h" />
+    <ClInclude Include="src\features\process\process_lifetime.h" />
     <ClInclude Include="src\features\process\process_crossview.h" />
     <ClInclude Include="include\ark\ark_process_protect.h" />
     <ClInclude Include="src\features\process_protect\process_protect_internal.h" />

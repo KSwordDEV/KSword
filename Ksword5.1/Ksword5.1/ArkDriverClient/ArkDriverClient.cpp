@@ -1358,6 +1358,22 @@ namespace ksword::ark
             responseBuffer.data(),
             static_cast<unsigned long>(responseBuffer.size()),
             existingHandle);
+        while (enumResult.io.ok && enumResult.io.bytesReturned >= offsetof(KSWORD_ARK_ENUM_PROCESS_RESPONSE, entries))
+        {
+            const auto* header = reinterpret_cast<const KSWORD_ARK_ENUM_PROCESS_RESPONSE*>(responseBuffer.data());
+            if (header->totalCount <= header->returnedCount || responseBuffer.size() >= 64U * 1024U * 1024U)
+                break;
+            if (header->entrySize == 0U || header->returnedCount <
+                (responseBuffer.size() - offsetof(KSWORD_ARK_ENUM_PROCESS_RESPONSE, entries)) / header->entrySize)
+                break; // A partial source also uses total>returned; larger output cannot repair it.
+            const std::size_t wanted = offsetof(KSWORD_ARK_ENUM_PROCESS_RESPONSE, entries) +
+                static_cast<std::size_t>(header->totalCount) * header->entrySize;
+            responseBuffer.assign(std::min<std::size_t>(64U * 1024U * 1024U,
+                std::max(responseBuffer.size() * 2U, wanted)), 0U);
+            enumResult.io = deviceIoControl(IOCTL_KSWORD_ARK_ENUM_PROCESS, &request,
+                static_cast<unsigned long>(sizeof(request)), responseBuffer.data(),
+                static_cast<unsigned long>(responseBuffer.size()), existingHandle);
+        }
         if (!enumResult.io.ok)
         {
             enumResult.io.message = "DeviceIoControl(IOCTL_KSWORD_ARK_ENUM_PROCESS) failed, error=" + std::to_string(enumResult.io.win32Error);
@@ -1433,10 +1449,19 @@ namespace ksword::ark
                     entry->imagePath,
                     KSWORD_ARK_PROCESS_IMAGE_PATH_CHARS);
             }
-            if (responseHeader->entrySize >= sizeof(KSWORD_ARK_PROCESS_ENTRY))
+            if (responseHeader->entrySize >= offsetof(KSWORD_ARK_PROCESS_ENTRY, processObjectAddress))
             {
                 parsedEntry.creationTime100ns =
                     static_cast<std::uint64_t>(entry->creationTime100ns);
+            }
+            if (responseHeader->entrySize >= sizeof(KSWORD_ARK_PROCESS_ENTRY))
+            {
+                parsedEntry.processObjectAddress = entry->processObjectAddress;
+                parsedEntry.exitTime100ns = entry->exitTime100ns;
+                parsedEntry.exitEvidence = entry->exitEvidence;
+                parsedEntry.observedProcessId = entry->observedProcessId;
+                parsedEntry.activeThreadCount = entry->activeThreadCount;
+                parsedEntry.exitWaitStatus = entry->exitWaitStatus;
             }
             enumResult.entries.push_back(std::move(parsedEntry));
         }

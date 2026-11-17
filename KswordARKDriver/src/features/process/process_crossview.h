@@ -28,6 +28,7 @@ typedef struct _KSW_CROSSVIEW_CID_ENTRY
     BOOLEAN Referenced;
     BOOLEAN TypeMatched;
     NTSTATUS ReferenceStatus;
+    ULONG64 ObservedOwnerAddress; // Unreferenced scalar hint: may veto this owner's exit proof, never authorize object access.
 } KSW_CROSSVIEW_CID_ENTRY, *PKSW_CROSSVIEW_CID_ENTRY;
 
 /*
@@ -44,6 +45,11 @@ typedef VOID (*KSW_CROSSVIEW_CID_CALLBACK)(
     _In_ const KSW_CROSSVIEW_CID_ENTRY* Entry,
     _Inout_opt_ PVOID Context
     );
+
+// Acquires references while the kernel protects each CID slot; unsupported layouts are explicit.
+NTSTATUS KswordARKCrossViewWalkCidTableProtected(
+    const KSW_DYN_STATE* Dyn, PVOID TableVariable, POBJECT_TYPE Type,
+    ULONG Maximum, KSW_CROSSVIEW_CID_CALLBACK Callback, PVOID Parameter, ULONG* Visited);
 
 BOOLEAN
 KswordARKCrossViewOffsetPresent(

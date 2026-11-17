@@ -3591,36 +3591,7 @@ namespace
     // KernelProcessSnapshotEntry 作用：
     // - 承载 R0 枚举返回的一条进程快照；
     // - 仅保留 UI 对比所需字段（PID/父 PID/标志/短进程名）。
-    struct KernelProcessSnapshotEntry
-    {
-        std::uint32_t processId = 0;
-        std::uint32_t parentProcessId = 0;
-        std::uint32_t flags = 0;
-        std::uint32_t sessionId = 0;
-        std::uint32_t fieldFlags = 0;
-        std::uint32_t r0Status = KSWORD_ARK_PROCESS_R0_STATUS_UNAVAILABLE;
-        std::uint32_t sessionSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint8_t protection = 0;
-        std::uint8_t signatureLevel = 0;
-        std::uint8_t sectionSignatureLevel = 0;
-        std::uint32_t protectionSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t signatureLevelSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t sectionSignatureLevelSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t objectTableSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t sectionObjectSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t imagePathSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
-        std::uint32_t protectionOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;
-        std::uint32_t signatureLevelOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;
-        std::uint32_t sectionSignatureLevelOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;
-        std::uint32_t objectTableOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;
-        std::uint32_t sectionObjectOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;
-        std::uint64_t objectTableAddress = 0;
-        std::uint64_t sectionObjectAddress = 0;
-        std::uint64_t dynDataCapabilityMask = 0;
-        std::uint64_t creationTime100ns = 0;
-        std::string imageName;
-        std::string imagePath;
-    };
+    using KernelProcessSnapshotEntry = ksword::ark::ProcessEntry;
 
     // 内核专属记录使用固定创建时间种子，避免与 R3 常规 identity 发生冲突。
     constexpr std::uint64_t KernelOnlyCreationTimeSeed = 0xFFFFFFFF00000000ULL;
@@ -4022,6 +3993,12 @@ namespace
             processEntry.sectionObjectAddress = entry.sectionObjectAddress;
             processEntry.dynDataCapabilityMask = entry.dynDataCapabilityMask;
             processEntry.creationTime100ns = entry.creationTime100ns;
+            processEntry.processObjectAddress = entry.processObjectAddress;
+            processEntry.exitTime100ns = entry.exitTime100ns;
+            processEntry.exitEvidence = entry.exitEvidence;
+            processEntry.observedProcessId = entry.observedProcessId;
+            processEntry.activeThreadCount = entry.activeThreadCount;
+            processEntry.exitWaitStatus = entry.exitWaitStatus;
             processEntry.imageName = entry.imageName;
             processEntry.imagePath = entry.imagePath;
             processListOut->push_back(std::move(processEntry));
@@ -4049,6 +4026,9 @@ namespace
         const KernelProcessSnapshotEntry& kernelProcess)
     {
         processRecord.r0Flags = kernelProcess.flags;
+        processRecord.r0ProcessObjectAddress = kernelProcess.processObjectAddress;
+        processRecord.r0ExitEvidence = kernelProcess.exitEvidence;
+        processRecord.r0ObservedProcessId = kernelProcess.observedProcessId;
         processRecord.r0FieldFlags = kernelProcess.fieldFlags;
         processRecord.r0Status = kernelProcess.r0Status;
         processRecord.r0DynDataCapabilityMask = kernelProcess.dynDataCapabilityMask;
@@ -7938,6 +7918,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     const std::uint32_t detailDemandFlags = currentProcessDetailDemandFlags();
     const std::uint32_t cpuCount = m_logicalCpuCount;
     auto previousCache = m_cacheByIdentity;
+    auto previousExitObservations = m_exitObservations;
     auto previousCounters = m_counterSampleByIdentity;
     syncProcessEtwCaptureDemand();
     const auto networkService = m_processNetworkTrafficCaptureStarted
@@ -8000,6 +7981,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
         cpuCount,
         forceUiRefresh,
         previousCache = std::move(previousCache),
+        previousExitObservations = std::move(previousExitObservations),
         previousCounters = std::move(previousCounters),
         networkService,
         networkLifecycle,
@@ -8063,7 +8045,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             previousCache,
             previousCounters,
             networkTrafficSnapshot,
-            cpuCount, networkSnapshotValid, networkSnapshotTick);
+            cpuCount, networkSnapshotValid, networkSnapshotTick, previousExitObservations);
         refreshResult.cpuCoreUsageSnapshot = std::move(cpuCoreUsageSnapshot);
         refreshResult.cpuCoreCaptureGeneration = cpuCoreCaptureGeneration;
         refreshResult.networkCaptureGeneration = networkCaptureGeneration;
@@ -8211,6 +8193,7 @@ void ProcessDock::applyRefreshResult(RefreshResult refreshResult, const bool for
 
     // 用新结果替换缓存；表格重绘由独立“列表刷新(s)”节流，避免高频打点拖垮 UI。
     m_cacheByIdentity = std::move(refreshResult.nextCache);
+    m_exitObservations = std::move(refreshResult.nextExitObservations);
     m_counterSampleByIdentity = std::move(refreshResult.nextCounters);
     pruneProcessNetworkTrafficCounters();
 
@@ -8448,7 +8431,8 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
     const std::unordered_map<std::string, CacheEntry>& previousCache,
     const std::unordered_map<std::string, ks::process::CounterSample>& previousCounters,
     const std::unordered_map<std::uint32_t, ProcessDock::NetworkTrafficCounters>& networkTrafficSnapshot,
-    const std::uint32_t logicalCpuCount, const bool networkSnapshotAvailable, const std::uint64_t networkSnapshotTick100ns)
+    const std::uint32_t logicalCpuCount, const bool networkSnapshotAvailable, const std::uint64_t networkSnapshotTick100ns,
+    const std::unordered_map<std::string, ksword::ark::ProcessEntry>& previousExitObservations)
 {
     const auto workerStartTime = std::chrono::steady_clock::now();
 
@@ -8480,6 +8464,30 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             &kernelProcessList,
             &kernelQueryDetailText,
             &kernelEnumerationComplete);
+        auto effectivePreviousExitObservations = previousExitObservations;
+        const bool confirmColdResidue = queryKernelOk && std::any_of(kernelProcessList.begin(), kernelProcessList.end(),
+            [&previousExitObservations](const KernelProcessSnapshotEntry& row) {
+                const auto key = std::to_string(row.processObjectAddress) + ":" + std::to_string(row.creationTime100ns);
+                const auto previous = previousExitObservations.find(key);
+                return KswordArkProcessExitEvidenceComplete(row.exitEvidence, row.flags, row.processObjectAddress, row.creationTime100ns) &&
+                    (previous == previousExitObservations.end() || !KswordArkProcessExitEvidenceComplete(
+                        previous->second.exitEvidence, previous->second.flags, previous->second.processObjectAddress, previous->second.creationTime100ns));
+            });
+        if (confirmColdResidue)
+        {
+            std::vector<KernelProcessSnapshotEntry> confirmed;
+            std::string confirmationDetail;
+            bool confirmationComplete = false;
+            if (enumerateProcessesByR0Driver(&confirmed, &confirmationDetail, &confirmationComplete))
+            {
+                effectivePreviousExitObservations.clear();
+                for (const auto& row : kernelProcessList)
+                    effectivePreviousExitObservations[std::to_string(row.processObjectAddress) + ":" + std::to_string(row.creationTime100ns)] = row;
+                kernelProcessList = std::move(confirmed); // Present the newer sample, verified against the immediately preceding collection.
+                kernelEnumerationComplete = confirmationComplete;
+            }
+            kernelQueryDetailText += " | " + confirmationDetail;
+        }
         refreshResult.kernelQuerySucceeded = queryKernelOk;
         refreshResult.kernelEnumerationComplete = kernelEnumerationComplete;
         refreshResult.kernelQueryDetailText = kernelQueryDetailText;
@@ -8487,6 +8495,16 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
 
         if (queryKernelOk)
         {
+            // Replace a modified-PID alias with the canonical CID evidence row.
+            latestProcessList.erase(std::remove_if(latestProcessList.begin(), latestProcessList.end(),
+                [&kernelProcessList](const ks::process::ProcessRecord& record) {
+                    return std::any_of(kernelProcessList.begin(), kernelProcessList.end(),
+                        [&record](const KernelProcessSnapshotEntry& kernel) {
+                            return (kernel.flags & KSWORD_ARK_PROCESS_FLAG_PID_FIELD_MISMATCH) != 0U &&
+                                kernel.creationTime100ns != 0ULL && record.creationTime100ns == kernel.creationTime100ns &&
+                                (record.pid == kernel.observedProcessId || record.pid == kernel.processId);
+                        });
+                }), latestProcessList.end());
             std::unordered_set<std::uint32_t> userPidSet;
             userPidSet.reserve(latestProcessList.size() * 2 + 1);
             kernelProcessByPid.reserve(kernelProcessList.size() * 2 + 1);
@@ -8494,19 +8512,11 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             {
                 kernelProcessByPid[kernelProcess.processId] = kernelProcess;
                 if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED) != 0U &&
-                    !ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags))
+                    (kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED) != 0U)
                 {
                     ++refreshResult.kernelUnconfirmedCount;
-                    if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED) != 0U)
-                    {
-                        ++refreshResult.kernelTerminatingCount;
-                    }
                 }
             }
-            refreshResult.kernelQueryDetailText +=
-                ", trustedHidden=" + std::to_string(refreshResult.kernelOnlyCount) +
-                ", unconfirmed=" + std::to_string(refreshResult.kernelUnconfirmedCount) +
-                ", terminating=" + std::to_string(refreshResult.kernelTerminatingCount);
             for (const ks::process::ProcessRecord& processRecord : latestProcessList)
             {
                 userPidSet.insert(processRecord.pid);
@@ -8514,54 +8524,45 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
 
             for (const KernelProcessSnapshotEntry& kernelProcess : kernelProcessList)
             {
-                if (userPidSet.find(kernelProcess.processId) != userPidSet.end())
+                const auto publicRecord = std::find_if(latestProcessList.begin(), latestProcessList.end(),
+                    [&kernelProcess](const ks::process::ProcessRecord& record) {
+                        return record.pid == kernelProcess.processId &&
+                            (record.creationTime100ns == 0ULL || kernelProcess.creationTime100ns == 0ULL ||
+                                record.creationTime100ns == kernelProcess.creationTime100ns);
+                    });
+                if (publicRecord != latestProcessList.end())
                 {
                     continue;
                 }
-                if (!ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags))
+                const auto observationKey = std::to_string(kernelProcess.processObjectAddress) + ":" +
+                    std::to_string(kernelProcess.creationTime100ns);
+                const auto previous = effectivePreviousExitObservations.find(observationKey);
+                refreshResult.nextExitObservations[observationKey] = kernelProcess;
+                if (previous != effectivePreviousExitObservations.end() &&
+                    KswordArkProcessExitedResidual(kernelProcess.exitEvidence, kernelProcess.flags,
+                        kernelProcess.processObjectAddress, kernelProcess.creationTime100ns,
+                        previous->second.exitEvidence, previous->second.flags,
+                        previous->second.processObjectAddress, previous->second.creationTime100ns))
                 {
-                    // CID residuals, failed references, incomplete scans and
-                    // identity mismatches remain diagnostic evidence only.
+                    ++refreshResult.kernelTerminatingCount;
                     continue;
                 }
+                // Retain candidates until signal, exit path and the independent CID-thread view agree.
                 userPidSet.insert(kernelProcess.processId);
 
                 ks::process::ProcessRecord kernelOnlyRecord{};
                 kernelOnlyRecord.pid = kernelProcess.processId;
                 kernelOnlyRecord.parentPid = kernelProcess.parentProcessId;
                 mergeKernelProcessExtension(kernelOnlyRecord, kernelProcess);
-                // 弱证据分两类，文案都要明确写出“可能为误报”：
-                // - TERMINATING_OR_EXITED：EPROCESS 已退出但仍被句柄引用，从活动链表摘除后
-                //   继续留在 PspCidTable 里，多数是 conhost 等短命进程的残骸；
-                // - CID_TABLE_REFERENCE_FAILED：CID 槽位解出进程对象类型，但取引用失败。
-                // 两类都保留上报（真隐藏也可能落在同一判据里），只在 UI 上降级提示。
-                const bool terminatingRemnantEvidence =
-                    (kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED) != 0U;
-                const bool cidReferenceFailedEvidence =
-                    (kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED) != 0U;
-                const bool cidTableWeakEvidence =
-                    terminatingRemnantEvidence || cidReferenceFailedEvidence;
                 kernelOnlyRecord.creationTime100ns = kernelProcess.creationTime100ns != 0ULL
                     ? kernelProcess.creationTime100ns
                     : KernelOnlyCreationTimeSeed + static_cast<std::uint64_t>(kernelProcess.processId);
-                const std::string kernelOnlyBaseName = kernelProcess.imageName.empty()
-                    ? std::string("Unknown")
-                    : kernelProcess.imageName;
-                kernelOnlyRecord.processName = cidTableWeakEvidence
-                    ? std::string("[R0?] ") + kernelOnlyBaseName + "（可能为误报）"
-                    : std::string("[R0] ") + kernelOnlyBaseName;
-                kernelOnlyRecord.imagePath = terminatingRemnantEvidence
-                    ? "[可能为误报：进程已退出，EPROCESS 仍被句柄引用]"
-                    : (cidReferenceFailedEvidence
-                        ? "[可能为误报：CID Table命中但对象引用失败]"
-                        : "[仅内核枚举可见]");
-                kernelOnlyRecord.commandLine = cidTableWeakEvidence
-                    ? "[可能为误报：CID Table残留，保留显示，可尝试R0结束]"
-                    : "[仅内核枚举可见]";
+                kernelOnlyRecord.processName = std::string("[R0] ") +
+                    (kernelProcess.imageName.empty() ? std::string("Unknown") : kernelProcess.imageName);
+                kernelOnlyRecord.imagePath = "[仅内核枚举可见]";
+                kernelOnlyRecord.commandLine = "[仅内核枚举可见]";
                 kernelOnlyRecord.userName = "-";
-                kernelOnlyRecord.signatureState = cidTableWeakEvidence
-                    ? "CIDTable(可能为误报)"
-                    : "KernelOnly(Hidden?)";
+                kernelOnlyRecord.signatureState = "KernelOnly(Hidden?)";
                 kernelOnlyRecord.signaturePublisher.clear();
                 kernelOnlyRecord.signatureTrusted = false;
                 kernelOnlyRecord.startTimeText = "-";
@@ -8575,6 +8576,10 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
                 kernelOnlyPidSet.insert(kernelProcess.processId);
                 ++refreshResult.kernelOnlyCount;
             }
+            refreshResult.kernelQueryDetailText +=
+                ", anomalous=" + std::to_string(refreshResult.kernelOnlyCount) +
+                ", unconfirmed=" + std::to_string(refreshResult.kernelUnconfirmedCount) +
+                ", excludedResidue=" + std::to_string(refreshResult.kernelTerminatingCount);
         }
         else if (refreshResult.kernelQueryDetailText.empty())
         {
@@ -8723,7 +8728,9 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             }
         }
         const auto kernelProcessIt = kernelProcessByPid.find(processRecord.pid);
-        if (kernelProcessIt != kernelProcessByPid.end())
+        if (kernelProcessIt != kernelProcessByPid.end() &&
+            (processRecord.creationTime100ns == 0ULL || kernelProcessIt->second.creationTime100ns == 0ULL ||
+                processRecord.creationTime100ns == kernelProcessIt->second.creationTime100ns))
         {
             mergeKernelProcessExtension(processRecord, kernelProcessIt->second);
         }
@@ -9692,7 +9699,7 @@ void ProcessDock::updateUsageSummaryInHeader()
         const auto& processRecord = cacheEntry.record;
         const bool hidden = (processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U ||
             (!isProcessActivityTableSnapshotActive() && m_hiddenProcessPidSet.find(processRecord.pid) != m_hiddenProcessPidSet.end());
-        if (hidden && (m_showKswordHiddenProcessCheck == nullptr || !m_showKswordHiddenProcessCheck->isChecked())) continue;
+        if (hidden && !cacheEntry.isKernelOnlyInLatestRound && (m_showKswordHiddenProcessCheck == nullptr || !m_showKswordHiddenProcessCheck->isChecked())) continue;
         accumulateRecord(processRecord, cacheEntry.isExitedInLatestRound);
     }
 
@@ -11474,18 +11481,13 @@ QVariant ProcessDock::processTableData(const ProcessTableRow& tableRow, const in
         {
             return QStringLiteral("历史快照行：该行来自时间轴样本，不代表当前实时进程状态。");
         }
-        // 弱证据的“仅内核可见”行：说明误报来源，避免用户把短命进程残骸当成隐藏进程。
-        if (tableRow.isKernelOnly &&
-            (processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED) != 0U)
+        if (tableRow.isKernelOnly)
         {
-            return QStringLiteral("%1\n可能为误报：该 EPROCESS 已退出（ExitStatus 非 STATUS_PENDING），被摘出活动链表后仍留在 PspCidTable 中，多为短命进程残骸。")
-                .arg(QString::fromStdString(processRecord.processName));
-        }
-        if (tableRow.isKernelOnly &&
-            (processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED) != 0U)
-        {
-            return QStringLiteral("%1\n可能为误报：CID Table 槽位解出进程对象，但 R0 取引用失败，无法确认该 PID 对应存活进程。")
-                .arg(QString::fromStdString(processRecord.processName));
+            return processContextText("process.table.cell.kernel_anomaly_tooltip",
+                QStringLiteral("异常进程：%1\nCID：%2；对象 PID：%3\n退出证据：0x%4 / 0x%5\n证据不完整或存在矛盾，保留显示。"))
+                .arg(QString::fromStdString(processRecord.processName))
+                .arg(processRecord.pid).arg(processRecord.r0ObservedProcessId)
+                .arg(processRecord.r0ExitEvidence, 0, 16).arg(KSWORD_ARK_PROCESS_EXIT_REQUIRED, 0, 16);
         }
         if (processRecord.efficiencyModeEnabled)
         {
@@ -11521,17 +11523,9 @@ QVariant ProcessDock::processTableBrush(const ProcessTableRow& tableRow, TableCo
     const QColor adminYesColor = KswordTheme::SuccessColor();
     const QColor adminNoColor = KswordTheme::ErrorColor();
 
-    // 退出保留进程灰色高亮；CID 表弱引用/terminating 行灰色高亮；
+    // 普通退出过渡保留既有灰色动画；所有保留的内核异常候选统一标红；
     // 仅内核可见进程红色高亮；普通新增进程绿色高亮。
     if (tableRow.isExited)
-    {
-        return role == Qt::BackgroundRole
-            ? QVariant(QBrush(KswordTheme::ExitedRowBackgroundColor()))
-            : QVariant(QBrush(KswordTheme::ExitedRowForegroundColor()));
-    }
-    if ((processRecord.r0Flags &
-        (KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED |
-            KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED)) != 0U)
     {
         return role == Qt::BackgroundRole
             ? QVariant(QBrush(KswordTheme::ExitedRowBackgroundColor()))
@@ -11888,7 +11882,7 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildListDisplayOrder() const
             (!isProcessActivityTableSnapshotActive() && m_hiddenProcessPidSet.find(cachePair.second.record.pid) != m_hiddenProcessPidSet.end());
         const bool showKswordHidden =
             (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
+        if (isKswordHidden && !showKswordHidden && !cachePair.second.isKernelOnlyInLatestRound)
         {
             continue;
         }
@@ -12090,7 +12084,7 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildFriendlyDisplayOrder() co
             (!isProcessActivityTableSnapshotActive() && m_hiddenProcessPidSet.find(processRecord.pid) != m_hiddenProcessPidSet.end());
         const bool showKswordHidden =
             (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
+        if (isKswordHidden && !showKswordHidden && !cachePair.second.isKernelOnlyInLatestRound)
         {
             continue;
         }

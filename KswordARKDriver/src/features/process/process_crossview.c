@@ -18,6 +18,7 @@ Environment:
 #include "..\kernel\hook_scan_support.h"
 #include "..\kernel\object_header_fallback.h" // 候选地址只通过 CID 查询结果取得精确对象引用。
 #include "..\..\dispatch\ioctl_validation.h"
+#include "../../platform/runtime_signature_scan.h" // Guard scalar dispatcher observations with MmCopyMemory.
 
 #include <ntstrsafe.h>
 #include <stdarg.h>
@@ -1731,7 +1732,10 @@ Return Value:
     objectValue = EntryValue & ~(ULONGLONG)0x7U;
 #endif
 
-    return (PVOID)(ULONG_PTR)objectValue;
+    if ((ULONG_PTR)objectValue < (ULONG_PTR)MmSystemRangeStart) { // Free-list encodings are not kernel object bodies.
+        return NULL; // Ignore a genuinely empty/free slot instead of reporting an unresolved thread.
+    }
+    return (PVOID)(ULONG_PTR)objectValue; // Only kernel-range candidates may enter reference validation.
 }
 
 static NTSTATUS
@@ -1795,12 +1799,50 @@ Return Value:
         : STATUS_NOT_FOUND;
 }
 
+// A read-only dispatcher observation classifies slots that exported lookup no longer references.
+static BOOLEAN KswordARKCrossViewCidSlotQuiet(PVOID Object, PVOID SlotAddress, POBJECT_TYPE ExpectedType, const KSW_DYN_STATE* Dyn, ULONG64* OwnerHint)
+{
+    DISPATCHER_HEADER header; // Public dispatcher layout, not EPROCESS/ETHREAD private offsets.
+    UCHAR processKind = 0U; // Calibrate object kinds against system-owned anchors.
+    UCHAR threadKind = 0U; // The running thread is valid throughout this call.
+    ULONGLONG value = 0ULL; // Recheck the same occupied CID after the scalar observation.
+    PVOID owner = NULL; // An owner hint only scopes a veto; it never grants a process reference.
+    *OwnerHint = 0ULL; // A missing owner preserves the original incomplete-view behavior.
+    if (SlotAddress == NULL || PsProcessType == NULL || PsThreadType == NULL ||
+        !KswordARKRuntimeReadMemory(PsInitialSystemProcess, &processKind, sizeof(processKind)) ||
+        !KswordARKRuntimeReadMemory(KeGetCurrentThread(), &threadKind, sizeof(threadKind)) ||
+        processKind == threadKind || processKind == 0U || threadKind == 0U ||
+        !KswordARKRuntimeReadMemory(Object, &header, sizeof(header)) ||
+        !NT_SUCCESS(KswordARKCrossViewReadUlong64Address(SlotAddress, &value)) ||
+        KswordARKCrossViewDecodeCidEntryObject(value) != Object) { // Failed or changing observations remain unclassified.
+        return FALSE; // Never call object-manager/accessor routines on this unreferenced address.
+    }
+    if ((ExpectedType == *PsThreadType && header.Type == processKind) ||
+        (ExpectedType == *PsProcessType && header.Type == threadKind)) { // A process slot is irrelevant to thread absence and vice versa.
+        return TRUE; // Classification only: no fabricated reference or candidate row.
+    }
+    if (ExpectedType == *PsThreadType && header.Type == threadKind) { // Resolve a target-type thread observation without dereferencing its object header.
+        if (header.SignalState > 0) { // A retained signaled thread has completed execution regardless of owner.
+            return TRUE; // It cannot veto any process on the basis of unfinished execution.
+        }
+        if (Dyn != NULL && Dyn->Kernel.KtProcess != KSW_DYN_OFFSET_UNAVAILABLE && Dyn->Kernel.KtProcess > 0UL &&
+            Dyn->Kernel.KtProcess <= 0x4000UL && KswordARKRuntimeReadMemory((PUCHAR)Object + Dyn->Kernel.KtProcess, &owner, sizeof(owner)) &&
+            (ULONG_PTR)owner >= (ULONG_PTR)MmSystemRangeStart && KswordARKCrossViewPointerAligned((ULONG_PTR)owner) &&
+            NT_SUCCESS(KswordARKCrossViewReadUlong64Address(SlotAddress, &value)) && KswordARKCrossViewDecodeCidEntryObject(value) == Object) { // The existing exported-accessor layout resolves this owner's scalar address.
+            *OwnerHint = (ULONG64)(ULONG_PTR)owner; // Never call process or thread APIs on these unreferenced hints.
+            return TRUE; // Caller must report a local veto instead of poisoning unrelated processes.
+        }
+    }
+    return FALSE; // A genuinely unclassified thread still prevents an absence conclusion.
+}
+
 static VOID
 KswordARKCrossViewReportCidCandidate(
     _Inout_ KSW_CROSSVIEW_CID_WALK_CONTEXT* Context,
     _In_ PVOID ObjectBody,
     _In_ ULONG CidValue,
-    _In_ NTSTATUS EntryReadStatus
+    _In_ NTSTATUS EntryReadStatus,
+    _In_opt_ PVOID SlotAddress
     )
 /*++
 
@@ -1841,7 +1883,38 @@ Return Value:
         &typeMatched,
         &referenced);
     if (!typeMatched) {
-        return;
+        POBJECT_TYPE otherType = NULL; // A mixed CID table also contains the other legitimate object kind.
+        BOOLEAN otherMatched = FALSE; // Unclassified occupied entries cannot prove thread absence.
+        BOOLEAN otherReferenced = FALSE; // Inspect only lookup-backed objects, never the raw candidate.
+        if (PsProcessType != NULL && PsThreadType != NULL) { // Both types are needed to classify a nonmatching slot.
+            otherType = Context->ExpectedObjectType == *PsThreadType ? *PsProcessType : *PsThreadType; // Resolve the opposite CID type.
+        }
+        if (otherType != NULL) { // A confirmed other-type slot is not a missing target-type object.
+            (VOID)KswordARKCrossViewTryReferenceTypedObject(ObjectBody, ULongToHandle(CidValue), otherType, &otherMatched, &otherReferenced); // Exact-address reference only.
+        }
+        if (otherReferenced) { // Every successful alternate lookup owns a reference.
+            ObDereferenceObject(ObjectBody); // Balance classification without reporting the other type.
+        }
+        if (!otherMatched || !otherReferenced) { // Failed lookup or recycled CID makes this observation incomplete.
+            ULONGLONG currentValue = 0ULL; // A concurrently removed entry is no longer an occupied unknown slot.
+            PVOID currentObject = ObjectBody; // Failed rereads preserve the unresolved candidate.
+            ULONG64 ownerHint = 0ULL; // Optional target-specific veto from a stable unreferenced thread observation.
+            if (SlotAddress != NULL && NT_SUCCESS(KswordARKCrossViewReadUlong64Address(SlotAddress, &currentValue))) { // Recheck the same CID slot after both safe lookups failed.
+                currentObject = KswordARKCrossViewDecodeCidEntryObject(currentValue); // Free entries have no canonical object body.
+            }
+            if (currentObject != NULL && KswordARKCrossViewPointerAligned((ULONG_PTR)currentObject) &&
+                !KswordARKCrossViewCidSlotQuiet(currentObject, SlotAddress, Context->ExpectedObjectType, Context->DynState, &ownerHint)) { // Only occupied unfinished/unreadable target-type entries block completeness.
+                Context->LastStatus = STATUS_PARTIAL_COPY; // Empty/deallocated slots no longer poison unrelated process proofs.
+            }
+            if (ownerHint != 0ULL) { // This negative observation never becomes a referenced discovery row.
+                entry.ObjectAddress = (ULONG64)(ULONG_PTR)currentObject; // Preserve source identity for diagnostics only.
+                entry.CidValue = CidValue; // Preserve the occupied slot's ID even when exported lookup rejects it.
+                entry.ObservedOwnerAddress = ownerHint; // Consumers may only use this to veto the matching owner.
+                entry.ReferenceStatus = referenceStatus; // Keep the failed reference visible to consumers.
+                Context->Callback(&entry, Context->CallbackContext); // All object/type reference flags remain FALSE.
+            }
+        }
+        return; // Never manufacture a type-matched row from an unclassified slot.
     }
 
     entry.Object = referenced ? ObjectBody : NULL;
@@ -1929,7 +2002,8 @@ Return Value:
             Context,
             objectBody,
             (ULONG)cidValue64,
-            status);
+            status,
+            lowValueAddress); // The same slot can be rechecked when an object exits during lookup.
     }
 
     return lastStatus;
@@ -2112,6 +2186,11 @@ Return Value:
     }
     if (DynState == NULL || PspCidTableAddress == NULL || ExpectedObjectType == NULL || Callback == NULL || MaxNodes == 0UL) {
         return STATUS_INVALID_PARAMETER;
+    }
+    status = KswordARKCrossViewWalkCidTableProtected(DynState, PspCidTableAddress, ExpectedObjectType,
+        MaxNodes, Callback, Context, VisitedEntriesOut); // Prefer a slot-protected reference independent of PID lookup.
+    if (status != STATUS_NOT_SUPPORTED) { // Do not retry a partial protected walk and duplicate observations.
+        return status; // Source completeness stays separate from object evidence.
     }
     status = KswordARKCrossViewReadCidTableRoot(DynState, PspCidTableAddress, &tableRoot, &tableLevel);
     if (!NT_SUCCESS(status)) {
@@ -3040,7 +3119,7 @@ KswordARKCrossViewValidateActiveProcessLinks(
     }
     status = KswordARKCrossViewTryReferenceTypedObject(
         PsInitialSystemProcess,
-        NULL,
+        PsGetProcessId(PsInitialSystemProcess),
         *PsProcessType,
         &headTypeMatched,
         &headReferenced);
@@ -3054,6 +3133,7 @@ KswordARKCrossViewValidateActiveProcessLinks(
         LIST_ENTRY* next = NULL;
         LIST_ENTRY* blink = NULL;
         PVOID candidateObject = NULL;
+        PVOID candidateId = NULL; // Safe scalar observation before reference acquisition.
         BOOLEAN typeMatched = FALSE;
         BOOLEAN referenced = FALSE;
 
@@ -3086,9 +3166,13 @@ KswordARKCrossViewValidateActiveProcessLinks(
             }
         }
         candidateObject = (PVOID)((PUCHAR)current - DynState->Kernel.EpActiveProcessLinks);
+        status = KswordARKCrossViewReadPointerField(candidateObject, DynState->Kernel.EpUniqueProcessId, &candidateId); // Unknown identity means incomplete comparison.
+        if (!NT_SUCCESS(status)) { // Never call an object accessor on the unreferenced address.
+            break; // Already discovered objects remain usable evidence.
+        }
         status = KswordARKCrossViewTryReferenceTypedObject(
             candidateObject,
-            NULL,
+            candidateId,
             *PsProcessType,
             &typeMatched,
             &referenced);

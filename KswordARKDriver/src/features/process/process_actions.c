@@ -19,9 +19,13 @@ Environment:
 #include "..\..\platform\process_resolver.h"
 #include "process_crossview.h"
 #include "process_extended.h"
+#include "process_lifetime.h"
 #include "../../platform/runtime_signature_scan.h"
 #include <ntstrsafe.h>
 #include <stdarg.h>
+
+extern POBJECT_TYPE* PsThreadType; // Thread CID observations supplement process CID entries.
+NTKERNELAPI PEPROCESS NTAPI PsGetThreadProcess(_In_ PETHREAD Thread); // Owning process of a referenced thread.
 
 NTSYSAPI
 NTSTATUS
@@ -106,7 +110,8 @@ PsGetProcessImageFileName(
 #define KSWORD_ARK_ENUM_RESPONSE_HEADER_SIZE \
     (sizeof(KSWORD_ARK_ENUM_PROCESS_RESPONSE) - sizeof(KSWORD_ARK_PROCESS_ENTRY))
 #define KSWORD_ARK_ENUM_PID_STEP 4UL
-#define KSWORD_ARK_ENUM_SCAN_MAX_PID 0x00400000UL
+#define KSWORD_ARK_ENUM_SCAN_MAX_PID (MAXULONG - 3UL)
+#define KSWORD_ARK_ENUM_BITMAP_MAX_PID 0x00400000UL // Membership cache size must not limit discovery.
 #define KSWORD_ARK_ENUM_SCAN_MIN_PID KSWORD_ARK_ENUM_PID_STEP
 #define KSWORD_ARK_ENUM_CID_WALK_MAX_NODES 0x00100000UL
 #define KSWORD_ARK_PROCESS_HIDE_MAX_PIDS 256UL
@@ -200,6 +205,7 @@ typedef struct _KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT
     ULONG ScanStartPid;
     ULONG ScanEndPid;
     BOOLEAN ActiveWalkAvailable;
+    BOOLEAN CollectingThreadOwners; // Distinguish a thread's owner from an actual process CID slot.
 } KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT;
 
 static KSWORD_ARK_PROCESS_HIDE_STATE g_KswordArkProcessHideState;
@@ -1228,7 +1234,8 @@ KswordARKDriverAppendProcessEntry(
     _In_ ULONG parentProcessId,
     _In_ ULONG processFlags,
     _In_opt_z_ const CHAR* imageName,
-    _In_opt_ PEPROCESS processObject
+    _In_opt_ PEPROCESS processObject,
+    _In_ const KSW_DYN_STATE* sampleDyn
     )
 {
     KSWORD_ARK_PROCESS_ENTRY* entry = NULL;
@@ -1253,6 +1260,7 @@ KswordARKDriverAppendProcessEntry(
     KswordARKDriverCopyImageName(entry->imageName, imageName);
     if (processObject != NULL) {
         KswordARKProcessPopulateExtendedEntry(entry, processObject);
+        KswordARKProcessSampleLifetime(entry, processObject, sampleDyn); // Lifetime evidence never gates discovery.
     }
     else {
         /*
@@ -1279,9 +1287,9 @@ KswordARKDriverEnumProcessCidCallback(
 Routine Description:
 
     Merge one direct PspCidTable process candidate into the enumeration
-    response. Weak CID evidence is retained for diagnostics, but only a stable
-    object reference plus complete active-list comparison receives the trusted
-    hidden-process flags consumed by R3.
+    response. Object identity, source comparison and lifetime flags remain
+    separate observations. Supplemental rows do not require proof of liveness;
+    only the strict two-observation exit policy excludes ordinary residue.
 
 Arguments:
 
@@ -1296,31 +1304,43 @@ Return Value:
 {
     KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT* enumContext =
         (KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT*)Context;
-    ULONG processFlags =
-        KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED |
-        KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED;
+    ULONG processFlags = KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED; // Source identity is added after validating context.
     ULONG parentProcessId = 0UL;
     const CHAR* imageName = "CIDOnly";
 
     if (enumContext == NULL || Entry == NULL) {
         return;
     }
+    processFlags |= enumContext->CollectingThreadOwners ? KSWORD_ARK_PROCESS_FLAG_THREAD_OWNER_ENUMERATED : KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED; // Thread evidence does not pretend a PID CID slot exists.
     if (!KswordARKDriverPidInScanRange(
             Entry->CidValue,
             enumContext->ScanStartPid,
             enumContext->ScanEndPid)) {
         return;
     }
-    if (enumContext->ActivePidBitmap != NULL &&
-        enumContext->ActivePidBitmapBytes != 0U &&
-        KswordARKDriverBitmapHasPid(
-            enumContext->ActivePidBitmap,
-            enumContext->ActivePidBitmapBytes,
-            Entry->CidValue)) {
-        return;
+    { // Merge by object identity, not a possibly modified/reused PID.
+        ULONG index; // Only returned rows can be modified.
+        for (index = 0UL; index < enumContext->Response->returnedCount; ++index) { // Public walk and CID can observe the same object.
+            KSWORD_ARK_PROCESS_ENTRY* row = &enumContext->Response->entries[index]; // Frozen sample from a referenced process.
+            if (row->processObjectAddress != 0ULL && row->processObjectAddress == Entry->ObjectAddress) { // Exact object match.
+                const BOOLEAN hadProcessCid = (row->flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED) != 0UL; // An actual PID slot outranks a thread's mutable CID field.
+                row->flags |= enumContext->CollectingThreadOwners ? KSWORD_ARK_PROCESS_FLAG_THREAD_OWNER_ENUMERATED : KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED; // Keep exact source provenance.
+                if (!enumContext->CollectingThreadOwners || !hadProcessCid) { // A thread-only observation may fill a missing canonical PID.
+                    row->processId = Entry->CidValue; // Never replace a genuine table slot with an object field.
+                }
+                else if (row->processId != Entry->CidValue) { // Retain conflicting process identities as anomalous evidence.
+                    row->flags |= KSWORD_ARK_PROCESS_FLAG_PID_FIELD_MISMATCH; // This contradiction also vetoes residue exclusion.
+                }
+                if (KswordARKDriverIsProcessHiddenByUi(Entry->CidValue)) { // Preserve self-hidden provenance without filtering it away.
+                    row->flags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI; // A display reason only.
+                }
+                return; // Do not create a duplicate fake-PID row.
+            }
+        }
     }
 
-    if (enumContext->ActiveWalkAvailable) {
+    if (enumContext->ActiveWalkAvailable &&
+        !KswordARKDriverBitmapHasPid(enumContext->ActivePidBitmap, enumContext->ActivePidBitmapBytes, Entry->CidValue)) { // Missing membership is evidence, not a discovery requirement.
         processFlags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST;
     }
     else {
@@ -1359,7 +1379,7 @@ Return Value:
             parentProcessId,
             processFlags,
             imageName,
-            processObject);
+            processObject, enumContext->DynState);
         return;
     }
 
@@ -1372,7 +1392,36 @@ Return Value:
         parentProcessId,
         processFlags,
         imageName,
-        NULL);
+        NULL, enumContext->DynState);
+}
+
+// A referenced CID thread supplies an independent owner even when its PID slot is missing.
+static VOID KswordARKDriverEnumThreadOwnerCallback(const KSW_CROSSVIEW_CID_ENTRY* Thread, PVOID Context)
+{
+    KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT* ctx = (KSWORD_ARK_ENUM_PROCESS_CID_CONTEXT*)Context; // Request-local collector state.
+    KSW_CROSSVIEW_CID_ENTRY ownerEntry; // Synthetic owner observation, explicitly marked as thread provenance.
+    PEPROCESS owner; // The referenced thread keeps its owner relationship valid.
+    CLIENT_ID cid; // Thread CID retains its own observed process identity.
+    if (!Thread->Referenced || Thread->Object == NULL) { // Never inspect a dangling thread address.
+        return; // Source completeness is reported by the protected walker.
+    }
+    owner = PsGetThreadProcess((PETHREAD)Thread->Object); // Use the exported owning-process accessor.
+    if (owner == NULL || !ObReferenceObjectSafe(owner)) { // Acquire a balanced owner reference before process sampling.
+        return; // No unsafe object-header fallback.
+    }
+    RtlZeroMemory(&ownerEntry, sizeof(ownerEntry)); // Initialize the borrowed owner payload.
+    ownerEntry.Object = owner; // Valid until the matching dereference below.
+    ownerEntry.ObjectAddress = (ULONG64)(ULONG_PTR)owner; // Object identity prevents PID collision merging.
+    ownerEntry.CidValue = HandleToULong(PsGetProcessId(owner)); // Retain a diagnostic ID even without a thread CID layout.
+    if (ctx->DynState->Kernel.EtCid != KSW_DYN_OFFSET_UNAVAILABLE &&
+        KswordARKRuntimeReadMemory((PUCHAR)Thread->Object + ctx->DynState->Kernel.EtCid, &cid, sizeof(cid))) { // The thread is referenced for the entire scalar read.
+        ownerEntry.CidValue = HandleToULong(cid.UniqueProcess); // Preserve the thread's process CID separately from a patched EPROCESS PID.
+    }
+    ownerEntry.Referenced = TRUE; // The common sampler may use process accessors.
+    ownerEntry.TypeMatched = TRUE; // An OS-owned ETHREAD supplies the owning EPROCESS relationship.
+    ownerEntry.ReferenceStatus = STATUS_SUCCESS; // Owner reference is held now.
+    KswordARKDriverEnumProcessCidCallback(&ownerEntry, Context); // Reuse identity merging and anomaly preservation.
+    ObDereferenceObject(owner); // Balance the temporary owner reference.
 }
 
 static NTSTATUS
@@ -1461,6 +1510,12 @@ Return Value:
         KswordARKDriverEnumProcessCidCallback,
         &enumContext,
         &visitedEntries);
+    if (PsThreadType != NULL && *PsThreadType != NULL) { // A second source can recover a process whose PID CID entry was removed.
+        enumContext.CollectingThreadOwners = TRUE; // Mark all following owner observations accurately.
+        (VOID)KswordARKCrossViewWalkCidTable(DynState, pspCidTableAddress, *PsThreadType,
+            KSWORD_ARK_ENUM_CID_WALK_MAX_NODES, KswordARKDriverEnumThreadOwnerCallback,
+            &enumContext, &visitedEntries); // Failure does not discard process objects already discovered.
+    }
     UNREFERENCED_PARAMETER(visitedEntries);
     return status;
 }
@@ -2851,14 +2906,15 @@ KswordARKDriverEnumerateProcesses(
     }
 
     if (scanCidTable) {
-        const size_t bitmapBitCount = (size_t)(scanEndPid / KSWORD_ARK_ENUM_PID_STEP) + 1U;
+        const ULONG bitmapEndPid = min(scanEndPid, KSWORD_ARK_ENUM_BITMAP_MAX_PID); // Bound optional membership memory only.
+        const size_t bitmapBitCount = (size_t)(bitmapEndPid / KSWORD_ARK_ENUM_PID_STEP) + 1U;
         pidBitmapBytes = (bitmapBitCount + 7U) >> 3;
 #pragma warning(push)
 #pragma warning(disable:4996)
         pidBitmap = (UCHAR*)ExAllocatePoolWithTag(NonPagedPoolNx, pidBitmapBytes, 'pKsK');
 #pragma warning(pop)
         if (pidBitmap == NULL) {
-            scanCidTable = FALSE;
+            // Object-address deduplication permits CID discovery without this optional bitmap.
             pidBitmapBytes = 0U;
         }
         else {
@@ -2891,7 +2947,7 @@ KswordARKDriverEnumerateProcesses(
                 parentProcessId,
                 processFlags,
                 imageName,
-                processCursor);
+                processCursor, &dynState);
 
             if (scanCidTable && KswordARKDriverPidInScanRange(processId, scanStartPid, scanEndPid)) {
                 KswordARKDriverBitmapSetPid(pidBitmap, pidBitmapBytes, processId);
@@ -2937,6 +2993,8 @@ KswordARKDriverEnumerateProcesses(
             response->totalCount = response->returnedCount + 1UL;
         }
     }
+
+    KswordARKProcessFinalizeLifetime(response, &dynState); // Independent thread evidence completes strict residue proof.
 
     if (pidBitmap != NULL) {
         ExFreePoolWithTag(pidBitmap, 'pKsK');
