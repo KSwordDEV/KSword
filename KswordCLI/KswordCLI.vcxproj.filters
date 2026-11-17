@@ -127,6 +127,8 @@
   <ItemGroup>
     <ClCompile Include="R3Startup.cpp" />
     <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\ServiceDeleteAccess.cpp" />
+    <ClInclude Include="..\shared\usermode\ServiceDeleteAccess.h" />
     <ClCompile Include="..\shared\usermode\backend\startup\StartupHidden.cpp" />
     <ClCompile Include="..\shared\usermode\backend\startup\StartupText.cpp" />
     <ClCompile Include="..\shared\usermode\backend\Common.cpp" />

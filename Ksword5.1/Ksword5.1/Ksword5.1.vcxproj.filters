@@ -134,6 +134,12 @@
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsQuery.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotModel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -237,6 +243,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PrivilegeDock\PrivilegeAccountPages.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PrivilegeDock\PrivilegeAccountSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotModel.h">
@@ -1186,6 +1195,13 @@
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessDock.Console.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ProcessConsole.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsoleRemote.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsole.h" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsoleRemote.h" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2089,6 +2105,12 @@
     <ClCompile Include="ksword\startup\startup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ServiceDeleteAccess.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\shared\usermode\ServiceDeleteAccess.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="ksword\startup\startup_hidden.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -1600,6 +1600,12 @@
     <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
+    <ClCompile Include="..\shared\usermode\ServiceDeleteAccess.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+    <ClInclude Include="..\shared\usermode\ServiceDeleteAccess.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupHidden.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>

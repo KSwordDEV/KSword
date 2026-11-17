@@ -488,6 +488,8 @@
     <ClCompile Include="PrivilegeDock\PrivilegeAccessBackend.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccessReport.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsPage.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeRightsQuery.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotModel.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotPage.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeTokenPages.cpp" />
@@ -513,6 +515,11 @@
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ThreadTab.cpp" />
+    <ClCompile Include="ProcessDock\ProcessDock.Console.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsole.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ProcessConsoleRemote.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsole.h" />
+    <ClInclude Include="..\..\shared\usermode\ProcessConsoleRemote.h" />
     <ClCompile Include="ProcessDock\ThreadAffinityMenu.cpp" />
     <ClCompile Include="ProcessDock\ProcessMessageHookWindow.cpp" />
     <ClCompile Include="ProcessDock\ThreadStackWindow.cpp" />
@@ -803,6 +810,8 @@
     <ClCompile Include="ksword\window\context_menu_probe.cpp" />
     <ClCompile Include="ksword\service\service.cpp" />
     <ClCompile Include="ksword\startup\startup.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ServiceDeleteAccess.cpp" />
+    <ClInclude Include="..\..\shared\usermode\ServiceDeleteAccess.h" />
     <ClCompile Include="ksword\startup\startup_hidden.cpp" />
     <ClCompile Include="ksword\string\string.cpp" />
     <QtRcc Include="Ksword5.qrc" />
@@ -1285,6 +1294,7 @@
     <ClInclude Include="PrivilegeDock\PrivilegeAccessBackend.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccessSecurity.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccountPages.h" />
+    <ClInclude Include="PrivilegeDock\PrivilegeAccountSupport.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotModel.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotPage.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeTokenPages.h" />

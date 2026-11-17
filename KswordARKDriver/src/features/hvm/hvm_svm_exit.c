@@ -90,6 +90,37 @@ static VOID KswSvmInject(KSW_SVM_CPU* Cpu, ULONG Vector)
     if (!KswSvmNestedExceptionInject(Cpu->Guest, &plan, 0)) { KswSvmFatal(Cpu, 2); }
 }
 
+/* Forward only the architecturally reserved hypervisor MSR window to an admitted outer VMM. */
+static BOOLEAN KswSvmHypervisorMsr(KSW_SVM_CPU* Cpu, ULONG Msr, BOOLEAN Write, ULONGLONG Value)
+{
+    /* An absent outer hypervisor leaves this reserved MSR window undefined. */
+    if (!(Cpu->Runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT)) { return FALSE; }
+    /* Hypervisor-defined MSRs occupy 40000000h through 4FFFFFFFh. */
+    if (Msr < 0x40000000UL || Msr > 0x4fffffffUL) { return FALSE; }
+    /* The underlying hypervisor owns the synthetic register semantics. */
+    __try {
+        /* Preserve the guest write operand while executing on its physical processor. */
+        if (Write) { __writemsr(Msr, Value); }
+        else {
+            /* Read the outer hypervisor value for the intercepted guest RDMSR. */
+            Value = __readmsr(Msr);
+            /* Publish the architectural low half in guest EAX. */
+            KswSvmWrite64(Cpu->Guest, KSW_VMCB_RAX, (ULONG)Value);
+            /* Publish the architectural high half in guest EDX. */
+            Cpu->Gpr[2] = (ULONG)(Value >> 32);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        /* Convert a recoverable host-side MSR fault to the guest's architectural #GP. */
+        KswSvmInject(Cpu, 13);
+        /* The faulting instruction remains at its original RIP. */
+        return TRUE;
+    }
+    /* Advance only after the outer hypervisor access completed. */
+    KswSvmAdvance(Cpu);
+    /* Report that the reserved-window access was handled. */
+    return TRUE;
+}
+
 /* Complete only MSRs intentionally owned/intercepted by this backend. */
 static VOID KswSvmMsr(KSW_SVM_CPU* Cpu)
 {
@@ -103,6 +134,8 @@ static VOID KswSvmMsr(KSW_SVM_CPU* Cpu)
     ULONGLONG efer = KswSvmRead64(Cpu->Guest, KSW_VMCB_EFER) & ~KSW_SVM_EFER_SVME;
     /* Kernel-only instruction semantics must not be bypassed. */
     if (((PUCHAR)Cpu->Guest)[KSW_VMCB_CPL] != 0) { KswSvmInject(Cpu, 13); return; }
+    /* Delegate the reserved hypervisor namespace only when an outer VMM is present. */
+    if (KswSvmHypervisorMsr(Cpu, msr, write, value)) { return; }
     /* No other software may install SVM ownership or mutate the cache/XSTATE contract. */
     if (write) {
         /* Idempotent EFER writes preserve Windows behavior without permitting nested SVM. */

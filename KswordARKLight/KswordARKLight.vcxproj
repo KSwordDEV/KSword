@@ -705,6 +705,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\ServiceDeleteAccess.cpp" />
+    <ClInclude Include="..\shared\usermode\ServiceDeleteAccess.h" />
     <ClCompile Include="..\shared\usermode\backend\startup\StartupHidden.cpp" />
     <ClCompile Include="..\shared\usermode\backend\startup\StartupText.cpp" />
   </ItemGroup>

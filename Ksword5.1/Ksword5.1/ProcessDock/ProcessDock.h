@@ -1045,6 +1045,8 @@ private:
     // - 与“结束进程组合动作”不同，该函数不包含 TerminateProcess 步骤。
     void executeTerminateThreadsAction();
     void executeSuspendAction();
+    // 输入为菜单打开时捕获的 PID+创建时间集合；异步强开控制台，结果交给共享反馈。
+    void executeForceConsoleAction(const std::vector<ProcessActionTarget>& actionTargets);
     void executeResumeAction();
     void executeSetCriticalAction(bool enableCritical);
     void executeSetPriorityAction(int priorityActionId);

@@ -1,4 +1,6 @@
+#include "../Framework.h"
 #include "PrivilegeAccountPages.h"
+#include "PrivilegeAccountSupport.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/PrimaryPageStyle.h"
@@ -41,7 +43,13 @@
 #endif
 #include <Windows.h>
 #include <Lm.h>
+// Framework 已经提供 winternl 类型；仅在 LSA 头范围内复用它们，防止 SDK 重定义字符串。
+#pragma push_macro("_NTDEF_")
+#ifndef _NTDEF_
+#define _NTDEF_
+#endif
 #include <NTSecAPI.h>
+#pragma pop_macro("_NTDEF_")
 #include <Sddl.h>
 
 #pragma comment(lib, "Netapi32.lib")
@@ -49,7 +57,7 @@
 
 namespace ks::privilege
 {
-namespace
+namespace account_detail
 {
     QString privilegeText(const char* key, const QString& source)
     {
@@ -157,21 +165,6 @@ namespace
         const QString domainText = QString::fromWCharArray(domain.data());
         return domainText.isEmpty() ? nameText : domainText + QLatin1Char('\\') + nameText;
     }
-
-    struct Row
-    {
-        QString name;
-        QString sid;
-        QString detail;
-        QString extra;
-        bool disabled = false;
-        QString detailRight;
-    };
-    struct RowsResult
-    {
-        QVector<Row> rows;
-        QString error;
-    };
 
     void appendError(QString& target, const QString& error)
     {
@@ -289,6 +282,18 @@ namespace
         rowsLane(page, key)->invalidate();
     }
 
+    // 页面复用现有任务所有权与冻结翻译；输入后台任务和 UI 回调，无同步返回值。
+    void runAccountRows(QObject* page, RowsWork work, RowsDone done)
+    {
+        runRows(page, std::move(work), std::move(done));
+    }
+
+    // 同类只读请求共用同一通道；过期结果不会覆盖后来输入。
+    void runLatestAccountRows(QObject* page, const char* key, RowsWork work, RowsDone done)
+    {
+        runLatestRows(page, key, std::move(work), std::move(done));
+    }
+
     QString machineName()
     {
         wchar_t name[MAX_COMPUTERNAME_LENGTH + 1] = {};
@@ -348,7 +353,7 @@ namespace
         return result;
     }
 
-    RowsResult enumerateGroups(DWORD preferredLength = 65536)
+    RowsResult enumerateGroups(DWORD preferredLength)
     {
         RowsResult result;
         QSet<QString> seen;
@@ -387,7 +392,7 @@ namespace
         return result;
     }
 
-    RowsResult enumerateMembers(const QString& group, DWORD preferredLength = 65536)
+    RowsResult enumerateMembers(const QString& group, DWORD preferredLength)
     {
         RowsResult result;
         QSet<QString> seen;
@@ -551,6 +556,99 @@ namespace
         return directRights(policy.handle, sid.sid());
     }
 
+    // 输入账户名/SID，返回经系统解析的身份；不把无法解析的 SID 当成现存账户。
+    RowsResult resolveAccountIdentity(const QString& input)
+    {
+        const SidResult sid = resolveSid(input); // 保留经过格式检查的二进制 SID。
+        RowsResult result; // 返回身份或明确的解析错误。
+        result.error = sid.error;
+        if (!result.error.isEmpty()) return result;
+        DWORD nameChars = 0; // 账户名称缓冲区字符数。
+        DWORD domainChars = 0; // 账户域缓冲区字符数。
+        SID_NAME_USE use = SidTypeUnknown; // 区分用户、组与特殊身份。
+        ::LookupAccountSidW(nullptr, sid.sid(), nullptr, &nameChars, nullptr, &domainChars, &use);
+        const DWORD error = ::GetLastError(); // 只接受标准的两阶段缓冲区查询。
+        if (error != ERROR_INSUFFICIENT_BUFFER)
+        {
+            result.error = winError(error);
+            return result;
+        }
+        // 实际读取身份类型，来源名称仍复用统一的账户显示转换。
+        std::vector<wchar_t> name(nameChars + 1); // 系统账户名。
+        std::vector<wchar_t> domain(domainChars + 1); // 系统域名。
+        if (!::LookupAccountSidW(nullptr, sid.sid(), name.data(), &nameChars,
+            domain.data(), &domainChars, &use))
+        {
+            result.error = winError(::GetLastError());
+            return result;
+        }
+        Row row; // 规范 SID 是后续去重身份，extra 携带身份类型。
+        row.name = accountName(sid.sid());
+        row.sid = sidText(sid.sid());
+        row.extra = QString::number(use);
+        result.rows.push_back(std::move(row));
+        return result;
+    }
+
+    // 输入账户及权限，返回真实 SID、显示名和当前直接分配状态，供写前确认使用。
+    RowsResult previewDirectRight(const QString& account, const QString& right)
+    {
+        const SidResult sid = resolveSid(account); // 写操作必须锁定已解析的 SID。
+        RowsResult result; // 预览失败时保留原错误，不发起策略变更。
+        result.error = sid.error;
+        if (!result.error.isEmpty()) return result;
+        result = queryRights(sidText(sid.sid()));
+        if (!result.error.isEmpty()) return result;
+        const bool assigned = std::any_of(result.rows.cbegin(), result.rows.cend(),
+            [&right](const Row& row) { return row.name == right; }); // 只检查账户自身分配。
+        result.rows = {{accountName(sid.sid()), sidText(sid.sid()), {},
+            assigned ? QStringLiteral("assigned") : QStringLiteral("unassigned")}};
+        return result;
+    }
+
+    // 输入确认后的 SID/权限/增删方向；仅改目标直接分配并同步回读验证。
+    RowsResult writeDirectRight(const QString& sidString, const QString& right, bool add)
+    {
+        RowsResult result; // 返回回读后的直接权限或错误。
+        const SidResult sid = resolveSid(sidString); // 固定身份，不按可变账户名写入。
+        if (!sid.error.isEmpty())
+        {
+            result.error = sid.error;
+            return result;
+        }
+        Policy policy(POLICY_LOOKUP_NAMES | (add ? POLICY_CREATE_ACCOUNT : 0)); // 最小策略访问权。
+        if (!policy.error.isEmpty())
+        {
+            result.error = policy.error;
+            return result;
+        }
+        // 不接受“移除所有权限”；一次只提交确认框中的一个权限。
+        LSA_UNICODE_STRING value = lsaString(right); // LSA 需要的计数字符串。
+        const NTSTATUS status = add
+            ? ::LsaAddAccountRights(policy.handle, sid.sid(), &value, 1)
+            : ::LsaRemoveAccountRights(policy.handle, sid.sid(), FALSE, &value, 1); // 系统回执。
+        if (status != 0)
+        {
+            result.error = winError(::LsaNtStatusToWinError(status));
+            return result;
+        }
+        result = directRights(policy.handle, sid.sid());
+        if (!result.error.isEmpty())
+        {
+            result.error = privilegeWorkerText("privilege.workbench.groups.readback_failed",
+                QStringLiteral("变更已提交，但回读失败：%1")).arg(result.error);
+        }
+        else
+        {
+            const bool assigned = std::any_of(result.rows.cbegin(), result.rows.cend(),
+                [&right](const Row& row) { return row.name == right; }); // 验证请求状态。
+            if (assigned != add)
+                result.error = privilegeWorkerText("privilege.workbench.groups.readback_mismatch",
+                    QStringLiteral("变更已提交，但回读状态与请求不一致，请刷新检查。"));
+        }
+        return result;
+    }
+
     RowsResult assignedAccounts(const QString& right)
     {
         RowsResult result;
@@ -599,9 +697,6 @@ namespace
             QStringLiteral("SeUndockPrivilege")
         };
     }
-
-    using ValueTable = ks::ui::ImmutableValueTable;
-    using TableHeader = ks::ui::ImmutableTableHeader;
 
     QString accountRowKey(const QString& name, const QString& sid)
     {
@@ -663,6 +758,7 @@ namespace
             if (!alive) return;
             auto* menu = new QMenu(table);
             menu->setAttribute(Qt::WA_DeleteOnClose);
+            menu->setStyleSheet(KswordTheme::ContextMenuStyle());
             QAction* copySid = menu->addAction(privilegeText("privilege.workbench.groups.copy_sid", QStringLiteral("复制 SID")));
             copySid->setEnabled(!sid.isEmpty());
             QObject::connect(copySid, &QAction::triggered, menu, [sid]() { QApplication::clipboard()->setText(sid); });
@@ -674,7 +770,7 @@ namespace
         return table;
     }
 
-    bool fillTable(ValueTable* table, const QVector<Row>& rows, bool account = false, bool membership = false)
+    bool fillTable(ValueTable* table, const QVector<Row>& rows, bool account, bool membership)
     {
         const QPointer<ValueTable> alive(table);
         const int columns = table->columnCount();
@@ -1058,179 +1154,16 @@ namespace
         bool m_loaded = false;
     };
 
-    class RightsPage final : public QWidget
-    {
-    public:
-        explicit RightsPage(QWidget* parent) : QWidget(parent)
-        {
-            auto* layout = new QVBoxLayout(this);
-            auto* explanation = new QLabel(privilegeText("privilege.workbench.rights.explanation", QStringLiteral("此页展示本机 LSA 策略中的直接权限分配。组继承、登录类型、拒绝登录策略及 UAC 会影响实际令牌；已有进程令牌不会因修改策略立即更新。请在令牌对比页检查实际进程。")), this);
-            explanation->setWordWrap(true); layout->addWidget(explanation);
-            auto* accountBar = new QHBoxLayout;
-            m_account = new QLineEdit(this);
-            m_account->setPlaceholderText(privilegeText("privilege.workbench.rights.account_input", QStringLiteral("账户名或 SID（用户、组、服务身份）")));
-            ks::ui::StyleStandaloneInput(m_account);
-            auto* queryAccount = button(this, "privilege.workbench.rights.query_account", QStringLiteral("账户 → 直接权限"));
-            accountBar->addWidget(m_account, 1); accountBar->addWidget(queryAccount); layout->addLayout(accountBar);
-            ks::ui::NormalizeToolbarRow(accountBar);
-            auto* rightBar = new QHBoxLayout;
-            // 可编辑权限选择器保留原目录和输入功能，只统一完整控件底面。
-            m_right = new QComboBox(this);
-            m_right->setEditable(true);
-            m_right->addItems(rightsCatalog());
-            ks::ui::StylePrimaryCombo(m_right);
-            auto* queryRight = button(this, "privilege.workbench.rights.query_right", QStringLiteral("权限 → 已分配账户"));
-            auto* add = button(this, "privilege.workbench.rights.add", QStringLiteral("分配此权限"));
-            auto* remove = button(this, "privilege.workbench.rights.remove", QStringLiteral("移除此权限"));
-            rightBar->addWidget(m_right, 1); rightBar->addWidget(queryRight); rightBar->addWidget(add); rightBar->addWidget(remove); layout->addLayout(rightBar);
-            ks::ui::NormalizeToolbarRow(rightBar);
-            m_description = new QLabel(this); m_description->setWordWrap(true); layout->addWidget(m_description);
-            m_search = new QLineEdit(this);
-            m_search->setPlaceholderText(privilegeText("privilege.workbench.rights.search", QStringLiteral("搜索权限、账户或 SID"))); layout->addWidget(m_search);
-            ks::ui::StyleSearchField(m_search);
-            auto* splitter = new QSplitter(Qt::Horizontal, this);
-            auto* accountPane = new QWidget(splitter); auto* accountLayout = new QVBoxLayout(accountPane); accountLayout->setContentsMargins(0, 0, 0, 0);
-            accountLayout->addWidget(new QLabel(privilegeText("privilege.workbench.rights.direct_caption", QStringLiteral("账户的直接策略分配")), accountPane));
-            m_rights = makeTable(accountPane, {TableHeader(QStringLiteral("privilege.workbench.rights.right"), QStringLiteral("权限名称")), QStringLiteral("SID"),
-                TableHeader(QStringLiteral("privilege.workbench.groups.description"), QStringLiteral("说明"))});
-            accountLayout->addWidget(m_rights);
-            auto* rightPane = new QWidget(splitter); auto* rightLayout = new QVBoxLayout(rightPane); rightLayout->setContentsMargins(0, 0, 0, 0);
-            rightLayout->addWidget(new QLabel(privilegeText("privilege.workbench.rights.assigned_caption", QStringLiteral("此权限的直接分配账户")), rightPane));
-            m_accounts = makeTable(rightPane, {TableHeader(QStringLiteral("privilege.workbench.groups.account"), QStringLiteral("账户")), QStringLiteral("SID"),
-                TableHeader(QStringLiteral("privilege.workbench.rights.right"), QStringLiteral("权限名称"))});
-            rightLayout->addWidget(m_accounts); splitter->addWidget(accountPane); splitter->addWidget(rightPane); layout->addWidget(splitter, 1);
-            // 双向权限查询已有业务操作，两个辅助结果仅保留紧凑导出入口。
-            ks::ui::SetTableActionBarMode(m_rights, ks::ui::TableActionBarMode::Compact);
-            ks::ui::SetTableActionBarMode(m_accounts, ks::ui::TableActionBarMode::Compact);
-            m_status = new QLabel(this); m_status->setWordWrap(true); layout->addWidget(m_status);
-            QObject::connect(queryAccount, &QPushButton::clicked, this, [this]() { refreshRights(); });
-            QObject::connect(queryRight, &QPushButton::clicked, this, [this]() { refreshAccounts(); });
-            QObject::connect(m_account, &QLineEdit::returnPressed, this, [this]() { refreshRights(); });
-            m_rights->currentRowChanged = [this]()
-            { const int row = m_rights->currentRow(); if (row >= 0) m_right->setCurrentText(m_rights->cell(row, 0).toString()); };
-            m_accounts->rowDoubleClicked = [this](int row)
-            { m_account->setText(m_accounts->cell(row, 0, Qt::UserRole).toString()); refreshRights(); };
-            QObject::connect(m_search, &QLineEdit::textChanged, this, [this](const QString& value) { if (!filterTable(m_rights, value)) return; if (!filterTable(m_accounts, value)) return; });
-            QObject::connect(add, &QPushButton::clicked, this, [this]() { changeRight(true); });
-            QObject::connect(remove, &QPushButton::clicked, this, [this]() { changeRight(false); });
-            QObject::connect(m_right, &QComboBox::currentTextChanged, this, [this]()
-            { m_description->setText(m_right->currentData(Qt::ToolTipRole).toString()); });
-            runRows(this, []()
-            {
-                RowsResult result;
-                for (const QString& right : rightsCatalog()) result.rows.push_back({right, {}, rightDescription(right), {}, false});
-                return result;
-            }, [this](const RowsResult& result)
-            {
-                for (const Row& row : result.rows)
-                { const int index = m_right->findText(row.name); if (index >= 0) m_right->setItemData(index, row.detail, Qt::ToolTipRole); }
-                m_description->setText(m_right->currentData(Qt::ToolTipRole).toString());
-            });
-        }
-        void selectAccount(const QString& account) { m_account->setText(account); refreshRights(); }
-    private:
-        void refreshRights()
-        {
-            const QString account = m_account->text().trimmed(); const quint64 generation = ++m_rightsGeneration;
-            if (!clearRows(m_rights)) return;
-            runLatestRows(this, "rights", [account]() { return queryRights(account); }, [this, generation](const RowsResult& result)
-            { if (generation != m_rightsGeneration) return; if (!fillTable(m_rights, result.rows)) return; if (!filterTable(m_rights, m_search->text())) return; showResult(m_status, result); });
-        }
-        void refreshAccounts()
-        {
-            const QString right = m_right->currentText().trimmed(); const quint64 generation = ++m_accountsGeneration;
-            if (!clearRows(m_accounts)) return;
-            if (right.isEmpty()) { invalidateLatestRows(this, "assigned_accounts"); return; }
-            runLatestRows(this, "assigned_accounts", [right]() { return assignedAccounts(right); }, [this, generation](const RowsResult& result)
-            { if (generation != m_accountsGeneration) return; if (!fillTable(m_accounts, result.rows)) return; if (!filterTable(m_accounts, m_search->text())) return; showResult(m_status, result); });
-        }
-        void changeRight(bool add)
-        {
-            const QString account = m_account->text().trimmed(), right = m_right->currentText().trimmed();
-            if (!rightsCatalog().contains(right))
-            {
-                m_status->setText(privilegeText("privilege.workbench.rights.invalid_right", QStringLiteral("请选择目录中的有效权限名称。"))); return;
-            }
-            ++m_rightsGeneration; ++m_accountsGeneration;
-            invalidateLatestRows(this, "rights");
-            invalidateLatestRows(this, "assigned_accounts");
-            setEnabled(false);
-            runRows(this, [account, right]()
-            {
-                const SidResult sid = resolveSid(account); RowsResult result; result.error = sid.error;
-                if (!result.error.isEmpty()) return result;
-                result = queryRights(sidText(sid.sid()));
-                if (!result.error.isEmpty()) return result;
-                const bool assigned = std::any_of(result.rows.cbegin(), result.rows.cend(), [&right](const Row& row) { return row.name == right; });
-                result.rows = {{accountName(sid.sid()), sidText(sid.sid()), {}, assigned ? QStringLiteral("assigned") : QStringLiteral("unassigned")}};
-                return result;
-            }, [this, right, add](const RowsResult& resolved)
-            {
-                const QPointer<QWidget> enabledOwner(this);
-                setEnabled(true);
-                if (!enabledOwner) return;
-                if (!resolved.error.isEmpty() || resolved.rows.isEmpty()) { showResult(m_status, resolved); return; }
-                const Row accountRow = resolved.rows.first();
-                const bool before = accountRow.extra == QStringLiteral("assigned");
-                if (before == add)
-                { m_status->setText(privilegeText("privilege.workbench.rights.no_change", QStringLiteral("该直接权限已处于请求状态，无需修改。"))); return; }
-                const QString action = add ? privilegeText("privilege.workbench.rights.action_add", QStringLiteral("分配"))
-                    : privilegeText("privilege.workbench.rights.action_remove", QStringLiteral("移除"));
-                const QPointer<QWidget> pageGuard(this);
-                if (QMessageBox::question(this, privilegeText("privilege.workbench.groups.preview", QStringLiteral("变更预览")),
-                    privilegeText("privilege.workbench.rights.preview", QStringLiteral("操作：%1\n账户：%2\nSID：%3\n直接策略权限：%4\n\n应用后将回读策略；需要新登录才能反映在新令牌中。"))
-                        .arg(action, accountRow.name, accountRow.sid, right), QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
-                if (!pageGuard) return;
-                const QString sidString = accountRow.sid;
-                setEnabled(false);
-                runRows(this, [sidString, right, add]()
-                {
-                    RowsResult result;
-                    const SidResult sid = resolveSid(sidString);
-                    if (!sid.error.isEmpty()) { result.error = sid.error; return result; }
-                    Policy policy(POLICY_LOOKUP_NAMES | (add ? POLICY_CREATE_ACCOUNT : 0));
-                    if (!policy.error.isEmpty()) { result.error = policy.error; return result; }
-                    LSA_UNICODE_STRING value = lsaString(right);
-                    const NTSTATUS status = add ? ::LsaAddAccountRights(policy.handle, sid.sid(), &value, 1)
-                        : ::LsaRemoveAccountRights(policy.handle, sid.sid(), FALSE, &value, 1);
-                    if (status != 0) { result.error = winError(::LsaNtStatusToWinError(status)); return result; }
-                    result = directRights(policy.handle, sid.sid());
-                    if (!result.error.isEmpty()) result.error = privilegeWorkerText("privilege.workbench.groups.readback_failed", QStringLiteral("变更已提交，但回读失败：%1")).arg(result.error);
-                    else
-                    {
-                        const bool assigned = std::any_of(result.rows.cbegin(), result.rows.cend(), [&right](const Row& row) { return row.name == right; });
-                        if (assigned != add) result.error = privilegeWorkerText("privilege.workbench.groups.readback_mismatch", QStringLiteral("变更已提交，但回读状态与请求不一致，请刷新检查。"));
-                    }
-                    return result;
-                }, [this, sidString, right](const RowsResult& result)
-                {
-                    const QPointer<QWidget> enabledOwner(this);
-                setEnabled(true);
-                if (!enabledOwner) return; m_account->setText(sidString); m_right->setCurrentText(right);
-                    if (!fillTable(m_rights, result.rows)) return; if (!filterTable(m_rights, m_search->text())) return;
-                    if (!clearRows(m_accounts)) return; showResult(m_status, result);
-                    if (result.error.isEmpty()) refreshAccounts();
-                });
-            });
-        }
-        QLineEdit *m_account = nullptr, *m_search = nullptr;
-        QComboBox* m_right = nullptr;
-        ValueTable *m_rights = nullptr, *m_accounts = nullptr;
-        QLabel* m_status = nullptr;
-        QLabel* m_description = nullptr;
-        quint64 m_rightsGeneration = 0, m_accountsGeneration = 0;
-    };
 }
+
+using namespace account_detail;
 
 QWidget* createAccountManagementPage(QWidget* parent,
     std::function<void(const QString&, const QString&)> navigate)
 { return new AccountPage(parent, std::move(navigate)); }
 QWidget* createGroupsPage(QWidget* parent) { return new GroupsPage(parent); }
-QWidget* createRightsPage(QWidget* parent) { return new RightsPage(parent); }
 void selectGroupAccount(QWidget* page, const QString& account)
 { if (auto* groups = dynamic_cast<GroupsPage*>(page)) groups->selectAccount(account); }
-void selectRightsAccount(QWidget* page, const QString& account)
-{ if (auto* rights = dynamic_cast<RightsPage*>(page)) rights->selectAccount(account); }
 
 bool setLocalAccountEnabled(const QString& account, bool enabled, QString* error)
 {
