@@ -145,8 +145,12 @@ $buildStartedAt = Get-Date
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $timedOut = $false
 $exitCode = 1
+$buildHostProcess = [System.Diagnostics.Process]::GetCurrentProcess()
+$previousPriorityClass = $buildHostProcess.PriorityClass
 
 try {
+    # Windows children inherit BelowNormal; set it before starting build tools.
+    $buildHostProcess.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
     $arguments = @(
         (Quote-ProcessArgument $projectPath),
         "/t:$Action",
@@ -208,6 +212,7 @@ try {
     Write-Output "BUILD_PERF_TRACE_ENABLED=$([bool]$EnablePerfTrace)"
     Write-Output "BUILD_MSBUILD_X64=$msbuildPath"
     Write-Output 'BUILD_TOOL_ARCHITECTURE=x64'
+    Write-Output 'BUILD_PRIORITY=BelowNormal'
     Write-Output "BUILD_HOST_TOOLS=$($toolProperties.VC_ExecutablePath_x64)"
     Write-Output "BUILD_LOG=$rawLogPath"
 
@@ -254,6 +259,7 @@ try {
     }
 }
 finally {
+    $buildHostProcess.PriorityClass = $previousPriorityClass
     $stopwatch.Stop()
     if ($null -eq $previousQtDirectory) {
         [Environment]::SetEnvironmentVariable('KSWORD_QT_DIR', $null, 'Process')

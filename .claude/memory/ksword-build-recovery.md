@@ -1,5 +1,9 @@
 # KSword MSVC / WDK 构建恢复
 
+## 用户要求：构建默认低优先级（2026-11-17）
+
+所有项目构建以 BelowNormal 启动，编译与链接子进程继承该优先级。`tools/Invoke-KSwordBuildCheck.ps1` 在启动任何构建工具前降低宿主优先级，并在 finally 恢复调用者原优先级；直接启动 MSBuild/WDK 时同样降低宿主优先级。结果汇报先说结果、原因和测试数据，验证范围与限制统一放在最后。
+
 ## 构建脚本结果读回与 Qt 回退（2026-10-01）
 
 - Invoke-KSwordBuildCheck.ps1 在仓库 Qt 缺失时使用约定的备用 Qt 路径，仍校验 x64 MSBuild 与 HostX64；不降级到 32 位入口。
