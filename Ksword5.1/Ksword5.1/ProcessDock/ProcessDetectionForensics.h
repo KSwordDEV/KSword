@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProcessDetectionMethods.h"
+#include <QStringList>
 
 namespace ksword::detection
 {
@@ -17,9 +18,13 @@ namespace ksword::detection
     inline constexpr MethodMask RawPageRoots = 1ULL << 55;
 
     QVector<Method> VolatilityMethods();
+    void RunVolatilityPlugin(ScanResult&, MethodReport&, const ScanInputs&, const CancelCheck&,
+        const QString& plugin, const QStringList& args, const QString& pluginDirectory = {});
     void ReadVolatility(ScanResult& result, MethodReport& report, const ScanInputs& inputs, const CancelCheck& stop);
     void ReadMountedMemory(ScanResult& result, MethodReport& report, const QString& root, const CancelCheck& stop);
     void ReadEventHistory(ScanResult& result, MethodReport& report, const CancelCheck& stop);
+    bool DecodeProcessHistoryEvent(const QString& document, Evidence& evidence);
+    void ReadServiceInstallHistory(ScanResult& result, MethodReport& report, const CancelCheck& stop);
     void ReadEtl(ScanResult& result, MethodReport& report, const QString& path, const CancelCheck& stop);
     void ScanRawPageRoots(ScanResult& result, MethodReport& report, const QString& path, const CancelCheck& stop);
 }

@@ -1553,6 +1553,8 @@ KernelCrossViewReport EvaluateKernelCrossView(const KernelCrossViewInput& input)
                 AddFact(finding.facts, "pte.page-size", DecText(extent.pageSize));
                 AddFact(finding.facts, "pte.writable", extent.writable ? "true" : "false");
                 AddFact(finding.facts, "pte.user", extent.userAccessible ? "true" : "false");
+                if (vadRequested && input.vadView.usableForAbsenceInference() && !vadHas)
+                    AddFact(finding.facts, "vad.covers-start", "false");
                 if (extent.firstEntryValue.present) {
                     AddFact(finding.facts, "pte.value", HexText(extent.firstEntryValue.value));
                 }

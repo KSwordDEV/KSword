@@ -1,0 +1,5 @@
+Windows Information:
+  Computer Name:   KSWORD-LAB
+MemProcFS Information:
+  Memory Source:   Read-only, Static
+  Unique Tag:      test-guest-001

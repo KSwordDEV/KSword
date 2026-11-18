@@ -2,6 +2,10 @@
 #include <bit>
 #include <iterator>
 #include <QFileInfo>
+#include <QFile>
+#include <QtEndian>
+#include <QCoreApplication>
+#include <QDir>
 #include <QProcess>
 #include <QProcessEnvironment>
 
@@ -9,7 +13,7 @@ namespace ksword::detection
 {
     namespace
     {
-        enum class RecordKind { Observation, CrossView, ExecutionFinding };
+        enum class RecordKind { Observation, CrossView, ExecutionFinding, LoaderLists, Research };
         struct Plugin { const char* id; QString name; RecordKind kind = RecordKind::Observation; };
         const Plugin plugins[] = {
             {"windows.pslist.PsList", QStringLiteral("镜像活动进程链表")},
@@ -19,7 +23,7 @@ namespace ksword::detection
             {"windows.netscan.NetScan", QStringLiteral("镜像网络端点池扫描")},
             {"windows.malware.hollowprocesses.HollowProcesses", QStringLiteral("镜像进程空洞化检查"), RecordKind::ExecutionFinding},
             {"windows.malware.processghosting.ProcessGhosting", QStringLiteral("镜像进程 Ghosting 检查"), RecordKind::ExecutionFinding},
-            {"windows.malware.ldrmodules.LdrModules", QStringLiteral("镜像 PEB 模块链与映射")},
+            {"windows.malware.ldrmodules.LdrModules", QStringLiteral("镜像 PEB 模块链与映射"), RecordKind::LoaderLists},
             {"windows.malware.malfind.Malfind", QStringLiteral("镜像可疑可执行内存"), RecordKind::ExecutionFinding},
             {"windows.malware.suspicious_threads.SuspiciousThreads", QStringLiteral("镜像可疑线程入口"), RecordKind::ExecutionFinding},
             {"windows.malware.drivermodule.DriverModule", QStringLiteral("镜像驱动对象与模块比对")},
@@ -74,6 +78,13 @@ namespace ksword::detection
                 return;
             }
             auto value = [&](const char* column) { return row.value(header.indexOf(QString::fromLatin1(column))); };
+            bool terminal = false;
+            if (kind == RecordKind::Research && (!header.contains(QStringLiteral("Status")) || !header.contains(QStringLiteral("Detail"))))
+            {
+                report.status = Status::Failed;
+                report.detail = QStringLiteral("Invalid research plugin schema");
+                return;
+            }
             while (pos < output.size())
             {
                 if (stop()) { report.status = Status::Cancelled; break; }
@@ -85,6 +96,21 @@ namespace ksword::detection
                 }
                 if (truncated && pos == output.size()) break;
                 if (row.size() == 1) continue;
+                if (kind == RecordKind::Research)
+                {
+                    if (terminal) { report.status = Status::Partial; report.detail += QStringLiteral(" | Trailing plugin records"); break; }
+                    const auto status = value("Status").trimmed().toLower();
+                    if (!status.isEmpty() && status != QStringLiteral("data"))
+                    {
+                        terminal = true;
+                        if (status == QStringLiteral("complete")) report.status = Status::Complete;
+                        else if (status == QStringLiteral("partial")) report.status = Status::Partial;
+                        else if (status == QStringLiteral("unavailable")) report.status = Status::Unavailable;
+                        else report.status = Status::Failed;
+                        report.detail += QStringLiteral(" | ") + value("Detail");
+                        continue;
+                    }
+                }
                 if (report.count >= rowLimit)
                 {
                     report.status = Status::Partial;
@@ -95,6 +121,10 @@ namespace ksword::detection
                 evidence.methods = report.method;
                 evidence.scope = imagePath;
                 evidence.pid = value("PID").toUInt();
+                if (kind == RecordKind::CrossView && value("csrss").compare(QStringLiteral("True"), Qt::CaseInsensitive) == 0)
+                    evidence.researchPoints.set(10-1);
+                if (kind == RecordKind::Research)
+                    evidence.objectAddress = value("Address").toULongLong(nullptr, 0);
                 evidence.image = value("ImageFileName");
                 if (evidence.image.isEmpty()) evidence.image = value("Name");
                 if (evidence.image.isEmpty()) evidence.image = value("Process");
@@ -102,6 +132,11 @@ namespace ksword::detection
                     evidence.category = QStringLiteral("镜像活动链表缺项");
                 else if (kind == RecordKind::ExecutionFinding)
                     evidence.category = QStringLiteral("镜像可疑执行线索");
+                else if (kind == RecordKind::LoaderLists &&
+                    (value("InLoad").compare(QStringLiteral("False"), Qt::CaseInsensitive) == 0 ||
+                     value("InInit").compare(QStringLiteral("False"), Qt::CaseInsensitive) == 0 ||
+                     value("InMem").compare(QStringLiteral("False"), Qt::CaseInsensitive) == 0))
+                    evidence.category = QStringLiteral("镜像模块链差异");
                 else
                     evidence.category = QStringLiteral("镜像取证记录");
                 QStringList details;
@@ -112,6 +147,11 @@ namespace ksword::detection
                 // the raw columns, separate from the live Toolhelp comparison.
                 result.evidence.append(std::move(evidence));
                 ++report.count;
+            }
+            if (kind == RecordKind::Research && !terminal && report.status == Status::Complete)
+            {
+                report.status = report.count ? Status::Partial : Status::Failed;
+                report.detail += QStringLiteral(" | Missing coverage receipt");
             }
         }
     }
@@ -124,7 +164,8 @@ namespace ksword::detection
         return list;
     }
 
-    void ReadVolatility(ScanResult& result, MethodReport& report, const ScanInputs& inputs, const CancelCheck& stop)
+    static void executePlugin(ScanResult& result, MethodReport& report, const ScanInputs& inputs, const CancelCheck& stop,
+        const QString& plugin, RecordKind kind, const QStringList& extra, const QString& directory)
     {
         const QFileInfo program(inputs.volatilityProgram);
         const QFileInfo memory(inputs.memoryImage);
@@ -135,16 +176,31 @@ namespace ksword::detection
             report.detail = QStringLiteral("请在检测方法中选择 Volatility 3 可执行文件和可读内存镜像。");
             return;
         }
-        const auto index = std::countr_zero(report.method) - std::countr_zero(firstPlugin);
-        if (index < 0 || index >= static_cast<int>(std::size(plugins))) { report.status = Status::Failed; return; }
         QProcess process;
         auto env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
+        env.insert(QStringLiteral("PYTHONDONTWRITEBYTECODE"), QStringLiteral("1"));
+        // pip --target puts the launcher in bin/ and its matching package beside
+        // that directory. Only use the package belonging to the explicitly chosen launcher.
+        QDir package = program.absoluteDir();
+        if (program.fileName().compare(QStringLiteral("vol.exe"), Qt::CaseInsensitive) == 0 &&
+            package.dirName().compare(QStringLiteral("bin"), Qt::CaseInsensitive) == 0 && package.cdUp() &&
+            QFileInfo(package.filePath(QStringLiteral("volatility3/__init__.py"))).isFile() &&
+            QFileInfo(package.filePath(QStringLiteral("volatility3/cli/__init__.py"))).isFile())
+        {
+            const auto previous = env.value(QStringLiteral("PYTHONPATH"));
+            env.insert(QStringLiteral("PYTHONPATH"), previous.isEmpty() ? package.absolutePath()
+                : package.absolutePath() + QDir::listSeparator() + previous);
+        }
         process.setProcessEnvironment(env);
         process.setWorkingDirectory(program.absolutePath());
-        process.start(program.absoluteFilePath(), {QStringLiteral("--offline"), QStringLiteral("-q"),
-            QStringLiteral("-r"), QStringLiteral("csv"), QStringLiteral("-f"), memory.absoluteFilePath(),
-            QString::fromLatin1(plugins[index].id)}, QIODevice::ReadOnly);
+        QStringList arguments{QStringLiteral("--offline"), QStringLiteral("-q")};
+        const auto shipped = QCoreApplication::applicationDirPath() + QStringLiteral("/forensics");
+        if (!directory.isEmpty()) arguments << QStringLiteral("-p") << directory;
+        else if (QFileInfo::exists(shipped + QStringLiteral("/kswordbitmap.py"))) arguments << QStringLiteral("-p") << shipped;
+        arguments << QStringLiteral("-r") << QStringLiteral("csv") << QStringLiteral("-f") << memory.absoluteFilePath() << plugin;
+        arguments.append(extra);
+        process.start(program.absoluteFilePath(), arguments, QIODevice::ReadOnly);
         if (!process.waitForStarted(5000))
         {
             report.status = Status::Failed;
@@ -165,7 +221,7 @@ namespace ksword::detection
                 if (report.status == Status::Partial)
                 {
                     // Only parse through full CSV records from the bounded prefix.
-                    parseRows(output.first(maxBytes), plugins[index].kind, memory.absoluteFilePath(), result, report, stop, true);
+                    parseRows(output.first(maxBytes), kind, memory.absoluteFilePath(), result, report, stop, true);
                     report.status = Status::Partial;
                     report.detail = QStringLiteral("取证输出达到读取上限。");
                 }
@@ -176,11 +232,42 @@ namespace ksword::detection
         {
             report.status = Status::Failed;
             const auto diagnostic = errors.trimmed() + '\n' + output.right(2048).trimmed();
-            report.detail = QStringLiteral("%1 (%2)\n%3").arg(QString::fromLatin1(plugins[index].id))
+            report.detail = QStringLiteral("%1 (%2)\n%3").arg(plugin)
                 .arg(process.exitCode()).arg(QString::fromUtf8(diagnostic).trimmed());
             return;
         }
-        report.detail = QString::fromLatin1(plugins[index].id) + QLatin1String(" | ") + memory.absoluteFilePath();
-        parseRows(output, plugins[index].kind, memory.absoluteFilePath(), result, report, stop);
+        report.detail = plugin + QLatin1String(" | ") + memory.absoluteFilePath();
+        parseRows(output, kind, memory.absoluteFilePath(), result, report, stop);
+        if ((kind == RecordKind::ExecutionFinding || kind == RecordKind::LoaderLists) && report.status == Status::Complete)
+        {
+            QFile capture(memory.absoluteFilePath());
+            if (capture.open(QIODevice::ReadOnly))
+            {
+                const auto header = capture.read(0xfa0);
+                if (header.size() >= 0xf9c && header.startsWith("PAGEDU64"))
+                {
+                    const auto type = qFromLittleEndian<quint32>(header.constData() + 0xf98);
+                    if (type == 2 || type == 4 || type == 6)
+                    {
+                        report.status = Status::Partial;
+                        report.detail += QStringLiteral(" | Kernel dump: user address spaces may be absent");
+                    }
+                }
+            }
+        }
+    }
+
+    void RunVolatilityPlugin(ScanResult& result, MethodReport& report, const ScanInputs& inputs, const CancelCheck& stop,
+        const QString& plugin, const QStringList& args, const QString& pluginDirectory)
+    {
+        executePlugin(result, report, inputs, stop, plugin,
+            plugin == QStringLiteral("kswordobjects.KswordObjects") ? RecordKind::Research : RecordKind::Observation, args, pluginDirectory);
+    }
+
+    void ReadVolatility(ScanResult& result, MethodReport& report, const ScanInputs& inputs, const CancelCheck& stop)
+    {
+        const auto index = std::countr_zero(report.method) - std::countr_zero(firstPlugin);
+        if (index < 0 || index >= static_cast<int>(std::size(plugins))) { report.status = Status::Failed; return; }
+        executePlugin(result, report, inputs, stop, QString::fromLatin1(plugins[index].id), plugins[index].kind, {}, {});
     }
 }

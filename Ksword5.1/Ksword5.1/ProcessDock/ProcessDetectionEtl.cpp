@@ -5,6 +5,8 @@
 #include <evntcons.h>
 #include <tdh.h>
 #include <exception>
+#include <array>
+#include <cstring>
 
 #pragma comment(lib, "tdh.lib")
 
@@ -16,7 +18,8 @@ namespace ksword::detection
         constexpr GUID processGuid{0x3d6fa8d0,0xfe05,0x11d0,{0x9d,0xda,0x00,0xc0,0x4f,0xd7,0xba,0x7c}};
         constexpr GUID threadGuid{0x3d6fa8d1,0xfe05,0x11d0,{0x9d,0xda,0x00,0xc0,0x4f,0xd7,0xba,0x7c}};
         constexpr GUID kernelProcess{0x22fb2cd6,0x0e7b,0x422b,{0xa0,0xc7,0x2f,0xad,0x1f,0xd0,0xe7,0x16}};
-        constexpr quint64 limit = 4096;
+        constexpr quint64 limit = 4096; // Per event family: hot scheduling records cannot displace later lifetime events.
+        constexpr quint64 eventLimit = 1024 * 1024;
 
         bool readId(EVENT_RECORD* event, const wchar_t* name, quint32& value)
         {
@@ -39,11 +42,14 @@ namespace ksword::detection
             QHash<quint32, quint32> owners;
             quint64 omitted = 0;
             std::exception_ptr failure;
+            std::array<quint64, 3> kept{};
+            quint64 visited = 0;
 
-            bool finished() const { return failure || stop() || (report.count >= limit && omitted); }
+            bool finished() const { return failure || stop() || visited > eventLimit; }
             void record(EVENT_RECORD* event)
             {
                 if (finished()) return;
+                if (++visited > eventLimit) { ++omitted; return; }
                 const auto& header = event->EventHeader;
                 const bool manifest = IsEqualGUID(header.ProviderId, kernelProcess);
                 const bool process = IsEqualGUID(header.ProviderId, processGuid);
@@ -52,37 +58,48 @@ namespace ksword::detection
                 const auto op = header.EventDescriptor.Opcode;
                 const bool life = op >= 1 && op <= 4;
                 const bool cswitch = thread && op == 36;
+                const bool ready = thread && op == 50;
                 if (report.method == EtlProcesses)
                 {
                     if (!((process && (life || op == 39)) || (manifest && (id == 1 || id == 2)))) return;
                 }
-                else if (!((thread && (life || cswitch)) || (manifest && (id == 3 || id == 4)))) return;
-                if (report.count >= limit) { ++omitted; return; }
+                else if (!((thread && (life || cswitch || ready)) || (manifest && (id == 3 || id == 4)))) return;
+                auto& family = kept[cswitch ? 1 : ready ? 2 : 0];
+                if (family >= limit && (cswitch || ready || process)) { ++omitted; return; }
                 Evidence evidence;
                 quint32 tid = 0;
-                if (cswitch)
+                if (cswitch || ready)
                 {
-                    if (!readId(event, L"NewThreadId", tid)) { ++omitted; return; }
+                    if (cswitch && header.EventDescriptor.Version >= 2 && header.EventDescriptor.Version <= 5 &&
+                        event->UserData && event->UserDataLength >= 2 * sizeof(quint32)) {
+                        // The classic CSwitch payload begins with NewThreadId and OldThreadId on x86 and x64.
+                        // Some Windows builds do not supply a TDH manifest for their CSwitch version.
+                        std::memcpy(&tid, event->UserData, sizeof(tid));
+                    }
+                    else if (!readId(event, ready ? L"TThreadId" : L"NewThreadId", tid)) { ++omitted; return; }
                     // Dropped lifetime events can make a recycled TID point at the wrong PID.
                     if (!traceLostEvents) evidence.pid = owners.value(tid);
                 }
                 else
                 {
-                    if (!(readId(event, L"ProcessId", evidence.pid) || readId(event, L"ProcessID", evidence.pid)))
-                    { ++omitted; return; }
+                    const bool knownPid = readId(event, L"ProcessId", evidence.pid) || readId(event, L"ProcessID", evidence.pid);
                     if (report.method == EtlThreads)
                     {
                         if (!(readId(event, L"TThreadId", tid) || readId(event, L"ThreadID", tid)))
-                        { ++omitted; return; }
-                        if ((thread && op == 2) || (manifest && id == 4)) owners.remove(tid);
-                        else owners.insert(tid, evidence.pid);
+                        { owners.clear(); ++omitted; return; } // A malformed lifetime could describe a recycled TID.
+                        if (!knownPid || (thread && op == 2) || (manifest && id == 4)) owners.remove(tid);
+                        else if (!thread || op != 4) owners.insert(tid, evidence.pid);
                     }
+                    if (!knownPid) { ++omitted; return; }
                 }
+                if (family >= limit) { ++omitted; return; } // Thread start/stop still updated the ownership map.
+                ++family;
                 evidence.methods = report.method;
+                if (cswitch) evidence.researchId = 17;
                 evidence.historical = true;
                 evidence.scope = path;
                 evidence.detail = QStringLiteral("%1 | id=%2 | opcode=%3 | TID=%4 | FILETIME=%5")
-                    .arg(cswitch ? QStringLiteral("CSwitch") : manifest ? QStringLiteral("Kernel-Process")
+                    .arg(cswitch ? QStringLiteral("CSwitch") : ready ? QStringLiteral("ReadyThread") : manifest ? QStringLiteral("Kernel-Process")
                         : process ? QStringLiteral("Process") : QStringLiteral("Thread"))
                     .arg(id).arg(op).arg(tid).arg(header.TimeStamp.QuadPart);
                 scan.evidence.append(std::move(evidence));
@@ -138,7 +155,7 @@ namespace ksword::detection
             report.status = report.count ? Status::Partial : Status::Failed;
         else if (code == ERROR_CANCELLED || reader.omitted || log.LogfileHeader.EventsLost)
             report.status = Status::Partial;
-        report.detail = QStringLiteral("%1 | Win32=%2 | EventsLost=%3 | skipped=%4 | limit=%5")
+        report.detail = QStringLiteral("%1 | Win32=%2 | EventsLost=%3 | skipped=%4 | per-family limit=%5")
             .arg(path).arg(code).arg(log.LogfileHeader.EventsLost).arg(reader.omitted).arg(limit);
     }
 }

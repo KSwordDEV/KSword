@@ -1,0 +1,6 @@
+   #    PID Process        Type            Address          Description
+-----------------------------------------------------------------------
+0000    145 sample name.exePE_INJECT       0000000012345000 MZ private mapping
+0001    442 trusted.exe    UM_APC          0000000000000042 routine, context, TID 321
+0002    879 program.exe    PE_PATCHED      0000000000001000 image page differs from prototype
+0003    120 other.exe      THREAD          0000000000002000 contains PE_INJECT in the description only

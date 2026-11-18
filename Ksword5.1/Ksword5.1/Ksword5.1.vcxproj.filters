@@ -1205,6 +1205,51 @@
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <None Include="forensics\kswordobjects.py">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="forensics\kswordbitmap.py">
+      <Filter>Resource Files</Filter>
+    </None>
+    <ClCompile Include="ProcessDock\ProcessResearchCatalog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessDetectionProfile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="ProcessDock\ProcessDetectionProfile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClCompile Include="ProcessDock\ProcessResearchObjects.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessResearchExternal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessResearchSavedState.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessResearchActivity.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessResearchScan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="ProcessDock\ProcessResearchCatalog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessResearchObjects.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessResearchExternal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessResearchSavedState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessResearchActivity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="ProcessDock\ProcessDetectionPane.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

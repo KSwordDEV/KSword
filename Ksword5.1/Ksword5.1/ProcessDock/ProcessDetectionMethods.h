@@ -5,12 +5,15 @@
 #include <QDateTime>
 #include <QString>
 #include <QVector>
+#include <bitset>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 
 namespace ksword::detection
 {
+    struct VmrsProcessFiles;
     using MethodMask = std::uint64_t;
     inline constexpr MethodMask ProcessBaseline = 1ULL << 0;
     inline constexpr MethodMask ThreadOwners = 1ULL << 1;
@@ -43,6 +46,25 @@ namespace ksword::detection
         QString memProcFsRoot;
         QString eventTraceFile;
         QString flatPhysicalImage;
+        QString guestProcessFile;
+        QString processorTraceFile;
+        QString processorTraceTool;
+        QString xenTraceFile;
+        QString debuggerProgram;
+        QString debuggerTarget;
+        QString memProcFsLibrary;
+        QString vmiMountRoot;
+        QString dmaMountRoot;
+        QString hypervSavedState;
+        QString vmwareProcessId;
+    };
+    constexpr int ResearchCount = 66;
+    using ResearchSet = std::bitset<ResearchCount>;
+    struct DetectionSelection
+    {
+        ResearchSet research;
+        MethodMask sources = 0;
+        bool empty() const { return research.none() && sources == 0; }
     };
     struct MethodReport
     {
@@ -51,6 +73,9 @@ namespace ksword::detection
         qint64 elapsedMs = 0;
         quint64 count = 0;
         QString detail;
+        int researchId = 0;
+        quint32 capturedCategories = 0;
+        bool completeForCapturedCategories = false;
     };
     struct Evidence
     {
@@ -65,6 +90,8 @@ namespace ksword::detection
         QString scope; // Non-local evidence is never compared with the live host baseline.
         QString category;
         bool lifetimeUnknown = false;
+        int researchId = 0; // Typed evidence subtype supplied by the originating collector.
+        ResearchSet researchPoints;
     };
     struct ScanResult
     {
@@ -75,6 +102,8 @@ namespace ksword::detection
         QVector<Evidence> evidence;
         std::optional<ark::ProcessCrossViewResult> processCrossView;
         std::optional<ark::ThreadCrossViewResult> threadCrossView;
+        std::shared_ptr<ark::HvmEventResult> researchHvmEvents;
+        std::shared_ptr<const VmrsProcessFiles> researchVmrsProcessFiles;
     };
 
     QVector<Method> Methods();

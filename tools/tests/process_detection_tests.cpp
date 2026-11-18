@@ -1,5 +1,7 @@
 #include <WinSock2.h>
 #include "../../Ksword5.1/Ksword5.1/ProcessDock/ProcessDetectionForensics.h"
+#include "../../Ksword5.1/Ksword5.1/ProcessDock/ProcessResearchCatalog.h"
+#include "../../Ksword5.1/Ksword5.1/ProcessDock/ProcessDetectionProfile.h"
 #include "../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 #include "../../Ksword5.1/Ksword5.1/ksword/file/file_handle_tools.h"
 #include "../../Ksword5.1/Ksword5.1/ksword/process/process.h"
@@ -7,6 +9,7 @@
 #include "../../Ksword5.1/Ksword5.1/MemoryDock/PhysicalPageScan.h"
 #include "../../Ksword5.1/Ksword5.1/MemoryDock/PhysicalPageMappings.h"
 #include <QCoreApplication>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
@@ -20,6 +23,8 @@ namespace
 {
     unsigned checks = 0;
     unsigned driverQueries = 0;
+    bool exercisingUnavailableProviders = false;
+    bool emptyHvmRing = false;
     unsigned long processFlags = 0;
     unsigned long threadFlags = 0;
     void check(bool condition, const char* reason)
@@ -39,8 +44,17 @@ namespace
 }
 
 // Keep driver availability deterministic without loading or changing a host driver.
+namespace ksword::detection
+{
+    QString PrepareDetectionLayout(const ResearchSet&, const QString&) { return {}; }
+}
+
 namespace ksword::ark
 {
+    CallbackEnumResult DriverClient::enumerateCallbacks(unsigned long) const { return unavailable<CallbackEnumResult>(); }
+    SsdtEnumResult DriverClient::enumerateSsdt(unsigned long) const { return unavailable<SsdtEnumResult>(); }
+    KernelInlineHookScanResult DriverClient::scanInlineHooks(unsigned long, unsigned long, const std::wstring&) const
+    { return unavailable<KernelInlineHookScanResult>(); }
     ProcessCrossViewResult DriverClient::queryProcessCrossView(unsigned long flags, std::uint32_t,
         std::uint32_t, unsigned long, DriverHandle*) const
     { processFlags = flags; return unavailable<ProcessCrossViewResult>(); }
@@ -49,7 +63,13 @@ namespace ksword::ark
     { threadFlags = flags; return unavailable<ThreadCrossViewResult>(); }
     CallbackMonitorStatusResult DriverClient::queryCallbackMonitorStatus() const { return unavailable<CallbackMonitorStatusResult>(); }
     CallbackMonitorReadResult DriverClient::readCallbackMonitor(std::uint64_t, unsigned long) const { return unavailable<CallbackMonitorReadResult>(); }
-    HvmEventResult DriverClient::queryHvmEvents(std::uint64_t, unsigned long, bool) const { return unavailable<HvmEventResult>(); }
+    HvmEventResult DriverClient::queryHvmEvents(std::uint64_t, unsigned long, bool) const
+    {
+        if (!emptyHvmRing) return unavailable<HvmEventResult>();
+        HvmEventResult result{};
+        result.io.ok = true;
+        return result;
+    }
     HvmProcessResult DriverClient::resolveHvmDirectoryBase(std::uint64_t) const { return unavailable<HvmProcessResult>(); }
     DriverIntegrityResult DriverClient::queryKernelCpuIntegrity(unsigned long, unsigned long, unsigned long) const { return unavailable<DriverIntegrityResult>(); }
     DriverIntegrityResult DriverClient::queryDriverIntegrity(const std::wstring&, std::uint64_t,
@@ -69,15 +89,26 @@ namespace ksword::ark
 // a disabled provider actually ran and must make the test fail.
 namespace ksword::pfn
 {
-    void collectPhysicalPages(const std::shared_ptr<ScanJob>&) { throw std::runtime_error("disabled live PFN provider executed"); }
-    void collectPhysicalMappings(const std::shared_ptr<MappingJob>&, unsigned) { throw std::runtime_error("disabled mappings provider executed"); }
+    void collectPhysicalPages(const std::shared_ptr<ScanJob>& job)
+    {
+        if (!exercisingUnavailableProviders) throw std::runtime_error("disabled live PFN provider executed");
+        job->result = std::make_shared<Scan>();
+        job->result->rangesStatus = static_cast<LONG>(0xc00000bb);
+    }
+    void collectPhysicalMappings(const std::shared_ptr<MappingJob>&, unsigned)
+    {
+        if (!exercisingUnavailableProviders) throw std::runtime_error("disabled mappings provider executed");
+    }
 }
 namespace ks::process
 {
     std::string GetProcessNameByPID(std::uint32_t) { throw std::runtime_error("unused network process name lookup"); }
     std::string QueryProcessPathByPid(std::uint32_t) { throw std::runtime_error("file occupancy search executed"); }
     std::vector<ProcessRecord> EnumerateProcesses(ProcessEnumStrategy, ProcessEnumStrategy*, std::uint32_t)
-    { throw std::runtime_error("disabled per-process memory survey executed"); }
+    {
+        if (!exercisingUnavailableProviders) throw std::runtime_error("disabled per-process memory survey executed");
+        return {};
+    }
     InjectionTraceResult ScanProcessInjectionTrace(std::uint32_t, std::uint64_t, const QString&, const InjectionTraceOptions&)
     { throw std::runtime_error("disabled per-process memory survey executed"); }
 }
@@ -89,15 +120,129 @@ int main(int argc, char** argv)
     // Child fixture exercises the real argument list, CSV parser and subprocess
     // diagnostics without requiring a Volatility installation or a memory dump.
     const auto args = app.arguments();
+    if (args.value(1) == QStringLiteral("--vmrs-crosscheck"))
+    {
+        if (args.size() != 5) return 2;
+        ScanInputs input;
+        input.hypervSavedState = args[2];
+        input.memProcFsLibrary = args[3];
+        input.guestProcessFile = args[4];
+        input.memProcFsRoot = QStringLiteral("unrelated-generic-mount");
+        DetectionSelection selection;
+        selection.research.set(44-1); selection.research.set(49-1);
+        const auto result = RunSelected(selection, {}, input);
+        bool system = false, staticView = false, comparison = false;
+        for (const auto& row : result.evidence)
+            if (row.researchPoints.test(44-1) && row.pid == 4 && row.image == QStringLiteral("System"))
+                system |= row.historical && row.scope.contains(QStringLiteral("Hyper-V HvSavedState"));
+        for (const auto& r : result.reports)
+        {
+            std::cout << "id=" << r.researchId << " status=" << int(r.status) << " rows=" << r.count
+                << " ms=" << r.elapsedMs << " " << r.detail.toStdString() << '\n';
+            if (r.researchId == 44) staticView = (r.status == Status::Complete || r.status == Status::Partial) &&
+                r.count > 0 && r.detail.contains(QStringLiteral("Read-only, Static"));
+            if (r.researchId == 49) comparison = r.status == Status::Partial &&
+                QRegularExpression(QStringLiteral("candidate_matches=[1-9][0-9]*")).match(r.detail).hasMatch();
+        }
+        return system && staticView && comparison ? 0 : 1;
+    }
+    const bool orphanTrace = args.value(1) == QStringLiteral("--etl-orphan-check");
+    if (orphanTrace || args.value(1) == QStringLiteral("--etl-check"))
+    {
+        if (args.size() != 5) return 2;
+        const auto markerPid = args[3].toUInt(), markerTid = args[4].toUInt();
+        if (!markerPid || !markerTid) return 2;
+        ScanInputs input;
+        input.eventTraceFile = args[2];
+        bool valid = true;
+        for (int id : {17, 36, 37})
+        {
+            if (orphanTrace && id == 36) continue;
+            DetectionSelection selection;
+            selection.research.set(id - 1);
+            const auto result = RunSelected(selection, {}, input);
+            if (result.reports.size() != 1) return 1;
+            const auto& receipt = result.reports.front();
+            unsigned starts = 0, ends = 0, switches = 0, ready = 0, unknown = 0, unownedMarker = 0;
+            for (const auto& row : result.evidence) {
+                if (!row.researchPoints.test(id - 1) || !row.historical || row.scope != input.eventTraceFile)
+                    valid = false;
+                const bool switchEvent = row.detail.startsWith(QStringLiteral("CSwitch |"));
+                const bool readyEvent = row.detail.startsWith(QStringLiteral("ReadyThread |"));
+                if (id == 17 && !switchEvent) valid = false;
+                if ((switchEvent || readyEvent) && !row.pid) ++unknown;
+                const bool markerThread = row.detail.contains(QStringLiteral(" | TID=%1 |").arg(markerTid));
+                if (orphanTrace && (switchEvent || readyEvent)) {
+                    if (row.pid != 0) valid = false;
+                    if (markerThread && !row.pid) ++unownedMarker;
+                }
+                if (row.pid != markerPid || (id != 36 && !markerThread)) continue;
+                if (switchEvent) ++switches;
+                else if (readyEvent) ++ready;
+                else if (row.detail.contains(QStringLiteral(" | opcode=1 |"))) ++starts;
+                else if (row.detail.contains(QStringLiteral(" | opcode=2 |"))) ++ends;
+            }
+            std::cout << "ID=" << id << " rows=" << receipt.count << " status=" << int(receipt.status)
+                << " marker_start=" << starts << " marker_end=" << ends << " marker_switch=" << switches
+                << " marker_ready=" << ready << " unknown_schedule_pid=" << unknown << " unowned_marker=" << unownedMarker
+                << " " << receipt.detail.toStdString() << '\n';
+            valid &= receipt.status == Status::Complete || receipt.status == Status::Partial;
+            valid &= orphanTrace ? unownedMarker > 0 : id == 17 ? switches > 0 : id == 36 ? starts && ends : starts && ends && switches && ready;
+        }
+        return valid ? 0 : 1;
+    }
+    if (args.value(1) == QStringLiteral("--image-check"))
+    {
+        if (args.size() != 5) return 2;
+        DetectionSelection selected;
+        for (const auto& field : args[4].split(QLatin1Char(',')))
+        {
+            bool ok = false;
+            const int id = field.toInt(&ok);
+            if (!ok || id < 1 || id > ResearchCount) return 2;
+            selected.research.set(id-1);
+        }
+        ScanInputs inputs;
+        inputs.memoryImage = args[2];
+        inputs.volatilityProgram = args[3];
+        // Some numbered checks pair an image view with a live view. In this
+        // fixture the live transport is deliberately unavailable.
+        exercisingUnavailableProviders = true;
+        ScanResult result;
+        try { result = RunSelected(selected, {}, inputs); }
+        catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
+        bool allRead = true;
+        for (const auto& report : result.reports)
+        {
+            std::cout << "id=" << report.researchId << " status=" << static_cast<int>(report.status)
+                << " count=" << report.count << " elapsed_ms=" << report.elapsedMs << '\n';
+            if (report.status == Status::Failed || report.status == Status::Unavailable)
+                std::cerr << report.detail.toUtf8().constData() << '\n';
+            allRead &= (report.status == Status::Complete || report.status == Status::Partial);
+        }
+        return allRead && size_t(result.reports.size()) == selected.research.count() ? 0 : 1;
+    }
     if (args.value(1) == QStringLiteral("--exit-fixture")) return 0;
     if (args.value(1) == QStringLiteral("--offline"))
     {
-        if (args.size() != 8 || args[2] != QStringLiteral("-q") || args[3] != QStringLiteral("-r")
-            || args[4] != QStringLiteral("csv") || args[5] != QStringLiteral("-f")
-            || !QFileInfo(args[6]).isFile()) return 2;
-        if (args[7] == QStringLiteral("windows.pslist.PsList"))
+        const int renderer = args.indexOf(QStringLiteral("-r"));
+        if ((renderer != 3 && renderer != 5) || args[2] != QStringLiteral("-q") ||
+            args.value(renderer + 1) != QStringLiteral("csv") || args.value(renderer + 2) != QStringLiteral("-f")
+            || !QFileInfo(args.value(renderer + 3)).isFile()) return 2;
+        if (args.value(renderer+4) == QStringLiteral("kswordobjects.KswordObjects"))
+        {
+            std::cout << "TreeDepth,Status,PID,Name,Address,Detail\n0,,99,test,0xffff800000000001,observed\n";
+            if (args.last() == QStringLiteral("3")) std::cout << "0,partial,,,,sparse capture\n";
+            return 0;
+        }
+        if (args.value(renderer+4) == QStringLiteral("windows.pslist.PsList"))
         {
             std::cout << "TreeDepth,PID,ImageFileName,Note,Offset\n0,77,\"image,name\",\"line one\nline two\",18446744073709486081\n";
+            return 0;
+        }
+        if (args.value(renderer+4) == QStringLiteral("windows.malware.psxview.PsXView"))
+        {
+            std::cout << "TreeDepth,PID,Name,csrss,pslist\n0,77,one,True,False\n0,78,two,False,True\n";
             return 0;
         }
         std::cerr << "fixture plugin unavailable\n";
@@ -117,6 +262,61 @@ int main(int argc, char** argv)
         }
         check(Defaults(false) && (Defaults(true) & ~Defaults(false)), "independent defaults");
         check(!((Defaults(false) | Defaults(true)) & ~all), "defaults contain unknown bits");
+        const auto listPreset = DetectionDefaults(false);
+        const auto deepPreset = DetectionDefaults(true);
+        check(listPreset.research.any() && deepPreset.research != listPreset.research, "numbered presets differ");
+        DetectionSelection every;
+        every.research.set();
+        const auto canceled = RunSelected(every, [] { return true; });
+        check(canceled.cancelled && canceled.reports.size() == ResearchCount, "a receipt for all 66 research points");
+        for (int i = 0; i < ResearchCount; ++i)
+        {
+            const auto& point = ResearchCatalog().at(i);
+            check(point.id == i+1 && !point.name.isEmpty(), "number and name must match the original index");
+            check(!listPreset.research.test(i) || point.cost == Cost::Fast, "list preset cost");
+            check(canceled.reports[i].researchId == point.id && canceled.reports[i].status == Status::Cancelled, "no alias above bit 63");
+        }
+        check(RunSelected({}).reports.isEmpty() && !driverQueries, "empty or cancelled selection cannot run providers");
+        emptyHvmRing = true;
+        DetectionSelection cr3;
+        cr3.research.set(22-1);
+        const auto noSample = RunSelected(cr3);
+        check(noSample.reports.size() == 1 && noSample.reports[0].status == Status::Unavailable &&
+            noSample.evidence.isEmpty(), "a readable but empty event ring has no processor CR3 sample");
+        emptyHvmRing = false;
+        {
+            exercisingUnavailableProviders = true;
+            const auto matrix = RunSelected(every);
+            check(matrix.reports.size() == ResearchCount, "every selected research point must execute or report its missing input");
+            for (int i = 0; i < ResearchCount; ++i)
+            {
+                const auto& receipt = matrix.reports[i];
+                check(receipt.researchId == i+1 && receipt.status != Status::Cancelled &&
+                    receipt.detail != QStringLiteral("No collector registered"), "unrouted research point");
+            }
+            check(std::all_of(matrix.evidence.begin(), matrix.evidence.end(), [](const Evidence& row) {
+                return row.researchPoints.any();
+            }), "a finding must retain its numbered source");
+            for (int i = 0; i < ResearchCount; ++i)
+            {
+                DetectionSelection only;
+                only.research.set(i);
+                const auto sample = RunSelected(only);
+                check(sample.reports.size() == 1 && sample.reports.front().researchId == i+1, "single selection ran the wrong method");
+                check(std::all_of(sample.evidence.begin(), sample.evidence.end(), [&](const Evidence& e) {
+                    return e.researchPoints == only.research;
+                }), "single selection returned evidence attributed to another research point");
+            }
+            exercisingUnavailableProviders = false;
+            driverQueries = 0;
+        }
+        DetectionSelection callbackSelection;
+        for (const int id : {31,32,33,34,35,42}) callbackSelection.research.set(id-1);
+        const auto callbacks = RunSelected(callbackSelection);
+        check(callbacks.reports.size() == 6 && driverQueries == 1, "six receipts from a single callback query");
+        for (const auto& receipt : callbacks.reports)
+            check(receipt.status == Status::Unavailable, "missing callback monitor");
+        driverQueries = 0;
         const auto live = Run(ProcessBaseline | ThreadOwners);
         check(live.reports.size() == 2 && live.startedUtc.isValid(), "live snapshot identity");
         for (const auto& report : live.reports)
@@ -240,11 +440,35 @@ int main(int argc, char** argv)
         };
         writeImage();
         const auto roots = Run(RawPageRoots, {}, inputs);
+        DetectionSelection sharedRoots;
+        sharedRoots.research.set(18);
+        sharedRoots.research.set(19);
+        auto flatInputs = inputs;
+        flatInputs.memProcFsRoot.clear();
+        const auto shared = RunSelected(sharedRoots, {}, flatInputs);
+        check(shared.evidence.size() == 1 && shared.reports.size() == 2 &&
+            shared.evidence.front().researchPoints == sharedRoots.research, "shared scan records both independent selection IDs");
         check(roots.reports.size() == 1 && roots.reports.front().status == Status::Complete &&
             roots.evidence.size() == 1 && roots.evidence.front().detail.contains(QStringLiteral("PML4=0x1000"))
             && roots.evidence.front().scope == inputs.flatPhysicalImage, "known flat page root");
         inputs.volatilityProgram = app.applicationFilePath();
         inputs.memoryImage = inputs.flatPhysicalImage;
+        DetectionSelection csrssImage;
+        csrssImage.research.set(10-1);
+        const auto csrssView = RunSelected(csrssImage, {}, inputs);
+        check(csrssView.reports.size() == 1 && csrssView.reports[0].count == 1 &&
+            csrssView.evidence.size() == 1 && csrssView.evidence[0].pid == 77 &&
+            csrssView.evidence[0].scope == inputs.memoryImage, "independent CSRSS selection must exclude unsupported image rows");
+        MethodReport special;
+        ScanResult specialResult;
+        RunVolatilityPlugin(specialResult, special, inputs, [] { return false; }, QStringLiteral("kswordobjects.KswordObjects"),
+            {QStringLiteral("--method"), QStringLiteral("3")}, app.applicationDirPath());
+        check(special.status == Status::Partial && special.count == 1 && specialResult.evidence.size() == 1 &&
+            specialResult.evidence.front().objectAddress == 0xffff800000000001ULL, "plugin receipt and exact address");
+        special = {};
+        RunVolatilityPlugin(specialResult, special, inputs, [] { return false; }, QStringLiteral("kswordobjects.KswordObjects"),
+            {QStringLiteral("--method"), QStringLiteral("5")}, app.applicationDirPath());
+        check(special.status == Status::Partial, "missing plugin coverage receipt");
         const auto plugins = VolatilityMethods();
         const auto vol = Run(plugins[0].bit | plugins[1].bit, {}, inputs);
         check(vol.reports.size() == 2 && vol.reports[0].status == Status::Complete &&

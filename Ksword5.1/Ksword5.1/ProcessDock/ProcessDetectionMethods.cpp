@@ -3,6 +3,7 @@
 #endif
 #include <WinSock2.h>
 #include "ProcessDetectionMethods.h"
+#include "ProcessResearchActivity.h"
 #include "ProcessDetectionExtra.h"
 #include "ProcessDetectionNativeMemory.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -360,6 +361,13 @@ namespace ksword::detection
         {
             const ark::DriverClient client;
             const auto state = client.queryCallbackMonitorStatus();
+            report.capturedCategories = state.registeredCategoryMask & state.categoryMask;
+            if (!(state.runtimeFlags & KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_CAPTURING) ||
+                (state.runtimeFlags & KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_STOPPING))
+                report.capturedCategories = 0;
+            if ((report.capturedCategories & KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS) &&
+                (state.runtimeFlags & KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_SUBSYSTEM_NOTIFY))
+                report.capturedCategories |= SubsystemCreationCapture;
             constexpr ULONG relevant = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_ALL;
             if (!state.io.ok || (!(state.categoryMask & relevant) && !state.queuedCount))
             {
@@ -370,7 +378,7 @@ namespace ksword::detection
             }
             const auto end = state.latestSequence;
             std::uint64_t cursor = end > state.queuedCount ? end - state.queuedCount : 0;
-            bool incomplete = (state.categoryMask & relevant) != relevant || state.droppedCount != 0 ||
+            bool incomplete = state.droppedCount != 0 ||
                 cursor != 0 || !(state.runtimeFlags & KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_CAPTURING);
             while (cursor < end)
             {
@@ -393,6 +401,17 @@ namespace ksword::detection
                     if (!(entry.category & relevant) || !pid) continue;
                     auto& row = append(result, report.method, pid);
                     row.historical = true;
+                    switch (entry.category)
+                    {
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS:
+                        row.researchId = (entry.flags & KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_SUBSYSTEM_CREATE) ? 32 : 31;
+                        break;
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD: row.researchId = 33; break;
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_IMAGE: row.researchId = 34; break;
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_OBJECT: row.researchId = 35; break;
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_REGISTRY:
+                    case KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER: row.researchId = 42; break;
+                    }
                     if (ioActivity) row.image = QString::fromStdWString(entry.processName);
                     else if (entry.category == KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS)
                         row.image = QString::fromStdWString(entry.path);
@@ -405,7 +424,8 @@ namespace ksword::detection
                 if (batch.nextSequence <= cursor) { incomplete = true; break; }
                 cursor = batch.nextSequence;
             }
-            if (incomplete) report.status = Status::Partial;
+            report.completeForCapturedCategories = !incomplete;
+            if (incomplete || (report.capturedCategories & relevant) != relevant) report.status = Status::Partial;
             report.detail = QStringLiteral("回调类别 0x%1，保留记录 %2，最后序号 %3，累计丢弃 %4")
                 .arg(state.categoryMask, 0, 16).arg(state.queuedCount).arg(end).arg(state.droppedCount);
         }

@@ -514,7 +514,20 @@
     <ClCompile Include="ProcessDock\ProcessDock.Icon.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchCatalog.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchObjects.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchExternal.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchSavedState.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchActivity.cpp" />
+    <ClCompile Include="ProcessDock\ProcessResearchScan.cpp" />
+    <ClInclude Include="ProcessDock\ProcessResearchCatalog.h" />
+    <ClInclude Include="ProcessDock\ProcessResearchObjects.h" />
+    <ClInclude Include="ProcessDock\ProcessResearchExternal.h" />
+    <ClInclude Include="ProcessDock\ProcessResearchSavedState.h" />
+    <ClInclude Include="ProcessDock\ProcessResearchActivity.h" />
     <ClCompile Include="ProcessDock\ProcessDetectionPane.cpp" />
+    <ClCompile Include="ProcessDock\ProcessDetectionProfile.cpp" />
+    <ClInclude Include="ProcessDock\ProcessDetectionProfile.h" />
     <ClCompile Include="ProcessDock\ProcessDetectionMethods.cpp" />
     <ClCompile Include="ProcessDock\ProcessDetectionSelector.cpp" />
     <ClCompile Include="ProcessDock\ProcessDetectionExtra.cpp" />
@@ -1541,6 +1554,8 @@
     <None Include="profiles\ark_dyndata_pack_v4.json" />
     <None Include="ArkDriverClient\ArkRuntimeDynDataCatalog.inc" />
     <None Include="languages\en-US.json" />
+    <None Include="forensics\kswordobjects.py" />
+    <None Include="forensics\kswordbitmap.py" />
     <None Include="languages\zh-CN.json" />
     <None Include="Resource\Logo\KswordLogo.png" />
     <None Include="Resource\Splash\StartupLandscape.png" />
@@ -1565,6 +1580,11 @@
     <Exec Command="&quot;$(KswordThemeTokenPythonExe)&quot; &quot;$(KswordThemeTokenAuditScript)&quot; --source-root &quot;$(MSBuildProjectDirectory)&quot;" />
   </Target>
   <Target Name="CopyKswordLanguagePacks" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\forensics\kswordobjects.py;$(MSBuildProjectDirectory)\forensics\kswordbitmap.py" DestinationFolder="$(TargetDir)forensics\" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <DetectionProfile Include="$(MSBuildProjectDirectory)\..\..\tools\pdb_offset_generator\process_detection_profiles\*.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DetectionProfile)" DestinationFolder="$(TargetDir)profiles\process-detection\" SkipUnchangedFiles="true" />
     <ItemGroup>
       <KswordLanguagePack Include="$(MSBuildProjectDirectory)\languages\*.json" />
     </ItemGroup>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{79C55978-CE79-4568-A405-27C9368915AE}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet><UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir>$(OutDir)ProcessLive\obj\</IntDir>
+    <TargetName>process_research_live_probe</TargetName>
+    <ProductObjects>$(MSBuildThisFileDirectory)..\..\Ksword5.1\Ksword5.1\Ksword5.1\x64\Release\</ProductObjects>
+    <CLToolPath>$(VCToolsInstallDir)bin\Hostx64\x64\</CLToolPath>
+    <LinkToolPath>$(VCToolsInstallDir)bin\Hostx64\x64\</LinkToolPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;QT_CORE_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <AdditionalOptions>/external:I"$(KSWORD_QT_DIR)\include" /external:I"$(KSWORD_QT_DIR)\include\QtCore" /utf-8 /Zc:__cplusplus /permissive- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem><LinkIncremental>false</LinkIncremental>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <OptimizeReferences>true</OptimizeReferences><GenerateDebugInformation>false</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(KSWORD_QT_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Qt6Core.lib;Ole32.lib;Shell32.lib;Advapi32.lib;Authz.lib;Secur32.lib;Netapi32.lib;Userenv.lib;Setupapi.lib;Crypt32.lib;ImageHlp.lib;Propsys.lib;Wintrust.lib;Dbghelp.lib;Psapi.lib;Pdh.lib;Rstrtmgr.lib;wbemuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="process_research_live_probe.cpp" />
+    <!-- Consume the same ABI, collectors and DeviceIoControl transport as the formal Release.
+         This project never links the fixture transport or embeds its own driver implementation. -->
+    <ProbeObject Include="ProcessResearchCatalog;ProcessResearchScan;ProcessResearchObjects;ProcessResearchActivity;ProcessResearchExternal;ProcessResearchSavedState" />
+    <ProbeObject Include="ProcessDetectionProfile;ArkDriverDynData;ArkDriverAudit" />
+    <ProbeObject Include="ProcessDetectionMethods;ProcessDetectionExtra;ProcessDetectionNativeMemory;ProcessDetectionEventHistory;ProcessDetectionMountedMemory;ProcessDetectionEtl;ProcessDetectionRawRoots;ProcessDetectionVolatility" />
+    <ProbeObject Include="ArkDriverClient;ArkDriverError;ArkDriverProcess;ArkDriverKernel;ArkDriverCallbackMonitor;ArkDriverMemory;ArkDriverHvm;ArkDriverWorkQueue;ArkDriverHandle;ArkDriverPfn;ArkDriverInjectionScan" />
+    <ProbeObject Include="PhysicalPageScan;PhysicalPageMappings;PhysicalPageConsumers;injection_trace_collector;injection_stack_walk;InjectionSurvey;process;file_handle_tools;string;ArkDriverCallback" />
+    <ProbeObject Include="ArkDriverSection;ArkDriverModule;ArkDriverDdma;ImageDiff;PeImageMap;EvidenceEnvelope;ObjectIdentity;MemoryRegionEvidence;LosslessValue;ScanBudget" />
+    <Object Include="@(ProbeObject->'$(ProductObjects)%(Identity).obj')" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="InstallReadOnlyDetectionProfiles" AfterTargets="Build">
+    <ItemGroup><ReadOnlyProfile Include="$(MSBuildThisFileDirectory)..\pdb_offset_generator\process_detection_profiles\*.json" /></ItemGroup>
+    <Copy SourceFiles="@(ReadOnlyProfile)" DestinationFolder="$(OutDir)profiles\process-detection" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

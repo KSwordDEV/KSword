@@ -55,6 +55,8 @@ namespace ksword::detection
                 row.creationTime100ns = backing.processCreateTime;
                 row.image = backing.process;
                 row.objectAddress = it->va;
+                row.researchPoints.set(28 - 1);
+                if (backing.sectionObject || backing.controlArea) row.researchPoints.set(29 - 1);
                 row.detail = QStringLiteral("映射 %1 页，示例 PFN 0x%2，分配基址 0x%3，Section 0x%4，ControlArea 0x%5，%6")
                     .arg(it->count).arg(it->pfn, 0, 16).arg(backing.allocationBase, 0, 16)
                     .arg(backing.sectionObject, 0, 16).arg(backing.controlArea, 0, 16).arg(backing.path);
@@ -101,6 +103,20 @@ namespace ksword::detection
                 .arg(scan->accounting.visited).arg(scan->accounting.expected).arg(scan->accounting.unreadable)
                 .arg(scan->resolvedPrivatePages).arg(scan->unresolvedPrivatePages).arg(scan->ownerConflicts)
                 .arg(static_cast<quint32>(scan->rangesStatus < 0 ? scan->rangesStatus : scan->lastPageStatus), 0, 16);
+            if (scan->rangesStatus < 0 && !scan->batches.empty())
+            {
+                const auto& trace = scan->batches.front().trace;
+                for (unsigned i = 0; i < trace.nativeAttemptCount && i < trace.nativeAttempts.size(); ++i)
+                {
+                    const auto& attempt = trace.nativeAttempts[i];
+                    report.detail += QStringLiteral(" | R3[%1/v%2]=0x%3").arg(attempt.informationClass)
+                        .arg(attempt.abiVersion).arg(static_cast<quint32>(attempt.status), 0, 16);
+                }
+                report.detail += QStringLiteral(" | R0 open=%1 invoked=%2 transport=0x%3 query=0x%4")
+                    .arg(trace.driverAvailable).arg(trace.driverInvoked)
+                    .arg(static_cast<quint32>(trace.driverTransportStatus), 0, 16)
+                    .arg(static_cast<quint32>(trace.driverStatus), 0, 16);
+            }
             for (const auto& group : scan->groups)
             {
                 if (group.use != pfn::Use::Private || !group.pages) continue;
@@ -152,7 +168,28 @@ namespace ksword::detection
                 ++verified;
                 const bool kernelComplete = scan.kernelPteState == ev::KernelBackendState::Available &&
                     scan.kernelVadState == ev::KernelBackendState::Available;
-                if (kernelComplete) ++kernelChecked;
+                if (kernelComplete)
+                {
+                    ++kernelChecked;
+                    auto& check = out.evidence.emplaceBack();
+                    check.methods = report.method;
+                    check.researchId = 27;
+                    check.pid = process.pid;
+                    check.creationTime100ns = scan.creationTime100ns;
+                    check.image = scan.imagePath;
+                    quint64 differences = 0;
+                    for (const auto& finding : scan.report.findings)
+                    {
+                        const auto& facts = finding.facts;
+                        if (std::find(facts.begin(), facts.end(), "kernel.cross-issue=ExecutableBeyondVadView") != facts.end() ||
+                            std::find(facts.begin(), facts.end(), "vad.covers-start=false") != facts.end())
+                        {
+                            if (!differences && finding.address.present) check.objectAddress = finding.address.value;
+                            ++differences;
+                        }
+                    }
+                    check.detail = QStringLiteral("VAD/PTE | executable extents outside VADs=%1").arg(differences);
+                }
                 if (!scan.report.scopeIntact || !kernelComplete) ++incomplete;
                 struct RuleGroup { quint64 count = 0; const ev::InjectionFinding* first = nullptr; };
                 QMap<QString, RuleGroup> rules;
@@ -216,6 +253,12 @@ namespace ksword::detection
                 auto& row = out.evidence.emplaceBack();
                 row.methods = report.method;
                 row.category = QStringLiteral("内核内存执行线索");
+                constexpr auto presentExecutable = KSWORD_ARK_MEMORY_EVIDENCE_PERMISSION_PRESENT |
+                    KSWORD_ARK_MEMORY_EVIDENCE_PERMISSION_EXECUTE;
+                if ((entry.permissionFlags & presentExecutable) == presentExecutable &&
+                    (entry.riskFlags & KSWORD_ARK_MEMORY_EVIDENCE_RISK_NONMODULE_EXECUTABLE) != 0 &&
+                    entry.ownerKind != KSWORD_ARK_MEMORY_EVIDENCE_OWNER_LOADED_MODULE)
+                    row.researchId = 62;
                 row.image = QString::fromStdWString(entry.ownerName);
                 row.objectAddress = entry.virtualAddress;
                 row.detail = QStringLiteral("%1 | kind=%2 | owner=%3 | permissions=0x%4 | flags=0x%5 | size=%6")

@@ -1,5 +1,6 @@
 #include "ProcessDetectionPane.h"
 #include "ProcessDetectionMethods.h"
+#include "ProcessResearchCatalog.h"
 #include "ProcessDetectionSelector.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
@@ -66,6 +67,9 @@ namespace ksword::detection
             result.started = scan.startedUtc.toLocalTime().toString(Qt::ISODateWithMs);
             const auto catalog = Methods();
             QHash<MethodMask, QString> names;
+            std::array<QString, ResearchCount> researchNames;
+            for (const auto& point : ResearchCatalog())
+                researchNames[point.id-1] = QStringLiteral("%1. %2").arg(point.id).arg(language.sourceText(point.name));
             auto methodNames = [&](MethodMask mask)
             {
                 const auto existing = names.constFind(mask);
@@ -79,7 +83,8 @@ namespace ksword::detection
             {
                 result.usable += report.status == Status::Complete || report.status == Status::Partial;
                 result.complete += report.status == Status::Complete;
-                result.reports.push_back({methodNames(report.method), statusName(report.status),
+                const QString label = report.researchId ? researchNames.at(report.researchId-1) : methodNames(report.method);
+                result.reports.push_back({label, statusName(report.status),
                     QString::number(report.elapsedMs), QString::number(report.count), report.detail});
             }
             result.evidence.reserve(static_cast<size_t>(scan.evidence.size()));
@@ -87,7 +92,15 @@ namespace ksword::detection
             for (const auto& entry : scan.evidence)
             {
                 if (token.isCanceled()) return result;
-                const QString methods = methodNames(entry.methods);
+                QStringList matched;
+                if (entry.researchPoints.any())
+                {
+                    for (const auto& point : ResearchCatalog())
+                        if (entry.researchPoints.test(point.id-1)) matched.append(researchNames[point.id-1]);
+                }
+                const auto sources = methodNames(entry.methods);
+                if (!sources.isEmpty()) matched.append(sources);
+                const QString methods = matched.join(QStringLiteral(", "));
                 QString category = QStringLiteral("进程线索");
                 if (!entry.category.isEmpty()) category = entry.category;
                 else if (entry.historical) category = QStringLiteral("历史记录");
@@ -156,9 +169,20 @@ namespace ksword::detection
                 bindings.append({i, ids.at(i)});
             }
             auto* model = new TableModel(std::move(columns),
-                [](const QStringList& row, int column, int role) -> QVariant
+                [kindColumn = ids.indexOf(QStringLiteral("kind")), detailColumn = ids.indexOf(QStringLiteral("detail"))]
+                (const QStringList& row, int column, int role) -> QVariant
                 {
-                    if (role == Qt::DisplayRole || role == Qt::ToolTipRole) return row.at(column);
+                    if (role == Qt::DisplayRole || role == Qt::ToolTipRole)
+                    {
+                        const auto& value = row.at(column);
+                        if (column != kindColumn && column != detailColumn) return value;
+                        // Collector diagnostics can originate in either language, mixed with raw event fields.
+                        const auto& language = ks::i18n::LanguageManager::instance();
+                        if (!value.contains(QChar::LineFeed)) return language.packedSourceText(value);
+                        auto lines = value.split(QChar::LineFeed);
+                        for (auto& line : lines) line = language.packedSourceText(line);
+                        return lines.join(QChar::LineFeed);
+                    }
                     if (role == Qt::ForegroundRole && column == 0 &&
                         (row.front() == QStringLiteral("未在基线中观察到") || row.front() == QStringLiteral("内核结构差异")))
                         return KswordTheme::WarningColor();
@@ -298,18 +322,18 @@ namespace ksword::detection
         auto& s = *m_state;
         if (s.operation->isInFlight()) return;
         const auto selected = s.selector->selectedMethods();
-        if (!selected)
+        if (selected.empty())
         {
             s.status->setText(QStringLiteral("请先选择检测方法。"));
             return;
         }
-        struct Request { MethodMask methods; ScanInputs inputs; ks::i18n::SourceTextSnapshot language; };
+        struct Request { DetectionSelection methods; ScanInputs inputs; ks::i18n::SourceTextSnapshot language; };
         s.cancelRequested = false;
         s.status->setText(QStringLiteral("正在采集所选方法的证据…"));
         s.operation->submit<Request, std::shared_ptr<DisplaySnapshot>>(
             {selected, s.selector->scanInputs(), ks::i18n::LanguageManager::instance().sourceTextSnapshot()},
             [](const Request& request, const ks::ui::AsyncOperationToken& token) {
-                auto scan = Run(request.methods, [&token] { return token.isCanceled(); }, request.inputs);
+                auto scan = RunSelected(request.methods, [&token] { return token.isCanceled(); }, request.inputs);
                 return std::make_shared<DisplaySnapshot>(present(scan, request.language, token));
             },
             [this](const std::shared_ptr<DisplaySnapshot>& result, std::uint64_t generation) {
