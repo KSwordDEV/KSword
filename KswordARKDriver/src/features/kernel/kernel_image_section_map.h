@@ -34,4 +34,8 @@ KswordARKImageClassifyAddress(
     _Out_opt_ ULONG* SectionCharacteristicsOut
     );
 
+// Prove a complete static LIST_ENTRY lies inside a resident writable, non-executable .data section.
+BOOLEAN KswordARKImageContainsStaticWritableList(_In_ const KSW_HOOK_SYSTEM_MODULE_ENTRY* Module,
+    _In_ ULONGLONG Address);
+
 EXTERN_C_END

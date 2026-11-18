@@ -70,10 +70,11 @@ Return Value:
     Destination[index] = L'\0';
 }
 
-ULONG
-KswordARKImageClassifyAddress(
+static ULONG
+KswImageClassifyRange(
     _In_opt_ const KSW_HOOK_SYSTEM_MODULE_ENTRY* ModuleEntry,
     _In_ ULONGLONG Address,
+    _In_ ULONG Bytes,
     _Out_writes_opt_z_(SectionNameChars) PWCHAR SectionName,
     _In_ ULONG SectionNameChars,
     _Out_opt_ ULONG* SectionCharacteristicsOut
@@ -115,7 +116,7 @@ Return Value:
     }
 
     /* 没有模块条目或映像大小为零时无法做任何 RVA 推算。 */
-    if (ModuleEntry == NULL || ModuleEntry->ImageSize == 0UL) {
+    if (ModuleEntry == NULL || Bytes == 0UL || Bytes > ModuleEntry->ImageSize) { // The entire span must be backed by this image.
         return KSW_IMAGE_SECTION_RESULT_UNKNOWN;
     }
 
@@ -125,7 +126,7 @@ Return Value:
     /* 地址必须真的落在该映像区间内，否则本次归类没有意义。 */
     if (imageBase == 0ULL ||
         Address < imageBase ||
-        (Address - imageBase) >= (ULONGLONG)ModuleEntry->ImageSize) {
+        (Address - imageBase) > (ULONGLONG)(ModuleEntry->ImageSize - Bytes)) { // Subtraction avoids end-address overflow.
         return KSW_IMAGE_SECTION_RESULT_UNKNOWN;
     }
 
@@ -197,8 +198,8 @@ Return Value:
         }
 
         /* 目标 RVA 落在本节区间内则完成归类。 */
-        if (targetRva >= sectionHeader.VirtualAddress &&
-            (targetRva - sectionHeader.VirtualAddress) < sectionLength) {
+        if (targetRva >= sectionHeader.VirtualAddress && sectionLength >= Bytes &&
+            (targetRva - sectionHeader.VirtualAddress) <= sectionLength - Bytes) { // Reject a list entry straddling two sections.
             /* 回填节名与 Characteristics，供上层生成可读证据。 */
             KswordARKImageCopySectionName(sectionHeader.Name, SectionName, SectionNameChars);
             if (SectionCharacteristicsOut != NULL) {
@@ -213,4 +214,22 @@ Return Value:
 
     /* 遍历完仍未命中，说明地址位于 PE 头区或节间空洞。 */
     return KSW_IMAGE_SECTION_RESULT_OUTSIDE_SECTIONS;
+}
+
+ULONG KswordARKImageClassifyAddress(const KSW_HOOK_SYSTEM_MODULE_ENTRY* module, ULONGLONG address,
+    PWCHAR name, ULONG chars, ULONG* characteristics)
+{
+    return KswImageClassifyRange(module, address, 1UL, name, chars, characteristics); // Original single-address semantics.
+}
+
+BOOLEAN KswordARKImageContainsStaticWritableList(const KSW_HOOK_SYSTEM_MODULE_ENTRY* module, ULONGLONG address)
+{
+    WCHAR name[KSW_IMAGE_SECTION_NAME_CHARS] = { 0 }; // Exact section name, including its terminator.
+    ULONG flags = 0UL; // Initialized output from the guarded PE parser.
+    const ULONG required = IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE; // Runtime static link storage.
+    const ULONG rejected = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_DISCARDABLE; // Exclude mixed, code or discardable ranges.
+    return KswImageClassifyRange(module, address, sizeof(LIST_ENTRY), name, RTL_NUMBER_OF(name), &flags) ==
+        KSW_IMAGE_SECTION_RESULT_NON_EXECUTABLE && (flags & required) == required && !(flags & rejected) &&
+        (flags & (IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_CNT_UNINITIALIZED_DATA)) &&
+        RtlCompareMemory(name, L".data", sizeof(L".data")) == sizeof(L".data"); // Unknown section layouts retain the original evidence.
 }
