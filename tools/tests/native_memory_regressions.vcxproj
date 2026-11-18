@@ -23,8 +23,12 @@
     <!-- 只使用既有 output 目录；三个入口分别生成二进制，不进入产品工程。 -->
     <OutDir>$(MSBuildThisFileDirectory)..\..\output\</OutDir>
     <IntDir>$(OutDir)</IntDir>
+    <OutDir Condition="'$(Fixture)' == 'ProcessDetection'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessDetection'">$(OutDir)ProcessDetection\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessDetection'">process_detection_tests</TargetName>
     <TLogLocation>$(IntDir)</TLogLocation>
     <TrackFileAccess>false</TrackFileAccess>
+    <TrackFileAccess Condition="'$(Fixture)' == 'ProcessDetection'">true</TrackFileAccess>
     <EnableManagedMinimalRebuild>false</EnableManagedMinimalRebuild>
     <TargetName Condition="'$(Fixture)' == 'Catalog'">memory_debug_process_catalog_tests</TargetName>
     <TargetName Condition="'$(Fixture)' == 'Target'">issue216_r3_target</TargetName>
@@ -51,7 +55,7 @@
       <LinkIncremental>false</LinkIncremental>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Fixture)' == 'Codec'">
+  <ItemDefinitionGroup Condition="'$(Fixture)' == 'Codec' Or '$(Fixture)' == 'ProcessDetection'">
     <ClCompile>
       <PreprocessorDefinitions>QT_CORE_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
@@ -61,6 +65,23 @@
       <AdditionalLibraryDirectories>$(KSWORD_QT_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Qt6Core.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessDetection'">
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ksword\file\file_handle_tools.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ksword\string\string.cpp" />
+    <ClCompile Include="process_detection_tests.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionMethods.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionExtra.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionEtl.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionNativeMemory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionMountedMemory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionEventHistory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionVolatility.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionRawRoots.cpp" />
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(Fixture)' == 'ProcessDetection'">
+    <ClCompile><FunctionLevelLinking>true</FunctionLevelLinking></ClCompile>
+    <Link><OptimizeReferences>true</OptimizeReferences></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="kernel_service_audit_evidence_tests.cpp">
@@ -93,8 +114,8 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="ValidateNativeRegressionInputs" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(Fixture)' != 'Catalog' and '$(Fixture)' != 'Target' and '$(Fixture)' != 'Codec' and '$(Fixture)' != 'Threads' and '$(Fixture)' != 'ProtectionResults' and '$(Fixture)' != 'AuditEvidence'" Text="Fixture must be Catalog, Target, Codec, Threads, ProtectionResults, or AuditEvidence." />
-    <Error Condition="!Exists('$(OutDir)')" Text="The existing repository output directory is required." />
+    <Error Condition="'$(Fixture)' != 'Catalog' and '$(Fixture)' != 'Target' and '$(Fixture)' != 'Codec' and '$(Fixture)' != 'Threads' and '$(Fixture)' != 'ProtectionResults' and '$(Fixture)' != 'AuditEvidence' and '$(Fixture)' != 'ProcessDetection'" Text="Unknown native regression fixture." />
+    <Error Condition="'$(Fixture)' != 'ProcessDetection' and !Exists('$(OutDir)')" Text="The existing repository output directory is required." />
     <Error Condition="!Exists('$(CLToolPath)cl.exe') or !Exists('$(LinkToolPath)link.exe')" Text="HostX64 MSVC is required." />
     <Error Condition="'$(Fixture)' == 'Codec' and !Exists('$(KSWORD_QT_DIR)\lib\Qt6Core.lib')" Text="KSWORD_QT_DIR must identify an MSVC Qt SDK." />
     <Message Importance="high" Text="NATIVE_REGRESSION_FIXTURE=$(Fixture) HOST_COMPILER=$(CLToolPath)cl.exe" />

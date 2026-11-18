@@ -91,39 +91,42 @@ __ACTUAL_REGISTRATION__
 struct Fixture
 {
     std::unique_ptr<ProcessDock> dock=std::make_unique<ProcessDock>();
-    QTabWidget top,inner;
-    std::array<std::unique_ptr<QWidget>,6> pages;
+    QTabWidget top,inner,list;
+    std::array<std::unique_ptr<QWidget>,9> pages;
     Fixture()
     {
         for(auto& page:pages)page=std::make_unique<QWidget>();
-        const std::array<int,6> order{0,1,3,4,2,5};
+        const std::array<int,9> order{7,8,0,1,3,4,2,5,6};
         for(const int row:order) dock->registerNavigationTab(static_cast<ProcessDock::NavigationPage>(row),
-            row==3||row==4?&inner:&top,pages[static_cast<std::size_t>(row)].get());
+            row>=7?&list:row==3||row==4?&inner:&top,pages[static_cast<std::size_t>(row)].get());
     }
     QStringList trace;
     void observe()
     {
         top.onSelect=[this](QWidget* page){trace.append(QStringLiteral("top:")+QString::number(top.indexOf(page)));};
         inner.onSelect=[this](QWidget* page){trace.append(QStringLiteral("inner:")+QString::number(inner.indexOf(page)));};
+        list.onSelect=[this](QWidget* page){trace.append(QStringLiteral("list:")+QString::number(list.indexOf(page)));};
     }
 };
 int main(int argc,char** argv)
 {
     QCoreApplication app(argc,argv);
     const unsigned coldBefore=widgetConstructions;
-    const auto cold=ProcessDock::navigationCatalog();check(cold.size()==6&&widgetConstructions==coldBefore);
+    const auto cold=ProcessDock::navigationCatalog();check(cold.size()==9&&widgetConstructions==coldBefore);
     const QStringList ids{QStringLiteral("list"),QStringLiteral("threads"),QStringLiteral("cross_view"),
-        QStringLiteral("cross_view.process"),QStringLiteral("cross_view.thread"),QStringLiteral("create")};
+        QStringLiteral("cross_view.process"),QStringLiteral("cross_view.thread"),QStringLiteral("create"),QStringLiteral("deep_detection"),
+        QStringLiteral("list.processes"),QStringLiteral("list.detection")};
     for(int i=0;i<cold.size();++i)
     {
         check(cold[i].id==ids[i]&&cold[i].visible&&cold[i].enabled&&!cold[i].title.isEmpty());
         check(cold[i].searchTexts.contains(cold[i].title));
-        check(cold[i].parentId==(i==3||i==4?QStringLiteral("cross_view"):QString()));
+        check(cold[i].parentId==(i>=7?QStringLiteral("list"):i==3||i==4?QStringLiteral("cross_view"):QString()));
     }
-    const auto resolved=ks::ui::ResolvePageNavigationCatalog(cold,QStringLiteral("Process"));check(resolved&&resolved->size()==6);
+    const auto resolved=ks::ui::ResolvePageNavigationCatalog(cold,QStringLiteral("Process"));check(resolved&&resolved->size()==9);
+    check((*resolved)[7].page.current&&!(*resolved)[8].page.current&&(*resolved)[8].depth==2);
     check((*resolved)[0].page.current&&!(*resolved)[3].page.current&&(*resolved)[3].depth==2);
     const auto registryCold=ks::ui::RegisteredPageNavigationCatalog(QStringLiteral("process"),nullptr);
-    check(registryCold&&registryCold->size()==6&&widgetConstructions==coldBefore);
+    check(registryCold&&registryCold->size()==9&&widgetConstructions==coldBefore);
     check(!ks::ui::RegisteredPageNavigationCatalog(QStringLiteral("not-process"),nullptr));
     check(ks::ui::NavigateRegisteredPageNavigationCatalog(QStringLiteral("process"),nullptr,ids[0])==nullptr);
     {
@@ -133,7 +136,12 @@ int main(int argc,char** argv)
         check(warm[0].current&&warm[3].current&&!warm[2].current);
         // Factory registration is idempotent and keeps icon/title/widget identity.
         fixture.dock->registerNavigationTab(ProcessDock::NavigationPage::List,&fixture.top,fixture.pages[0].get(),QIcon());
-        check(fixture.top.items.size()==4&&fixture.top.iconUpdates==1);
+        check(fixture.top.items.size()==5&&fixture.top.iconUpdates==1);
+        check(fixture.dock->activateNavigationDescriptor(ids[6])==fixture.pages[6].get());
+        fixture.trace.clear();
+        check(fixture.dock->activateNavigationDescriptor(ids[8])==fixture.pages[8].get());
+        check(fixture.trace==QStringList({QStringLiteral("top:0"),QStringLiteral("list:1")}));
+        fixture.trace.clear();
         check(fixture.dock->activateNavigationDescriptor(QStringLiteral("unknown"))==nullptr&&fixture.trace.isEmpty());
         check(fixture.dock->activateNavigationDescriptor(ids[4])==fixture.pages[4].get());
         check(fixture.trace==QStringList({QStringLiteral("top:2"),QStringLiteral("inner:1")}));
@@ -159,7 +167,7 @@ int main(int argc,char** argv)
         ks::i18n::LanguageManager::instance().retranslate(QStringLiteral("en-US"));
         const auto translated=ProcessDock::navigationCatalog(fixture.dock.get());
         const auto translatedCold=ProcessDock::navigationCatalog();
-        for(int i=0;i<6;++i)check(translated[i].title==translatedCold[i].title&&translated[i].id==ids[i]);
+        for(int i=0;i<ids.size();++i)check(translated[i].title==translatedCold[i].title&&translated[i].id==ids[i]);
         fixture.top.setTabText(0,QStringLiteral("actual dynamic title"));
         check(ProcessDock::navigationCatalog(fixture.dock.get())[0].title==QStringLiteral("actual dynamic title"));
         fixture.pages[4].reset();check(!ProcessDock::navigationCatalog(fixture.dock.get())[4].visible);
@@ -191,6 +199,6 @@ int main(int argc,char** argv)
         check(fixture.dock->activateNavigationDescriptor(ids[4])==nullptr);
     }
     ks::i18n::LanguageManager::instance().retranslate(QStringLiteral("zh-CN"));
-    const auto chinese=ProcessDock::navigationCatalog();check(chinese.size()==6&&chinese[0].title.startsWith(QStringLiteral("zh-CN:")));
+    const auto chinese=ProcessDock::navigationCatalog();check(chinese.size()==9&&chinese[0].title.startsWith(QStringLiteral("zh-CN:")));
     std::cout<<"{\"result\":\"passed\",\"checks\":"<<checks<<",\"cold_widget_constructions\":0,\"scope\":\"actual catalog/factory/navigation methods + actual central header; QtCore QObject fakes only\"}\n";
 }

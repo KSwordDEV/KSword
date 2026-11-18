@@ -227,11 +227,17 @@ namespace
         std::uint64_t maxReadBytes = 0;
         std::uint64_t bytesRead = 0;
         ev::BudgetStop stop = ev::BudgetStop::Continue;
+        std::function<bool()> cancelled;
 
         bool exhausted()
         {
             if (stop != ev::BudgetStop::Continue)
             {
+                return true;
+            }
+            if (cancelled && cancelled())
+            {
+                stop = ev::BudgetStop::Cancelled;
                 return true;
             }
             if (maxDurationMs != 0U &&
@@ -1182,6 +1188,7 @@ InjectionTraceResult ScanProcessInjectionTrace(const std::uint32_t pid,
     Budget budget;
     budget.timer.start();
     budget.maxDurationMs = options.maxDurationMs;
+    budget.cancelled = options.cancelled;
     budget.maxReadBytes = options.maxReadBytes;
 
     // --- 身份：开始前 ---------------------------------------------------------
@@ -1862,7 +1869,7 @@ InjectionTraceResult ScanProcessInjectionTrace(const std::uint32_t pid,
     }
 
     // --- R0 扫描后端 ----------------------------------------------------------
-    if (options.useKernelBackend)
+    if (options.useKernelBackend && !(options.cancelled && options.cancelled()))
     {
         const ksword::ark::DriverClient driverClient;
         QStringList diagnostics;
@@ -1950,7 +1957,7 @@ InjectionTraceResult ScanProcessInjectionTrace(const std::uint32_t pid,
                 }
                 if (r.status == KSWORD_ARK_INJECTION_SCAN_STATUS_TRUNCATED &&
                     r.nextCursorVpn != 0ULL &&
-                    vadView.regions.size() < options.kernelVadMaxEntries)
+                    vadView.regions.size() < options.kernelVadMaxEntries && !budget.exhausted())
                 {
                     cursorVpn = r.nextCursorVpn;
                     // 要续扫就说明第一次没走完整棵树，断链判据作废。

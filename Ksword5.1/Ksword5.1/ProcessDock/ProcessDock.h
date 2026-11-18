@@ -70,7 +70,8 @@ class QTableView;
 class QTabWidget;
 class QTimer;
 class QTreeView;
-namespace ks::ui { class MetricAreaWindow; }
+namespace ks::ui { class FlowLayout; class MetricAreaWindow; }
+namespace ksword::detection { class ProcessDetectionPane; }
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
@@ -597,7 +598,7 @@ public:
     };
 
 private:
-    enum class NavigationPage : std::size_t { List, Threads, CrossView, CrossViewProcess, CrossViewThread, Create, Count };
+    enum class NavigationPage : std::size_t { List, Threads, CrossView, CrossViewProcess, CrossViewThread, Create, DeepDetection, ListProcesses, ListDetection, Count };
     struct NavigationDefinition
     {
         const char* id;
@@ -650,6 +651,7 @@ private:
     void initializeCreateProcessConnections();
     // showProcessSettingsDialog：打开进程列表的集中设置窗口；窗口复用已有控件，设置即时生效。
     void showProcessSettingsDialog();
+    void ensureListDetectionPane();
     void focusProcessSearchBox(bool selectAllText);
     QString currentProcessSearchText() const;
     bool processRecordMatchesSearch(const ks::process::ProcessRecord& processRecord) const;
@@ -1249,7 +1251,7 @@ private:
     QVBoxLayout* m_crossViewPageLayout = nullptr; // Cross-View 页主布局。
 
     // ======== 控制栏 ========
-    QHBoxLayout* m_controlLayout = nullptr;   // 上方“操作按钮”行布局。
+    ks::ui::FlowLayout* m_controlLayout = nullptr;
     QComboBox* m_strategyCombo = nullptr;     // 进程遍历方案下拉框。
     QDialog* m_processSettingsDialog = nullptr; // 进程列表设置窗口，非模态复用已有设置控件。
     QVBoxLayout* m_processSettingsLayout = nullptr; // 设置窗口单列布局。
@@ -1269,6 +1271,12 @@ private:
     QPushButton* m_columnChooserButton = nullptr; // “选择列”按钮：打开添加/减少列对话框。
     QPointer<QDialog> m_columnChooserDialog; // 首次打开时构造；同一语言下复用列控件和连接。
     QPushButton* m_processSettingsButton = nullptr; // 齿轮按钮：打开进程列表设置窗口。
+    QPushButton* m_listDetectionMethodsButton = nullptr;
+    QPushButton* m_listDetectionRefreshButton = nullptr;
+    QTabWidget* m_listResultTabs = nullptr;
+    QWidget* m_processLivePage = nullptr;
+    QWidget* m_listDetectionPage = nullptr;
+    QPointer<ksword::detection::ProcessDetectionPane> m_listDetectionPane;
 
     // ======== 进程活动记录面板 ========
     QWidget* m_activityPanelWidget = nullptr;       // m_activityPanelWidget：进程活动图表面板。

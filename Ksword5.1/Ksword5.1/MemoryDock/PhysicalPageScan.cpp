@@ -427,7 +427,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
         };
         // Acquire before any PFN call and retain through the after source query.
         for (const auto& entry : scan->owners) {
-            if (job->cancel.load()) { break; }
+            if (job->stopping()) { break; }
             const auto pid = entry.second.pid;
             if (!pid || leases.count(pid)) { continue; }
             auto& lease = leases[pid];
@@ -442,7 +442,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
         IdentityRetryPolicy sentinelRetry;
         OwnerCoverage::Matrix objectKeys{};
         for (const auto& range : scan->ranges) {
-            for (std::uint64_t offset = 0; offset < range.count && !job->cancel.load(); ) {
+            for (std::uint64_t offset = 0; offset < range.count && !job->stopping(); ) {
                 const auto count = static_cast<std::uint32_t>(std::min<std::uint64_t>(KSWORD_ARK_PFN_MAX_PAGES, range.count - offset));
                 const auto first = range.first + offset;
                 const auto chunkStartUs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
@@ -454,7 +454,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
                         for (const auto& record : records) { pages.push_back({record.frame, record.backing}); }
                         raw.identities(chunkQuery, firstPfn, amount, pages);
                         return static_cast<std::int32_t>(chunkQuery.status);
-                    }, [&] { return job->cancel.load(); });
+                    }, [&] { return job->stopping(); });
                 if (!recovery.queried) { break; }
                 terminalFailure = recovery.terminal;
                 scan->failedBatches += recovery.initialFailed ? 1 : 0;
@@ -470,7 +470,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
                         for (const auto& record : records) { pages.push_back({record.frame, record.backing}); }
                         raw.identities(chunkQuery, pfns.front(), pfns.size(), pages, &pfns);
                         return static_cast<std::int32_t>(chunkQuery.status);
-                    }, [&] { return !sentinelRetry.enabled || recovery.terminal || job->cancel.load(); });
+                    }, [&] { return !sentinelRetry.enabled || recovery.terminal || job->stopping(); });
                 sentinelRetry.record(retry);
                 // Arbitrary-identity queries can be denied while ranged queries
                 // still work. Stop only those retries and retain their failure
@@ -525,7 +525,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
                 consecutiveFailures = recovery.initialFailed && !anyValid ? consecutiveFailures + 1 : 0;
                 if (terminalFailure || consecutiveFailures >= 3) { break; }
             }
-            if (job->cancel.load() || terminalFailure || consecutiveFailures >= 3) { break; }
+            if (job->stopping() || terminalFailure || consecutiveFailures >= 3) { break; }
         }
         std::vector<KSWORD_ARK_PFN_OWNER> afterOwners;
         const auto ownersAfter = observedQuery("owners_after", 0, KSWORD_ARK_PFN_MAX_OWNERS, [&] { return client.owners(afterOwners); });
@@ -579,7 +579,7 @@ std::shared_ptr<Scan> collect(const std::shared_ptr<ScanJob>& job, std::shared_p
             }
         } else { scan->rangesChanged = true; }
     }
-    scan->cancelled = job->cancel.load();
+    scan->cancelled = job->stopping();
     scan->complete = scan->accounting.expected != 0 && !scan->cancelled && !scan->rangesChanged
         && scan->accounting.visited == scan->accounting.expected && scan->accounting.unreadable == 0;
     scan->nativeBatches = client.nativeBatches;
