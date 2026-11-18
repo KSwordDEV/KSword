@@ -569,7 +569,8 @@ Return Value:
     size_t actualInputLength = 0U;
     size_t actualOutputLength = 0U;
     BOOLEAN hasInput = FALSE;
-    const ULONG allowedFlags = KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL;
+    const ULONG allowedFlags = KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL |
+        KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES; // 可选目录归属核验不进入旧请求的默认源。
     NTSTATUS status = STATUS_SUCCESS;
 
     UNREFERENCED_PARAMETER(OutputBufferLength);

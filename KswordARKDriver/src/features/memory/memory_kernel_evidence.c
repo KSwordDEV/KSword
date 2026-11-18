@@ -159,8 +159,14 @@ Return Value:
             KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_TEXT_SECTION_SAMPLES |
             KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_SUSPECTED_BIGPOOL;
     }
-    if ((limits.EffectiveFlags & ~KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL) != 0UL) {
+    if ((limits.EffectiveFlags & ~(KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL |
+        KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES)) != 0UL) {
         return STATUS_INVALID_PARAMETER;
+    }
+    if ((limits.EffectiveFlags & KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES) != 0UL &&
+        (limits.EffectiveFlags & (KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_BIGPOOL |
+         KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_SUSPECTED_BIGPOOL)) == 0UL) {
+        return STATUS_INVALID_PARAMETER; // 没有大池请求时无法应用这项模块归属比较。
     }
 
     if (Request->startAddress != 0ULL &&
@@ -1248,6 +1254,27 @@ Return Value:
     return firstFailure;
 }
 
+static BOOLEAN
+KswordARKMemoryEvidenceModuleRangesUsable(
+    _In_reads_bytes_(Bytes) const KSW_HOOK_SYSTEM_MODULE_INFORMATION* Modules,
+    _In_ ULONG Bytes)
+{
+    const ULONG header = FIELD_OFFSET(KSW_HOOK_SYSTEM_MODULE_INFORMATION, Modules); // 模块数组的真实起点。
+    ULONG i = 0UL; // 只在完整的返回缓冲区内读取条目。
+    if (Modules == NULL || Bytes < header || Modules->NumberOfModules == 0UL ||
+        Modules->NumberOfModules > (Bytes - header) / sizeof(Modules->Modules[0])) {
+        return FALSE; // 截断、空目录都不能作为未命中归属的证据。
+    }
+    for (i = 0; i < Modules->NumberOfModules; ++i) {
+        const ULONG_PTR base = (ULONG_PTR)Modules->Modules[i].ImageBase; // 检查每个范围的半开区间。
+        const ULONG size = Modules->Modules[i].ImageSize; // 内核模块实际报告的映像大小。
+        if (base == 0U || size == 0UL || base > MAXULONG_PTR - size) {
+            return FALSE; // 隐去或溢出的条目使目录无法证明“模块外”。
+        }
+    }
+    return TRUE; // 只证明枚举时可用的加载模块视图。
+}
+
 static NTSTATUS
 KswordARKMemoryEvidenceScanModules(
     _Inout_ KSW_MEMORY_EVIDENCE_STATE* State,
@@ -1291,6 +1318,10 @@ Return Value:
     State->Response->lastStatus = status;
     if (!NT_SUCCESS(status)) {
         return status;
+    }
+    if (!KswordARKMemoryEvidenceModuleRangesUsable(moduleInfo, moduleInfoBytes)) {
+        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 不向后续采样移交无效的模块范围。
+        return STATUS_DATA_ERROR; // 归属未核实，不能报告模块外页。
     }
     State->Response->moduleCount = moduleInfo->NumberOfModules;
 
@@ -1569,7 +1600,8 @@ Return Value:
 static NTSTATUS
 KswordARKMemoryEvidenceScanBigPool(
     _Inout_ KSW_MEMORY_EVIDENCE_STATE* State,
-    _In_ const KSW_MEMORY_EVIDENCE_LIMITS* Limits
+    _In_ const KSW_MEMORY_EVIDENCE_LIMITS* Limits,
+    _In_opt_ KSW_HOOK_SYSTEM_MODULE_INFORMATION* ModuleInfo
     )
 /*++
 
@@ -1716,6 +1748,11 @@ Return Value:
         row.permissionFlags = permissionFlags;
         row.ownerKind = ownerKind;
         row.riskFlags = riskFlags;
+        // 只用实际页表的执行权限和已取得的模块清单确认模块外页面，忽略标签启发式。
+        if (isExecutable && ModuleInfo != NULL && ModuleInfo->NumberOfModules != 0UL &&
+            KswordARKHookFindModuleForAddress(ModuleInfo, (ULONG_PTR)address) == NULL) {
+            row.riskFlags |= KSWORD_ARK_MEMORY_EVIDENCE_RISK_NONMODULE_EXECUTABLE; // 首个采样页，不外推到整个分配。
+        }
         row.confidence = confidence;
         row.backingKind = KSWORD_ARK_MEMORY_EVIDENCE_BACKING_BIGPOOL;
         row.sectionHintStatus = KSWORD_ARK_MEMORY_EVIDENCE_SECTION_HINT_NOT_APPLICABLE;
@@ -1845,18 +1882,31 @@ Return Value:
         }
     }
 
-    if (moduleInfo != NULL) {
-        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG);
-        moduleInfo = NULL;
-    }
-
     if (!state.BudgetExhausted && !state.Truncated) {
-        status = KswordARKMemoryEvidenceScanBigPool(&state, &limits);
+        if (moduleInfo == NULL && (limits.EffectiveFlags & KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES) != 0UL) {
+            ULONG moduleBytes = 0UL; // 只获取模块地址范围，不扫描任何已知映像的内容。
+            status = KswordARKHookBuildModuleSnapshot(&moduleInfo, &moduleBytes); // 与本轮大池采样共享唯一快照。
+            if (NT_SUCCESS(status) && KswordARKMemoryEvidenceModuleRangesUsable(moduleInfo, moduleBytes)) {
+                response->moduleCount = moduleInfo->NumberOfModules; // 能力与实际来源完整性分开返回。
+            } else {
+                if (moduleInfo != NULL) {
+                    ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 截断/隐去范围不得交给地址归属查询。
+                    moduleInfo = NULL; // 后续大池行只能保留基本页表证据。
+                }
+                if (NT_SUCCESS(firstPartialStatus)) {
+                    firstPartialStatus = NT_SUCCESS(status) ? STATUS_DATA_ERROR : status; // 清单无效与成功空扫描分开。
+                }
+            }
+        }
+        status = KswordARKMemoryEvidenceScanBigPool(&state, &limits, moduleInfo); // 大池首个执行页与本轮模块归属比对。
         if (!NT_SUCCESS(status) && NT_SUCCESS(firstPartialStatus)) {
             firstPartialStatus = status;
         }
     }
 
+    if (moduleInfo != NULL) {
+        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 最后一个消费者完成后释放模块清单。
+    }
     response->returnedRows = state.ReturnedRows;
     response->bytesScanned = state.BytesScanned;
     if (state.Truncated) {

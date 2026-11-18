@@ -143,6 +143,9 @@ KswordArkCallbackMonitorFillStatus(
         (ULONGLONG)KSWORD_ARK_CALLBACK_MONITOR_RING_CAPACITY);
     Response->lastStatus = Runtime->MonitorLastStatus;
     Response->minifilterStartStatus = Runtime->MiniFilterStartStatus;
+    if (Runtime->SubsystemNotifyRegistration != NULL) {
+        Response->runtimeFlags |= KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_SUBSYSTEM_NOTIFY; // 仅在真实 Ex2 注册完成后报告。
+    }
     if (categoryMask != 0UL) {
         Response->runtimeFlags |= KSWORD_ARK_CALLBACK_MONITOR_RUNTIME_CAPTURING;
     }
