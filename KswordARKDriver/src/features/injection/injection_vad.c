@@ -21,6 +21,7 @@ Environment:
 #include "ark/ark_driver.h"
 #include "ark/ark_injection_scan.h"
 #include "ark/ark_dyndata.h"
+#include "../dyndata/dyndata_v4_internal.h" // Keep the optional observer offsets inside this read-only VAD request.
 #include "../../platform/kernel_object_probe.h"
 
 /*
@@ -385,6 +386,7 @@ Return Value:
 {
     KSWORD_ARK_ENUMERATE_PROCESS_VAD_RESPONSE* response = NULL;
     KSW_DYN_STATE dynState;
+    BOOLEAN observerLayout = FALSE; // A private VAD projection cannot grant other process capabilities.
     KSW_INJ_VAD_WALK_STATE walk;
     PEPROCESS processObject = NULL;
     PVOID root = NULL;
@@ -459,6 +461,15 @@ Return Value:
 
     RtlZeroMemory(&dynState, sizeof(dynState));
     KswordARKDynDataSnapshot(&dynState);
+    if (!dynState.Kernel.EpVadRoot || dynState.Kernel.EpVadRoot == KSW_DYN_OFFSET_UNAVAILABLE) {
+        KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT layout; // Copy one verified PE/RSDS generation.
+        if (KswordARKDynDataV4SnapshotProcessObserver(&layout)) {
+            dynState.Kernel.EpVadRoot = layout.VadRoot; // Three offsets are local to this stack frame.
+            dynState.Kernel.EpVadHint = layout.VadHint; // Optional integrity witness for the existing walk.
+            dynState.Kernel.EpVadCount = layout.VadCount; // No global state or writable IOCTL consumes this copy.
+            observerLayout = TRUE; // Require a coherent user-address root below.
+        }
+    }
 
     status = PsLookupProcessByProcessId(ULongToHandle(Request->processId), &processObject);
     if (!NT_SUCCESS(status)) {
@@ -483,6 +494,23 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
+    if (observerLayout && root != NULL) {
+        KSW_INJ_MMVAD_SHORT candidate; // Validate the referenced process's actual root before walking it.
+        ULONG64 firstVa, endVa; // Check the inclusive/exclusive user-space extent.
+        if ((ULONG_PTR)root < (ULONG_PTR)MmSystemRangeStart || ((ULONG_PTR)root & (sizeof(PVOID)-1)) ||
+            !KswordARKInjectionReadKernel(root, &candidate, sizeof(candidate))) {
+            response->status = KSWORD_ARK_INJECTION_SCAN_STATUS_WALK_FAILED; // No readable kernel node at the reported root.
+            response->lastStatus = STATUS_PARTIAL_COPY; // Keep unavailable pages distinct from no VADs.
+            ObDereferenceObject(processObject); return STATUS_SUCCESS; // Release the validated process object.
+        }
+        firstVa = KswordARKInjectionVadStartVa(&candidate); // Reuse the normal node decoder.
+        endVa = KswordARKInjectionVadEndVaExclusive(&candidate); // Reject wrap and implausible target ranges.
+        if (firstVa >= endVa || endVa-1ULL > KswordARKInjectionUserAddressLimit()) {
+            response->status = KSWORD_ARK_INJECTION_SCAN_STATUS_WALK_FAILED; // Cannot treat a non-VAD as evidence.
+            response->lastStatus = STATUS_DATA_ERROR; // This is a structural mismatch.
+            ObDereferenceObject(processObject); return STATUS_SUCCESS; // Fail closed without losing ownership balance.
+        }
+    }
     response->profileVerified = 1UL;
     response->vadRootOffset = rootOffset;
     response->vadRootAddress = (ULONG64)(ULONG_PTR)root;
@@ -497,6 +525,11 @@ Return Value:
         walk.VadHint = hint;
         response->vadHintAddress = (ULONG64)(ULONG_PTR)hint;
         response->vadCount = count;
+        if (observerLayout && !root && (count || hint)) {
+            response->status = KSWORD_ARK_INJECTION_SCAN_STATUS_PARTIAL; // An empty root and nonempty corroborating metadata disagree.
+            response->lastStatus = STATUS_DATA_ERROR; // Do not publish an empty success.
+            ObDereferenceObject(processObject); return STATUS_SUCCESS; // End this read-only request.
+        }
     }
     current = root;
 

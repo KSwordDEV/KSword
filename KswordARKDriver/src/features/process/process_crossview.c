@@ -15,6 +15,7 @@ Environment:
 --*/
 
 #include "process_crossview.h"
+#include "../dyndata/dyndata_v4_internal.h" // The optional layout is confined to the current read query.
 #include "..\kernel\hook_scan_support.h"
 #include "..\kernel\object_header_fallback.h" // 候选地址只通过 CID 查询结果取得精确对象引用。
 #include "..\..\dispatch\ioctl_validation.h"
@@ -72,6 +73,7 @@ typedef struct _KSW_PROCESS_CROSSVIEW_CONTEXT
     NTSTATUS LastStatus;
     BOOLEAN Truncated;
     BOOLEAN CapabilityMissing;
+    BOOLEAN ObserverActiveList; // Specific read-only layout, separate from the legacy capability mask.
     KSW_DYN_STATE DynState;
     KSWORD_ARK_CROSSVIEW_FIELD_OFFSETS FieldOffsets;
 } KSW_PROCESS_CROSSVIEW_CONTEXT, *PKSW_PROCESS_CROSSVIEW_CONTEXT;
@@ -2482,7 +2484,7 @@ Return Value:
     }
     RtlZeroMemory(&visited, sizeof(visited));
 
-    if ((Context->DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) != KSW_CAP_PROCESS_LIST_FIELDS ||
+    if ((!Context->ObserverActiveList && (Context->DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) == 0ULL) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EpActiveProcessLinks) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EpUniqueProcessId) ||
         PsProcessType == NULL ||
@@ -3059,6 +3061,20 @@ Return Value:
     RtlZeroMemory(context.Rows, rowBytes);
 
     KswordARKDynDataSnapshot(&context.DynState);
+    if ((requestFlags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_ACTIVE_LIST) &&
+        !(context.DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) && PsInitialSystemProcess != NULL) {
+        KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT layout; // All values came from the same accepted profile.
+        PVOID systemId = NULL, ownerId = NULL; // Two public identities validate the private PID field.
+        PEPROCESS owner = PsGetCurrentProcess(); // The current process remains referenced by this thread.
+        if (KswordARKDynDataV4SnapshotProcessObserver(&layout) &&
+            NT_SUCCESS(KswordARKCrossViewReadPointerField(PsInitialSystemProcess, layout.Pid, &systemId)) &&
+            systemId == ULongToHandle(4UL) && systemId == PsGetProcessId(PsInitialSystemProcess) &&
+            NT_SUCCESS(KswordARKCrossViewReadPointerField(owner, layout.Pid, &ownerId)) && ownerId == PsGetProcessId(owner)) {
+            context.DynState.Kernel.EpUniqueProcessId = layout.Pid; // Private per-request snapshot only.
+            context.DynState.Kernel.EpActiveProcessLinks = layout.ActiveLinks; // The walker rechecks links, object type and reference.
+            context.ObserverActiveList = TRUE; // No global capabilities or write-side resolvers are changed.
+        }
+    }
     KswordARKCrossViewFillFieldOffsets(&context.DynState, &context.FieldOffsets);
 
     if ((requestFlags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_PUBLIC_WALK) != 0UL) {

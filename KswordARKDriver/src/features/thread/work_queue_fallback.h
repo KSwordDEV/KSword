@@ -50,6 +50,10 @@ KswordARKWorkQueueCaptureSystemThreads(
 NTSTATUS KswordARKWorkQueueCaptureProcessThreads(_In_ ULONG ProcessId,
     _Out_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* SnapshotOut);
 
+// The thread-list observer uses only an identity snapshot to find referenced owner processes.
+typedef NTSTATUS (*KSW_PROCESS_IDENTITY_VISITOR)(ULONG ProcessId, LONGLONG Created, PVOID Context);
+NTSTATUS KswordARKVisitSnapshotProcessIdentities(_In_ KSW_PROCESS_IDENTITY_VISITOR Visitor, _Inout_ PVOID Context);
+
 VOID
 KswordARKWorkQueueReleaseSystemThreads(
     _Inout_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* Snapshot

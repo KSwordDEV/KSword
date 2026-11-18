@@ -37,6 +37,16 @@ typedef struct _KSW_DYN_V4_STATE
 extern EX_PUSH_LOCK g_KswordDynDataV4Lock;
 extern KSW_DYN_V4_STATE g_KswordDynDataV4State;
 
+// Copies only the fields consumed by the three read-only enumeration queries.
+typedef struct _KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT {
+    ULONG Pid, ActiveLinks, ThreadHead, Cid, ThreadEntry, ThreadStart, ThreadProcess;
+    ULONG VadRoot, VadHint, VadCount;
+} KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT;
+NTSTATUS KswordARKDynDataV4VerifyProcessObserverProfile(
+    _In_ const KSW_APPLY_DYN_PROFILE_V4_REQUEST* Request,
+    _In_ const KSW_DYN_MODULE_IDENTITY_PACKET* Loaded);
+BOOLEAN KswordARKDynDataV4SnapshotProcessObserver(_Out_ KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT* Layout);
+
 // Timer/DPC 消费者只接收完成的一次性布局快照，不直接持有 v4 全局锁。
 typedef struct _KSW_DYN_V4_TIMER_DPC_LAYOUT
 {

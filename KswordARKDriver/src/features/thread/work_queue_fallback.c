@@ -73,7 +73,9 @@ typedef struct _KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION
 {
     ULONG NextEntryOffset;
     ULONG NumberOfThreads;
-    UCHAR Reserved1[48];
+    UCHAR ReservedBeforeCreation[24]; // Private working set, fault counts and cycle time.
+    LARGE_INTEGER CreateTime; // Stable process instance witness for read-only enumeration.
+    UCHAR RemainingTimes[16]; // User and kernel CPU times retain the existing structure layout.
     UNICODE_STRING ImageName;
     KPRIORITY BasePriority;
     HANDLE UniqueProcessId;
@@ -96,6 +98,7 @@ typedef struct _KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION
     LARGE_INTEGER Reserved7[6];
     KSW_WORK_QUEUE_FALLBACK_THREAD_INFORMATION Threads[1];
 } KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION;
+C_ASSERT(FIELD_OFFSET(KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION, CreateTime) == 32); // Native x64 SystemProcessInformation prefix.
 
 NTSYSAPI
 NTSTATUS
@@ -247,6 +250,33 @@ Return Value:
             : allocationBytes;
     }
     return status;
+}
+
+NTSTATUS KswordARKVisitSnapshotProcessIdentities(KSW_PROCESS_IDENTITY_VISITOR visitor, PVOID context)
+{
+    PVOID data = NULL; // Owned by this request until enumeration finishes.
+    ULONG bytes = 0, offset = 0; // Bounds returned by the existing native snapshot collector.
+    const ULONG prefix = FIELD_OFFSET(KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION, Threads); // Minimum safe record.
+    NTSTATUS status; // Preserve allocation, truncation and callback failures.
+    if (!visitor || !context) return STATUS_INVALID_PARAMETER; // Both arguments are internal and mandatory.
+    status = KswordARKWorkQueueFallbackCaptureProcessSnapshot(&data, &bytes); // Reuse the bounded SystemProcessInformation query.
+    if (!NT_SUCCESS(status)) return status; // Never consume a failed snapshot.
+    for (;;) { // Advance only by a validated native record length.
+        const KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION* entry; // A fixed prefix within the kernel-owned snapshot.
+        if (bytes - offset < prefix) { status = STATUS_DATA_ERROR; break; } // Truncated record.
+        entry = (const KSW_WORK_QUEUE_FALLBACK_PROCESS_INFORMATION*)((PUCHAR)data + offset); // Range was checked above.
+        if (entry->UniqueProcessId) { // Idle has no normal process ID lookup.
+            status = visitor(HandleToULong(entry->UniqueProcessId), entry->CreateTime.QuadPart, context); // Pass no captured thread list.
+            if (!NT_SUCCESS(status)) break; // Respect the caller's node budget.
+        }
+        if (!entry->NextEntryOffset) break; // Actual snapshot terminator.
+        if (entry->NextEntryOffset < prefix || entry->NextEntryOffset > bytes-offset || (entry->NextEntryOffset & 7UL)) {
+            status = STATUS_DATA_ERROR; break; // Do not interpret a malformed chain as complete.
+        }
+        offset += entry->NextEntryOffset; // Checked bounded advance.
+    }
+    ExFreePoolWithTag(data, KSW_WORK_QUEUE_FALLBACK_TAG); // Release on every post-capture exit.
+    return status; // Remaining identities were not visited on failure.
 }
 
 NTSTATUS

@@ -450,6 +450,9 @@ Return Value:
             KswordARKReleasePushLockShared(&g_KswordDynDataV4Lock);
         }
 
+        if (currentIdentity.classId == KSW_DYN_PROFILE_CLASS_NTOSKRNL) { // Advertise the install-only-if-empty contract even before a profile is loaded.
+            publicEntry.statusFlags |= KSW_DYN_V4_STATUS_FLAG_PROCESS_ENUM_PROTECTED_APPLY; // The ordinary profile's state is unchanged.
+        }
         totalCount += 1UL;
         if (Entries != NULL && copiedCount < EntryCapacity) {
             Entries[copiedCount] = publicEntry;
@@ -1365,6 +1368,7 @@ Return Value:
     ULONG groupPresentOptional[KSW_DYN_V4_MAX_CAPABILITY_GROUPS_PER_MODULE] = { 0 };
     ULONG index = 0UL;
     ULONG rejectedCount = 0UL;
+    BOOLEAN observerProfile = FALSE; // The read-only group has a dedicated identity/atomic-install contract.
 
     if (BytesWrittenOut == NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -1450,6 +1454,18 @@ Return Value:
         Response->statusFlags = KSW_DYN_V4_STATUS_FLAG_IDENTITY_REJECTED;
         KswordARKDynDataV4SetMessage(Response->message, L"DynData v4 module identity mismatch.");
         return status;
+    }
+    for (index = 0UL; index < Request->capabilityGroupCount; ++index) { // Any use of the reserved group enters the stricter verifier.
+        if (Request->capabilityGroups[index].groupId == KSW_DYN_V4_CAPABILITY_GROUP_PROCESS_ENUM_READONLY) {
+            status = KswordARKDynDataV4VerifyProcessObserverProfile(Request, &currentIdentity); // Includes loaded CodeView and the allowed fields.
+            if (!NT_SUCCESS(status)) {
+                Response->status = status; // Expose the actual validation failure.
+                Response->statusFlags = KSW_DYN_V4_STATUS_FLAG_VALIDATION_FAILED; // No existing state was touched.
+                KswordARKDynDataV4SetMessage(Response->message, L"Read-only process layout or loaded RSDS mismatch."); // Return a specific receipt.
+                return status; // Never fall back to generic storage on failure.
+            }
+            observerProfile = TRUE; // The verifier requires this to be the sole group.
+        }
     }
 
     moduleState = (KSW_DYN_V4_MODULE_STATE*)KswordARKDynDataV4AllocateStateBuffer(sizeof(*moduleState));
@@ -1559,6 +1575,14 @@ Return Value:
     }
 
     KswordARKAcquirePushLockExclusive(&g_KswordDynDataV4Lock);
+    if (observerProfile && g_KswordDynDataV4State.Modules[(ULONG)moduleSlot].Occupied) { // Atomically preserve existing and concurrent module profiles.
+        KswordARKReleasePushLockExclusive(&g_KswordDynDataV4Lock); // No state mutation occurred.
+        ExFreePoolWithTag(moduleState, KSW_DYN_V4_STATE_POOL_TAG); // Release the uncommitted packet.
+        Response->status = STATUS_OBJECT_NAME_COLLISION; // Caller may read back the current profile.
+        Response->appliedItemCount = 0UL; // Validated candidate items were not installed.
+        KswordARKDynDataV4SetMessage(Response->message, L"NTOS already has a profile; read-only layout was not installed."); // Explain the race without modifying the prior owner.
+        return STATUS_OBJECT_NAME_COLLISION; // Keep all prior capability groups.
+    }
     RtlCopyMemory(&g_KswordDynDataV4State.Modules[(ULONG)moduleSlot], moduleState, sizeof(*moduleState));
     g_KswordDynDataV4State.MissingCount = 0UL;
     for (index = 0UL; index < KSW_DYN_V4_MAX_MODULES; ++index) {

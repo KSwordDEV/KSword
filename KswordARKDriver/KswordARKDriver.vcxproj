@@ -292,6 +292,7 @@
     <ClCompile Include="src\features\dyndata\dyndata_query.c" />
     <ClCompile Include="src\features\dyndata\dyndata_validate.c" />
     <ClCompile Include="src\features\dyndata\dyndata_v4.c" />
+    <ClCompile Include="src\features\dyndata\dyndata_v4_process_observer.c" />
     <ClCompile Include="src\features\dyndata\dyndata_v4_query.c" />
     <ClCompile Include="src\features\capability\capability_query.c" />
     <ClCompile Include="src\features\capability\capability_ioctl.c" />
