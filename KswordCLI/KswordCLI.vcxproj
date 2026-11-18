@@ -380,6 +380,7 @@
     <ClCompile Include="..\shared\evidence\PeImageMap.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerBackend.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerDebug.cpp" />
+    <ClCompile Include="..\DebuggerBackend\KswordIndependentFrontend.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerMemory.cpp" />
     <ClCompile Include="..\DebuggerBackend\KswordDebuggerNative.cpp" />
     <ClInclude Include="..\shared\usermode\backend\security\ApplicationControl.h" />

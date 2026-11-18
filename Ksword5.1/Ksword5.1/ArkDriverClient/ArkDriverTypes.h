@@ -1510,6 +1510,7 @@ namespace ksword::ark
         std::uint64_t bytesScanned = 0;
         std::uint32_t moduleCount = 0;
         std::uint32_t bigPoolRowsSeen = 0;
+        long bigPoolQueryStatus = 0;
         long lastStatus = 0;
         std::vector<KernelMemoryEvidenceEntry> entries;
     };

@@ -682,6 +682,7 @@ namespace ksword::ark
         evidenceResult.bytesScanned = static_cast<std::uint64_t>(responseHeader->bytesScanned);
         evidenceResult.moduleCount = static_cast<std::uint32_t>(responseHeader->moduleCount);
         evidenceResult.bigPoolRowsSeen = static_cast<std::uint32_t>(responseHeader->bigPoolRowsSeen);
+        evidenceResult.bigPoolQueryStatus = responseHeader->bigPoolQueryStatus;
         evidenceResult.lastStatus = static_cast<long>(responseHeader->lastStatus);
         evidenceResult.io.ntStatus = evidenceResult.lastStatus;
         if (static_cast<unsigned long>(evidenceResult.lastStatus) == 0xC00000BBUL ||

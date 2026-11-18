@@ -61,7 +61,10 @@ NTSTATUS KswordARKMemoryIoctlQueryPfnBatch(
         return STATUS_INVALID_PARAMETER; // Fail closed on unknown flags/version.
     }
     if (request.operation == KSWORD_ARK_PFN_RANGES) { // Enumerate NT-managed RAM extents.
-        capacity = KSWORD_ARK_PFN_MAX_RANGES; // Bound both enumeration and output.
+        if (request.count > KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT || request.firstPfn != 0ULL) { // Validate the optional range capacity.
+            return STATUS_INVALID_PARAMETER; // Reject unbounded or ranged requests.
+        }
+        capacity = request.count ? request.count : KSWORD_ARK_PFN_MAX_RANGES; // Zero is the original client ABI.
         elementBytes = sizeof(KSWORD_ARK_PFN_RANGE); // Fixed range ABI.
     } else if (request.operation == KSWORD_ARK_PFN_PAGES || request.operation == KSWORD_ARK_PFN_IDENTITIES) { // Query bounded PFNs.
         if (request.count == 0 || request.count > KSWORD_ARK_PFN_MAX_PAGES ||
@@ -104,7 +107,7 @@ NTSTATUS KswordARKMemoryIoctlQueryPfnBatch(
                 rows[i].pageCount = (ULONGLONG)ranges[i].NumberOfBytes.QuadPart >> PAGE_SHIFT; // PFN count.
             }
             response->count = i; // Publish only initialized records.
-            if (i == capacity) { status = STATUS_BUFFER_OVERFLOW; } // Mark possible range truncation.
+            if (i == capacity && ranges[i].NumberOfBytes.QuadPart != 0) { status = STATUS_BUFFER_OVERFLOW; } // The OS terminator distinguishes an exact fit.
             ExFreePool(ranges); // Release the OS range allocation.
         }
     } else {
