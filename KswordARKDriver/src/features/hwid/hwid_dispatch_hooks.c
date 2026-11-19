@@ -699,8 +699,7 @@ BOOLEAN
 KswordARKHwidPrepareDispatchCompletion(
     _Inout_ PIRP Irp,
     _Inout_ PIO_STACK_LOCATION IoStack,
-    _In_ ULONG TargetFlag,
-    _In_ const KSWORD_ARK_HWID_DISPATCH_PROFILE* Profile
+    _In_ ULONG TargetFlag
     )
 {
     PKSW_HWID_COMPLETION_CONTEXT completionContext = NULL;
@@ -709,7 +708,7 @@ KswordARKHwidPrepareDispatchCompletion(
     ULONG ioControlCode = 0UL;
 
     /* 中文说明：该入口在被 hook 的目标驱动派遣函数内运行，只安装完成例程。 */
-    if (Irp == NULL || IoStack == NULL || Profile == NULL) {
+    if (Irp == NULL || IoStack == NULL) {
         return FALSE;
     }
 
@@ -737,13 +736,8 @@ KswordARKHwidPrepareDispatchCompletion(
     completionContext->OldControl = IoStack->Control;
     completionContext->OldContext = IoStack->Context;
     completionContext->OldRoutine = IoStack->CompletionRoutine;
-    RtlCopyMemory(&completionContext->Profile, Profile, sizeof(completionContext->Profile));
-    completionContext->Profile.diskSerial[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
-    completionContext->Profile.diskProduct[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
-    completionContext->Profile.diskRevision[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
-    completionContext->Profile.gpuSerial[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
-    completionContext->Profile.permanentMac[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
-    completionContext->Profile.currentMac[KSWORD_ARK_HWID_DISPATCH_TEXT_CHARS - 1U] = L'\0';
+    // 到这里已选中目标 IOCTL，直接在其完成上下文中保存一致的配置。
+    KswordARKHwidSnapshotActiveProfile(&completionContext->Profile);
 
     IoStack->Context = completionContext;
     IoStack->CompletionRoutine = KswordARKHwidCompletionRoutine;

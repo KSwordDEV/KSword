@@ -50,6 +50,8 @@ typedef struct _KSW_HWID_DISPATCH_SLOT
 } KSW_HWID_DISPATCH_SLOT, *PKSW_HWID_DISPATCH_SLOT;
 
 static FAST_MUTEX g_KswordHwidDispatchLock;
+// 派遣回调可在 DISPATCH_LEVEL 读取配置，控制端与它共用这把自旋锁。
+static KSPIN_LOCK g_KswordHwidProfileLock;
 static volatile LONG g_KswordHwidDispatchInitialized = 0;
 static ULONG g_KswordHwidDispatchGeneration = 1UL;
 static KSWORD_ARK_HWID_DISPATCH_PROFILE g_KswordHwidActiveProfile;
@@ -86,6 +88,8 @@ KswordARKHwidEnsureInitialized(
 {
     if (InterlockedCompareExchange(&g_KswordHwidDispatchInitialized, 1L, 0L) == 0L) {
         ExInitializeFastMutex(&g_KswordHwidDispatchLock);
+        // 发布初始化状态前准备好配置锁，此时尚无已安装的目标入口。
+        KeInitializeSpinLock(&g_KswordHwidProfileLock);
         RtlZeroMemory(&g_KswordHwidActiveProfile, sizeof(g_KswordHwidActiveProfile));
         g_KswordHwidActiveProfile.size = sizeof(g_KswordHwidActiveProfile);
         g_KswordHwidActiveProfile.version = KSWORD_ARK_HWID_DISPATCH_PROTOCOL_VERSION;
@@ -98,11 +102,20 @@ KswordARKHwidEnsureInitialized(
     }
 }
 
-static VOID
-KswordARKHwidNormalizeProfile(
-    _Out_ KSWORD_ARK_HWID_DISPATCH_PROFILE* Destination,
-    _In_ const KSWORD_ARK_HWID_DISPATCH_PROFILE* Source
-    );
+VOID
+KswordARKHwidSnapshotActiveProfile(
+    _Out_ KSWORD_ARK_HWID_DISPATCH_PROFILE* Destination
+    )
+{
+    // 恢复调用者进入临界区前的 IRQL。
+    KIRQL oldIrql;
+    // 与启用请求对活动配置的写入互斥。
+    KeAcquireSpinLock(&g_KswordHwidProfileLock, &oldIrql);
+    // 一次取得本次 IRP 独占的配置；字符串已在发布时规范化。
+    RtlCopyMemory(Destination, &g_KswordHwidActiveProfile, sizeof(*Destination));
+    // 复制完即可解锁，调用下层驱动和异步完成均不持锁。
+    KeReleaseSpinLock(&g_KswordHwidProfileLock, oldIrql);
+}
 
 static KSW_HWID_DISPATCH_SLOT*
 KswordARKHwidFindSlotNoLock(
@@ -134,10 +147,8 @@ KswordARKHwidDispatchPassthrough(
     PDRIVER_DISPATCH originalDispatch = NULL;
     KSW_HWID_DISPATCH_SLOT* targetSlot = NULL;
     PIO_STACK_LOCATION ioStack = NULL;
-    KSWORD_ARK_HWID_DISPATCH_PROFILE activeProfile;
     NTSTATUS status = STATUS_INVALID_DEVICE_STATE;
 
-    RtlZeroMemory(&activeProfile, sizeof(activeProfile));
     if (Device != NULL) {
         targetSlot = KswordARKHwidFindSlotNoLock(Device->DriverObject);
         if (targetSlot != NULL) {
@@ -148,12 +159,11 @@ KswordARKHwidDispatchPassthrough(
     if (originalDispatch != NULL) {
         if (Irp != NULL && targetSlot != NULL) {
             ioStack = IoGetCurrentIrpStackLocation(Irp);
-            KswordARKHwidNormalizeProfile(&activeProfile, &g_KswordHwidActiveProfile);
+            // 仅需要完成处理的请求才会取得配置快照。
             (VOID)KswordARKHwidPrepareDispatchCompletion(
                 Irp,
                 ioStack,
-                targetSlot->TargetFlag,
-                &activeProfile);
+                targetSlot->TargetFlag);
         }
         return originalDispatch(Device, Irp);
     }
@@ -408,7 +418,14 @@ KswordARKHwidControlLocked(
     }
 
     if (Request->action == KSWORD_ARK_HWID_DISPATCH_ACTION_ENABLE && dryRun == FALSE) {
+        // 配置写端先持有控制互斥体，派遣读端只使用配置锁。
+        KIRQL oldIrql;
+        // 所有字段及字符串终止符必须作为同一版配置发布。
+        KeAcquireSpinLock(&g_KswordHwidProfileLock, &oldIrql);
+        // 来源是控制 IOCTL 已经捕获的内核栈快照。
         KswordARKHwidNormalizeProfile(&g_KswordHwidActiveProfile, &Request->profile);
+        // 安装目标槽和驱动对象操作在此临界区外进行。
+        KeReleaseSpinLock(&g_KswordHwidProfileLock, oldIrql);
     }
 
     for (slotIndex = 0UL; slotIndex < KSWORD_ARK_HWID_DISPATCH_ENTRY_COUNT; ++slotIndex) {
