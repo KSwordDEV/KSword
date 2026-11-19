@@ -583,6 +583,40 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_CHANGE_IMAGE_PAGE_PROTECTION, KswordARKMemoryIoctlChangeImagePageProtection, "IOCTL_KSWORD_ARK_CHANGE_IMAGE_PAGE_PROTECTION", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE }
 };
 
+// CTL_CODE 的 Function 字段占 12 位，数组下标取其完整范围。
+#define KSW_IOCTL_FUNCTION_COUNT 0x1000U
+// 行号从 1 起算，静态零初始化的桶即为空桶。
+static USHORT g_KswordIoctlFirst[KSW_IOCTL_FUNCTION_COUNT];
+// 同一个 Function 的不同完整控制码共享一条短链，枚举仍使用原表。
+static USHORT g_KswordIoctlNext[RTL_NUMBER_OF(g_KswordArkIoctlTable)];
+// 保证一基行号可以无损保存在 USHORT 中。
+C_ASSERT(RTL_NUMBER_OF(g_KswordArkIoctlTable) <= MAXUSHORT);
+
+static ULONG KswordARKIoctlFunction(_In_ ULONG ControlCode)
+{
+    // CTL_CODE 将 Function 放在 [13:2] 位，排除方法、访问权限和设备类型。
+    return (ControlCode >> 2U) & (KSW_IOCTL_FUNCTION_COUNT - 1U);
+}
+
+VOID KswordARKInitializeIoctlIndex(VOID)
+{
+    // 从末行向前插入，完整控制码重复时仍优先返回原表首项。
+    ULONG row = (ULONG)RTL_NUMBER_OF(g_KswordArkIoctlTable);
+    // 以空桶重建，尚未发布的索引重复初始化也不会把首项链接到自身。
+    RtlZeroMemory(g_KswordIoctlFirst, sizeof(g_KswordIoctlFirst));
+    // 依次登记全部静态条目。
+    while (row != 0U) {
+        // Function 只用于选桶；查找时仍须验证访问权限、设备类型和传输方式。
+        const ULONG function = KswordARKIoctlFunction(g_KswordArkIoctlTable[row - 1U].IoControlCode);
+        // 之前已插入的行排在新行之后。
+        g_KswordIoctlNext[row - 1U] = g_KswordIoctlFirst[function];
+        // 将当前一基行号设为该 Function 的新首项。
+        g_KswordIoctlFirst[function] = (USHORT)row;
+        // 移至前一行。
+        --row;
+    }
+}
+
 _Must_inspect_result_
 const KSWORD_ARK_IOCTL_ENTRY*
 KswordARKLookupIoctlEntry(
@@ -605,14 +639,22 @@ Return Value:
 
 --*/
 {
-    ULONG entryIndex = 0;
-
-    for (entryIndex = 0; entryIndex < (sizeof(g_KswordArkIoctlTable) / sizeof(g_KswordArkIoctlTable[0])); ++entryIndex) {
-        if (g_KswordArkIoctlTable[entryIndex].IoControlCode == IoControlCode) {
-            return &g_KswordArkIoctlTable[entryIndex];
+    // 直接进入对应 Function 的桶，未知 Function 无需访问注册表。
+    USHORT row = g_KswordIoctlFirst[KswordARKIoctlFunction(IoControlCode)];
+    // 只检查同一 Function 的候选行，绝不按 Function 单独授权分发。
+    while (row != 0U) {
+        // 将一基行号转换为调用方原本可枚举的静态条目。
+        const KSWORD_ARK_IOCTL_ENTRY* entry = &g_KswordArkIoctlTable[row - 1U];
+        // 只有全部 32 位匹配才允许到达 handler。
+        if (entry->IoControlCode == IoControlCode) {
+            // 返回原始行，保留能力门禁及端点标记。
+            return entry;
         }
+        // 跳过同 Function、不同完整控制码的条目。
+        row = g_KswordIoctlNext[row - 1U];
     }
 
+    // 未注册的完整控制码继续回到公共拒绝路径。
     return NULL;
 }
 

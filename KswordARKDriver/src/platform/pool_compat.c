@@ -24,6 +24,18 @@ typedef PVOID
     _In_ ULONG Tag
     );
 
+// DriverEntry 是唯一写者；请求路径只读取已经选定的分配入口。
+static KSW_EX_ALLOCATE_POOL2_ROUTINE g_KswordArkAllocatePool2;
+
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID KswordARKInitializePoolCompatibility(VOID)
+{
+    // 用静态名称解析可选导出，避免分配路径在 DISPATCH_LEVEL 进行查找。
+    UNICODE_STRING routineName = RTL_CONSTANT_STRING(L"ExAllocatePool2");
+    // 不提供该导出的内核留下 NULL，后续分配直接使用现有兼容路径。
+    g_KswordArkAllocatePool2 = (KSW_EX_ALLOCATE_POOL2_ROUTINE)MmGetSystemRoutineAddress(&routineName);
+}
+
 PVOID
 KswordARKAllocateNonPagedPool(
     _In_ SIZE_T NumberOfBytes,
@@ -48,21 +60,21 @@ Return Value:
 
 --*/
 {
-    UNICODE_STRING routineName;
-    KSW_EX_ALLOCATE_POOL2_ROUTINE allocatePool2 = NULL;
-
+    // 两种分配器均拒绝空请求。
     if (NumberOfBytes == 0U) {
+        // 保持既有零长度调用约定。
         return NULL;
     }
 
-    RtlInitUnicodeString(&routineName, L"ExAllocatePool2");
-    allocatePool2 = (KSW_EX_ALLOCATE_POOL2_ROUTINE)MmGetSystemRoutineAddress(&routineName);
-    if (allocatePool2 != NULL) {
-        return allocatePool2(POOL_FLAG_NON_PAGED, NumberOfBytes, PoolTag);
+    // 入口在首次分配前确定，后续无需加锁或重新解析。
+    if (g_KswordArkAllocatePool2 != NULL) {
+        // 保持非分页池、字节数和调用方标签的原始约定。
+        return g_KswordArkAllocatePool2(POOL_FLAG_NON_PAGED, NumberOfBytes, PoolTag);
     }
 
 #pragma warning(push)
 #pragma warning(disable:4996)
+    // 缺少 ExAllocatePool2 的内核沿用不可执行非分页池。
     return ExAllocatePoolWithTag(NonPagedPoolNx, NumberOfBytes, PoolTag);
 #pragma warning(pop)
 }

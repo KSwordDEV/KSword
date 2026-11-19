@@ -136,15 +136,6 @@ Return Value:
         return;
     }
 
-    /* TEMP DIAG: retain primary-endpoint receipt evidence only after role and
-     * rundown admission permit access to its log context. This confirms that
-     * EXEC_PROOF (0x22A4C0) reached dispatch; it does not prove handler execution. */
-    KswordARKDispatchLog(Device, "Info",
-        "RXPF-DIAG dispatch entered: ioctl=0x%08X in=%Iu out=%Iu",
-        (unsigned int)IoControlCode,
-        InputBufferLength,
-        OutputBufferLength);
-
     TraceEvents(
         TRACE_LEVEL_INFORMATION,
         TRACE_QUEUE,

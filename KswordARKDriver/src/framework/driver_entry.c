@@ -17,6 +17,8 @@ Environment:
 #include <ntifs.h>
 #include "ark/ark_driver.h"
 #include "ark/ark_mutation.h"
+#include "src/platform/pool_compat.h"
+#include "src/dispatch/ioctl_registry.h"
 #include "src/features/kernel/kernel_idt_baseline.h"
 #include "src/features/hvm/hvm_runtime.h"
 #include "src/features/debugger/debugger.h"
@@ -290,6 +292,11 @@ Return Value:
     WDF_OBJECT_ATTRIBUTES attributes;
     WDFDRIVER driverHandle = WDF_NO_HANDLE;
     ULONG osBuildNumber = 0UL;
+
+    // 首次分配之前在 PASSIVE_LEVEL 解析可选池分配器。
+    KswordARKInitializePoolCompatibility();
+    // 主控制端点与 PnP 队列均只读取已经构建的 IOCTL 索引。
+    KswordARKInitializeIoctlIndex();
 
     // Initialize WPP tracing as soon as possible.
     WPP_INIT_TRACING(DriverObject, RegistryPath);

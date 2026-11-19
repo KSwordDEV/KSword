@@ -40,6 +40,9 @@ typedef struct _KSWORD_ARK_IOCTL_ENTRY
 #define KSWORD_ARK_IOCTL_FLAG_CONTROLLER_ONLY 0x00000008UL
 #define KSWORD_ARK_IOCTL_CAPABILITY_NONE 0ULL
 
+// DriverEntry 在设备可见之前建立只读请求索引，注册表导出顺序保持稳定。
+VOID KswordARKInitializeIoctlIndex(VOID);
+
 _Must_inspect_result_
 const KSWORD_ARK_IOCTL_ENTRY*
 KswordARKLookupIoctlEntry(
