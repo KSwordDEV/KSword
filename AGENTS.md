@@ -1,5 +1,7 @@
 # KSword Agent Notes
 
+先阅读并执行根目录 [AGENT.md](AGENT.md) 中的任务交付与验证规则。
+
 ## 构建优先级
 
 所有项目构建以 `BelowNormal`（低于正常）优先级启动，编译、链接等子进程沿用低优先级，避免影响用户前台操作。主程序继续使用 `tools/Invoke-KSwordBuildCheck.ps1`；直接构建驱动或其它子项目时，也必须先降低构建宿主优先级。
