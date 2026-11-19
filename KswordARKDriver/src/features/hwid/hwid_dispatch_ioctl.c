@@ -319,10 +319,12 @@ KswordARKHwidRemoveSlot(
         return STATUS_INVALID_DEVICE_STATE;
     }
 
-    if (driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] == KswordARKHwidDispatchPassthrough) {
-        driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = Slot->OriginalDispatch;
-    }
-    else {
+    // 仅当槽位仍等于本模块入口时才恢复原值；其他驱动不会持有本模块的互斥体。
+    if (InterlockedCompareExchangePointer(
+            (PVOID volatile*)&driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL],
+            (PVOID)Slot->OriginalDispatch,
+            (PVOID)KswordARKHwidDispatchPassthrough) != (PVOID)KswordARKHwidDispatchPassthrough) {
+        // 槽位已被其他所有者修改，本次恢复未写入任何值。
         status = STATUS_OBJECT_TYPE_MISMATCH;
         if (ResponseFlags != NULL) {
             *ResponseFlags |= KSWORD_ARK_HWID_DISPATCH_RESPONSE_FLAG_FOREIGN_CHANGE;
