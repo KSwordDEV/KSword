@@ -2,7 +2,6 @@
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
 FIXTURE=r'''
@@ -19,6 +18,7 @@ PfnQueryClient::~PfnQueryClient() {}
 long PfnQueryClient::ranges(std::vector<KSWORD_ARK_PFN_RANGE>& out) {
     m_trace={};m_trace.driverInvoked=m_backend==PfnBackend::DriverOnly;m_trace.driverAvailable=m_trace.driverInvoked;
     if(scenario==L"fail")return static_cast<long>(0xc0000022UL);
+    if(scenario==L"fragmented") { for(unsigned i=0;i<1500;i++) out.push_back({2ULL*i,1}); return 0; }
     out={{0x10,10},{0x30,3}};return 0;
 }
 long PfnQueryClient::owners(std::vector<KSWORD_ARK_PFN_OWNER>& out) {
@@ -44,32 +44,35 @@ int wmain(int argc,wchar_t** argv) {
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="ksword-pfn-cli-") as temp:
-        tmp=Path(temp)
-        source=FIXTURE.replace("REGISTRY",(ROOT/"KswordCLI/CommandRegistry.h").as_posix()).replace(
-            "PFN_HEADER",(ROOT/"Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverPfn.h").as_posix())
-        (tmp/"fixture.cpp").write_text(source,encoding="utf-8")
-        exe=tmp/"fixture.exe"
-        subprocess.run(["cl","/nologo","/std:c++20","/EHsc","/utf-8","/W4","/WX","/DNOMINMAX",
-            str(tmp/"fixture.cpp"),str(ROOT/"KswordCLI/CommandRegistry.cpp"),str(ROOT/"KswordCLI/PfnCommands.cpp"),
-            "/Fe:"+str(exe)],cwd=tmp,check=True)
-        def run(scenario,args,code):
-            p=subprocess.run([str(exe),scenario,*args,"--json"],capture_output=True,timeout=10)
-            assert p.returncode==code,(args,p.returncode,p.stdout,p.stderr)
-            return json.loads(p.stdout)
-        a=run("ok",["memory","pfn","ranges","--limit","1","--backend","r0"],0)
-        assert a["backend"]=="r0" and a["data"]["trace"]["driverInvoked"] and a["data"]["displayTruncated"]
-        b=run("ok",["memory","pfn","identity","--pfn","0x12"],0)
-        assert b["backend"]=="r3" and b["data"]["pages"][0]["pfn"]=="0x12"
-        c=run("ok",["memory","pfn","pages","--first","16","--count","3"],6)
-        assert not c["data"]["complete"] and c["data"]["pages"][1]["frame"] is None
-        d=run("ok",["memory","pfn","mappings","--pid","123","--creation-time","456","--addresses","0x1000,0x2000"],6)
-        assert d["backend"]=="r0" and d["data"]["mappings"][1]["pfn"] is None
-        run("ok",["memory","pfn","mappings","--pid","123","--creation-time","0","--addresses","1"],1)
-        run("ok",["memory","pfn","identities","--pfns","1,,2"],1)
-        run("ok",["memory","pfn","mappings","--pid","1","--creation-time","1","--addresses","1","--backend","r3"],1)
-        e=run("fail",["memory","pfn","ranges","--backend","r0"],3)
-        assert e["data"]["ranges"]==[] and e["data"]["ntStatus"]=="0xc0000022"
+    out=ROOT/"tools/tests/x64/Release"
+    tmp=out/"PfnCli/obj"
+    tmp.mkdir(parents=True,exist_ok=True)
+    source=FIXTURE.replace("REGISTRY",(ROOT/"KswordCLI/CommandRegistry.h").as_posix()).replace(
+        "PFN_HEADER",(ROOT/"Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverPfn.h").as_posix())
+    (tmp/"fixture.cpp").write_text(source,encoding="utf-8")
+    exe=out/"pfn_cli_tests.exe"
+    subprocess.run(["cl","/nologo","/std:c++20","/EHsc","/utf-8","/W4","/WX","/DNOMINMAX",
+        str(tmp/"fixture.cpp"),str(ROOT/"KswordCLI/CommandRegistry.cpp"),str(ROOT/"KswordCLI/PfnCommands.cpp"),
+        "/Fe:"+str(exe)],cwd=tmp,check=True)
+    def run(scenario,args,code):
+        p=subprocess.run([str(exe),scenario,*args,"--json"],capture_output=True,timeout=10)
+        assert p.returncode==code,(args,p.returncode,p.stdout,p.stderr)
+        return json.loads(p.stdout)
+    a=run("ok",["memory","pfn","ranges","--limit","1","--backend","r0"],0)
+    assert a["backend"]=="r0" and a["data"]["trace"]["driverInvoked"] and a["data"]["displayTruncated"]
+    b=run("ok",["memory","pfn","identity","--pfn","0x12"],0)
+    assert b["backend"]=="r3" and b["data"]["pages"][0]["pfn"]=="0x12"
+    c=run("ok",["memory","pfn","pages","--first","16","--count","3"],6)
+    assert not c["data"]["complete"] and c["data"]["pages"][1]["frame"] is None
+    d=run("ok",["memory","pfn","mappings","--pid","123","--creation-time","456","--addresses","0x1000,0x2000"],6)
+    assert d["backend"]=="r0" and d["data"]["mappings"][1]["pfn"] is None
+    run("ok",["memory","pfn","mappings","--pid","123","--creation-time","0","--addresses","1"],1)
+    run("ok",["memory","pfn","identities","--pfns","1,,2"],1)
+    run("ok",["memory","pfn","mappings","--pid","1","--creation-time","1","--addresses","1","--backend","r3"],1)
+    e=run("fail",["memory","pfn","ranges","--backend","r0"],3)
+    assert e["data"]["ranges"]==[] and e["data"]["ntStatus"]=="0xc0000022"
+    many=run("fragmented",["memory","pfn","ranges","--limit","600","--backend","r0"],0)
+    assert many["data"]["returnedCount"]==1500 and len(many["data"]["ranges"])==600 and many["data"]["complete"]
     print("CLI_PFN_PASS")
 
 

@@ -1,0 +1,160 @@
+{
+  "packVersion": 4,
+  "schemaVersion": 4,
+  "profiles": [
+    {
+      "profileName": "process-detection-CE884F70F5A9025D53DB35D8BE8BFF79-1",
+      "moduleClassId": 0,
+      "machine": 34404,
+      "sizeOfImage": 21299200,
+      "timeDateStamp": 1718926174,
+      "pdbName": "ntkrnlmp.pdb",
+      "pdbGuid": "CE884F70F5A9025D53DB35D8BE8BFF79",
+      "pdbAge": 1,
+      "capabilityGroups": [
+        {
+          "groupId": 20562,
+          "groupName": "process.enumeration.readonly",
+          "flags": 0,
+          "requiredItemCount": 10,
+          "optionalItemCount": 0
+        }
+      ],
+      "items": [
+        {
+          "itemId": 57,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 464,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpUniqueProcessId"
+        },
+        {
+          "itemId": 58,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 472,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpActiveProcessLinks"
+        },
+        {
+          "itemId": 59,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 880,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpThreadListHead"
+        },
+        {
+          "itemId": 62,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1288,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EtCid"
+        },
+        {
+          "itemId": 63,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1400,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EtThreadListEntry"
+        },
+        {
+          "itemId": 64,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1248,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EtStartAddress"
+        },
+        {
+          "itemId": 66,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 544,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "KtProcess"
+        },
+        {
+          "itemId": 122,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1368,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpVadRoot"
+        },
+        {
+          "itemId": 123,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1376,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpVadHint"
+        },
+        {
+          "itemId": 166,
+          "itemKind": 1,
+          "flags": 1,
+          "capabilityGroupId": 20562,
+          "valueLow": 1384,
+          "valueHigh": 0,
+          "aux0": 0,
+          "aux1": 0,
+          "aux2": 0,
+          "aux3": 0,
+          "name": "EpVadCount"
+        }
+      ]
+    }
+  ],
+  "imageSha256": "F6F275F67C7EF44FC2DF2D828658FB31EAFFD41018AC5A0FD9440E08D9912C30",
+  "pdbSha256": "3B9E7500B18A25BD3B14D4E0042677103D001466B11FB57E0E7A9D6613B70F4E",
+  "fieldsSha256": "2E74B0FB951D002A613112963273B8963210931A7F7A5B88D690D37A6AA5A637"
+}

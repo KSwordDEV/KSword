@@ -44,7 +44,7 @@ public:
     std::uint64_t driverBatches = 0;
     const PfnQueryTrace& lastTrace() const { return m_trace; }
 private:
-    long nativeQuery(unsigned long kind, void* buffer, unsigned long bytes) const;
+    long nativeQuery(unsigned long kind, void* buffer, unsigned long bytes, unsigned long* required = nullptr) const;
     long driverQuery(unsigned long kind, std::uint64_t first, std::uint32_t count,
         void* records, unsigned long capacity, unsigned long stride, unsigned long& returned,
         const std::vector<std::uint64_t>* pfns = nullptr);

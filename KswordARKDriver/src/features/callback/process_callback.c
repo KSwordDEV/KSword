@@ -157,6 +157,29 @@ KswordArkProcessCreateNotifyEx(
     }
 }
 
+static VOID
+KswordArkSubsystemCreateObservation(
+    _Inout_ PEPROCESS Process,
+    _In_ HANDLE ProcessId,
+    _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo)
+{
+    KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT input = { 0 }; // 固定栈记录，退出回调没有子系统类别信息。
+    if (CreateInfo == NULL || !CreateInfo->IsSubsystemProcess ||
+        !KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS)) {
+        return; // 仅记录由 Ex2 指明确认的非 Win32 创建事件。
+    }
+    input.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS; // 共享已有进程捕获会话。
+    input.Operation = KSWORD_ARK_PROCESS_OP_CREATE; // 保留创建/退出事件语义。
+    input.Flags = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_SUBSYSTEM_CREATE; // 使 R3 能辨别专用来源。
+    input.TargetProcessId = HandleToULong(ProcessId); // 记录被创建的进程，而非创建者。
+    input.ParentProcessId = HandleToULong(CreateInfo->ParentProcessId); // 原始继承关系。
+    input.OriginatingProcessId = HandleToULong(CreateInfo->CreatingThreadId.UniqueProcess); // 创建者。
+    input.OriginatingThreadId = HandleToULong(CreateInfo->CreatingThreadId.UniqueThread); // 创建线程。
+    input.SessionId = KswordArkGetProcessSessionIdSafe(Process); // 只读已有进程元数据。
+    input.Path = CreateInfo->ImageFileName; // 非 Win32 进程可合法没有映像名称。
+    KswordArkCallbackMonitorPublish(&input); // ring 立即复制数据，无新分配或规则执行。
+}
+
 NTSTATUS
 KswordArkProcessCallbackRegister(
     _In_ KSWORD_ARK_CALLBACK_RUNTIME* runtime
@@ -166,6 +189,11 @@ KswordArkProcessCallbackRegister(
 
     status = PsSetCreateProcessNotifyRoutineEx(KswordArkProcessCreateNotifyEx, FALSE);
     if (NT_SUCCESS(status)) {
+        UNICODE_STRING name = RTL_CONSTANT_STRING(L"PsSetCreateProcessNotifyRoutineEx2"); // 1703 起公开。
+        KSWORD_ARK_SET_PROCESS_NOTIFY_EX2 ex2 = (KSWORD_ARK_SET_PROCESS_NOTIFY_EX2)MmGetSystemRoutineAddress(&name); // 不提高驱动导入下限。
+        if (ex2 != NULL && NT_SUCCESS(ex2(0UL, (PVOID)KswordArkSubsystemCreateObservation, FALSE))) {
+            runtime->SubsystemNotifyRegistration = ex2; // 0 为 PsCreateProcessNotifySubsystems，注册失败保留原进程功能。
+        }
         // 注册期全局 runtime 尚未发布，必须用显式 runtime 版本写日志。
         KswordArkCallbackLogFrameForRuntime(runtime, "Info", "Process create callback registered.");
     }
@@ -178,7 +206,9 @@ KswordArkProcessCallbackUnregister(
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
-    UNREFERENCED_PARAMETER(runtime);
+    if (runtime->SubsystemNotifyRegistration != NULL) {
+        (VOID)runtime->SubsystemNotifyRegistration(0UL, (PVOID)KswordArkSubsystemCreateObservation, TRUE); // 等待在途只读通知退出。
+    }
 
     status = PsSetCreateProcessNotifyRoutineEx(KswordArkProcessCreateNotifyEx, TRUE);
     if (NT_SUCCESS(status)) {

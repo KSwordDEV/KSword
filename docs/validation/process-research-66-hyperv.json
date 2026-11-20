@@ -1,0 +1,1174 @@
+{
+  "target": "26H2-11-Pro",
+  "windows_build": "26300.9974",
+  "subsystem_wsl1_registered_distributions": 0,
+  "kernel_file_version": "26100.9974",
+  "initial_driver_service": "Stopped",
+  "ordinary_wdk_build_sha256": "E1E22662F39EC7E5892C9F3B11845D06779526010443FBC658A195C9D3789E3A",
+  "preexisting_guest_driver_sha256": "20EBD76CA44DCEA26E350EABA22D350DBD483599F3219B72C0BB27CF9A4C1B6F",
+  "acquisition": "Real HostX64 collectors and production driver client, using a temporary lab-signed driver service. Missing external inputs remained unavailable. Counts use each method's own units.",
+  "first_guest_each": {
+    "known_process_and_thread": [],
+    "profile_receipts": [],
+    "unresolved_active_only_probe_rows": null,
+    "temporary_driver_sha256": "F28423B0D1C49967748E40765C9DDDED0F8AE70E6C5F9FD34EB30BE88C46C89C",
+    "restored_original_service_and_image": true,
+    "callbacks": [
+      {
+        "event": "callback_before",
+        "ex2": true,
+        "flags": 8,
+        "last_status": 0,
+        "mask": 0,
+        "ok": true,
+        "queued": 0,
+        "registered": 31,
+        "win32": 0
+      },
+      {
+        "event": "callback_start",
+        "ex2": true,
+        "flags": 9,
+        "last_status": 0,
+        "mask": 7,
+        "ok": true,
+        "queued": 0,
+        "registered": 31,
+        "win32": 0
+      },
+      {
+        "child_rows": 2,
+        "count": 4,
+        "elapsed_ms": 2,
+        "event": "callback_method",
+        "id": 31,
+        "status": "partial"
+      },
+      {
+        "child_rows": 0,
+        "count": 0,
+        "elapsed_ms": 2,
+        "event": "callback_method",
+        "id": 32,
+        "status": "partial"
+      },
+      {
+        "child_rows": 8,
+        "count": 20,
+        "elapsed_ms": 2,
+        "event": "callback_method",
+        "id": 33,
+        "status": "partial"
+      },
+      {
+        "child_rows": 41,
+        "count": 56,
+        "elapsed_ms": 2,
+        "event": "callback_method",
+        "id": 34,
+        "status": "partial"
+      },
+      {
+        "child_creates": 1,
+        "child_images": 41,
+        "child_subsystem_creates": 0,
+        "child_threads": 8,
+        "event": "callback_window",
+        "from": 0,
+        "intact": true,
+        "started_by_probe": true,
+        "subsystem_creates": 0,
+        "to": 80
+      },
+      {
+        "event": "callback_stop",
+        "ex2": true,
+        "flags": 8,
+        "last_status": 0,
+        "mask": 0,
+        "ok": true,
+        "queued": 80,
+        "registered": 31,
+        "win32": 0
+      }
+    ],
+    "methods": [
+      {
+        "id": 1,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 5
+      },
+      {
+        "id": 2,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 3,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 4,
+        "status": "complete",
+        "records": 151,
+        "elapsed_ms": 5
+      },
+      {
+        "id": 5,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 6,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 7,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 4
+      },
+      {
+        "id": 8,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 9,
+        "status": "partial",
+        "records": 133,
+        "elapsed_ms": 66
+      },
+      {
+        "id": 10,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 18
+      },
+      {
+        "id": 11,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 12,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 13,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 14,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 15,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 16,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 17,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 18,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 19,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 1
+      },
+      {
+        "id": 20,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 21,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 22,
+        "status": "complete",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 23,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 24,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 5
+      },
+      {
+        "id": 25,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 26,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 27,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 79398
+      },
+      {
+        "id": 28,
+        "status": "partial",
+        "records": 3689,
+        "elapsed_ms": 1311
+      },
+      {
+        "id": 29,
+        "status": "partial",
+        "records": 0,
+        "elapsed_ms": 1109
+      },
+      {
+        "id": 30,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 1
+      },
+      {
+        "id": 31,
+        "status": "partial",
+        "records": 4,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 32,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 33,
+        "status": "partial",
+        "records": 20,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 34,
+        "status": "partial",
+        "records": 56,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 35,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 36,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 37,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 38,
+        "status": "complete",
+        "records": 11,
+        "elapsed_ms": 321
+      },
+      {
+        "id": 39,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 8
+      },
+      {
+        "id": 40,
+        "status": "complete",
+        "records": 0,
+        "elapsed_ms": 5298
+      },
+      {
+        "id": 41,
+        "status": "complete",
+        "records": 18,
+        "elapsed_ms": 1
+      },
+      {
+        "id": 42,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 43,
+        "status": "partial",
+        "records": 405,
+        "elapsed_ms": 849
+      },
+      {
+        "id": 44,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 45,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 46,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 47,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 48,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 49,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 50,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 51,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 52,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 53,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 6
+      },
+      {
+        "id": 54,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 55,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 56,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 57,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 58,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 59,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 60,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 61,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 62,
+        "status": "partial",
+        "records": 0,
+        "elapsed_ms": 5
+      },
+      {
+        "id": 63,
+        "status": "partial",
+        "records": 7,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 64,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 65,
+        "status": "partial",
+        "records": 1046,
+        "elapsed_ms": 332
+      },
+      {
+        "id": 66,
+        "status": "partial",
+        "records": 37,
+        "elapsed_ms": 1
+      }
+    ]
+  },
+  "guest_native_routing_assertions": 553,
+  "host_final_native_assertions": 555,
+  "navigation_assertions": 80,
+  "external_provider_assertions": 64,
+  "profile_assertions": 19,
+  "public_commit_artifacts": {
+    "gui_sha256": "9A81165089CE56DB68A18AD3D1AC5844B7086714DD722166DFF3EC276D495441",
+    "unsigned_driver_sha256": "E1E22662F39EC7E5892C9F3B11845D06779526010443FBC658A195C9D3789E3A"
+  },
+  "coverage_notes": [
+    "Live guest runs supplied driver and ETL inputs; independent memory-image and external-source results are reported separately.",
+    "The normal lab signer matched the previously installed guest driver; no guest security policy was changed.",
+    "An early WDK default signing hook invoked the repository CurrentUser test-certificate import before validation switched to a separately test-signed copy. No before-state of these host user stores was captured."
+  ],
+  "guest_wmi_controlled_window": {
+    "elapsed_ms": 5008,
+    "observed_records": 27,
+    "controlled_children": 6,
+    "matched_start_and_exit": 5
+  },
+  "real_dump_checks": {
+    "format": "Windows x64 type 6",
+    "images": [
+      "bsod-rxpf-write-3b-av.dmp",
+      "bsod-rxpf-write-path-139.dmp"
+    ],
+    "custom_research_points": [
+      3,
+      5,
+      8,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      18,
+      21,
+      23,
+      25,
+      29,
+      30,
+      62
+    ],
+    "validated_vad_to_control_area_relations": [
+      15261,
+      14236
+    ],
+    "distinct_control_areas": [
+      2748,
+      2662
+    ],
+    "outside_known_modules_ranges": [
+      5,
+      5
+    ],
+    "checked_pfns_per_image": 1048293,
+    "verified_reverse_pte_matches": [
+      72846,
+      55999
+    ],
+    "volatility_stock_plugins_executed_on_first_image": 13
+  },
+  "hyperv_saved_state": {
+    "direct_vmrs_hresult": "0x80070005",
+    "runtime_only_export_bytes": 1193234432,
+    "exported_virtual_disks": 0,
+    "read_vcpus": 4,
+    "vm_restored_running": true,
+    "checkpoints": 0,
+    "temporary_export_removed": true
+  },
+  "paired_guest_host_snapshot": {
+    "file_sha256": "79923E6676B0EA1B476A5FC21B82ED73246E0460DF38013CCF6245322FC7C6DB",
+    "byte_length": 1366626304,
+    "wmi_rows": 154,
+    "memory_process_objects": 153,
+    "memory_unterminated": 151,
+    "matches_at_second_precision": 150,
+    "guest_only": 3,
+    "host_only": 0,
+    "name_disagreements": 1,
+    "sampling_interval_seconds": 5.8,
+    "status": "partial",
+    "memprocfs_input": "read-only static VMRS",
+    "removed": true
+  },
+  "findevil_source": {
+    "engine": "MemProcFS 5.19.4",
+    "source": "bsod-rxpf-write-3b-av.dmp",
+    "report_bytes": 20133,
+    "report_sha256": "F35F2F2B7D83108ADB6828F42780C3D29668D49F118C6EDCCF1B725EF19901A9",
+    "report_complete": true,
+    "hits": {
+      "PE_INJECT": 0,
+      "UM_APC": 0,
+      "PE_PATCHED": 0
+    },
+    "positive_examples": "fixture only"
+  },
+  "guest_etl": {
+    "seconds": 3.016,
+    "events_lost": 0,
+    "cswitch_version": 5,
+    "independent_cswitch_count": 3050,
+    "method_17_count": 3050,
+    "method_36_count": 303,
+    "method_37_count": 7816,
+    "marker_cswitch": 71,
+    "marker_ready": 52,
+    "second_schedule_only_trace": {
+      "cswitch": 2469,
+      "thread_and_scheduling": 3861,
+      "all_pids_unknown": true
+    }
+  },
+  "intel_pt_decoder_check": {
+    "decoder": "Intel libipt 2.2.1",
+    "source": "upstream psb-pip-psb.ptt vector",
+    "recorded_hardware_trace": false,
+    "psb": 2,
+    "pip": 1,
+    "ovf": 0,
+    "offset": "0x12",
+    "cr3": "0xa00"
+  },
+  "final_guest_combined": {
+    "known_process_and_thread": [
+      {
+        "expected_source": 2,
+        "found": true,
+        "id": 1,
+        "identity_rows": 1,
+        "matched_mask": 6,
+        "returned": 158,
+        "source_rows": 158,
+        "status": "complete",
+        "total": 158
+      },
+      {
+        "expected_source": 4,
+        "found": true,
+        "id": 4,
+        "identity_rows": 1,
+        "matched_mask": 6,
+        "returned": 158,
+        "source_rows": 158,
+        "status": "complete",
+        "total": 158
+      },
+      {
+        "expected_source": 8,
+        "found": true,
+        "id": 7,
+        "identity_rows": 1,
+        "matched_mask": 8,
+        "returned": 1669,
+        "source_rows": 1669,
+        "status": "complete",
+        "total": 1669
+      }
+    ],
+    "profile_receipts": [
+      {
+        "verified": true,
+        "detail": "专用只读布局已装入，10 项字段回读一致。"
+      }
+    ],
+    "unresolved_active_only_probe_rows": 0,
+    "temporary_driver_sha256": "D5243C78A714491895CC034833D93A4A1D606BED2E192328B069F784F6132102",
+    "restored_original_service_and_image": true,
+    "callbacks": [
+      {
+        "event": "callback_before",
+        "ex2": true,
+        "flags": 8,
+        "last_status": 0,
+        "mask": 0,
+        "ok": true,
+        "queued": 0,
+        "registered": 31,
+        "win32": 0
+      },
+      {
+        "event": "callback_start",
+        "ex2": true,
+        "flags": 9,
+        "last_status": 0,
+        "mask": 31,
+        "ok": true,
+        "queued": 0,
+        "registered": 31,
+        "win32": 0
+      },
+      {
+        "child_rows": 2,
+        "count": 4,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 31,
+        "marker_rows": 0,
+        "self_rows": 0,
+        "status": "partial"
+      },
+      {
+        "child_rows": 0,
+        "count": 0,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 32,
+        "marker_rows": 0,
+        "self_rows": 0,
+        "status": "partial"
+      },
+      {
+        "child_rows": 7,
+        "count": 19,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 33,
+        "marker_rows": 0,
+        "self_rows": 0,
+        "status": "partial"
+      },
+      {
+        "child_rows": 41,
+        "count": 56,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 34,
+        "marker_rows": 0,
+        "self_rows": 0,
+        "status": "partial"
+      },
+      {
+        "child_rows": 13,
+        "count": 31,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 35,
+        "marker_rows": 0,
+        "self_rows": 2,
+        "status": "partial"
+      },
+      {
+        "child_rows": 414,
+        "count": 670,
+        "elapsed_ms": 3,
+        "event": "callback_method",
+        "id": 42,
+        "marker_rows": 6,
+        "self_rows": 69,
+        "status": "partial"
+      },
+      {
+        "child_creates": 1,
+        "child_images": 41,
+        "child_subsystem_creates": 0,
+        "child_threads": 7,
+        "event": "callback_window",
+        "from": 0,
+        "intact": false,
+        "marked_file": 0,
+        "marked_registry": 6,
+        "self_object": 1,
+        "started_by_probe": true,
+        "subsystem_creates": 0,
+        "to": 780
+      },
+      {
+        "event": "callback_stop",
+        "ex2": true,
+        "flags": 10,
+        "last_status": 0,
+        "mask": 0,
+        "ok": true,
+        "queued": 780,
+        "registered": 31,
+        "win32": 0
+      }
+    ],
+    "methods": [
+      {
+        "id": 1,
+        "status": "complete",
+        "records": 160,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 2,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 3,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 4,
+        "status": "complete",
+        "records": 160,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 5,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 6,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 7,
+        "status": "complete",
+        "records": 1679,
+        "elapsed_ms": 8
+      },
+      {
+        "id": 8,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 9,
+        "status": "partial",
+        "records": 138,
+        "elapsed_ms": 5
+      },
+      {
+        "id": 10,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 19
+      },
+      {
+        "id": 11,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 12,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 13,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 14,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 15,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 16,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 17,
+        "status": "partial",
+        "records": 4096,
+        "elapsed_ms": 313
+      },
+      {
+        "id": 18,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 19,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 20,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 21,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 22,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 23,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 24,
+        "status": "partial",
+        "records": 152,
+        "elapsed_ms": 125
+      },
+      {
+        "id": 25,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 26,
+        "status": "partial",
+        "records": 152,
+        "elapsed_ms": 125
+      },
+      {
+        "id": 27,
+        "status": "partial",
+        "records": 133,
+        "elapsed_ms": 21496
+      },
+      {
+        "id": 28,
+        "status": "partial",
+        "records": 26667,
+        "elapsed_ms": 2668
+      },
+      {
+        "id": 29,
+        "status": "partial",
+        "records": 0,
+        "elapsed_ms": 2668
+      },
+      {
+        "id": 30,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 31,
+        "status": "partial",
+        "records": 4,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 32,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 33,
+        "status": "partial",
+        "records": 19,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 34,
+        "status": "partial",
+        "records": 56,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 35,
+        "status": "partial",
+        "records": 31,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 36,
+        "status": "complete",
+        "records": 317,
+        "elapsed_ms": 485
+      },
+      {
+        "id": 37,
+        "status": "partial",
+        "records": 11206,
+        "elapsed_ms": 313
+      },
+      {
+        "id": 38,
+        "status": "complete",
+        "records": 0,
+        "elapsed_ms": 235
+      },
+      {
+        "id": 39,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 3
+      },
+      {
+        "id": 40,
+        "status": "complete",
+        "records": 0,
+        "elapsed_ms": 5111
+      },
+      {
+        "id": 41,
+        "status": "complete",
+        "records": 18,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 42,
+        "status": "partial",
+        "records": 670,
+        "elapsed_ms": 2
+      },
+      {
+        "id": 43,
+        "status": "partial",
+        "records": 414,
+        "elapsed_ms": 2927
+      },
+      {
+        "id": 44,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 45,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 46,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 47,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 48,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 49,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 50,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 51,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 52,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 53,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 54,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 55,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 56,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 57,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 58,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 59,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 60,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 61,
+        "status": "unavailable",
+        "records": 0,
+        "elapsed_ms": 0
+      },
+      {
+        "id": 62,
+        "status": "partial",
+        "records": 0,
+        "elapsed_ms": 3
+      },
+      {
+        "id": 63,
+        "status": "partial",
+        "records": 7,
+        "elapsed_ms": 1
+      },
+      {
+        "id": 64,
+        "status": "partial",
+        "records": 449,
+        "elapsed_ms": 4186
+      },
+      {
+        "id": 65,
+        "status": "partial",
+        "records": 1046,
+        "elapsed_ms": 172
+      },
+      {
+        "id": 66,
+        "status": "partial",
+        "records": 35,
+        "elapsed_ms": 1
+      }
+    ]
+  }
+}

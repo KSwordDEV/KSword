@@ -15,7 +15,9 @@ Environment:
 --*/
 
 #include "process_crossview.h"
+#include "../dyndata/dyndata_v4_internal.h" // The optional layout is confined to the current read query.
 #include "..\kernel\hook_scan_support.h"
+#include "../kernel/kernel_image_section_map.h" // Distinguish the NT image's static list head from process-pool storage.
 #include "..\kernel\object_header_fallback.h" // 候选地址只通过 CID 查询结果取得精确对象引用。
 #include "..\..\dispatch\ioctl_validation.h"
 #include "../../platform/runtime_signature_scan.h" // Guard scalar dispatcher observations with MmCopyMemory.
@@ -72,6 +74,7 @@ typedef struct _KSW_PROCESS_CROSSVIEW_CONTEXT
     NTSTATUS LastStatus;
     BOOLEAN Truncated;
     BOOLEAN CapabilityMissing;
+    BOOLEAN ObserverActiveList; // Specific read-only layout, separate from the legacy capability mask.
     KSW_DYN_STATE DynState;
     KSWORD_ARK_CROSSVIEW_FIELD_OFFSETS FieldOffsets;
 } KSW_PROCESS_CROSSVIEW_CONTEXT, *PKSW_PROCESS_CROSSVIEW_CONTEXT;
@@ -2449,6 +2452,34 @@ Return Value:
     }
 }
 
+// A static list head has no enclosing EPROCESS. Prove the exact end-of-cycle
+// role from a referenced System anchor and fresh reciprocal links before skipping it.
+static BOOLEAN KswProcessVerifiedActiveSentinel(const KSW_DYN_MODULE_IDENTITY_PACKET* nt,
+    LIST_ENTRY* systemLink, LIST_ENTRY* first, LIST_ENTRY* expected, LIST_ENTRY* previous, LIST_ENTRY* current)
+{
+    LIST_ENTRY candidate, anchor, again; // Independent reads of volatile list relationships.
+    PVOID predecessorForward = NULL; // Confirm the immediately preceding observed process links to this node.
+    KSW_HOOK_SYSTEM_MODULE_ENTRY module = { 0 }; // Never accept module geometry from this candidate.
+    const ULONG_PTR anchorCode = (ULONG_PTR)PsGetProcessId; // An imported NT export must agree with the loaded image identity.
+    if (!nt->present || nt->classId != KSW_DYN_PROFILE_CLASS_NTOSKRNL || !nt->imageBase || !nt->sizeOfImage ||
+        anchorCode < nt->imageBase || anchorCode - nt->imageBase >= nt->sizeOfImage ||
+        !current || current != expected || current == systemLink || current == previous ||
+        !KswordARKCrossViewPointerAligned((ULONG_PTR)current) || !KswordARKCrossViewPointerAligned((ULONG_PTR)previous) ||
+        (previous == systemLink && first != current)) return FALSE; // Includes the legal one-process circular list.
+    module.ImageBase = (PVOID)(ULONG_PTR)nt->imageBase; // Loader-provided NT base already cross-checked with its export.
+    module.ImageSize = nt->sizeOfImage; // Bounded PE and section reads.
+    if (!KswordARKImageContainsStaticWritableList(&module, (ULONG64)(ULONG_PTR)current)) return FALSE; // Pool objects and .text never qualify.
+    if (!NT_SUCCESS(KswordARKCrossViewReadMemory(current, &candidate, sizeof(candidate))) ||
+        candidate.Flink != systemLink || candidate.Blink != previous ||
+        !NT_SUCCESS(KswordARKCrossViewReadMemory(systemLink, &anchor, sizeof(anchor))) ||
+        anchor.Flink != first || anchor.Blink != current ||
+        !NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&previous->Flink, &predecessorForward)) ||
+        predecessorForward != current ||
+        !NT_SUCCESS(KswordARKCrossViewReadMemory(current, &again, sizeof(again))) ||
+        again.Flink != candidate.Flink || again.Blink != candidate.Blink) return FALSE; // Churn, inaccessible links, or doubt preserve the row.
+    return TRUE; // The static .data sentinel closes this exact traversal back to System.
+}
+
 static VOID
 KswordARKProcessCrossViewCollectActiveList(
     _Inout_ KSW_PROCESS_CROSSVIEW_CONTEXT* Context
@@ -2473,6 +2504,10 @@ Return Value:
 {
     LIST_ENTRY* head = NULL;
     LIST_ENTRY* current = NULL;
+    LIST_ENTRY* first = NULL; // Keep both initial anchor edges for corroboration.
+    LIST_ENTRY* expectedSentinel = NULL; // Optional; an unreadable backlink never suppresses a row.
+    LIST_ENTRY* previous = NULL; // Node actually followed to reach the candidate.
+    BOOLEAN boundSystem = FALSE; // Only the referenced, type-checked PID 4 permits sentinel exclusion.
     KSW_CROSSVIEW_VISITED_SET visited;
     ULONG walked = 0UL;
     NTSTATUS status = STATUS_SUCCESS;
@@ -2482,7 +2517,7 @@ Return Value:
     }
     RtlZeroMemory(&visited, sizeof(visited));
 
-    if ((Context->DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) != KSW_CAP_PROCESS_LIST_FIELDS ||
+    if ((!Context->ObserverActiveList && (Context->DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) == 0ULL) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EpActiveProcessLinks) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EpUniqueProcessId) ||
         PsProcessType == NULL ||
@@ -2522,6 +2557,7 @@ Return Value:
             &typeMatched,
             &referenced);
         if (referenced) {
+            boundSystem = typeMatched && PsGetProcessId(PsInitialSystemProcess) == ULongToHandle(4UL); // Confirm the actual System anchor.
             KswordARKProcessCrossViewMergeProcessObject(
                 Context,
                 PsInitialSystemProcess,
@@ -2555,6 +2591,9 @@ Return Value:
         KswordARKCrossViewVisitedDestroy(&visited);
         return;
     }
+    first = current; // Record the traversal's starting edge.
+    previous = head; // The first edge was followed from System.
+    if (boundSystem) (VOID)KswordARKCrossViewReadPointerAddress(&head->Blink, (PVOID*)&expectedSentinel); // A failed optional probe leaves NULL.
 
     while (current != NULL && current != head) {
         LIST_ENTRY* next = NULL;
@@ -2569,6 +2608,10 @@ Return Value:
         NTSTATUS readStatus = STATUS_SUCCESS;
         BOOLEAN linkMismatch = FALSE;
 
+        if (boundSystem && current == expectedSentinel &&
+            KswProcessVerifiedActiveSentinel(&Context->DynState.Ntoskrnl, head, first, expectedSentinel, previous, current)) {
+            break; // This objectless static sentinel is not a process and consumes no process-row budget.
+        }
         if (walked >= Context->MaxNodes) {
             Context->Truncated = TRUE;
             Context->LastStatus = STATUS_BUFFER_OVERFLOW;
@@ -2667,6 +2710,7 @@ Return Value:
                 "ActiveProcessLinks candidate could not be safely referenced; object type is unconfirmed.");
         }
 
+        previous = current; // Preserve the observed predecessor, not just the candidate's claimed Blink.
         current = next;
     }
 
@@ -3059,6 +3103,20 @@ Return Value:
     RtlZeroMemory(context.Rows, rowBytes);
 
     KswordARKDynDataSnapshot(&context.DynState);
+    if ((requestFlags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_ACTIVE_LIST) &&
+        !(context.DynState.CapabilityMask & KSW_CAP_PROCESS_LIST_FIELDS) && PsInitialSystemProcess != NULL) {
+        KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT layout; // All values came from the same accepted profile.
+        PVOID systemId = NULL, ownerId = NULL; // Two public identities validate the private PID field.
+        PEPROCESS owner = PsGetCurrentProcess(); // The current process remains referenced by this thread.
+        if (KswordARKDynDataV4SnapshotProcessObserver(&layout) &&
+            NT_SUCCESS(KswordARKCrossViewReadPointerField(PsInitialSystemProcess, layout.Pid, &systemId)) &&
+            systemId == ULongToHandle(4UL) && systemId == PsGetProcessId(PsInitialSystemProcess) &&
+            NT_SUCCESS(KswordARKCrossViewReadPointerField(owner, layout.Pid, &ownerId)) && ownerId == PsGetProcessId(owner)) {
+            context.DynState.Kernel.EpUniqueProcessId = layout.Pid; // Private per-request snapshot only.
+            context.DynState.Kernel.EpActiveProcessLinks = layout.ActiveLinks; // The walker rechecks links, object type and reference.
+            context.ObserverActiveList = TRUE; // No global capabilities or write-side resolvers are changed.
+        }
+    }
     KswordARKCrossViewFillFieldOffsets(&context.DynState, &context.FieldOffsets);
 
     if ((requestFlags & KSWORD_ARK_PROCESS_CROSSVIEW_FLAG_INCLUDE_PUBLIC_WALK) != 0UL) {

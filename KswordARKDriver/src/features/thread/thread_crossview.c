@@ -16,6 +16,7 @@ Environment:
 --*/
 
 #include "thread_crossview.h"
+#include "work_queue_fallback.h" // Bounded owner PID and creation-time snapshot for systems without PsGetNextProcess.
 #include "..\kernel\hook_scan_support.h"
 #include "..\kernel\object_header_fallback.h"
 #include "..\..\dispatch\ioctl_validation.h"
@@ -72,6 +73,7 @@ typedef struct _KSW_THREAD_CROSSVIEW_CONTEXT
     BOOLEAN Truncated;
     BOOLEAN CapabilityMissing;
     BOOLEAN PublicProcessWalkComplete;
+    BOOLEAN ObserverThreadList; // Exclusive to this read-only request, never a published capability.
     KSW_DYN_STATE DynState;
     KSWORD_ARK_CROSSVIEW_FIELD_OFFSETS FieldOffsets;
     KSW_HOOK_SYSTEM_MODULE_INFORMATION* ModuleInfo;
@@ -101,6 +103,8 @@ ObGetObjectType(
     );
 
 extern POBJECT_TYPE* PsThreadType;
+NTSYSAPI NTSTATUS NTAPI PsLookupProcessByProcessId(_In_ HANDLE ProcessId, _Outptr_ PEPROCESS* Process);
+NTKERNELAPI LONGLONG NTAPI PsGetProcessCreateTimeQuadPart(_In_ PEPROCESS Process);
 
 static NTSTATUS
 KswordARKThreadCrossViewReadCidFields(
@@ -1519,6 +1523,27 @@ Return Value:
     KswordARKThreadCrossViewVisitedDestroy(&visited);
 }
 
+typedef struct _KSW_OBSERVER_THREAD_LIST_WALK {
+    KSW_THREAD_CROSSVIEW_CONTEXT* Query; // Owned by the enclosing synchronous IOCTL.
+    ULONG Walked; // Same node budget across every process scope.
+} KSW_OBSERVER_THREAD_LIST_WALK;
+
+static NTSTATUS KswObserverVisitThreadList(ULONG pid, LONGLONG created, PVOID state)
+{
+    KSW_OBSERVER_THREAD_LIST_WALK* walk = (KSW_OBSERVER_THREAD_LIST_WALK*)state; // Local query context only.
+    PEPROCESS owner = NULL; // Filled only by a referenced, public lookup.
+    NTSTATUS status; // Keep incomplete scopes visible to the caller.
+    if (!KswordARKThreadCrossViewProcessInRequest(walk->Query, pid)) return STATUS_SUCCESS; // Respect the PID filter.
+    status = PsLookupProcessByProcessId(ULongToHandle(pid), &owner); // Never trust an object address from a process snapshot.
+    if (!NT_SUCCESS(status)) { walk->Query->LastStatus = STATUS_PARTIAL_COPY; return STATUS_SUCCESS; } // Process exited.
+    if ((created != 0 || owner == PsInitialSystemProcess) && PsGetProcessId(owner) == ULongToHandle(pid) &&
+        PsGetProcessCreateTimeQuadPart(owner) == created) {
+        KswordARKThreadCrossViewCollectOneThreadList(walk->Query, owner, &walk->Walked); // Thread evidence still comes from EPROCESS.ThreadListHead.
+    } else { walk->Query->LastStatus = STATUS_PARTIAL_COPY; } // PID reuse or missing lifetime evidence.
+    ObDereferenceObject(owner); // Release the public lookup's one reference.
+    return walk->Query->Truncated ? STATUS_BUFFER_OVERFLOW : STATUS_SUCCESS; // Stop when the normal collector hits its budget.
+}
+
 static VOID
 KswordARKThreadCrossViewCollectThreadLists(
     _Inout_ KSW_THREAD_CROSSVIEW_CONTEXT* Context
@@ -1548,7 +1573,7 @@ Return Value:
         return;
     }
 
-    if ((Context->DynState.CapabilityMask & KSW_CAP_THREAD_LIST_FIELDS) != KSW_CAP_THREAD_LIST_FIELDS ||
+    if ((!Context->ObserverThreadList && (Context->DynState.CapabilityMask & KSW_CAP_THREAD_LIST_FIELDS) == 0ULL) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EpThreadListHead) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EtThreadListEntry) ||
         !KswordARKCrossViewOffsetPresent(Context->DynState.Kernel.EtCid) ||
@@ -1563,9 +1588,10 @@ Return Value:
 
     psGetNextProcess = KswordARKThreadCrossViewResolvePsGetNextProcess();
     if (psGetNextProcess == NULL) {
-        Context->CapabilityMissing = TRUE;
-        Context->LastStatus = STATUS_PROCEDURE_NOT_FOUND;
-        return;
+        KSW_OBSERVER_THREAD_LIST_WALK walk = { Context, 0UL }; // Enumerate owners using a real process snapshot.
+        const NTSTATUS snapshot = KswordARKVisitSnapshotProcessIdentities(KswObserverVisitThreadList, &walk); // The snapshot never supplies evidence TIDs.
+        if (!NT_SUCCESS(snapshot)) Context->LastStatus = snapshot; // Report transport, malformed input or truncation.
+        return; // No unavailable private walker is called.
     }
 
     processCursor = psGetNextProcess(NULL);
@@ -1977,6 +2003,24 @@ Return Value:
     RtlZeroMemory(context.ProcessSeen.Items, (SIZE_T)context.MaxNodes * sizeof(ULONG_PTR));
 
     KswordARKDynDataSnapshot(&context.DynState);
+    if ((requestFlags & KSWORD_ARK_THREAD_CROSSVIEW_FLAG_INCLUDE_THREAD_LIST) &&
+        !(context.DynState.CapabilityMask & KSW_CAP_THREAD_LIST_FIELDS)) {
+        KSW_DYN_V4_PROCESS_OBSERVER_LAYOUT layout; // Strictly limited to the observer's immutable scalar fields.
+        PETHREAD currentThread = PsGetCurrentThread(); // The executive thread is live for this entire call.
+        PEPROCESS owner = PsGetThreadProcess(currentThread); // Get the thread's owner, not its attached APC context.
+        PVOID observedOwner = NULL, cid[2] = { NULL, NULL }; // Guarded observations of owner, PID and TID.
+        if (KswordARKDynDataV4SnapshotProcessObserver(&layout) &&
+            NT_SUCCESS(KswordARKCrossViewReadMemory((const UCHAR*)currentThread + layout.Cid, cid, sizeof(cid))) &&
+            NT_SUCCESS(KswordARKCrossViewReadPointerField(currentThread, layout.ThreadProcess, &observedOwner)) &&
+            observedOwner == owner && cid[0] == PsGetProcessId(owner) && cid[1] == PsGetThreadId(currentThread)) {
+            context.DynState.Kernel.EpThreadListHead = layout.ThreadHead; // The normal collector checks reciprocal edges.
+            context.DynState.Kernel.EtThreadListEntry = layout.ThreadEntry; // It requires a matching referenced ETHREAD.
+            context.DynState.Kernel.EtCid = layout.Cid; // Rechecked on the live witness above.
+            context.DynState.Kernel.EtStartAddress = layout.ThreadStart; // Only read when start validation was requested.
+            context.DynState.Kernel.KtProcess = layout.ThreadProcess; // Cross-check per-node ownership with the object manager.
+            context.ObserverThreadList = TRUE; // Do not change global DynData or the returned legacy capability mask.
+        }
+    }
     KswordARKCrossViewFillFieldOffsets(&context.DynState, &context.FieldOffsets);
 
     if ((requestFlags & KSWORD_ARK_THREAD_CROSSVIEW_FLAG_VALIDATE_START) != 0UL) {

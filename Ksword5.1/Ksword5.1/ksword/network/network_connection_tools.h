@@ -353,7 +353,8 @@ namespace ks::network
     // - 失败时返回 false，并在 errorTextOut 写入错误说明。
     inline bool EnumerateTcpConnectionRecords(
         std::vector<TcpConnectionRecord>& recordsOut,
-        std::string* errorTextOut = nullptr)
+        std::string* errorTextOut = nullptr,
+        bool resolveProcessNames = true)
     {
         recordsOut.clear();
         if (errorTextOut != nullptr)
@@ -365,7 +366,7 @@ namespace ks::network
         std::unordered_map<std::uint32_t, std::string> processNameCache;
 
         // appendIpv4Table 用途：枚举 IPv4 TCP 连接并追加到统一输出容器。
-        auto appendIpv4Table = [&recordsOut, &processNameCache](std::string* errorOut) -> bool
+        auto appendIpv4Table = [&recordsOut, &processNameCache, resolveProcessNames](std::string* errorOut) -> bool
             {
                 ULONG requiredBufferLength = 0;
                 DWORD queryResult = ::GetExtendedTcpTable(
@@ -410,7 +411,7 @@ namespace ks::network
                     TcpConnectionRecord record;
                     record.isIpv6 = false;
                     record.processId = static_cast<std::uint32_t>(row.dwOwningPid);
-                    record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
+                    if (resolveProcessNames) record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
                     record.localIpv4HostOrder = ntohl(row.dwLocalAddr);
                     record.localIpv4NetworkOrder = row.dwLocalAddr;
                     record.remoteIpv4HostOrder = ntohl(row.dwRemoteAddr);
@@ -429,7 +430,7 @@ namespace ks::network
             };
 
         // appendIpv6Table 用途：枚举 IPv6 TCP 连接并追加到统一输出容器。
-        auto appendIpv6Table = [&recordsOut, &processNameCache](std::string* errorOut) -> bool
+        auto appendIpv6Table = [&recordsOut, &processNameCache, resolveProcessNames](std::string* errorOut) -> bool
             {
                 ULONG requiredBufferLength = 0;
                 DWORD queryResult = ::GetExtendedTcpTable(
@@ -474,7 +475,7 @@ namespace ks::network
                     TcpConnectionRecord record;
                     record.isIpv6 = true;
                     record.processId = static_cast<std::uint32_t>(row.dwOwningPid);
-                    record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
+                    if (resolveProcessNames) record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
                     record.localIpv4HostOrder = 0;
                     record.localIpv4NetworkOrder = 0;
                     record.remoteIpv4HostOrder = 0;
@@ -555,7 +556,8 @@ namespace ks::network
     // - 失败时返回 false，并在 errorTextOut 写入错误说明。
     inline bool EnumerateUdpEndpointRecords(
         std::vector<UdpEndpointRecord>& recordsOut,
-        std::string* errorTextOut = nullptr)
+        std::string* errorTextOut = nullptr,
+        bool resolveProcessNames = true)
     {
         recordsOut.clear();
         if (errorTextOut != nullptr)
@@ -567,7 +569,7 @@ namespace ks::network
         std::unordered_map<std::uint32_t, std::string> processNameCache;
 
         // appendIpv4Table 用途：枚举 IPv4 UDP 端点并追加到统一输出容器。
-        auto appendIpv4Table = [&recordsOut, &processNameCache](std::string* errorOut) -> bool
+        auto appendIpv4Table = [&recordsOut, &processNameCache, resolveProcessNames](std::string* errorOut) -> bool
             {
                 ULONG requiredBufferLength = 0;
                 DWORD queryResult = ::GetExtendedUdpTable(
@@ -612,7 +614,7 @@ namespace ks::network
                     UdpEndpointRecord record;
                     record.isIpv6 = false;
                     record.processId = static_cast<std::uint32_t>(row.dwOwningPid);
-                    record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
+                    if (resolveProcessNames) record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
                     record.localIpv4HostOrder = ntohl(row.dwLocalAddr);
                     record.localPort = ntohs(static_cast<u_short>(row.dwLocalPort));
                     record.localAddressText = connection_detail::Ipv4NetworkOrderToText(row.dwLocalAddr);
@@ -622,7 +624,7 @@ namespace ks::network
             };
 
         // appendIpv6Table 用途：枚举 IPv6 UDP 端点并追加到统一输出容器。
-        auto appendIpv6Table = [&recordsOut, &processNameCache](std::string* errorOut) -> bool
+        auto appendIpv6Table = [&recordsOut, &processNameCache, resolveProcessNames](std::string* errorOut) -> bool
             {
                 ULONG requiredBufferLength = 0;
                 DWORD queryResult = ::GetExtendedUdpTable(
@@ -667,7 +669,7 @@ namespace ks::network
                     UdpEndpointRecord record;
                     record.isIpv6 = true;
                     record.processId = static_cast<std::uint32_t>(row.dwOwningPid);
-                    record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
+                    if (resolveProcessNames) record.processName = connection_detail::FillProcessNameCacheIfNeeded(record.processId, processNameCache);
                     record.localIpv4HostOrder = 0;
                     record.localPort = ntohs(static_cast<u_short>(row.dwLocalPort));
                     record.localAddressText = connection_detail::Ipv6BytesToText(row.ucLocalAddr);

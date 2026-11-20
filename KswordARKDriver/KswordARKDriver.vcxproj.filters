@@ -1214,6 +1214,9 @@
     <ClCompile Include="src\features\dyndata\dyndata_v4.c">
       <Filter>Source Files\Features\DynData</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\dyndata\dyndata_v4_process_observer.c">
+      <Filter>Source Files\Features\DynData</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\dyndata\dyndata_v4_query.c">
       <Filter>Source Files\Features\DynData</Filter>
     </ClCompile>

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -94,6 +95,8 @@ struct MappingJob {
     // Immutable UI-supplied context only; this independent observation has its own epoch.
     QString ledgerContextEpoch;
     std::atomic_bool cancel{false}, done{false};
+    std::function<bool()> externalCancel;
+    bool stopping() { if (externalCancel && externalCancel()) cancel.store(true); return cancel.load(); }
     std::atomic<std::uint64_t> tested{0};
     std::mutex mutex;
     std::shared_ptr<Mappings> result;

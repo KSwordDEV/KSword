@@ -159,8 +159,14 @@ Return Value:
             KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_TEXT_SECTION_SAMPLES |
             KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_SUSPECTED_BIGPOOL;
     }
-    if ((limits.EffectiveFlags & ~KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL) != 0UL) {
+    if ((limits.EffectiveFlags & ~(KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_ALL |
+        KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES)) != 0UL) {
         return STATUS_INVALID_PARAMETER;
+    }
+    if ((limits.EffectiveFlags & KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES) != 0UL &&
+        (limits.EffectiveFlags & (KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_BIGPOOL |
+         KSWORD_ARK_MEMORY_EVIDENCE_FLAG_INCLUDE_SUSPECTED_BIGPOOL)) == 0UL) {
+        return STATUS_INVALID_PARAMETER; // 没有大池请求时无法应用这项模块归属比较。
     }
 
     if (Request->startAddress != 0ULL &&
@@ -1248,6 +1254,27 @@ Return Value:
     return firstFailure;
 }
 
+static BOOLEAN
+KswordARKMemoryEvidenceModuleRangesUsable(
+    _In_reads_bytes_(Bytes) const KSW_HOOK_SYSTEM_MODULE_INFORMATION* Modules,
+    _In_ ULONG Bytes)
+{
+    const ULONG header = FIELD_OFFSET(KSW_HOOK_SYSTEM_MODULE_INFORMATION, Modules); // 模块数组的真实起点。
+    ULONG i = 0UL; // 只在完整的返回缓冲区内读取条目。
+    if (Modules == NULL || Bytes < header || Modules->NumberOfModules == 0UL ||
+        Modules->NumberOfModules > (Bytes - header) / sizeof(Modules->Modules[0])) {
+        return FALSE; // 截断、空目录都不能作为未命中归属的证据。
+    }
+    for (i = 0; i < Modules->NumberOfModules; ++i) {
+        const ULONG_PTR base = (ULONG_PTR)Modules->Modules[i].ImageBase; // 检查每个范围的半开区间。
+        const ULONG size = Modules->Modules[i].ImageSize; // 内核模块实际报告的映像大小。
+        if (base == 0U || size == 0UL || base > MAXULONG_PTR - size) {
+            return FALSE; // 隐去或溢出的条目使目录无法证明“模块外”。
+        }
+    }
+    return TRUE; // 只证明枚举时可用的加载模块视图。
+}
+
 static NTSTATUS
 KswordARKMemoryEvidenceScanModules(
     _Inout_ KSW_MEMORY_EVIDENCE_STATE* State,
@@ -1291,6 +1318,10 @@ Return Value:
     State->Response->lastStatus = status;
     if (!NT_SUCCESS(status)) {
         return status;
+    }
+    if (!KswordARKMemoryEvidenceModuleRangesUsable(moduleInfo, moduleInfoBytes)) {
+        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 不向后续采样移交无效的模块范围。
+        return STATUS_DATA_ERROR; // 归属未核实，不能报告模块外页。
     }
     State->Response->moduleCount = moduleInfo->NumberOfModules;
 
@@ -1569,7 +1600,8 @@ Return Value:
 static NTSTATUS
 KswordARKMemoryEvidenceScanBigPool(
     _Inout_ KSW_MEMORY_EVIDENCE_STATE* State,
-    _In_ const KSW_MEMORY_EVIDENCE_LIMITS* Limits
+    _In_ const KSW_MEMORY_EVIDENCE_LIMITS* Limits,
+    _In_opt_ KSW_HOOK_SYSTEM_MODULE_INFORMATION* ModuleInfo
     )
 /*++
 
@@ -1589,7 +1621,10 @@ Return Value:
 --*/
 {
     PVOID buffer = NULL;
-    ULONG bufferBytes = 0UL;
+    ULONG bufferBytes = 256UL * 1024UL; // 明确起始空间，避免依赖 NULL 探测时各构建的 ReturnLength 行为。
+    const ULONG maximumBytes = 32UL * 1024UL * 1024UL; // 只用于目录元数据，不随大池地址范围读入目标内容。
+    const ULONG headerBytes = FIELD_OFFSET(KSW_MEMORY_EVIDENCE_BIGPOOL_INFORMATION, AllocatedInfo); // x64 对齐前缀。
+    ULONG returnedBytes = 0UL; // 请求容量和原生返回长度必须独立。
     ULONG rowIndex = 0UL;
     ULONG count = 0UL;
     NTSTATUS status = STATUS_SUCCESS;
@@ -1602,37 +1637,38 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-    status = ZwQuerySystemInformation(
-        KSW_MEMORY_EVIDENCE_SYSTEM_BIG_POOL_INFORMATION_CLASS,
-        NULL,
-        0UL,
-        &bufferBytes);
-    if (bufferBytes == 0UL) {
-        State->Response->lastStatus = NT_SUCCESS(status) ? STATUS_NOT_FOUND : status;
-        return State->Response->lastStatus;
-    }
-
+    for (;;) { // 每轮至少倍增，256 KiB 到 32 MiB 最多查询八次。
 #pragma warning(push)
 #pragma warning(disable:4996)
-    buffer = ExAllocatePoolWithTag(NonPagedPoolNx, bufferBytes, KSW_MEMORY_EVIDENCE_TAG);
+        buffer = ExAllocatePoolWithTag(PagedPool, bufferBytes, KSW_MEMORY_EVIDENCE_TAG); // 这里只在 PASSIVE_LEVEL 访问快照。
 #pragma warning(pop)
-    if (buffer == NULL) {
-        State->Response->lastStatus = STATUS_INSUFFICIENT_RESOURCES;
-        return STATUS_INSUFFICIENT_RESOURCES;
+        if (buffer == NULL) return STATUS_INSUFFICIENT_RESOURCES; // 未查询时不伪造原生回执。
+        returnedBytes = 0UL; // 失败时系统可能不提供所需长度。
+        status = ZwQuerySystemInformation(KSW_MEMORY_EVIDENCE_SYSTEM_BIG_POOL_INFORMATION_CLASS,
+            buffer, bufferBytes, &returnedBytes); // 取得本轮系统大池快照。
+        State->Response->sourceFlags |= KSWORD_ARK_MEMORY_EVIDENCE_SOURCE_BIGPOOL_QUERIED; // 旧驱动没有此标志。
+        State->Response->bigPoolQueryStatus = status; // 原样保留最后一次系统查询 NTSTATUS。
+        if (NT_SUCCESS(status)) break; // 成功仍须核验真实回包边界。
+        ExFreePoolWithTag(buffer, KSW_MEMORY_EVIDENCE_TAG); // 重试前释放上一轮目录，限制峰值占用。
+        buffer = NULL; // 下面的所有失败出口均无未释放分配。
+        if ((status != STATUS_INFO_LENGTH_MISMATCH && status != STATUS_BUFFER_TOO_SMALL && status != STATUS_BUFFER_OVERFLOW) ||
+            bufferBytes == maximumBytes || returnedBytes > maximumBytes) return status; // 保留拒绝、资源上限与非长度错误。
+        bufferBytes *= 2UL; // 当前容量严格小于 32 MiB，不会溢出 ULONG。
+        if (returnedBytes > bufferBytes) { // 用系统所需长度并留出增长余量；分配目录本身也可能新增一项。
+            bufferBytes = returnedBytes + min(returnedBytes / 4UL, maximumBytes - returnedBytes);
+        }
+        if (bufferBytes > maximumBytes) bufferBytes = maximumBytes; // 非二次幂的容量也须受固定上限约束。
     }
-
-    status = ZwQuerySystemInformation(
-        KSW_MEMORY_EVIDENCE_SYSTEM_BIG_POOL_INFORMATION_CLASS,
-        buffer,
-        bufferBytes,
-        &bufferBytes);
-    if (!NT_SUCCESS(status)) {
-        ExFreePoolWithTag(buffer, KSW_MEMORY_EVIDENCE_TAG);
-        State->Response->lastStatus = status;
-        return status;
+    if (returnedBytes < headerBytes || returnedBytes > bufferBytes) {
+        ExFreePoolWithTag(buffer, KSW_MEMORY_EVIDENCE_TAG); // 不把成功但损坏的包解释成空目录。
+        return STATUS_DATA_ERROR; // bigPoolQueryStatus 仍是系统原回执。
     }
-
-    count = ((KSW_MEMORY_EVIDENCE_BIGPOOL_INFORMATION*)buffer)->Count;
+    count = ((KSW_MEMORY_EVIDENCE_BIGPOOL_INFORMATION*)buffer)->Count; // 验证成功后才能信任数组元素。
+    if (count > (returnedBytes - headerBytes) / sizeof(KSW_MEMORY_EVIDENCE_BIGPOOL_ENTRY)) {
+        ExFreePoolWithTag(buffer, KSW_MEMORY_EVIDENCE_TAG); // 截断 Count 不得越过本次返回。
+        return STATUS_DATA_ERROR; // 不执行任何采样、保留独立的原生状态。
+    }
+    State->Response->sourceFlags |= KSWORD_ARK_MEMORY_EVIDENCE_SOURCE_BIGPOOL_VALIDATED; // 包括可区分的成功空目录。
     for (rowIndex = 0UL; rowIndex < count; ++rowIndex) {
         KSW_MEMORY_EVIDENCE_BIGPOOL_ENTRY* entry = NULL;
         KSWORD_ARK_KERNEL_MEMORY_EVIDENCE_ROW row;
@@ -1716,6 +1752,11 @@ Return Value:
         row.permissionFlags = permissionFlags;
         row.ownerKind = ownerKind;
         row.riskFlags = riskFlags;
+        // 只用实际页表的执行权限和已取得的模块清单确认模块外页面，忽略标签启发式。
+        if (isExecutable && ModuleInfo != NULL && ModuleInfo->NumberOfModules != 0UL &&
+            KswordARKHookFindModuleForAddress(ModuleInfo, (ULONG_PTR)address) == NULL) {
+            row.riskFlags |= KSWORD_ARK_MEMORY_EVIDENCE_RISK_NONMODULE_EXECUTABLE; // 首个采样页，不外推到整个分配。
+        }
         row.confidence = confidence;
         row.backingKind = KSWORD_ARK_MEMORY_EVIDENCE_BACKING_BIGPOOL;
         row.sectionHintStatus = KSWORD_ARK_MEMORY_EVIDENCE_SECTION_HINT_NOT_APPLICABLE;
@@ -1845,18 +1886,31 @@ Return Value:
         }
     }
 
-    if (moduleInfo != NULL) {
-        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG);
-        moduleInfo = NULL;
-    }
-
     if (!state.BudgetExhausted && !state.Truncated) {
-        status = KswordARKMemoryEvidenceScanBigPool(&state, &limits);
+        if (moduleInfo == NULL && (limits.EffectiveFlags & KSWORD_ARK_MEMORY_EVIDENCE_FLAG_COMPARE_BIGPOOL_MODULES) != 0UL) {
+            ULONG moduleBytes = 0UL; // 只获取模块地址范围，不扫描任何已知映像的内容。
+            status = KswordARKHookBuildModuleSnapshot(&moduleInfo, &moduleBytes); // 与本轮大池采样共享唯一快照。
+            if (NT_SUCCESS(status) && KswordARKMemoryEvidenceModuleRangesUsable(moduleInfo, moduleBytes)) {
+                response->moduleCount = moduleInfo->NumberOfModules; // 能力与实际来源完整性分开返回。
+            } else {
+                if (moduleInfo != NULL) {
+                    ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 截断/隐去范围不得交给地址归属查询。
+                    moduleInfo = NULL; // 后续大池行只能保留基本页表证据。
+                }
+                if (NT_SUCCESS(firstPartialStatus)) {
+                    firstPartialStatus = NT_SUCCESS(status) ? STATUS_DATA_ERROR : status; // 清单无效与成功空扫描分开。
+                }
+            }
+        }
+        status = KswordARKMemoryEvidenceScanBigPool(&state, &limits, moduleInfo); // 大池首个执行页与本轮模块归属比对。
         if (!NT_SUCCESS(status) && NT_SUCCESS(firstPartialStatus)) {
             firstPartialStatus = status;
         }
     }
 
+    if (moduleInfo != NULL) {
+        ExFreePoolWithTag(moduleInfo, KSW_HOOK_SCAN_TAG); // 最后一个消费者完成后释放模块清单。
+    }
     response->returnedRows = state.ReturnedRows;
     response->bytesScanned = state.BytesScanned;
     if (state.Truncated) {

@@ -160,7 +160,7 @@ std::shared_ptr<Mappings> collect(const std::shared_ptr<MappingJob>& job, unsign
     result->processes = static_cast<std::uint32_t>(pids.size());
     bool unsupported = false;
     auto stopped = [&](bool checkProbeBudget = false) {
-        if (job->cancel.load()) { result->cancelled = true; return true; }
+        if (job->stopping()) { result->cancelled = true; return true; }
         if (unsupported) { return true; }
         if (std::chrono::steady_clock::now() >= deadline || result->rows.size() >= maxReferences
             || (checkProbeBudget && result->virtualPagesProbed >= maxProbedPages)) {
@@ -484,7 +484,7 @@ std::shared_ptr<Mappings> collect(const std::shared_ptr<MappingJob>& job, unsign
     for (std::size_t index = 0; index < result->backing.size(); ++index) {
         auto& backing = result->backing[index];
         if (backing.kind != MEM_IMAGE && backing.kind != MEM_MAPPED) { continue; }
-        if (job->cancel.load() || std::chrono::steady_clock::now() >= deadline || result->objectQueries > 508) {
+        if (job->stopping() || std::chrono::steady_clock::now() >= deadline || result->objectQueries > 508) {
             result->objectBudgetReached = true;
             break;
         }

@@ -23,8 +23,24 @@
     <!-- 只使用既有 output 目录；三个入口分别生成二进制，不进入产品工程。 -->
     <OutDir>$(MSBuildThisFileDirectory)..\..\output\</OutDir>
     <IntDir>$(OutDir)</IntDir>
+    <OutDir Condition="'$(Fixture)' == 'ProcessDetection'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessDetection'">$(OutDir)ProcessDetection\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessDetection'">process_detection_tests</TargetName>
+    <OutDir Condition="'$(Fixture)' == 'ProcessResearchActivity'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessResearchActivity'">$(OutDir)ProcessResearchActivity\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessResearchActivity'">process_research_activity_tests</TargetName>
+    <OutDir Condition="'$(Fixture)' == 'ProcessProfile'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessProfile'">$(OutDir)ProcessProfile\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessProfile'">process_detection_profile_tests</TargetName>
+    <OutDir Condition="'$(Fixture)' == 'ProcessExternal'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessExternal'">$(OutDir)ProcessExternal\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessExternal'">process_research_external_tests</TargetName>
+    <OutDir Condition="'$(Fixture)' == 'ProcessEtlCapture'">$(MSBuildThisFileDirectory)x64\Release\</OutDir>
+    <IntDir Condition="'$(Fixture)' == 'ProcessEtlCapture'">$(OutDir)ProcessEtlCapture\obj\</IntDir>
+    <TargetName Condition="'$(Fixture)' == 'ProcessEtlCapture'">process_research_etl_capture</TargetName>
     <TLogLocation>$(IntDir)</TLogLocation>
     <TrackFileAccess>false</TrackFileAccess>
+    <TrackFileAccess Condition="'$(Fixture)' == 'ProcessDetection' Or '$(Fixture)' == 'ProcessExternal' Or '$(Fixture)' == 'ProcessProfile' Or '$(Fixture)' == 'ProcessResearchActivity' Or '$(Fixture)' == 'ProcessEtlCapture'">true</TrackFileAccess>
     <EnableManagedMinimalRebuild>false</EnableManagedMinimalRebuild>
     <TargetName Condition="'$(Fixture)' == 'Catalog'">memory_debug_process_catalog_tests</TargetName>
     <TargetName Condition="'$(Fixture)' == 'Target'">issue216_r3_target</TargetName>
@@ -51,7 +67,7 @@
       <LinkIncremental>false</LinkIncremental>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Fixture)' == 'Codec'">
+  <ItemDefinitionGroup Condition="'$(Fixture)' == 'Codec' Or '$(Fixture)' == 'ProcessDetection' Or '$(Fixture)' == 'ProcessExternal' Or '$(Fixture)' == 'ProcessProfile' Or '$(Fixture)' == 'ProcessResearchActivity'">
     <ClCompile>
       <PreprocessorDefinitions>QT_CORE_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
@@ -61,6 +77,50 @@
       <AdditionalLibraryDirectories>$(KSWORD_QT_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Qt6Core.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessResearchActivity'">
+    <ClCompile Include="process_research_activity_tests.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchActivity.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionEventHistory.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessEtlCapture'">
+    <ClCompile Include="process_research_etl_capture.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessProfile'">
+    <ClCompile Include="process_detection_profile_tests.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessExternal'">
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchSavedState.cpp" />
+    <ClCompile Include="process_research_external_tests.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchExternal.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Fixture)' == 'ProcessDetection'">
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchSavedState.cpp" />
+    <None Include="..\..\Ksword5.1\Ksword5.1\forensics\kswordobjects.py" />
+    <None Include="..\..\Ksword5.1\Ksword5.1\forensics\kswordbitmap.py" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ksword\file\file_handle_tools.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ksword\string\string.cpp" />
+    <ClCompile Include="process_detection_tests.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchCatalog.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchObjects.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchExternal.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchActivity.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessResearchScan.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionMethods.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionExtra.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionEtl.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionNativeMemory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionMountedMemory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionEventHistory.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionVolatility.cpp" />
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\ProcessDock\ProcessDetectionRawRoots.cpp" />
+  </ItemGroup>
+  <Target Name="DeployProcessDetectionPlugins" AfterTargets="Build" Condition="'$(Fixture)' == 'ProcessDetection'">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\Ksword5.1\Ksword5.1\forensics\kswordobjects.py;$(MSBuildThisFileDirectory)..\..\Ksword5.1\Ksword5.1\forensics\kswordbitmap.py" DestinationFolder="$(OutDir)forensics\" SkipUnchangedFiles="true" />
+  </Target>
+  <ItemDefinitionGroup Condition="'$(Fixture)' == 'ProcessDetection'">
+    <ClCompile><FunctionLevelLinking>true</FunctionLevelLinking></ClCompile>
+    <Link><OptimizeReferences>true</OptimizeReferences></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="kernel_service_audit_evidence_tests.cpp">
@@ -93,8 +153,8 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="ValidateNativeRegressionInputs" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(Fixture)' != 'Catalog' and '$(Fixture)' != 'Target' and '$(Fixture)' != 'Codec' and '$(Fixture)' != 'Threads' and '$(Fixture)' != 'ProtectionResults' and '$(Fixture)' != 'AuditEvidence'" Text="Fixture must be Catalog, Target, Codec, Threads, ProtectionResults, or AuditEvidence." />
-    <Error Condition="!Exists('$(OutDir)')" Text="The existing repository output directory is required." />
+    <Error Condition="'$(Fixture)' != 'Catalog' and '$(Fixture)' != 'Target' and '$(Fixture)' != 'Codec' and '$(Fixture)' != 'Threads' and '$(Fixture)' != 'ProtectionResults' and '$(Fixture)' != 'AuditEvidence' and '$(Fixture)' != 'ProcessDetection' and '$(Fixture)' != 'ProcessExternal' and '$(Fixture)' != 'ProcessProfile' and '$(Fixture)' != 'ProcessResearchActivity' and '$(Fixture)' != 'ProcessEtlCapture'" Text="Unknown native regression fixture." />
+    <Error Condition="'$(Fixture)' != 'ProcessDetection' and '$(Fixture)' != 'ProcessExternal' and '$(Fixture)' != 'ProcessProfile' and '$(Fixture)' != 'ProcessResearchActivity' and '$(Fixture)' != 'ProcessEtlCapture' and !Exists('$(OutDir)')" Text="The existing repository output directory is required." />
     <Error Condition="!Exists('$(CLToolPath)cl.exe') or !Exists('$(LinkToolPath)link.exe')" Text="HostX64 MSVC is required." />
     <Error Condition="'$(Fixture)' == 'Codec' and !Exists('$(KSWORD_QT_DIR)\lib\Qt6Core.lib')" Text="KSWORD_QT_DIR must identify an MSVC Qt SDK." />
     <Message Importance="high" Text="NATIVE_REGRESSION_FIXTURE=$(Fixture) HOST_COMPILER=$(CLToolPath)cl.exe" />

@@ -1,0 +1,5 @@
+Process            Pid Parent   Flag User             Create Time              Exit Time                Process Full Name
+System               4      0        LAB              2026-01-01 00:00:00 UTC  -                        System
+present.exe        100      4        LAB              2026-01-01 00:01:00 UTC  -                        present.exe
+missing.exe        110      4   E    LAB              2026-01-01 00:02:00 UTC  -                        missing.exe
+ended.exe          111      4    T   LAB              2026-01-01 00:03:00 UTC  -                        ended.exe

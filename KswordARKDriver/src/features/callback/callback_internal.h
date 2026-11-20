@@ -94,6 +94,9 @@ typedef struct _KSWORD_ARK_CALLBACK_RULE_SNAPSHOT
     KSWORD_ARK_RUNTIME_RULE Rules[1];
 } KSWORD_ARK_CALLBACK_RULE_SNAPSHOT;
 
+// Ex2 is optional on older Windows 10. The public notify-type enum uses a 32-bit argument.
+typedef NTSTATUS (NTAPI* KSWORD_ARK_SET_PROCESS_NOTIFY_EX2)(ULONG NotifyType, PVOID Callback, BOOLEAN Remove);
+
 typedef struct _KSWORD_ARK_CALLBACK_RUNTIME
 {
     WDFDEVICE Device;
@@ -119,6 +122,7 @@ typedef struct _KSWORD_ARK_CALLBACK_RUNTIME
     ULONG MiniFilterBypassPidCount;
     ULONG MiniFilterBypassPids[KSWORD_ARK_MINIFILTER_BYPASS_PID_MAX_COUNT];
     ULONG RegisteredCallbacksMask;
+    KSWORD_ARK_SET_PROCESS_NOTIFY_EX2 SubsystemNotifyRegistration; // 保存实际成功的注册入口供卸载同步注销。
     // 遥测 ring 使用 try-lock 串行发布；争用宁可计数丢弃也不阻塞内核回调。
     volatile LONG MonitorWriterLock;
     volatile LONG MonitorCategoryMask;

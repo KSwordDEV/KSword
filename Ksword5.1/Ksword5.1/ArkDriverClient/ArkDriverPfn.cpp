@@ -8,6 +8,12 @@ namespace ksword::ark {
 namespace {
 constexpr long unsupported = static_cast<long>(0xC00000BBUL);
 constexpr long invalidData = static_cast<long>(0xC000003EUL);
+constexpr long bufferOverflow = static_cast<long>(0x80000005UL);
+bool needsCapacity(long status)
+{
+    return status == bufferOverflow || status == static_cast<long>(0xC0000023UL) ||
+        status == static_cast<long>(0xC0000004UL);
+}
 static_assert(sizeof(KSW_PF_IDENTITY) == sizeof(KSWORD_ARK_PFN_IDENTITY));
 static_assert(offsetof(KSW_PF_QUERY, Pages) == 192);
 static_assert(sizeof(KSW_PF_PRIVATE_INFO) == 96);
@@ -50,7 +56,7 @@ PfnQueryClient::~PfnQueryClient()
     if (m_previousToken) { CloseHandle(m_previousToken); }
 }
 
-long PfnQueryClient::nativeQuery(unsigned long kind, void* buffer, unsigned long bytes) const
+long PfnQueryClient::nativeQuery(unsigned long kind, void* buffer, unsigned long bytes, unsigned long* required) const
 {
     using Query = LONG(NTAPI*)(ULONG, PVOID, ULONG, PULONG);
     const auto query = m_nativeLayoutSupported
@@ -63,9 +69,15 @@ long PfnQueryClient::nativeQuery(unsigned long kind, void* buffer, unsigned long
     info.InfoClass = kind;
     info.Buffer = buffer;
     info.Length = bytes;
-    const long status = query ? query(79, &info, sizeof(info), nullptr) : unsupported;
-    if (m_trace.nativeAttemptCount < m_trace.nativeAttempts.size()) {
-        auto& attempt = m_trace.nativeAttempts[m_trace.nativeAttemptCount++];
+    const long status = query ? query(79, &info, sizeof(info), required) : unsupported;
+    // A retried size negotiation is the same class/ABI. Preserve its final
+    // status instead of dropping a successful third call from the fixed trace.
+    unsigned slot = m_trace.nativeAttemptCount;
+    if (slot && m_trace.nativeAttempts[slot-1].informationClass == kind &&
+        m_trace.nativeAttempts[slot-1].abiVersion == abiVersion) --slot;
+    if (slot < m_trace.nativeAttempts.size()) {
+        if (slot == m_trace.nativeAttemptCount) ++m_trace.nativeAttemptCount;
+        auto& attempt = m_trace.nativeAttempts[slot];
         attempt.informationClass = kind;
         attempt.abiVersion = abiVersion;
         attempt.status = status;
@@ -116,43 +128,51 @@ long PfnQueryClient::ranges(std::vector<KSWORD_ARK_PFN_RANGE>& result)
 {
     m_trace = {};
     result.clear();
-    if (m_backend == PfnBackend::DriverOnly) {
-        result.resize(KSWORD_ARK_PFN_MAX_RANGES);
-        unsigned long count = 0;
-        const long status = driverQuery(KSWORD_ARK_PFN_RANGES, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_RANGES, sizeof(result[0]), count);
-        result.resize(count);
-        return status;
+    long nativeStatus = unsupported;
+    if (m_backend != PfnBackend::DriverOnly) {
+        long boundedStatus = 0;
+        for (const ULONG version : {2UL, 1UL}) {
+            const ULONG header = version == 2 ? static_cast<ULONG>(offsetof(KSW_PF_RANGES_V2, Ranges)) : 8UL;
+            constexpr ULONG rowBytes = sizeof(KSW_PF_RANGE);
+            for (ULONG capacity = KSWORD_ARK_PFN_MAX_RANGES; ; ) {
+                const ULONG bytes = header + capacity * rowBytes;
+                std::vector<std::uint64_t> storage((bytes + 7) / 8, 0);
+                auto* fields = reinterpret_cast<ULONG*>(storage.data());
+                fields[0] = version;
+                ULONG required = 0;
+                nativeStatus = nativeQuery(17, fields, bytes, &required);
+                if (nativeStatus >= 0) {
+                    const ULONG count = fields[version == 2 ? 2 : 1];
+                    if (!count || count > capacity) { nativeStatus = invalidData; break; }
+                    const auto* rows = reinterpret_cast<const KSW_PF_RANGE*>(
+                        reinterpret_cast<const std::uint8_t*>(fields) + header);
+                    result.reserve(count);
+                    for (ULONG i = 0; i < count; ++i) { result.push_back({rows[i].Base, rows[i].Count}); }
+                    ++nativeBatches;
+                    return nativeStatus;
+                }
+                if (!needsCapacity(nativeStatus) || capacity == KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT) break;
+                const auto limitBytes = header + KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT * rowBytes;
+                if (required > limitBytes) break;
+                const ULONG hinted = required > header ? (required - header + rowBytes - 1) / rowBytes : 0;
+                capacity = (std::min)(KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT, (std::max)(2 * capacity, hinted));
+            }
+            if (needsCapacity(nativeStatus)) boundedStatus = nativeStatus;
+        }
+        if (boundedStatus < 0) nativeStatus = boundedStatus;
+        if (m_backend == PfnBackend::NativeOnly) return nativeStatus;
     }
-    const auto bytes = static_cast<unsigned long>(offsetof(KSW_PF_RANGES_V2, Ranges)
-        + KSWORD_ARK_PFN_MAX_RANGES * sizeof(KSW_PF_RANGE));
-    std::vector<std::uint64_t> storage((bytes + 7) / 8);
-    auto* query = reinterpret_cast<KSW_PF_RANGES_V2*>(storage.data());
-    query->Version = 2;
-    long status = nativeQuery(17, query, bytes);
-    if (status >= 0 && query->Count > 0 && query->Count <= KSWORD_ARK_PFN_MAX_RANGES) {
-        for (SIZE_T i = 0; i < query->Count; ++i) { result.push_back({query->Ranges[i].Base, query->Ranges[i].Count}); }
-        ++nativeBatches;
-        return status;
+    for (ULONG capacity = KSWORD_ARK_PFN_MAX_RANGES; ; capacity *= 2) {
+        result.resize(capacity);
+        ULONG returned = 0;
+        const ULONG requested = capacity == KSWORD_ARK_PFN_MAX_RANGES ? 0 : capacity;
+        const long status = driverQuery(KSWORD_ARK_PFN_RANGES, 0, requested, result.data(),
+            capacity, sizeof(result[0]), returned);
+        result.resize(returned);
+        if (status >= 0) return returned ? status : invalidData;
+        if (!needsCapacity(status) || capacity == KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT)
+            return status == unsupported ? nativeStatus : status;
     }
-    // Older systems support range ABI v1 (two ULONGs before the same records).
-    std::fill(storage.begin(), storage.end(), 0);
-    auto* fields = reinterpret_cast<ULONG*>(storage.data());
-    fields[0] = 1;
-    status = nativeQuery(17, fields, bytes);
-    if (status >= 0 && fields[1] > 0 && fields[1] <= KSWORD_ARK_PFN_MAX_RANGES) {
-        const auto* ranges = reinterpret_cast<const KSW_PF_RANGE*>(fields + 2);
-        for (ULONG i = 0; i < fields[1]; ++i) { result.push_back({ranges[i].Base, ranges[i].Count}); }
-        ++nativeBatches;
-        return status;
-    }
-    result.resize(KSWORD_ARK_PFN_MAX_RANGES);
-    unsigned long count = 0;
-    const long nativeStatus = status < 0 ? status : invalidData;
-    if (m_backend == PfnBackend::NativeOnly) { result.clear(); return nativeStatus; }
-    const long driverStatus = driverQuery(KSWORD_ARK_PFN_RANGES, 0, 0, result.data(), KSWORD_ARK_PFN_MAX_RANGES, sizeof(result[0]), count);
-    result.resize(count);
-    // An absent/old driver must not hide the original privilege or ABI error.
-    return driverStatus == unsupported ? nativeStatus : driverStatus;
 }
 
 long PfnQueryClient::owners(std::vector<KSWORD_ARK_PFN_OWNER>& result)

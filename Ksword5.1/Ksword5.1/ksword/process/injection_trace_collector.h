@@ -23,6 +23,7 @@
 #include <QString>
 
 #include <cstdint>
+#include <functional>
 
 namespace ks::process
 {
@@ -46,6 +47,7 @@ namespace ks::process
         // 每次都以 Partial 收尾、进而永远背一条覆盖缺口。
         std::uint32_t kernelPteMaxEntries = KSWORD_ARK_INJECTION_PTE_LIMIT_MAX;
         std::uint32_t kernelPteMaxTableReads = 65536U;
+        std::function<bool()> cancelled;
     };
 
     enum class InjectionTraceStatus : std::uint8_t

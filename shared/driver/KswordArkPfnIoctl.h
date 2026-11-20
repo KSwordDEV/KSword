@@ -8,6 +8,9 @@
 #define KSWORD_ARK_PFN_VERSION 1UL
 #define KSWORD_ARK_PFN_MAX_PAGES 4096UL
 #define KSWORD_ARK_PFN_MAX_RANGES 512UL
+// Range requests with count zero retain the original 512-row ABI. New callers
+// may retry with an explicit larger output capacity, up to 1 MiB of rows.
+#define KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT 65536UL
 #define KSWORD_ARK_PFN_MAX_OWNERS 16384UL
 #define KSWORD_ARK_PFN_RANGES 1UL
 #define KSWORD_ARK_PFN_PAGES 2UL

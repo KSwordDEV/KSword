@@ -36,7 +36,8 @@ typedef struct _KSW_PF_RANGE {
 typedef struct _KSW_PF_RANGES_V2 {
     ULONG Version;
     ULONG Flags;
-    SIZE_T Count;
+    ULONG Count;
+    ULONG Reserved;
     KSW_PF_RANGE Ranges[1];
 } KSW_PF_RANGES_V2;
 

@@ -48,17 +48,16 @@ std::wstring imageName(const char (&name)[16]) {
     std::wstring result; for (char c : name) { if (!c) break; const auto byte=static_cast<unsigned char>(c); result.push_back(byte < 32 ? L'?' : static_cast<wchar_t>(byte)); } return result;
 }
 Result ranges(const Args& args) {
-    const auto shown=limit(args,KSWORD_ARK_PFN_MAX_RANGES); PfnQueryClient client(selected(args));
+    const auto shown=limit(args,KSWORD_ARK_PFN_RANGE_CAPACITY_LIMIT); PfnQueryClient client(selected(args));
     std::vector<KSWORD_ARK_PFN_RANGE> values; const long status=client.ranges(values);
     std::vector<Json> rows; for (std::size_t i=0; i<(std::min)(shown,values.size()); ++i)
         rows.push_back(Json::object({{L"firstPfn",Json::hex(values[i].firstPfn)}, {L"pageCount",Json::count(values[i].pageCount)}}));
-    const bool capReached=values.size()>=KSWORD_ARK_PFN_MAX_RANGES;
-    return {status<0 ? failure(status) : capReached ? 6 : 0,
-        Json::object({{L"source",Json::string(L"Memory Manager Superfetch physical ranges")}, {L"ntStatus",Json::hex(static_cast<std::uint32_t>(status))},
+    return {status<0 ? failure(status) : 0,
+        Json::object({{L"source",Json::string(client.lastTrace().driverInvoked ? L"MmGetPhysicalMemoryRanges" : L"Memory Manager Superfetch physical ranges")}, {L"ntStatus",Json::hex(static_cast<std::uint32_t>(status))},
             {L"pageBytes",Json::number(4096)}, {L"returnedCount",Json::number(static_cast<std::uint32_t>(values.size()))},
-            {L"displayTruncated",Json::boolean(rows.size()<values.size())}, {L"complete",status<0 ? Json{} : capReached ? Json{} : Json::boolean(true)},
+            {L"displayTruncated",Json::boolean(rows.size()<values.size())}, {L"complete",status<0 ? Json{} : Json::boolean(true)},
             {L"trace",traceJson(client.lastTrace())}, {L"ranges",Json::array(rows)}}),
-        {L"An exactly full protocol buffer has unknown completeness. R3 and R0 query the same Superfetch provider, not independent sources."}};
+        {L"R3 queries Superfetch memory ranges. R0 queries the OS physical range list. Both describe Windows-managed physical memory."}};
 }
 Result owners(const Args& args) {
     const auto shown=limit(args,KSWORD_ARK_PFN_MAX_OWNERS); PfnQueryClient client(selected(args));

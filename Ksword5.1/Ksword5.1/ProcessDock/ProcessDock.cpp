@@ -12,6 +12,8 @@
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ProcessCpuCapacityCell.h"
+#include "ProcessDetectionPane.h"
+#include "../UI/LazyPageContent.h"
 #include "./ProcessGpuTableView.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
@@ -19,6 +21,7 @@
 #include "../UI/TablePresentation.h"
 #include "../UI/ParameterWorkspace.h"
 #include "../UI/SecondaryPageLayout.h"
+#include "../UI/FlowLayout.h"
 #include <QEvent>
 #include <QDynamicPropertyChangeEvent>
 #include "../UI/TableInteractionSupport.h"
@@ -5083,7 +5086,7 @@ bool ProcessDock::eventFilter(QObject* watched, QEvent* event)
 
     if (m_processTable == nullptr ||
         m_sideTabWidget == nullptr ||
-        m_sideTabWidget->currentWidget() != m_processListPage ||
+        m_sideTabWidget->currentWidget() != m_processListPage || !m_processLivePage->isVisible() ||
         m_contextMenuVisible ||
         !isVisible())
     {
@@ -5102,7 +5105,9 @@ bool ProcessDock::eventFilter(QObject* watched, QEvent* event)
         return QWidget::eventFilter(watched, event);
     }
     // 修改列表设置不属于点击业务空白区，尤其后端切换必须保留原选区。
-    if (watchedWidget == m_processSettingsButton || (m_processSettingsDialog != nullptr
+    if (watchedWidget == m_listResultTabs->tabBar() || m_listResultTabs->tabBar()->isAncestorOf(watchedWidget) ||
+        watchedWidget == m_listDetectionMethodsButton || watchedWidget == m_listDetectionRefreshButton ||
+        watchedWidget == m_processSettingsButton || (m_processSettingsDialog != nullptr
         && (watchedWidget == m_processSettingsDialog || m_processSettingsDialog->isAncestorOf(watchedWidget))))
     {
         return QWidget::eventFilter(watched, event);
@@ -5342,7 +5347,13 @@ const ProcessDock::NavigationDefinitions& ProcessDock::navigationDefinitions()
         {"cross_view.thread", "cross_view", "process.cross_view.thread_tab", "Thread Cross-View",
             {QStringLiteral("ETHREAD"), QStringLiteral("TID")}, false},
         {"create", "", "process.tab.create", "创建进程",
-            {QStringLiteral("CreateProcessW"), QStringLiteral("Token"), QStringLiteral("lpApplicationName"), QStringLiteral("lpCommandLine")}, false}
+            {QStringLiteral("CreateProcessW"), QStringLiteral("Token"), QStringLiteral("lpApplicationName"), QStringLiteral("lpCommandLine")}, false},
+        {"deep_detection", "", "process.tab.deep_detection", "深度隐藏进程检测",
+            {QStringLiteral("DKOM"), QStringLiteral("EPROCESS"), QStringLiteral("Hidden Process")}, false},
+        {"list.processes", "list", "process.list.processes", "进程",
+            {QStringLiteral("PID"), QStringLiteral("CPU")}, true},
+        {"list.detection", "list", "process.list.detection", "检测线索",
+            {QStringLiteral("PID"), QStringLiteral("DKOM")}, false}
     }};
     return definitions;
 }
@@ -5477,7 +5488,16 @@ void ProcessDock::initializeUi()
 
     // “进程列表”页是本模块核心页面。
     m_processListPage = new QWidget(this);
-    m_processPageLayout = new QVBoxLayout(m_processListPage);
+    auto* listLayout = new QVBoxLayout(m_processListPage);
+    listLayout->setContentsMargins(0, 0, 0, 0);
+    m_listResultTabs = new QTabWidget(m_processListPage);
+    ks::ui::StylePageTabs(m_listResultTabs);
+    listLayout->addWidget(m_listResultTabs);
+    m_processLivePage = new QWidget(m_listResultTabs);
+    m_listDetectionPage = new QWidget(m_listResultTabs);
+    registerNavigationTab(NavigationPage::ListProcesses, m_listResultTabs, m_processLivePage);
+    registerNavigationTab(NavigationPage::ListDetection, m_listResultTabs, m_listDetectionPage);
+    m_processPageLayout = new QVBoxLayout(m_processLivePage);
     // 四边6px留白由Tab框架统一提供；页内不再叠加第二层外围间距。
     m_processPageLayout->setContentsMargins(0, 0, 0, 0);
     m_processPageLayout->setSpacing(6);
@@ -5492,6 +5512,10 @@ void ProcessDock::initializeUi()
     m_threadTable->setItemDelegate(new ThreadRowThemeDelegate(m_threadTable));
     initializeCrossViewPage();
     initializeCreateProcessPage();
+    registerNavigationTab(NavigationPage::DeepDetection, m_sideTabWidget,
+        new ks::ui::LazyPageContent(m_sideTabWidget, [](QWidget* shell) {
+            return new ksword::detection::ProcessDetectionPane(true, shell);
+        }), blueTintedIcon(IconProcessMain));
 
     m_rootLayout->addWidget(m_sideTabWidget);
 }
@@ -5505,9 +5529,7 @@ void ProcessDock::initializeTopControls()
     controlContainerLayout->setContentsMargins(8, 4, 8, 4);
     controlContainerLayout->setSpacing(4);
 
-    m_controlLayout = new QHBoxLayout();
-    m_controlLayout->setContentsMargins(0, 0, 0, 0);
-    m_controlLayout->setSpacing(8);
+    m_controlLayout = new ks::ui::FlowLayout(nullptr, 0, 8, 6);
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
 
     // 进程列表的低频设置集中放进一个可重复打开的非模态窗口，避免把顶部控制行撑得过长。
@@ -5787,8 +5809,32 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.tooltip.settings"),
         QStringLiteral("打开进程列表设置"));
 
+    m_listDetectionMethodsButton = new QPushButton(controlContainer);
+    m_listDetectionMethodsButton->setObjectName(QStringLiteral("processListDetectionMethods"));
+    languageManager.bindText(m_listDetectionMethodsButton, QStringLiteral("process.detection.list.methods"),
+        QStringLiteral("检测方法…"));
+    languageManager.bindToolTip(m_listDetectionMethodsButton, QStringLiteral("process.detection.list.methods_tip"),
+        QStringLiteral("选择手动刷新时运行的检测方法，或恢复进程列表的默认选择。"));
+    connect(m_listDetectionMethodsButton, &QPushButton::clicked, this, [this]() {
+        ensureListDetectionPane();
+        m_listResultTabs->setCurrentWidget(m_listDetectionPage);
+        m_listDetectionPane->chooseMethods();
+    });
+
+    m_listDetectionRefreshButton = new QPushButton(QIcon(IconRefresh), QString(), controlContainer);
+    m_listDetectionRefreshButton->setObjectName(QStringLiteral("processListDetectionRefresh"));
+    KswordTheme::ApplyCompactIconButtonMetrics(m_listDetectionRefreshButton);
+    ks::ui::ShortcutRegistry::instance().setShortcutHint(QStringLiteral("app.refresh"),
+        m_listDetectionRefreshButton, QStringLiteral("刷新进程列表，并运行所选隐藏进程检测方法。"));
+    connect(m_listDetectionRefreshButton, &QPushButton::clicked, this, [this]() {
+        requestAsyncRefresh(true);
+        ensureListDetectionPane();
+        m_listResultTabs->setCurrentWidget(m_listDetectionPage);
+        m_listDetectionPane->runSelected();
+    });
+
     // 显式独立图标动作共用实底和状态前景，避免悬停与主题切换后退回局部旧色。
-    for (QPushButton* action : { m_startButton, m_pauseButton, m_processSettingsButton })
+    for (QPushButton* action : { m_startButton, m_pauseButton, m_processSettingsButton, m_listDetectionRefreshButton })
     {
         ks::ui::ApplyFlatButtonTheme(action,
             ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
@@ -5804,10 +5850,10 @@ void ProcessDock::initializeTopControls()
     m_controlLayout->addWidget(m_viewModeCombo);
     m_controlLayout->addWidget(m_startButton);
     m_controlLayout->addWidget(m_pauseButton);
+    m_controlLayout->addWidget(m_listDetectionRefreshButton);
+    m_controlLayout->addWidget(m_listDetectionMethodsButton);
     m_controlLayout->addWidget(m_columnChooserButton);
     m_controlLayout->addWidget(m_processSearchLineEdit);
-    m_controlLayout->addWidget(m_processSettingsButton);
-    m_controlLayout->addStretch(1);
     controlContainerLayout->addLayout(m_controlLayout);
     m_processPageLayout->addWidget(controlContainer);
     ks::ui::StylePrimaryCombo(m_viewModeCombo);
@@ -5939,7 +5985,6 @@ void ProcessDock::initializeProcessActivityPanel()
 
     // 活动控制项并入顶部控制行，图表面板只保留图表本身，省下一整行垂直空间。
     // 历史留存方式直接放在图表上方，数量输入仅在“留存最近”模式显示。
-    int topControlInsertIndex = m_controlLayout->indexOf(m_processSearchLineEdit) + 1;
     for (QWidget* const activityControlWidget : {
              static_cast<QWidget*>(m_activityClearButton),
              static_cast<QWidget*>(m_activityHistoryModeCombo),
@@ -5952,10 +5997,11 @@ void ProcessDock::initializeProcessActivityPanel()
              static_cast<QWidget*>(m_activityGpuButton),
              static_cast<QWidget*>(m_activityProcessPickerButton) })
     {
-        m_controlLayout->insertWidget(topControlInsertIndex++, activityControlWidget);
+        m_controlLayout->addWidget(activityControlWidget);
     }
+    m_controlLayout->addWidget(m_processSettingsButton);
     // 所有活动控件插入后按整行对齐，不依赖各类型不同的默认 sizeHint。
-    ks::ui::NormalizeToolbarRow(m_controlLayout);
+    ks::ui::NormalizeToolbarLayout(m_controlLayout);
 
     m_activityChartWidget = new ProcessActivityChartWidget(this, m_activityPanelWidget);
     m_activityChartWidget->setToolTip(QString());
@@ -6712,6 +6758,24 @@ void ProcessDock::showProcessSettingsDialog()
     m_processSettingsDialog->activateWindow();
 }
 
+void ProcessDock::ensureListDetectionPane()
+{
+    if (m_listDetectionPane) return;
+    auto* layout = new QVBoxLayout(m_listDetectionPage);
+    layout->setContentsMargins(0, 0, 0, 0);
+    m_listDetectionPane = new ksword::detection::ProcessDetectionPane(false, m_listDetectionPage);
+    layout->addWidget(m_listDetectionPane);
+    m_listDetectionPane->setReportChanged([this]() {
+        // A separate detection sample only affects live name tooltips.
+        if (isProcessActivityTableSnapshotActive() || !m_processTableModel) return;
+        const int rows = m_processTableModel->rowCount();
+        if (rows == 0) return;
+        const int name = toColumnIndex(TableColumn::Name);
+        emit m_processTableModel->dataChanged(m_processTableModel->index(0, name),
+            m_processTableModel->index(rows - 1, name), {Qt::ToolTipRole});
+    });
+}
+
 void ProcessDock::updateProcessRenderingStatus()
 {
     if (m_processTable == nullptr || m_processGpuStatusLabel == nullptr)
@@ -6746,6 +6810,12 @@ void ProcessDock::updateProcessRenderingStatus()
 
 void ProcessDock::initializeConnections()
 {
+    connect(m_listResultTabs, &QTabWidget::currentChanged, this, [this]() {
+        if (m_listResultTabs->currentWidget() == m_listDetectionPage) ensureListDetectionPane();
+        else if (m_processTableProjectionPending) rebuildTable();
+        syncProcessEtwCaptureDemand();
+        updateProcessActivityStatusLabel();
+    });
     // 策略切换后立即强制刷新。
     connect(m_strategyCombo, &QComboBox::currentIndexChanged, this, [this]() {
         kLogEvent logEvent;
@@ -7205,7 +7275,7 @@ void ProcessDock::initializeConnections()
     ks::ui::ShortcutRegistry::instance().bindShortcut(QStringLiteral("process.terminate"), QStringLiteral("结束选中进程"),
         QStringLiteral("process"), terminateShortcut);
     connect(terminateShortcut, &QShortcut::activated, this, [this]() {
-        if (m_sideTabWidget == nullptr || m_sideTabWidget->currentWidget() != m_processListPage)
+        if (!isProcessListPageVisibleForRecording())
         {
             return;
         }
@@ -7449,7 +7519,7 @@ void ProcessDock::focusProcessSearchBox(const bool selectAllText)
     // - 保证用户切页后第一时间就能直接输入搜索词。
     QPointer<QLineEdit> guardSearchLineEdit(m_processSearchLineEdit);
     QTimer::singleShot(0, this, [guardSearchLineEdit, selectAllText]() {
-        if (guardSearchLineEdit == nullptr)
+        if (guardSearchLineEdit == nullptr || !guardSearchLineEdit->isVisible())
         {
             return;
         }
@@ -9888,7 +9958,7 @@ bool ProcessDock::isProcessListPageVisibleForRecording() const
     return m_sideTabWidget != nullptr &&
         m_processListPage != nullptr &&
         m_sideTabWidget->currentWidget() == m_processListPage &&
-        m_processListPage->isVisible() && !window()->isMinimized();
+        m_processLivePage != nullptr && m_processLivePage->isVisible() && !window()->isMinimized();
 }
 
 bool ProcessDock::isProcessActivityRefreshAllowedNow() const
@@ -11498,20 +11568,26 @@ QVariant ProcessDock::processTableData(const ProcessTableRow& tableRow, const in
         {
             return QStringLiteral("历史快照行：该行来自时间轴样本，不代表当前实时进程状态。");
         }
+        QString tooltip = QString::fromStdString(processRecord.processName);
         if (tableRow.isKernelOnly)
         {
-            return processContextText("process.table.cell.kernel_anomaly_tooltip",
+            tooltip = processContextText("process.table.cell.kernel_anomaly_tooltip",
                 QStringLiteral("异常进程：%1\nCID：%2；对象 PID：%3\n退出证据：0x%4 / 0x%5\n证据不完整或存在矛盾，保留显示。"))
-                .arg(QString::fromStdString(processRecord.processName))
+                .arg(tooltip)
                 .arg(processRecord.pid).arg(processRecord.r0ObservedProcessId)
                 .arg(processRecord.r0ExitEvidence, 0, 16).arg(KSWORD_ARK_PROCESS_EXIT_REQUIRED, 0, 16);
         }
-        if (processRecord.efficiencyModeEnabled)
+        else if (processRecord.efficiencyModeEnabled)
         {
-            return QStringLiteral("%1\n效率模式已启用")
-                .arg(QString::fromStdString(processRecord.processName));
+            tooltip = QStringLiteral("%1\n效率模式已启用").arg(tooltip);
         }
-        return QString::fromStdString(processRecord.processName);
+        const auto creationTime = r0ActionExpectedCreationTime(processRecord);
+        if (m_listDetectionPane && !tableRow.isExited && creationTime != 0)
+        {
+            const QString evidence = m_listDetectionPane->evidenceForProcess(processRecord.pid, creationTime);
+            if (!evidence.isEmpty()) tooltip += QLatin1Char('\n') + evidence;
+        }
+        return tooltip;
     }
     if (role == ProcessEfficiencyModeKnownRole && tableColumn == TableColumn::Name)
     {

@@ -3,6 +3,7 @@
 #include "../ArkDriverClient/ArkDriverPfn.h"
 #include <QString>
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -74,6 +75,8 @@ struct ScanJob {
     // Set on the UI thread before starting the worker. Empty disables spooling.
     QString rawEvidencePath;
     std::atomic_bool cancel{false}, done{false};
+    std::function<bool()> externalCancel;
+    bool stopping() const { return cancel.load() || (externalCancel && externalCancel()); }
     std::atomic<std::uint64_t> visited{0}, total{0};
     std::mutex mutex;
     std::shared_ptr<Scan> result;
