@@ -5,6 +5,8 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -19,6 +21,10 @@ namespace
     bool flipProfileOnScmOpen = false;
     bool flipProfileOnStatusQuery = false;
     bool flipProfileAfterStop = false;
+    // 捕获 SCM 入口的数据，检查新建与更新是否使用相同的驱动文件路径。
+    bool serviceMissing = false;                 // 模拟 SCM 中尚未注册服务。
+    std::vector<std::wstring> createImagePaths;   // 新建时实际传入的路径。
+    std::vector<std::wstring> changedImagePaths;  // 更新时实际传入的路径。
     void check(const bool value, const char* message)
     {
         ++checks;
@@ -151,6 +157,54 @@ namespace
         check(mutations == beforeStopRace + 1U, "post-stop profile race permits only original legacy stop");
         flipProfileAfterStop = false;
     }
+
+    // 对同一组路径分别模拟新建和更新；直接调用生产服务层，不访问真实 SCM。
+    void driverImagePathTests()
+    {
+        const auto cases = { // 输入及其对应的、应传给 SCM 的路径。
+            std::pair{L"D:/Perfect Life/D/Driver.sys", L"D:\\Perfect Life\\D\\Driver.sys"},
+            std::pair{L"  \"D:/Perfect Life/D/Driver.sys\"  ", L"D:\\Perfect Life\\D\\Driver.sys"},
+            std::pair{L"D:/Drivers/Driver.sys", L"D:\\Drivers\\Driver.sys"},
+            std::pair{L"\\??\\D:\\Perfect Life\\D\\Driver.sys", L"\\??\\D:\\Perfect Life\\D\\Driver.sys"},
+            std::pair{L"\\\\?\\D:\\Perfect Life\\D\\Driver.sys", L"\\\\?\\D:\\Perfect Life\\D\\Driver.sys"},
+            std::pair{L"\\SystemRoot\\System32\\drivers\\Driver.sys", L"\\SystemRoot\\System32\\drivers\\Driver.sys"},
+            std::pair{L"%SystemRoot%/System32/drivers/Driver.sys", L"%SystemRoot%\\System32\\drivers\\Driver.sys"},
+        };
+        ks::service::KernelDriverServiceConfig config; // 仅测试普通驱动服务，不改动 KswordARK 配置。
+        config.serviceName = L"Issue236Driver";
+        for (const auto& [input, expected] : cases) // 测试原始路径与其标准形式。
+        {
+            config.binaryPath = input;
+            for (const bool create : {true, false}) // 分别让模拟 SCM 报告服务缺失或已存在。
+            {
+                serviceMissing = create;
+                createImagePaths.clear();
+                changedImagePaths.clear();
+                bool created = false; // 接收生产函数报告的新建或更新结果。
+                check(ks::service::CreateOrUpdateKernelDriverService(config, &created),
+                    "kernel driver registration must succeed");
+                check(created == create, "registration must report whether a service was created");
+                // 分别核实创建参数和最终更新参数，避免只修复其中一条路径。
+                check(createImagePaths.size() == (create ? 1U : 0U), "unexpected CreateServiceW call count");
+                if (create)
+                {
+                    check(createImagePaths.front() == expected, "CreateServiceW received an invalid driver path");
+                }
+                check(changedImagePaths.size() == 1U && changedImagePaths.front() == expected,
+                    "ChangeServiceConfigW received an invalid driver path");
+            }
+        }
+
+        // 用户态服务的映像字段是命令行，通用更新入口不能移除它的引号或参数。
+        ks::service::ServiceConfigUpdate userModeUpdate; // 保存用于对照的用户态服务命令行。
+        userModeUpdate.changeBinaryPath = true;
+        userModeUpdate.binaryPath = L"\"D:/Program Files/Example.exe\" --service";
+        changedImagePaths.clear();
+        check(ks::service::ChangeServiceConfiguration(L"Issue236UserMode", userModeUpdate),
+            "user-mode service configuration must succeed");
+        check(changedImagePaths.size() == 1U && changedImagePaths.front() == userModeUpdate.binaryPath,
+            "user-mode service command line must be preserved");
+    }
 }
 
 LSTATUS WINAPI KsccTestRegOpenKeyExW(HKEY, LPCWSTR path, DWORD, REGSAM access, PHKEY key)
@@ -178,7 +232,15 @@ SC_HANDLE WINAPI KsccTestOpenSCManagerW(LPCWSTR, LPCWSTR, DWORD)
     return reinterpret_cast<SC_HANDLE>(static_cast<std::uintptr_t>(1U));
 }
 SC_HANDLE WINAPI KsccTestOpenServiceW(SC_HANDLE, LPCWSTR, DWORD)
-{ return reinterpret_cast<SC_HANDLE>(static_cast<std::uintptr_t>(2U)); }
+{
+    // 在新建分支中返回标准错误，其余调用返回模拟句柄。
+    if (serviceMissing)
+    {
+        ::SetLastError(ERROR_SERVICE_DOES_NOT_EXIST);
+        return nullptr;
+    }
+    return reinterpret_cast<SC_HANDLE>(static_cast<std::uintptr_t>(2U));
+}
 BOOL WINAPI KsccTestCloseServiceHandle(SC_HANDLE) { return TRUE; }
 BOOL WINAPI KsccTestQueryServiceStatusEx(SC_HANDLE, SC_STATUS_TYPE, LPBYTE output, DWORD bytes, LPDWORD required)
 {
@@ -200,11 +262,26 @@ BOOL WINAPI KsccTestControlService(SC_HANDLE, DWORD, LPSERVICE_STATUS)
     return TRUE;
 }
 BOOL WINAPI KsccTestDeleteService(SC_HANDLE) { ++mutations; return TRUE; }
-BOOL WINAPI KsccTestChangeServiceConfigW(SC_HANDLE, DWORD, DWORD, DWORD, LPCWSTR, LPCWSTR, LPDWORD, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR)
-{ ++mutations; return TRUE; }
+// 模拟更新服务；记录传入的二进制路径，返回成功，不写 SCM。
+BOOL WINAPI KsccTestChangeServiceConfigW(SC_HANDLE, DWORD, DWORD, DWORD, LPCWSTR imagePath,
+    LPCWSTR, LPDWORD, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR)
+{
+    ++mutations;
+    if (imagePath != nullptr)
+    {
+        changedImagePaths.emplace_back(imagePath);
+    }
+    return TRUE;
+}
 BOOL WINAPI KsccTestChangeServiceConfig2W(SC_HANDLE, DWORD, LPVOID) { ++mutations; return TRUE; }
-SC_HANDLE WINAPI KsccTestCreateServiceW(SC_HANDLE, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD, DWORD, LPCWSTR, LPCWSTR, LPDWORD, LPCWSTR, LPCWSTR, LPCWSTR)
-{ ++mutations; return reinterpret_cast<SC_HANDLE>(static_cast<std::uintptr_t>(2U)); }
+// 模拟创建服务；保存传入的路径并返回模拟句柄。
+SC_HANDLE WINAPI KsccTestCreateServiceW(SC_HANDLE, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD, DWORD,
+    LPCWSTR imagePath, LPCWSTR, LPDWORD, LPCWSTR, LPCWSTR, LPCWSTR)
+{
+    ++mutations;
+    createImagePaths.emplace_back(imagePath);
+    return reinterpret_cast<SC_HANDLE>(static_cast<std::uintptr_t>(2U));
+}
 
 int main()
 {
@@ -212,6 +289,7 @@ int main()
     {
         profileTests();
         serviceTests();
+        driverImagePathTests();
         std::cout << "Storage controller service regression: " << checks << " checks passed\n";
         return 0;
     }

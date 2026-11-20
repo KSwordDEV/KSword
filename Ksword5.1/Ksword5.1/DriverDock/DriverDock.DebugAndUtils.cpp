@@ -678,22 +678,3 @@ QString DriverDock::trimQuotedText(const QString& textValue)
     }
     return normalizedText.trimmed();
 }
-
-QString DriverDock::normalizeDriverBinaryPath(const QString& pathText)
-{
-    QString normalizedPath = pathText.trimmed();
-    if (normalizedPath.isEmpty())
-    {
-        return normalizedPath;
-    }
-
-    const bool quoted =
-        normalizedPath.startsWith('"') &&
-        normalizedPath.endsWith('"') &&
-        normalizedPath.size() >= 2;
-    if (!quoted && normalizedPath.contains(' '))
-    {
-        normalizedPath = QStringLiteral("\"%1\"").arg(normalizedPath);
-    }
-    return normalizedPath;
-}

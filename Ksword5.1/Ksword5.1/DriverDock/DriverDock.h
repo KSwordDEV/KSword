@@ -673,10 +673,6 @@ private:
     // - 作用：去掉路径文本首尾成对双引号。
     static QString trimQuotedText(const QString& textValue);
 
-    // normalizeDriverBinaryPath：
-    // - 作用：规整驱动镜像路径（必要时自动补双引号）。
-    static QString normalizeDriverBinaryPath(const QString& pathText);
-
 private:
     // ========================= 顶层布局 =========================
     QVBoxLayout* m_rootLayout = nullptr; // 根布局。

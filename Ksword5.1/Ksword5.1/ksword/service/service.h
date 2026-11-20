@@ -78,7 +78,7 @@ namespace ks::service
     {
         std::wstring serviceName;
         std::wstring displayName;
-        std::wstring binaryPath;
+        std::wstring binaryPath;        // 驱动文件路径；注册/更新时统一处理外围引号和分隔符。
         std::wstring description;
         std::uint32_t startType = 3;     // SERVICE_DEMAND_START.
         std::uint32_t errorControl = 1;  // SERVICE_ERROR_NORMAL.

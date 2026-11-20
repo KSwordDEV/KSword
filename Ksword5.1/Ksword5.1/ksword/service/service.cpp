@@ -667,10 +667,20 @@ namespace ks::service
     {
         clearOutputs(textOut, codeOut);
         if (createdOut != nullptr) { *createdOut = false; }
-        if (cfg.serviceName.empty() || cfg.binaryPath.empty())
+        // 驱动 ImagePath 是文件路径，不是用户态服务命令行。只去掉输入的外围引号，保留文件名中的空格。
+        std::wstring imagePath = cfg.binaryPath; // 新建和更新共用的 SCM 路径，不改动调用方的输入。
+        trimWide(imagePath);
+        if (imagePath.size() >= 2 && imagePath.front() == L'"' && imagePath.back() == L'"')
+        {
+            imagePath.pop_back();
+            imagePath.erase(0, 1);
+        }
+        if (cfg.serviceName.empty() || imagePath.empty())
         {
             return failText("CreateOrUpdateKernelDriverService requires serviceName and binaryPath", textOut, codeOut);
         }
+        // 统一分隔符；让 SCM 转换 DOS 路径，不手动拼接前缀，也不展开已有的系统路径表示法。
+        std::replace(imagePath.begin(), imagePath.end(), L'/', L'\\');
         if (!allowScmMutation(cfg.serviceName, textOut, codeOut)) return false;
 
         Guard scm = openScm(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE, textOut, codeOut);
@@ -693,7 +703,7 @@ namespace ks::service
                 SERVICE_KERNEL_DRIVER,
                 static_cast<DWORD>(cfg.startType),
                 static_cast<DWORD>(cfg.errorControl),
-                cfg.binaryPath.c_str(),
+                imagePath.c_str(),
                 nullptr,
                 nullptr,
                 nullptr,
@@ -710,7 +720,7 @@ namespace ks::service
             SERVICE_KERNEL_DRIVER,
             static_cast<DWORD>(cfg.startType),
             static_cast<DWORD>(cfg.errorControl),
-            cfg.binaryPath.c_str(),
+            imagePath.c_str(),
             nullptr,
             nullptr,
             nullptr,

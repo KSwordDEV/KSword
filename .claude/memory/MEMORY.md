@@ -24,6 +24,7 @@
 - [Taskbar 页面平铺导航](ksword-taskbar-page-overview.md) — 独立透明 RGB 分列窗口、实际页面目录、WM_COPYDATA 身份校验与逐层跳转
 
 - [CLI 崩溃报告与 VMware 验收](ksword-cli-crash-report.md) — Unicode CRT 日志 fastfail、旧 OS build 门禁归因、参数/状态诊断、VIX 自动通道与只读回归
+- [SCM 驱动镜像路径](ksword-driver-image-path.md) — Issue #236：驱动路径不加命令行引号，Win10 20H2 新建及覆盖旧配置实测
 
 - [ETW 解析与进程归属](ksword-etw-decoding.md) — 事件头与关联身份、映像枚举、数组/结构体布局、网络端口和 TraceLogging 缓存
 

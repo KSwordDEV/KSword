@@ -4505,14 +4505,17 @@ void DriverDock::registerOrUpdateDriverService()
     }
     kLogEvent operationEvent;
     const QString serviceNameText = m_serviceNameEdit->text().trimmed();
-    const QString binaryPathText = normalizeDriverBinaryPath(m_binaryPathEdit->text().trimmed());
+    // 保留提交的路径文本，驱动路径的 SCM 格式由服务层统一处理。
+    const QString binaryPathText = m_binaryPathEdit->text().trimmed();
+    // 文件探测只用去掉外围引号的本地路径，不将探测结果写回表单。
+    const QString unquotedPathText = QDir::toNativeSeparators(trimQuotedText(binaryPathText));
     if (serviceNameText.isEmpty())
     {
         appendOperateLogLine(driverText("driver.operation.register.empty_service", QStringLiteral("注册/更新失败：服务名不能为空。")));
         warn << operationEvent << driverText("driver.log.register.empty_service", QStringLiteral("[DriverDock] 注册/更新失败：服务名为空。")) << eol;
         return;
     }
-    if (binaryPathText.isEmpty())
+    if (unquotedPathText.isEmpty())
     {
         appendOperateLogLine(driverText("driver.operation.register.empty_path", QStringLiteral("注册/更新失败：驱动路径不能为空。")));
         warn << operationEvent << driverText("driver.log.register.empty_path", QStringLiteral("[DriverDock] 注册/更新失败：路径为空。")) << eol;
@@ -4533,7 +4536,6 @@ void DriverDock::registerOrUpdateDriverService()
     request.config.binaryPath = toWideString(binaryPathText);
     request.config.startType = static_cast<std::uint32_t>(m_startTypeCombo->currentData().toInt());
     request.config.errorControl = static_cast<std::uint32_t>(m_errorControlCombo->currentData().toInt());
-    const QString unquotedPathText = trimQuotedText(binaryPathText);
     request.unquotedPath = toWideString(unquotedPathText);
     request.systemRootPath =
         unquotedPathText.startsWith(QStringLiteral("\\SystemRoot\\"), Qt::CaseInsensitive) ||
