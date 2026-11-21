@@ -37,7 +37,6 @@ typedef struct _KSW_HWID_COMPLETION_CONTEXT
 {
     PVOID SystemBuffer;
     PVOID UserBuffer;
-    PMDL MdlAddress;
     ULONG BufferLength;
     ULONG IoControlCode;
     ULONG TargetFlag;
@@ -233,7 +232,9 @@ KswordARKHwidRewriteOffsetAnsiField(
     ULONG copiedBytes = 0UL;
 
     /* 中文说明：STORAGE_DEVICE_DESCRIPTOR 用 offset 指向 NUL 结束字符串。 */
-    if (Buffer == NULL || FieldOffset == 0UL || FieldOffset >= BufferBytes) {
+    // 描述符的固定头包含偏移及长度字段，不是可写的设备字符串。
+    if (Buffer == NULL || FieldOffset < (ULONG)FIELD_OFFSET(STORAGE_DEVICE_DESCRIPTOR, RawDeviceProperties) ||
+        FieldOffset >= BufferBytes) {
         return;
     }
 
@@ -270,13 +271,20 @@ KswordARKHwidCompletionLength(
 {
     ULONG_PTR informationBytes = 0U;
 
-    /* 中文说明：优先遵循 IoStatus.Information，缺省时回退到请求的输出长度。 */
+    /* 标准存储查询的 Information 是实际返回长度；调用方容量不代表有效数据。 */
     if (Context == NULL || Irp == NULL) {
         return 0UL;
     }
 
     informationBytes = Irp->IoStatus.Information;
-    if (informationBytes != 0U && informationBytes < (ULONG_PTR)Context->BufferLength) {
+    // 私有控制请求可能另行返回数据；保留原约定，映射访问另受 MDL 长度限制。
+    if (informationBytes == 0U && (Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA ||
+        Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY)) {
+        // 此处仅给出请求声明的上限。
+        return Context->BufferLength;
+    }
+    // 始终在指针宽度下比较，零字节的标准响应也返回零。
+    if (informationBytes < (ULONG_PTR)Context->BufferLength) {
         return (ULONG)informationBytes;
     }
 
@@ -297,6 +305,8 @@ KswordARKHwidRewriteStorageDescriptor(
         return;
     }
 
+    // 设备返回的 Size 可能小于调用方缓冲区；字符串必须完整落在描述符内。
+    BufferBytes = min(BufferBytes, descriptor->Size);
     KswordARKHwidRewriteOffsetAnsiField(Buffer, BufferBytes, descriptor->SerialNumberOffset, Profile->diskSerial, Profile->diskMode);
     KswordARKHwidRewriteOffsetAnsiField(Buffer, BufferBytes, descriptor->ProductIdOffset, Profile->diskProduct, Profile->diskMode);
     KswordARKHwidRewriteOffsetAnsiField(Buffer, BufferBytes, descriptor->ProductRevisionOffset, Profile->diskRevision, Profile->diskMode);
@@ -311,15 +321,20 @@ KswordARKHwidRewriteAtaPassThrough(
 {
     PATA_PASS_THROUGH_EX passThrough = (PATA_PASS_THROUGH_EX)Buffer;
     PIDENTIFY_DEVICE_DATA identity = NULL;
-    ULONG dataOffset = 0UL;
+    // 与 ATA_PASS_THROUGH_EX.DataBufferOffset 使用相同位宽，避免 x64 截断。
+    ULONG_PTR dataOffset = 0U;
 
     /* 中文说明：ATA identify 数据在 DataBufferOffset 指向的定长结构中。 */
     if (Buffer == NULL || Profile == NULL || BufferBytes < sizeof(ATA_PASS_THROUGH_EX)) {
         return;
     }
 
-    dataOffset = (ULONG)passThrough->DataBufferOffset;
-    if (dataOffset == 0UL || dataOffset >= BufferBytes || BufferBytes - dataOffset < sizeof(IDENTIFY_DEVICE_DATA)) {
+    // 完成时命令字已经被设备状态覆盖；请求进入时已检查命令，这里只校验返回区。
+    dataOffset = passThrough->DataBufferOffset;
+    // 数据必须在头部之后，且实际传输量与返回缓冲区都能容纳 IDENTIFY 结构。
+    if (passThrough->Length != sizeof(*passThrough) || dataOffset < sizeof(*passThrough) ||
+        passThrough->DataTransferLength < sizeof(IDENTIFY_DEVICE_DATA) ||
+        dataOffset > BufferBytes || BufferBytes - dataOffset < sizeof(IDENTIFY_DEVICE_DATA)) {
         return;
     }
 
@@ -341,7 +356,9 @@ KswordARKHwidRewriteSmartData(
     ULONG requiredBytes = FIELD_OFFSET(SENDCMDOUTPARAMS, bBuffer) + sizeof(KSW_HWID_IDSECTOR);
 
     /* 中文说明：SMART_RCV_DRIVE_DATA 返回的 identify 扇区是旧版定长布局。 */
-    if (Buffer == NULL || Profile == NULL || BufferBytes < requiredBytes) {
+    // SMART 可以在 IOCTL 成功时报告设备错误，且 cBufferSize 才是有效负载长度。
+    if (Buffer == NULL || Profile == NULL || BufferBytes < requiredBytes ||
+        smartOutput->DriverStatus.bDriverError != 0U || smartOutput->cBufferSize < sizeof(*identifyData)) {
         return;
     }
 
@@ -534,8 +551,11 @@ KswordARKHwidRewriteDirectOrUserBuffer(
         return;
     }
 
-    if (Context->MdlAddress != NULL) {
-        buffer = (UCHAR*)MmGetSystemAddressForMdlSafe(Context->MdlAddress, NormalPagePriority);
+    // 完成阶段只使用当前 IRP 仍持有的 MDL，避免使用派遣时缓存的旧描述符。
+    if (Irp->MdlAddress != NULL) {
+        // 单个映射仅覆盖这一段 MDL，不能把后续页段或调用方容量当作连续空间。
+        bufferBytes = min(bufferBytes, MmGetMdlByteCount(Irp->MdlAddress));
+        buffer = (UCHAR*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
         if (buffer != NULL) {
             if (Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA) {
                 KswordARKHwidRewriteNvidiaBuffer(buffer, min(bufferBytes, KSW_HWID_NVIDIA_SMIL_MAX_BYTES), &Context->Profile);
@@ -543,8 +563,9 @@ KswordARKHwidRewriteDirectOrUserBuffer(
             else if (Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY) {
                 KswordARKHwidRewriteNsiBuffer(buffer, bufferBytes, &Context->Profile);
             }
-            return;
         }
+        // MDL 是本次传输的缓冲区，映射失败时不能改写另一个用户地址。
+        return;
     }
 
     if (Context->UserBuffer != NULL &&
@@ -627,10 +648,11 @@ KswordARKHwidCompletionRoutine(
 
     if (Irp != NULL) {
         completionStatus = Irp->IoStatus.Status;
+        // I/O 管理器分别判断完成状态与取消标志，任一已登记条件满足即调用上层一次。
         callOldRoutine =
             (NT_SUCCESS(completionStatus) && ((oldControl & SL_INVOKE_ON_SUCCESS) != 0U)) ||
-            (completionStatus == STATUS_CANCELLED && ((oldControl & SL_INVOKE_ON_CANCEL) != 0U)) ||
-            (!NT_SUCCESS(completionStatus) && completionStatus != STATUS_CANCELLED && ((oldControl & SL_INVOKE_ON_ERROR) != 0U));
+            (!NT_SUCCESS(completionStatus) && ((oldControl & SL_INVOKE_ON_ERROR) != 0U)) ||
+            (Irp->Cancel && ((oldControl & SL_INVOKE_ON_CANCEL) != 0U));
     }
 
     /*
@@ -668,9 +690,29 @@ KswordARKHwidShouldHookIoctl(
         if (IoControlCode == IOCTL_STORAGE_QUERY_PROPERTY) {
             return SystemBuffer != NULL &&
                 InputBufferLength >= sizeof(STORAGE_PROPERTY_QUERY) &&
-                storageQuery->PropertyId == StorageDeviceProperty;
+                storageQuery->PropertyId == StorageDeviceProperty &&
+                storageQuery->QueryType == PropertyStandardQuery;
         }
-        return IoControlCode == IOCTL_ATA_PASS_THROUGH || IoControlCode == SMART_RCV_DRIVE_DATA;
+        // ATA 透传也承载普通扇区读写，只有 IDENTIFY 读请求返回设备标识结构。
+        if (IoControlCode == IOCTL_ATA_PASS_THROUGH) {
+            // 输入命令字必须在下层将其替换为设备状态之前读取。
+            const ATA_PASS_THROUGH_EX* ata = (const ATA_PASS_THROUGH_EX*)SystemBuffer;
+            // 仅匹配布局完整且方向为读的 ATA / ATAPI IDENTIFY。
+            return ata != NULL && InputBufferLength >= sizeof(*ata) &&
+                ata->Length == sizeof(*ata) &&
+                (ata->AtaFlags & (ATA_FLAGS_DATA_IN | ATA_FLAGS_DATA_OUT)) == ATA_FLAGS_DATA_IN &&
+                (ata->CurrentTaskFile[6] == ID_CMD || ata->CurrentTaskFile[6] == ATAPI_ID_CMD);
+        }
+        // 同一个 SMART IOCTL 也会返回健康属性；不能把这些数据当设备标识覆盖。
+        if (IoControlCode == SMART_RCV_DRIVE_DATA) {
+            // bBuffer 是可变长输入，读取命令字只要求固定头完整。
+            const SENDCMDINPARAMS* smart = (const SENDCMDINPARAMS*)SystemBuffer;
+            // 只接受明确请求 ATA 或 ATAPI 标识数据的命令。
+            return smart != NULL && InputBufferLength >= (ULONG)FIELD_OFFSET(SENDCMDINPARAMS, bBuffer) &&
+                (smart->irDriveRegs.bCommandReg == ID_CMD || smart->irDriveRegs.bCommandReg == ATAPI_ID_CMD);
+        }
+        // 其他磁盘请求由原驱动原样处理。
+        return FALSE;
     }
 
     if (TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_PARTMGR) {
@@ -729,7 +771,6 @@ KswordARKHwidPrepareDispatchCompletion(
     RtlZeroMemory(completionContext, sizeof(*completionContext));
     completionContext->SystemBuffer = Irp->AssociatedIrp.SystemBuffer;
     completionContext->UserBuffer = Irp->UserBuffer;
-    completionContext->MdlAddress = Irp->MdlAddress;
     completionContext->BufferLength = outputBufferLength;
     completionContext->IoControlCode = ioControlCode;
     completionContext->TargetFlag = TargetFlag;
