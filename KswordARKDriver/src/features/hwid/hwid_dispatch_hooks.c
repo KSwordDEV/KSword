@@ -541,8 +541,10 @@ KswordARKHwidRewriteDirectOrUserBuffer(
     UCHAR* buffer = NULL;
     ULONG bufferBytes = 0UL;
 
-    /* 中文说明：NVIDIA/NSI 某些路径可能返回 MDL 或 UserBuffer，访问时必须异常保护。 */
-    if (Context == NULL || Irp == NULL || !NT_SUCCESS(Irp->IoStatus.Status)) {
+    /* 只有这两个私有控制路径使用此分支；存储查询不应映射额外的 MDL。 */
+    if (Context == NULL || Irp == NULL || !NT_SUCCESS(Irp->IoStatus.Status) ||
+        (Context->TargetFlag != KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA &&
+         Context->TargetFlag != KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY)) {
         return;
     }
 
@@ -568,9 +570,8 @@ KswordARKHwidRewriteDirectOrUserBuffer(
         return;
     }
 
-    if (Context->UserBuffer != NULL &&
-        (Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NVIDIA ||
-         Context->TargetFlag == KSWORD_ARK_HWID_DISPATCH_TARGET_NSIPROXY)) {
+    // 没有 MDL 时才使用该私有请求记录的缓冲地址。
+    if (Context->UserBuffer != NULL) {
         PEPROCESS requestorProcess = NULL;
         KAPC_STATE apcState;
         BOOLEAN attached = FALSE;
@@ -666,7 +667,9 @@ KswordARKHwidCompletionRoutine(
         return oldRoutine(Device, Irp, oldContext);
     }
 
-    if (Irp != NULL && Irp->PendingReturned) {
+    // 已弹出最上层时没有可写的上层栈位置，不能在 IRP 分配边界外传播 pending。
+    if (Irp != NULL && Irp->PendingReturned && Irp->CurrentLocation <= Irp->StackCount) {
+        // 仅在仍有上层栈位置、且没有原完成例程负责传播时标记 pending。
         IoMarkIrpPending(Irp);
     }
 
