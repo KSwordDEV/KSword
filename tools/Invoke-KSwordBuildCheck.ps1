@@ -224,9 +224,11 @@ try {
         $evaluatedOutDir.StartsWith($evaluatedIntDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The intermediate directory must not contain the formal output directory.'
     }
-    New-Item -ItemType Directory -Path $evaluatedIntDir -Force | Out-Null
-    [Environment]::SetEnvironmentVariable('TEMP', $evaluatedIntDir, 'Process')
-    [Environment]::SetEnvironmentVariable('TMP', $evaluatedIntDir, 'Process')
+    # 编译器临时文件仍属于固定 IntDir，但 TEMP 不能等于 IntDir 本身，否则触发 MSB8029。
+    $compilerTempDirectory = Join-Path $evaluatedIntDir 'CompilerTemp' # 固定子目录，不创建第二套输出或运行时副本。
+    New-Item -ItemType Directory -Path $compilerTempDirectory -Force | Out-Null
+    [Environment]::SetEnvironmentVariable('TEMP', $compilerTempDirectory, 'Process')
+    [Environment]::SetEnvironmentVariable('TMP', $compilerTempDirectory, 'Process')
 
     Write-Output "BUILD_START action=$Action wpo_disabled=$([bool]$DisableWholeProgramOptimization) timeout_minutes=$TimeoutMinutes"
     Write-Output "BUILD_PERF_TRACE_ENABLED=$([bool]$EnablePerfTrace)"
@@ -236,6 +238,7 @@ try {
     Write-Output "BUILD_HOST_TOOLS=$($toolProperties.VC_ExecutablePath_x64)"
     Write-Output "BUILD_INTDIR=$evaluatedIntDir"
     Write-Output "BUILD_OUTDIR=$evaluatedOutDir"
+    Write-Output "BUILD_COMPILER_TEMP=$compilerTempDirectory"
     Write-Output "BUILD_LOG=$rawLogPath"
 
     $process = Start-Process `

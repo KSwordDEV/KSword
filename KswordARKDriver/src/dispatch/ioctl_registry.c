@@ -30,6 +30,9 @@ Environment:
 #include "driver/KswordArkHvmNoAttachIoctl.h"
 #include "driver/KswordArkKernelNoAttachIoctl.h"
 #include "driver/KswordArkKernelNoAttachProbeIoctl.h"
+#include "../features/process/structure_sample.h" // 注册精确内核身份限定的只读对象体采样处理函数。
+#include "../features/thread/thread_stack.h" // 只登记身份限定的在线采集处理器，业务与回调所有权留在模块内。
+#include "../features/thread/thread_stack_snapshot.h" // 只登记同步保存上下文来源，不在分发器处理业务。
 #include "driver/KswordArkDebuggerIoctl.h"
 #include "driver/KswordArkDdmaIoctl.h"
 #include "ark/ark_storage_controller.h"
@@ -459,6 +462,9 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_QUERY_THREAD_CROSSVIEW, KswordARKThreadIoctlQueryCrossView, "IOCTL_KSWORD_ARK_QUERY_THREAD_CROSSVIEW", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     // Process detail is read-only and reports missing PDB/DynData fields inside the fixed response.
     { IOCTL_KSWORD_ARK_QUERY_PROCESS_DETAIL, KswordARKProcessIoctlQueryDetail, "IOCTL_KSWORD_ARK_QUERY_PROCESS_DETAIL", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    { IOCTL_KSWORD_ARK_QUERY_STRUCTURE_SAMPLE, KswordARKProcessIoctlQueryStructureSample, "IOCTL_KSWORD_ARK_QUERY_STRUCTURE_SAMPLE", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE }, // 后端独立核对 PASSIVE_LEVEL、对象身份、完整 PE/RSDS 和编译根边界。
+    { IOCTL_KSWORD_ARK_CAPTURE_THREAD_STACK, KswordARKThreadIoctlCaptureStack, "IOCTL_KSWORD_ARK_CAPTURE_THREAD_STACK", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE }, // 只有合法取消与返回后退休均可证明时才允许普通目标 APC。
+    { IOCTL_KSWORD_ARK_SNAPSHOT_THREAD_STACK, KswordARKThreadIoctlSnapshotStack, "IOCTL_KSWORD_ARK_SNAPSHOT_THREAD_STACK", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE }, // 全处理器会合期间复制真实保存上下文，不向目标投递 APC。
     // Process runtime field sample is read-only and samples only bounded fields from PsLookupProcessByProcessId.
     { IOCTL_KSWORD_ARK_QUERY_PROCESS_RUNTIME_FIELDS, KswordARKProcessIoctlQueryRuntimeFields, "IOCTL_KSWORD_ARK_QUERY_PROCESS_RUNTIME_FIELDS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     // Thread detail is read-only and reports missing PDB/DynData fields inside the fixed response.

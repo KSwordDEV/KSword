@@ -33,7 +33,19 @@ KswordCLI.exe network connections help
 网络关闭的 API 状态与回读存在性分别输出；错误 317 不推导为目标消失，详见 [网络文档](cli/network.md)。
 `network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]` 支持显示偏移与下一页位置；不同调用是各自的网络快照。
 `process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--json]` 以地址游标分页读取进程的已提交区域；正常页大小限制不代表采集失败。分页快照可能随进程映射变化，详见 [进程文档](cli/process.md)。
-`process memory dump` 与 `process module dump` 支持 R3/R0 分块转储并报告来源、身份与完整性；`process thread stack query` 捕获受验证线程的调用栈，详见 [进程文档](cli/process.md)。
+`process memory dump` 与 `process module dump` 支持 R3/R0 分块转储并报告来源、身份与完整性；`process thread stack query` 默认捕获受验证线程的用户调用栈，`--backend r0` 仅返回未验证的 KTHREAD 栈线索、不产生调用帧，详见 [进程文档](cli/process.md)。
+`process thread layout query [--image PATH] [--profiles DIR] [--json]` 与 `process layout query [--image PATH] [--profiles DIR] [--json]` 按磁盘 PE/RSDS 精确身份读取 `_ETHREAD`／`_EPROCESS` PDB 布局元数据，不读取实时对象。默认使用系统 `ntoskrnl.exe` 和 CLI 同目录下的 `profiles`，详见 [进程文档](cli/process.md#线程与进程类型布局)。
+
+`process layout sample --pid PID [--creation-time FILETIME] [--profiles DIR] [--json]` 和
+`process thread layout sample --pid PID --tid TID [--creation-time FILETIME] [--thread-creation-time FILETIME] [--profiles DIR] [--json]`
+通过只读 R0 `0x941` 获取精确内核身份限定的 EPROCESS/ETHREAD 对象体快照。JSON 明确
+`source=live_object_body`、`live=true`、`atomic=false`，保留逐字节有效位和全部符号行。
+覆盖率分母不删行，严格分子排除 union 解释并去重存储别名；只有现场身份通过且严格覆盖
+超过一半才退出 `0`。此处不包含内核栈展开，详见 [实时字段采样](cli/process.md#线程与进程实时字段采样)。
+
+`process thread stack dump --dump PATH --pid PID --tid TID [--creation-time FILETIME] [--thread-creation-time FILETIME] [--symbols PATH] [--limit N] [--json]` 通过本机 x64 Windows 调试工具从指定内核转储展开目标线程的内核栈。PID/TID 指转储内对象；输出不代表实时内核状态。
+
+`process thread stack capture --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME [--limit N] [--timeout-ms N] [--method auto|saved|apc] [--backend r0] [--json]` 通过GUI/CLI共用客户端采集在线目标内核栈。默认 `auto` 首选保存上下文；只有新端点明确不支持才回退至旧APC诊断，不拼接两种来源。保存上下文确实展开到用户态机器帧边界才退出 `0`；部分帧退出 `6`，不支持退出 `5`。当前保存上下文只允许两份精确VM内核，其他版本和跨模块展开限制详见进程文档。
 `thread r0` 与 `thread driver` 提供独立的驱动线程控制入口，详见 [R0 线程命令](cli/thread-r0.md)。
 `handle close` 对同一目标提供 R3/R0 关闭及独立状态回执，详见 [句柄命令](cli/handle.md)。
 `network policy` 提供按各自后端实现的 R0 托管策略与 R3 防火墙策略操作；`network qos` 提供 R3 QoS 操作，详见 [网络命令](cli/network.md)。

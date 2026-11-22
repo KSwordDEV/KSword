@@ -1,0 +1,12 @@
+KSWPROCESS1	34404	123	456	00112233445566778899AABBCCDDEEFF1	64
+0	0	UniqueProcessId	0x0022 (unsigned long)			member
+0	4	Flags	0x0022 (unsigned long)			member
+0	4	Alias	0x0022 (unsigned long)			member
+0	4	Slice	bitfield(0x0022 (unsigned long), offset=2, bits=3)	2	3	member
+0	8	Pointer	void*			member
+0	12	UnionHigh	0x0022 (unsigned long)			union
+0	20	Array	0x0020 (unsigned char)[4]			member
+0	24	CreateTime	_LARGE_INTEGER			member
+8	0	QuadPart	0x0013 (__int64)			union
+0	32	CounterA	0x0022 (unsigned long)			member
+0	40	CounterB	0x0022 (unsigned long)			member

@@ -8,6 +8,7 @@
 #include "../UI/TablePresentation.h"
 #include "ThreadAffinityMenu.h"
 #include "ThreadStackWindow.h"
+#include "ThreadDetailWindow.h"
 
 #include "../Internationalization/LanguageManager.h"
 
@@ -1868,6 +1869,9 @@ void ProcessDock::showThreadTableContextMenu(const QPoint& localPosition)
     QAction* detailAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_details.svg"),
         "转到进程详细信息");
+    QAction* threadDetailAction = contextMenu.addAction(
+        blueTintedIcon(":/Icon/process_threads.svg"),
+        QStringLiteral("线程详细信息"));
     QAction* stackAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_threads.svg"),
         "查看调用栈");
@@ -2027,6 +2031,7 @@ void ProcessDock::showThreadTableContextMenu(const QPoint& localPosition)
     if (selectedAction == copyCellAction) { copyCurrentThreadCell(); }
     else if (selectedAction == copyRowAction) { copyCurrentThreadRow(); }
     else if (selectedAction == detailAction) { openThreadOwnerProcessDetails(); }
+    else if (selectedAction == threadDetailAction) { openThreadStackWindow(true); }
     else if (selectedAction == stackAction) { openThreadStackWindow(); }
     else if (selectedAction == suspendAction) { executeSuspendThreadAction(); }
     else if (selectedAction == resumeAction) { executeResumeThreadAction(); }
@@ -2113,7 +2118,7 @@ void ProcessDock::openThreadOwnerProcessDetails()
     openProcessDetailWindowByPid(threadRecord->ownerPid);
 }
 
-void ProcessDock::openThreadStackWindow()
+void ProcessDock::openThreadStackWindow(const bool openDetails)
 {
     // Phase-8 调用栈入口：
     // - 从当前线程行构造 ThreadStackTarget；
@@ -2153,6 +2158,11 @@ void ProcessDock::openThreadStackWindow()
         }
     }
 
+    if (openDetails)
+    {
+        ShowThreadDetailWindow(this, target);
+        return;
+    }
     auto* stackWindow = new ThreadStackWindow(target, this);
     stackWindow->setAttribute(Qt::WA_DeleteOnClose, true);
     stackWindow->show();

@@ -229,6 +229,15 @@
     <ClInclude Include="src\features\process\process_crossview.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\features\process\structure_sample.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\features\process\structure_sample_profiles.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkStructureSampleIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\features\thread\thread_crossview.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1163,6 +1172,18 @@
     <ClCompile Include="src\features\process\process_detail.c">
       <Filter>Source Files\Features</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\process\structure_sample.c">
+      <Filter>Source Files\Features</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\process\structure_sample_identity.c">
+      <Filter>Source Files\Features</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\process\structure_sample_ioctl.c">
+      <Filter>Source Files\Features</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\process\structure_sample_profiles.c">
+      <Filter>Source Files\Features</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\process\process_dkom.c">
       <Filter>Source Files\Features</Filter>
     </ClCompile>
@@ -1529,6 +1550,39 @@
     <ClCompile Include="src\features\thread\thread_apc.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack_cancel.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack_ioctl.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack_snapshot.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack_snapshot_unwind.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\thread\thread_stack_snapshot_check.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="src\features\thread\thread_stack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\features\thread\thread_stack_cancel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkThreadStackIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\features\thread\thread_stack_snapshot.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkThreadStackSnapshotIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClCompile Include="src\features\process\process_terminate_extra.c">
       <Filter>Source Files</Filter>
     </ClCompile>

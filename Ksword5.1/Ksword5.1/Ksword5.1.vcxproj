@@ -552,6 +552,20 @@
     <ClCompile Include="ProcessDock\ThreadAffinityMenu.cpp" />
     <ClCompile Include="ProcessDock\ProcessMessageHookWindow.cpp" />
     <ClCompile Include="ProcessDock\ThreadStackWindow.cpp" />
+    <ClCompile Include="ProcessDock\ThreadStackWindow.Presentation.cpp" />
+    <ClCompile Include="ProcessDock\ThreadDetailWindow.cpp" />
+    <ClCompile Include="ProcessDock\ThreadDetailTreeWindow.cpp" />
+    <ClCompile Include="ProcessDock\KernelStructureTree.cpp" />
+    <ClCompile Include="ProcessDock\KernelStructureLiveSample.cpp" />
+    <ClCompile Include="ProcessDock\KernelDumpStackWindow.cpp" />
+    <ClCompile Include="ProcessDock\KernelDumpStackClient.cpp" />
+    <ClCompile Include="ProcessDock\KernelStructureCandidates.cpp" />
+    <ClCompile Include="ProcessDock\ProcessEprocessPage.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ThreadLayoutProfile.cpp" />
+    <ClCompile Include="..\..\shared\usermode\StructureSampleProjection.cpp" />
+    <ClCompile Include="..\..\shared\usermode\ThreadLayoutImage.cpp" />
+    <ClCompile Include="ProcessDock\ThreadSettingsInline.cpp" />
+    <ClCompile Include="ProcessDock\ThreadSettingsR3.cpp" />
     <ClCompile Include="ProcessDock\Process_Tool.cpp" />
     <ClCompile Include="Internationalization\LanguageManager.cpp" />
     <ClCompile Include="SettingsDock\AppearanceSettings.cpp" />
@@ -807,6 +821,8 @@
     <ClCompile Include="UI\TextSearchReplaceSupport.cpp" />
     <ClCompile Include="UI\TableSnapshotCompare.cpp" />
     <ClCompile Include="UI\ThemedMessageBox.cpp" />
+    <ClCompile Include="UI\DriverLoadFailureDialog.cpp" />
+    <ClCompile Include="Framework\WindowsDriverPolicy.cpp" />
     <ClCompile Include="UI\UIBaseFunction.cpp" />
     <ClCompile Include="WelcomeDock\WelcomeDock.cpp" />
     <ClCompile Include="MonitorDock\WinAPIDock.cpp" />
@@ -882,6 +898,14 @@
     <ClCompile Include="ArkDriverClient\ArkProcessLifetimeProfile.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCapabilities.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverStructureSampling.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackCapture.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackSession.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackSymbols.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\driver\DriverQueries.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\driver\DriverFormatting.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\NtApi.cpp" />
+    <ClCompile Include="..\..\shared\usermode\LiveKernelThreadStack.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverProcessProtect.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverClipboardPolicy.cpp" />
@@ -1353,6 +1377,25 @@
     <ClInclude Include="ProcessDock\ProcessGpuTableView.h" />
     <ClInclude Include="ProcessDock\ProcessMessageHookWindow.h" />
     <ClInclude Include="ProcessDock\ThreadStackWindow.h" />
+    <ClInclude Include="ProcessDock\ThreadDetailWindow.h" />
+    <ClInclude Include="ProcessDock\KernelStructureTree.h" />
+    <ClInclude Include="ProcessDock\KernelStructureLiveSample.h" />
+    <ClInclude Include="ProcessDock\KernelDumpStackWindow.h" />
+    <ClInclude Include="ProcessDock\KernelDumpStackClient.h" />
+    <ClInclude Include="..\..\shared\usermode\KernelDumpThreadStack.h" />
+    <ClInclude Include="ProcessDock\KernelStructureCandidates.h" />
+    <ClInclude Include="ProcessDock\ProcessEprocessPage.h" />
+    <ClInclude Include="..\..\shared\usermode\ThreadLayoutProfile.h" />
+    <ClInclude Include="..\..\shared\usermode\StructureSampleProjection.h" />
+    <ClInclude Include="ArkDriverClient\ArkStructureSampling.h" />
+    <ClInclude Include="ArkDriverClient\ArkThreadStackCapture.h" />
+    <ClInclude Include="ArkDriverClient\ArkThreadStackSymbols.h" />
+    <ClInclude Include="..\..\shared\driver\KswordArkThreadStackIoctl.h" />
+    <ClInclude Include="..\..\shared\driver\KswordArkThreadStackSnapshotIoctl.h" />
+    <ClInclude Include="..\..\shared\usermode\LiveKernelThreadStack.h" />
+    <ClInclude Include="..\..\shared\driver\KswordArkStructureSampleIoctl.h" />
+    <ClInclude Include="ProcessDock\ThreadSettingsInline.h" />
+    <ClInclude Include="ProcessDock\ThreadSettingsR3.h" />
     <QtMoc Include="ProcessDock\ProcessDock.h" />
     <QtMoc Include="SettingsDock\SettingsDock.h" />
     <QtMoc Include="UI\CodeEditorWidget.h" />
@@ -1478,6 +1521,8 @@
     <ClInclude Include="UI\StartupSplashPreview.h" />
     <ClInclude Include="UI\ThemeStatusRole.h" />
     <ClInclude Include="UI\ThemedMessageBox.h" />
+    <ClInclude Include="UI\DriverLoadFailureDialog.h" />
+    <ClInclude Include="Framework\WindowsDriverPolicy.h" />
     <ClInclude Include="SettingsDock\AppearanceSettings.h" />
     <QtMoc Include="ServerDock\ServiceDock.h" />
     <ClInclude Include="ServerDock\ServiceDock.Internal.h" />
@@ -1716,6 +1761,14 @@
     <Copy SourceFiles="@(KswordRegistryOptimizationAsset)" DestinationFiles="@(KswordRegistryOptimizationAsset->'$(KswordRegistryOptimizationAssetTargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(KswordRegistryOptimizationAsset)' != ''" />
     <Warning Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; registry optimization profile was not compressed: $(KswordProfileCompressor)" />
     <Warning Condition="!Exists('$(KswordRegistryOptimizationProfileSource)')" Text="Registry optimization profile was not found; System Optimization tab will show an empty profile list: $(KswordRegistryOptimizationProfileSource)" />
+  </Target>
+  <Target Name="CopyKswordKernelStructureProfiles" AfterTargets="Build">
+    <ItemGroup>
+      <ThreadStructureProfile Include="$(MSBuildProjectDirectory)\profiles\thread_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\thread_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\thread_layouts\_versions.index" />
+      <ProcessStructureProfile Include="$(MSBuildProjectDirectory)\profiles\process_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\process_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\process_layouts\_versions.index" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ThreadStructureProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProcessStructureProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="CopyKswordArkPdbDeepOffsetLibraries" AfterTargets="Build">
     <!-- 深度 PDB 偏移库用于进程/线程/对象等详情页后续扩展；运行时优先读取本地 .json.qz，不依赖开发机 E: 符号缓存。 -->

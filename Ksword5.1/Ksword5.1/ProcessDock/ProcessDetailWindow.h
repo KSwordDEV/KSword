@@ -557,10 +557,10 @@ private:
     // openSelectedThreadStackWindow 作用：
     // - 根据线程页当前选中行打开 Phase-8 调用栈窗口；
     // - 使用最近一次线程刷新缓存中的 TID/PID/栈边界构造目标。
-    // 调用方式：线程页按钮或表格双击。
-    // 参数：无。
+    // 调用方式：调用栈按钮或表格双击。
+    // 参数：openDetails 为真时进入独立线程详情，否则直接打开栈。
     // 返回：无。
-    void openSelectedThreadStackWindow();
+    void openSelectedThreadStackWindow(bool openDetails = false);
     // resolveSelectedThreadModulePathForUpload 作用：
     // - 输入为线程表当前行；
     // - 处理时读取 ThreadInspectItem 的 start/win32Start 地址，并在模块缓存中查找所属模块路径；

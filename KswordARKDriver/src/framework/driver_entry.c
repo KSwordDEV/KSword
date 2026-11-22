@@ -22,6 +22,7 @@ Environment:
 #include "src/features/debugger/debugger.h"
 #include "src/features/rxpf/rxpf_runtime.h"
 #include "src/features/storage_controller/controller.h"
+#include "src/features/thread/thread_stack.h" // 在线诊断独立初始化取消及返回后退休能力，不影响现有 APC 控制。
 #include "driver_entry.tmh"
 
 typedef struct _KSWORD_ARK_CORE_LIFECYCLE {
@@ -341,6 +342,7 @@ Return Value:
     }
     // 在线程控制 IOCTL 可见前初始化 APC 注册表和卸载排空事件。
     KswordARKThreadApcInitialize();
+    KswordARKThreadStackInitialize(); // 命名取消导出或尾跳证明缺失时只拒绝在线抓栈，不改变系统保护。
 
     TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Entry");
 
@@ -552,6 +554,7 @@ KswordARKDriverShutdownCore(VOID)
     }
     InterlockedExchange(&g_KswordArkCore.Retiring, TRUE);
     InterlockedExchange(&g_KswordArkCore.Ready, FALSE);
+    KswordARKThreadStackBeginStop(); // 先唤醒持有核心请求引用的采集，再等待全局门闩，避免停止通知被排空顺序延后。
     ExWaitForRundownProtectionRelease(&g_KswordArkCore.Requests);
     if (!g_KswordArkCore.EarlyInitialized) {
         goto Finalize;
@@ -582,6 +585,7 @@ KswordARKDriverShutdownCore(VOID)
     }
     // 随后停止并排空所有可能回调到本驱动映像的线程终止 APC。
     KswordARKThreadApcUninitialize();
+    KswordARKThreadStackUninitialize(); // 核心请求已排空，再退休在线采集的私有同步状态。
     // 目录枚举可能缓存了一个用于续扫的目录句柄，卸载前必须关闭。
     if (g_KswordArkCore.LateInitialized) {
         KswordARKDriverResetDirectoryScanCache();

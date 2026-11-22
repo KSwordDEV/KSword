@@ -27,6 +27,7 @@
 
 - [CLI 崩溃报告与 VMware 验收](ksword-cli-crash-report.md) — Unicode CRT 日志 fastfail、旧 OS build 门禁归因、参数/状态诊断、VIX 自动通道与只读回归
 - [SCM 驱动镜像路径](ksword-driver-image-path.md) — Issue #236：驱动路径不加命令行引号，Win10 20H2 新建及覆盖旧配置实测
+- [驱动加载失败与 Windows Driver Policy](../../docs/Issue-233-驱动安装报错核对.md) — Issue #233：新弹窗仅处理截图中的4551，577沿用原弹窗；UI只讲原因及处理方法，按更新显示禁用或博客帮助；实机策略/重启未验收，官网暂缓
 
 - [ETW 解析与进程归属](ksword-etw-decoding.md) — 事件头与关联身份、映像枚举、数组/结构体布局、网络端口和 TraceLogging 缓存
 
@@ -68,6 +69,8 @@
 - [快捷键清除与跨版本规则匹配](ksword-hotkey-clear-matching.md) — 规范目标与逐项回执、USER会话及EnterCrit ABI、当前映像通用C规则和v4变更门禁；六组静态证据见[跨版本记录](../../docs/快捷键跨版本规则匹配-20261025.md)
 - [Win32k 窗口 Band 事务](ksword-window-band-control.md) — 跨 UIAccess 原生顺序、精确版本 ABI、GUI 调用线程、恢复及未完成的实机验收
 - [R0-only 进程身份校验](ksword-process-r0-identity.md) — 内核枚举身份、0x8b 三项退出证据、CID 按 owner 局部否决、无精确偏移双机实测与客体部署/SSH
+- [线程内核诊断与 APC 功能规划](../../docs/线程内核诊断与APC功能规划-20261121.md) — 区分入队、投递、终止信号；精确 KTHREAD PE/PDB（DBI Age）与 getter 交叉核验；CLI 的 R0 线索不算帧，ETW 事件栈与线程瞬时快照分开验收
+- [实时结构采样与独立回执验收](ksword-live-structure-sample.md) — 双VM严格过半；保存上下文原始等待/忙线程内核链均到用户机器帧，四路并发及逐字节复核通过；两份精确内核、CLI-only及未覆盖边界
 - [进程列表 R0 字段显示](ksword-process-list-fields.md) — 保护来源提示、PS_PROTECTION 名称解码与 HandleTable 空值/不可用区别
 - [KernelDock 内核知识中心](ksword-kernel-knowledge.md) — 71 专题双语目录、R3/R0 现场证据协议、业务 IOCTL 映射、只读站内路由与验证器约束
 - [内核回调监控通道](ksword-callback-monitor.md) — Callback Monitor v1 多游标 ring、回调 try-lock 发布、Minifilter 双消费者与高频 Qt 模型提交边界

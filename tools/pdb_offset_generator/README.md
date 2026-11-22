@@ -325,6 +325,60 @@ identity match, `47/47` deep aliases present, and process/thread/module detail
 required fields ready. This proves the release JSON carries the required
 offsets; it does not prove a running driver has already consumed the pack.
 
+## Process and thread layout shards
+
+The desktop inspector and CLI load `profiles/thread_layouts` and
+`profiles/process_layouts` on demand. These directories are generated assets, not
+driver DynData. Keep the corpus external and use a finished corpus index:
+
+```powershell
+python tools/pdb_offset_generator/ksword_thread_layout_release.py --corpus-root <corpus-root> --workers 2
+```
+
+The batch re-reads the PE and PDB identities, verifies the PDB DBI Age, and
+reports coverage, skipped identities and publication errors separately. Only a
+report with `published` confirms that generated shards were installed in the
+source profile directories. The Release build then copies the published TSVs to
+its matching profile directories. Existing shards with different contents are
+not overwritten. The shards describe symbol members and do not contain live
+process or thread data.
+
+### Packaged version boundaries
+
+After publishing or adding exact shards, regenerate **both** `_versions.index`
+files. They are ignored generated assets alongside the TSVs, but must be shipped
+with the matching source/Release profile directories. The index is for risk
+coloring only; it never authorizes a kernel read or substitutes a neighboring
+layout for an exact PE/RSDS match.
+
+```powershell
+python tools/pdb_offset_generator/ksword_layout_version_catalog.py `
+  --profiles Ksword5.1/Ksword5.1/profiles `
+  --pack Ksword5.1/Ksword5.1/profiles/ark_dyndata_pack_v4.json `
+  --extra-image <exact-extra-ntoskrnl.exe>
+```
+
+Omit `--extra-image` when every published shard is represented by the v4 pack;
+repeat it for additional exact local PE files when needed. Versions come from
+validated pack metadata or the PE version resource, not from filename order or
+timestamp comparisons. Missing or conflicting metadata fails generation without
+rewriting either TSV tree. The current supplemental exact identity is
+`34404 / 329465876 / 17059840 / E2672D6A639304ECAF7D417B71DC4D0B1`.
+
+`CopyKswordKernelStructureProfiles` copies the indexes together with the TSVs and
+optional neighbor metadata. Verify publication using the actual file inventory,
+not a historical hard-coded shard count:
+
+```powershell
+tools/Invoke-StructureSampleTests.ps1 -IncludeExactProfiles -IncludeStackSymbols
+```
+
+The tests compare catalog identities against every real shard and reject missing,
+duplicate or extra entries. Endpoints, missing sides, unknown/ambiguous versions,
+or an architecture/branch mismatch remain yellow; only two distinct strictly
+earlier/later packaged versions can bracket a current version. This operation
+does not regenerate driver offsets or extend the live sampler's exact allowlist.
+
 ## Driver unload research report
 
 `ksword_driver_unload_research.py` is a read-only research helper for the

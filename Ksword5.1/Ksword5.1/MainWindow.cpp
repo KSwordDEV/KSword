@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "UI/ToolbarMetrics.h"
+#include "UI/DriverLoadFailureDialog.h"
 #include "UI/KernelHookWizard.h"
 #include "UI/RuntimeControlPages.h"
 #include "UI/ShortcutRegistry.h"
@@ -10951,7 +10952,13 @@ bool MainWindow::startR0DriverService(const bool suppressPrivilegeElevationPromp
                 guardedSelf->m_r0DriverServiceRunning = false;
                 guardedSelf->invalidateMemoryHvmAvailability();
                 if (!guardedSelf) { return; }
+                // 4551 使用新增策略指导；后续 577/1275 分支及原签名弹窗保持原样。
                 if (operationOutcome.startServiceCallFailed
+                    && ks::ui::IsDriverPolicyLoadFailure(operationOutcome.errorCode))
+                {
+                    ks::ui::ShowDriverLoadFailureDialog(guardedSelf.data(), operationOutcome.errorCode);
+                }
+                else if (operationOutcome.startServiceCallFailed
                     && guardedSelf->isR0DriverSignatureFailure(operationOutcome.errorCode))
                 {
                     kLogEvent logEvent;
@@ -10974,7 +10981,10 @@ bool MainWindow::startR0DriverService(const bool suppressPrivilegeElevationPromp
                         operationOutcome.errorCode,
                         operationOutcome.detailText);
                 }
-                guardedSelf->refreshPrivilegeStatusButtons();
+                if (guardedSelf)
+                {
+                    guardedSelf->refreshPrivilegeStatusButtons();
+                }
                 return;
             }
 

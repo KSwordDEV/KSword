@@ -1,4 +1,5 @@
 ﻿#include "ProcessDetailWindow.InternalCommon.h"
+#include "ProcessEprocessPage.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
@@ -4646,7 +4647,7 @@ void ProcessDetailWindow::initializeThreadTab()
         document.note(QStringLiteral("\n点击“采样PDB字段”可对当前 TID 按需读取 thread_detail deep offset 小字段。"));
         m_threadRuntimeSampleOutput->setDocument(document);
         };
-    m_threadInspectTable->rowDoubleClicked = [this](int) { openSelectedThreadStackWindow(); };
+    m_threadInspectTable->rowDoubleClicked = [this](int) { openSelectedThreadStackWindow(true); };
     connect(m_threadInspectTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& localPosition)
     {
         // 线程表右键菜单：
@@ -5650,6 +5651,7 @@ void ProcessDetailWindow::initializeKernelObjectTab()
     evidenceTabs->addTab(overviewPage, QStringLiteral("概览"));
     evidenceTabs->addTab(watchPage, QStringLiteral("字段监视"));
     evidenceTabs->addTab(reportPage, QStringLiteral("结构报告"));
+    AddProcessEprocessPage(*evidenceTabs, m_baseRecord.pid, m_baseRecord.creationTime100ns);
     evidenceTabs->setCurrentWidget(reportPage); // 当前入口主要用于查字段，直接进入正文，概览和专业监视仍可切换。
     if (auto* stack = evidenceTabs->findChild<QStackedWidget*>(QString(), Qt::FindDirectChildrenOnly))
     {

@@ -82,7 +82,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>delayimp.lib;Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>dbghelp.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -98,7 +99,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>delayimp.lib;Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>dbghelp.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -112,7 +114,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>delayimp.lib;Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>dbghelp.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -128,7 +131,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>delayimp.lib;Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;Version.lib;Wintrust.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>dbghelp.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -159,6 +163,8 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPiDdb.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPower.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverProcessProtect.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverProcess.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverStructureSampling.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverStorageForensics.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSystemTime.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverVirtualization.cpp" />
@@ -358,6 +364,29 @@
     <ClCompile Include="R0ThreadControl.cpp" />
     <ClCompile Include="ProcessMemoryDump.cpp" />
     <ClCompile Include="R3ThreadStack.cpp" />
+    <ClCompile Include="R0ThreadStack.cpp" />
+    <ClCompile Include="R0StructureSamples.cpp" />
+    <ClCompile Include="R0LiveThreadStack.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverThreadStackCapture.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverThreadStackSession.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverThreadStackSymbols.cpp" />
+    <ClCompile Include="..\shared\usermode\LiveKernelThreadStack.cpp" />
+    <ClCompile Include="R3ProcessLayout.cpp" />
+    <ClCompile Include="KernelDumpStackCommand.cpp" />
+    <ClCompile Include="..\shared\usermode\KernelDumpThreadStack.cpp" />
+    <ClInclude Include="..\shared\usermode\KernelDumpThreadStack.h" />
+    <ClCompile Include="..\shared\usermode\ThreadLayoutProfile.cpp" />
+    <ClCompile Include="..\shared\usermode\StructureSampleProjection.cpp" />
+    <ClCompile Include="..\shared\usermode\ThreadLayoutImage.cpp" />
+    <ClInclude Include="..\shared\usermode\ThreadLayoutProfile.h" />
+    <ClInclude Include="..\shared\usermode\StructureSampleProjection.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkStructureSampling.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkThreadStackCapture.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkThreadStackSymbols.h" />
+    <ClInclude Include="..\shared\driver\KswordArkThreadStackIoctl.h" />
+    <ClInclude Include="..\shared\driver\KswordArkThreadStackSnapshotIoctl.h" />
+    <ClInclude Include="..\shared\usermode\LiveKernelThreadStack.h" />
+    <ClInclude Include="..\shared\driver\KswordArkStructureSampleIoctl.h" />
     <ClCompile Include="R3FileMetadata.cpp" />
     <ClCompile Include="PiDdbCommands.cpp" />
     <ClCompile Include="NetworkPolicyCommand.cpp" />
@@ -683,4 +712,12 @@
   <ItemGroup>
     <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
+  <Target Name="CopyCliLayoutProfiles" AfterTargets="Build" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ItemGroup>
+      <CliThreadLayoutProfile Include="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\thread_layouts\*.tsv" />
+      <CliProcessLayoutProfile Include="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\process_layouts\*.tsv" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CliThreadLayoutProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(CliProcessLayoutProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

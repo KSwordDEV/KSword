@@ -107,6 +107,9 @@ namespace ks::file
         bool success = false;
         bool isPe64 = false;
         std::uint16_t machine = 0;
+        std::uint32_t timeDateStamp = 0; // PE 文件标识中的 COFF 时间戳。
+        std::uint32_t sizeOfImage = 0; // PE 文件标识中的映像大小。
+        std::string rsdsKey; // 唯一 RSDS 记录的大写 GUID 加十六进制 Age。
         std::uint16_t subsystem = 0;
         std::uint32_t entryPointRva = 0;
         std::uint32_t entryPointFileOffset = 0;
@@ -126,6 +129,7 @@ namespace ks::file
         std::function<bool()> cancelled;
         // Reuse only imports decoded from these exact immutable bytes.
         const std::vector<PeImportModuleSummary>* decodedImports = nullptr;
+        bool identityOnly = false; // 只验证 PE 并提取文件与 RSDS 身份，不分析目录正文。
     };
 
     // AnalyzePeFile 作用：读取文件并解析 PE 结构，返回结构化结果。

@@ -232,6 +232,8 @@ New-Item -ItemType Directory -Path $stageRoot | Out-Null
 tar -xf $ref -C $stageRoot
 
 Copy-Item 'Ksword5.1\x64\Release\Ksword5.1.exe' $stage -Force
+# 内核转储窗通过同目录 CLI 隔离主程序中的 DbgHelp；发行此功能时两者必须配套。
+Copy-Item 'Ksword5.1\x64\Release\KswordCLI.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\Launcher.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\KswordARKLight.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\Taskbar.exe' $stage -Force
@@ -263,6 +265,8 @@ Copy-Item 'third_party\zstd\LICENSE.txt' (Join-Path $licenseDir 'zstd-LICENSE.tx
 $profileDir=Join-Path $stage 'profiles'
 if (!(Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir | Out-Null }
 Copy-Item 'Ksword5.1\x64\Release\profiles\ark_dyndata_pack_v4.json.qz' $profileDir -Force
+Copy-Item 'Ksword5.1\x64\Release\profiles\thread_layouts' $profileDir -Recurse -Force
+Copy-Item 'Ksword5.1\x64\Release\profiles\process_layouts' $profileDir -Recurse -Force
 Copy-Item 'Ksword5.1\x64\Release\profiles\launcher_support_manifest.json' $profileDir -Force
 Copy-Item 'Ksword5.1\x64\Release\profiles\registry_optimization_items.json' $profileDir -Force
 Copy-Item 'Ksword5.1\x64\Release\profiles\registry_optimization_assets' $profileDir -Recurse -Force
@@ -304,7 +308,7 @@ $seven='C:\Users\Felix\CLionProjects\Wisdom-Weasel\7z.exe'
 & $seven l $archive 'Release\Launcher.exe' 'Release\Ksword5.1.exe' 'Release\KswordARKLight.exe' 'Release\Taskbar.exe' 'Release\KswordHUD.exe' 'Release\APIMonitor_x64.dll' 'Release\KswordARK.sys' 'Release\KswordARKDriver\KswordARK.sys' 'Release\Style\StartupLandscape.png' 'Release\Style\StartupWindows.png' 'Release\Style\KswordLogo.png' 'Release\LICENSE' 'Release\COMMUNITY_COVENANT.md' 'Release\licenses\third_party\systeminformer-LICENSE.txt' 'Release\licenses\third_party\easy-hwid-spoofer-LICENSE.txt' 'Release\licenses\third_party\fltk-LICENSE.txt' 'Release\licenses\third_party\qt-advanced-docking-system-LICENSE.txt' 'Release\licenses\third_party\zstd-LICENSE.txt' 'Release\profiles\launcher_support_manifest.json' 'Release\profiles\ark_dyndata_pack_v4.json.qz' 'Release\profiles\registry_optimization_items.json.qz' 'Release\profiles\registry_optimization_assets\Config\Data.zip' 'Release\languages\zh-CN.json' 'Release\languages\en-US.json' 'Release\platforms\qwindows.dll'
 ```
 
-校验通过时，`7z t` 输出应包含 `Everything is Ok`；另需确认主程序项目引用生成的 `Release\KswordDwmZOrder.dll` 已入包，窗口 DWM 排序功能从 exe 同目录加载该 DLL。主程序顶部“许可证”页面从 exe 同目录读取根 `LICENSE`。本流程生成的包根目录必须是 `Release\`，不要把 `dist\KswordARK-release-work\` 或其它临时目录打进包里。
+校验通过时，`7z t` 输出应包含 `Everything is Ok`；另需确认主程序项目引用生成的 `Release\KswordDwmZOrder.dll` 已入包，窗口 DWM 排序功能从 exe 同目录加载该 DLL。若发行内核结构查看，另核对 `Release\profiles\thread_layouts\*.tsv` 和 `Release\profiles\process_layouts\*.tsv`；二者为用户态按需布局，不进入驱动 v4 数据。主程序顶部“许可证”页面从 exe 同目录读取根 `LICENSE`。本流程生成的包根目录必须是 `Release\`，不要把 `dist\KswordARK-release-work\` 或其它临时目录打进包里。
 
 ## Launcher 用户报告接入
 

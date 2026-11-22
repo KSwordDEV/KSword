@@ -1,4 +1,6 @@
 #include "ThreadStackWindow.h"
+#include "ThreadDetailWindow.h"
+#include "KernelDumpStackWindow.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
@@ -14,6 +16,9 @@
 #include "../UI/UI_All.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/DetailDialogChrome.h"
+#include "../UI/TablePresentation.h"
+#include "../UI/ThemeStatusRole.h"
+#include "../ArkDriverClient/ArkDriverClient.h"
 #include "../ksword/log/log.h"
 #include "../ksword/dbghelp_serialization.h"
 
@@ -46,6 +51,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <exception>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -221,6 +227,40 @@ namespace
         HANDLE value;
         ~NativeHandle() { if (value && value != INVALID_HANDLE_VALUE) ::CloseHandle(value); }
     };
+
+    // 输入冻结的窗口目标；调用与 CLI 相同的持句柄采集，不挂起线程、不回退到线索。
+    // result 接收真实帧和原始回执；符号缺失只影响注释，不影响裸地址显示。
+    void captureKernelThreadStack(ThreadStackWindow::CaptureResult& result)
+    {
+        const auto& target = result.enrichedTarget; // 当前操作绑定的身份，不读取列表缓存地址。
+        result.queriedKernel = true;
+        KSWORD_ARK_THREAD_STACK_REQUEST request{}; // 唯一协议只接受身份及预算，无任何内核地址。
+        request.size = sizeof(request);
+        request.version = KSWORD_ARK_THREAD_STACK_VERSION;
+        request.processId = target.processId;
+        request.threadId = target.threadId;
+        request.expectedProcessCreationTime100ns = target.processCreationTime100ns;
+        request.expectedThreadCreationTime100ns = target.threadCreationTime100ns;
+        request.frameLimit = KSWORD_ARK_THREAD_STACK_MAX_FRAMES;
+        request.timeoutMs = 1000;
+        result.kernel = ksword::ark::DriverClient().captureVerifiedThreadStack(request);
+        result.diagnosticText = QString::fromStdString(result.kernel.capture.io.message);
+        for (const auto& frame : result.kernel.frames)
+        {
+            ThreadStackWindow::StackFrameRow row; // 每项必须来自一个真正的驱动返回地址。
+            row.index = static_cast<std::uint32_t>(result.frames.size());
+            row.address = frame.address;
+            row.moduleName = QString::fromStdWString(frame.moduleName);
+            row.symbolName = frame.symbolName.empty() ?
+                (frame.moduleName.empty() ? QStringLiteral("<no symbol>") :
+                    row.moduleName + QLatin1Char('+') + formatHex(frame.displacement)) :
+                QString::fromStdWString(frame.symbolName);
+            row.displacement = frame.displacement;
+            row.modeText = result.kernel.usedSavedContext ? QStringLiteral("Kernel / Saved context") : QStringLiteral("Kernel / APC");
+            result.frames.push_back(std::move(row));
+        }
+        result.ok = !result.frames.empty();
+    }
     struct ThreadResume
     {
         HANDLE thread;
@@ -495,7 +535,7 @@ ThreadStackWindow::ThreadStackWindow(const ThreadStackTarget& target, QWidget* p
 {
     initializeUi();
     initializeConnections();
-    requestAsyncCapture(true);
+    requestAsyncCapture(CaptureMode::Kernel);
 }
 
 void ThreadStackWindow::initializeUi()
@@ -519,11 +559,22 @@ void ThreadStackWindow::initializeUi()
     m_toolbarLayout->setContentsMargins(0, 0, 0, 0);
     m_toolbarLayout->setSpacing(6);
 
-    m_refreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), this);
-    KswordTheme::ApplyCompactIconButtonMetrics(m_refreshButton);
-    m_refreshButton->setToolTip(QStringLiteral("重新捕获调用栈"));
+    m_refreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QStringLiteral("R3 刷新"), this);
+    m_refreshButton->setToolTip(QStringLiteral("仅重新捕获用户态调用栈"));
     ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Neutral,
         ks::ui::FlatButtonAppearance::Solid);
+
+    m_kernelRefreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QStringLiteral("R0 在线内核栈"), this);
+    m_kernelRefreshButton->setToolTip(QStringLiteral("采集目标线程的原始保存内核栈；仅明确不支持时回退为 APC 诊断，不挂起线程"));
+    ks::ui::ApplyFlatButtonTheme(m_kernelRefreshButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+
+    // 真正的内核帧从显式选择的转储展开，不混入 R0 指针查询。
+    auto* dumpStack = new QPushButton(QStringLiteral("打开内核转储"), this);
+    dumpStack->setToolTip(QStringLiteral("从转储快照展开内核调用栈，不读取实时内核"));
+    ks::ui::ApplyFlatButtonTheme(dumpStack, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    connect(dumpStack, &QPushButton::clicked, this, [this]() { ShowKernelDumpStackWindow(this, m_target); });
 
     m_copyButton = new QPushButton(QIcon(":/Icon/process_copy_row.svg"), QString(), this);
     KswordTheme::ApplyCompactIconButtonMetrics(m_copyButton);
@@ -545,11 +596,14 @@ void ThreadStackWindow::initializeUi()
     m_targetLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::TextPrimaryHex()));
 
     m_toolbarLayout->addWidget(m_refreshButton);
+    m_toolbarLayout->addWidget(m_kernelRefreshButton);
+    m_toolbarLayout->addWidget(dumpStack);
     m_toolbarLayout->addWidget(m_copyButton);
     m_toolbarLayout->addWidget(m_targetLabel, 1);
     ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 
     m_boundaryLabel = new QLabel(this);
+    m_boundaryLabel->setWordWrap(true);
     m_boundaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_boundaryLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::TextSecondaryHex()));
 
@@ -577,12 +631,15 @@ void ThreadStackWindow::initializeUi()
     m_frameTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_frameTable->setSortingEnabled(false);
     m_frameTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    // 专业帧树不安装 QTableView 操作条（None）；复制由已有工具行和右键菜单承载。
+    ks::ui::ApplyTablePresentation(m_frameTable);
     if (m_frameTable->header() != nullptr)
     {
         m_frameTable->header()->setSectionResizeMode(QHeaderView::Interactive);
         m_frameTable->header()->setStretchLastSection(true);
     }
 
+    initializeColumnViews();
     m_rootLayout->addLayout(m_toolbarLayout);
     m_rootLayout->addWidget(m_boundaryLabel);
     m_rootLayout->addWidget(m_statusLabel);
@@ -596,7 +653,11 @@ void ThreadStackWindow::initializeConnections()
 {
     connect(m_refreshButton, &QPushButton::clicked, this, [this]()
         {
-            requestAsyncCapture(true);
+            requestAsyncCapture(CaptureMode::User);
+        });
+    connect(m_kernelRefreshButton, &QPushButton::clicked, this, [this]()
+        {
+            requestAsyncCapture(CaptureMode::Kernel);
         });
     connect(m_copyButton, &QPushButton::clicked, this, [this]()
         {
@@ -608,14 +669,10 @@ void ThreadStackWindow::initializeConnections()
         });
 }
 
-void ThreadStackWindow::requestAsyncCapture(const bool forceRefresh)
+void ThreadStackWindow::requestAsyncCapture(const CaptureMode mode)
 {
     if (m_captureInProgress)
     {
-        if (forceRefresh)
-        {
-            m_capturePending = true;
-        }
         return;
     }
 
@@ -623,22 +680,51 @@ void ThreadStackWindow::requestAsyncCapture(const bool forceRefresh)
     const std::uint64_t ticket = ++m_captureTicket;
     m_statusLabel->setText(QStringLiteral("● 正在捕获线程调用栈..."));
     m_statusLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:700;").arg(KswordTheme::PrimaryBlueHex));
-    if (m_refreshButton != nullptr)
-    {
-        m_refreshButton->setEnabled(false);
-    }
+    m_refreshButton->setEnabled(false);
+    m_kernelRefreshButton->setEnabled(false);
 
     if (m_captureProgressPid == 0)
     {
         m_captureProgressPid = kPro.addReusable(this, "线程调用栈", "捕获调用栈");
     }
-    kPro.set(m_captureProgressPid, "挂起线程并执行 StackWalk64", 0, 25.0f);
+    kPro.set(m_captureProgressPid, "捕获调用栈", 0, 25.0f);
 
     const ThreadStackTarget targetSnapshot = m_target;
     QPointer<ThreadStackWindow> guardThis(this);
-    auto* task = QRunnable::create([guardThis, ticket, targetSnapshot]()
+    auto* task = QRunnable::create([guardThis, ticket, targetSnapshot, mode]()
         {
-            CaptureResult result = captureThreadStack(targetSnapshot);
+            const auto started = std::chrono::steady_clock::now(); // 覆盖失败的 R3 路径与随后执行的 R0 路径。
+            CaptureResult result{}; // 异常同样必须回到原提交入口，解除在途状态及两个刷新按钮。
+            result.enrichedTarget = targetSnapshot;
+            try
+            {
+                if (mode == CaptureMode::User)
+                {
+                    result = captureThreadStack(targetSnapshot);
+                }
+                if (mode == CaptureMode::Kernel)
+                {
+                    captureKernelThreadStack(result);
+                }
+            }
+            catch (const std::exception& failure)
+            {
+                result = CaptureResult{}; // 异常中的半成品不能伪装为成功，也不能回退捕获另一个模式。
+                result.enrichedTarget = targetSnapshot;
+                result.queriedKernel = mode == CaptureMode::Kernel;
+                result.kernel.capture.io.win32Error = ERROR_UNHANDLED_EXCEPTION;
+                result.diagnosticText = QString::fromUtf8(failure.what());
+            }
+            catch (...)
+            {
+                result = CaptureResult{}; // 未分类的 C++ 失败仍通过同一 UI 完成路径结束，不吞成空成功。
+                result.enrichedTarget = targetSnapshot;
+                result.queriedKernel = mode == CaptureMode::Kernel;
+                result.kernel.capture.io.win32Error = ERROR_UNHANDLED_EXCEPTION;
+                result.diagnosticText = QStringLiteral("线程调用栈捕获失败");
+            }
+            result.elapsedMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count());
             if (guardThis == nullptr)
             {
                 return;
@@ -683,20 +769,22 @@ void ThreadStackWindow::applyCaptureResult(const std::uint64_t ticket, const Cap
     }
 
     m_captureInProgress = false;
-    if (m_refreshButton != nullptr)
-    {
-        m_refreshButton->setEnabled(true);
-    }
+    m_refreshButton->setEnabled(true);
+    m_kernelRefreshButton->setEnabled(true);
 
     m_target = result.enrichedTarget;
     m_frames = result.frames;
+    m_queriedKernel = result.queriedKernel;
+    m_kernelCapture = result.kernel;
     updateBoundaryText();
     rebuildFrameTable();
 
-    QString statusText = QStringLiteral("● 捕获完成 %1 ms | 帧数 %2")
-        .arg(result.elapsedMs)
-        .arg(m_frames.size());
-    if (!result.diagnosticText.trimmed().isEmpty())
+    // 只有保存上下文的真实用户机器帧边界才算完整；APC 诊断继续保留部分语义。
+    QString statusText = result.queriedKernel
+        ? describeKernelCapture(result)
+        : result.ok ? QStringLiteral("● 捕获完成 %1 ms | 帧数 %2").arg(result.elapsedMs).arg(m_frames.size())
+        : QStringLiteral("线程调用栈捕获失败");
+    if (!result.diagnosticText.trimmed().isEmpty() && (!result.queriedKernel || !result.ok))
     {
         statusText += QStringLiteral(" | 存在诊断；详情已写入日志。");
         kLogEvent diagnosticEvent;
@@ -709,19 +797,13 @@ void ThreadStackWindow::applyCaptureResult(const std::uint64_t ticket, const Cap
             << eol;
     }
     m_statusLabel->setText(statusText);
-    m_statusLabel->setStyleSheet(
-        QStringLiteral("color:%1;font-weight:600;")
-        .arg((result.ok ? KswordTheme::SuccessColor() : KswordTheme::WarningColor()).name(QColor::HexRgb)));
+    m_statusLabel->setStyleSheet(QString());
+    const bool completeKernel = result.kernel.usedSavedContext && result.kernel.capture.io.ok &&
+        result.kernel.targetAliveAtReadback && result.kernel.capture.response.result == KSWORD_ARK_STACK_SNAPSHOT_COMPLETE; // 状态色必须依据同次验证回执。
+    ks::ui::ApplyStatusRole(m_statusLabel, result.queriedKernel ? completeKernel ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Warning :
+        result.ok ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Warning);
     kPro.set(m_captureProgressPid, "线程调用栈捕获完成", 0, 100.0f);
 
-    if (m_capturePending)
-    {
-        m_capturePending = false;
-        QMetaObject::invokeMethod(this, [this]()
-            {
-                requestAsyncCapture(true);
-            }, Qt::QueuedConnection);
-    }
 }
 
 void ThreadStackWindow::rebuildFrameTable()
@@ -750,28 +832,13 @@ void ThreadStackWindow::rebuildFrameTable()
     applyAdaptiveColumnWidths();
 }
 
-void ThreadStackWindow::updateBoundaryText()
-{
-    if (m_boundaryLabel == nullptr)
-    {
-        return;
-    }
-
-    m_boundaryLabel->setText(QStringLiteral("UserStack=%1 - %2 | TEB=%3 | R0 KernelStack=%4 StackBase=%5 StackLimit=%6 Initial=%7 | R0Status=%8 Cap=0x%9")
-        .arg(formatHex(m_target.userStackLimit, true))
-        .arg(formatHex(m_target.userStackBase, true))
-        .arg(formatHex(m_target.tebBaseAddress, true))
-        .arg(formatHex(m_target.r0KernelStack, true))
-        .arg(formatHex(m_target.r0StackBase, true))
-        .arg(formatHex(m_target.r0StackLimit, true))
-        .arg(formatHex(m_target.r0InitialStack, true))
-        .arg(m_target.r0ThreadStatus)
-        .arg(static_cast<qulonglong>(m_target.r0CapabilityMask), 0, 16));
-}
-
 void ThreadStackWindow::copyAllFrames()
 {
     QStringList lines;
+    if (m_queriedKernel)
+    {
+        lines << m_statusLabel->text() << m_boundaryLabel->text(); // 导出保留不完整语义和同次采样来源。
+    }
     lines << QStringLiteral("#\tAddress\tModule\tSymbol\tOffset\tMode");
     for (const StackFrameRow& frame : m_frames)
     {

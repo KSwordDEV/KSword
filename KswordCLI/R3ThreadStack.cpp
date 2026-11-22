@@ -103,9 +103,19 @@ Result stack(const Args& args) {
 #endif
 }
 }
-void registerThreadStack() {
-    addCommand({L"process thread stack query",L"KswordCLI.exe process thread stack query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--limit N] [--backend r3] [--json]",
-        L"Capture and symbolize an x64 user-mode thread stack.",L"Required: --pid, --tid, --thread-creation-time. Optional: --creation-time, --limit 1..128 (128), --backend r3, --json.",
-        L"Temporarily suspends the verified thread, copies its user stack, resumes it, then walks the snapshot. R3 x64 only; WOW64 unsupported. A resume failure reports partial and needs immediate attention. Symbols are best effort; live unwind metadata may change.",stack});
+void registerThreadStack(std::function<Result(const Args&)> kernelStack)
+{
+    const bool hasKernel = static_cast<bool>(kernelStack); // 生产注册时同时支持两个来源。
+    Command command{L"process thread stack query",
+        L"KswordCLI.exe process thread stack query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--limit N] [--backend r3|r0] [--json]",
+        L"Capture an x64 user-mode thread stack or query kernel stack clues.",
+        L"Required: --pid, --tid, --thread-creation-time. Optional: --creation-time, --backend r3|r0 (default r3), --json. --limit 1..128 (128), R3 only.",
+        L"R3 briefly suspends, copies the user stack, resumes, and unwinds the snapshot. R0 does not suspend: it returns unverified KTHREAD stack clues, not frames (exit 6 if clues exist).",
+        [kernelStack = std::move(kernelStack)](const Args& args)
+        {
+            return args.get(L"--backend", L"r3") == L"r0" ? kernelStack(args) : stack(args);
+        }};
+    command.supportsR0 = hasKernel;
+    addCommand(std::move(command));
 }
 }

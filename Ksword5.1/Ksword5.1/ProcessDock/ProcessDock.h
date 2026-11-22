@@ -867,7 +867,8 @@ private:
     // openThreadStackWindow 作用：
     // - 为当前线程列表选中行打开 Phase-8 调用栈窗口；
     // - R3 捕获用户栈，R0 字段只作为内核栈边界辅助诊断。
-    void openThreadStackWindow();
+    // openDetails 为真时先打开同一线程的独立对象详情。
+    void openThreadStackWindow(bool openDetails = false);
     void executeSuspendThreadAction();
     void executeResumeThreadAction();
     void executeR0SuspendThreadAction();

@@ -1263,7 +1263,7 @@ const ks::process::ProcessModuleRecord* ProcessDetailWindow::selectedModuleRecor
     return found == m_moduleRecords->cend() ? nullptr : &found->record;
 }
 
-void ProcessDetailWindow::openSelectedThreadStackWindow()
+void ProcessDetailWindow::openSelectedThreadStackWindow(const bool openDetails)
 {
     if (!m_threadInspectTable || m_threadInspectRefreshing || m_threadInspectTable->isPreparing()) return;
     // 调用栈窗口入口：
@@ -1341,6 +1341,11 @@ void ProcessDetailWindow::openSelectedThreadStackWindow()
     target.r0ThreadStatus = selectedThread->r0ThreadStatus;
     target.r0CapabilityMask = selectedThread->r0CapabilityMask;
 
+    if (openDetails)
+    {
+        ShowThreadDetailWindow(this, target);
+        return;
+    }
     auto* stackWindow = new ThreadStackWindow(target, this);
     stackWindow->setAttribute(Qt::WA_DeleteOnClose, true);
     stackWindow->show();

@@ -633,7 +633,11 @@ namespace ks::cli::legacy
             ks::cli::registerProcessModules();
             ks::cli::registerR0ThreadControl();
             ks::cli::registerProcessMemoryDump();
-            ks::cli::registerThreadStack();
+            ks::cli::registerThreadStack(ks::cli::queryR0ThreadStackClues);
+            ks::cli::registerKernelDumpStack();
+            ks::cli::registerProcessLayouts();
+            ks::cli::registerR0StructureSamples(); // 独立登记真实 R0 对象正文采样与内置帮助。
+            ks::cli::registerR0LiveThreadStack(); // 在线诊断单独命名，与旧 R0 线索/R3/离线来源分开。
             ks::cli::registerFileMetadata();
             ks::cli::registerNetworkPolicy();
             ks::cli::registerHandleClose();

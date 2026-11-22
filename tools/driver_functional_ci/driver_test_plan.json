@@ -82,6 +82,20 @@
   },
   "cases": [
     {
+      "id": "process.live-structure-sample",
+      "tier": "probe",
+      "ioctls": ["QUERY_STRUCTURE_SAMPLE"],
+      "steps": [
+        ["process", "layout", "sample", "--pid", "{target.pid}", "--json"],
+        ["process", "thread", "layout", "sample", "--pid", "{target.pid}", "--tid", "{target.tid}", "--json"]
+      ],
+      "expect": "graceful",
+      "timeoutSeconds": 30,
+      "requires": ["target.pid", "target.tid"],
+      "targetGuard": "harness-owned-process",
+      "notes": "只读自有进程/线程；CLI 先持有句柄冻结创建时间，再请求精确编译边界的对象体快照。大于半数字段的覆盖率另由双 VM 专属夹具严格验收。"
+    },
+    {
       "id": "module.r0-snapshots",
       "tier": "probe",
       "ioctls": ["ENUM_MODULES"],
@@ -2964,6 +2978,16 @@
     }
   ],
   "excluded": [
+    {
+      "ioctl": "SNAPSHOT_THREAD_STACK",
+      "reason": "requires-dedicated-live-stack-vm",
+      "detail": "普通 CI 不对宿主任意线程做全处理器会合。2026-11-22 独立 CLI-only 的 Win10 saved5 / Win11 saved6 各20项通过：真实等待7/7帧、忙碌5/4帧均到用户机器帧，四路并发、限帧、错误身份、退出后拒绝和普通停止通过。仅授权两份精确PE/RSDS、单处理器组；新后端在途退出/卸载重叠未观察到，不将正常停止或合成回归冒充这些覆盖。"
+    },
+    {
+      "ioctl": "CAPTURE_THREAD_STACK",
+      "reason": "requires-dedicated-live-stack-vm",
+      "detail": "普通 CI 不向任意宿主线程投递 APC。旧APC诊断的 Win11 等待/忙碌8/3部分帧、四路并发、16超时取消/8未入队busy、退出期间执行及SCM有界排空已实测；未投递退出rundown、停止通知取消未覆盖。Win10缺合法取消导出仍在入队前拒绝。原始完整内核链由独立SNAPSHOT_THREAD_STACK端点验收，不改变旧APC部分帧语义。"
+    },
     {
       "ioctl": "QUERY_STORAGE_CONTROLLER",
       "reason": "requires-dedicated-pnp-controller",

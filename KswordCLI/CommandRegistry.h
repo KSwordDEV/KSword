@@ -100,7 +100,13 @@ void registerProcessThreads();
 void registerProcessModules();
 void registerR0ThreadControl();
 void registerProcessMemoryDump();
-void registerThreadStack();
+// 注册用户栈采集；可同时注入独立的只读内核线索查询。
+void registerThreadStack(std::function<Result(const Args&)> kernelStack = {});
+Result queryR0ThreadStackClues(const Args& args);
+void registerKernelDumpStack(); // 独立的内核转储离线展开入口。
+void registerProcessLayouts();
+void registerR0StructureSamples(); // 注册身份限定的进程/线程现场结构采样，不修改离线布局查询。
+void registerR0LiveThreadStack(); // 在线目标 APC 时态诊断；不把部分帧当成完整回溯。
 void registerFileMetadata();
 void registerNetworkPolicy();
 void registerHandleClose();

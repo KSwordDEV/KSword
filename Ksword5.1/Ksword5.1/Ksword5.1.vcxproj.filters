@@ -1310,6 +1310,45 @@
     <ClCompile Include="ProcessDock\ThreadStackWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadDetailWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadDetailTreeWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\KernelStructureTree.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\KernelStructureLiveSample.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\KernelDumpStackWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\KernelDumpStackClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\KernelStructureCandidates.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessEprocessPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ThreadLayoutProfile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\StructureSampleProjection.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\ThreadLayoutImage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadSettingsInline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadSettingsR3.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SettingsDock\SettingsDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2078,6 +2117,12 @@
     <ClCompile Include="UI\ThemedMessageBox.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\DriverLoadFailureDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Framework\WindowsDriverPolicy.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Framework\Log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2305,6 +2350,33 @@
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverProcess.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverStructureSampling.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackCapture.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackSession.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverThreadStackSymbols.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\driver\DriverQueries.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\driver\DriverFormatting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\NtApi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadStackWindow.Presentation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\LiveKernelThreadStack.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverModule.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
@@ -2930,6 +3002,63 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ProcessDock\ThreadStackWindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ThreadDetailWindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\KernelStructureTree.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\KernelStructureLiveSample.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\KernelDumpStackWindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\KernelDumpStackClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\usermode\KernelDumpThreadStack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\KernelStructureCandidates.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessEprocessPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\usermode\ThreadLayoutProfile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\usermode\StructureSampleProjection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkThreadStackCapture.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkThreadStackSymbols.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\driver\KswordArkThreadStackIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\driver\KswordArkThreadStackSnapshotIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\usermode\LiveKernelThreadStack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkStructureSampling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\driver\KswordArkStructureSampleIoctl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ThreadSettingsInline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ThreadSettingsR3.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="ProcessDock\ProcessDock.h">
@@ -4111,6 +4240,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\ThemedMessageBox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\DriverLoadFailureDialog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Framework\WindowsDriverPolicy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="HardwareDock\MemoryCompositionHistoryWidget.h">

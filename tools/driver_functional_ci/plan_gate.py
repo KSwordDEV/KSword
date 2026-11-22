@@ -80,6 +80,23 @@ def cli_commands(root: Path) -> tuple[set[tuple[str, str]], dict[str, set[str]]]
         commands.add((family, sub))
         for name in re.findall(r"IOCTL_KSWORD_ARK_[A-Z0-9_]+", notes):
             backed.setdefault(name[len("IOCTL_KSWORD_ARK_"):], set()).add(family)
+    # 原生 CommandRegistry 已支持多级路径，不能只识别旧主文件的六列 help 表。
+    # 仅扫描已登记编译且注册函数在主入口实际调用的文件，拒绝把闲置字符串当命令。
+    project = (root / "KswordCLI" / "KswordCLI.vcxproj").read_text(encoding="utf-8")
+    compiled = set(re.findall(r'<ClCompile\s+Include="([^"\\/]+\.cpp)"', project))
+    native_path = re.compile(r'(?:\.path\s*=\s*|\badd\(\s*)L"([a-z][a-z0-9 -]*)"')
+    for filename in sorted(compiled):
+        path = root / "KswordCLI" / filename
+        if not path.is_file():
+            continue
+        native = path.read_text(encoding="utf-8", errors="replace")
+        registrations = re.findall(r'void\s+(register\w+)\s*\(', native)
+        if "addCommand(" not in native or not any(re.search(rf'\b{re.escape(name)}\s*\(', source)
+                                                       for name in registrations):
+            continue
+        for value in native_path.findall(native):
+            parts = value.split()
+            commands.add((parts[0], parts[1] if len(parts) > 1 else ""))
     return commands, backed
 
 

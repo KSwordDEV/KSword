@@ -2,6 +2,8 @@
 
 #include "ArkDriverCapabilities.h"
 #include "ArkDriverTypes.h"
+#include "ArkStructureSampling.h"
+#include "ArkThreadStackCapture.h"
 
 #include <functional>
 #include <array>
@@ -473,6 +475,18 @@ namespace ksword::ark
             unsigned long flags = KSWORD_ARK_PROCESS_DETAIL_FLAG_INCLUDE_ALL,
             DriverHandle* existingHandle = nullptr) const;
         ThreadRuntimeDetailResult queryThreadRuntimeDetail(std::uint32_t threadId, std::uint32_t processId = 0, unsigned long flags = KSWORD_ARK_THREAD_DETAIL_FLAG_INCLUDE_ALL) const;
+        // 同步采集冻结目标的 APC 时态内核帧；不得把部分帧或不可用回执描述为完整回溯。
+        ThreadStackCaptureResult captureThreadStack(const KSWORD_ARK_THREAD_STACK_REQUEST& request) const;
+        // 同步读取精确内核保存上下文；只接受身份与预算，不接受内核地址或用户偏移。
+        ThreadStackSnapshotResult snapshotThreadStack(const KSWORD_ARK_THREAD_STACK_SNAPSHOT_REQUEST& request) const;
+        // 输入冻结身份与可选本地符号目录；持有原对象句柄到投影完成，返回真实部分帧或明确拒绝。
+        VerifiedThreadStackCaptureResult captureVerifiedThreadStack(
+            const KSWORD_ARK_THREAD_STACK_REQUEST& request,
+            const std::wstring& localSymbolPath = std::wstring(),
+            ThreadStackCaptureMethod method = ThreadStackCaptureMethod::Auto) const;
+        // 输入精确符号布局及对象身份；返回有界只读快照和逐行有效性，不接受地址或偏移。
+        StructureSampleResult queryStructureSample(const ks::threadlayout::Profile& profile,
+            const KSWORD_ARK_STRUCTURE_SAMPLE_REQUEST& request) const;
         // query*RuntimeFieldSamples：
         // - 输入：deep PDB catalog 选出的字段 offset/size 列表。
         // - 处理：封装只读小字段采样 IOCTL，R0 不接受对象地址。

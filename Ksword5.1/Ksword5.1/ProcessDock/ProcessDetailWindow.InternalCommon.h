@@ -10,6 +10,7 @@
 
 #include "ProcessDetailWindow.h"
 #include "ThreadStackWindow.h"
+#include "ThreadDetailWindow.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"

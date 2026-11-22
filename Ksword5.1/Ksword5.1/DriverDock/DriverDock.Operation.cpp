@@ -7,6 +7,7 @@
 #include "DriverDock.ModuleDumpFile.h"
 #include "DriverDock.ServiceAction.h"
 #include "../UI/AsyncOperation.h"
+#include "../UI/DriverLoadFailureDialog.h"
 #include "../MemoryDock/MemoryAccessBackend.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -4724,6 +4725,13 @@ void DriverDock::loadSelectedDriverService()
 
                     if (!startSucceeded)
                     {
+                        // 仅 4551 进入新增策略提示；签名错误及其他错误继续走下方旧流程。
+                        if (ks::ui::IsDriverPolicyLoadFailure(errorCode))
+                        {
+                            guardThis->appendOperateLogLine(ks::ui::DriverLoadFailureAdvice(errorCode));
+                            ks::ui::ShowDriverLoadFailureDialog(guardThis.data(), errorCode);
+                            return;
+                        }
                         (void)ks::ui::promptForPrivilegeFailure(
                             guardThis,
                             QStringLiteral("挂载驱动服务"),

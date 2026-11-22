@@ -1,6 +1,91 @@
-# 进程命令（R3）
+# 进程命令（R3 与只读 R0 诊断）
 
 `process thread stack query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--limit N] [--json]` 对经过身份核验的 x64 线程短暂挂起、复制用户栈并恢复，然后使用 DbgHelp 展开与符号化。输出地址、可用符号、原始状态、原挂起计数及恢复状态。只支持 R3 x64 到 x64，WOW64 明确返回不支持；栈快照上限 16 MiB，帧数上限 128。栈外的展开元数据仍为实时读取；符号解析尽力而为，恢复失败必须核查目标状态。
+
+加 `--backend r0` 查询经过同样身份核验的 KTHREAD 栈边界，不挂起目标，也不展开内核栈。该模式不接受 `--limit`；`trust=unverified_clue`、退出码 `6` 表示取得了非零栈线索，`frames` 始终为空。未取得线索时返回不可用或具体错误，不能据此断言目标没有内核栈。
+
+GUI 的「打开内核转储」调用主程序同目录的 `KswordCLI.exe`，与下面的 `process thread stack dump` 使用同一展开器；仅打开已选的本地转储，不生成转储，也不改变 R3 刷新和 R0 栈线索的行为。
+
+`process thread stack capture --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME [--limit N] [--timeout-ms N] [--method auto|saved|apc] [--backend r0] [--json]`
+使用GUI/CLI共用、持有原对象句柄的采集会话。两个创建时间均必填；帧预算1–64（默认64）、
+重试/投递等待预算1–5000ms（默认1000）。`--method saved` 使用独立保存上下文端点
+`0x8D7`（版本1，请求48字节、响应792字节）；`--method apc` 固定旧诊断端点
+`0x8D6`（版本2、响应680字节）。默认 `auto` 首选保存上下文，仅在明确不支持时回退至APC；
+新来源失败或部分帧不会触发第二次采集，不将两次结果拼接。
+
+保存上下文后端只允许完整PE/RSDS匹配的Win10 `19041.631` 与Win11 `26100.9711`，并核对实际
+切换序言。单处理器组、最多64个逻辑处理器、最多64KiB私有副本、16个在途请求。全处理器
+DPC会合时确认目标不在任何CPU运行且保存栈驻留，完整复制后在PASSIVE_LEVEL使用原生展开器
+展开副本，不投递目标APC，不挂起、唤醒或修改目标。忙线程可在其真实被调度离CPU时取得保存栈，
+不是读取正在变化的远端活动栈。未取得稳定上下文时返回具体拒绝，不解释成“目标没有栈”。
+
+`source=target_saved_context`、`savedContext` 与原始 `wireResponse` 保存来源、复制范围、
+处理器数、调度状态及停止原因。只有实际机器帧恢复用户态RIP/RSP与用户CS权限级，才输出
+`complete=true`、`originalStackCompleteness=kernel_chain_to_user_machine_frame` 并退出0。
+这里“完整”限于该段原始内核链抵达用户态边界，不包含R3调用链。达到帧预算、越过已复制范围、
+遇到非NT映像/缺失元数据或展开异常均为部分链，退出6；当前未为可能卸载的其他驱动建立元数据
+生命周期引用，不冒用其后重新映射的模块继续展开。符号注释必须匹配本地PE/PDB，失败保留同次
+验证过的裸地址，不重发采集。
+
+旧APC来源始终为 `source=target_normal_apc`、`complete=false`，真实部分帧退出6，保留采集/APC
+分发入口。缺少合法取消导出或本构建回调尾跳证明时入队前拒绝，返回 `lifetime_unavailable`、
+零帧和退出5。已入队实例须先完成真实取消或回调退休才返回；安全排空不是强制实时截止。
+两种后端都不调用私有取消地址，不永久固定驱动。在线 `capture`、边界线索 `query --backend r0`
+与本地离线 `dump` 保持独立，互不冒充。
+
+## 线程与进程类型布局
+
+```powershell
+KswordCLI.exe help process thread layout query
+KswordCLI.exe help process layout query
+KswordCLI.exe process thread layout query --json
+KswordCLI.exe process layout query --image 'D:\evidence\ntoskrnl.exe' --profiles 'D:\evidence\profiles' --json
+```
+
+两条命令只读取磁盘文件，无需 PID/TID 或 KswordARK 驱动，只支持 R3。`--image` 省略时读取系统目录下的 `ntoskrnl.exe`；`--profiles` 省略时使用 CLI 可执行文件同目录下的 `profiles`，不在当前工作目录搜索。`--profiles` 指向配置根目录，其下分别使用 `thread_layouts` 和 `process_layouts` 子目录。只选择机器类型、PE 时间戳、映像大小和 RSDS GUID/Age 都匹配的 AMD64 分片，不回退到相邻版本。
+
+JSON `data` 中的 `source=pdb_layout_profile`、`metadataOnly=true`、`imagePath`、`imageIdentity` 和 `profilePath` 记录输入与布局来源，不证明磁盘映像就是正在运行的内核，也不验证自备分片的发布者。`rootType` 为 `_ETHREAD`（含内嵌 `Tcb`，类型 `_KTHREAD`）或 `_EPROCESS`（含内嵌 `Pcb`，类型 `_KPROCESS`），`rootSize` 是根类型的字节数。`fields` 保留源分片顺序：每项的 `id` 为一基行号，`parent=0` 表示根，其他 `parent` 引用前序 `id`；`offset` 是相对直接父项的字节偏移，不是内核地址。`name` 和 `type` 是分片中的符号文字；`bitOffset`、`bitWidth` 为整数，非位域均为 `null`；`unionAlias` 为分片的布尔标记，不表示哪一分支活跃。命令不附加对象地址、采样值、未收录字段或内核读写行为。
+
+匹配成功时退出码为 `0`、`availability=available`。映像身份不可读或精确分片缺失、无效、不匹配时，返回 `5`（`status=unsupported`）；`availability` 和 `diagnostics` 标明失败阶段，`rootSize=null`、`fields=[]`。无效参数返回 `1`。
+
+## 线程与进程实时字段采样
+
+```powershell
+KswordCLI.exe help process layout sample
+KswordCLI.exe help process thread layout sample
+KswordCLI.exe process layout sample --pid PID --creation-time FILETIME --json
+KswordCLI.exe process thread layout sample --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME --json
+```
+
+`sample` 与上节的磁盘 `query` 是不同命令。它只支持 `--backend r0`，使用
+`IOCTL_KSWORD_ARK_QUERY_STRUCTURE_SAMPLE`（函数号 `0x941`）。CLI 先持有目标句柄、
+核对归属并冻结创建时间；省略创建时间参数时从这些句柄取得本次真实身份。驱动再独立引用
+EPROCESS/ETHREAD 并核对 PID、TID、归属和两个创建时间，不接受对象地址、成员偏移或读取长度。
+
+驱动仅按编译内置、完整 PE/RSDS 精确匹配的 PDB 根大小读取对象正文，不读对象头、相邻分配
+或指针指向的内存。当前编译配置为宿主内核 `19041.7844`、Win10 `19041.631` 和
+Win11 `26100.9711`；用户态有其他版本的布局分片并不代表驱动已授权该版本的实时读取。
+不受支持的版本明确返回不可用，不采用邻版推断。`--profiles DIR` 可选择配置根；
+`--kernel PATH` 只允许确认系统 `ntoskrnl.exe` 的同一文件，不能用其他磁盘内核为现场对象选偏移。
+
+结果 `source=live_object_body`、`live=true`、`atomic=false`。对象引用保证读取期间的对象
+生命周期，但不冻结调度器或对象内容；`sampleStartTime100ns` 与 `sampleEndTime100ns` 是实际
+读取区间，不能把它解释成一个原子时刻。`bytesCopied` 与逐字节 `validByteBitmap` 共同
+记录成功读取；一个标量的全部字节有效才显示值。`0x0` 是确实采到的零，未读完整或不支持的
+类型输出 `null` 和逐行状态。位域按精确存储宽度解码；union 可以显示共同存储的原始解释，
+但不声称知道活动分支。指针只作为数字显示，不继续解引用。
+
+覆盖率分别输出 `totalRows`、`sampledRows`、`unionRows`、`coverageRows`。
+分母 `totalRows` 包括精确分片的全部行，含父结构、未支持类型和 union 分支；严格分子
+`coverageRows` 只计成功读取并解码的非 union 行，再按
+`(absoluteOffset, width, bitOffset, bitWidth)` 去重。只有身份核验通过且
+`coverageRows * 2 > totalRows` 才退出 `0`。身份已核验但未过半退出 `6`；精确证据不可用
+为 `5`，对象身份/存活失败为 `3`，协议错误为 `4`，设备打开失败为 `2`，参数错误为 `1`。
+身份不匹配不输出任何字段。该覆盖率不包含 R3 用户栈、R0 栈线索或离线内核帧。
+
+`KswordCLI/tests/test_structure_sample_cli.py` 只测试正式 CLI 的帮助及设备访问前拒绝路径，
+`tools/tests/structure_sample_projection_tests.cpp` 和 `structure_sample_client_tests.cpp`
+只测试合成输入的解码与校验；这些结果均不能替代双虚拟机的现场采样验收。
 
 ## 进程身份采样（迁移项 66）
 
@@ -372,3 +457,6 @@ COM 和文件系统调用不被强制中断。源不完整、窗口挂起或达�
 模块范围在 R3 模式来自进程模块快照，在 R0 模式来自指定基址的 `MEM_IMAGE` 映射范围。R0 的 `--image-size` 核对观测到的映射跨度，不代表 PE `SizeOfImage` 或 PEB 加载器链表成员。读前后分别以同一创建时间查询并比较基址、路径和范围；缺失、截断或变化不发布文件。不同查询并非同一原子快照。
 
 仅当每块均完整读取、文件刷写关闭和进程／模块身份复核成功时，将同目录临时文件发布至 `--output`；已存在的目标文件不会被替换。读入的字节按原样保存，不重建 PE，也不对不可读区域补零；失败或取消不发布部分文件，输出回执的 `writtenBytes` 是临时文件中已经写入的字节数。临时文件清理失败时会报告路径和原始错误。读取过程并非进程内存原子快照；模块可能在读期间改变，复核只能发现可观测的身份变化。权限不足、进程退出、短读、写入或目标已存在均通过状态和原始错误报告。
+### 内核转储中的线程栈
+
+`process thread stack dump --dump D:\evidence\memory.dmp --pid PID --tid TID [--creation-time FILETIME] [--thread-creation-time FILETIME] [--symbols PATH] [--limit N] [--json]` 只分析指定的本地 x64 Windows 内核转储。需要本机安装 x64 Windows Debugging Tools。`--symbols` 可指定匹配的本地符号目录；不指定时不自动使用网络符号服务器。`--limit` 范围 1–128；PID/TID 和任意提供的创建时间必须在转储中核验。结果 `source=kernel_dump`、`live=false`，包含转储时间、指令地址、栈指针和可用的符号。退出码 `0` 正常、`6` 部分、`2` 调试工具不可用、`5` 无法恢复目标内核帧。不会回退到崩溃时默认 CPU 的栈。

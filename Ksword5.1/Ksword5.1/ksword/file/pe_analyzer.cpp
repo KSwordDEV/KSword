@@ -998,6 +998,65 @@ namespace ks::file
 
         }
 
+        // 读取唯一的 RSDS 标识；目录或记录越界、存在不同标识时返回空字符串。
+        std::string CollectRsdsKey(const std::vector<std::uint8_t>& bytes, const std::uint32_t headers,
+            const std::vector<IMAGE_SECTION_HEADER>& sections, const IMAGE_DATA_DIRECTORY& directory)
+        {
+            std::uint32_t offset = 0; // 调试目录在原始磁盘文件中的位置。
+            if (!directory.VirtualAddress || !directory.Size || directory.Size > 65536 ||
+                directory.Size % sizeof(IMAGE_DEBUG_DIRECTORY) ||
+                !RvaToFileOffset(directory.VirtualAddress, headers, sections, offset) ||
+                static_cast<std::uint64_t>(offset) + directory.Size > bytes.size())
+            {
+                return {};
+            }
+            std::string key; // 允许多个相同的记录，不允许歧义。
+            constexpr unsigned guidOrder[]{7, 6, 5, 4, 9, 8, 11, 10, 12, 13, 14, 15, 16, 17, 18, 19};
+            constexpr char digits[] = "0123456789ABCDEF"; // RSDS GUID 与 Age 的文件索引字母表。
+            for (std::uint32_t cursor = 0; cursor < directory.Size; cursor += sizeof(IMAGE_DEBUG_DIRECTORY))
+            {
+                IMAGE_DEBUG_DIRECTORY entry{}; // 每个目录记录只解释 CodeView 项。
+                if (!ReadPodAtOffset(bytes, static_cast<std::uint64_t>(offset) + cursor, entry))
+                {
+                    return {};
+                }
+                if (entry.Type != IMAGE_DEBUG_TYPE_CODEVIEW || entry.SizeOfData < 25 ||
+                    !entry.PointerToRawData || static_cast<std::uint64_t>(entry.PointerToRawData) + entry.SizeOfData > bytes.size())
+                {
+                    continue;
+                }
+                const auto* cv = bytes.data() + entry.PointerToRawData; // 已验证记录完整落在文件内。
+                std::uint32_t age = 0; // Age 来自 PE RSDS，而不是 PDB Info 流。
+                if (std::memcmp(cv, "RSDS", 4) != 0 || !ReadPodAtOffset(bytes,
+                    static_cast<std::uint64_t>(entry.PointerToRawData) + 20, age) || !age)
+                {
+                    continue;
+                }
+                std::string candidate; // 单个 GUID 加非补零 Age。
+                for (const auto byteIndex : guidOrder)
+                {
+                    candidate += digits[cv[byteIndex] >> 4];
+                    candidate += digits[cv[byteIndex] & 15];
+                }
+                bool nonzero = false; // 跳过十六进制 Age 的前导零。
+                for (int shift = 28; shift >= 0; shift -= 4)
+                {
+                    const auto nibble = (age >> shift) & 15;
+                    nonzero = nonzero || nibble != 0;
+                    if (nonzero)
+                    {
+                        candidate += digits[nibble];
+                    }
+                }
+                if (!key.empty() && key != candidate)
+                {
+                    return {};
+                }
+                key = std::move(candidate);
+            }
+            return key;
+        }
+
         // AppendDebugDirectory prints debug directory rows and CodeView PDB paths when present.
         // It keeps parsing shallow because this backend is for quick PE triage.
         void AppendDebugDirectory(
@@ -1408,7 +1467,7 @@ namespace ks::file
             summary.rawOffset = sectionHeader.PointerToRawData;
             summary.rawSize = sectionHeader.SizeOfRawData;
             summary.characteristics = sectionHeader.Characteristics;
-            summary.entropy = activeOptions && activeOptions->importsOnly ? 0.0 :
+            summary.entropy = activeOptions && (activeOptions->importsOnly || activeOptions->identityOnly) ? 0.0 :
                 CalculateSectionEntropy(fileBytes, sectionHeader.PointerToRawData, sectionHeader.SizeOfRawData);
             result.sections.push_back(summary);
         }
@@ -1418,6 +1477,17 @@ namespace ks::file
         result.success = true;
         result.isPe64 = isPe64;
         result.machine = fileHeader.Machine;
+        result.timeDateStamp = fileHeader.TimeDateStamp;
+        result.sizeOfImage = sizeOfImageValue;
+        if (!activeOptions || !activeOptions->importsOnly || activeOptions->identityOnly)
+        {
+            result.rsdsKey = CollectRsdsKey(fileBytes, sizeOfHeadersValue, sectionList,
+                dataDirectoryList[IMAGE_DIRECTORY_ENTRY_DEBUG]);
+        }
+        if (activeOptions && activeOptions->identityOnly)
+        {
+            return result;
+        }
         result.subsystem = subsystemValue;
         result.entryPointRva = entryPointRva;
         result.imageBase = imageBaseValue;
