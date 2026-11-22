@@ -1,5 +1,6 @@
 #include "../UI/KeyboardItemActivation.h"
 #include "MemoryDock.Internal.h"
+#include "MemoryDebugPage.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/TableContextMenu.h"
 #include "../UI/ToolbarMetrics.h"
@@ -177,6 +178,14 @@ void MemoryDock::initializeConnections()
         const QPointer<MemoryDock> owner(this);
         ensureCurrentLazyPage();
         if (!owner) { return; }
+        // 独立调试页拥有自己的目标。Dock 的附加工具和状态仅属于其它内存页。
+        if (!m_workbenchEmbedded)
+        {
+            const bool showDockTarget = !m_memoryDebugPage || m_tabWidget->currentWidget() != m_memoryDebugPage;
+            m_toolbarLayout->parentWidget()->setVisible(showDockTarget);
+            m_dockHeaderStatusLabel->setVisible(showDockTarget);
+            m_statusBar->setVisible(showDockTarget);
+        }
         if (m_tabWidget->currentWidget() == m_systemMemoryAuditPlaceholder)
         {
             ensureSystemMemoryAuditPage();

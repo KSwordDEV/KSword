@@ -349,8 +349,16 @@ namespace ks::ui
     void WorkbenchSessionBar::setMemoryDebugMode(const bool enabled)
     {
         m_memoryDebugMode = enabled;
-        // 独立页恒为进程地址空间；保留通道、写入模式和目标选择按钮。
+        // 独立页的进程选择器在页头，这里仅显示已经生效的目标身份和访问权限。
         m_scopeSegmented->setVisible(!enabled);
+        m_targetChip->setVisible(!enabled);
+        if (enabled && !m_debugTargetSummary)
+        {
+            m_debugTargetSummary = new QLabel(this);
+            m_debugTargetSummary->setTextFormat(Qt::PlainText);
+            m_debugTargetSummary->setWordWrap(true);
+            m_flow->addExpandingWidget(m_debugTargetSummary, 140);
+        }
         refreshTargetChipDisplay();
     }
 
@@ -397,6 +405,11 @@ namespace ks::ui
             textColor = KswordTheme::ErrorColor();
         }
         m_targetChip->setText(text);
+        if (m_debugTargetSummary)
+        {
+            m_debugTargetSummary->setText(text);
+            m_debugTargetSummary->setVisible(m_memoryDebugMode && m_attached);
+        }
         // S-e：内核/物理范围不需要进程，tooltip 不该还暗示"点它能选进程"；按
         // ScopeNeedsProcess 传给 TargetChipTooltip 决定文案分支。
         m_targetChip->setToolTip(m_memoryDebugMode

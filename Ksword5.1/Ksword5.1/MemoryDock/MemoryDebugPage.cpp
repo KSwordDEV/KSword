@@ -2,9 +2,9 @@
 #include "MemoryDebugPage.h"
 #include "MemoryDebugExecutionPanel.h"
 #include "MemoryDock.WorkbenchServices.h"
-#include "../theme.h"
 #include "../UI/AdaptivePageScroll.h"
 #include "../UI/AsyncUiDispatcher.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
@@ -13,7 +13,6 @@
 
 #include <QComboBox>
 #include <QCompleter>
-#include <QEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -36,17 +35,14 @@ namespace ks::ui
             return ks::i18n::sourceText(QString::fromUtf8(source));
         }
 
-        // IconButton：创建带悬停解释的工具按钮；图标交给应用已有的主题图标管理器。
-        QToolButton* IconButton(QWidget* owner, const QString& icon, const QString& tooltip)
+        QToolButton* SessionButton(QWidget* owner, const char* label, const char* tip,
+            FlatButtonTone tone = FlatButtonTone::Neutral)
         {
-            auto* button = new QToolButton(owner); // 按钮的 QObject 生命周期由页面管理。
-            button->setIcon(QIcon(icon));
-            button->setToolTip(ks::i18n::sourceText(tooltip));
-            // 图标动作沿用统一的实底与命中尺寸，避免蓝色图标在透明工具行上失去对比。
-            KswordTheme::ApplyCompactIconButtonMetrics(button);
-            ks::ui::ApplyFlatButtonTheme(button, ks::ui::FlatButtonTone::Neutral,
-                ks::ui::FlatButtonAppearance::Solid);
-            button->setAccessibleName(ks::i18n::sourceText(tooltip));
+            auto* button = new QToolButton(owner);
+            button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+            button->setText(Text(label));
+            button->setToolTip(Text(tip));
+            ApplyFlatButtonTheme(button, tone, FlatButtonAppearance::Solid);
             return button;
         }
     }
@@ -60,63 +56,67 @@ namespace ks::ui
         layout_->setContentsMargins(6, 6, 6, 6);
         layout_->setSpacing(6);
 
-        // 内存访问与运行控制共用目标身份，但不借用 Windows 调试事件或其它 Dock 会话。
-        auto* explanation = new QLabel(this); // 随布局换行的固定能力说明。
-        explanation->setWordWrap(true);
-        explanation->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        ks::i18n::LanguageManager::instance().bindText(explanation,
-            QStringLiteral("memory.debug.mode"),
-            QStringLiteral("不附加模式：独立内存与反汇编、R3 线程检查、普通驱动异常控制、协作 VEH 或 Intel HVM 执行控制；目标与线程范围由当前会话明确显示。"));
-        layout_->addWidget(explanation);
-
-        // 候选选择独立于旧 Dock，输入内容只能匹配当前快照，不能凭 PID 猜测目标身份。
-        // 进程与模块属于同一个目标区，底面只由外层绘制，避免两条输入行散落在工作台上。
-        auto* targetToolbar = new QWidget(this); // 目标控制区由页面持有。
+        auto* targetToolbar = new QWidget(this);
         ks::ui::StylePrimaryToolbar(targetToolbar);
-        auto* targetLayout = new QVBoxLayout(targetToolbar); // 目标选择保持原来的两行密度。
+        auto* targetLayout = new QVBoxLayout(targetToolbar);
         targetLayout->setContentsMargins(8, 4, 8, 4);
-        targetLayout->setSpacing(8);
-        auto* targetRow = new QHBoxLayout(); // 简短目标工具行，可筛选名称或 PID。
-        processCombo_ = new QComboBox(this);
+        targetLayout->setSpacing(6);
+        auto* targetRow = new FlowLayout(nullptr, 0, 8, 6);
+        auto* processField = new QWidget(targetToolbar);
+        auto* processRow = new QHBoxLayout(processField);
+        processRow->setContentsMargins(0, 0, 0, 0);
+        auto* processLabel = new QLabel(Text("目标进程"), processField);
+        processCombo_ = new QComboBox(processField);
+        processLabel->setBuddy(processCombo_);
+        processCombo_->setAccessibleName(processLabel->text());
         processCombo_->setObjectName(QStringLiteral("memory_debug_process"));
         processCombo_->setEditable(true);
         processCombo_->setInsertPolicy(QComboBox::NoInsert);
-        processCombo_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        processCombo_->setMinimumWidth(80);
+        processCombo_->setMinimumContentsLength(21);
+        processCombo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         processCombo_->completer()->setFilterMode(Qt::MatchContains);
         processCombo_->completer()->setCaseSensitivity(Qt::CaseInsensitive);
         processCombo_->completer()->setCompletionMode(QCompleter::PopupCompletion);
         processCombo_->lineEdit()->setPlaceholderText(Text("搜索进程名或 PID"));
         ks::ui::StylePrimaryCombo(processCombo_);
-        targetRow->addWidget(processCombo_, 1);
-        refreshButton_ = IconButton(this, QStringLiteral(":/Icon/process_refresh.svg"),
-            QStringLiteral("刷新进程候选"));
-        selectButton_ = IconButton(this, QStringLiteral(":/Icon/process_details.svg"),
-            QStringLiteral("打开不附加内存会话"));
-        closeButton_ = IconButton(this, QStringLiteral(":/Icon/log_clear.svg"),
-            QStringLiteral("关闭内存会话"));
+        processRow->addWidget(processLabel);
+        processRow->addWidget(processCombo_, 1);
+        NormalizeToolbarRow(processRow);
+        targetRow->addWidget(processField);
+        selectButton_ = SessionButton(targetToolbar, "打开会话", "打开不附加内存会话", FlatButtonTone::Accent);
+        selectButton_->setEnabled(false);
+        closeButton_ = SessionButton(targetToolbar, "关闭会话", "关闭内存会话");
+        refreshButton_ = SessionButton(targetToolbar, "刷新进程", "刷新进程候选");
         closeButton_->setEnabled(false);
-        targetRow->addWidget(refreshButton_);
         targetRow->addWidget(selectButton_);
+        targetRow->addWidget(refreshButton_);
         targetRow->addWidget(closeButton_);
-        ks::ui::NormalizeToolbarRow(targetRow);
+        NormalizeToolbarLayout(targetRow);
         targetLayout->addLayout(targetRow);
-        ks::ui::ApplyFlatButtonTheme(refreshButton_, ks::ui::FlatButtonTone::Neutral,
-            ks::ui::FlatButtonAppearance::Solid);
-        ks::ui::ApplyFlatButtonTheme(selectButton_, ks::ui::FlatButtonTone::Accent,
-            ks::ui::FlatButtonAppearance::Solid);
-        ks::ui::ApplyFlatButtonTheme(closeButton_, ks::ui::FlatButtonTone::Neutral,
-            ks::ui::FlatButtonAppearance::Solid);
+        status_ = new QLabel(Text("选择进程，再点击“打开会话”开始无附加调试。"), targetToolbar);
+        status_->setTextFormat(Qt::PlainText);
+        status_->setWordWrap(true);
+        status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        targetLayout->addWidget(status_);
+        layout_->addWidget(targetToolbar);
 
         // 模块下拉框使用目标层的异步身份快照；模块刷新不主动重定位用户当前地址。
-        moduleCombo_ = new QComboBox(this);
+        moduleField_ = new QWidget(this);
+        auto* moduleRow = new QHBoxLayout(moduleField_);
+        moduleRow->setContentsMargins(0, 0, 0, 0);
+        auto* moduleLabel = new QLabel(Text("模块导航"), moduleField_);
+        moduleCombo_ = new QComboBox(moduleField_);
+        moduleLabel->setBuddy(moduleCombo_);
+        moduleCombo_->setAccessibleName(moduleLabel->text());
         moduleCombo_->setObjectName(QStringLiteral("memory_debug_module"));
         moduleCombo_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         moduleCombo_->setEnabled(false);
         moduleCombo_->setToolTip(Text("选择模块并查看基址处的反汇编"));
         ks::ui::StylePrimaryCombo(moduleCombo_);
-        targetLayout->addWidget(moduleCombo_);
-        layout_->addWidget(targetToolbar);
+        moduleRow->addWidget(moduleLabel);
+        moduleRow->addWidget(moduleCombo_, 1);
+        NormalizeToolbarRow(moduleRow);
+        moduleField_->hide();
         execution_ = new MemoryDebugExecutionPanel(this);
         execution_->onStoppedAddress = [this](const std::uint64_t address)
         {
@@ -126,15 +126,15 @@ namespace ks::ui
             }
         };
         layout_->addWidget(execution_);
-        status_ = new QLabel(Text("请选择进程以打开内存会话。"), this);
-        status_->setWordWrap(true);
-        status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        layout_->addWidget(status_);
+        layout_->addWidget(moduleField_);
 
         connect(refreshButton_, &QToolButton::clicked, this, &MemoryDebugPage::refreshProcesses);
         connect(selectButton_, &QToolButton::clicked, this, &MemoryDebugPage::selectProcess);
         connect(closeButton_, &QToolButton::clicked, this, &MemoryDebugPage::closeSession);
         connect(processCombo_->lineEdit(), &QLineEdit::returnPressed, this, &MemoryDebugPage::selectProcess);
+        connect(processCombo_, &QComboBox::editTextChanged, this, [this](const QString& text) {
+            selectButton_->setEnabled(!refreshing_ && !text.trimmed().isEmpty());
+        });
         connect(moduleCombo_, &QComboBox::activated, this, &MemoryDebugPage::openModule);
     }
 
@@ -147,9 +147,10 @@ namespace ks::ui
     void MemoryDebugPage::showEvent(QShowEvent* event)
     {
         QWidget::showEvent(event);
-        if (view_ == nullptr)
+        ensureView();
+        if (view_ && !initialCatalogRequested_)
         {
-            ensureView();
+            initialCatalogRequested_ = true;
             refreshProcesses();
         }
     }
@@ -159,33 +160,13 @@ namespace ks::ui
         ensureView();
     }
 
-    void MemoryDebugPage::changeEvent(QEvent* event)
-    {
-        QWidget::changeEvent(event);
-        if (event == nullptr || event->type() != QEvent::LanguageChange)
-        {
-            return;
-        }
-        const auto updateButton = [](QToolButton* button, const QString& text) {
-            if (button != nullptr)
-            {
-                const QString localized = ks::i18n::sourceText(text);
-                button->setToolTip(localized);
-                button->setAccessibleName(localized);
-            }
-        };
-        updateButton(refreshButton_, QStringLiteral("刷新进程候选"));
-        updateButton(selectButton_, QStringLiteral("打开不附加内存会话"));
-        updateButton(closeButton_, QStringLiteral("关闭内存会话"));
-    }
-
     void MemoryDebugPage::ensureView()
     {
-        const ScopedWidgetThemePreparation themePreparation(this); // 完成生产服务与视图挂载后准备首帧。
         if (view_ != nullptr)
         {
             return;
         }
+        const ScopedWidgetThemePreparation themePreparation(this);
         // 配置与标准工作台相同的生产端口，但视图、目标、历史及补丁会话全部独立。
         workbench_dock::ConfigureShared();
         view_ = new MemoryWorkbenchView(this);
@@ -313,27 +294,51 @@ namespace ks::ui
             {
                 refreshing_ = false;
                 refreshButton_->setEnabled(true);
-                selectButton_->setEnabled(true);
+                const QString draft = processCombo_->currentText();
+                selectButton_->setEnabled(!draft.trimmed().isEmpty());
                 if (result.error != 0)
                 {
                     status_->setText(Text("进程候选刷新失败，错误：%1").arg(result.error));
                     return;
                 }
-                const QSignalBlocker blocker(processCombo_); // 重建列表不得自动选中目标。
+                const int previous = candidateIndex(draft);
+                const auto identity = previous >= 0 ? catalog_.processes[previous] : MemoryDebugProcessCandidate{};
+                const QSignalBlocker blocker(processCombo_);
                 processCombo_->clear();
                 catalog_ = std::move(result);
+                int restored = -1;
                 for (const auto& candidate : catalog_.processes)
                 {
                     processCombo_->addItem(QStringLiteral("%1 · %2")
-                        .arg(QString::fromStdWString(candidate.name)).arg(candidate.pid));
+                        .arg(QString::fromStdWString(candidate.name), QString::number(candidate.pid)));
+                    if (identity.createTime100ns && candidate.pid == identity.pid
+                        && candidate.createTime100ns == identity.createTime100ns)
+                        restored = processCombo_->count() - 1;
                 }
-                processCombo_->setCurrentIndex(-1);
+                processCombo_->setCurrentIndex(restored);
+                if (previous < 0) processCombo_->setEditText(draft);
+                selectButton_->setEnabled(!processCombo_->currentText().trimmed().isEmpty());
                 if (view_ == nullptr || view_->target().session().pid == 0)
                 {
-                    status_->setText(Text("请选择进程以打开内存会话。"));
+                    status_->setText(Text("选择进程，再点击“打开会话”开始无附加调试。"));
                 }
             });
         });
+    }
+
+    int MemoryDebugPage::candidateIndex(const QString& draft) const
+    {
+        const QString text = draft.trimmed();
+        const int index = processCombo_->findText(text, Qt::MatchExactly);
+        if (index >= 0) return index;
+        bool valid = false;
+        const auto pid = text.toUInt(&valid, 10);
+        if (valid)
+        {
+            for (std::size_t row = 0; row < catalog_.processes.size(); ++row)
+                if (catalog_.processes[row].pid == pid) return static_cast<int>(row);
+        }
+        return -1;
     }
 
     void MemoryDebugPage::selectProcess()
@@ -351,24 +356,7 @@ namespace ks::ui
         {
             return;
         }
-        const QString text = processCombo_->currentText().trimmed(); // 编辑文字只用来检索快照。
-        int index = processCombo_->findText(text, Qt::MatchExactly);
-        if (index < 0)
-        {
-            bool validPid = false;
-            const auto pid = text.toUInt(&validPid, 10); // 允许输入当前候选列表中的十进制 PID。
-            if (validPid)
-            {
-                for (std::size_t row = 0; row < catalog_.processes.size(); ++row)
-                {
-                    if (catalog_.processes[row].pid == pid)
-                    {
-                        index = static_cast<int>(row);
-                        break;
-                    }
-                }
-            }
-        }
+        const int index = candidateIndex(processCombo_->currentText());
         if (index < 0 || static_cast<std::size_t>(index) >= catalog_.processes.size())
         {
             status_->setText(Text("请从候选列表选择进程，或输入列表中的 PID。"));
@@ -421,9 +409,10 @@ namespace ks::ui
         selectedProcess_ = candidate;
         execution_->setTarget(candidate.pid, candidate.createTime100ns);
         initialModulePending_ = true;
+        moduleField_->show();
         closeButton_->setEnabled(true);
         status_->setText(Text("内存会话：%1 · PID %2 · 运行状态见控制区")
-            .arg(processName_).arg(candidate.pid));
+            .arg(processName_, QString::number(candidate.pid)));
         refreshModules();
     }
 
@@ -508,6 +497,7 @@ namespace ks::ui
         moduleCombo_->clear();
         moduleCombo_->setEnabled(false);
         closeButton_->setEnabled(false);
+        moduleField_->hide();
         status_->setText(Text("内存会话已关闭，已释放本会话的运行控制。"));
     }
 

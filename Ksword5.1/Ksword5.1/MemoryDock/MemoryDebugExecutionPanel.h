@@ -50,6 +50,8 @@ namespace ks::ui
 
         QComboBox* backend_ = nullptr; // 原生检查、协作 VEH 与虚拟化能力边界。
         QComboBox* thread_ = nullptr; // 原生检查绑定创建时间的线程选择。
+        QWidget* threadField_ = nullptr;
+        QWidget* actions_ = nullptr;
         QToolButton* refresh_ = nullptr; // 原生刷新线程或主动连接协作组件。
         QToolButton* capture_ = nullptr; // 原生临时暂停读取现场。
         QToolButton* pause_ = nullptr; // 原生单线程暂停或请求协作检查点暂停。

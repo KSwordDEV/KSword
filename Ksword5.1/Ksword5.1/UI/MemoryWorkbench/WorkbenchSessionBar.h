@@ -199,6 +199,7 @@ namespace ks::ui
         HexViewSegmented* m_channelSegmented = nullptr;
         HexViewMessageLabel* m_channelWarning = nullptr;
         QToolButton* m_targetChip = nullptr;
+        QLabel* m_debugTargetSummary = nullptr;
         WriteModeSwitch* m_writeModeSwitch = nullptr;
         QWidget* m_pendingContainer = nullptr;
         QLabel* m_pendingLabel = nullptr;
