@@ -713,10 +713,18 @@
     <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
   <Target Name="CopyCliLayoutProfiles" AfterTargets="Build" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PropertyGroup>
+      <CliLayoutProfileRoot>$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles</CliLayoutProfileRoot>
+    </PropertyGroup>
     <ItemGroup>
-      <CliThreadLayoutProfile Include="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\thread_layouts\*.tsv" />
-      <CliProcessLayoutProfile Include="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\process_layouts\*.tsv" />
+      <CliThreadLayoutShard Include="$(CliLayoutProfileRoot)\thread_layouts\*.tsv" />
+      <CliProcessLayoutShard Include="$(CliLayoutProfileRoot)\process_layouts\*.tsv" />
+      <CliThreadLayoutProfile Include="@(CliThreadLayoutShard);$(CliLayoutProfileRoot)\thread_layouts\*.neighbors;$(CliLayoutProfileRoot)\thread_layouts\_versions.index" />
+      <CliProcessLayoutProfile Include="@(CliProcessLayoutShard);$(CliLayoutProfileRoot)\process_layouts\*.neighbors;$(CliLayoutProfileRoot)\process_layouts\_versions.index" />
     </ItemGroup>
+    <!-- 单独构建 CLI 时也交付与 GUI 相同的布局及版本目录，不允许静默复制空集合。 -->
+    <Error Condition="'@(CliThreadLayoutShard)'=='' Or '@(CliProcessLayoutShard)'==''" Text="Exact kernel structure layout shards are missing from the source checkout." />
+    <Error Condition="!Exists('$(CliLayoutProfileRoot)\thread_layouts\_versions.index') Or !Exists('$(CliLayoutProfileRoot)\process_layouts\_versions.index')" Text="Kernel structure version catalogs are missing from the source checkout." />
     <Copy SourceFiles="@(CliThreadLayoutProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(CliProcessLayoutProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
   </Target>

@@ -9,6 +9,7 @@
 #include <QtCore/QObject>
 #include <QtCore/QStringList>
 #include <QtCore/QTimer>
+#include <QtCore/QWinEventNotifier>
 #include <QtGui/QFont>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QApplication>
@@ -793,16 +794,25 @@ namespace
     // - 定位 Ksword5.1.exe 同目录下的 KSwordSecureDesk.exe；若不存在直接返回 false。
     // - 以隐藏窗口的方式拉起助手进程；助手自身完成 SYSTEM/UIAccess 三阶段提权，
     //   然后常驻 Winlogon 桌面充当"KSword 安全桌面覆盖层"。
-    // - 返回：true=助手已启动；false=助手文件缺失或 CreateProcess 失败。
+    // - 返回：true=引导进程已创建；false=路径或创建失败。SYSTEM 就绪另由退出码异步回读，不阻塞主界面。
     bool tryLaunchSecureDeskCompanion()
     {
+        kLogEvent launchEvent; // 从查找文件到引导完成使用同一事件，便于核对完整自动拉起链。
         const std::wstring mainPath = queryCurrentExecutablePath();
         if (mainPath.empty()) return false;
         const std::wstring directory = resolveExecutableDirectoryPath(mainPath);
         if (directory.empty()) return false;
         // helperPath 用途：助手固定与主程序同目录发布，名称 KSwordSecureDesk.exe。
         const std::wstring helperPath = directory + L"\\KSwordSecureDesk.exe";
-        if (::GetFileAttributesW(helperPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+        const std::string helperPathText = QString::fromStdWString(helperPath).toUtf8().toStdString(); // 日志流只接收 UTF-8 窄文本。
+        const DWORD attributes = ::GetFileAttributesW(helperPath.c_str()); // 拒绝缺失文件及同名目录，不能再静默跳过。
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        {
+            const DWORD errorCode = attributes == INVALID_FILE_ATTRIBUTES ? ::GetLastError() : ERROR_DIRECTORY;
+            warn << launchEvent << "[SecureDesk] 自动拉起失败：助手文件不可用，path=" << helperPathText
+                << ", Win32=" << errorCode << eol;
+            return false;
+        }
         std::wstring commandLine = L"\"" + helperPath + L"\"";
         std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
         mutableCommand.push_back(L'\0');
@@ -811,11 +821,46 @@ namespace
         startupInfo.dwFlags = STARTF_USESHOWWINDOW;
         startupInfo.wShowWindow = SW_HIDE;
         PROCESS_INFORMATION processInformation{};
-        const BOOL createOk = ::CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, FALSE,
+        const BOOL createOk = ::CreateProcessW(helperPath.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE,
             CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, nullptr, directory.c_str(), &startupInfo, &processInformation);
-        if (!createOk) return false;
+        if (!createOk)
+        {
+            const DWORD errorCode = ::GetLastError(); // 先保存原始错误，后续日志和分配不能改写它。
+            warn << launchEvent << "[SecureDesk] 自动拉起失败：CreateProcessW，path=" << helperPathText
+                << ", Win32=" << errorCode << eol;
+            return false;
+        }
         ::CloseHandle(processInformation.hThread);
-        ::CloseHandle(processInformation.hProcess);
+        // 只异步等待本次引导进程；不轮询、不阻塞 UI，也不把 CreateProcess 成功当成 SYSTEM/UIAccess 就绪。
+        const HANDLE bootstrapProcess = processInformation.hProcess; // 通知器销毁时释放本次真实进程句柄，不结束助手。
+        auto* completion = new QWinEventNotifier(bootstrapProcess, QCoreApplication::instance()); // 随主应用退出注销等待。
+        QObject::connect(completion, &QObject::destroyed, [bootstrapProcess]()
+            {
+                ::CloseHandle(bootstrapProcess);
+            });
+        QObject::connect(completion, &QWinEventNotifier::activated, completion,
+            [completion, bootstrapProcess, launchEvent](HANDLE)
+            {
+                completion->setEnabled(false); // 进程退出后句柄持续有信号，先停通知，避免重复提交同一完成回执。
+                DWORD exitCode = 0; // initial 阶段仅在收到 SYSTEM/UIAccess 就绪事件后返回零。
+                if (!::GetExitCodeProcess(bootstrapProcess, &exitCode))
+                {
+                    const DWORD errorCode = ::GetLastError(); // 回读失败不伪装成引导进程已返回退出码零。
+                    warn << launchEvent << "[SecureDesk] 无法回读引导进程退出码，Win32=" << errorCode << eol;
+                }
+                else if (exitCode == 0)
+                {
+                    info << launchEvent << "[SecureDesk] 自动拉起完成：已收到安全桌面助手就绪回执。" << eol;
+                }
+                else
+                {
+                    warn << launchEvent << "[SecureDesk] 自动拉起未就绪，bootstrapExit=" << exitCode
+                        << "（3=提权阶段创建失败，4=就绪等待超时）" << eol;
+                }
+                completion->deleteLater(); // 销毁通知器后再关闭进程句柄，不接管 SYSTEM 会话的原有生命周期。
+            });
+        info << launchEvent << "[SecureDesk] 已创建自动引导进程，PID=" << processInformation.dwProcessId
+            << ", path=" << helperPathText << eol;
         return true;
     }
 
@@ -1967,6 +2012,12 @@ int main(int argc, char* argv[])
             {
                 (void)tryLaunchSecureDeskCompanion();
             });
+    }
+    else
+    {
+        kLogEvent companionEvent; // 明确记录未进入自动启动链的原因，普通权限启动不额外弹出 UAC。
+        info << companionEvent << "[SecureDesk] 本实例跳过自动助手：rescue=" << rescueSession.active()
+            << ", elevated=" << isCurrentProcessElevated() << eol;
     }
 
     if (!unlockPathList.isEmpty())

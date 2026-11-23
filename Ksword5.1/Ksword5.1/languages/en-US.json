@@ -7943,6 +7943,16 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    ", Win32=": ", Win32=",
+    ", elevated=": ", elevated=",
+    "[SecureDesk] 已创建自动引导进程，PID=": "[SecureDesk] Automatic bootstrap process created, PID=",
+    "[SecureDesk] 无法回读引导进程退出码，Win32=": "[SecureDesk] Could not read bootstrap exit code, Win32=",
+    "[SecureDesk] 本实例跳过自动助手：rescue=": "[SecureDesk] Companion autostart skipped for this instance: rescue=",
+    "[SecureDesk] 自动拉起失败：CreateProcessW，path=": "[SecureDesk] Automatic launch failed in CreateProcessW, path=",
+    "[SecureDesk] 自动拉起失败：助手文件不可用，path=": "[SecureDesk] Automatic launch failed: companion file unavailable, path=",
+    "[SecureDesk] 自动拉起完成：已收到安全桌面助手就绪回执。": "[SecureDesk] Automatic launch complete: secure desktop companion readiness received.",
+    "[SecureDesk] 自动拉起未就绪，bootstrapExit=": "[SecureDesk] Automatic bootstrap did not become ready, bootstrapExit=",
+    "（3=提权阶段创建失败，4=就绪等待超时）": " (3=privileged stage creation failed, 4=readiness wait timed out)",
     "CiTool exit=%1\n%2": "CiTool exit=%1\n%2",
     "CiTool.exe": "CiTool.exe",
     "IsAuthorized": "IsAuthorized",

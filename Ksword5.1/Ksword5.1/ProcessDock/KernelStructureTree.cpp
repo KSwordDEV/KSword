@@ -54,6 +54,32 @@ namespace ks::ui::kernelstructure
             {
                 result.candidates = CompareCandidates(previous, next, neighbors, kind); // 无精确布局也能显示包内前后参考，绝不授权采样。
             }
+            if (!result.bracketed)
+            {
+                // 缺一侧或同版多来源时仍保留最近版本的完整字段；黄色只表达证据限制，不表示字段应消失。
+                QList<Candidate> references; // 新目录不可用时保留原有 sidecar 参考，不把可用证据清空。
+                for (const auto& entry : threadlayout::SelectReferenceCandidates(catalog, identity, version))
+                {
+                    const auto reference = threadlayout::Load(directory / threadlayout::FileName(entry.identity),
+                        &entry.identity, kind); // 每个来源单独核验完整 PE/RSDS，不把邻版当成当前精确布局。
+                    if (reference.fields.empty())
+                    {
+                        continue;
+                    }
+                    threadlayout::Neighbors source; // 单来源仅用于 CompareCandidates 的来源标签，不构造双侧可靠性。
+                    source.previous = entry;
+                    auto rows = CompareCandidates(reference, {}, source, kind); // 保留来源的全部可展示字段，不请求驱动。
+                    for (auto& row : rows)
+                    {
+                        row.version += QStringLiteral(" / RSDS ") + QString::fromStdString(entry.identity.pdbKey);
+                    }
+                    references.append(rows);
+                }
+                if (!references.isEmpty())
+                {
+                    result.candidates = std::move(references);
+                }
+            }
         }
         if (!result.profile.fields.empty())
         {

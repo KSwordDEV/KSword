@@ -328,8 +328,10 @@ offsets; it does not prove a running driver has already consumed the pack.
 ## Process and thread layout shards
 
 The desktop inspector and CLI load `profiles/thread_layouts` and
-`profiles/process_layouts` on demand. These directories are generated assets, not
-driver DynData. Keep the corpus external and use a finished corpus index:
+`profiles/process_layouts` on demand. The generated TSVs and version catalogs in
+these two source directories are version-controlled runtime metadata, not driver
+DynData. A clean checkout must contain them; PE/PDB corpus files remain external.
+To refresh the source metadata, use a finished corpus index:
 
 ```powershell
 python tools/pdb_offset_generator/ksword_thread_layout_release.py --corpus-root <corpus-root> --workers 2
@@ -346,8 +348,10 @@ process or thread data.
 ### Packaged version boundaries
 
 After publishing or adding exact shards, regenerate **both** `_versions.index`
-files. They are ignored generated assets alongside the TSVs, but must be shipped
-with the matching source/Release profile directories. The index is for risk
+files. Commit both indexes together with the corresponding TSV changes; they are
+explicit exceptions to the otherwise ignored generated profile directory. Both
+GUI and CLI builds copy them to the formal Release profile directories and fail
+if a layout directory or its index is absent. The index is for risk
 coloring only; it never authorizes a kernel read or substitutes a neighboring
 layout for an exact PE/RSDS match.
 
@@ -373,8 +377,9 @@ not a historical hard-coded shard count:
 tools/Invoke-StructureSampleTests.ps1 -IncludeExactProfiles -IncludeStackSymbols
 ```
 
-The tests compare catalog identities against every real shard and reject missing,
-duplicate or extra entries. Endpoints, missing sides, unknown/ambiguous versions,
+The tests compare catalog identities against every real shard, load every shard
+with the production native consumer, and reject missing, duplicate or extra
+entries. Endpoints, missing sides, unknown/ambiguous versions,
 or an architecture/branch mismatch remain yellow; only two distinct strictly
 earlier/later packaged versions can bracket a current version. This operation
 does not regenerate driver offsets or extend the live sampler's exact allowlist.

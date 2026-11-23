@@ -124,8 +124,19 @@ int wmain(const int argc, wchar_t** argv)
     catalog.push_back({{0x8664, 3, 4096, "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD1"}, {10, 0, 19041, 11}});
     Check(!layout::SelectNeighbors(catalog, target, {10, 0, 19041, 10}).bracketed,
         "ambiguous same-version next candidate requires yellow");
+    const auto references = layout::SelectReferenceCandidates(catalog, target, {10, 0, 19041, 10}); // 参考展示不得丢掉有歧义的一侧。
+    Check(references.size() == 3 && references[0].version[3] == 9 && references[1].version[3] == 11 &&
+        references[2].version[3] == 11, "reference metadata retains every nearest source despite ambiguous risk evidence");
+    Check(layout::SelectReferenceCandidates(catalog, target, {10, 0, 19041, 12}).size() == 2,
+        "unbracketed future kernel still has complete nearest previous references");
+    Check(layout::SelectReferenceCandidates(catalog, target, {10, 0, 19041, 11}).size() == 3 &&
+        !layout::SelectNeighbors(catalog, target, {10, 0, 19041, 11}).bracketed,
+        "same-version different-RSDS references remain visible without becoming an exact match or bracket");
+    Check(layout::SelectReferenceCandidates(catalog, target, {10, 0, 26100, 10}).empty(),
+        "reference metadata never pretends another kernel branch is comparable");
 
     // 可选参数是真实精确分片；零缓冲只测生产投影覆盖能力，不冒充现场采样验收。
+    std::set<std::filesystem::path> auditedDirectories; // 每类目录只全量核验一次，避免六个精确样本重复读取整套布局。
     for (int i = 1; i < argc; ++i)
     {
         const auto kind = std::wstring(argv[i]).find(L"process_layouts") != std::wstring::npos ?
@@ -149,6 +160,19 @@ int wmain(const int argc, wchar_t** argv)
         }
         Check(unique && shards.empty() && versions.size() == publishedCount && publishedCount != 0,
             "packaged catalog references every actual exact shard exactly once");
+        if (auditedDirectories.insert(directory).second)
+        {
+            std::size_t rows = 0; // 全目录真实符号字段总数，不用文件数冒充完整性。
+            bool complete = !versions.empty(); // 每份版本记录都必须被生产加载器按完整身份读取。
+            for (const auto& entry : versions)
+            {
+                const auto loaded = layout::Load(directory / layout::FileName(entry.identity), &entry.identity, kind);
+                complete = complete && !loaded.fields.empty();
+                rows += loaded.fields.size();
+            }
+            std::cout << "EXACT_CATALOG_AUDIT profiles=" << versions.size() << " fields=" << rows << '\n';
+            Check(complete, "every published layout passes the actual native consumer with exact PE and RSDS identity");
+        }
         const std::vector<std::uint8_t> synthetic(exact.rootSize, 0);
         const auto coverage = sample::Project(exact, exact.identity, exact.rootSize, synthetic.data(), synthetic.size());
         std::cout << "SYNTHETIC_PROJECTION_ONLY rows=" << coverage.totalRows << " decoded=" << coverage.sampledRows

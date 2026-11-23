@@ -1764,9 +1764,14 @@
   </Target>
   <Target Name="CopyKswordKernelStructureProfiles" AfterTargets="Build">
     <ItemGroup>
+      <ThreadStructureShard Include="$(MSBuildProjectDirectory)\profiles\thread_layouts\*.tsv" />
+      <ProcessStructureShard Include="$(MSBuildProjectDirectory)\profiles\process_layouts\*.tsv" />
       <ThreadStructureProfile Include="$(MSBuildProjectDirectory)\profiles\thread_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\thread_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\thread_layouts\_versions.index" />
       <ProcessStructureProfile Include="$(MSBuildProjectDirectory)\profiles\process_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\process_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\process_layouts\_versions.index" />
     </ItemGroup>
+    <!-- 空通配符不能静默算作交付成功：两类完整分片与数字版本目录缺一即失败。 -->
+    <Error Condition="'@(ThreadStructureShard)'=='' Or '@(ProcessStructureShard)'==''" Text="Exact kernel structure layout shards are missing from the source checkout." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\profiles\thread_layouts\_versions.index') Or !Exists('$(MSBuildProjectDirectory)\profiles\process_layouts\_versions.index')" Text="Kernel structure version catalogs are missing; nearest-version reference fields cannot be resolved." />
     <Copy SourceFiles="@(ThreadStructureProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(ProcessStructureProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
   </Target>
@@ -1872,6 +1877,13 @@
     <ProjectReference Include="..\..\DwmZOrderAgent\DwmZOrderAgent.vcxproj">
       <Project>{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <Private>false</Private>
+    </ProjectReference>
+    <!-- 主程序按固定名称自动启动安全桌面助手；单独 Build 主工程也必须同步构建它。 -->
+    <ProjectReference Include="..\..\KSwordSecureDesk\KSwordSecureDesk.vcxproj">
+      <Project>{C761D9C1-6F9F-4F54-9AF6-8DCB89524E8A}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

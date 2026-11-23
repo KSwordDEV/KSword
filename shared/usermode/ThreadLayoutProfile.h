@@ -56,6 +56,9 @@ namespace ks::threadlayout
     std::vector<CatalogEntry> LoadCatalog(const std::filesystem::path& directory);
     // 输入包内版本表和当前精确身份/文件版本，输出最近双侧；缺任意一侧必须按黄色处理。
     Neighbors SelectNeighbors(const std::vector<CatalogEntry>& entries, const Identity& current, const Version& version);
+    // 输入同一版本表与当前身份，返回最近双侧的全部来源；歧义只限制采样/风险判定，不抹掉参考字段。
+    std::vector<CatalogEntry> SelectReferenceCandidates(const std::vector<CatalogEntry>& entries,
+        const Identity& current, const Version& version);
 
     // 使用 PE 三元组返回发布目录内的分片文件名，不访问设备或网络。
     std::filesystem::path FileName(const Identity& identity);

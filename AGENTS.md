@@ -234,6 +234,8 @@ tar -xf $ref -C $stageRoot
 Copy-Item 'Ksword5.1\x64\Release\Ksword5.1.exe' $stage -Force
 # 内核转储窗通过同目录 CLI 隔离主程序中的 DbgHelp；发行此功能时两者必须配套。
 Copy-Item 'Ksword5.1\x64\Release\KswordCLI.exe' $stage -Force
+# 安全桌面助手现名为 KSwordSecureDesk，主程序不会自动启动旧 KswordUacDesk.exe。
+Copy-Item 'Ksword5.1\x64\Release\KSwordSecureDesk.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\Launcher.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\KswordARKLight.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\Taskbar.exe' $stage -Force

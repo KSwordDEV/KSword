@@ -7943,6 +7943,16 @@
     "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
+    ", Win32=": ", Win32=",
+    ", elevated=": ", elevated=",
+    "[SecureDesk] 已创建自动引导进程，PID=": "[SecureDesk] 已创建自动引导进程，PID=",
+    "[SecureDesk] 无法回读引导进程退出码，Win32=": "[SecureDesk] 无法回读引导进程退出码，Win32=",
+    "[SecureDesk] 本实例跳过自动助手：rescue=": "[SecureDesk] 本实例跳过自动助手：rescue=",
+    "[SecureDesk] 自动拉起失败：CreateProcessW，path=": "[SecureDesk] 自动拉起失败：CreateProcessW，path=",
+    "[SecureDesk] 自动拉起失败：助手文件不可用，path=": "[SecureDesk] 自动拉起失败：助手文件不可用，path=",
+    "[SecureDesk] 自动拉起完成：已收到安全桌面助手就绪回执。": "[SecureDesk] 自动拉起完成：已收到安全桌面助手就绪回执。",
+    "[SecureDesk] 自动拉起未就绪，bootstrapExit=": "[SecureDesk] 自动拉起未就绪，bootstrapExit=",
+    "（3=提权阶段创建失败，4=就绪等待超时）": "（3=提权阶段创建失败，4=就绪等待超时）",
     "CiTool exit=%1\n%2": "CiTool 退出码=%1\n%2",
     "CiTool.exe": "CiTool.exe",
     "IsAuthorized": "IsAuthorized",

@@ -176,6 +176,44 @@ namespace ks::threadlayout
         return result;
     }
 
+    std::vector<CatalogEntry> SelectReferenceCandidates(const std::vector<CatalogEntry>& entries,
+        const Identity& current, const Version& version)
+    {
+        std::vector<CatalogEntry> previous; // 最近较早版本的所有不同 PE/PDB 来源，仅供元数据展示。
+        std::vector<CatalogEntry> sameVersion; // 同一文件版本但不同 RSDS 的布局也只是参考，不冒充精确命中。
+        std::vector<CatalogEntry> next; // 最近较晚版本采用相同规则，不因同版多来源丢弃整个方向。
+        if (!version[0] || !version[2])
+        {
+            return {};
+        }
+        for (const auto& entry : entries) // 只接受同架构和同分支，邻版永远不能授权现场读取。
+        {
+            if (entry.identity.machine != current.machine || entry.identity.pdbKey == current.pdbKey ||
+                !std::equal(version.begin(), version.begin() + 3, entry.version.begin()))
+            {
+                continue;
+            }
+            if (entry.version == version)
+            {
+                sameVersion.push_back(entry);
+                continue;
+            }
+            auto& side = entry.version < version ? previous : next; // 两个方向分别选择最近的数字版本。
+            if (side.empty() || (entry.version < version ? entry.version > side.front().version :
+                entry.version < side.front().version))
+            {
+                side.clear(); // 只淘汰更远的版本，不淘汰同一最近版本的其他精确来源。
+            }
+            if (side.empty() || entry.version == side.front().version)
+            {
+                side.push_back(entry);
+            }
+        }
+        previous.insert(previous.end(), sameVersion.begin(), sameVersion.end()); // 同版异身份位于前后来源之间，仍仅是参考。
+        previous.insert(previous.end(), next.begin(), next.end()); // 输出前侧在先，保留来源身份供调用者明确标注。
+        return previous;
+    }
+
     Profile Load(const std::filesystem::path& file, const Identity* expected, const Kind kind)
     {
         std::ifstream input(file, std::ios::binary | std::ios::ate); // 固定大小读取，不随文件膨胀。

@@ -1,6 +1,7 @@
 # KswordUacDesk 生命周期与日志
 
-- 主程序 `main.cpp::tryLaunchUacDeskCompanion` 仅在非救援、已提升实例首次显示主窗口后启动同目录助手。initial 阶段识别实际父进程的 `Ksword5.1.exe` 名称，将 PID 与创建时间传给 admin/SYSTEM 阶段；独立启动没有主进程绑定。
+- 当前项目/程序名为 `KSwordSecureDesk/KSwordSecureDesk.exe`（旧名 `KswordUacDesk`）；主程序 `main.cpp::tryLaunchSecureDeskCompanion` 仅在非救援、已提升实例首次显示主窗口后启动同目录新名称助手，不回退启动旧 EXE。initial 阶段识别实际父进程的 `Ksword5.1.exe` 名称，将 PID 与创建时间传给 admin/SYSTEM 阶段；独立启动没有主进程绑定。
+- 2026-11-22 排查：主工程原来没有该助手的 ProjectReference，单独 Build 主工程会留下旧助手或缺失文件。已补主工程构建依赖；自动启动按真实缺文件/CreateProcess 错误记录日志，并使用 QWinEventNotifier 异步回读 initial 阶段退出码（零表示收到 SYSTEM 就绪事件，3/4 为创建失败/就绪超时）。等待不阻塞 Qt、不轮询，退出时注销通知并关闭句柄，不强杀已有助手。普通权限或救援实例跳过时也记录原因。
 - 2026-10-04：`UacDeskWindow::setParentWatch` 改为一次身份校验后，在一个后台线程中用 `WaitForMultipleObjects(INFINITE)` 等待原始父进程句柄或私有停止事件。取消事件排第一；销毁先置停止标志、唤醒并 join，再关闭句柄。不得恢复每 400ms 新建线程的轮询，也不得在 UI 线程阻塞等待。持有已校验的进程句柄后无需反复查询创建时间；PID 复用不会替换句柄对应的对象。
 - 父进程结束会排队停止扫描定时器并请求 Qt 退出。主窗口隐藏后的异步停驱、主进程析构期间，进程尚未终止，助手仍等待。建立监视失败时 SYSTEM 阶段返回 11，不能继续无监视常驻。
 - `ControlTraceW(..., Properties=nullptr, STOP)` 返回参数错误，不能停止会话。此前现场日志出现父进程退出、Qt 事件循环返回，但助手继续残留；LUA 线程可能阻塞在 `ProcessTrace`，析构的 `join` 因而卡住。

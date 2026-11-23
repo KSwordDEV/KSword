@@ -1,0 +1,744 @@
+KSWTHREAD1	34404	3687917894	11227136	848FD9C2B7E835603D918813E1367BAC1	2080
+0	0	Tcb	_KTHREAD			member
+1	0	Header	_DISPATCHER_HEADER			member
+2	0	Lock	LF_MODIFIER			member
+2	0	LockNV	0x0012 (long)			member
+2	0	Type	0x0020 (unsigned char)			member
+2	1	Signalling	0x0020 (unsigned char)			member
+2	2	Size	0x0020 (unsigned char)			member
+2	3	Reserved1	0x0020 (unsigned char)			member
+2	0	TimerType	0x0020 (unsigned char)			member
+2	1	TimerControlFlags	0x0020 (unsigned char)			member
+2	1	Absolute	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+2	1	Wake	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+2	1	EncodedTolerableDelay	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+2	2	Hand	0x0020 (unsigned char)			member
+2	3	TimerMiscFlags	0x0020 (unsigned char)			member
+2	3	Index	bitfield(0x0020 (unsigned char), offset=0, bits=6)	0	6	member
+2	3	Inserted	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+2	3	Expired	bitfield(0x1031, offset=7, bits=1)	7	1	member
+2	0	Timer2Type	0x0020 (unsigned char)			member
+2	1	Timer2Flags	0x0020 (unsigned char)			member
+2	1	Timer2Inserted	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+2	1	Timer2Expiring	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+2	1	Timer2CancelPending	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+2	1	Timer2SetPending	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+2	1	Timer2Running	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+2	1	Timer2Disabled	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+2	1	Timer2ReservedFlags	bitfield(0x0020 (unsigned char), offset=6, bits=2)	6	2	member
+2	2	Timer2ComponentId	0x0020 (unsigned char)			member
+2	3	Timer2RelativeId	0x0020 (unsigned char)			member
+2	0	QueueType	0x0020 (unsigned char)			member
+2	1	QueueControlFlags	0x0020 (unsigned char)			member
+2	1	Abandoned	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+2	1	DisableIncrement	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+2	1	QueueReservedControlFlags	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+2	2	QueueSize	0x0020 (unsigned char)			member
+2	3	QueueReserved	0x0020 (unsigned char)			member
+2	0	ThreadType	0x0020 (unsigned char)			member
+2	1	ThreadReserved	0x0020 (unsigned char)			member
+2	2	ThreadControlFlags	0x0020 (unsigned char)			member
+2	2	CycleProfiling	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+2	2	CounterProfiling	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+2	2	GroupScheduling	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+2	2	AffinitySet	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+2	2	Tagged	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+2	2	EnergyProfiling	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+2	2	SchedulerAssist	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+2	2	ThreadReservedControlFlags	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+2	3	DebugActive	0x0020 (unsigned char)			member
+2	3	ActiveDR7	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+2	3	Instrumented	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+2	3	Minimal	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+2	3	Reserved4	bitfield(0x0020 (unsigned char), offset=3, bits=3)	3	3	member
+2	3	UmsScheduled	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+2	3	UmsPrimary	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+2	0	MutantType	0x0020 (unsigned char)			member
+2	1	MutantSize	0x0020 (unsigned char)			member
+2	2	DpcActive	0x0020 (unsigned char)			member
+2	3	MutantReserved	0x0020 (unsigned char)			member
+2	4	SignalState	0x0012 (long)			member
+2	8	WaitListHead	_LIST_ENTRY			member
+60	0	Flink	_LIST_ENTRY*			member
+60	8	Blink	_LIST_ENTRY*			member
+1	24	SListFaultAddress	0x0603 (void*)			member
+1	32	QuantumTarget	0x0023 (unsigned __int64)			member
+1	40	InitialStack	0x0603 (void*)			member
+1	48	StackLimit	0x0003*			member
+1	56	StackBase	0x0603 (void*)			member
+1	64	ThreadLock	0x0023 (unsigned __int64)			member
+1	72	CycleTime	LF_MODIFIER			member
+1	80	CurrentRunTime	0x0022 (unsigned long)			member
+1	84	ExpectedRunTime	0x0022 (unsigned long)			member
+1	88	KernelStack	0x0603 (void*)			member
+1	96	StateSaveArea	_XSAVE_FORMAT*			member
+1	104	SchedulingGroup	_KSCHEDULING_GROUP*			member
+1	112	WaitRegister	_KWAIT_STATUS_REGISTER			member
+75	0	Flags	0x0020 (unsigned char)			union
+75	0	State	bitfield(0x0020 (unsigned char), offset=0, bits=3)	0	3	union
+75	0	Affinity	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	union
+75	0	Priority	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	union
+75	0	Apc	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	union
+75	0	UserApc	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	union
+75	0	Alert	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	union
+1	113	Running	LF_MODIFIER			member
+1	114	Alerted	0x0020[2]			member
+1	116	AutoBoostActive	bitfield(0x0022 (unsigned long), offset=0, bits=1)	0	1	member
+1	116	ReadyTransition	bitfield(0x0022 (unsigned long), offset=1, bits=1)	1	1	member
+1	116	WaitNext	bitfield(0x0022 (unsigned long), offset=2, bits=1)	2	1	member
+1	116	SystemAffinityActive	bitfield(0x0022 (unsigned long), offset=3, bits=1)	3	1	member
+1	116	Alertable	bitfield(0x0022 (unsigned long), offset=4, bits=1)	4	1	member
+1	116	UserStackWalkActive	bitfield(0x0022 (unsigned long), offset=5, bits=1)	5	1	member
+1	116	ApcInterruptRequest	bitfield(0x0022 (unsigned long), offset=6, bits=1)	6	1	member
+1	116	QuantumEndMigrate	bitfield(0x0022 (unsigned long), offset=7, bits=1)	7	1	member
+1	116	UmsDirectedSwitchEnable	bitfield(0x0022 (unsigned long), offset=8, bits=1)	8	1	member
+1	116	TimerActive	bitfield(0x0022 (unsigned long), offset=9, bits=1)	9	1	member
+1	116	SystemThread	bitfield(0x0022 (unsigned long), offset=10, bits=1)	10	1	member
+1	116	ProcessDetachActive	bitfield(0x0022 (unsigned long), offset=11, bits=1)	11	1	member
+1	116	CalloutActive	bitfield(0x0022 (unsigned long), offset=12, bits=1)	12	1	member
+1	116	ScbReadyQueue	bitfield(0x0022 (unsigned long), offset=13, bits=1)	13	1	member
+1	116	ApcQueueable	bitfield(0x0022 (unsigned long), offset=14, bits=1)	14	1	member
+1	116	ReservedStackInUse	bitfield(0x0022 (unsigned long), offset=15, bits=1)	15	1	member
+1	116	UmsPerformingSyscall	bitfield(0x0022 (unsigned long), offset=16, bits=1)	16	1	member
+1	116	TimerSuspended	bitfield(0x0022 (unsigned long), offset=17, bits=1)	17	1	member
+1	116	SuspendedWaitMode	bitfield(0x0022 (unsigned long), offset=18, bits=1)	18	1	member
+1	116	SuspendSchedulerApcWait	bitfield(0x0022 (unsigned long), offset=19, bits=1)	19	1	member
+1	116	CetUserShadowStack	bitfield(0x0022 (unsigned long), offset=20, bits=1)	20	1	member
+1	116	BypassProcessFreeze	bitfield(0x0022 (unsigned long), offset=21, bits=1)	21	1	member
+1	116	Reserved	bitfield(0x0022 (unsigned long), offset=22, bits=10)	22	10	member
+1	116	MiscFlags	0x0012 (long)			member
+1	120	BamQosLevel	bitfield(0x0022 (unsigned long), offset=0, bits=2)	0	2	member
+1	120	AutoAlignment	bitfield(0x0022 (unsigned long), offset=2, bits=1)	2	1	member
+1	120	DisableBoost	bitfield(0x0022 (unsigned long), offset=3, bits=1)	3	1	member
+1	120	AlertedByThreadId	bitfield(0x0022 (unsigned long), offset=4, bits=1)	4	1	member
+1	120	QuantumDonation	bitfield(0x0022 (unsigned long), offset=5, bits=1)	5	1	member
+1	120	EnableStackSwap	bitfield(0x0022 (unsigned long), offset=6, bits=1)	6	1	member
+1	120	GuiThread	bitfield(0x0022 (unsigned long), offset=7, bits=1)	7	1	member
+1	120	DisableQuantum	bitfield(0x0022 (unsigned long), offset=8, bits=1)	8	1	member
+1	120	ChargeOnlySchedulingGroup	bitfield(0x0022 (unsigned long), offset=9, bits=1)	9	1	member
+1	120	DeferPreemption	bitfield(0x0022 (unsigned long), offset=10, bits=1)	10	1	member
+1	120	QueueDeferPreemption	bitfield(0x0022 (unsigned long), offset=11, bits=1)	11	1	member
+1	120	ForceDeferSchedule	bitfield(0x0022 (unsigned long), offset=12, bits=1)	12	1	member
+1	120	SharedReadyQueueAffinity	bitfield(0x0022 (unsigned long), offset=13, bits=1)	13	1	member
+1	120	FreezeCount	bitfield(0x0022 (unsigned long), offset=14, bits=1)	14	1	member
+1	120	TerminationApcRequest	bitfield(0x0022 (unsigned long), offset=15, bits=1)	15	1	member
+1	120	AutoBoostEntriesExhausted	bitfield(0x0022 (unsigned long), offset=16, bits=1)	16	1	member
+1	120	KernelStackResident	bitfield(0x0022 (unsigned long), offset=17, bits=1)	17	1	member
+1	120	TerminateRequestReason	bitfield(0x0022 (unsigned long), offset=18, bits=2)	18	2	member
+1	120	ProcessStackCountDecremented	bitfield(0x0022 (unsigned long), offset=20, bits=1)	20	1	member
+1	120	RestrictedGuiThread	bitfield(0x0022 (unsigned long), offset=21, bits=1)	21	1	member
+1	120	VpBackingThread	bitfield(0x0022 (unsigned long), offset=22, bits=1)	22	1	member
+1	120	ThreadFlagsSpare	bitfield(0x0022 (unsigned long), offset=23, bits=1)	23	1	member
+1	120	EtwStackTraceApcInserted	bitfield(0x0022 (unsigned long), offset=24, bits=8)	24	8	member
+1	120	ThreadFlags	LF_MODIFIER			member
+1	124	Tag	LF_MODIFIER			member
+1	125	SystemHeteroCpuPolicy	0x0020 (unsigned char)			member
+1	126	UserHeteroCpuPolicy	bitfield(0x0020 (unsigned char), offset=0, bits=7)	0	7	member
+1	126	ExplicitSystemHeteroCpuPolicy	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+1	127	RunningNonRetpolineCode	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+1	127	SpecCtrlSpare	bitfield(0x0020 (unsigned char), offset=1, bits=7)	1	7	member
+1	127	SpecCtrl	0x0020 (unsigned char)			member
+1	128	SystemCallNumber	0x0022 (unsigned long)			member
+1	132	ReadyTime	0x0022 (unsigned long)			member
+1	136	FirstArgument	0x0603 (void*)			member
+1	144	TrapFrame	_KTRAP_FRAME*			member
+1	152	ApcState	_KAPC_STATE			member
+144	0	ApcListHead	_LIST_ENTRY[32]			member
+144	32	Process	_KPROCESS*			member
+144	40	InProgressFlags	0x0020 (unsigned char)			member
+144	40	KernelApcInProgress	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+144	40	SpecialApcInProgress	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+144	41	KernelApcPending	0x0020 (unsigned char)			member
+144	42	UserApcPendingAll	0x0020 (unsigned char)			member
+144	42	SpecialUserApcPending	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+144	42	UserApcPending	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+1	152	ApcStateFill	0x0020[43]			member
+1	195	Priority	0x0070 (char)			member
+1	196	UserIdealProcessor	0x0022 (unsigned long)			member
+1	200	WaitStatus	LF_MODIFIER			member
+1	208	WaitBlockList	_KWAIT_BLOCK*			member
+1	216	WaitListEntry	_LIST_ENTRY			member
+159	0	Flink	_LIST_ENTRY*			member
+159	8	Blink	_LIST_ENTRY*			member
+1	216	SwapListEntry	_SINGLE_LIST_ENTRY			member
+162	0	Next	_SINGLE_LIST_ENTRY*			member
+1	232	Queue	_DISPATCHER_HEADER*			member
+1	240	Teb	0x0603 (void*)			member
+1	248	RelativeTimerBias	0x0023 (unsigned __int64)			member
+1	256	Timer	_KTIMER			member
+167	0	Header	_DISPATCHER_HEADER			member
+168	0	Lock	LF_MODIFIER			member
+168	0	LockNV	0x0012 (long)			member
+168	0	Type	0x0020 (unsigned char)			member
+168	1	Signalling	0x0020 (unsigned char)			member
+168	2	Size	0x0020 (unsigned char)			member
+168	3	Reserved1	0x0020 (unsigned char)			member
+168	0	TimerType	0x0020 (unsigned char)			member
+168	1	TimerControlFlags	0x0020 (unsigned char)			member
+168	1	Absolute	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+168	1	Wake	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+168	1	EncodedTolerableDelay	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+168	2	Hand	0x0020 (unsigned char)			member
+168	3	TimerMiscFlags	0x0020 (unsigned char)			member
+168	3	Index	bitfield(0x0020 (unsigned char), offset=0, bits=6)	0	6	member
+168	3	Inserted	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+168	3	Expired	bitfield(0x1031, offset=7, bits=1)	7	1	member
+168	0	Timer2Type	0x0020 (unsigned char)			member
+168	1	Timer2Flags	0x0020 (unsigned char)			member
+168	1	Timer2Inserted	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+168	1	Timer2Expiring	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+168	1	Timer2CancelPending	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+168	1	Timer2SetPending	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+168	1	Timer2Running	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+168	1	Timer2Disabled	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+168	1	Timer2ReservedFlags	bitfield(0x0020 (unsigned char), offset=6, bits=2)	6	2	member
+168	2	Timer2ComponentId	0x0020 (unsigned char)			member
+168	3	Timer2RelativeId	0x0020 (unsigned char)			member
+168	0	QueueType	0x0020 (unsigned char)			member
+168	1	QueueControlFlags	0x0020 (unsigned char)			member
+168	1	Abandoned	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+168	1	DisableIncrement	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+168	1	QueueReservedControlFlags	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+168	2	QueueSize	0x0020 (unsigned char)			member
+168	3	QueueReserved	0x0020 (unsigned char)			member
+168	0	ThreadType	0x0020 (unsigned char)			member
+168	1	ThreadReserved	0x0020 (unsigned char)			member
+168	2	ThreadControlFlags	0x0020 (unsigned char)			member
+168	2	CycleProfiling	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+168	2	CounterProfiling	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+168	2	GroupScheduling	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+168	2	AffinitySet	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+168	2	Tagged	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+168	2	EnergyProfiling	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+168	2	SchedulerAssist	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+168	2	ThreadReservedControlFlags	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+168	3	DebugActive	0x0020 (unsigned char)			member
+168	3	ActiveDR7	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+168	3	Instrumented	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+168	3	Minimal	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+168	3	Reserved4	bitfield(0x0020 (unsigned char), offset=3, bits=3)	3	3	member
+168	3	UmsScheduled	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+168	3	UmsPrimary	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+168	0	MutantType	0x0020 (unsigned char)			member
+168	1	MutantSize	0x0020 (unsigned char)			member
+168	2	DpcActive	0x0020 (unsigned char)			member
+168	3	MutantReserved	0x0020 (unsigned char)			member
+168	4	SignalState	0x0012 (long)			member
+168	8	WaitListHead	_LIST_ENTRY			member
+226	0	Flink	_LIST_ENTRY*			member
+226	8	Blink	_LIST_ENTRY*			member
+167	24	DueTime	_ULARGE_INTEGER			member
+229	0	LowPart	0x0022 (unsigned long)			union
+229	4	HighPart	0x0022 (unsigned long)			union
+229	0	u	<anonymous-tag>			union
+232	0	LowPart	0x0022 (unsigned long)			member
+232	4	HighPart	0x0022 (unsigned long)			member
+229	0	QuadPart	0x0023 (unsigned __int64)			union
+167	32	TimerListEntry	_LIST_ENTRY			member
+236	0	Flink	_LIST_ENTRY*			member
+236	8	Blink	_LIST_ENTRY*			member
+167	48	Dpc	_KDPC*			member
+167	56	Processor	0x0022 (unsigned long)			member
+167	60	Period	0x0022 (unsigned long)			member
+1	320	WaitBlock	_KWAIT_BLOCK[192]			member
+1	320	WaitBlockFill4	0x0020[20]			member
+1	340	ContextSwitches	0x0022 (unsigned long)			member
+1	320	WaitBlockFill5	0x0020[68]			member
+1	388	State	LF_MODIFIER			member
+1	389	Spare13	0x0070 (char)			member
+1	390	WaitIrql	0x0020 (unsigned char)			member
+1	391	WaitMode	0x0070 (char)			member
+1	320	WaitBlockFill6	0x0020[116]			member
+1	436	WaitTime	0x0022 (unsigned long)			member
+1	320	WaitBlockFill7	0x0020[164]			member
+1	484	KernelApcDisable	0x0011 (short)			member
+1	486	SpecialApcDisable	0x0011 (short)			member
+1	484	CombinedApcDisable	0x0022 (unsigned long)			member
+1	320	WaitBlockFill8	0x0020[40]			member
+1	360	ThreadCounters	_KTHREAD_COUNTERS*			member
+1	320	WaitBlockFill9	0x0020[88]			member
+1	408	XStateSave	_XSTATE_SAVE*			member
+1	320	WaitBlockFill10	0x0020[136]			member
+1	456	Win32Thread	0x0003*			member
+1	320	WaitBlockFill11	0x0020[176]			member
+1	496	Ucb	_UMS_CONTROL_BLOCK*			member
+1	504	Uch	_KUMS_CONTEXT_HEADER*			member
+1	512	Spare21	0x0603 (void*)			member
+1	520	QueueListEntry	_LIST_ENTRY			member
+266	0	Flink	_LIST_ENTRY*			member
+266	8	Blink	_LIST_ENTRY*			member
+1	536	NextProcessor	LF_MODIFIER			member
+1	536	NextProcessorNumber	bitfield(0x0022 (unsigned long), offset=0, bits=31)	0	31	member
+1	536	SharedReadyQueue	bitfield(0x0022 (unsigned long), offset=31, bits=1)	31	1	member
+1	540	QueuePriority	0x0012 (long)			member
+1	544	Process	_KPROCESS*			member
+1	552	UserAffinity	_GROUP_AFFINITY			member
+274	0	Mask	0x0023 (unsigned __int64)			member
+274	8	Group	0x0021 (unsigned short)			member
+274	10	Reserved	0x0021[6]			member
+1	552	UserAffinityFill	0x0020[10]			member
+1	562	PreviousMode	0x0070 (char)			member
+1	563	BasePriority	0x0070 (char)			member
+1	564	PriorityDecrement	0x0070 (char)			member
+1	564	ForegroundBoost	bitfield(0x0020 (unsigned char), offset=0, bits=4)	0	4	member
+1	564	UnusualBoost	bitfield(0x0020 (unsigned char), offset=4, bits=4)	4	4	member
+1	565	Preempted	0x0020 (unsigned char)			member
+1	566	AdjustReason	0x0020 (unsigned char)			member
+1	567	AdjustIncrement	0x0070 (char)			member
+1	568	AffinityVersion	0x0023 (unsigned __int64)			member
+1	576	Affinity	_GROUP_AFFINITY			member
+288	0	Mask	0x0023 (unsigned __int64)			member
+288	8	Group	0x0021 (unsigned short)			member
+288	10	Reserved	0x0021[6]			member
+1	576	AffinityFill	0x0020[10]			member
+1	586	ApcStateIndex	0x0020 (unsigned char)			member
+1	587	WaitBlockCount	0x0020 (unsigned char)			member
+1	588	IdealProcessor	0x0022 (unsigned long)			member
+1	592	NpxState	0x0023 (unsigned __int64)			member
+1	600	SavedApcState	_KAPC_STATE			member
+297	0	ApcListHead	_LIST_ENTRY[32]			member
+297	32	Process	_KPROCESS*			member
+297	40	InProgressFlags	0x0020 (unsigned char)			member
+297	40	KernelApcInProgress	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+297	40	SpecialApcInProgress	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+297	41	KernelApcPending	0x0020 (unsigned char)			member
+297	42	UserApcPendingAll	0x0020 (unsigned char)			member
+297	42	SpecialUserApcPending	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+297	42	UserApcPending	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+1	600	SavedApcStateFill	0x0020[43]			member
+1	643	WaitReason	0x0020 (unsigned char)			member
+1	644	SuspendCount	0x0070 (char)			member
+1	645	Saturation	0x0070 (char)			member
+1	646	SListFaultCount	0x0021 (unsigned short)			member
+1	648	SchedulerApc	_KAPC			member
+312	0	Type	0x0020 (unsigned char)			member
+312	1	SpareByte0	0x0020 (unsigned char)			member
+312	2	Size	0x0020 (unsigned char)			member
+312	3	SpareByte1	0x0020 (unsigned char)			member
+312	4	SpareLong0	0x0022 (unsigned long)			member
+312	8	Thread	_KTHREAD*			member
+312	16	ApcListEntry	_LIST_ENTRY			member
+319	0	Flink	_LIST_ENTRY*			member
+319	8	Blink	_LIST_ENTRY*			member
+312	32	KernelRoutine	LF_PROCEDURE*			member
+312	40	RundownRoutine	LF_PROCEDURE*			member
+312	48	NormalRoutine	LF_PROCEDURE*			member
+312	32	Reserved	0x0603[24]			member
+312	56	NormalContext	0x0603 (void*)			member
+312	64	SystemArgument1	0x0603 (void*)			member
+312	72	SystemArgument2	0x0603 (void*)			member
+312	80	ApcStateIndex	0x0070 (char)			member
+312	81	ApcMode	0x0070 (char)			member
+312	82	Inserted	0x0020 (unsigned char)			member
+1	648	SchedulerApcFill0	0x0020[1]			member
+1	649	ResourceIndex	0x0020 (unsigned char)			member
+1	648	SchedulerApcFill1	0x0020[3]			member
+1	651	QuantumReset	0x0020 (unsigned char)			member
+1	648	SchedulerApcFill2	0x0020[4]			member
+1	652	KernelTime	0x0022 (unsigned long)			member
+1	648	SchedulerApcFill3	0x0020[64]			member
+1	712	WaitPrcb	_KPRCB*			member
+1	648	SchedulerApcFill4	0x0020[72]			member
+1	720	LegoData	0x0603 (void*)			member
+1	648	SchedulerApcFill5	0x0020[83]			member
+1	731	CallbackNestingLevel	0x0020 (unsigned char)			member
+1	732	UserTime	0x0022 (unsigned long)			member
+1	736	SuspendEvent	_KEVENT			member
+345	0	Header	_DISPATCHER_HEADER			member
+346	0	Lock	LF_MODIFIER			member
+346	0	LockNV	0x0012 (long)			member
+346	0	Type	0x0020 (unsigned char)			member
+346	1	Signalling	0x0020 (unsigned char)			member
+346	2	Size	0x0020 (unsigned char)			member
+346	3	Reserved1	0x0020 (unsigned char)			member
+346	0	TimerType	0x0020 (unsigned char)			member
+346	1	TimerControlFlags	0x0020 (unsigned char)			member
+346	1	Absolute	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+346	1	Wake	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+346	1	EncodedTolerableDelay	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+346	2	Hand	0x0020 (unsigned char)			member
+346	3	TimerMiscFlags	0x0020 (unsigned char)			member
+346	3	Index	bitfield(0x0020 (unsigned char), offset=0, bits=6)	0	6	member
+346	3	Inserted	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+346	3	Expired	bitfield(0x1031, offset=7, bits=1)	7	1	member
+346	0	Timer2Type	0x0020 (unsigned char)			member
+346	1	Timer2Flags	0x0020 (unsigned char)			member
+346	1	Timer2Inserted	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+346	1	Timer2Expiring	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+346	1	Timer2CancelPending	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+346	1	Timer2SetPending	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+346	1	Timer2Running	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+346	1	Timer2Disabled	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+346	1	Timer2ReservedFlags	bitfield(0x0020 (unsigned char), offset=6, bits=2)	6	2	member
+346	2	Timer2ComponentId	0x0020 (unsigned char)			member
+346	3	Timer2RelativeId	0x0020 (unsigned char)			member
+346	0	QueueType	0x0020 (unsigned char)			member
+346	1	QueueControlFlags	0x0020 (unsigned char)			member
+346	1	Abandoned	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+346	1	DisableIncrement	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+346	1	QueueReservedControlFlags	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+346	2	QueueSize	0x0020 (unsigned char)			member
+346	3	QueueReserved	0x0020 (unsigned char)			member
+346	0	ThreadType	0x0020 (unsigned char)			member
+346	1	ThreadReserved	0x0020 (unsigned char)			member
+346	2	ThreadControlFlags	0x0020 (unsigned char)			member
+346	2	CycleProfiling	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+346	2	CounterProfiling	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+346	2	GroupScheduling	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+346	2	AffinitySet	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+346	2	Tagged	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+346	2	EnergyProfiling	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+346	2	SchedulerAssist	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+346	2	ThreadReservedControlFlags	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+346	3	DebugActive	0x0020 (unsigned char)			member
+346	3	ActiveDR7	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+346	3	Instrumented	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+346	3	Minimal	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+346	3	Reserved4	bitfield(0x0020 (unsigned char), offset=3, bits=3)	3	3	member
+346	3	UmsScheduled	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+346	3	UmsPrimary	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+346	0	MutantType	0x0020 (unsigned char)			member
+346	1	MutantSize	0x0020 (unsigned char)			member
+346	2	DpcActive	0x0020 (unsigned char)			member
+346	3	MutantReserved	0x0020 (unsigned char)			member
+346	4	SignalState	0x0012 (long)			member
+346	8	WaitListHead	_LIST_ENTRY			member
+404	0	Flink	_LIST_ENTRY*			member
+404	8	Blink	_LIST_ENTRY*			member
+1	760	ThreadListEntry	_LIST_ENTRY			member
+407	0	Flink	_LIST_ENTRY*			member
+407	8	Blink	_LIST_ENTRY*			member
+1	776	MutantListHead	_LIST_ENTRY			member
+410	0	Flink	_LIST_ENTRY*			member
+410	8	Blink	_LIST_ENTRY*			member
+1	792	AbEntrySummary	0x0020 (unsigned char)			member
+1	793	AbWaitEntryCount	0x0020 (unsigned char)			member
+1	794	AbAllocationRegionCount	0x0020 (unsigned char)			member
+1	795	SystemPriority	0x0070 (char)			member
+1	796	SecureThreadCookie	0x0022 (unsigned long)			member
+1	800	LockEntries	_KLOCK_ENTRY[576]			member
+1	1376	PropagateBoostsEntry	_SINGLE_LIST_ENTRY			member
+419	0	Next	_SINGLE_LIST_ENTRY*			member
+1	1384	IoSelfBoostsEntry	_SINGLE_LIST_ENTRY			member
+421	0	Next	_SINGLE_LIST_ENTRY*			member
+1	1392	PriorityFloorCounts	0x0020[16]			member
+1	1408	PriorityFloorSummary	0x0022 (unsigned long)			member
+1	1412	AbCompletedIoBoostCount	LF_MODIFIER			member
+1	1416	AbCompletedIoQoSBoostCount	LF_MODIFIER			member
+1	1420	KeReferenceCount	LF_MODIFIER			member
+1	1422	AbOrphanedEntrySummary	0x0020 (unsigned char)			member
+1	1423	AbOwnedEntryCount	0x0020 (unsigned char)			member
+1	1424	ForegroundLossTime	0x0022 (unsigned long)			member
+1	1432	GlobalForegroundListEntry	_LIST_ENTRY			member
+431	0	Flink	_LIST_ENTRY*			member
+431	8	Blink	_LIST_ENTRY*			member
+1	1432	ForegroundDpcStackListEntry	_SINGLE_LIST_ENTRY			member
+434	0	Next	_SINGLE_LIST_ENTRY*			member
+1	1440	InGlobalForegroundList	0x0023 (unsigned __int64)			member
+1	1448	ReadOperationCount	0x0013 (__int64)			member
+1	1456	WriteOperationCount	0x0013 (__int64)			member
+1	1464	OtherOperationCount	0x0013 (__int64)			member
+1	1472	ReadTransferCount	0x0013 (__int64)			member
+1	1480	WriteTransferCount	0x0013 (__int64)			member
+1	1488	OtherTransferCount	0x0013 (__int64)			member
+1	1496	QueuedScb	_KSCB*			member
+1	1504	ThreadTimerDelay	LF_MODIFIER			member
+1	1508	ThreadFlags2	LF_MODIFIER			member
+1	1508	PpmPolicy	bitfield(0x0022 (unsigned long), offset=0, bits=2)	0	2	member
+1	1508	ThreadFlags2Reserved	bitfield(0x0022 (unsigned long), offset=2, bits=30)	2	30	member
+1	1512	TracingPrivate	0x0023[8]			member
+1	1520	SchedulerAssist	0x0603 (void*)			member
+1	1528	AbWaitObject	0x0003*			member
+0	1536	CreateTime	_LARGE_INTEGER			member
+451	0	LowPart	0x0022 (unsigned long)			union
+451	4	HighPart	0x0012 (long)			union
+451	0	u	<anonymous-tag>			union
+454	0	LowPart	0x0022 (unsigned long)			member
+454	4	HighPart	0x0012 (long)			member
+451	0	QuadPart	0x0013 (__int64)			union
+0	1544	ExitTime	_LARGE_INTEGER			member
+458	0	LowPart	0x0022 (unsigned long)			union
+458	4	HighPart	0x0012 (long)			union
+458	0	u	<anonymous-tag>			union
+461	0	LowPart	0x0022 (unsigned long)			member
+461	4	HighPart	0x0012 (long)			member
+458	0	QuadPart	0x0013 (__int64)			union
+0	1544	KeyedWaitChain	_LIST_ENTRY			member
+465	0	Flink	_LIST_ENTRY*			member
+465	8	Blink	_LIST_ENTRY*			member
+0	1560	PostBlockList	_LIST_ENTRY			member
+468	0	Flink	_LIST_ENTRY*			member
+468	8	Blink	_LIST_ENTRY*			member
+0	1560	ForwardLinkShadow	0x0603 (void*)			member
+0	1568	StartAddress	0x0603 (void*)			member
+0	1576	TerminationPort	_TERMINATION_PORT*			member
+0	1576	ReaperLink	_ETHREAD*			member
+0	1576	KeyedWaitValue	0x0603 (void*)			member
+0	1584	ActiveTimerListLock	0x0023 (unsigned __int64)			member
+0	1592	ActiveTimerListHead	_LIST_ENTRY			member
+477	0	Flink	_LIST_ENTRY*			member
+477	8	Blink	_LIST_ENTRY*			member
+0	1608	Cid	_CLIENT_ID			member
+480	0	UniqueProcess	0x0603 (void*)			member
+480	8	UniqueThread	0x0603 (void*)			member
+0	1624	KeyedWaitSemaphore	_KSEMAPHORE			member
+483	0	Header	_DISPATCHER_HEADER			member
+484	0	Lock	LF_MODIFIER			member
+484	0	LockNV	0x0012 (long)			member
+484	0	Type	0x0020 (unsigned char)			member
+484	1	Signalling	0x0020 (unsigned char)			member
+484	2	Size	0x0020 (unsigned char)			member
+484	3	Reserved1	0x0020 (unsigned char)			member
+484	0	TimerType	0x0020 (unsigned char)			member
+484	1	TimerControlFlags	0x0020 (unsigned char)			member
+484	1	Absolute	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+484	1	Wake	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+484	1	EncodedTolerableDelay	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+484	2	Hand	0x0020 (unsigned char)			member
+484	3	TimerMiscFlags	0x0020 (unsigned char)			member
+484	3	Index	bitfield(0x0020 (unsigned char), offset=0, bits=6)	0	6	member
+484	3	Inserted	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+484	3	Expired	bitfield(0x1031, offset=7, bits=1)	7	1	member
+484	0	Timer2Type	0x0020 (unsigned char)			member
+484	1	Timer2Flags	0x0020 (unsigned char)			member
+484	1	Timer2Inserted	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+484	1	Timer2Expiring	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+484	1	Timer2CancelPending	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+484	1	Timer2SetPending	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+484	1	Timer2Running	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+484	1	Timer2Disabled	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+484	1	Timer2ReservedFlags	bitfield(0x0020 (unsigned char), offset=6, bits=2)	6	2	member
+484	2	Timer2ComponentId	0x0020 (unsigned char)			member
+484	3	Timer2RelativeId	0x0020 (unsigned char)			member
+484	0	QueueType	0x0020 (unsigned char)			member
+484	1	QueueControlFlags	0x0020 (unsigned char)			member
+484	1	Abandoned	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+484	1	DisableIncrement	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+484	1	QueueReservedControlFlags	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+484	2	QueueSize	0x0020 (unsigned char)			member
+484	3	QueueReserved	0x0020 (unsigned char)			member
+484	0	ThreadType	0x0020 (unsigned char)			member
+484	1	ThreadReserved	0x0020 (unsigned char)			member
+484	2	ThreadControlFlags	0x0020 (unsigned char)			member
+484	2	CycleProfiling	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+484	2	CounterProfiling	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+484	2	GroupScheduling	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+484	2	AffinitySet	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+484	2	Tagged	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+484	2	EnergyProfiling	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+484	2	SchedulerAssist	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+484	2	ThreadReservedControlFlags	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+484	3	DebugActive	0x0020 (unsigned char)			member
+484	3	ActiveDR7	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+484	3	Instrumented	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+484	3	Minimal	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+484	3	Reserved4	bitfield(0x0020 (unsigned char), offset=3, bits=3)	3	3	member
+484	3	UmsScheduled	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+484	3	UmsPrimary	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+484	0	MutantType	0x0020 (unsigned char)			member
+484	1	MutantSize	0x0020 (unsigned char)			member
+484	2	DpcActive	0x0020 (unsigned char)			member
+484	3	MutantReserved	0x0020 (unsigned char)			member
+484	4	SignalState	0x0012 (long)			member
+484	8	WaitListHead	_LIST_ENTRY			member
+542	0	Flink	_LIST_ENTRY*			member
+542	8	Blink	_LIST_ENTRY*			member
+483	24	Limit	0x0012 (long)			member
+0	1624	AlpcWaitSemaphore	_KSEMAPHORE			member
+546	0	Header	_DISPATCHER_HEADER			member
+547	0	Lock	LF_MODIFIER			member
+547	0	LockNV	0x0012 (long)			member
+547	0	Type	0x0020 (unsigned char)			member
+547	1	Signalling	0x0020 (unsigned char)			member
+547	2	Size	0x0020 (unsigned char)			member
+547	3	Reserved1	0x0020 (unsigned char)			member
+547	0	TimerType	0x0020 (unsigned char)			member
+547	1	TimerControlFlags	0x0020 (unsigned char)			member
+547	1	Absolute	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+547	1	Wake	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+547	1	EncodedTolerableDelay	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+547	2	Hand	0x0020 (unsigned char)			member
+547	3	TimerMiscFlags	0x0020 (unsigned char)			member
+547	3	Index	bitfield(0x0020 (unsigned char), offset=0, bits=6)	0	6	member
+547	3	Inserted	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+547	3	Expired	bitfield(0x1031, offset=7, bits=1)	7	1	member
+547	0	Timer2Type	0x0020 (unsigned char)			member
+547	1	Timer2Flags	0x0020 (unsigned char)			member
+547	1	Timer2Inserted	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+547	1	Timer2Expiring	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+547	1	Timer2CancelPending	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+547	1	Timer2SetPending	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+547	1	Timer2Running	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+547	1	Timer2Disabled	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+547	1	Timer2ReservedFlags	bitfield(0x0020 (unsigned char), offset=6, bits=2)	6	2	member
+547	2	Timer2ComponentId	0x0020 (unsigned char)			member
+547	3	Timer2RelativeId	0x0020 (unsigned char)			member
+547	0	QueueType	0x0020 (unsigned char)			member
+547	1	QueueControlFlags	0x0020 (unsigned char)			member
+547	1	Abandoned	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+547	1	DisableIncrement	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+547	1	QueueReservedControlFlags	bitfield(0x0020 (unsigned char), offset=2, bits=6)	2	6	member
+547	2	QueueSize	0x0020 (unsigned char)			member
+547	3	QueueReserved	0x0020 (unsigned char)			member
+547	0	ThreadType	0x0020 (unsigned char)			member
+547	1	ThreadReserved	0x0020 (unsigned char)			member
+547	2	ThreadControlFlags	0x0020 (unsigned char)			member
+547	2	CycleProfiling	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+547	2	CounterProfiling	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+547	2	GroupScheduling	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+547	2	AffinitySet	bitfield(0x0020 (unsigned char), offset=3, bits=1)	3	1	member
+547	2	Tagged	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+547	2	EnergyProfiling	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+547	2	SchedulerAssist	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+547	2	ThreadReservedControlFlags	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+547	3	DebugActive	0x0020 (unsigned char)			member
+547	3	ActiveDR7	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+547	3	Instrumented	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+547	3	Minimal	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+547	3	Reserved4	bitfield(0x0020 (unsigned char), offset=3, bits=3)	3	3	member
+547	3	UmsScheduled	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+547	3	UmsPrimary	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+547	0	MutantType	0x0020 (unsigned char)			member
+547	1	MutantSize	0x0020 (unsigned char)			member
+547	2	DpcActive	0x0020 (unsigned char)			member
+547	3	MutantReserved	0x0020 (unsigned char)			member
+547	4	SignalState	0x0012 (long)			member
+547	8	WaitListHead	_LIST_ENTRY			member
+605	0	Flink	_LIST_ENTRY*			member
+605	8	Blink	_LIST_ENTRY*			member
+546	24	Limit	0x0012 (long)			member
+0	1656	ClientSecurity	_PS_CLIENT_SECURITY_CONTEXT			member
+609	0	ImpersonationData	0x0023 (unsigned __int64)			union
+609	0	ImpersonationToken	0x0603 (void*)			union
+609	0	ImpersonationLevel	bitfield(0x0023 (unsigned __int64), offset=0, bits=2)	0	2	union
+609	0	EffectiveOnly	bitfield(0x0023 (unsigned __int64), offset=2, bits=1)	2	1	union
+0	1664	IrpList	_LIST_ENTRY			member
+614	0	Flink	_LIST_ENTRY*			member
+614	8	Blink	_LIST_ENTRY*			member
+0	1680	TopLevelIrp	0x0023 (unsigned __int64)			member
+0	1688	DeviceToVerify	_DEVICE_OBJECT*			member
+0	1696	Win32StartAddress	0x0603 (void*)			member
+0	1704	ChargeOnlySession	0x0603 (void*)			member
+0	1712	LegacyPowerObject	0x0603 (void*)			member
+0	1720	ThreadListEntry	_LIST_ENTRY			member
+622	0	Flink	_LIST_ENTRY*			member
+622	8	Blink	_LIST_ENTRY*			member
+0	1736	RundownProtect	_EX_RUNDOWN_REF			member
+625	0	Count	0x0023 (unsigned __int64)			member
+625	0	Ptr	0x0603 (void*)			member
+0	1744	ThreadLock	_EX_PUSH_LOCK			member
+628	0	Locked	bitfield(0x0023 (unsigned __int64), offset=0, bits=1)	0	1	member
+628	0	Waiting	bitfield(0x0023 (unsigned __int64), offset=1, bits=1)	1	1	member
+628	0	Waking	bitfield(0x0023 (unsigned __int64), offset=2, bits=1)	2	1	member
+628	0	MultipleShared	bitfield(0x0023 (unsigned __int64), offset=3, bits=1)	3	1	member
+628	0	Shared	bitfield(0x0023 (unsigned __int64), offset=4, bits=60)	4	60	member
+628	0	Value	0x0023 (unsigned __int64)			member
+628	0	Ptr	0x0603 (void*)			member
+0	1752	ReadClusterSize	0x0022 (unsigned long)			member
+0	1756	MmLockOrdering	LF_MODIFIER			member
+0	1760	CrossThreadFlags	0x0022 (unsigned long)			member
+0	1760	Terminated	bitfield(0x0022 (unsigned long), offset=0, bits=1)	0	1	member
+0	1760	ThreadInserted	bitfield(0x0022 (unsigned long), offset=1, bits=1)	1	1	member
+0	1760	HideFromDebugger	bitfield(0x0022 (unsigned long), offset=2, bits=1)	2	1	member
+0	1760	ActiveImpersonationInfo	bitfield(0x0022 (unsigned long), offset=3, bits=1)	3	1	member
+0	1760	HardErrorsAreDisabled	bitfield(0x0022 (unsigned long), offset=4, bits=1)	4	1	member
+0	1760	BreakOnTermination	bitfield(0x0022 (unsigned long), offset=5, bits=1)	5	1	member
+0	1760	SkipCreationMsg	bitfield(0x0022 (unsigned long), offset=6, bits=1)	6	1	member
+0	1760	SkipTerminationMsg	bitfield(0x0022 (unsigned long), offset=7, bits=1)	7	1	member
+0	1760	CopyTokenOnOpen	bitfield(0x0022 (unsigned long), offset=8, bits=1)	8	1	member
+0	1760	ThreadIoPriority	bitfield(0x0022 (unsigned long), offset=9, bits=3)	9	3	member
+0	1760	ThreadPagePriority	bitfield(0x0022 (unsigned long), offset=12, bits=3)	12	3	member
+0	1760	RundownFail	bitfield(0x0022 (unsigned long), offset=15, bits=1)	15	1	member
+0	1760	UmsForceQueueTermination	bitfield(0x0022 (unsigned long), offset=16, bits=1)	16	1	member
+0	1760	IndirectCpuSets	bitfield(0x0022 (unsigned long), offset=17, bits=1)	17	1	member
+0	1760	DisableDynamicCodeOptOut	bitfield(0x0022 (unsigned long), offset=18, bits=1)	18	1	member
+0	1760	ExplicitCaseSensitivity	bitfield(0x0022 (unsigned long), offset=19, bits=1)	19	1	member
+0	1760	PicoNotifyExit	bitfield(0x0022 (unsigned long), offset=20, bits=1)	20	1	member
+0	1760	DbgWerUserReportActive	bitfield(0x0022 (unsigned long), offset=21, bits=1)	21	1	member
+0	1760	ForcedSelfTrimActive	bitfield(0x0022 (unsigned long), offset=22, bits=1)	22	1	member
+0	1760	SamplingCoverage	bitfield(0x0022 (unsigned long), offset=23, bits=1)	23	1	member
+0	1760	ReservedCrossThreadFlags	bitfield(0x0022 (unsigned long), offset=24, bits=8)	24	8	member
+0	1764	SameThreadPassiveFlags	0x0022 (unsigned long)			member
+0	1764	ActiveExWorker	bitfield(0x0022 (unsigned long), offset=0, bits=1)	0	1	member
+0	1764	MemoryMaker	bitfield(0x0022 (unsigned long), offset=1, bits=1)	1	1	member
+0	1764	StoreLockThread	bitfield(0x0022 (unsigned long), offset=2, bits=2)	2	2	member
+0	1764	ClonedThread	bitfield(0x0022 (unsigned long), offset=4, bits=1)	4	1	member
+0	1764	KeyedEventInUse	bitfield(0x0022 (unsigned long), offset=5, bits=1)	5	1	member
+0	1764	SelfTerminate	bitfield(0x0022 (unsigned long), offset=6, bits=1)	6	1	member
+0	1764	RespectIoPriority	bitfield(0x0022 (unsigned long), offset=7, bits=1)	7	1	member
+0	1764	ActivePageLists	bitfield(0x0022 (unsigned long), offset=8, bits=1)	8	1	member
+0	1764	SecureContext	bitfield(0x0022 (unsigned long), offset=9, bits=1)	9	1	member
+0	1764	ZeroPageThread	bitfield(0x0022 (unsigned long), offset=10, bits=1)	10	1	member
+0	1764	WorkloadClass	bitfield(0x0022 (unsigned long), offset=11, bits=1)	11	1	member
+0	1764	ReservedSameThreadPassiveFlags	bitfield(0x0022 (unsigned long), offset=12, bits=20)	12	20	member
+0	1768	SameThreadApcFlags	0x0022 (unsigned long)			member
+0	1768	OwnsProcessAddressSpaceExclusive	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+0	1768	OwnsProcessAddressSpaceShared	bitfield(0x0020 (unsigned char), offset=1, bits=1)	1	1	member
+0	1768	HardFaultBehavior	bitfield(0x0020 (unsigned char), offset=2, bits=1)	2	1	member
+0	1768	StartAddressInvalid	bitfield(0x1031, offset=3, bits=1)	3	1	member
+0	1768	EtwCalloutActive	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+0	1768	SuppressSymbolLoad	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+0	1768	Prefetching	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+0	1768	OwnsVadExclusive	bitfield(0x0020 (unsigned char), offset=7, bits=1)	7	1	member
+0	1769	SystemPagePriorityActive	bitfield(0x0020 (unsigned char), offset=0, bits=1)	0	1	member
+0	1769	SystemPagePriority	bitfield(0x0020 (unsigned char), offset=1, bits=3)	1	3	member
+0	1769	AllowUserWritesToExecutableMemory	bitfield(0x0020 (unsigned char), offset=4, bits=1)	4	1	member
+0	1769	AllowKernelWritesToExecutableMemory	bitfield(0x0020 (unsigned char), offset=5, bits=1)	5	1	member
+0	1769	OwnsVadShared	bitfield(0x0020 (unsigned char), offset=6, bits=1)	6	1	member
+0	1772	CacheManagerActive	0x0020 (unsigned char)			member
+0	1773	DisablePageFaultClustering	0x0020 (unsigned char)			member
+0	1774	ActiveFaultCount	0x0020 (unsigned char)			member
+0	1775	LockOrderState	0x0020 (unsigned char)			member
+0	1776	AlpcMessageId	0x0023 (unsigned __int64)			member
+0	1784	AlpcMessage	0x0603 (void*)			member
+0	1784	AlpcReceiveAttributeSet	0x0022 (unsigned long)			member
+0	1792	AlpcWaitListEntry	_LIST_ENTRY			member
+694	0	Flink	_LIST_ENTRY*			member
+694	8	Blink	_LIST_ENTRY*			member
+0	1808	ExitStatus	0x0012 (long)			member
+0	1812	CacheManagerCount	0x0022 (unsigned long)			member
+0	1816	IoBoostCount	0x0022 (unsigned long)			member
+0	1820	IoQoSBoostCount	0x0022 (unsigned long)			member
+0	1824	IoQoSThrottleCount	0x0022 (unsigned long)			member
+0	1828	KernelStackReference	0x0022 (unsigned long)			member
+0	1832	BoostList	_LIST_ENTRY			member
+703	0	Flink	_LIST_ENTRY*			member
+703	8	Blink	_LIST_ENTRY*			member
+0	1848	DeboostList	_LIST_ENTRY			member
+706	0	Flink	_LIST_ENTRY*			member
+706	8	Blink	_LIST_ENTRY*			member
+0	1864	BoostListLock	0x0023 (unsigned __int64)			member
+0	1872	IrpListLock	0x0023 (unsigned __int64)			member
+0	1880	ReservedForSynchTracking	0x0603 (void*)			member
+0	1888	CmCallbackListHead	_SINGLE_LIST_ENTRY			member
+712	0	Next	_SINGLE_LIST_ENTRY*			member
+0	1896	ActivityId	LF_MODIFIER*			member
+0	1904	SeLearningModeListHead	_SINGLE_LIST_ENTRY			member
+715	0	Next	_SINGLE_LIST_ENTRY*			member
+0	1912	VerifierContext	0x0603 (void*)			member
+0	1920	AdjustedClientToken	0x0603 (void*)			member
+0	1928	WorkOnBehalfThread	0x0603 (void*)			member
+0	1936	PropertySet	_PS_PROPERTY_SET			member
+720	0	ListHead	_LIST_ENTRY			member
+721	0	Flink	_LIST_ENTRY*			member
+721	8	Blink	_LIST_ENTRY*			member
+720	16	Lock	0x0023 (unsigned __int64)			member
+0	1960	PicoContext	0x0603 (void*)			member
+0	1968	UserFsBase	0x0023 (unsigned __int64)			member
+0	1976	UserGsBase	0x0023 (unsigned __int64)			member
+0	1984	EnergyValues	_THREAD_ENERGY_VALUES*			member
+0	1992	CmDbgInfo	0x0603 (void*)			member
+0	2000	SelectedCpuSets	0x0023 (unsigned __int64)			member
+0	2000	SelectedCpuSetsIndirect	0x0623 (unsigned __int64*)			member
+0	2008	Silo	_EJOB*			member
+0	2016	ThreadName	_UNICODE_STRING*			member
+0	2024	SetContextState	_CONTEXT*			member
+0	2032	LastExpectedRunTime	0x0022 (unsigned long)			member
+0	2036	HeapData	0x0022 (unsigned long)			member
+0	2040	OwnerEntryListHead	_LIST_ENTRY			member
+737	0	Flink	_LIST_ENTRY*			member
+737	8	Blink	_LIST_ENTRY*			member
+0	2056	DisownedOwnerEntryListLock	0x0023 (unsigned __int64)			member
+0	2064	DisownedOwnerEntryListHead	_LIST_ENTRY			member
+741	0	Flink	_LIST_ENTRY*			member
+741	8	Blink	_LIST_ENTRY*			member

@@ -49,6 +49,9 @@ CMakeLists.txt text eol=lf
 .gitignore   text eol=lf
 .gitattributes text eol=lf
 .editorconfig text eol=lf
+# 结构布局的生产加载器按 LF TSV 解析，Windows checkout 不得将其变成 CRLF。
+Ksword5.1/Ksword5.1/profiles/thread_layouts/* text eol=lf
+Ksword5.1/Ksword5.1/profiles/process_layouts/* text eol=lf
 X96dbgIntegration/patches/*.patch text eol=lf
 
 # Preserve captured CRLF and terminal whitespace for serial offsets and SHA256 manifests.
