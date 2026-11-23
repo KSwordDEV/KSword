@@ -7,6 +7,10 @@
 
 ## 2026-11-22 偏移数据交付补查
 
+- 数据及修复已在 `483caa7c4` 实际提交，远端合并为 `f5680a23e`。对该干净合并源码再次正式 Build 通过，
+  日志 `ksword-build-check-20261122-203913.raw.log`，主 EXE 34,378,240 字节，SHA256
+  `686D5CEF94282607503B6ED2AC8028E355D2800FF63823385FB93A85AE150C89`，版本字面量为 `5.2.1.1Pre`。
+  先前双 VM 验收冻结的驱动/CLI 哈希只对应当时产物；本次 CLI 仅重建/磁盘布局回归，不冒充重新完成 VM 栈验收。
 - `.gitignore` 原先整体忽略 `profiles/`，两类各 1,946 份 TSV 和各自 `_versions.index` 全部漏交。
   现只为 `thread_layouts`、`process_layouts` 的 TSV/参考分片/版本索引开放例外，其它生成资产仍忽略。
   两类数据共 3,894 个文件；已核对 Git 暂存 blob、源文件和正式 Release 逐字节一致。
