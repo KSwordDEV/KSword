@@ -6,7 +6,6 @@
 #include <memory>
 
 class QComboBox;
-class QEvent;
 class QLabel;
 class QShowEvent;
 class QToolButton;
@@ -39,13 +38,12 @@ namespace ks::ui
     protected:
         // showEvent：惰性装配并刷新候选，不自动选择或改变任何目标。
         void showEvent(QShowEvent* event) override;
-        // changeEvent：语言切换时同步图标动作的提示和无障碍名称。
-        void changeEvent(QEvent* event) override;
 
     private:
         // ensureView：幂等装配正式生产服务；refreshProcesses 异步获取轻量进程列表。
         void ensureView();
         void refreshProcesses();
+        int candidateIndex(const QString& draft) const;
         // selectProcess：只接受列表中已核验的 PID+创建时间，选择前让目标层再次复核身份。
         void selectProcess();
         // closeSession：用户主动关闭会话；取消离开守卫时保持全部当前状态。
@@ -64,6 +62,7 @@ namespace ks::ui
         QVBoxLayout* layout_ = nullptr;            // 页面的根布局。
         QComboBox* processCombo_ = nullptr;        // 名称/PID 可筛选选择器，编辑文字不直接当身份。
         QComboBox* moduleCombo_ = nullptr;         // 当前会话的模块基址导航。
+        QWidget* moduleField_ = nullptr;
         QToolButton* refreshButton_ = nullptr;     // 刷新候选列表。
         QToolButton* selectButton_ = nullptr;      // 建立内存会话。
         QToolButton* closeButton_ = nullptr;       // 关闭当前内存会话。
@@ -76,6 +75,7 @@ namespace ks::ui
         QString processName_;                     // 成功选择的目标名称，不随列表刷新改变。
         MemoryDebugProcessCandidate selectedProcess_; // 名称缓存所属身份，不能套到另一个会话。
         bool refreshing_ = false;                 // 防止并发刷新造成选择器错配。
+        bool initialCatalogRequested_ = false;    // 导航可先构造视图，第一次显示仍要载入候选。
         bool initialModulePending_ = false;       // 仅首次模块加载自动导航，刷新不抢用户地址。
         bool quitPrepared_ = false;              // 已批准退出，整页冻结到释放完成或全局取消。
         bool enabledBeforeQuit_ = true;          // 取消退出时恢复原启用状态，不停止后台租约查询。

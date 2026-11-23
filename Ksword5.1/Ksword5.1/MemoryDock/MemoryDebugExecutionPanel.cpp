@@ -6,6 +6,7 @@
 #include "../UI/AsyncUiDispatcher.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/UI_All.h"
@@ -44,14 +45,14 @@ namespace ks::ui
             return ks::i18n::sourceText(QString::fromUtf8(source));
         }
 
-        // Action：输入宿主、资源图标和源语言释义，返回使用共享度量的图标动作。
-        QToolButton* Action(QWidget* parent, const char* icon, const char* tip)
+        QToolButton* Action(QWidget* parent, const char* label, const char* tip,
+            FlatButtonTone tone = FlatButtonTone::Neutral)
         {
-            auto* button = new QToolButton(parent); // 生命周期交给工具带。
-            button->setIcon(QIcon(QString::fromUtf8(icon)));
+            auto* button = new QToolButton(parent);
+            button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+            button->setText(T(label));
             button->setToolTip(T(tip));
-            button->setAutoRaise(true);
-            KswordTheme::ApplyCompactIconButtonMetrics(button);
+            ApplyFlatButtonTheme(button, tone, FlatButtonAppearance::Solid);
             return button;
         }
 
@@ -135,34 +136,45 @@ namespace ks::ui
         auto* root = new QVBoxLayout(this); // 专业页只增加紧凑工具带，结果仍由工作台伸展。
         root->setContentsMargins(8, 4, 8, 4);
         root->setSpacing(6);
-        auto* row = new QHBoxLayout(); // 选择器可缩，图标动作保持共享尺寸。
+        auto* fields = new FlowLayout(nullptr, 0, 16, 6);
+        const auto addField = [this, fields](const char* title, QComboBox* combo) {
+            auto* group = new QWidget(this);
+            auto* row = new QHBoxLayout(group);
+            row->setContentsMargins(0, 0, 0, 0);
+            auto* label = new QLabel(T(title), group);
+            label->setBuddy(combo);
+            combo->setAccessibleName(label->text());
+            StylePrimaryCombo(combo);
+            row->addWidget(label);
+            row->addWidget(combo);
+            NormalizeToolbarRow(row);
+            fields->addWidget(group);
+            return group;
+        };
         backend_ = new QComboBox(this);
         backend_->setObjectName(QStringLiteral("memory_debug_backend"));
         backend_->addItems({T("R3 线程检查"), T("协作 VEH 单步"), T("HVM 无附加调试（实验）"), T("普通驱动无附加调试（实验）")});
-        backend_->setMinimumWidth(0);
-        backend_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        StylePrimaryCombo(backend_);
-        row->addWidget(backend_, 1);
+        addField("调试方式", backend_);
         thread_ = new QComboBox(this);
         thread_->setObjectName(QStringLiteral("memory_debug_thread"));
-        thread_->setMinimumWidth(0);
-        thread_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        StylePrimaryCombo(thread_);
-        row->addWidget(thread_, 1);
-        refresh_ = Action(this, ":/Icon/process_refresh.svg", "刷新线程或连接目标主动加载的协作组件");
-        capture_ = Action(this, ":/Icon/process_details.svg", "临时暂停所选线程，读取寄存器后立即恢复");
-        pause_ = Action(this, ":/Icon/process_pause.svg", "暂停所选线程；协作模式等待目标主动检查点");
-        resume_ = Action(this, ":/Icon/process_start.svg", "仅恢复本会话暂停的线程，或继续当前协作停点");
-        step_ = Action(this, ":/Icon/memwb_tab_disasm.svg", "请求真实单步，以后端新的停止事件为准");
-        registers_ = Action(this, ":/Icon/process_copy_row.svg", "查看最近一次寄存器现场及来源，可搜索、复制和导出");
-        openHvm_ = Action(this, ":/Icon/process_start.svg", "显式启动所选无附加执行后端，以实际能力与确认结果为准");
+        thread_->setMinimumContentsLength(12);
+        thread_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        threadField_ = addField("目标线程", thread_);
+        root->addLayout(fields);
+        actions_ = new QWidget(this);
+        auto* row = new FlowLayout(actions_, 0, 8, 6);
+        refresh_ = Action(actions_, "刷新线程", "刷新当前进程的线程列表");
+        capture_ = Action(actions_, "捕获寄存器", "临时暂停所选线程，读取寄存器后立即恢复");
+        pause_ = Action(actions_, "暂停线程", "暂停所选线程；协作模式等待目标主动检查点");
+        resume_ = Action(actions_, "继续运行", "仅恢复本会话暂停的线程，或继续当前协作停点", FlatButtonTone::Accent);
+        step_ = Action(actions_, "单步", "请求真实单步，以后端新的停止事件为准");
+        registers_ = Action(actions_, "查看寄存器", "查看最近一次寄存器现场及来源，可搜索、复制和导出");
+        openHvm_ = Action(actions_, "启动后端", "显式启动所选无附加执行后端，以实际能力与确认结果为准", FlatButtonTone::Danger);
         openHvm_->setObjectName(QStringLiteral("memory_debug_hvm_open"));
-        configureHvm_ = Action(this, ":/Icon/process_details.svg", "管理当前后端执行断点、运行到地址和整数寄存器");
+        configureHvm_ = Action(actions_, "断点与寄存器", "管理当前后端执行断点、运行到地址和整数寄存器");
         configureHvm_->setObjectName(QStringLiteral("memory_debug_hvm_controls"));
-        closeHvm_ = Action(this, ":/Icon/log_clear.svg", "关闭本会话的独立运行控制，保留内存视图");
+        closeHvm_ = Action(actions_, "关闭后端", "关闭本会话的独立运行控制，保留内存视图");
         closeHvm_->setObjectName(QStringLiteral("memory_debug_hvm_close"));
-        ApplyFlatButtonTheme(openHvm_, FlatButtonTone::Danger);
-        ApplyFlatButtonTheme(resume_, FlatButtonTone::Accent);
         refresh_->setObjectName(QStringLiteral("memory_debug_connect"));
         capture_->setObjectName(QStringLiteral("memory_debug_capture"));
         pause_->setObjectName(QStringLiteral("memory_debug_pause"));
@@ -174,8 +186,8 @@ namespace ks::ui
         {
             row->addWidget(button);
         }
-        NormalizeToolbarRow(row);
-        root->addLayout(row);
+        NormalizeToolbarLayout(row);
+        root->addWidget(actions_);
         status_ = new QLabel(T("选择进程后刷新线程；R3 检查只暂停一个线程，其余线程继续运行。"), this);
         status_->setWordWrap(true);
         status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -287,6 +299,8 @@ namespace ks::ui
         connected_ = false;
         hvmAvailable_ = false;
         fastPollBudget_ = 0;
+        refresh_->setText(mode_ == 1 ? T("连接协作组件") : T("刷新线程"));
+        refresh_->setToolTip(mode_ == 1 ? T("连接目标主动加载的协作组件") : T("刷新当前进程的线程列表"));
         // 更换只发生在 prepareClose 成功之后；保持惰性，选进程不自动连接组件。
         status_->setText(mode_ == 3
             ? T("普通驱动：先刷新并选定线程。要求已验证内核与测试签名，HVCI 关闭；使用 TF/DR，不注入目标。首次启用后驱动留驻至重启。")
@@ -853,7 +867,9 @@ namespace ks::ui
             poll_->setInterval(pollingInterval);
         }
         backend_->setEnabled(!busy_);
-        thread_->setVisible(mode_ != 1);
+        actions_->setVisible(pid_ != 0);
+        status_->setVisible(pid_ != 0);
+        threadField_->setVisible(pid_ != 0 && mode_ != 1);
         thread_->setEnabled(ready && !ownsPause_ && !hvmActive);
         refresh_->setEnabled(ready && !ownsPause_ && !connected_ && !hvmActive);
         openHvm_->setVisible(mode_ >= 2);
@@ -866,6 +882,7 @@ namespace ks::ui
                     || hvmState_ == KSWORD_ARK_HVM_NOATTACH_INTERRUPTED)));
         resume_->setEnabled(ready && (mode_ == 0 ? ownsPause_
             : mode_ == 1 ? connected_ && stopped_ : hvmControllable && stopped_));
+        step_->setVisible(mode_ != 0);
         step_->setEnabled(ready && mode_ != 0 && stopped_ && (connected_ || hvmControllable));
         registers_->setEnabled(!document_.isEmpty());
         configureHvm_->setVisible(mode_ >= 2);
