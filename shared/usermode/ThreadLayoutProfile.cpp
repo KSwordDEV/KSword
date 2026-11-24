@@ -4,6 +4,7 @@
 #include <charconv>
 #include <fstream>
 #include <set>
+#include <sstream>
 #include <string_view>
 
 namespace ks::threadlayout
@@ -88,15 +89,13 @@ namespace ks::threadlayout
         return true;
     }
 
-    std::vector<CatalogEntry> LoadCatalog(const std::filesystem::path& directory)
+    std::vector<CatalogEntry> ParseCatalog(const std::string_view bytes)
     {
-        std::ifstream input(directory / L"_versions.index", std::ios::binary | std::ios::ate); // 不扫描语料盘或网络。
-        const auto size = input.tellg(); // 版本目录同样有固定读取上限。
-        if (size <= 0 || size > static_cast<std::streamoff>(kMaxBytes))
+        if (bytes.empty() || bytes.size() > kMaxBytes || bytes.back() != '\n')
         {
             return {};
         }
-        input.seekg(0);
+        std::istringstream input{std::string(bytes)}; // 内嵌索引与历史源索引使用同一严格解析规则。
         std::string line; // 每行只保存身份和文件版本，不保存字段或可读取偏移。
         if (!std::getline(input, line) || line != "KSWLAYOUTVERSIONS1")
         {
@@ -123,13 +122,32 @@ namespace ks::threadlayout
             {
                 return {};
             }
-            std::error_code error; // 文件移除、不可用与权限失败均不算包内可用版本。
-            if (std::filesystem::is_regular_file(directory / name, error))
-            {
-                entries.push_back(std::move(entry));
-            }
+            entries.push_back(std::move(entry)); // 包内是否存在对应记录由 v4 消费者核验。
         }
         return input.eof() ? entries : std::vector<CatalogEntry>{};
+    }
+
+    std::vector<CatalogEntry> LoadCatalog(const std::filesystem::path& directory)
+    {
+        std::ifstream input(directory / L"_versions.index", std::ios::binary | std::ios::ate); // 仅供源资产工具和回归。
+        const auto size = input.tellg(); // 延续单索引预算，不能无界读取。
+        if (size <= 0 || size > static_cast<std::streamoff>(kMaxBytes))
+        {
+            return {};
+        }
+        std::string bytes(static_cast<std::size_t>(size), '\0'); // 索引原始文本。
+        input.seekg(0);
+        if (!input.read(bytes.data(), static_cast<std::streamsize>(size)))
+        {
+            return {};
+        }
+        auto entries = ParseCatalog(bytes); // 旧工具入口仍只承认实际存在的源分片。
+        std::erase_if(entries, [&directory](const auto& entry)
+        {
+            std::error_code error; // 权限和文件缺失都不构成可用版本。
+            return !std::filesystem::is_regular_file(directory / FileName(entry.identity), error);
+        });
+        return entries;
     }
 
     Neighbors SelectNeighbors(const std::vector<CatalogEntry>& entries, const Identity& current, const Version& version)
@@ -229,6 +247,15 @@ namespace ks::threadlayout
             return {};
         }
 
+        return Parse(bytes, expected, kind);
+    }
+
+    Profile Parse(const std::string_view bytes, const Identity* expected, const Kind kind)
+    {
+        if (bytes.empty() || bytes.size() > kMaxBytes || bytes.back() != '\n')
+        {
+            return {};
+        }
         Profile result; // 任一行坏掉就丢弃整份，避免部分布局冒充完整布局。
         std::string_view remaining(bytes); // 逐行推进，无额外的整文件副本。
         const auto next = [&remaining]()

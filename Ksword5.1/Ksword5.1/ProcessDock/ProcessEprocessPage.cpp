@@ -159,9 +159,9 @@ namespace
             }
             tree.expand(filter.mapFromSource(fixed->index()));
         }
-        if (!result.layout.bracketed)
+        if (result.layout.profile.fields.empty() && !result.layout.bracketed)
         {
-            structure::ColorUnbracketedTree(*root); // 包外版本、端点及缺失双侧时，连根项和固定回退一起标黄。
+            structure::ColorUnbracketedTree(*root); // 仅未命中精确布局且缺少双侧参考时，连根项和固定回退一起标黄。
         }
         if (filter.filterRegularExpression().pattern().isEmpty())
         {

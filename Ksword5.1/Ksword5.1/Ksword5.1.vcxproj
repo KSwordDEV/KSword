@@ -1739,8 +1739,8 @@
     <Move SourceFiles="@(KswordStaleDynDataPack)" DestinationFolder="$(KswordStaleDynDataPackArchiveDir)" Condition="'@(KswordStaleDynDataPack)'!=''" />
     <MakeDir Directories="$(KswordArkDynDataProfilePackTargetDir)" Condition="Exists('$(KswordArkDynDataProfilePackV4Source)')" />
     <Exec Command="&quot;$(KswordProfilePythonExe)&quot; &quot;$(KswordProfileCompressor)&quot; --file &quot;$(KswordArkDynDataProfilePackV4Source)&quot; --out &quot;$(KswordArkDynDataProfilePackTargetDir)ark_dyndata_pack_v4.json.qz&quot; --normalize-dyndata-v4" Condition="Exists('$(KswordProfileCompressor)') And Exists('$(KswordArkDynDataProfilePackV4Source)')" />
-    <Warning Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; compressed profile packs were not generated: $(KswordProfileCompressor)" />
-    <Warning Condition="!Exists('$(KswordArkDynDataProfilePackV4Source)')" Text="KswordARK DynData v4 profile pack was not found: $(KswordArkDynDataProfilePackV4Source)" />
+    <Error Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; a complete v4 pack cannot be published: $(KswordProfileCompressor)" />
+    <Error Condition="!Exists('$(KswordArkDynDataProfilePackV4Source)')" Text="KswordARK DynData v4 profile pack was not found: $(KswordArkDynDataProfilePackV4Source)" />
   </Target>
   <Target Name="CopyRegistryOptimizationProfile" AfterTargets="Build" Condition="'$(KswordSkipRegistryOptimizationProfile)'!='true'">
     <!-- 系统优化页运行时优先读取 profiles\registry_optimization_items.json.qz；源文件是本地提取资产，已加入 .gitignore。 -->
@@ -1762,19 +1762,8 @@
     <Warning Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; registry optimization profile was not compressed: $(KswordProfileCompressor)" />
     <Warning Condition="!Exists('$(KswordRegistryOptimizationProfileSource)')" Text="Registry optimization profile was not found; System Optimization tab will show an empty profile list: $(KswordRegistryOptimizationProfileSource)" />
   </Target>
-  <Target Name="CopyKswordKernelStructureProfiles" AfterTargets="Build">
-    <ItemGroup>
-      <ThreadStructureShard Include="$(MSBuildProjectDirectory)\profiles\thread_layouts\*.tsv" />
-      <ProcessStructureShard Include="$(MSBuildProjectDirectory)\profiles\process_layouts\*.tsv" />
-      <ThreadStructureProfile Include="$(MSBuildProjectDirectory)\profiles\thread_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\thread_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\thread_layouts\_versions.index" />
-      <ProcessStructureProfile Include="$(MSBuildProjectDirectory)\profiles\process_layouts\*.tsv;$(MSBuildProjectDirectory)\profiles\process_layouts\*.neighbors;$(MSBuildProjectDirectory)\profiles\process_layouts\_versions.index" />
-    </ItemGroup>
-    <!-- 空通配符不能静默算作交付成功：两类完整分片与数字版本目录缺一即失败。 -->
-    <Error Condition="'@(ThreadStructureShard)'=='' Or '@(ProcessStructureShard)'==''" Text="Exact kernel structure layout shards are missing from the source checkout." />
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)\profiles\thread_layouts\_versions.index') Or !Exists('$(MSBuildProjectDirectory)\profiles\process_layouts\_versions.index')" Text="Kernel structure version catalogs are missing; nearest-version reference fields cannot be resolved." />
-    <Copy SourceFiles="@(ThreadStructureProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(ProcessStructureProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
-  </Target>
+  <!-- 完整结构及版本目录由 CopyKswordArkDynDataProfilePack 内嵌，不再复制独立分片。 -->
+  <Import Project="..\..\shared\usermode\ThreadLayoutPack.targets" />
   <Target Name="CopyKswordArkPdbDeepOffsetLibraries" AfterTargets="Build">
     <!-- 深度 PDB 偏移库用于进程/线程/对象等详情页后续扩展；运行时优先读取本地 .json.qz，不依赖开发机 E: 符号缓存。 -->
     <ItemGroup>

@@ -1885,6 +1885,15 @@ def write_compact_json(path: Path, data: dict[str, Any]) -> None:
     Return behavior:
     - No return value; raises OSError/TypeError if writing fails.
     """
+    # v4 的唯一发布文件同时携带用户态完整布局；原驱动 profiles/items 保持原协议。
+    if data.get("packVersion") == KSW_PACK_VERSION_V4:
+        if __package__:
+            from .ksword_v4_structure_layouts import build_structure_layouts
+        else:
+            from ksword_v4_structure_layouts import build_structure_layouts
+
+        layout_root = Path(__file__).resolve().parents[2] / "Ksword5.1/Ksword5.1/profiles"
+        data["structureLayouts"] = build_structure_layouts(layout_root)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
     atomic_write_bytes(path, payload.encode("utf-8"))
 

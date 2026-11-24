@@ -38,10 +38,16 @@ try {
     Write-Output "INTDIR=$int"
     Write-Output "OUTDIR=$out"
     Write-Output "COMPILER=$compiler"
+    # 原生完整 v4 回归与 CLI 使用同一个静态解压库；构建沿用当前 BelowNormal 宿主。
+    & $msbuild 'third_party\zlib\ZlibStatic.vcxproj' /t:Build /p:Configuration=Release /p:Platform=x64 `
+        /p:PreferredToolArchitecture=x64 /p:PROCESSOR_ARCHITECTURE=AMD64 /p:PROCESSOR_ARCHITEW6432=AMD64 /m:1 /v:minimal
+    if ($LASTEXITCODE) { throw 'Native v4 decompression library build failed.' }
     $flags = @('/nologo', '/MD', '/O2', '/EHsc', '/std:c++20', '/W4', '/WX', '/utf-8') # 所有测试与生产客户端使用相同 CRT。
     $units = @(
         @('shared\usermode\StructureSampleProjection.cpp', 'StructureSampleTestsImplementation.obj'),
         @('shared\usermode\ThreadLayoutProfile.cpp', 'StructureSampleTestsProfile.obj'),
+        @('shared\usermode\ThreadLayoutPack.cpp', 'StructureSampleTestsPack.obj'),
+        @('Launcher\Json.cpp', 'StructureSampleTestsJson.obj'),
         @('Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverStructureSampling.cpp', 'StructureSampleTestsClient.obj'),
         @('shared\usermode\LiveKernelThreadStack.cpp', 'LiveKernelStackWireImplementation.obj')
     ) # 独立对象名避免覆盖生产工程的同名 .obj。
@@ -55,6 +61,7 @@ try {
     if ($LASTEXITCODE) {throw 'Saved stack production bounds checker compile failed.'}
     $tests = @(
         @('tools\tests\structure_sample_projection_tests.cpp', 'StructureSampleProjectionTests', @('StructureSampleTestsImplementation.obj', 'StructureSampleTestsProfile.obj')),
+        @('tools\tests\structure_layout_pack_tests.cpp', 'StructureLayoutPackTests', @('StructureSampleTestsProfile.obj', 'StructureSampleTestsPack.obj', 'StructureSampleTestsJson.obj')),
         @('tools\tests\structure_sample_client_tests.cpp', 'StructureSampleClientTests', @('StructureSampleTestsImplementation.obj', 'StructureSampleTestsClient.obj')),
         @('tools\tests\live_kernel_stack_wire_tests.cpp', 'LiveKernelStackWireTests', @('LiveKernelStackWireImplementation.obj')),
         @('tools\tests\live_saved_stack_check_tests.cpp', 'LiveSavedStackCheckTests', @('SavedStackCheck.production.obj')),
@@ -62,6 +69,9 @@ try {
     ) # 分别覆盖采样解码、真实客户端拒绝和独立在线栈回执验证器；全部只是合成测试。
     foreach ($test in $tests) {
         $objects = @($test[2] | ForEach-Object { Join-Path $int $_ }) # 本测试实际链接的生产对象。
+        if ($test[1] -eq 'StructureLayoutPackTests') {
+            $objects += Join-Path $root 'third_party\zlib\x64\Release\KswordZlib.lib'
+        }
         $exe = Join-Path $out ($test[1] + '.exe') # 固定的辅助测试产物。
         & $compiler @flags ("/Fo" + (Join-Path $int ($test[1] + '.main.obj'))) ("/Fe" + $exe) $test[0] @objects /link /INCREMENTAL:NO ("/PDB:" + (Join-Path $out ($test[1] + '.pdb')))
         if ($LASTEXITCODE) { throw "Test link failed: $($test[1])" }
@@ -78,6 +88,9 @@ try {
                     $arguments += $profile
                 }
             }
+        }
+        if ($test[1] -eq 'StructureLayoutPackTests') {
+            $arguments = @((Join-Path $out 'profiles\ark_dyndata_pack_v4.json.qz'), (Join-Path $root 'Ksword5.1\Ksword5.1\profiles'))
         }
         & $exe @arguments
         if ($LASTEXITCODE) { throw "Regression failed: $($test[1])" }

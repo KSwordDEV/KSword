@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
+import zlib
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -38,7 +40,7 @@ def unavailable(data, reason):
 
 def test_image(exe, root, image, scratch, *, default_image):
     for command, directory, root_type, marker, embedded_name, embedded_type in KINDS:
-        options = ('--image', image, '--profiles', root)
+        options = ('--image', image, '--profiles', RELEASE / 'profiles')  # 运行时只有单一 v4，源码 TSV 仅作独立对照。
         data = invoke(exe, (*command, *options))
         assert data['metadataOnly'] is True and data['source'] == 'pdb_layout_profile', data
         assert data['rootType'] == root_type and data['availability'] == 'available'
@@ -46,7 +48,7 @@ def test_image(exe, root, image, scratch, *, default_image):
         identity = data['imageIdentity']
         filename = '{machine}-{timestamp}-{imageSize}.tsv'.format(**identity)
         path = root / directory / filename
-        assert Path(data['profilePath']) == path
+        assert Path(data['profilePath']) == RELEASE / 'profiles/ark_dyndata_pack_v4.json.qz'
         text = path.read_text(encoding='utf-8').splitlines()
         assert text[0].split('\t') == [marker, '34404', str(identity['timestamp']),
                                        str(identity['imageSize']), identity['pdbKey'], str(data['rootSize'])]
@@ -63,22 +65,34 @@ def test_image(exe, root, image, scratch, *, default_image):
         assert any(row['parent'] != 0 for row in rows) and any(row['unionAlias'] for row in rows)
         assert any(row['bitOffset'] == 0 and row['bitWidth'] for row in rows)
         defaults = invoke(exe, command if default_image else (*command, '--image', image))
-        assert Path(defaults['profilePath']) == exe.parent / 'profiles' / directory / filename
+        assert Path(defaults['profilePath']) == exe.parent / 'profiles/ark_dyndata_pack_v4.json.qz'
         assert defaults['imageIdentity'] == identity and defaults['fields'] == data['fields']
 
         missing_options = (*command, '--image', image, '--profiles', scratch)
         unavailable(invoke(exe, missing_options, 5), 'profile_unavailable')
-        candidate = scratch / directory / filename
-        candidate.parent.mkdir(exist_ok=True)
+        candidate = scratch / 'ark_dyndata_pack_v4.json.qz'  # 不复制产品或运行时，仅写入损坏配置夹具。
         source = path.read_bytes()
         key = identity['pdbKey'].encode('ascii')
         altered_age = key[:-1] + (b'2' if key[-1:] == b'1' else b'1')
         altered_guid = (b'1' if key[:1] == b'0' else b'0') + key[1:]
-        other_marker = b'KSWPROCESS1' if marker == 'KSWTHREAD1' else b'KSWTHREAD1'
-        for rejected in (source.replace(key, altered_age, 1), source.replace(key, altered_guid, 1),
-                         source.replace(marker.encode('ascii'), other_marker, 1),
-                         source + b'malformed\n', source + b'0\t0\t\xff\tint\t\t\tmember\n'):
-            candidate.write_bytes(rejected)
+        # 仅保留当前精确身份的两种结构，验证包内错误身份、错误父行、坏 UTF-8 和截断拒绝。
+        layouts = {'formatVersion': 1, 'fieldSets': {}}
+        for _, group, _, _, _, _ in KINDS:
+            raw = (root / group / filename).read_bytes()
+            header, body = raw.split(b'\n', 1)
+            size = int(header.split(b'\t')[-1])
+            digest = hashlib.sha256(body).hexdigest()
+            catalog = (root / group / '_versions.index').read_bytes().splitlines()
+            row = next(row for row in catalog[1:] if row.split(b'\t')[3] == key)
+            layouts[group] = {'catalog': (catalog[0] + b'\n' + row + b'\n').decode('ascii'),
+                              'profiles': {filename: [size, digest]}}
+            layouts['fieldSets'][digest] = body.decode('utf-8')
+        packed = json.dumps({'schemaVersion': 1, 'packVersion': 4, 'structureLayouts': layouts},
+                            separators=(',', ':')).encode('utf-8')
+        for rejected in (packed.replace(key, altered_age), packed.replace(key, altered_guid),
+                         packed.replace(b'0\\t0\\t', b'99999\\t0\\t', 1),
+                         packed.replace(embedded_name.encode(), b'\xff', 1), packed[:-10]):
+            candidate.write_bytes(struct.pack('>I', len(rejected)) + zlib.compress(rejected, 9))
             unavailable(invoke(exe, missing_options, 5), 'profile_unavailable')
         candidate.unlink()
 

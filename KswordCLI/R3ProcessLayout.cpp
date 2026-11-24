@@ -53,7 +53,7 @@ Result queryLayout(const Args& args, const layout::Kind kind)
     const auto identity = image.empty() ? layout::Identity{} : layout::ReadImageIdentity(image);
     const bool hasIdentity = identity.machine != 0 && identity.imageSize != 0 && !identity.pdbKey.empty();
     const auto shard = hasIdentity && !profiles.empty()
-        ? profiles / layout::Directory(kind) / layout::FileName(identity) : fs::path{};
+        ? profiles / layout::PackFileName : fs::path{}; // 包路径是真实来源，不再报告不存在的外置 TSV。
     const auto output = [&](const wchar_t* availability, Json rootSize, const std::vector<Json>& fields)
     {
         return Json::object({
@@ -76,8 +76,8 @@ Result queryLayout(const Args& args, const layout::Kind kind)
     if (shard.empty())
         return {5, output(L"profile_directory_unavailable", {}, {}), {L"Could not locate the profiles directory beside the CLI executable."}};
 
-    // The PE tuple only locates the candidate; Load must also match its exact RSDS GUID/Age and root kind.
-    const auto profile = layout::Load(shard, &identity, kind);
+    // v4 索引只定位候选；共享消费者仍精确核对 PE/RSDS 和根类型，不使用邻版读取。
+    const auto profile = layout::LoadPack(shard, identity, kind);
     if (profile.fields.empty())
         return {5, output(L"profile_unavailable", {}, {}), {L"The exact layout profile is missing, unreadable, invalid, or does not match the disk PE/RSDS identity."}};
 
@@ -111,7 +111,7 @@ void registerProcessLayouts()
     {
         addCommand({path, std::wstring(L"KswordCLI.exe ") + path + L" [--image PATH] [--profiles DIR] [--json]",
             summary,
-            L"Optional: --image disk PE (default: system ntoskrnl.exe), --profiles root directory (default: profiles beside the CLI executable), --json.",
+            L"Optional: --image disk PE (default: system ntoskrnl.exe), --profiles directory containing ark_dyndata_pack_v4.json.qz (default: profiles beside the CLI executable), --json.",
             L"Read-only disk metadata; matches the PE identity and RSDS GUID/Age. Offsets are relative to each parent. Union markers do not select an active branch. No live object values or driver access; unavailable evidence returns exit 5.",
             [kind](const Args& args) { return queryLayout(args, kind); }});
     };

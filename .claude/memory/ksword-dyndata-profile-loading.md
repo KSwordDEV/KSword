@@ -1,5 +1,14 @@
 # DynData v4 读取、提取与分模块回执
 
+## 2026-11-23：完整结构元数据统一发布
+
+- v4 现在同时携带 `structureLayouts` 扩展，包含完整 EPROCESS/ETHREAD、精确身份、根大小及
+  两个版本索引。GUI/CLI 的结构入口只读取 `ark_dyndata_pack_v4.json.qz`，不再依赖外置 TSV。
+  原驱动业务 `profiles/items` 不变，布局覆盖不扩大现场对象采样授权。格式、生产消费者、
+  全量逐字段回归及最终构建回执见 [实时结构采样](ksword-live-structure-sample.md) 的 2026-11-23 节。
+- `ksword_v4_pack_normalizer.py` 必须保留并核验该扩展；压缩器从已入 Git 的两类源 TSV 与索引
+  生成最新扩展。任何一类源、索引或对应记录缺失均阻止发布，不能静默生成只有业务偏移的包。
+
 ## 2026-11-01：自身驱动总览刷新阻塞
 
 - 导航为“驱动 Dock → Ksword自身驱动 → 总览”，实际实现是 `KernelDock.DynData.cpp`，不是相邻的“驱动状态”。总览属于只读结果列表＋字段详情；同次刷新还更新 PDB Profile 的列表与完整诊断。参考 `KernelDock.DriverStatus.cpp`、`HardwareOtherDevicesPage.cpp` 及共享 `StructuredFieldView` 值模型。

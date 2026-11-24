@@ -4,6 +4,7 @@
 #include <array>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ks::threadlayout
@@ -54,6 +55,8 @@ namespace ks::threadlayout
     bool ParseVersion(const std::string& text, Version& output);
     // 输入发布分片目录，返回仅引用目录内真实存在分片的版本表；缺失或损坏时为空。
     std::vector<CatalogEntry> LoadCatalog(const std::filesystem::path& directory);
+    // 从 v4 内嵌文本解析版本索引；不访问外部目录，错误时整表拒绝。
+    std::vector<CatalogEntry> ParseCatalog(std::string_view bytes);
     // 输入包内版本表和当前精确身份/文件版本，输出最近双侧；缺任意一侧必须按黄色处理。
     Neighbors SelectNeighbors(const std::vector<CatalogEntry>& entries, const Identity& current, const Version& version);
     // 输入同一版本表与当前身份，返回最近双侧的全部来源；歧义只限制采样/风险判定，不抹掉参考字段。
@@ -65,6 +68,14 @@ namespace ks::threadlayout
 
     // 输入单个分片与可选预期身份；无效、不匹配或缺文件时返回空 Profile。
     Profile Load(const std::filesystem::path& file, const Identity* expected = nullptr, Kind kind = Kind::Thread);
+    // 复用同一生产校验器解析 v4 中的完整布局文本，身份、层级、位域与边界规则不变。
+    Profile Parse(std::string_view bytes, const Identity* expected = nullptr, Kind kind = Kind::Thread);
+
+    // 正式运行时统一从 v4 包读取；不再回退到外置 TSV 或访问网络/驱动。
+    std::vector<CatalogEntry> LoadPackCatalog(const std::filesystem::path& pack, Kind kind);
+    Profile LoadPack(const std::filesystem::path& pack, const Identity& expected, Kind kind);
+    // 返回唯一正式 v4 文件名；GUI、CLI 与构建部署共享这一名称。
+    inline constexpr wchar_t PackFileName[] = L"ark_dyndata_pack_v4.json.qz";
 
     // 返回 profile 根目录下的线程/进程布局相对路径。
     const wchar_t* Directory(Kind kind);

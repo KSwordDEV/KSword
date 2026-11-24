@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- GUI/CLI 共享同一原生读取器及静态解压库；不引入额外运行时 DLL。 -->
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)ThreadLayoutPack.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\Launcher\Json.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\third_party\zlib\ZlibStatic.vcxproj">
+      <Project>{52CC0FD7-5DE0-4EC3-A30E-1E63B1F4A4D6}</Project>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Target Name="CopyStructurePackZlibLicense" AfterTargets="Build">
+    <MakeDir Directories="$(TargetDir)licenses\third_party" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\third_party\zlib\LICENSE.txt" DestinationFiles="$(TargetDir)licenses\third_party\zlib-LICENSE.txt" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\third_party\zlib\NOTICE.md" DestinationFiles="$(TargetDir)licenses\third_party\zlib-NOTICE.md" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

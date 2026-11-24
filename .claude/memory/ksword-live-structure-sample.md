@@ -1,9 +1,60 @@
 # 实时结构采样与回执验收
 
-状态日期：2026-11-22。完整进度与证据范围见
+状态日期：2026-11-23。完整进度与证据范围见
 [验收记录](../../docs/validation/实时结构采样与在线内核栈验收-20261122.md)。
 代码已在 `b2927455d` 提交；该提交没有包含被忽略的结构布局数据，不能等同于可独立重建的完整交付。
 下面历史段落中的“未提交”指当时状态；不要把已提交或已编译等同于已发布能力。
+
+## 2026-11-23：精确布局不使用邻版风险底色
+
+- 用户纠正颜色规则：精确 PE/RSDS 命中后，即使当前版是目录端点或缺少严格前后邻版，
+  EPROCESS/ETHREAD 根项和全部成员也应使用正常主题背景。双侧版本判断仅用于未命中精确布局的参考。
+- 共享 `AppendLayout` 不再按 `bracketed` 染黄；EPROCESS 页及两个线程入口的正文、仅布局、
+  固定字段回退路径均遵守同一规则。读取失败、未采样、union 和暂不支持解码继续显示真实文字状态。
+- 页面仍属于专业结构树：复用 `KernelStructureTree::Configure`、`TablePresentation` 及现有五列模型；
+  无新增布局或用户文案。按用户限制仅做源码和正式 Release 构建/包校验，不进行 GUI 或离屏 GUI 验收。
+- 本次修正的 HostX64 Release 增量构建通过，`BUILD_RESULT=SUCCESS`、`EXIT_CODE=0`、语言审计通过；
+  日志 `.codex-build-logs/ksword-build-check-20261123-224744.raw.log`，产物仍为正式
+  `Ksword5.1/x64/Release/Ksword5.1.exe`。实际深浅主题、选择态和各回退分支由用户手动验收。
+
+## 2026-11-23：完整结构与版本索引统一并入 v4
+
+- 用户明确要求单一 v4 发布。`ark_dyndata_pack_v4.json.qz` 顶层新增 `structureLayouts`
+  用户态扩展：`formatVersion=1`，`fieldSets` 保存按 SHA256 去重的完整 TSV 字段正文；
+  `thread_layouts` / `process_layouts` 分别保存原始 `catalog` 文本及文件名到 `[rootSize, fieldSetKey]`
+  的 `profiles` 映射。两个索引及每类 1,946 个精确身份全部内嵌，184 份共享正文不丢任何字段。
+- `shared/usermode/ThreadLayoutPack.cpp` 是 GUI/CLI 共用的生产消费者：有界 qCompress 解压、
+  选择性 JSON DOM、字段正文/目录完整性校验，按路径/大小/时间缓存已验证扩展。只在精确
+  PE 三元组加非空 RSDS GUID/Age 全匹配时返回布局；参考仍由原邻版选择器处理，不增加 R0 授权。
+  完整字段继续由 `ThreadLayoutProfile::Parse` 核验。CLI 不引入 Qt 运行时依赖，使用静态 zlib，
+  原许可证及修改说明在 `third_party/zlib/`，随包部署 `zlib-LICENSE.txt`、`zlib-NOTICE.md`。
+- GUI `LoadLayout`、CLI 两条 `layout query` 与两条 `layout sample` 均已切换到单一 v4。
+  不再读取外置 TSV 或 `.neighbors`；五列树、内嵌结构、两个线程入口和独立进程子页没有重排。
+   无精确布局时仍显示包内邻版参考，参考缺严格前后邻版继续黄色，参考不能授权现场采样。
+- 发布同步器、规范化器、压缩器及 GUI/CLI 构建链均保留/生成该扩展；源码 TSV 与索引作为
+  已入 Git 的可审计输入继续保留，正式 Release 不再复制独立布局目录。原 Release 两目录
+  的 3,894 个文件已逐字节对照源码、确认未被 Git 跟踪且无占用后删除，源码没有删除。
+- 对原两包中的旧 v4 比较：2,932 个业务 profiles / 591,302 个 items 对象完全不变。
+  新 v4 为 7,422,819 字节，SHA256 `5285dc30d7bc505d3556611a873f84223aaf12c2c635915943b630067485e187`。
+  该文件不能与旧单纯业务 v4 互换后声称仍有完整结构布局。
+- `Invoke-StructureSampleTests.ps1 -IncludeExactProfiles` 通过原生全量对照：ETHREAD 1,507,365 行、
+  EPROCESS 1,294,309 行，全部身份、版本、根大小和每个字段属性一致。新增
+  `test_v4_structure_layouts.py` 的四组测试含原生损坏包拒绝；旧投影、客户端、wire 回归通过。
+  生产 Qt 业务消费者仍接受全部 2,932 个 profiles 和四个拒绝用例，发布器八项单测通过。
+- 删除 Release 外置目录后，正式 CLI 的磁盘布局回归通过（本机线程 766 / 进程 672 行），
+  现场采样前置拒绝也通过并明确 `deviceAccessAttempted=false`；没有加载宿主驱动或做 GUI 自动化。
+- 最终主程序 HostX64 / BelowNormal 整合 Build 通过，日志
+  `ksword-build-check-20261123-033040.raw.log`：`BUILD_RESULT=SUCCESS`、`EXIT_CODE=0`，
+  语言审计通过；EXE 34,416,536 字节，SHA256
+  `93C0700E65B8346F371AB7F26C2A3B9EC9DD7CB33CAF3C5AB87A5C41E4C18BAC`。
+  CLI、Launcher 同步构建成功；本轮源码修改尚未提交/推送。
+- 最终只同名更新 `Ksword5.1/x64/KswordARK-5.2.1.1Pre.7z`（48,459,865 字节，121 文件）
+  和 `KswordARK-5.2.1.1Pre-PDB.7z`（30,475,151 字节，8 文件）。两包精确白名单、7z 完整性、
+  逐文件 CRC/冻结输入 SHA256、全部八对 PE/PDB GUID/Age 及包内两类各 1,946 身份均通过。
+  没有新建日期版、ZIP 或校验交付文件；历史其它版本包未动。原生/CLI 测试配置目录已清理。
+  最终包摘要及冻结输入保存在 `.codex-build-logs/package-v4-layouts-20261123-inputs.json`：
+  程序包 `339F48A89BC5757FBADC4285D307B6E2AD1FC39358B21FD0D46B124B3BE2BF92`，
+  PDB 包 `13F320BE85D80CEE8C6E88842B8D08B7530024764729A7201EBDF42D7C9CA824`。
 
 ## 2026-11-22 偏移数据交付补查
 

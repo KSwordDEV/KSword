@@ -133,8 +133,15 @@ def normalize_pack(pack: Any) -> dict[str, Any]:
     if not isinstance(profiles, list) or not profiles:
         raise ValueError("DynData profiles must be nonempty")
     core_max = field_id_max()
-    return {
+    result = {
         "schemaVersion": 1,
         "packVersion": 4,
         "profiles": [normalize_profile(profile, index, core_max) for index, profile in enumerate(profiles)],
     }
+    # 完整布局是 v4 的用户态元数据，不变成驱动 item，也不能被规范化器丢弃。
+    if "structureLayouts" in pack:
+        from .ksword_v4_structure_layouts import validate_structure_layouts
+
+        validate_structure_layouts(pack["structureLayouts"])
+        result["structureLayouts"] = pack["structureLayouts"]
+    return result

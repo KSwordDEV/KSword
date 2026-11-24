@@ -712,20 +712,13 @@
   <ItemGroup>
     <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
+  <Import Project="..\shared\usermode\ThreadLayoutPack.targets" />
   <Target Name="CopyCliLayoutProfiles" AfterTargets="Build" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <PropertyGroup>
       <CliLayoutProfileRoot>$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles</CliLayoutProfileRoot>
     </PropertyGroup>
-    <ItemGroup>
-      <CliThreadLayoutShard Include="$(CliLayoutProfileRoot)\thread_layouts\*.tsv" />
-      <CliProcessLayoutShard Include="$(CliLayoutProfileRoot)\process_layouts\*.tsv" />
-      <CliThreadLayoutProfile Include="@(CliThreadLayoutShard);$(CliLayoutProfileRoot)\thread_layouts\*.neighbors;$(CliLayoutProfileRoot)\thread_layouts\_versions.index" />
-      <CliProcessLayoutProfile Include="@(CliProcessLayoutShard);$(CliLayoutProfileRoot)\process_layouts\*.neighbors;$(CliLayoutProfileRoot)\process_layouts\_versions.index" />
-    </ItemGroup>
-    <!-- 单独构建 CLI 时也交付与 GUI 相同的布局及版本目录，不允许静默复制空集合。 -->
-    <Error Condition="'@(CliThreadLayoutShard)'=='' Or '@(CliProcessLayoutShard)'==''" Text="Exact kernel structure layout shards are missing from the source checkout." />
-    <Error Condition="!Exists('$(CliLayoutProfileRoot)\thread_layouts\_versions.index') Or !Exists('$(CliLayoutProfileRoot)\process_layouts\_versions.index')" Text="Kernel structure version catalogs are missing from the source checkout." />
-    <Copy SourceFiles="@(CliThreadLayoutProfile)" DestinationFolder="$(TargetDir)profiles\thread_layouts" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(CliProcessLayoutProfile)" DestinationFolder="$(TargetDir)profiles\process_layouts" SkipUnchangedFiles="true" />
+    <!-- CLI 单独构建也发布完整 v4；压缩器核验两类源布局及索引，缺失立即失败。 -->
+    <MakeDir Directories="$(TargetDir)profiles" />
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\..\tools\compress_qt_profile_json.py&quot; --file &quot;$(CliLayoutProfileRoot)\ark_dyndata_pack_v4.json&quot; --out &quot;$(TargetDir)profiles\ark_dyndata_pack_v4.json.qz&quot; --normalize-dyndata-v4" />
   </Target>
 </Project>

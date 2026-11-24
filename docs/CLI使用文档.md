@@ -34,7 +34,7 @@ KswordCLI.exe network connections help
 `network connections enum [--pid PID] [--protocol all|tcp4|tcp6|udp4|udp6] [--offset N] [--limit N] [--backend r3] [--json]` 支持显示偏移与下一页位置；不同调用是各自的网络快照。
 `process memory regions page --pid PID [--creation-time FILETIME] [--start-address ADDRESS] [--limit N] [--json]` 以地址游标分页读取进程的已提交区域；正常页大小限制不代表采集失败。分页快照可能随进程映射变化，详见 [进程文档](cli/process.md)。
 `process memory dump` 与 `process module dump` 支持 R3/R0 分块转储并报告来源、身份与完整性；`process thread stack query` 默认捕获受验证线程的用户调用栈，`--backend r0` 仅返回未验证的 KTHREAD 栈线索、不产生调用帧，详见 [进程文档](cli/process.md)。
-`process thread layout query [--image PATH] [--profiles DIR] [--json]` 与 `process layout query [--image PATH] [--profiles DIR] [--json]` 按磁盘 PE/RSDS 精确身份读取 `_ETHREAD`／`_EPROCESS` PDB 布局元数据，不读取实时对象。默认使用系统 `ntoskrnl.exe` 和 CLI 同目录下的 `profiles`，详见 [进程文档](cli/process.md#线程与进程类型布局)。
+`process thread layout query [--image PATH] [--profiles DIR] [--json]` 与 `process layout query [--image PATH] [--profiles DIR] [--json]` 按磁盘 PE/RSDS 精确身份读取 `_ETHREAD`／`_EPROCESS` PDB 布局元数据，不读取实时对象。默认使用系统 `ntoskrnl.exe` 和 CLI 同目录下的 `profiles/ark_dyndata_pack_v4.json.qz`；完整布局及版本索引均已内嵌 v4，不再依赖外置 TSV。`--profiles` 仍指定包含该文件的目录，详见 [进程文档](cli/process.md#线程与进程类型布局)。
 
 `process layout sample --pid PID [--creation-time FILETIME] [--profiles DIR] [--json]` 和
 `process thread layout sample --pid PID --tid TID [--creation-time FILETIME] [--thread-creation-time FILETIME] [--profiles DIR] [--json]`

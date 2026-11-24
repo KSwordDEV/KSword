@@ -34,34 +34,28 @@ namespace ks::ui::kernelstructure
         {
             return result;
         }
-        const auto directory = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) /
-            L"profiles" / threadlayout::Directory(kind); // 发布目录的独立分片。
-        const auto catalog = threadlayout::LoadCatalog(directory); // 只比较实际包内分片对应的数字文件版本。
+        const auto pack = std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) /
+            L"profiles" / threadlayout::PackFileName; // 完整布局与索引均来自同一正式 v4。
+        const auto catalog = threadlayout::LoadPackCatalog(pack, kind); // 只比较实际包内布局的数字版本。
         auto version = threadlayout::ReadImageVersion(); // 当前磁盘 PE 的固定文件版本，不按时间戳推断先后。
-        const auto neighbors = threadlayout::SelectNeighbors(catalog, identity, version); // 缺少一侧必须黄色。
+        const auto neighbors = threadlayout::SelectNeighbors(catalog, identity, version); // 仅邻版参考需要双侧证据，精确布局不受此条件限制。
         const auto previous = neighbors.previous.identity.pdbKey.empty() ? threadlayout::Profile{} :
-            threadlayout::Load(directory / threadlayout::FileName(neighbors.previous.identity), &neighbors.previous.identity, kind);
+            threadlayout::LoadPack(pack, neighbors.previous.identity, kind);
         const auto next = neighbors.next.identity.pdbKey.empty() ? threadlayout::Profile{} :
-            threadlayout::Load(directory / threadlayout::FileName(neighbors.next.identity), &neighbors.next.identity, kind);
+            threadlayout::LoadPack(pack, neighbors.next.identity, kind);
         result.bracketed = neighbors.bracketed && !previous.fields.empty() && !next.fields.empty();
-        result.profile = threadlayout::Load(directory / threadlayout::FileName(identity), &identity, kind);
+        result.profile = threadlayout::LoadPack(pack, identity, kind);
         if (result.profile.fields.empty())
         {
-            auto sidecar = directory / threadlayout::FileName(identity); // 不寻找不匹配的旧版完整分片。
-            sidecar += L".neighbors";
-            result.candidates = LoadCandidates(sidecar, identity);
-            if (result.candidates.isEmpty())
-            {
-                result.candidates = CompareCandidates(previous, next, neighbors, kind); // 无精确布局也能显示包内前后参考，绝不授权采样。
-            }
+            result.candidates = CompareCandidates(previous, next, neighbors, kind); // 完整参考同样来自包内，不回退外置文件。
             if (!result.bracketed)
             {
                 // 缺一侧或同版多来源时仍保留最近版本的完整字段；黄色只表达证据限制，不表示字段应消失。
-                QList<Candidate> references; // 新目录不可用时保留原有 sidecar 参考，不把可用证据清空。
+                QList<Candidate> references; // 风险证据不足时仍保留包内可用参考，不清空字段。
                 for (const auto& entry : threadlayout::SelectReferenceCandidates(catalog, identity, version))
                 {
-                    const auto reference = threadlayout::Load(directory / threadlayout::FileName(entry.identity),
-                        &entry.identity, kind); // 每个来源单独核验完整 PE/RSDS，不把邻版当成当前精确布局。
+                    const auto reference = threadlayout::LoadPack(pack,
+                        entry.identity, kind); // 每个来源单独核验完整 PE/RSDS，不把邻版当成当前精确布局。
                     if (reference.fields.empty())
                     {
                         continue;
@@ -256,10 +250,7 @@ namespace ks::ui::kernelstructure
                 }
             }
             auto* item = Append(*parent.item, {Hex(field.offset, 4), address, name, QString::fromUtf8(field.type), text});
-            if (!layout.bracketed)
-            {
-                ColorReferenceRow(*item, true); // 早于、晚于或缺少任意一侧版本时，所有布局字段一律黄色。
-            }
+            // 此处只投影精确 PE/RSDS 布局；缺少邻版不构成字段风险，读取与解码状态由本行文字表达。
             if (hasValue && value->byteValidityVerified)
             {
                 const auto proof = i18n::displayText(value->zeroValue ?

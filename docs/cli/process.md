@@ -42,7 +42,9 @@ KswordCLI.exe process thread layout query --json
 KswordCLI.exe process layout query --image 'D:\evidence\ntoskrnl.exe' --profiles 'D:\evidence\profiles' --json
 ```
 
-两条命令只读取磁盘文件，无需 PID/TID 或 KswordARK 驱动，只支持 R3。`--image` 省略时读取系统目录下的 `ntoskrnl.exe`；`--profiles` 省略时使用 CLI 可执行文件同目录下的 `profiles`，不在当前工作目录搜索。`--profiles` 指向配置根目录，其下分别使用 `thread_layouts` 和 `process_layouts` 子目录。只选择机器类型、PE 时间戳、映像大小和 RSDS GUID/Age 都匹配的 AMD64 分片，不回退到相邻版本。
+两条命令只读取磁盘文件，无需 PID/TID 或 KswordARK 驱动，只支持 R3。`--image` 省略时读取系统目录下的 `ntoskrnl.exe`；`--profiles` 省略时使用 CLI 可执行文件同目录下的 `profiles`，不在当前工作目录搜索。`--profiles` 指向包含 `ark_dyndata_pack_v4.json.qz` 的目录；两类完整布局、所有字段层级/类型/位域及数字版本索引均内嵌同一个 v4 文件，不再读取外置 `thread_layouts`、`process_layouts` 或 `_versions.index`。只选择机器类型、PE 时间戳、映像大小和 RSDS GUID/Age 都匹配的 AMD64 布局，不回退到相邻版本。JSON 的 `profilePath` 返回实际读取的 v4 包路径。
+
+布局是 v4 顶层 `structureLayouts` 中的用户态元数据，相同字段正文去重，精确身份、根大小及版本各自保留；不转成驱动业务 item，也不扩大 R0 现场采样授权。GUI 的邻版参考同样来自 v4，缺少严格前后邻版仍保持黄色。
 
 JSON `data` 中的 `source=pdb_layout_profile`、`metadataOnly=true`、`imagePath`、`imageIdentity` 和 `profilePath` 记录输入与布局来源，不证明磁盘映像就是正在运行的内核，也不验证自备分片的发布者。`rootType` 为 `_ETHREAD`（含内嵌 `Tcb`，类型 `_KTHREAD`）或 `_EPROCESS`（含内嵌 `Pcb`，类型 `_KPROCESS`），`rootSize` 是根类型的字节数。`fields` 保留源分片顺序：每项的 `id` 为一基行号，`parent=0` 表示根，其他 `parent` 引用前序 `id`；`offset` 是相对直接父项的字节偏移，不是内核地址。`name` 和 `type` 是分片中的符号文字；`bitOffset`、`bitWidth` 为整数，非位域均为 `null`；`unionAlias` 为分片的布尔标记，不表示哪一分支活跃。命令不附加对象地址、采样值、未收录字段或内核读写行为。
 

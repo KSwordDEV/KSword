@@ -20,7 +20,7 @@ namespace ks::ui::kernelstructure
         threadlayout::Profile profile; // PE 与 PDB 都匹配系统磁盘文件的符号布局。
         QList<Candidate> candidates; // 仅未命中精确分片时使用的可选邻版元数据。
         bool runningMatch = false; // 驱动回报的当前内核三元组与磁盘相符。
-        bool bracketed = false; // 包内同架构同分支存在严格较早及较晚的两个可用版本。
+        bool bracketed = false; // 邻版参考是否具备同架构同分支的严格前后版本；不影响精确布局背景。
     };
 
     struct Sample

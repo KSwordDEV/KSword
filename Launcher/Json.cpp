@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
+#include <algorithm>
 
 namespace launcher {
 
@@ -38,7 +39,11 @@ bool JsonValue::booleanOr(const char* name, bool fallback) const {
 
 class Parser {
 public:
-    Parser(const std::string& text, std::string* error) : text_(text), error_(error) {}
+    Parser(const std::string& text, std::string* error, const std::vector<std::string>* members = nullptr)
+        : text_(text), error_(error), members_(members)
+    {
+        // members_：可选的根成员保留名单；不拥有调用方数据。
+    }
 
     bool parse(JsonValue* output) {
         skipWhitespace();
@@ -81,12 +86,37 @@ private:
         if (ch == '"') {
             std::string value;
             if (!parseString(&value)) return false;
-            *output = JsonValue(std::move(value));
+            if (output)
+            {
+                *output = JsonValue(std::move(value));
+            }
             return true;
         }
-        if (ch == 't' && consumeLiteral("true")) { *output = JsonValue(true); return true; }
-        if (ch == 'f' && consumeLiteral("false")) { *output = JsonValue(false); return true; }
-        if (ch == 'n' && consumeLiteral("null")) { *output = JsonValue(); return true; }
+        // 跳过的标量仍消费和校验原始 JSON，但不构造常驻 DOM 值。
+        if (ch == 't' && consumeLiteral("true"))
+        {
+            if (output)
+            {
+                *output = JsonValue(true);
+            }
+            return true;
+        }
+        if (ch == 'f' && consumeLiteral("false"))
+        {
+            if (output)
+            {
+                *output = JsonValue(false);
+            }
+            return true;
+        }
+        if (ch == 'n' && consumeLiteral("null"))
+        {
+            if (output)
+            {
+                *output = JsonValue();
+            }
+            return true;
+        }
         return parseNumber(output);
     }
 
@@ -163,7 +193,10 @@ private:
         char* end = nullptr;
         const double value = std::strtod(text_.c_str() + start, &end);
         if (end != text_.c_str() + position_) return fail("invalid number");
-        *output = JsonValue(value);
+        if (output)
+        {
+            *output = JsonValue(value);
+        }
         return true;
     }
 
@@ -171,16 +204,30 @@ private:
         if (!consume('[')) return false;
         JsonValue::Array values;
         skipWhitespace();
-        if (position_ < text_.size() && text_[position_] == ']') { ++position_; *output = JsonValue(std::move(values)); return true; }
+        if (position_ < text_.size() && text_[position_] == ']')
+        {
+            ++position_;
+            if (output)
+            {
+                *output = JsonValue(std::move(values));
+            }
+            return true;
+        }
         while (true) {
             JsonValue value;
-            if (!parseValue(&value, depth)) return false;
-            values.push_back(std::move(value));
+            if (!parseValue(output ? &value : nullptr, depth)) return false; // 跳过的数组不积累 DOM。
+            if (output)
+            {
+                values.push_back(std::move(value));
+            }
             skipWhitespace();
             if (position_ < text_.size() && text_[position_] == ']') { ++position_; break; }
             if (!consume(',')) return false;
         }
-        *output = JsonValue(std::move(values));
+        if (output)
+        {
+            *output = JsonValue(std::move(values));
+        }
         return true;
     }
 
@@ -188,32 +235,57 @@ private:
         if (!consume('{')) return false;
         JsonValue::Object values;
         skipWhitespace();
-        if (position_ < text_.size() && text_[position_] == '}') { ++position_; *output = JsonValue(std::move(values)); return true; }
+        if (position_ < text_.size() && text_[position_] == '}')
+        {
+            ++position_;
+            if (output)
+            {
+                *output = JsonValue(std::move(values));
+            }
+            return true;
+        }
         while (true) {
             std::string key;
             skipWhitespace();
             if (!parseString(&key)) return false;
             if (!consume(':')) return false;
             JsonValue value;
-            if (!parseValue(&value, depth)) return false;
-            values.emplace(std::move(key), std::move(value));
+            const bool retain = output && (!members_ || depth != 1 ||
+                std::find(members_->begin(), members_->end(), key) != members_->end()); // 只筛选根成员，不裁剪布局内容。
+            if (!parseValue(retain ? &value : nullptr, depth)) return false;
+            if (retain && !values.emplace(std::move(key), std::move(value)).second)
+            {
+                return fail("duplicate object key");
+            }
             skipWhitespace();
             if (position_ < text_.size() && text_[position_] == '}') { ++position_; break; }
             if (!consume(',')) return false;
         }
-        *output = JsonValue(std::move(values));
+        if (output)
+        {
+            *output = JsonValue(std::move(values));
+        }
         return true;
     }
 
     const std::string& text_;
     std::string* error_ = nullptr;
     size_t position_ = 0;
+    const std::vector<std::string>* members_ = nullptr; // 不拥有调用方名单，仅在同步解析期间使用。
 };
 
 bool ParseJson(const std::string& text, JsonValue* value, std::string* error) {
     if (!value) return false;
     Parser parser(text, error);
     return parser.parse(value);
+}
+
+bool ParseJsonRootMembers(const std::string& text, const std::vector<std::string>& members,
+    JsonValue* value, std::string* error) {
+    // 输入整份 v4 文本与根键名单；输出仍是根对象，不把部分文档伪装成完整驱动配置。
+    if (!value) return false;
+    Parser parser(text, error, &members);
+    return parser.parse(value) && value->isObject();
 }
 
 std::string JsonEscape(const std::string& text) {

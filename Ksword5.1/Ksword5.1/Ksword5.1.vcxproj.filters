@@ -4586,4 +4586,8 @@
 <ItemGroup><ClInclude Include="MonitorDock\WinAPIParameterEditor.h"><Filter>Header Files</Filter></ClInclude><ClCompile Include="MonitorDock\WinAPIParameterEditor.cpp"><Filter>Source Files</Filter></ClCompile></ItemGroup>
 <ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterRules.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
 <ItemGroup><ClInclude Include="MonitorDock\WinAPIFilterCatalog.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\shared\usermode\ThreadLayoutPack.cpp" />
+    <ClCompile Include="..\..\Launcher\Json.cpp" />
+  </ItemGroup>
 </Project>

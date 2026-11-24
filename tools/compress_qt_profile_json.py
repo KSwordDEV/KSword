@@ -81,8 +81,11 @@ def compress_file(source_path: Path, output_path: Path, level: int, *, normalize
     # 在内存中规范化，源文件与 PE/PDB 身份不改动；其它 JSON 压缩保持原行为。
     if normalize_dyndata_v4:
         from pdb_offset_generator.ksword_v4_pack_normalizer import normalize_pack
+        from pdb_offset_generator.ksword_v4_structure_layouts import build_structure_layouts
 
         pack = normalize_pack(json.loads(raw_data.decode("utf-8-sig")))
+        # 源布局及索引缺失立即失败；每次部署都内嵌最新来源，不再发布独立 TSV。
+        pack["structureLayouts"] = build_structure_layouts(source_path.parent)
         raw_data = json.dumps(pack, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     compressed_data = qt_compress_bytes(raw_data, level)
 

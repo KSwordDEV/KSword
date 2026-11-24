@@ -59,11 +59,8 @@ namespace
             auto* root = structure::Append(*model.invisibleRootItem(), {empty, hexValue(base),
                 QStringLiteral("ETHREAD"), QStringLiteral("_ETHREAD"), structure::LayoutStatus(layout)}, true); // 内核根。
             root->setData(true, kKernelRootRole);
+            // 正文已匹配精确布局；无论是否存在双侧邻版，根项和成员均保留正常主题背景。
             structure::AppendLayout(*root, layout, base, live);
-            if (!layout.bracketed)
-            {
-                structure::ColorUnbracketedTree(*root); // 只标 R0 根，不触碰同表独立的 R3 设置行。
-            }
             return root->index();
         }
         if (!sample.verified && layout.profile.fields.empty() && layout.candidates.isEmpty())
@@ -106,9 +103,9 @@ namespace
         {
             structure::AppendLayout(*root, layout, 0, {}); // 无驱动仍可查看磁盘 PDB 布局。
             structure::AppendCandidates(*root, layout.candidates, !layout.bracketed);
-            if (!layout.bracketed)
+            if (layout.profile.fields.empty() && !layout.bracketed)
             {
-                structure::ColorUnbracketedTree(*root);
+                structure::ColorUnbracketedTree(*root); // 未采样的精确磁盘布局也不按邻版参考染黄。
             }
             return root->index();
         }
@@ -188,9 +185,9 @@ namespace
             structure::AppendLayout(*disk, layout, 0, {}); // 不把未核验磁盘布局与实际回执混用。
         }
         structure::AppendCandidates(*root, layout.candidates, !layout.bracketed); // 不替换已核验的固定字段。
-        if (!layout.bracketed)
+        if (layout.profile.fields.empty() && !layout.bracketed)
         {
-            structure::ColorUnbracketedTree(*root);
+            structure::ColorUnbracketedTree(*root); // 固定字段回退仅在缺少精确布局与双侧参考时染黄。
         }
         return root->index();
     }

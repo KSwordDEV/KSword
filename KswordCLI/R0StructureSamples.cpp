@@ -452,9 +452,9 @@ namespace ks::cli
                     L"Could not locate the profiles root beside the CLI executable; use --profiles DIR.");
             }
 
-            // PE 三元组只定位候选分片；Load 继续精确核对根类型与完整 GUID/Age，不搜索最近版本。
-            context.shard = context.profiles / layout::Directory(kind) / layout::FileName(context.disk);
-            context.profile = layout::Load(context.shard, &context.disk, kind);
+            // v4 内的完整布局仍精确核对根类型与 GUID/Age，不搜索最近版本，不回退外置 TSV。
+            context.shard = context.profiles / layout::PackFileName;
+            context.profile = layout::LoadPack(context.shard, context.disk, kind);
             if (context.profile.fields.empty() || context.profile.rootSize > KSWORD_ARK_STRUCTURE_SAMPLE_MAX_BYTES)
             {
                 return preflightFailure(5, L"profile_unavailable",
@@ -555,7 +555,7 @@ namespace ks::cli
             command.options = std::wstring(L"Required: --pid") + (thread ? L", --tid. " : L". ") +
                 L"Optional: --creation-time positive Windows FILETIME, compared against the held process; otherwise frozen from it. " +
                 (thread ? L"--thread-creation-time positive FILETIME, compared against the held thread; otherwise frozen from it. " : L"") +
-                L"--profiles root DIR (default: profiles beside the CLI); --kernel PATH (only the system ntoskrnl.exe, also the default); --backend r0 only; --json.";
+                L"--profiles DIR containing ark_dyndata_pack_v4.json.qz (default: profiles beside the CLI); --kernel PATH (only the system ntoskrnl.exe, also the default); --backend r0 only; --json.";
             // 用户必须能从帮助区分非原子字段、union 原始解释、真实位图和覆盖率验收退出码。
             command.notes = L"Read-only live_object_body, live=true, atomic=false. Requires held, alive query handles and matching thread ownership. "
                 L"Loads an exact disk PE/RSDS profile, then the shared 0x941 client verifies the referenced object creation identities and actual loaded full RSDS. "

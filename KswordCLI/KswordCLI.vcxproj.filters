@@ -578,4 +578,8 @@
   <ItemGroup>
     <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\ThreadLayoutPack.cpp" />
+    <ClCompile Include="..\Launcher\Json.cpp" />
+  </ItemGroup>
 </Project>
