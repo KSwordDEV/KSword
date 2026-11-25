@@ -147,7 +147,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `network` | Network rules, endpoints, WFP/NDIS evidence, and R3 fallbacks. |
 | `keyboard` | Keyboard hotkey and hook inventory. |
 | `mutation` | Prepare, commit, rollback, and audit bounded mutation transactions. |
-| `analyze` | 查询 ActionAnalyze 离线控制器能力，或启动可连续收发请求的会话。 |
+| `analyze` | 查询或启动 ActionAnalyze 离线控制器，也可对显式指定的进程内存范围做 R3 只读采样。 |
 | `capability` | Unified driver feature capability query. |
 | `wsl` | WSL silo and Linux PID/TID diagnostics. |
 | `ddma` | 磁盘 DMA 能力探测、拒绝路径自检与物理内存读取。读取过程会临时写入指定暂存扇区。 |
@@ -161,8 +161,11 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | --- | --- | --- |
 | `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline]` | 查询离线控制器的实际方法和限制。`--json` 输出一个普通 CLI 结果，`data` 为能力对象。 |
 | `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline]` | 在同一个 CLI 进程内连续收发请求。省略选项时使用 `--input repl --output text`。 |
+| `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
 
-入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。会话支持协议协商、项目读写、离线采样描述和 Stored 归档段封装检查。采样创建时保存所用配置的独立快照，状态为 `not-collected`。事件内容查询、规则执行、请求取消、实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
+入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。`capabilities` 和 `session` 使用 `offline` 后端。会话支持协议协商、项目读写、离线采样描述和 Stored 归档段检查。采样创建时保存所用配置的独立快照，状态为 `not-collected`。离线控制器的实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。
+
+`memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 
 #### 人工会话
 

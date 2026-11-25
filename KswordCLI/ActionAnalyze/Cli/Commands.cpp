@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include "MemoryWatch.h"
 
 #include "../../CommandRegistry.h"
 #include "Controller.h"
@@ -136,7 +137,8 @@ int RunSession(const Args& args) {
 } // namespace
 
 void RegisterCommands() {
-    addFamily(L"analyze", L"Offline ActionAnalyze controller and session transport.");
+    addFamily(L"analyze", L"ActionAnalyze offline controller and bounded R3 memory observation.");
+    RegisterMemoryWatch();
     Command capabilities;
     capabilities.path = L"analyze capabilities";
     capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline]";

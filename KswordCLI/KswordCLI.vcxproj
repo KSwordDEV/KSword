@@ -192,11 +192,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Transport.cpp" />
     <ClInclude Include="ActionAnalyze\Cli\Commands.h" />
+    <ClInclude Include="ActionAnalyze\Cli\MemoryWatch.h" />
     <ClInclude Include="ActionAnalyze\Cli\Controller.h" />
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h" />
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h" />

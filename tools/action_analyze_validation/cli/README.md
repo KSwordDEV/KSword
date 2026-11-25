@@ -54,3 +54,9 @@ The 2026-11-24 BelowNormal HostX64 Release build completed with exit `0`, zero w
 | `archive_v1.py` | Exit `0` for ASCII and Unicode project paths. A valid header framed 96 bytes. A tail truncated at byte 339 retained the 218-byte prefix and reported `end-of-file` at 339. A valid-CRC header with the wrong project ID reported `corrupt` with reason `identity` and a zero-byte prefix. Missing stream and missing segment returned their respective request errors with Win32 code `2`. Unknown optional and required record counts matched the vector cases. `interpretedBytes` and `durableBytes` were `null` throughout. The explicit 96-byte scan matched between JSONL and REPL. |
 | Static contracts | All 62 baseline, 47 project and 37 archive inspection vectors passed. A0 base validation also passed 66 value, identity and JSON cases and 35 Stored cases, plus CRC and UUID checks. |
 | Cleanup | Both suites removed the scratch path and verified its absence. The artifact SHA-256 matched across the runs. |
+
+## R3 memory observation
+
+Run `py -3.12 -B tools/action_analyze_validation/cli/memory_watch.py` against the formal Release CLI. The harness starts an owned Python process, allocates one non-executable data page inside it, and compares the CLI observations with the child's write receipt. The child releases its page and exits. The harness writes the CLI replies and sample receipt to `.codex-build-logs/action-analyze-memory-watch-report.json`.
+
+The HostX64 Release build for SHA-256 `52185FAECBCE347C9FF8CF98A3F818447ADB4C8AA593817F50B766B8E01497AC` reported zero warnings and errors. The command observed two changed ranges at byte offsets 3 and 11, for four bytes total across 24 reads. A wrong creation time was rejected before any reads. Making the page inaccessible stopped sampling and retained eight earlier observations with Win32 error 487. The sample exited with code 0. The same CLI passed the existing `archive-v1` transport smoke.
