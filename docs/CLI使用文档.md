@@ -162,10 +162,21 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline\|r3]` | 查询所选控制器的方法和限制。`--json` 的 `data` 字段为能力对象。 |
 | `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline\|r3]` | 在同一个 CLI 进程内连续收发请求。默认使用 `--input repl --output text --backend offline`。 |
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
+| `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，保留失败页和前次有效结果。 |
+| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl]` | 在该 CLI 启动的自有 AMD64 子进程内，对现有及新建线程布置一个执行断点。 |
+| `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
 
 入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供限时被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
+
+`memory track` 与 `memory watch` 的长度、轮数及间隔参数相同，但按页返回映射观测代次、实际读取的范围和 SHA-256、QPC 读取窗口、绝对地址差异区间和覆盖缺口。`--confirm` 确认目标为明确授权的自有进程；后端拒绝跨用户或会话。无法读到的页不作为零或无变化；完整读取退出 `0`，有部分观测退出 `6`，原生失败且无观测退出 `3`。这是一条独立 CLI 命令，不修改项目或目标；执行未采集，写入者未知。两次采样之间短暂变化或相同属性重映射可能漏过。
+
+`breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。提供明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内，不支持 WOW64、PDB、R0 或跨进程停止。异常退出后不保证恢复。
+
+JSONL 输入沿用 `schemaVersion`、`requestId`、`method`、`params` 包络，支持 `control.query`、`control.continue`、`controller.shutdown`，三者的 `params` 均为空对象。继续须提供 `hello` 的 `session` 和 `expected` 中的 `stopId`、`stateRevision`，后者为十进制字符串。继续回执可用同 ID 重放。两种输入均输出独立的 JSON 行，`hello`、`response`、`error` 或 `summary` 保存会话和传输序号；有原生清退责任时不会报告 `clean=true`。
+
+`sysmon-thread-create` 使用 Sysmon 提供的源和目标 `ProcessGuid`，不以现场 PID 补历史身份。记录保留事件 ID、提供者、通道及时间；使用原目标 GUID 和 `--record-id` 可回读尚未轮替的记录。不把线程起点当执行，也不证明写入。倒序检查最多 4096 个候选并使用 5 秒读取预算；默认返回 32 条，最多 128 条。读尽退出 `0`，空结果不证明未发生；通道不可用退出 `5`，部分结果退出 `6`，读取失败或拒绝访问退出 `3`，参数错误退出 `1`。不安装或启用 Sysmon。
 
 #### 人工会话
 

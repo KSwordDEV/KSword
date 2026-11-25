@@ -1,5 +1,8 @@
 #include "Commands.h"
+#include "BreakpointCommand.h"
+#include "DirtyMemoryCommand.h"
 #include "MemoryWatch.h"
+#include "SysmonThreadCommand.h"
 
 #include "../../CommandRegistry.h"
 #include "Controller.h"
@@ -154,6 +157,9 @@ int RunSession(const Args& args) {
 void RegisterCommands() {
     addFamily(L"analyze", L"ActionAnalyze projects, passive R3 ETW and bounded memory observation.");
     RegisterMemoryWatch();
+    RegisterDirtyMemoryCommand();
+    RegisterBreakpointCommand();
+    RegisterSysmonThreadCommand();
     Command capabilities;
     capabilities.path = L"analyze capabilities";
     capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline|r3]";

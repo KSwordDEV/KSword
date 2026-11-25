@@ -21,3 +21,15 @@
 从仓库根目录运行 `pwsh -NoProfile -File KswordCLI/ActionAnalyze/Control/tests/Invoke-Validation.ps1`。隔离工程构建并直接运行 `Ksword5.1/x64/Release/ActionAnalyzeStopLedgerValidation.exe`。测试沿用 [离线协议模型](../../../tools/trace_protocol_validation/test_protocol_model.py) 的重复命令、旧 epoch 和清理责任判据，直接编译并执行此处的 C++。构建和测试证据保存在 `.codex-build-logs/behavior-planning/action-analyze-cli-stop-ledger-*`。
 
 原生接入门槛是同一真实调试 owner 关联 SB02 自有夹具，验证事件采用和 Continue 唯一性、丢失回执后的读回语义、关闭交错、成员及实际目标退出。原始 OS 处置与验证仍由实际适配器提供。
+
+## CLI 的 R3 执行断点 owner
+
+`NativeDebugOwner::ArmBreakpoint` 只接纳当前 CLI 宿主直接创建、显式授权且 PID 与创建时刻匹配的同用户同会话原生 AMD64 子进程。不派生采样对象，只有一个目标实例、一个断点绑定。使用当前已加载映像的完整 DOS 路径和 RVA 或区分大小写的非转发 PE 导出名，不支持 PDB、延迟加载绑定、WOW64 或其它后端。RVA 必须由调用方确认是指令边界。模块卸载触发退役，不自动跟随同址映像。
+
+- `ArmBreakpoint` 的 `Accepted` 只表示已提交附加。以 `Query().breakpoint.state` 回读 `Armed`、`Held` 或退役/失败。初始停点完成武装，新线程在 `CREATE_THREAD_DEBUG_EVENT` 尚未继续时安装并读回同一 DR0 执行断点；有其它活动调试寄存器或 TF 时不接管。
+- `Query` 在实际单步异常到达并通过事件、进程、线程、地址、DR6/DR7 复核后提供 `breakpointHit`、停止组和继续义务。组中的线程是本次冻结快照；原生事件暂停目标进程，不暂停其它进程。使用完整 `ReleaseRequest` 继续同一个事件，历史回执可查询，重复命令不会再次放行。断点正常继续后仍保持绑定。
+- `Close` 撤销整个绑定。在未继续的工作事件或受到核验的标准调试中断上恢复自有寄存器，再继续并脱离。确认失败则保留相应责任和错误，可用 `Query` 观察；不把请求成功算作清洁脱离，不保证任意 owner 死亡后恢复。最多核验 1024 个活线程，保留 63 次断点命中，继续最后一次命中时退役；不得把容量退役当作持续覆盖。
+
+正式 CLI 已登记 `NativeDebugOwner`、`NativeBreakpointImage` 和 `StopLedger`，实际入口为 `analyze breakpoint session`。HostX64 Release 增量构建已通过。未验证三端一致性、性能或普通 R0。
+
+正式 `KswordCLI.exe` 的 JSONL 和 REPL 合计通过 30 项运行检查。独立确认首次命中前函数体未执行，有效继续后执行，同址再次获得不同停点；停止时退出，回执为 `clean=true`、`attached=false`，原子进程第二次执行后退出 `0`。JSONL 的旧修订和重复继续 ID 均未放行第二次停点。正式运行日志为 `.codex-build-logs/behavior-planning/action-analyze-product-breakpoint-20261125-033030-7079019-run.log`。
