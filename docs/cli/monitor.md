@@ -56,6 +56,8 @@ KswordCLI.exe monitor etw capture --provider Microsoft-Windows-Kernel-Process --
 
 data 提供 source、requestedDurationMs/elapsedMs、cancelled、sessionName、startAttempted/startSucceeded/startWin32Error、threadStartFailed、providers（name/guid/enabled/win32Error）、enabledProviderCount、openAttempted/openWin32Error、processAttempted/processCompleted/processTraceWin32Error、closeAttempted/closeTraceWin32Error、sessionStopped、stopWin32Errors、consumerJoined、statisticsKnown、eventsLost/logBuffersLost/realTimeBuffersLost、receivedCount/filteredCount/matchedCount/returnedCount/droppedFromBufferCount、callbackFailed、filter 和 events。未调用或未取得的状态／丢失统计为 null；计数为十进制字符串，关闭返回待完成状态与已 join 的证据分开保留。
 
+`consumerJoined=true` 表示实际等待到本次 ETW 工作线程退出。原生清退未完成时，`--decode 1` 只在已 join 后发布解码缓冲。返回 `6` 且 `consumerJoined=false` 时，空解码列表和零计数表示本次没有发布解码结果。
+
 completedRequestedInterval 表示采集是否等待完请求时长；消费者提前正常结束也返回部分结果，不把 ProcessTrace 返回 0 当作足时采集。事件提供 timestampFileTime（系统时钟 FILETIME 的十进制字符串）、localTimeDisplay、providerGuid、headerPid/headerTid、eventId/version/level/opcode/task、keyword（十六进制）、summaryDisplay。headerPid/headerTid 代表记录上下文，不能冒充被操作目标；`--pid` 筛选按此语义进行。会话显式选择系统时钟时间域，避免把 QPC 当作 FILETIME 显示。
 
 可选 TDH 载荷解码在事件回调期间读取当前真实 schema，输出 eventName、原始入参类型和顶层字段；单事件最多 32 个属性、每个属性最多 2048 字节，并保存最多 256 字节原始载荷十六进制前缀。数组、结构体、自定义 schema 和不可读取字段不猜测布局，`complete=false` 与 `skippedPropertyCount` 保留解码边界；无 TDH 信息时保留错误码及原始前缀。解码结果除行数限制外还受 16 MiB 总预算约束，淘汰行计入 `droppedFromBufferCount`，ETW 提供者／会话丢失计数独立保留。

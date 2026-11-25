@@ -124,16 +124,29 @@ Result capture(const Args& a){
     if(started){const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(duration);
         while(controller.running()&&std::chrono::steady_clock::now()<deadline){if(cancel.token->load(std::memory_order_relaxed)){cancelled=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
         completedInterval=std::chrono::steady_clock::now()>=deadline;}
-    controller.stop();const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-begin).count();
-    const auto evidence=controller.evidence();std::vector<Json> providerRows,stopStatuses,rows;std::size_t enabled=0;bool partial=cancelled||(started&&!completedInterval)||evidence.callbackFailed||evidence.threadStartFailed;
+    const bool retired = controller.stopChecked();
+    const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-begin).count();
+    const auto evidence=controller.evidence();std::vector<Json> providerRows,stopStatuses,rows;std::size_t enabled=0;
+    bool partial = cancelled || (started && (!completedInterval || !evidence.consumerJoined)) ||
+        !retired || evidence.callbackFailed || evidence.threadStartFailed;
     for(const auto& p:evidence.providers){if(p.status==ERROR_SUCCESS)++enabled;else partial=true;providerRows.push_back(Json::object({{L"name",Json::string(p.name)},{L"guid",Json::string(p.guid)},{L"enabled",Json::boolean(p.status==ERROR_SUCCESS)},{L"win32Error",Json::number(p.status)}}));}
     for(const auto status:evidence.stopStatuses){stopStatuses.push_back(Json::number(status));if(status!=ERROR_SUCCESS&&status!=ERROR_WMI_INSTANCE_NOT_FOUND)partial=true;}
-    const auto data=events.snapshot();const auto accepted=decode?decodedMatched:evidence.receivedEvents-evidence.filteredEvents;
-    const auto dropped=decode?decodeDropped:(accepted>data.size()?accepted-data.size():0);
-    if(decode){for(auto& row:decodedRows)rows.push_back(std::move(row));}else for(const auto& e:data)rows.push_back(eventRow(e));
+    // Only the consumer writes these counters and rows. A failed native stop can leave it active.
+    const bool hasDecodeSnapshot = decode && evidence.consumerJoined;
+    const auto targetFilteredCount = hasDecodeSnapshot ? targetFiltered : 0;
+    const auto targetUnknownCount = hasDecodeSnapshot ? targetUnknown : 0;
+    const auto decodePartialCount = hasDecodeSnapshot ? decodePartial : 0;
+    const auto data = events.snapshot();
+    const auto accepted = decode ? (hasDecodeSnapshot ? decodedMatched : 0) : evidence.receivedEvents - evidence.filteredEvents;
+    const auto dropped = decode ? (hasDecodeSnapshot ? decodeDropped : 0) : (accepted > data.size() ? accepted - data.size() : 0);
+    if (hasDecodeSnapshot) {
+        for (auto& row : decodedRows) rows.push_back(std::move(row));
+    } else if (!decode) {
+        for (const auto& event : data) rows.push_back(eventRow(event));
+    }
     partial=partial||dropped||!evidence.statisticsKnown||evidence.eventsLost||evidence.logBuffersLost||evidence.realTimeBuffersLost||
         !evidence.sessionStopped||!evidence.closeAttempted||(evidence.closeStatus!=ERROR_SUCCESS&&evidence.closeStatus!=ERROR_CTX_CLOSE_PENDING)||
-        !evidence.processCompleted||(evidence.processStatus!=ERROR_SUCCESS&&evidence.processStatus!=ERROR_CANCELLED)||targetUnknown||decodePartial;
+        !evidence.processCompleted||(evidence.processStatus!=ERROR_SUCCESS&&evidence.processStatus!=ERROR_CANCELLED)||targetUnknownCount||decodePartialCount;
     const bool processFailed=evidence.processCompleted&&evidence.processStatus!=ERROR_SUCCESS&&evidence.processStatus!=ERROR_CANCELLED;
     const bool failed=!evidence.startSucceeded||!enabled||evidence.threadStartFailed||(evidence.openAttempted&&evidence.openStatus!=ERROR_SUCCESS)||(processFailed&&rows.empty());
     const ULONG failure=!evidence.startSucceeded?evidence.startStatus:!enabled&&!evidence.providers.empty()?evidence.providers.front().status:
@@ -147,12 +160,12 @@ Result capture(const Args& a){
         {L"processAttempted",Json::boolean(evidence.processAttempted)},{L"processCompleted",Json::boolean(evidence.processCompleted)},
         {L"processTraceWin32Error",evidence.processCompleted?Json::number(evidence.processStatus):Json{}},
         {L"closeAttempted",Json::boolean(evidence.closeAttempted)},{L"closeTraceWin32Error",evidence.closeAttempted?Json::number(evidence.closeStatus):Json{}},
-        {L"sessionStopped",Json::boolean(evidence.sessionStopped)},{L"stopWin32Errors",Json::array(stopStatuses)},{L"consumerJoined",Json::boolean(true)},
+        {L"sessionStopped",Json::boolean(evidence.sessionStopped)},{L"stopWin32Errors",Json::array(stopStatuses)},{L"consumerJoined",Json::boolean(evidence.consumerJoined)},
         {L"statisticsKnown",Json::boolean(evidence.statisticsKnown)},{L"eventsLost",evidence.statisticsKnown?Json::count(evidence.eventsLost):Json{}},
         {L"logBuffersLost",evidence.statisticsKnown?Json::count(evidence.logBuffersLost):Json{}},{L"realTimeBuffersLost",evidence.statisticsKnown?Json::count(evidence.realTimeBuffersLost):Json{}},
         {L"receivedCount",Json::count(evidence.receivedEvents)},{L"filteredCount",Json::count(evidence.filteredEvents)},
         {L"matchedCount",Json::count(accepted)},{L"returnedCount",Json::count(rows.size())},{L"droppedFromBufferCount",Json::count(dropped)},
-        {L"targetFilteredCount",Json::count(targetFiltered)},{L"targetUnknownCount",Json::count(targetUnknown)},{L"decodePartialCount",Json::count(decodePartial)},
+        {L"targetFilteredCount",Json::count(targetFilteredCount)},{L"targetUnknownCount",Json::count(targetUnknownCount)},{L"decodePartialCount",Json::count(decodePartialCount)},
         {L"callbackFailed",Json::boolean(evidence.callbackFailed)},{L"enabledProviderCount",Json::count(enabled)},{L"providers",Json::array(providerRows)},
         {L"filter",Json::object({{L"headerPid",filter.processId?Json::number(filter.processId):Json{}},{L"targetPid",targetPid?Json::number(targetPid):Json{}},{L"decode",Json::boolean(decode)},{L"maxLevel",Json::number(level)},{L"matchAnyKeyword",Json::hex(keywords)}})},
         {L"events",Json::array(rows)}}),{L"Header PID/TID are recording context. Target filtering only uses explicit TargetProcessId/NewProcessId top-level scalar payload fields; unknown targets are excluded and counted. Decoding is bounded and TDH-dependent; raw payload is a capped prefix. Loss, partial decode, unknown targets or incomplete shutdown returns partial."}};

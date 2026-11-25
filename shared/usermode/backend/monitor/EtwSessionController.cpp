@@ -171,7 +171,11 @@ bool EtwSessionController::stopChecked() {
     if (sessionHandle_.load() != 0 && !closeConsumer() && !consumerFinished_.load(std::memory_order_acquire)) {
         return false;
     }
-    if (workerThread_.joinable()) workerThread_.join();
+    if (workerThread_.joinable()) {
+        workerThread_.join();
+        const std::lock_guard lock(mutex_);
+        evidence_.consumerJoined = true;
+    }
     stopOwnedSession();
     const bool consumerClosed = closeConsumer();
     const bool complete = sessionHandle_.load() == 0 && consumerClosed &&

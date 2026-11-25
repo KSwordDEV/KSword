@@ -125,6 +125,10 @@ ULONG WINAPI NativeControllerProcessTrace(TRACEHANDLE* handle, ULONG count, LPFI
 int main() {
     using namespace ks::r3::monitor;
     {
+        EtwSessionController idle;
+        assert(idle.stopChecked() && !idle.evidence().consumerJoined);
+    }
+    {
         // Begin with both native resources live, then fail each retirement API once.
         EtwSessionController controller;
         assert(controller.start(Filter()));
@@ -133,7 +137,7 @@ int main() {
         { std::lock_guard lock(backend.mutex); backend.failStop = 1; backend.failClose = 1; }
         assert(!controller.stopChecked());
         const auto pending = controller.evidence();
-        assert(controller.cleanupPending() && !pending.sessionStopped && !pending.processCompleted);
+        assert(controller.cleanupPending() && !pending.sessionStopped && !pending.processCompleted && !pending.consumerJoined);
         assert(pending.sessionName == name && pending.stopStatuses == std::vector<ULONG>{ERROR_ACCESS_DENIED});
         assert(pending.closeAttempted && pending.closeStatus == ERROR_GEN_FAILURE);
         {
@@ -143,7 +147,7 @@ int main() {
         }
         assert(controller.stopChecked());
         const auto retired = controller.evidence();
-        assert(!controller.cleanupPending() && retired.sessionStopped && retired.processCompleted);
+        assert(!controller.cleanupPending() && retired.sessionStopped && retired.processCompleted && retired.consumerJoined);
         assert(retired.sessionName == name && retired.closeStatus == ERROR_SUCCESS);
         assert((retired.stopStatuses == std::vector<ULONG>{ERROR_ACCESS_DENIED, ERROR_SUCCESS}));
         {
@@ -176,7 +180,7 @@ int main() {
         stopper.join();
         const auto receipt = controller.evidence();
         assert(stopped && receipt.sessionStopped && receipt.openAttempted && receipt.openStatus == openError);
-        assert(!receipt.processAttempted && !receipt.processCompleted);
+        assert(!receipt.processAttempted && !receipt.processCompleted && receipt.consumerJoined);
         assert(receipt.startupAbort == (openError == ERROR_SUCCESS ?
             EtwStartupAbort::BeforeProcessTrace : EtwStartupAbort::None));
         { std::lock_guard lock(backend.mutex); assert(!backend.entered); }
