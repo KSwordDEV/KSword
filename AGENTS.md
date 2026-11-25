@@ -328,6 +328,7 @@ py -3.12 tools\pdb_offset_generator\launcher_report_intake.py $reportDir --corpu
 
 ## Phase -1 协作规范
 
+- 主代理分派任务时为每个子代理指定稳定、可区分的名称。子代理发给主代理的每条消息首行必须以 `【子代理｜任务名】` 开头，适用于进度、阻塞、交接和最终结果。例如 `【子代理｜Qt 总览】` 或 `【子代理｜网络归档】`。同名任务需加职责或编号区分。
 - 仓库相对根目录为 `H:/Project/Ksword5.1`；文档与规则使用相对路径，不写个人机器路径作为开发落点。
 - R0/R3 协议只在 `shared/driver/` 定义。
 - 驱动 IOCTL 分发只通过 `KswordARKDriver/src/dispatch/ioctl_registry.c` 注册 handler，`ioctl_dispatch.c` 不再承载业务 switch。
