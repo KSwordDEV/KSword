@@ -1,0 +1,455 @@
+{
+  "base": {
+    "version": 1,
+    "sampleId": "8b6865bd-0791-4010-ae56-a9fa754ffba1",
+    "sessionId": "05d0e66c-0c43-4c44-967c-98f7b8492c19",
+    "epoch": "5e118096-cd51-4ef5-80cb-af14b35dbb01",
+    "stopGroupId": "91ce4359-96e4-4722-abf2-fd0c3512fa79",
+    "stateRevision": "19",
+    "membershipRevision": "4",
+    "membershipSha256": "0ba4bdb300ee7e33fe4ab62be65832257bef16f7d0ceb6af1bbdbb85ed904110",
+    "state": "held-complete",
+    "coverageBasis": "frozen-members",
+    "futureThreadGate": "unsupported",
+    "origin": {
+      "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce",
+      "phase": "call-enter",
+      "hold": "held"
+    },
+    "members": [
+      { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+      { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }
+    ],
+    "incidentalThreadSetQuality": "verified",
+    "incidentalThreadIds": ["5f782216-6367-4cbc-86e3-93ceb1494243"]
+  },
+  "cases": [
+    { "id": "frozen-group-complete-with-exited-member", "valid": true, "set": {} },
+    { "id": "manual-group-has-no-source-origin", "valid": true, "set": { "origin": null } },
+    { "id": "complete-frozen-group-with-origin-outside-membership", "valid": true, "set": {
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "execution-enter-attempt", "hold": "held" }
+    } },
+    { "id": "frozen-completion-does-not-assert-external-origin-held", "valid": true, "set": {
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "pending" }
+    } },
+    { "id": "unknown-external-origin-does-not-change-frozen-completion", "valid": true, "set": {
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "unknown" }
+    } },
+    { "id": "complete-frozen-group-with-unknown-future-thread-gate", "valid": true, "set": {
+      "futureThreadGate": "unknown"
+    } },
+    { "id": "verified-future-thread-gate-does-not-complete-pending-member", "valid": false, "set": {
+      "futureThreadGate": "verified",
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "pending" }
+      ]
+    } },
+    { "id": "verified-empty-incidental-scope", "valid": true, "set": {
+      "incidentalThreadIds": []
+    } },
+    { "id": "partial-incidental-scope-with-known-thread", "valid": true, "set": {
+      "incidentalThreadSetQuality": "partial"
+    } },
+    { "id": "partial-incidental-scope-with-empty-known-subset", "valid": true, "set": {
+      "incidentalThreadSetQuality": "partial",
+      "incidentalThreadIds": []
+    } },
+    { "id": "duplicate-incidental-thread-ids-rejected", "valid": false, "set": {
+      "incidentalThreadIds": ["5f782216-6367-4cbc-86e3-93ceb1494243", "5f782216-6367-4cbc-86e3-93ceb1494243"]
+    } },
+    { "id": "uncollected-incidental-membership", "valid": true, "set": {
+      "incidentalThreadSetQuality": "not-collected",
+      "incidentalThreadIds": []
+    } },
+    { "id": "uncollected-incidental-membership-cannot-assert-thread-ids", "valid": false, "set": {
+      "incidentalThreadSetQuality": "not-collected"
+    } },
+    { "id": "origin-held-while-other-member-pending", "valid": true, "set": {
+      "state": "group-building",
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "pending" }
+      ]
+    } },
+    { "id": "unknown-member-is-partial", "valid": true, "set": {
+      "state": "held-partial",
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "unknown" }
+      ]
+    } },
+    { "id": "external-origin-is-only-confirmed-hold-while-members-pending", "valid": true, "set": {
+      "state": "held-partial",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "held" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "pending" }]
+    } },
+    { "id": "external-origin-is-only-hold-after-member-denied", "valid": true, "set": {
+      "state": "held-partial",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "held" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "not-held" }]
+    } },
+    { "id": "external-origin-is-only-hold-after-member-released", "valid": true, "set": {
+      "state": "held-partial",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "held" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released", "stopId": "ea6b2c04-f29f-4d3f-9b56-53999ff692b5" }]
+    } },
+    { "id": "selective-continue-leaves-partial-frozen-group", "valid": true, "set": {
+      "state": "held-partial",
+      "origin": null,
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released", "stopId": "ea6b2c04-f29f-4d3f-9b56-53999ff692b5" }
+      ]
+    } },
+    { "id": "fully-released-members-with-no-origin-are-not-partial-hold", "valid": false, "set": {
+      "state": "held-partial",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }]
+    } },
+    { "id": "fully-held-frozen-group-is-not-partial", "valid": false, "set": {
+      "state": "held-partial"
+    } },
+    { "id": "exited-frozen-group-retains-confirmed-external-origin", "valid": true, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-with-multiple-exited-frozen-members", "valid": true, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "held" },
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "exited" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }
+      ]
+    } },
+    { "id": "exhausted-group-with-retained-origin-cannot-stay-group-building", "valid": false, "set": {
+      "state": "group-building",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-requires-origin-present", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": null,
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-requires-confirmed-hold-not-pending", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "pending" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-requires-confirmed-hold-not-unknown", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "unknown" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "released-origin-cannot-claim-origin-held", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "released" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "exited-origin-cannot-claim-origin-held", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "exited" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-cannot-hide-pending-native-release", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "release-pending" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-cannot-hide-native-recovery-required", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-cannot-have-held-frozen-member", "valid": false, "set": {
+      "state": "origin-held"
+    } },
+    { "id": "origin-held-cannot-have-pending-frozen-member", "valid": false, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "pending" }]
+    } },
+    { "id": "origin-held-cannot-have-denied-frozen-member", "valid": false, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "not-held" }]
+    } },
+    { "id": "origin-held-cannot-treat-released-frozen-member-as-exited", "valid": false, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "origin-held-cannot-have-unknown-frozen-member", "valid": false, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "unknown" }]
+    } },
+    { "id": "origin-held-does-not-relax-nonempty-frozen-membership", "valid": false, "set": {
+      "state": "origin-held",
+      "members": []
+    } },
+    { "id": "retained-origin-with-exhausted-membership-can-be-releasing", "valid": true, "set": {
+      "state": "release-pending",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "retained-origin-native-recovery-precedes-origin-held", "valid": true, "set": {
+      "state": "recovery-required",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-exit-observation-can-still-have-unretired-native-responsibility", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "exited" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "unretired-native-responsibility-without-projectable-origin", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": null,
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "origin-held-adds-no-native-event-key-to-closed-snapshot", "valid": false, "set": {
+      "state": "origin-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }],
+      "nativeEvent": { "serial": "19" }
+    } },
+    { "id": "origin-held-adds-no-release-authority-to-origin", "valid": false, "set": {
+      "state": "origin-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "held", "releaseToken": "not-authorized" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "held-external-origin-does-not-complete-all-exited-frozen-group", "valid": false, "set": {
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "all-exited-frozen-group-with-held-origin-is-not-partial", "valid": false, "set": {
+      "state": "held-partial",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "all-members-exited", "valid": true, "set": {
+      "state": "ended",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "exited" }]
+    } },
+    { "id": "all-members-denied-with-no-responsibility", "valid": true, "set": {
+      "state": "not-held",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "not-held" }]
+    } },
+    { "id": "denied-members-with-held-external-origin-cannot-be-not-held", "valid": false, "set": {
+      "state": "not-held",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "not-held" }]
+    } },
+    { "id": "unknown-external-origin-prevents-not-held", "valid": false, "set": {
+      "state": "not-held",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "unknown" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "not-held" }]
+    } },
+    { "id": "pending-member-prevents-not-held", "valid": false, "set": {
+      "state": "not-held",
+      "origin": null,
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "pending" }]
+    } },
+    { "id": "partial-requires-a-real-hold", "valid": false, "set": {
+      "state": "held-partial",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "unknown" }]
+    } },
+    { "id": "held-member-requires-stop-reference", "valid": false, "set": {
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held" }]
+    } },
+    { "id": "pending-release-member-requires-stop-reference", "valid": false, "set": {
+      "state": "release-pending",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "release-pending" }]
+    } },
+    { "id": "recovery-member-requires-stop-reference", "valid": false, "set": {
+      "state": "recovery-required",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "recovery-required" }]
+    } },
+    { "id": "unknown-member-cannot-be-complete", "valid": false, "set": {
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "unknown" }
+      ]
+    } },
+    { "id": "all-exited-is-not-held", "valid": false, "set": {
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "exited" }]
+    } },
+    { "id": "live-origin-prevents-terminal-ended-state", "valid": false, "set": {
+      "state": "ended",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "cleared-external-origin-allows-ended-frozen-group", "valid": true, "set": {
+      "state": "ended",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "released" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "exited-external-origin-allows-ended-frozen-group", "valid": true, "set": {
+      "state": "ended",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "exited" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "unknown-external-origin-prevents-ended", "valid": false, "set": {
+      "state": "ended",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "unknown" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "released-member-is-not-confirmed-exited", "valid": false, "set": {
+      "state": "ended",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }]
+    } },
+    { "id": "group-release-can-begin-with-retained-holds", "valid": true, "set": {
+      "state": "release-pending"
+    } },
+    { "id": "member-release-pending-is-reported-as-group-release-pending", "valid": true, "set": {
+      "state": "release-pending",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "release-pending", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "member-recovery-is-reported-as-group-recovery-required", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "recovery-required", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "external-origin-pending-release-after-frozen-group-exits", "valid": true, "set": {
+      "state": "release-pending",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "release-pending" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "external-origin-recovery-after-frozen-group-exits", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "external-origin-recovery-cannot-be-ended", "valid": false, "set": {
+      "state": "ended",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }]
+    } },
+    { "id": "external-origin-recovery-cannot-be-frozen-complete-summary", "valid": false, "set": {
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "recovery-required" }
+    } },
+    { "id": "external-origin-pending-release-cannot-be-frozen-complete-summary", "valid": false, "set": {
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-enter", "hold": "release-pending" }
+    } },
+    { "id": "recovery-state-may-retain-confirmed-holds", "valid": true, "set": {
+      "state": "recovery-required"
+    } },
+    { "id": "native-cleanup-can-remain-after-all-listed-holds-cleared", "valid": true, "set": {
+      "state": "release-pending",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "released" },
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }]
+    } },
+    { "id": "restoration-recovery-can-remain-after-all-listed-holds-cleared", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "released" },
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }]
+    } },
+    { "id": "unknown-side-effect-can-require-recovery-without-a-confirmed-hold", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "unknown" }]
+    } },
+    { "id": "member-recovery-prevents-ordinary-partial-summary", "valid": false, "set": {
+      "state": "held-partial",
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "recovery-required", "stopId": "ea6b2c04-f29f-4d3f-9b56-53999ff692b5" },
+        { "threadId": "c15c4f45-e87b-43e4-bcd1-96f15302a087", "state": "unknown" }
+      ]
+    } },
+    { "id": "pending-release-prevents-ordinary-partial-summary", "valid": false, "set": {
+      "state": "held-partial",
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "release-pending", "stopId": "ea6b2c04-f29f-4d3f-9b56-53999ff692b5" },
+        { "threadId": "c15c4f45-e87b-43e4-bcd1-96f15302a087", "state": "unknown" }
+      ]
+    } },
+    { "id": "recovery-takes-precedence-over-pending-release", "valid": true, "set": {
+      "state": "recovery-required",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "release-pending", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "pending-release-cannot-hide-external-origin-recovery", "valid": false, "set": {
+      "state": "release-pending",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "release-pending", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "unreleased-obligation-cannot-be-released", "valid": false, "set": {
+      "state": "released",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "recovery-required", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "released-members-cannot-clear-held-external-origin", "valid": false, "set": {
+      "state": "released",
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "released-members-cannot-clear-unknown-external-origin", "valid": false, "set": {
+      "state": "released",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "unknown" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "released-members-cannot-clear-pending-external-origin", "valid": false, "set": {
+      "state": "released",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "pending" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "external-origin-pending-release-cannot-be-released", "valid": false, "set": {
+      "state": "released",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "release-pending" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "external-origin-recovery-cannot-be-released", "valid": false, "set": {
+      "state": "released",
+      "origin": { "threadId": "7064b5cb-bbc9-4c7c-a829-21fa7ec1a935", "phase": "call-return", "hold": "recovery-required" },
+      "members": [{ "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "released" }]
+    } },
+    { "id": "unknown-member-cannot-be-released", "valid": false, "set": {
+      "state": "released",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "unknown" }]
+    } },
+    { "id": "pending-release-member-cannot-be-released", "valid": false, "set": {
+      "state": "released",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "release-pending", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "released-after-return-boundary", "valid": true, "set": {
+      "state": "released",
+      "origin": { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "phase": "call-return", "hold": "released" },
+      "members": [
+        { "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" },
+        { "threadId": "1db08a3e-2a17-4321-baff-879caac1cb43", "state": "exited" }
+      ]
+    } },
+    { "id": "released-snapshot-can-retain-partial-incidental-scope", "valid": true, "set": {
+      "state": "released",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }],
+      "incidentalThreadSetQuality": "partial"
+    } },
+    { "id": "released-snapshot-does-not-require-collected-incidental-list", "valid": true, "set": {
+      "state": "released",
+      "origin": null,
+      "members": [{ "threadId": "6654eba7-a261-4c0b-9d2f-b0955fac86ce", "state": "released" }],
+      "incidentalThreadSetQuality": "not-collected",
+      "incidentalThreadIds": []
+    } },
+    { "id": "frozen-membership-cannot-be-empty-even-with-origin-held", "valid": false, "set": {
+      "state": "group-building",
+      "members": []
+    } },
+    { "id": "persisted-u64-object-reference-is-not-a-live-member-thread-id", "valid": false, "set": {
+      "members": [{ "threadId": { "sampleId": "8b6865bd-0791-4010-ae56-a9fa754ffba1", "objectId": "1" }, "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "persisted-decimal-object-id-is-not-a-live-member-thread-id", "valid": false, "set": {
+      "members": [{ "threadId": "1", "state": "held", "stopId": "56bc4f6e-a75d-4121-9dbe-63bfecc67e13" }]
+    } },
+    { "id": "persisted-u64-object-reference-is-not-a-live-origin-thread-id", "valid": false, "set": {
+      "origin": { "threadId": { "sampleId": "8b6865bd-0791-4010-ae56-a9fa754ffba1", "objectId": "1" }, "phase": "call-enter", "hold": "held" }
+    } },
+    { "id": "os-numeric-tid-is-not-a-live-incidental-thread-id", "valid": false, "set": {
+      "incidentalThreadIds": [1234]
+    } },
+    { "id": "whole-machine-claim-rejected", "valid": false, "set": { "coverageBasis": "whole-machine" } },
+    { "id": "live-token-rejected", "valid": false, "set": { "releaseToken": "unexpected" } },
+    { "id": "decimal-revision-canonical-form", "valid": false, "set": { "stateRevision": "019" } }
+  ]
+}

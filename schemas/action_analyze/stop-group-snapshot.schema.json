@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionAnalyze stop group status snapshot",
+  "$comment": "A0 draft. Read-only projection from the session owner. A stopId in this record conveys no control authority. Structural validation does not discharge the owner's runtime validity gates; see stop-group-snapshot-draft.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "sampleId", "sessionId", "epoch", "stopGroupId", "stateRevision",
+    "membershipRevision", "membershipSha256", "state", "coverageBasis",
+    "futureThreadGate", "origin", "members", "incidentalThreadSetQuality", "incidentalThreadIds"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "sampleId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "epoch": { "$ref": "#/$defs/id" },
+    "stopGroupId": { "$ref": "#/$defs/id" },
+    "stateRevision": { "$ref": "#/$defs/revision" },
+    "membershipRevision": { "$ref": "#/$defs/revision" },
+    "membershipSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64 },
+    "state": {
+      "enum": ["group-building", "origin-held", "held-complete", "held-partial", "not-held", "release-pending", "released", "recovery-required", "ended"]
+    },
+    "coverageBasis": { "const": "frozen-members" },
+    "futureThreadGate": {
+      "$comment": "Independent of frozen-member completion; this is not a regionReady or complete execution-barrier assertion.",
+      "enum": ["verified", "unsupported", "unknown"]
+    },
+    "origin": {
+      "$comment": "The origin need not be a frozen member. Its hold and cleanup remain visible independently; matching an origin to a member and checking their compatible responsibilities require runtime validation.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["threadId", "phase", "hold"],
+          "properties": {
+            "threadId": { "$ref": "#/$defs/id" },
+            "phase": { "enum": ["call-enter", "call-return", "execution-enter-attempt"] },
+            "hold": { "enum": ["pending", "held", "release-pending", "released", "recovery-required", "exited", "unknown"] }
+          }
+        }
+      ]
+    },
+    "members": {
+      "$comment": "The nonempty frozen request set, not the union with origin or incidental threads. Member identity uniqueness is a separate runtime gate.",
+      "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/member" }
+    },
+    "incidentalThreadSetQuality": {
+      "$comment": "Quality of the observed incidental scope for this group, not a release receipt. Verified empty means checked empty; partial may be an empty known subset; not-collected asserts no IDs. Cleanup completeness is checked against the owner's ledger.",
+      "enum": ["verified", "partial", "not-collected"]
+    },
+    "incidentalThreadIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+  },
+  "allOf": [
+    {
+      "$comment": "An explicitly unresolved recovery responsibility takes precedence over hold or release progress. Other recovery work may exist outside these thread projections, so the converse is not required.",
+      "if": {
+        "anyOf": [
+          { "properties": { "origin": { "type": "object", "properties": { "hold": { "const": "recovery-required" } } } } },
+          { "properties": { "members": { "contains": { "properties": { "state": { "const": "recovery-required" } } } } } }
+        ]
+      },
+      "then": { "properties": { "state": { "const": "recovery-required" } } }
+    },
+    {
+      "$comment": "Pending release cannot be summarized as a completed hold or a cleared terminal state. Extra native/restoration work can also keep group release pending after every listed thread hold is cleared.",
+      "if": {
+        "anyOf": [
+          { "properties": { "origin": { "type": "object", "properties": { "hold": { "const": "release-pending" } } } } },
+          { "properties": { "members": { "contains": { "properties": { "state": { "const": "release-pending" } } } } } }
+        ]
+      },
+      "then": { "properties": { "state": { "enum": ["release-pending", "recovery-required"] } } }
+    },
+    {
+      "if": { "properties": { "incidentalThreadSetQuality": { "const": "not-collected" } } },
+      "then": { "properties": { "incidentalThreadIds": { "maxItems": 0 } } }
+    },
+    {
+      "$comment": "Origin-held is a retained confirmed origin after the frozen set is exhausted. It is neither frozen-group completion nor a terminal state. Exact native-event release/retirement is verified by the owner, not inferred from this projection.",
+      "if": { "properties": { "state": { "const": "origin-held" } } },
+      "then": {
+        "properties": {
+          "origin": { "type": "object", "properties": { "hold": { "const": "held" } } },
+          "members": { "items": { "properties": { "state": { "const": "exited" } } } }
+        }
+      }
+    },
+    {
+      "$comment": "An all-exited frozen set with a retained confirmed origin uses origin-held unless release or recovery work takes precedence. Exhausting membership alone cannot retire a native event or justify a terminal state.",
+      "if": {
+        "properties": {
+          "origin": { "type": "object", "properties": { "hold": { "const": "held" } } },
+          "members": { "items": { "properties": { "state": { "const": "exited" } } } }
+        }
+      },
+      "then": { "properties": { "state": { "enum": ["origin-held", "release-pending", "recovery-required"] } } }
+    },
+    {
+      "$comment": "Complete refers to the frozen set and requires at least one held frozen member. An external held origin alone does not turn an all-exited group into held-complete.",
+      "if": { "properties": { "state": { "const": "held-complete" } } },
+      "then": {
+        "properties": {
+          "members": {
+            "items": { "properties": { "state": { "enum": ["held", "exited"] } } },
+            "contains": { "properties": { "state": { "const": "held" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "held-partial" } } },
+      "then": {
+        "properties": {
+          "members": {
+            "contains": { "properties": { "state": { "enum": ["pending", "not-held", "released", "unknown"] } } }
+          }
+        },
+        "anyOf": [
+          { "properties": { "origin": { "type": "object", "properties": { "hold": { "const": "held" } } } } },
+          { "properties": { "members": { "contains": { "properties": { "state": { "const": "held" } } } } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "not-held" } } },
+      "then": {
+        "properties": {
+          "origin": { "anyOf": [{ "type": "null" }, { "properties": { "hold": { "enum": ["exited", "released"] } } }] },
+          "members": {
+            "items": { "properties": { "state": { "enum": ["not-held", "exited"] } } },
+            "contains": { "properties": { "state": { "const": "not-held" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "ended" } } },
+      "then": {
+        "properties": {
+          "origin": { "anyOf": [{ "type": "null" }, { "properties": { "hold": { "enum": ["exited", "released"] } } }] },
+          "members": { "items": { "properties": { "state": { "const": "exited" } } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "released" } } },
+      "then": {
+        "properties": {
+          "origin": { "anyOf": [{ "type": "null" }, { "properties": { "hold": { "enum": ["exited", "released"] } } }] },
+          "members": {
+            "items": { "properties": { "state": { "enum": ["exited", "released", "not-held"] } } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "$comment": "UUID-shaped live projection ID. Persisted evidence uses separate sample-local u64 object references; this schema does not define or infer that mapping.",
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "revision": {
+      "$comment": "The common value validator also applies the unsigned 64-bit numeric maximum.",
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "state"],
+      "properties": {
+        "threadId": { "$ref": "#/$defs/id" },
+        "state": { "enum": ["pending", "held", "not-held", "exited", "release-pending", "released", "recovery-required", "unknown"] },
+        "stopId": { "$ref": "#/$defs/id" }
+      },
+      "if": { "properties": { "state": { "enum": ["held", "release-pending", "recovery-required"] } } },
+      "then": { "required": ["stopId"] }
+    }
+  }
+}
