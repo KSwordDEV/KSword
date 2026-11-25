@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "backend": "offline",
+  "methods": {
+    "controller.hello": {
+      "repl": "hello",
+      "paramsSchema": "request.schema.json#/$defs/hello",
+      "resultSchema": "request-message.schema.json#/$defs/helloResult",
+      "availability": "shell",
+      "state": "controller-open",
+      "effect": "read-only"
+    },
+    "controller.capabilities": {
+      "repl": "capabilities",
+      "paramsSchema": "request.schema.json#/$defs/empty",
+      "resultSchema": "request-message.schema.json#/$defs/capabilities",
+      "availability": "shell",
+      "state": "controller-open",
+      "effect": "read-only"
+    },
+    "controller.shutdown": {
+      "repl": "quit",
+      "paramsSchema": "request.schema.json#/$defs/empty",
+      "resultSchema": "request-message.schema.json#/$defs/shutdownResult",
+      "availability": "shell",
+      "state": "controller-open",
+      "effect": "controller-close"
+    },
+    "project.open": {
+      "paramsSchema": "request.schema.json#/$defs/projectOpen",
+      "availability": "project-integration",
+      "state": "project-closed",
+      "effect": "open-read-only-project"
+    },
+    "project.query": {
+      "paramsSchema": "request.schema.json#/$defs/projectIdentity",
+      "availability": "project-integration",
+      "state": "project-open",
+      "effect": "read-only"
+    },
+    "project.close": {
+      "paramsSchema": "request.schema.json#/$defs/projectIdentity",
+      "availability": "project-integration",
+      "state": "project-open",
+      "effect": "close-read-only-project"
+    },
+    "sample.list": {
+      "paramsSchema": "request.schema.json#/$defs/sampleList",
+      "availability": "project-integration",
+      "state": "project-open",
+      "effect": "read-only"
+    },
+    "sample.query": {
+      "paramsSchema": "request.schema.json#/$defs/sampleIdentity",
+      "availability": "project-integration",
+      "state": "project-open",
+      "effect": "read-only"
+    }
+  },
+  "unsupportedGroups": ["live-operation", "persistent-write", "archive-query", "rule-execution", "request-cancellation"]
+}

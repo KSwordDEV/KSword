@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/request-message.schema.json",
+  "title": "ActionAnalyze v1 offline JSONL output",
+  "type": "object",
+  "required": ["schemaVersion", "type", "controllerId", "streamSequence"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "controllerId": { "type": "string", "pattern": "^aa-[1-9][0-9]{0,9}-[1-9][0-9]{0,19}(?![\\s\\S])" },
+    "streamSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/protocolError" },
+    { "$ref": "#/$defs/summary" }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "helloResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["selectedVersion"],
+      "properties": { "selectedVersion": { "const": 1 } }
+    },
+    "shutdownResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["shutdown"],
+      "properties": { "shutdown": { "const": true } }
+    },
+    "hello": {
+      "required": ["capabilities"],
+      "properties": { "type": { "const": "hello" }, "capabilities": { "$ref": "#/$defs/capabilities" } }
+    },
+    "capabilities": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "projectStorage", "archives", "nativeCapture", "callerProcessMonitoring", "schemaVersions", "methods", "limits"],
+      "properties": {
+        "backend": { "const": "offline" },
+        "projectStorage": { "type": "boolean" },
+        "archives": { "const": false },
+        "nativeCapture": { "const": false },
+        "callerProcessMonitoring": { "const": "not-monitored" },
+        "schemaVersions": { "const": [1] },
+        "methods": {
+          "type": "array", "minItems": 3, "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["method", "repl", "summary"],
+            "properties": {
+              "method": { "$ref": "request.schema.json#/$defs/token" },
+              "repl": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["inputLineBytes", "outputFrameBytes", "jsonDepth", "objectKeys", "arrayItems", "requestIdBytes", "replayEntries", "pendingOutputFrames", "outputTimeoutMs"],
+          "properties": {
+            "inputLineBytes": { "const": 1048576 },
+            "outputFrameBytes": { "const": 262144 },
+            "jsonDepth": { "const": 32 },
+            "objectKeys": { "const": 128 },
+            "arrayItems": { "const": 4096 },
+            "requestIdBytes": { "const": 128 },
+            "replayEntries": { "const": 4096 },
+            "pendingOutputFrames": { "const": 16 },
+            "outputTimeoutMs": { "const": 5000 }
+          }
+        }
+      }
+    },
+    "response": {
+      "required": ["requestId", "phase", "effectPhase", "result", "error"],
+      "properties": {
+        "type": { "const": "response" },
+        "requestId": { "$ref": "request.schema.json#/$defs/token" },
+        "phase": { "const": "completed" },
+        "effectPhase": { "enum": ["not-applicable", "observed"] },
+        "result": { "type": ["object", "null"] },
+        "error": { "anyOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "if": { "properties": { "error": { "type": "null" } } },
+      "then": { "properties": { "result": { "type": "object" } } },
+      "else": { "properties": { "result": { "type": "null" }, "effectPhase": { "const": "not-applicable" } } }
+    },
+    "protocolError": {
+      "required": ["requestId", "inputSequence", "error"],
+      "properties": {
+        "type": { "const": "protocolError" },
+        "requestId": { "type": "null" },
+        "inputSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "summary": {
+      "required": ["reason", "exitCode", "clean", "liveSession", "archive", "unresolvedResponsibilities", "error"],
+      "properties": {
+        "type": { "const": "summary" },
+        "reason": { "enum": ["eof", "shutdown", "ctrl-break", "protocol-failed", "input-failed", "internal-error"] },
+        "exitCode": { "enum": [0, 1, 3, 6] },
+        "clean": { "const": true },
+        "liveSession": { "type": "null" },
+        "archive": { "type": "null" },
+        "unresolvedResponsibilities": { "const": [] },
+        "error": { "anyOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] }
+      },
+      "allOf": [
+        { "if": { "properties": { "reason": { "enum": ["eof", "shutdown"] } } }, "then": { "properties": { "exitCode": { "const": 0 }, "error": { "type": "null" } } } },
+        { "if": { "properties": { "reason": { "const": "ctrl-break" } } }, "then": { "properties": { "exitCode": { "const": 6 }, "error": { "type": "null" } } } },
+        { "if": { "properties": { "reason": { "const": "protocol-failed" } } }, "then": { "properties": { "exitCode": { "const": 1 }, "error": { "$ref": "#/$defs/error" } } } },
+        { "if": { "properties": { "reason": { "enum": ["input-failed", "internal-error"] } } }, "then": { "properties": { "exitCode": { "const": 3 }, "error": { "$ref": "#/$defs/error" } } } }
+      ]
+    },
+    "error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["errorId", "message", "source", "code", "retryability", "stage", "byteOffset"],
+      "properties": {
+        "errorId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])" },
+        "message": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["cli", "win32"] },
+        "code": { "$ref": "value.schema.json#/$defs/u32" },
+        "retryability": { "const": "none" },
+        "stage": { "const": "offline" },
+        "byteOffset": { "type": ["integer", "null"], "minimum": 0, "maximum": 1048577 }
+      }
+    }
+  }
+}
