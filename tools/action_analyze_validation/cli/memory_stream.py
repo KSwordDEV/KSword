@@ -7,8 +7,9 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 
-from memory_watch import CLI, check, read_record, read_records
+from memory_watch import CLI, analyze, check, read_record, read_records
 
 
 def records(proc):
@@ -239,12 +240,200 @@ def check_partial_then_exit(options, target, target_records):
     print("PASS target exit: readable prefix and unavailable pages reconciled with terminal counters")
 
 
-def main():
+def check_stream_threads(options, target, target_records, seed):
+    with open_stream([*options, "--observe-threads"]) as proc:
+        try:
+            output = records(proc)
+            start = read_record(output)
+            data = start["data"]
+            check(start["type"] == "start" and data["state"] == "active" and data["threadObservationEnabled"]
+                  and int(data["observedCreationFileTime"]) == seed["creation"], start)
+
+            ordinal = 0
+            previous_observation = None
+
+            def check_round(row):
+                nonlocal ordinal, previous_observation
+                ordinal += 1
+                page, = row["pages"]
+                check(int(row["ordinal"]) == ordinal and row["allPagesVisited"] and page["status"] == "sampled"
+                      and int(page["returnedBytes"]) == 32, row)
+                snapshot = row["threadObservation"]
+                check(snapshot is not None and snapshot["snapshotStatus"] == "complete", row)
+                check(row["previousThreadObservationRound"] == previous_observation, row)
+                previous_observation = row["ordinal"]
+                return snapshot
+
+            def read_round():
+                frame = read_record(output)
+                check(frame["type"] == "round" and frame["captureId"] == start["captureId"] and
+                      frame["trackingEpoch"] == start["trackingEpoch"], frame)
+                return check_round(frame["data"])
+
+            read_round()
+            send(target, "thread-start")
+            worker = read_record(target_records)
+            check(worker["operation"] == "thread-start", worker)
+
+            def worker_round(status):
+                for _ in range(30):
+                    for event in read_round()["events"]:
+                        if (event["tid"] == worker["tid"] and event["creationTime100ns"] is not None and
+                                int(event["creationTime100ns"]) == worker["creation"]):
+                            check(event["status"] == status, event)
+                            return ordinal
+                raise RuntimeError(f"Worker {worker['tid']}:{worker['creation']} not {status} by round {ordinal}")
+
+            observed = worker_round("newly-observed")
+            send(target, "thread-end")
+            ended = read_record(target_records)
+            check(ended["operation"] == "thread-end" and ended["tid"] == worker["tid"], ended)
+            exited = worker_round("exited")
+            send(proc, "stop")
+            trailing = []
+            summary = assert_summary(proc, output, start, "stop", "stopped", 0, trailing)
+            for row in trailing:
+                check_round(row)
+            check(summary["threadObservationEnabled"] and int(summary["fullRounds"]) == ordinal, summary)
+            check(target.poll() is None, "Stream stop did not leave the owned target alive")
+            send(target, "exit")
+            check(read_record(target_records)["operation"] == "exit" and target.wait(timeout=10) == 0,
+                  "Owned target did not exit cleanly")
+            print(f"MEMORY_STREAM_OBSERVE_THREADS=PASS CAPTURE={start['captureId']} EPOCH={start['trackingEpoch']} "
+                  f"PID={target.pid} PROCESS_CREATION={seed['creation']} ADDRESS={seed['address']} BYTES=32 "
+                  f"WORKER={worker['tid']}:{worker['creation']} OBSERVED_ROUND={observed} EXITED_ROUND={exited} "
+                  f"PREVIOUS_ROUND_CHAIN=null,1..{ordinal - 1} "
+                  f"FULL_ROUNDS={summary['fullRounds']} STOP_REASON={summary['reason']} CLI_EXIT=0 TARGET_EXIT=0")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
+def validate_evidence_gap(rows, totals, seed, continuous):
+    sampled = []
+    gaps = []
+    unreadable = []
+    for ordinal, row in enumerate(rows, 1):
+        page, = row["pages"]
+        check(row["ordinal"] == (str(ordinal) if continuous else ordinal) and row["allPagesVisited"] and
+              int(page["range"]["base"], 16) == int(seed["address"], 16) and int(page["range"]["length"]) == 32, row)
+        content = page["content"]
+        if content is None:
+            check(row["threadObservation"] is None and row["previousThreadObservationRound"] is None and
+                  page["previousContent"] is None and page["difference"] is None, row)
+            gaps.append(ordinal)
+            if page["status"] == "not-readable":
+                check(page["mappingBefore"]["protection"] == 0x01 and page["returnedBytes"] is None, row)
+                unreadable.append(ordinal)
+            continue
+        previous = sampled[-1] if sampled else None
+        check(page["status"] == "sampled" and int(page["returnedBytes"]) == 32 and
+              page["mappingBefore"]["protection"] == 0x04 and content["round"] == row["ordinal"] and
+              row["threadObservation"] is not None and row["threadObservation"]["snapshotStatus"] == "complete" and
+              row["previousThreadObservationRound"] == previous, row)
+        if previous is None:
+            check(content["origin"] == "baseline" and page["previousContent"] is None and
+                  page["difference"] is None, row)
+        sampled.append(row["ordinal"])
+
+    check(unreadable and gaps[0] > 1 and gaps[-1] < len(rows) and gaps == list(range(gaps[0], gaps[-1] + 1)),
+          f"Expected one gap containing a PAGE_NOACCESS round between sampled rounds: {gaps}; {unreadable}")
+    before = rows[gaps[0] - 2]
+    recovered = rows[gaps[-1]]
+    page = recovered["pages"][0]
+    pre_gap_content = before["pages"][0]["content"]
+    check(page["content"]["origin"] == "baseline" and page["previousContent"] is None and
+          page["difference"] is None and page["content"]["sha256"] == pre_gap_content["sha256"] and
+          int(page["content"]["version"]) == int(pre_gap_content["version"]) + 1 and
+          recovered["previousThreadObservationRound"] == before["ordinal"], recovered)
+    check(totals["threadObservationEnabled"] and totals["issue"] is None and
+          int(totals["sampledPages"]) == len(sampled) and int(totals["unavailablePages"]) == len(gaps) and
+          int(totals["fullRounds"]) == int(totals["attemptedRounds"]) == len(rows), totals)
+    return (f"PRE_GAP_SNAPSHOT={before['ordinal']} GAP={gaps[0]}..{gaps[-1]} NOACCESS_ROUNDS={len(unreadable)} "
+            f"RECOVERY={recovered['ordinal']} RECOVERY_PREVIOUS={recovered['previousThreadObservationRound']} "
+            f"RECOVERY_ORIGIN={page['content']['origin']} SAMPLED={len(sampled)} UNAVAILABLE={len(gaps)}")
+
+
+def check_evidence_gap(options, target, target_records, seed):
+    def protection_operation(operation, previous):
+        send(target, operation)
+        reply = read_record(target_records)
+        check(reply["operation"] == operation and reply["previousProtection"] == previous, reply)
+
+    def check_capture(data):
+        check(data["pid"] == target.pid and int(data["observedCreationFileTime"]) == seed["creation"] and
+              data["threadObservationEnabled"] and data["executionCoverage"] == "not-collected" and
+              data["writeAttribution"] == "unknown", data)
+
+    with open_stream(options) as proc:
+        try:
+            output = records(proc)
+            start = read_record(output)
+            check(start["type"] == "start" and start["data"]["backend"] == "r3" and
+                  start["data"]["state"] == "active", start)
+            check_capture(start["data"])
+            rows = []
+
+            def until(predicate):
+                for _ in range(20):
+                    frame = read_record(output)
+                    check(frame["type"] == "round" and frame["captureId"] == start["captureId"] and
+                          frame["trackingEpoch"] == start["trackingEpoch"], frame)
+                    rows.append(frame["data"])
+                    page, = frame["data"]["pages"]
+                    if predicate(page):
+                        return
+                raise RuntimeError(f"Stream did not reach the expected page state: {rows[-1]}")
+
+            until(lambda page: page["content"] is not None)
+            protection_operation("protect", 0x04)
+            until(lambda page: page["status"] == "not-readable")
+            protection_operation("restore", 0x01)
+            until(lambda page: page["content"] is not None)
+            send(proc, "stop")
+            summary = assert_summary(proc, output, start, "stop", "stopped", 6, rows)
+            check(summary["inputIssue"] is None, summary)
+            stream_receipt = validate_evidence_gap(rows, summary, seed, continuous=True)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+    # Track returns only its final JSON. The existing launcher waits one second before this action.
+    def timed_gap():
+        protection_operation("protect", 0x04)
+        time.sleep(1)
+        protection_operation("restore", 0x01)
+
+    result = analyze(["analyze", "memory", "track", *options, "--confirm", "--samples", "32", "--json"],
+                     action=timed_gap)
+    reply = result["reply"]
+    track = reply["data"]
+    check(result["exitCode"] == 6 and reply["backend"] == "r3" and reply["status"] == "partial" and
+          track["state"] == "completed" and not track["complete"] and len(track["rounds"]) == 32, result)
+    check_capture(track)
+    track_receipt = validate_evidence_gap(track["rounds"], track, seed, continuous=False)
+
+    check(target.poll() is None, "Memory capture did not leave the owned target alive")
+    send(target, "exit")
+    check(read_record(target_records)["operation"] == "exit" and target.wait(timeout=10) == 0,
+          "Owned target did not exit cleanly")
+    print(f"MEMORY_STREAM_EVIDENCE_GAP=PASS CAPTURE={start['captureId']} EPOCH={start['trackingEpoch']} "
+          f"{stream_receipt} STOP_REASON={summary['reason']} CLI_EXIT=6")
+    print(f"MEMORY_TRACK_EVIDENCE_GAP=PASS CAPTURE={track['captureId']} EPOCH={track['trackingEpoch']} "
+          f"{track_receipt} STATE={track['state']} CLI_EXIT=6")
+    print(f"OWNED_TARGET PID={target.pid} PROCESS_CREATION={seed['creation']} ADDRESS={seed['address']} BYTES=32 "
+          "TARGET_EXIT=0 EXECUTION_COVERAGE=not-collected WRITE_ATTRIBUTION=unknown")
+
+
+def main(observe_threads=False, evidence_gap=False):
     print(f"CLI {CLI} SHA256 {hashlib.sha256(CLI.read_bytes()).hexdigest()}")
-    help_result = subprocess.run([str(CLI), "help", "analyze", "memory", "stream"], capture_output=True,
-                                 check=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
-    check(b"plain stop line" in help_result.stdout and b"--samples" not in help_result.stdout,
-          "Built-in continuous command help mismatch")
+    if not (observe_threads or evidence_gap):
+        help_result = subprocess.run([str(CLI), "help", "analyze", "memory", "stream"], capture_output=True,
+                                     check=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+        check(b"plain stop line" in help_result.stdout and b"--samples" not in help_result.stdout,
+               "Built-in continuous command help mismatch")
     fixture = Path(__file__).with_name("memory_watch.py")
     with subprocess.Popen([sys.executable, "-I", "-B", str(fixture), "--target"], stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE, text=True, encoding="utf-8",
@@ -253,7 +442,13 @@ def main():
             target_records = records(target)
             seed = read_record(target_records)
             options = ["--backend", "r3", "--pid", str(target.pid), "--creation-time", str(seed["creation"]),
-                       "--address", seed["address"], "--size", "32", "--interval-ms", "10"]
+                       "--address", seed["address"], "--size", "32", "--interval-ms", "125" if evidence_gap else "10"]
+            if evidence_gap:
+                check_evidence_gap([*options, "--observe-threads"], target, target_records, seed)
+                return
+            if observe_threads:
+                check_stream_threads(options, target, target_records, seed)
+                return
             check_finite(options)
             check_stream(options, target, target_records, seed)
             check_input_receipts(options)
@@ -267,4 +462,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] not in ([], ["--observe-threads"], ["--evidence-gap"]):
+        raise SystemExit("usage: memory_stream.py [--observe-threads | --evidence-gap]")
+    main(observe_threads=sys.argv[1:] == ["--observe-threads"], evidence_gap=sys.argv[1:] == ["--evidence-gap"])

@@ -210,7 +210,7 @@ std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
             }
             if (!allowed.contains(key)) throw std::invalid_argument("unknown option " + narrowOption(key));
             if (args.has(key) && key != L"--json") throw std::invalid_argument("duplicate option");
-            if (key == L"--json" || key == L"--confirm") { args.values[key] = L""; continue; }
+            if (key == L"--json" || key == L"--confirm" || key == L"--observe-threads") { args.values[key] = L""; continue; }
             if (++i >= argc || std::wstring(argv[i]).starts_with(L"--")) throw std::invalid_argument("missing value for option " + narrowOption(key));
             args.values[key] = argv[i];
         }

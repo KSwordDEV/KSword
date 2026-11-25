@@ -1,4 +1,5 @@
 #include "DirtyMemoryCommand.h"
+#include "ThreadObservationJson.h"
 #include "Transport.h"
 
 #include "../Memory/PassiveDirtyMemory.h"
@@ -164,16 +165,40 @@ Json PageJson(const mem::PageObservation& page, bool continuous)
         {L"difference", DifferenceJson(page.difference)}});
 }
 
-Json RoundJson(const mem::Round& round)
+// 观察器仅由命令持有；记录前次快照尝试所在轮，不把跳过的内存轮当作线程基准。
+struct RoundThreadObservation {
+    explicit RoundThreadObservation(HANDLE target, DWORD pid) : observer(target, pid) {}
+
+    mem::PassiveThreadObservation observer; // 借用本命令已核验的目标进程句柄。
+    std::optional<std::uint64_t> previousRound; // 上次实际调用观察器的内存轮号；首次为空。
+};
+
+// 将一次内存采样投影到命令输出。实际读取之后才可附加独立的线程快照。
+Json ObserveAndSerializeRound(const mem::Round& round, mem::State state,
+    std::optional<RoundThreadObservation>& threads, const std::atomic_bool& cancel)
 {
+    // 仅已通过映射和完整性检查的内容允许附加线程观察；部分或弃用字节仅作诊断。
+    Json threadObservation;
+    Json previousThreadObservationRound; // 与 ordinal 使用同样的编码，无对应快照时为 null。
+    const bool continuous = !round.effectivePlan.rounds;
+    if (threads && (state == mem::State::Active || state == mem::State::Completed) &&
+        std::ranges::any_of(round.pages, [](const auto& page) { return page.content.has_value(); }) &&
+        !cancel.load(std::memory_order_relaxed)) {
+        threadObservation = ThreadObservationJson(threads->observer.Observe());
+        if (threads->previousRound) {
+            previousThreadObservationRound = CounterJson(*threads->previousRound, continuous);
+        }
+        threads->previousRound = round.ordinal;
+    }
     std::vector<Json> pages; // 每轮不丢弃失败页，也不因此清空先前结果。
     pages.reserve(round.pages.size());
-    const bool continuous = !round.effectivePlan.rounds;
     for (const auto& page : round.pages) pages.push_back(PageJson(page, continuous));
     return Json::object({{L"ordinal", CounterJson(round.ordinal, continuous)},
         {L"beginQpc", Json::count(round.beginQpc)},
         {L"endQpc", round.endQpc ? Json::count(*round.endQpc) : Json{}},
-        {L"allPagesVisited", Json::boolean(round.allPagesVisited)}, {L"pages", Json::array(pages)}});
+        {L"allPagesVisited", Json::boolean(round.allPagesVisited)}, {L"pages", Json::array(pages)},
+        {L"threadObservation", std::move(threadObservation)},
+        {L"previousThreadObservationRound", std::move(previousThreadObservationRound)}});
 }
 
 mem::Plan ReadPlan(const Args& args, bool continuous)
@@ -220,8 +245,10 @@ mem::Status Begin(mem::PassiveDirtyMemory& tracker, const process::Lease& target
 // 不接受任意外部执行记录。两个入口的执行覆盖始终为未采集。
 Result Run(const Args& args)
 {
+    const bool observeThreads = args.has(L"--observe-threads");
     auto plan = ReadPlan(args, false);
-    if (!AssignTrackingIdentity(plan)) return {3, Json::object({}), {L"Could not allocate a tracking identity."}};
+    if (!AssignTrackingIdentity(plan)) return {3, Json::object({{L"threadObservationEnabled", Json::boolean(observeThreads)}}),
+        {L"Could not allocate a tracking identity."}};
 
     const process::Lease target(args, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE);
     mem::PassiveDirtyMemory tracker;
@@ -232,11 +259,13 @@ Result Run(const Args& args)
     } else {
         const Cancellation cancellation;
         status = Begin(tracker, target, plan);
+        std::optional<RoundThreadObservation> threads; // 本次有界追踪的线程观察及基准轮号。
+        if (observeThreads && status.state == mem::State::Active) threads.emplace(target.handle.get(), target.pid);
         rounds.reserve(*plan.rounds);
         while (status.state == mem::State::Active) {
             auto result = tracker.Poll(cancellation.token.get());
             status = result.status;
-            if (result.round) rounds.push_back(RoundJson(*result.round));
+            if (result.round) rounds.push_back(ObserveAndSerializeRound(*result.round, status.state, threads, *cancellation.token));
             if (status.state == mem::State::Active) {
                 // 短等待保持取消响应；硬期限、时钟误差检查和到期判定由后端统一负责。
                 WaitForSingleObject(target.handle.get(), (std::min)(plan.intervalMs, 10u));
@@ -260,6 +289,7 @@ Result Run(const Args& args)
             {L"fullRounds", CounterJson(status.fullRounds, false)}, {L"sampledPages", CounterJson(status.sampledPages, false)},
             {L"unavailablePages", CounterJson(status.unavailablePages, false)},
             {L"qpcFrequency", status.qpcFrequency ? Json::count(status.qpcFrequency) : Json{}},
+            {L"threadObservationEnabled", Json::boolean(observeThreads)},
             {L"executionCoverage", Json::string(L"not-collected")}, {L"writeAttribution", Json::string(L"unknown")},
             {L"rounds", Json::array(rounds)}}), {L"Changes between reads and remaps with identical attributes can be missed."}};
 }
@@ -348,6 +378,7 @@ int RunStream(const Args& args)
     const auto output = args.get(L"--output", L"text");
     if (output != L"text" && output != L"jsonl") throw std::invalid_argument("--output must be text or jsonl");
     const bool jsonl = output == L"jsonl";
+    const bool observeThreads = args.has(L"--observe-threads");
     auto plan = ReadPlan(args, true);
     if (!AssignTrackingIdentity(plan)) {
         std::wcerr << L"error: Could not allocate a tracking identity.\n";
@@ -368,13 +399,13 @@ int RunStream(const Args& args)
         std::wcerr << L"error: memory-stream-output-unavailable\n";
         return 3;
     };
-    mem::Status status;
-    std::uint64_t observedCreationTime = 0;
-    {
-        const process::Lease target(args, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE);
-        observedCreationTime = target.creationTime;
-        status = Begin(tracker, target, plan);
-    }
+    process::Lease target(args, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE);
+    const auto observedCreationTime = target.creationTime;
+    auto status = Begin(tracker, target, plan);
+    std::optional<RoundThreadObservation> threads; // 本次持续追踪的线程观察及基准轮号。
+    // 仅启用时保留原进程句柄给观察器；页采样后端仍自行持有其副本。
+    if (observeThreads && status.state == mem::State::Active) threads.emplace(target.handle.get(), target.pid);
+    else target.handle.reset();
     if (!stream.Emit(L"start", Json::object({{L"backend", Json::string(L"r3")},
         {L"pid", Json::number(plan.target.pid)}, {L"creationFileTime", Json::count(plan.target.creationFileTime100ns)},
         {L"observedCreationFileTime", observedCreationTime ? Json::count(observedCreationTime) : Json{}},
@@ -384,6 +415,7 @@ int RunStream(const Args& args)
         {L"pointerWidth", status.pointerWidth ? Json::number(status.pointerWidth) : Json{}},
         {L"plannedPages", Json::number(status.plannedPages)},
         {L"qpcFrequency", status.qpcFrequency ? Json::count(status.qpcFrequency) : Json{}},
+        {L"threadObservationEnabled", Json::boolean(observeThreads)},
         {L"executionCoverage", Json::string(L"not-collected")}, {L"writeAttribution", Json::string(L"unknown")},
         {L"control", Json::string(L"Send stop followed by LF to end sampling.")}}))) return outputUnavailable();
 
@@ -414,9 +446,12 @@ int RunStream(const Args& args)
         auto result = tracker.Poll(cancellation.token.get(), outputState == FrameDelivery::State::Ready
             ? mem::PollMode::SampleWhenDue : mem::PollMode::StatusOnly);
         status = result.status;
-        if (result.round && !stream.Emit(L"round", RoundJson(*result.round))) return outputUnavailable();
+        if (result.round && !stream.Emit(L"round",
+            ObserveAndSerializeRound(*result.round, status.state, threads, *cancellation.token))) return outputUnavailable();
     }
 
+    threads.reset();
+    target.handle.reset();
     if (!reason || (!inputIssue && status.state != mem::State::Stopped)) reason = StateName(status.state);
     if (!code) {
         if (status.state == mem::State::Canceled || status.unavailablePages || status.fullRounds < status.attemptedRounds) code = 6;
@@ -429,6 +464,7 @@ int RunStream(const Args& args)
         {L"exitCode", Json::number(static_cast<std::uint32_t>(code))},
         {L"attemptedRounds", Json::count(status.attemptedRounds)}, {L"fullRounds", Json::count(status.fullRounds)},
         {L"sampledPages", Json::count(status.sampledPages)}, {L"unavailablePages", Json::count(status.unavailablePages)},
+        {L"threadObservationEnabled", Json::boolean(observeThreads)},
         {L"coverageNote", Json::string(L"Changes between reads and remaps with identical attributes can be missed. Slow output can delay reads.")}})) ||
         !delivery.Wait()) return outputUnavailable();
     return code;
@@ -438,17 +474,17 @@ int RunStream(const Args& args)
 void RegisterDirtyMemoryCommand()
 {
     addCommand({L"analyze memory track",
-        L"KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--backend r3] [--json]",
+        L"KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]",
         L"Track sampled per-page content and mapping changes in an explicitly authorized process.",
-        L"Required: --pid, --creation-time, --address, --size (1..65536), --confirm. Optional: --samples (2..64, default 20), --interval-ms (10..1000, default 100), --backend r3, --json.",
-        L"Read-only, same user and session. Returns page state, SHA-256, change ranges and coverage gaps. Does not collect execution or attribute writes. No project is modified.", Run});
+        L"Required: --pid, --creation-time, --address, --size (1..65536), --confirm. Optional: --samples (2..64, default 20), --interval-ms (10..1000, default 100), --observe-threads, --backend r3, --json.",
+        L"Read-only, same user and session. Returns page state, SHA-256, change ranges and coverage gaps. --observe-threads adds a separate thread snapshot after rounds that read bytes. Does not collect execution or attribute writes. No project is modified.", Run});
 
     Command stream;
     stream.path = L"analyze memory stream";
-    stream.syntax = L"KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--output text|jsonl] [--backend r3]";
+    stream.syntax = L"KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text|jsonl] [--backend r3]";
     stream.summary = L"Continuously sample an explicitly authorized owned process, until stopped.";
-    stream.options = L"Size: 1..65536 bytes. Interval: 10..1000 ms minimum delay, default 100; stream checks on a roughly 50 ms tick. Default output: text.";
-    stream.notes = L"Send a plain stop line on stdin. EOF stops; Ctrl-C/Break cancels. For JSONL output, redirect both stdin and stdout and read continuously. No sample count, execution evidence, write attribution, or target changes.";
+    stream.options = L"Size: 1..65536 bytes. Interval: 10..1000 ms minimum delay, default 100; stream checks on a roughly 50 ms tick. Default output: text. Optional --observe-threads adds a separate read-only thread snapshot after rounds that read bytes.";
+    stream.notes = L"Send a plain stop line on stdin. EOF stops; Ctrl-C/Break cancels. For JSONL output, redirect both stdin and stdout and read continuously. Status-only checks do not observe threads. No sample count, execution evidence, write attribution, or target changes.";
     stream.runStreaming = RunStream;
     addCommand(std::move(stream));
 }

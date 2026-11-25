@@ -162,8 +162,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline\|r3]` | 查询所选控制器的方法和限制。`--json` 的 `data` 字段为能力对象。 |
 | `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline\|r3]` | 在同一个 CLI 进程内连续收发请求。默认使用 `--input repl --output text --backend offline`。 |
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
-| `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，保留失败页和前次有效结果。 |
-| `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--output text 或 jsonl] [--backend r3]` | 逐轮跟踪明确授权的自有进程，接受持续运行期间的 `stop`。 |
+| `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，可选附加只读线程观察。 |
+| `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text 或 jsonl] [--backend r3]` | 持续逐轮跟踪明确授权的自有进程，可选附加只读线程观察，接受 `stop`。 |
 | `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl]` | 在该 CLI 启动的自有 AMD64 子进程内，对现有及新建线程布置一个执行断点。 |
 | `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
 | `analyze sysmon-thread-create follow` | `KswordCLI.exe analyze sysmon-thread-create follow --target-guid GUID [--input repl 或 jsonl]` | 持续订阅指定目标的未来 Sysmon Event 8。 |
@@ -178,9 +178,15 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 
+每轮的 `threadObservation` 单独记录线程枚举时间窗。可核对身份时保留 TID 和线程创建时间；`newly-observed` 指首次观察到该实例，只有原线程句柄确认终止才报告 `exited`。身份无法确认报告 `unknown`；每轮最多检查 64 个线程，超出时标记 `limited`。这不是停点，线程观测和字节差异不构成写入归因。
+
 `memory track` 与 `memory watch` 的长度、轮数及间隔参数相同，但按页返回映射观测代次、实际读取的范围和 SHA-256、QPC 读取窗口、绝对地址差异区间和覆盖缺口。`--confirm` 确认目标为明确授权的自有进程；后端拒绝跨用户或会话。无法读到的页不作为零或无变化；完整读取退出 `0`，有部分观测退出 `6`，原生失败且无观测退出 `3`。这是一条独立 CLI 命令，不修改项目或目标；执行未采集，写入者未知。两次采样之间短暂变化或相同属性重映射可能漏过。
 
 `memory stream` 使用同一只读范围和身份检查持续交付结果。`stop`、输入结束、目标退出或来源错误都会结束采样。`summary.inputIssue` 保存输入诊断和可用的字节偏移。输出暂时阻塞时保留一帧，并继续接收停止指令。stdout 断开或写入超时会停止采样，并在 stderr 输出 `memory-stream-output-unavailable`，进程退出码为 `3`。`--interval-ms` 设定两轮之间的最短等待，归档由调用方负责。
+
+两条命令的 `--observe-threads` 默认关闭。`track` 的 `data` 以及 `stream` 的 `start.data`、`summary.data` 用 `threadObservationEnabled` 报告是否启用。启用后，一轮内至少有一个页产生已核验的 `content`，才会使用原进程句柄附加 `round.threadObservation`（JSONL 中为 `round` 帧的 `data.threadObservation`）。部分读取、读后映射变化或散列失败时，`returnedBytes` 仍可用于诊断，不能代替 `content`。线程观察字段与 `watch` 相同。关闭、无已核验内容或轮次被终止时该字段为 `null`；正常完成的末轮仍按采样处理。停止、取消、退出和背压期间仅检查状态时，不补采线程。线程快照有独立时间窗，可能漏掉短命线程；不装载驱动、不修改或挂起目标，也不证明谁写入、哪个线程曾执行或命中停点。
+
+`round.previousThreadObservationRound` 是前一次实际尝试线程快照的内存轮号，与 `ordinal` 编码一致。首次、关闭或本轮未尝试时为 `null`。前一次快照可能有读取缺口，须查看所指轮次的 `snapshotStatus`；跳过的内存轮不更新这个编号。枚举失败而目标仍在运行时，保留已有线程句柄供后续确认退出，但失败轮不作为判断新线程的完整基准。
 
 `breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。提供明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内，不支持 WOW64、PDB、R0 或跨进程停止。异常退出后不保证恢复。
 

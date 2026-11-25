@@ -1,13 +1,10 @@
 #include "MemoryWatch.h"
+#include "ThreadObservationJson.h"
 #include "../../R3ProcessShared.h"
-
-#include <tlhelp32.h>
 
 #include <cstddef>
 #include <limits>
-#include <map>
 #include <stdexcept>
-#include <utility>
 
 namespace ks::cli::action_analyze
 {
@@ -15,7 +12,6 @@ namespace
 {
     constexpr std::uint32_t kMaxBytes = 65536; // 每次读取的有限范围。
     constexpr std::size_t kMaxRanges = 64; // 每次比较最多保留这么多个差异区间。
-    constexpr std::size_t kMaxThreads = 64; // 每轮最多核对这么多线程句柄。
 
     std::uint64_t FileTimeValue(const FILETIME& value)
     {
@@ -35,160 +31,6 @@ namespace
         if (wait == WAIT_TIMEOUT) return ERROR_SUCCESS;
         if (wait == WAIT_OBJECT_0) return ERROR_PROCESS_ABORTED;
         return wait == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
-    }
-
-    using ks::r3::common::UniqueHandle;
-
-    struct ThreadIdentity
-    {
-        UniqueHandle handle; // 同一对象的句柄保留至下一轮，用于确认退出，不按 TID 重开。
-        std::uint64_t creation = 0;
-        DWORD error = ERROR_SUCCESS; // 无法确认线程身份或存活状态时才设置。
-        bool exited = false;
-    };
-
-    struct ThreadSnapshot
-    {
-        std::map<DWORD, ThreadIdentity> rows;
-        std::uint64_t start = 0, end = 0;
-        DWORD targetError = ERROR_SUCCESS;
-        DWORD snapshotError = ERROR_SUCCESS;
-        bool limited = false;
-
-        bool complete() const { return !targetError && !snapshotError && !limited; }
-    };
-
-    ThreadIdentity QueryThreadIdentity(DWORD tid, DWORD pid, std::uint64_t snapshotEnd)
-    {
-        ThreadIdentity result;
-        UniqueHandle thread(OpenThread(THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, tid));
-        if (!thread.valid()) {
-            result.error = GetLastError();
-            return result;
-        }
-        const DWORD owner = GetProcessIdOfThread(thread.get());
-        if (owner != pid) {
-            result.error = owner ? ERROR_INVALID_DATA : GetLastError();
-            return result;
-        }
-        FILETIME creation{}, exit{}, kernel{}, user{};
-        if (!GetThreadTimes(thread.get(), &creation, &exit, &kernel, &user)) {
-            result.error = GetLastError();
-            return result;
-        }
-        const auto observed = FileTimeValue(creation);
-        if (!observed || observed > snapshotEnd) {
-            // 快照返回后才创建的同 TID 对象不属于这次枚举。
-            result.error = ERROR_INVALID_DATA;
-            return result;
-        }
-        result.creation = observed;
-        const DWORD wait = WaitForSingleObject(thread.get(), 0);
-        result.exited = wait == WAIT_OBJECT_0;
-        if (wait == WAIT_FAILED) result.error = GetLastError();
-        result.handle = std::move(thread);
-        return result;
-    }
-
-    // Toolhelp 只按 PID 给候选；只接受同一已验证进程句柄在采集前后均未退出的结果。
-    ThreadSnapshot TakeThreadSnapshot(HANDLE target, DWORD pid)
-    {
-        ThreadSnapshot result;
-        result.targetError = CheckRunning(target);
-        if (result.targetError) return result;
-
-        result.start = UtcNow100ns();
-        const UniqueHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0));
-        const DWORD openError = snapshot.valid() ? ERROR_SUCCESS : GetLastError();
-        result.end = UtcNow100ns();
-        if (openError) {
-            result.snapshotError = openError;
-        } else {
-            THREADENTRY32 entry{};
-            entry.dwSize = sizeof(entry);
-            BOOL more = Thread32First(snapshot.get(), &entry);
-            while (more) {
-                if (entry.dwSize < offsetof(THREADENTRY32, th32OwnerProcessID) + sizeof(DWORD)) {
-                    result.snapshotError = ERROR_INVALID_DATA;
-                    break;
-                }
-                if (entry.th32OwnerProcessID == pid) {
-                    if (result.rows.size() == kMaxThreads) {
-                        result.limited = true;
-                        break;
-                    }
-                    if (!result.rows.try_emplace(entry.th32ThreadID).second) {
-                        result.snapshotError = ERROR_INVALID_DATA;
-                        break;
-                    }
-                }
-                entry.dwSize = sizeof(THREADENTRY32);
-                more = Thread32Next(snapshot.get(), &entry);
-            }
-            if (!more) {
-                const DWORD enumerationError = GetLastError();
-                if (enumerationError != ERROR_NO_MORE_FILES) result.snapshotError = enumerationError;
-            }
-            if (!result.snapshotError) {
-                for (auto& [tid, thread] : result.rows) thread = QueryThreadIdentity(tid, pid, result.end);
-            }
-        }
-        result.targetError = CheckRunning(target);
-        if (result.targetError || result.snapshotError) result.rows.clear();
-        return result;
-    }
-
-    Json ThreadEvent(DWORD tid, std::uint64_t creation, const wchar_t* status, DWORD error = ERROR_SUCCESS)
-    {
-        return Json::object({{L"tid", Json::number(tid)},
-            {L"creationTime100ns", creation ? Json::count(creation) : Json{}},
-            {L"status", Json::string(status)}, {L"win32Error", error ? Json::number(error) : Json{}}});
-    }
-
-    Json DescribeThreads(const ThreadSnapshot* previous, const ThreadSnapshot& current)
-    {
-        std::vector<Json> events;
-        if (previous) {
-            for (const auto& [tid, prior] : previous->rows) {
-                if (!prior.creation || prior.exited) continue;
-                const auto now = current.rows.find(tid);
-                const bool same = now != current.rows.end() && now->second.creation == prior.creation;
-                if (same && !now->second.error && !now->second.exited) continue;
-
-                // 枚举缺失或 TID 重用只触发复查；只有原句柄变为有信号才确认退出。
-                const DWORD wait = WaitForSingleObject(prior.handle.get(), 0);
-                if (wait == WAIT_OBJECT_0) {
-                    events.push_back(ThreadEvent(tid, prior.creation, L"exited"));
-                } else {
-                    events.push_back(ThreadEvent(tid, prior.creation, L"unknown",
-                        wait == WAIT_FAILED ? GetLastError() : same ? now->second.error : ERROR_SUCCESS));
-                }
-            }
-        }
-        for (const auto& [tid, row] : current.rows) {
-            const auto prior = previous ? previous->rows.find(tid) : current.rows.end();
-            const bool previouslyListed = previous && prior != previous->rows.end();
-            const bool same = previouslyListed && row.creation && prior->second.creation == row.creation;
-            if (same) continue; // 已由上面的原对象复查覆盖，或已经报告退出。
-            if (row.error) {
-                events.push_back(ThreadEvent(tid, row.creation, L"unknown", row.error));
-            } else if (row.exited) {
-                events.push_back(ThreadEvent(tid, row.creation, L"exited"));
-            } else {
-                // 创建时间早于前一轮的线程即使刚出现在列表里，也不能报告为新线程。
-                const bool isNew = previous && previous->complete() && row.creation >= previous->start &&
-                    (!previouslyListed || prior->second.creation);
-                events.push_back(ThreadEvent(tid, row.creation, isNew ? L"newly-observed" : L"observed"));
-            }
-        }
-        return Json::object({{L"snapshotStatus", Json::string(current.targetError == ERROR_PROCESS_ABORTED ? L"target-exited" :
-                current.targetError || current.snapshotError ? L"unknown" : current.limited ? L"limited" : L"complete")},
-            {L"win32Error", Json::number(current.targetError ? current.targetError : current.snapshotError)},
-            {L"snapshotStartUtc100ns", current.start ? Json::count(current.start) : Json{}},
-            {L"snapshotEndUtc100ns", current.end ? Json::count(current.end) : Json{}},
-            {L"readbackEndUtc100ns", Json::count(UtcNow100ns())},
-            {L"listedThreadCount", current.targetError || current.snapshotError ? Json{} : Json::count(current.rows.size())},
-            {L"events", Json::array(events)}});
     }
 
     struct Plan
@@ -323,7 +165,8 @@ namespace
         std::vector<Json> rows; // 仅保留有限的、已完整读回的差异观测。
         std::vector<std::uint8_t> current(plan.bytes), previous(plan.bytes); // 相邻两个完整快照。
         MEMORY_BASIC_INFORMATION baseline{}; // 本次第一份已验观察的实际映射属性。
-        ThreadSnapshot previousThreads;
+        std::optional<memory::PassiveThreadObservation> threads;
+        if (!error) threads.emplace(target.handle.get(), target.pid);
         for (std::uint32_t index = 0; !error && index < plan.samples; ++index)
         {
             if (cancellation.token->load(std::memory_order_relaxed))
@@ -351,12 +194,11 @@ namespace
                 break;
             }
             baseline = mapping;
-            auto threads = TakeThreadSnapshot(target.handle.get(), plan.pid);
+            const auto threadObservation = threads->Observe();
             rows.push_back(Json::object({{L"ordinal", Json::number(index)}, {L"readStartUtc100ns", Json::count(lower)},
                 {L"readEndUtc100ns", Json::count(upper)}, {L"difference", index ? Compare(previous, current) : Json{}},
-                {L"threadObservation", DescribeThreads(index ? &previousThreads : nullptr, threads)}}));
+                {L"threadObservation", ThreadObservationJson(threadObservation)}}));
             previous.swap(current);
-            previousThreads = std::move(threads);
         }
         const bool complete = !error && !canceled && rows.size() == plan.samples; // 精确区分部分观测。
         const bool targetMatched = !target.error && target.matches;

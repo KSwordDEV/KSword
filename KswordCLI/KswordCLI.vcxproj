@@ -208,6 +208,7 @@
     <ClCompile Include="ActionAnalyze\Memory\PassiveDirtyMemory.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\PassiveApiCapture.cpp" />
+    <ClCompile Include="ActionAnalyze\Memory\PassiveThreadObservation.cpp" />
     <ClCompile Include="..\shared\evidence\PassiveApiArchiveTail.cpp" />
     <ClCompile Include="..\shared\evidence\PassiveApiSourceDiagnosis.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\ArchivedEvidenceGraph.cpp" />
@@ -238,6 +239,8 @@
     <ClInclude Include="ActionAnalyze\Cli\PassiveApiCapture.h" />
     <ClInclude Include="..\shared\evidence\PassiveApiArchiveTail.h" />
     <ClInclude Include="..\shared\evidence\PassiveApiSourceDiagnosis.h" />
+    <ClInclude Include="ActionAnalyze\Memory\PassiveThreadObservation.h" />
+    <ClInclude Include="ActionAnalyze\Cli\ThreadObservationJson.h" />
     <ClInclude Include="ActionAnalyze\Detection\ArchivedEvidenceGraph.h" />
     <ClInclude Include="ActionAnalyze\Detection\EvidenceRelationTree.h" />
     <ClInclude Include="ActionAnalyze\Detection\CrossProcessEvidenceGraph.h" />
