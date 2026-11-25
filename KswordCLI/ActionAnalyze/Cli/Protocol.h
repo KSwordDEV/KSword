@@ -14,6 +14,7 @@ using Ksword::Evidence::JsonValue;
 inline constexpr unsigned kSchemaVersion = 1;
 inline constexpr std::size_t kInputBytes = 1u << 20;
 inline constexpr std::size_t kOutputBytes = 256u << 10;
+inline constexpr std::size_t kResultBytes = kOutputBytes - 2048; // 保留回执包络和转义后的 ID。
 inline constexpr std::size_t kRequestIdBytes = 128;
 inline constexpr std::size_t kDepth = 32;
 inline constexpr std::size_t kObjectKeys = 128;

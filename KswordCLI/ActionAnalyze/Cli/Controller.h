@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Protocol.h"
+#include "ProjectCommands.h"
 
 #include <map>
 
@@ -11,23 +12,29 @@ struct Reply {
     std::string text;
     Fault error;
     bool shutdown = false;
+    bool observed = false;
 };
 
-// 本阶段只有离线控制器。接入项目时，方法目录和控制器仍是两种输入的共同入口。
+// 两种输入共用同一个离线项目和方法派发器。
 class Controller {
 public:
     static JsonValue Capabilities();
     static std::string CapabilitiesText();
     static std::string Help(std::string_view command = {});
     Reply Dispatch(Request request, bool repl);
+    void CloseProject() noexcept { project_.Close(); }
 
 private:
     struct Cached {
         std::string method;
         std::string params;
-        Reply reply;
+        std::string result;
+        Fault error;
+        bool observed = false;
     };
     std::map<std::string, Cached> replies_;
+    std::size_t replayBytes_ = 0;
+    ProjectCommands project_;
 };
 
 } // namespace ks::cli::action_analyze

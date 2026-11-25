@@ -162,17 +162,33 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline]` | 查询离线控制器的实际方法和限制。`--json` 输出一个普通 CLI 结果，`data` 为能力对象。 |
 | `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline]` | 在同一个 CLI 进程内连续收发请求。省略选项时使用 `--input repl --output text`。 |
 
-入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。当前范围是协议协商、能力查询和关闭。项目存储、归档、规则执行、请求取消、实时采集及目标控制均未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
+入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。会话支持协议协商、项目读写和离线采样描述。采样创建时保存所用配置的独立快照，状态为 `not-collected`。归档查询、规则执行、请求取消、实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
 
 #### 人工会话
 
 运行 `KswordCLI.exe analyze session` 后输入 `help` 查看命令，也可用 `help capabilities` 查询单项帮助。`hello` 查看协议版本，`capabilities` 查看当前能力和限制，`quit` 关闭控制器。REPL 支持用双引号引用参数和用两个相邻的双引号表示引号内的字面双引号。背斜杠按原字面保留。命令由本端派发器解析，输入只用于该会话的命令。
 
+以下命令在同一会话中新建项目，分别按两个已保存的修订创建采样，然后重新打开查看。创建路径应为尚不存在的专用目录。`sample status SAMPLE_ID` 可查看给定采样的冻结设置。`help project`、`help sample list` 也可在会话内使用。
+
+```text
+project create "C:\Cases\Offline Review" "First revision" "Initial scope"
+sample create "First sample"
+project save "Second revision" "Updated scope"
+sample create "Second sample"
+project close
+project open "C:\Cases\Offline Review"
+project status
+sample list
+quit
+```
+
+`project open PATH [read-only|read-write]` 接受项目目录或其中的 `project.ksaproj`，默认只读。写入已有项目时明确指定 `read-write`。当前会话只持有一个项目，打开另一个项目前先执行 `project close`。REPL 的项目身份和写入预期修订取自当前已打开的项目。需要按页查看时，使用 `sample list START GENERATION [LIMIT]` 并传回上页的 `nextStart` 与 `generation`。
+
 #### JSONL 会话
 
 以 `KswordCLI.exe analyze session --input jsonl --output jsonl` 启动，使用管道或文件作为 stdin、stdout 的字节流。启动选项允许的组合是 `repl/text` 和 `jsonl/jsonl`。`session` 的输出选项为 `--output`，`--json` 适用于一次性的 `capabilities`。长程客户端应保持 stdin 可写并持续读取 stdout。启动参数失败的诊断来自 stderr，会话内错误通过 stdout 的协议记录返回。
 
-每条请求是一个对象，包含整数 `schemaVersion:1`、`requestId`、`method` 和对象 `params`。下列三行可依次发送给同一进程。协商是可选步骤，`acceptVersions` 接收 1–16 个正的 uint32 整数，含 `1` 即可协商成功。其余两个方法的 `params` 必须为空对象。
+每条请求是一个对象，包含整数 `schemaVersion:1`、`requestId`、`method` 和对象 `params`。下列三行可依次发送给同一进程。协商是可选步骤，`acceptVersions` 接收 1–16 个正的 uint32 整数，含 `1` 即可协商成功。`controller.capabilities` 和 `controller.shutdown` 的 `params` 必须为空对象。
 
 ```jsonl
 {"schemaVersion":1,"requestId":"q1","method":"controller.hello","params":{"acceptVersions":[1]}}
@@ -182,7 +198,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 - 输入使用无 BOM 的严格 UTF-8，每行以 LF 或 CRLF 终止。正文上限为 1 MiB，容器最多 32 层（根容器计第 1 层），对象最多 128 键，数组最多 4096 项，JSON 值最多 65,536 个。`requestId` 和 `method` 各最多 128 个 UTF-8 字节且不能为空，禁止 ASCII 控制字符。重复键、浮点、溢出整数、非法 UTF-8 及未知字段会拒绝。超长行或 EOF 前的非空残帧会结束输入协议。
 - 第一条 stdout 记录为 `hello`，其中包含能力。每条记录都有相同的 `controllerId` 和递增的十进制字符串 `streamSequence`。具有有效 ID 的已解码请求返回 `response`，该阶段使用 `phase:"completed"`。无法解码有效 ID 时返回 `protocolError`，其中 `requestId` 为 `null`，另有 `inputSequence` 和可用的字节偏移。成功关闭时 `summary` 为最后一条记录。每条输出正文最大 256 KiB，输出队列包含最多 16 条记录（含正在写入的记录），最早待写记录达到 5 秒上限时终止交付。
-- 本进程缓存最多 4096 条成功查询。相同 `requestId`、方法和等值参数重放原结果，对象键顺序不影响等值判断。复用已登记 ID 进行另一请求时，返回 `request-id-conflict`。失败请求不占账本。账本满后允许重放已有结果，用新的 ID 调用 `controller.shutdown` 即可结束会话。账本随该进程退出而销毁。
+- 本进程的回执账本最多 4096 项、32 MiB，以 ID、方法、规范化参数、序列化结果和每项固定开销计费。成功查询及项目状态变更方法进入派发后的成功或失败回执都会保留。同一 `requestId`、方法和等值参数重放原回执，对象键顺序不影响等值判断。重放在当前项目和修订校验之前完成。复用已登记 ID 进行另一请求时，返回 `request-id-conflict`。账本满时返回 `request-ledger-full`，仍可重放既有回执，并为当前项目的有效 `project.close` 保留一项及 2 KiB，亦可用新 ID 直接关闭控制器。账本随进程退出而销毁。
 - `quit`／`controller.shutdown` 和正常 EOF 触发收尾。Ctrl-Break 请求有序关闭，Ctrl-C 在当前无前台任务的会话中保持会话可用。调用方以最终 `summary` 确认收尾。stdout 断开或停止读取时可能收不到该记录。
 
 | 会话退出码 | 条件 |
@@ -193,6 +209,25 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `6` | Ctrl-Break 请求有序关闭，最终 `summary` 已写出。 |
 
 单次请求的失败由记录中的 `error.errorId` 表达。会话退出码只表示最终会话结果。完整字段见 [A0.2 离线 CLI 协议](../schemas/action_analyze/method-contract-v1.md)。
+
+#### 项目方法
+
+| 方法 | `params` 字段 | REPL | `result` |
+| --- | --- | --- | --- |
+| `project.create` | `path`、`settings` | `project create PATH TITLE [NOTES]` | 项目信息 |
+| `project.open` | `path`，可选 `access` 为 `read-only` 或 `read-write` | `project open PATH [read-only\|read-write]` | 项目信息 |
+| `project.query` | `projectId` | `project status` | 项目信息 |
+| `project.save` | `projectId`、`expectedRevisionId`、`settings` | `project save TITLE [NOTES]` | 保存后的项目信息 |
+| `project.close` | `projectId` | `project close` | `projectId`、`closed:true` |
+| `sample.create` | `projectId`、`expectedRevisionId`、`title` | `sample create TITLE` | 采样详情 |
+| `sample.list` | `projectId`，可选 `generation`、`start`、`limit` | `sample list [START GENERATION [LIMIT]]` | `projectId`、`generation`、`start`、`sampleCount`、`nextStart`、`samples` |
+| `sample.query` | `projectId`、`sampleId` | `sample status SAMPLE_ID` | 采样详情 |
+
+`settings` 包含 `title` 和 `notes`。标题为 1–1024 个 UTF-8 字节。备注最多 64 KiB，可以为空，允许制表符和 LF。项目、修订及采样身份使用规范小写 UUID。`project.save` 与 `sample.create` 在写入前核对项目身份和已保存修订。身份不符返回 `project-id-mismatch`，修订过期返回 `stale-revision`。只读打开后写入返回 `project-read-only`。关闭当前项目、重新打开后使用新请求 ID 查询新快照。
+
+项目信息包含 `projectId`、`createdUtc`、`settings`、`revisionId`、`revisionHash`、`configSemanticHash`、`generation`、`sampleCount`、`access`、`recoveredPrevious`、`primaryFailure`。列表中的采样行包含 `sampleId`、`title`、`createdUtc`、`revisionId`、`snapshotId`、`descriptionHash`、`status`。采样详情在采样行基础上还返回 `projectId`、`generation`、`frozenSettings`、`revisionHash`、`configSemanticHash`。`createdUtc` 为 FILETIME 纪元的 100ns 值。时间、计数和代次使用规范十进制字符串。
+
+`sample.list` 默认从 `"0"` 开始，`limit` 为 1–256 的 JSON 整数，默认 256。显式 `start` 需要指定 `generation`，两者均使用规范十进制字符串。超出输出帧预算时返回放得下的完整行，`nextStart` 等于本页起点加实际返回行数。到末尾时 `nextStart` 为 `null`。代次不符返回 `stale-generation`，从新快照第一页重新查询即可。
 
 ### `log`
 

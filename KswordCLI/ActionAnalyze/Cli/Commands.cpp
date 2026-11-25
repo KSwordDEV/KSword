@@ -47,7 +47,9 @@ public:
         try {
             if (!Emit("hello", {{"capabilities", Controller::Capabilities()}}, "ActionAnalyze (offline). Type help for commands."))
                 return 3;
-            return Loop();
+            const auto exitCode = Loop();
+            controller_.CloseProject();
+            return exitCode;
         } catch (const std::exception&) {
             return Complete("internal-error", 3, {"internal-error", "Controller failed", std::nullopt, 3});
         }
@@ -74,6 +76,7 @@ private:
     }
 
     int Complete(const char* reason, int code, const Fault& error = {}) {
+        controller_.CloseProject();
         const bool queued = Emit("summary", {{"reason", V::makeString(reason)}, {"exitCode", V::makeUInt(code)},
             {"clean", V::makeBool(true)}, {"liveSession", V::makeNull()}, {"archive", V::makeNull()},
             {"unresolvedResponsibilities", V::makeArray({})}, {"error", FaultJson(error)}},
@@ -106,7 +109,7 @@ private:
             const auto reply = decoded.error ? Reply{{}, {}, decoded.error, false}
                                              : controller_.Dispatch(std::move(decoded.request), !jsonl_);
             const bool sent = Emit("response", {{"requestId", V::makeString(requestId)},
-                {"phase", V::makeString("completed")}, {"effectPhase", V::makeString(reply.shutdown ? "observed" : "not-applicable")},
+                {"phase", V::makeString("completed")}, {"effectPhase", V::makeString(reply.shutdown || reply.observed ? "observed" : "not-applicable")},
                 {"result", reply.result}, {"error", FaultJson(reply.error)}},
                 reply.error ? std::string("error: ") + reply.error.message : reply.text);
             if (!sent) return 3;
