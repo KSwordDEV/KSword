@@ -220,6 +220,7 @@
     <ClInclude Include="ActionAnalyze\Rules\FilterAst.h" />
   </ItemGroup>
   <ItemGroup Label="ActionAnalyze Project">
+    <ClCompile Include="ActionAnalyze\Project\ProjectArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />

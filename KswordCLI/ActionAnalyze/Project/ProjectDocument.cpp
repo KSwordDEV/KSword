@@ -334,6 +334,7 @@ ProjectDocument::ProjectDocument() = default;
 ProjectDocument::~ProjectDocument() = default;
 void ProjectDocument::Close() noexcept { state_.reset(); }
 const ProjectInfo* ProjectDocument::Info() const noexcept { return state_ ? &state_->head.info : nullptr; }
+const Directory* ProjectDocument::RootForRead() const noexcept { return state_ ? &state_->root : nullptr; }
 
 ProjectResult ProjectDocument::Create(const std::wstring& directory, const RevisionSettings& settings) {
     if (state_) return Failure(ProjectError::AlreadyOpen, "project");

@@ -35,3 +35,9 @@ if ($LASTEXITCODE) { throw 'Independent format check failed' }
 ```
 
 独立 Python 校验器输出所检查文件的 SHA-256、能力名与可达 journal 链。每次运行的 UUID 和 FILETIME 由系统生成，因此文件 hash 随夹具变化。
+
+## 指定归档段读取
+
+`ProjectDocument::InspectSegment` 在当前项目的已提交采样中按流和正数段号定位一个文件。`raw`、`records` 和 `control` 使用 20 位十进制段号。`analysis` 需要独立的 `runId` 目录与身份绑定。调用成功后，`SegmentInspection::framingStatus` 描述本次读取的封装检查，`interpretedBytes` 和 `durableBytes` 保持未知。`archiveStreamUnavailable` 与 `archiveSegmentUnavailable` 只说明指定位置的打开失败。可选 `endOffset` 是调用方指定的扫描边界，范围受 Archive 的 1 GiB 段上限约束。
+
+`ProjectArchiveValidation.cpp` 是独立入口，可与四个原 Project 源文件、`ProjectArchive.cpp`、Archive 的 `SegmentFormat.cpp`、`SegmentReader.cpp`、`SegmentWriter.cpp`、`SegmentInspection.cpp`，以及 `EvidenceJson.cpp` 和 `LosslessValue.cpp` 一起编译。它接收一个尚不存在的夹具目录，验证目录与文件缺失、明确扫描端点、采样及段头身份、孤立样本、硬链接和项目文件不变。

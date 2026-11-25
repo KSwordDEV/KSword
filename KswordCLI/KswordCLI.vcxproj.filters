@@ -108,6 +108,7 @@
     <ClInclude Include="ActionAnalyze\Rules\FilterAst.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup Label="ActionAnalyze Project">
+    <ClCompile Include="ActionAnalyze\Project\ProjectArchive.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>

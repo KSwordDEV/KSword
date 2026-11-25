@@ -2,11 +2,19 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+namespace ks::cli::action_analyze::archive {
+enum class StreamKind : std::uint32_t;
+struct SegmentInspection;
+}
+
 namespace Ksword::ActionAnalyze {
+
+namespace ProjectStorage { struct Directory; }
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
@@ -90,10 +98,16 @@ public:
     ProjectResult ListSamples(std::uint64_t start, std::uint64_t limit,
                               std::vector<SampleInfo>& out) const;
     ProjectResult ReadSample(std::string_view sampleId, SampleRecord& out) const;
+    // 读取已登记采样的指定段，端点为本次扫描的字节边界。成功后从 out 读取封装检查结果。
+    // archiveStreamUnavailable / archiveSegmentUnavailable 只描述本次指定路径无法打开。
+    ProjectResult InspectSegment(std::string_view projectId, std::string_view sampleId,
+        ks::cli::action_analyze::archive::StreamKind stream, std::uint64_t ordinal,
+        std::optional<std::uint64_t> endOffset, ks::cli::action_analyze::archive::SegmentInspection& out) const;
     // 显式扫描未纳入当前目录的样本目录名，返回尚待核验的孤立候选 ID。
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 
 private:
+    const ProjectStorage::Directory* RootForRead() const noexcept;
     struct State;
     std::unique_ptr<State> state_;
 };
