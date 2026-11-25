@@ -10,6 +10,12 @@ from referencing import Registry, Resource
 ROOT = Path(__file__).resolve().parents[1]
 BASE_URI = 'https://ksword.invalid/schemas/action_analyze/'
 U64_MAX = (1 << 64) - 1
+ARCHIVE_LIMIT = 1 << 30
+PROFILE_AVAILABILITY = {
+    'shell': ('shell',),
+    'project-integration': ('shell', 'project-integration'),
+    'archive-inspection': ('shell', 'project-integration', 'archive-inspection'),
+}
 
 
 def read(name):
@@ -33,7 +39,7 @@ def admission(request, methods, envelope, params, limits, profile='shell'):
         return 'invalid-envelope'
 
     method = request['method']
-    if method not in methods or methods[method]['availability'] not in ('shell', profile):
+    if method not in methods or methods[method]['availability'] not in PROFILE_AVAILABILITY[profile]:
         return 'unsupported-method'
 
     arguments = request['params']
@@ -46,6 +52,9 @@ def admission(request, methods, envelope, params, limits, profile='shell'):
         return 'invalid-params'
     if methods[method]['availability'] == 'project-integration' and not fits_project_text(arguments):
         return 'invalid-params'
+    if method == 'archive.inspect':
+        if int(arguments['ordinal']) > U64_MAX or int(arguments.get('endOffset', '0')) > ARCHIVE_LIMIT:
+            return 'invalid-params'
     return 'accept'
 
 
@@ -158,7 +167,7 @@ def inspect_wire(wire, limits, admit):
 def check_capabilities(capability, methods, profile, schema):
     require(schema.is_valid(capability), True, f'{profile} capabilities shape')
     declared = {name: entry['repl'] for name, entry in methods.items()
-                if entry['availability'] in ('shell', profile)}
+                if entry['availability'] in PROFILE_AVAILABILITY[profile]}
     advertised = capability['methods']
     require(len(advertised), len(declared), f'{profile} advertised method count')
     require({item['method']: item['repl'] for item in advertised}, declared, f'{profile} advertised methods')
@@ -254,8 +263,86 @@ def check_project_vectors(vectors, shell_vectors, registry, methods, admit, mess
     return sum(len(vectors[key]) for key in ('requests', 'results', 'receipts'))
 
 
+def valid_archive_result(value, schema):
+    if not schema.is_valid(value):
+        return False
+    coverage = value['framingCoverage']
+    counts = ('requiredRecordCount', 'unsupportedOptionalRecords', 'unsupportedRequiredRecords')
+    numbers = [value[key] for key in (*counts, 'generation', 'ordinal', 'createdUtc100ns')]
+    numbers.extend(coverage.values())
+    if any(int(number) > U64_MAX for number in numbers if number is not None):
+        return False
+
+    end = coverage['requestedEndOffset']
+    file_size = coverage['fileBytes']
+    framed = int(coverage['framedBytes'])
+    blocks = int(coverage['blockCount'])
+    if end is not None and int(end) > ARCHIVE_LIMIT:
+        return False
+    if file_size is None:
+        if value['framingStatus'] != 'io-error':
+            return False
+    else:
+        limit = min(int(file_size), ARCHIVE_LIMIT if end is None else int(end), ARCHIVE_LIMIT)
+        if int(coverage['scanLimitBytes']) != limit or framed > limit:
+            return False
+        if value['framingStatus'] == 'framing-complete' and (framed != limit or (end and int(end) > int(file_size))):
+            return False
+    if blocks == 0 and (framed not in (0, 96) or any(int(value[key]) for key in counts)):
+        return False
+    if blocks > 0 and framed <= 96:
+        return False
+    if (framed == 0) != (value['createdUtc100ns'] is None):
+        return False
+    if value['framingStatus'] == 'framing-complete' and framed < 96:
+        return False
+    if int(value['unsupportedRequiredRecords']) > int(value['requiredRecordCount']):
+        return False
+    issue = value['framingError']
+    return issue is None or int(issue['offset']) <= ARCHIVE_LIMIT
+
+
+def check_archive_vectors(vectors, project_vectors, shell_vectors, registry, methods, admit, messages, results):
+    method = 'archive.inspect'
+    profile = 'archive-inspection'
+    shell = shell_vectors['shellCapabilities']
+    capability = dict(shell, projectStorage=True, archives=True,
+                      methods=shell['methods'] + project_vectors['capabilityMethods'] + [vectors['capabilityMethod']],
+                      limits=dict(shell['limits'], replayBytes=33554432))
+    capabilities_schema = results['controller.capabilities']
+    check_capabilities(capability, methods, profile, capabilities_schema)
+    require(capabilities_schema.is_valid(dict(capability, archives=False)), False, 'archive flag disagrees with methods')
+    require(capabilities_schema.is_valid(dict(capability, methods=capability['methods'][:-1])), False,
+            'archive capability missing method')
+    base_request = dict(shell_vectors['baseRequest'], method=method)
+    for case in vectors['requests']:
+        request = dict(base_request, params=vectors['params'] | case['set'])
+        require(admit(request, profile), case['outcome'], case['id'])
+        for disabled_profile in ('shell', 'project-integration'):
+            require(admit(request, disabled_profile), 'unsupported-method', f"{case['id']} in {disabled_profile}")
+
+    base_message = dict(shell_vectors['baseMessage'], type='response', requestId='archive-1', phase='completed',
+                        effectPhase='not-applicable')
+    for case in vectors['results']:
+        base = vectors['result']
+        result = base | case['set']
+        result['framingCoverage'] = base['framingCoverage'] | case.get('coverage', {})
+        response = dict(base_message, result=result, error=None)
+        accepted = messages.is_valid(response) and valid_archive_result(result, results[method])
+        require(accepted, case['valid'], case['id'])
+
+    errors = validator(methods[method]['errorSchema'], registry)
+    for case in vectors['errors']:
+        error = dict(shell_vectors['error'], errorId=case['errorId'], source=case['source'], code=case['code'],
+                     byteOffset=None)
+        response = dict(base_message, result=None, error=error)
+        require(messages.is_valid(response) and errors.is_valid(error), case['valid'], case['errorId'])
+    return sum(len(vectors[key]) for key in ('requests', 'results', 'errors')) + 3
+
+
 def main():
-    schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json')]
+    schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json',
+                                       'archive-inspect-method.schema.json')]
     for schema in schemas:
         Draft202012Validator.check_schema(schema)
     registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in schemas)
@@ -300,9 +387,11 @@ def main():
         require(valid, case['valid'], case['id'])
 
     total = sum(len(vectors[key]) for key in ('requests', 'wire', 'messages'))
-    project_total = check_project_vectors(read('vectors/request-project-v1.json'), vectors, registry,
-                                          methods, admit, messages, results)
-    print(f'Passed {total} A0.2 baseline and {project_total} pending project vectors.')
+    project_vectors = read('vectors/request-project-v1.json')
+    project_total = check_project_vectors(project_vectors, vectors, registry, methods, admit, messages, results)
+    archive_total = check_archive_vectors(read('vectors/archive-inspect-method-v1.json'), project_vectors, vectors,
+                                          registry, methods, admit, messages, results)
+    print(f'Passed {total} A0.2 baseline, {project_total} project, and {archive_total} archive inspection vectors.')
 
 
 if __name__ == '__main__':

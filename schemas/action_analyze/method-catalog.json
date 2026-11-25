@@ -89,7 +89,16 @@
       "availability": "project-integration",
       "state": "project-open-read-write",
       "effect": "create-offline-sample"
+    },
+    "archive.inspect": {
+      "repl": "archive inspect",
+      "paramsSchema": "archive-inspect-method.schema.json#/$defs/params",
+      "resultSchema": "archive-inspect-method.schema.json#/$defs/result",
+      "errorSchema": "archive-inspect-method.schema.json#/$defs/error",
+      "availability": "archive-inspection",
+      "state": "project-open",
+      "effect": "read-only"
     }
   },
-  "unsupportedGroups": ["live-operation", "archive-query", "rule-execution", "request-cancellation"]
+  "unsupportedGroups": ["live-operation", "archive-record-query", "rule-execution", "request-cancellation"]
 }

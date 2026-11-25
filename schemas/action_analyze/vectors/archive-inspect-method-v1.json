@@ -1,0 +1,78 @@
+{
+  "capabilityMethod": {
+    "method": "archive.inspect", "repl": "archive inspect",
+    "summary": "Inspect Stored segment framing in the open project. End offset is an optional byte boundary."
+  },
+  "params": {
+    "projectId": "12345678-9abc-4def-8123-456789abcdef",
+    "sampleId": "fedcba98-7654-4321-a234-56789abcdef0",
+    "stream": "raw",
+    "ordinal": "1"
+  },
+  "result": {
+    "projectId": "12345678-9abc-4def-8123-456789abcdef",
+    "sampleId": "fedcba98-7654-4321-a234-56789abcdef0",
+    "generation": "2",
+    "stream": "raw",
+    "ordinal": "1",
+    "createdUtc100ns": "81985529216486895",
+    "framingStatus": "framing-complete",
+    "framingError": null,
+    "framingCoverage": {
+      "requestedEndOffset": null, "fileBytes": "218", "scanLimitBytes": "218", "framedBytes": "218",
+      "blockCount": "1", "lastBlockOrdinal": "1", "lastSequence": "0"
+    },
+    "requiredRecordCount": "1",
+    "unsupportedOptionalRecords": "0",
+    "unsupportedRequiredRecords": "0",
+    "interpretedBytes": null,
+    "durableBytes": null
+  },
+  "requests": [
+    { "id": "raw-file-end-default", "set": {}, "outcome": "accept" },
+    { "id": "zero-end-allowed", "set": { "stream": "records", "endOffset": "0" }, "outcome": "accept" },
+    { "id": "maximum-ordinal-and-end", "set": { "stream": "control", "ordinal": "18446744073709551615", "endOffset": "1073741824" }, "outcome": "accept" },
+    { "id": "analysis-requires-run-binding", "set": { "stream": "analysis" }, "outcome": "invalid-params" },
+    { "id": "path-not-a-request-field", "set": { "path": "segment.ksaseg" }, "outcome": "invalid-params" },
+    { "id": "noncanonical-ordinal", "set": { "ordinal": "01" }, "outcome": "invalid-params" },
+    { "id": "numeric-ordinal", "set": { "ordinal": 1 }, "outcome": "invalid-params" },
+    { "id": "zero-ordinal", "set": { "ordinal": "0" }, "outcome": "invalid-params" },
+    { "id": "ordinal-overflow", "set": { "ordinal": "18446744073709551616" }, "outcome": "invalid-params" },
+    { "id": "end-offset-over-limit", "set": { "endOffset": "1073741825" }, "outcome": "invalid-params" },
+    { "id": "end-offset-null", "set": { "endOffset": null }, "outcome": "invalid-params" },
+    { "id": "nil-sample-id", "set": { "sampleId": "00000000-0000-0000-0000-000000000000" }, "outcome": "invalid-params" }
+  ],
+  "results": [
+    { "id": "complete-framing", "set": {}, "valid": true },
+    { "id": "known-header-empty-block-prefix", "set": { "requiredRecordCount": "0" },
+      "coverage": { "requestedEndOffset": "96", "scanLimitBytes": "96", "framedBytes": "96", "blockCount": "0", "lastBlockOrdinal": null, "lastSequence": null }, "valid": true },
+    { "id": "truncation-at-requested-end", "set": { "framingStatus": "truncated", "framingError": { "reason": "end-of-file", "offset": "217", "win32Error": null }, "requiredRecordCount": "0" },
+      "coverage": { "requestedEndOffset": "217", "scanLimitBytes": "217", "framedBytes": "96", "blockCount": "0", "lastBlockOrdinal": null, "lastSequence": null }, "valid": true },
+    { "id": "truncation-beyond-observed-file-end", "set": { "framingStatus": "truncated", "framingError": { "reason": "end-of-file", "offset": "218", "win32Error": null } },
+      "coverage": { "requestedEndOffset": "219" }, "valid": true },
+    { "id": "zero-end-gives-no-valid-header", "set": { "framingStatus": "truncated", "framingError": { "reason": "end-of-file", "offset": "0", "win32Error": null }, "createdUtc100ns": null, "requiredRecordCount": "0" },
+      "coverage": { "requestedEndOffset": "0", "scanLimitBytes": "0", "framedBytes": "0", "blockCount": "0", "lastBlockOrdinal": null, "lastSequence": null }, "valid": true },
+    { "id": "corrupt-tail-preserves-complete-prefix", "set": { "framingStatus": "corrupt", "framingError": { "reason": "stored-crc", "offset": "298", "win32Error": null } },
+      "coverage": { "fileBytes": "340", "scanLimitBytes": "340" }, "valid": true },
+    { "id": "unsupported-codec-preserves-header", "set": { "framingStatus": "unsupported", "framingError": { "reason": "codec", "offset": "96", "win32Error": null }, "requiredRecordCount": "0" },
+      "coverage": { "framedBytes": "96", "blockCount": "0", "lastBlockOrdinal": null, "lastSequence": null }, "valid": true },
+    { "id": "io-error-with-unknown-size", "set": { "framingStatus": "io-error", "framingError": { "reason": "file-size", "offset": "0", "win32Error": 6 }, "createdUtc100ns": null, "requiredRecordCount": "0" },
+      "coverage": { "fileBytes": null, "scanLimitBytes": null, "framedBytes": "0", "blockCount": "0", "lastBlockOrdinal": null, "lastSequence": null }, "valid": true },
+    { "id": "unknown-required-record-can-have-complete-framing", "set": { "unsupportedRequiredRecords": "1" }, "valid": true },
+    { "id": "no-interpretation-claim", "set": { "interpretedBytes": "218" }, "valid": false },
+    { "id": "no-durability-claim", "set": { "durableBytes": "0" }, "valid": false },
+    { "id": "corrupt-result-requires-framing-error", "set": { "framingStatus": "corrupt" }, "valid": false },
+    { "id": "missing-stream-is-not-a-framing-status", "set": { "framingStatus": "archive-stream-unavailable" }, "valid": false },
+    { "id": "framing-cannot-exceed-scan-limit", "set": {}, "coverage": { "framedBytes": "219" }, "valid": false },
+    { "id": "zero-is-known-sequence", "set": {}, "coverage": { "lastSequence": null }, "valid": false }
+  ],
+  "errors": [
+    { "errorId": "archive-stream-unavailable", "source": "win32", "code": 3, "valid": true },
+    { "errorId": "archive-segment-unavailable", "source": "win32", "code": 2, "valid": true },
+    { "errorId": "project-data-not-found", "source": "cli", "code": 5, "valid": true },
+    { "errorId": "project-id-mismatch", "source": "cli", "code": 1, "valid": true },
+    { "errorId": "project-io-error", "source": "win32", "code": 32, "valid": true },
+    { "errorId": "archive-stream-unavailable", "source": "cli", "code": 0, "valid": false },
+    { "errorId": "no-activity", "source": "cli", "code": 5, "valid": false }
+  ]
+}

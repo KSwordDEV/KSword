@@ -130,12 +130,12 @@
       "properties": {
         "backend": { "const": "offline" },
         "projectStorage": { "type": "boolean" },
-        "archives": { "const": false },
+        "archives": { "type": "boolean" },
         "nativeCapture": { "const": false },
         "callerProcessMonitoring": { "const": "not-monitored" },
         "schemaVersions": { "const": [1] },
         "methods": {
-          "type": "array", "minItems": 3, "maxItems": 11, "uniqueItems": true,
+          "type": "array", "minItems": 3, "maxItems": 12, "uniqueItems": true,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["method", "repl", "summary"],
             "properties": {
@@ -164,7 +164,12 @@
       },
       "if": { "properties": { "projectStorage": { "const": true } } },
       "then": { "properties": { "limits": { "required": ["replayBytes"] } } },
-      "else": { "properties": { "methods": { "maxItems": 3 }, "limits": { "not": { "required": ["replayBytes"] } } } }
+      "else": { "properties": { "archives": { "const": false }, "methods": { "maxItems": 3 }, "limits": { "not": { "required": ["replayBytes"] } } } },
+      "allOf": [{
+        "if": { "properties": { "archives": { "const": true } } },
+        "then": { "properties": { "methods": { "contains": { "properties": { "method": { "const": "archive.inspect" }, "repl": { "const": "archive inspect" } } }, "maxContains": 1 } } },
+        "else": { "properties": { "methods": { "maxItems": 11, "not": { "contains": { "properties": { "method": { "const": "archive.inspect" } } } } } } }
+      }]
     },
     "response": {
       "required": ["requestId", "phase", "effectPhase", "result", "error"],

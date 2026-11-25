@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/archive-inspect-method.schema.json",
+  "title": "ActionAnalyze v1 archive.inspect",
+  "$ref": "#/$defs/params",
+  "$defs": {
+    "stream": { "enum": ["raw", "records", "control"] },
+    "offset": {
+      "$comment": "The semantic byte bound is 1073741824 inclusive. Apply it after canonical decimal-string validation.",
+      "allOf": [{ "$ref": "value.schema.json#/$defs/u64" }, { "maxLength": 10 }]
+    },
+    "nullableOffset": { "anyOf": [{ "$ref": "#/$defs/offset" }, { "type": "null" }] },
+    "nullableU64": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u64" }, { "type": "null" }] },
+    "params": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "sampleId", "stream", "ordinal"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "stream": { "$ref": "#/$defs/stream" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "endOffset": { "$ref": "#/$defs/offset" }
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requestedEndOffset", "fileBytes", "scanLimitBytes", "framedBytes", "blockCount", "lastBlockOrdinal", "lastSequence"],
+      "properties": {
+        "requestedEndOffset": { "$ref": "#/$defs/nullableOffset" },
+        "fileBytes": { "$ref": "#/$defs/nullableU64" },
+        "scanLimitBytes": { "$ref": "#/$defs/nullableOffset" },
+        "framedBytes": { "$ref": "#/$defs/offset" },
+        "blockCount": { "$ref": "value.schema.json#/$defs/u64" },
+        "lastBlockOrdinal": { "$ref": "#/$defs/nullableU64" },
+        "lastSequence": { "$ref": "#/$defs/nullableU64" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "blockCount": { "const": "0" } } },
+          "then": { "properties": { "lastBlockOrdinal": { "type": "null" }, "lastSequence": { "type": "null" } } },
+          "else": { "properties": { "lastBlockOrdinal": { "$ref": "value.schema.json#/$defs/u64" }, "lastSequence": { "$ref": "value.schema.json#/$defs/u64" } } }
+        },
+        {
+          "if": { "properties": { "fileBytes": { "type": "null" } } },
+          "then": { "properties": { "scanLimitBytes": { "type": "null" }, "framedBytes": { "const": "0" }, "blockCount": { "const": "0" } } },
+          "else": { "properties": { "scanLimitBytes": { "$ref": "#/$defs/offset" } } }
+        }
+      ]
+    },
+    "framingError": {
+      "type": "object", "additionalProperties": false, "required": ["reason", "offset", "win32Error"],
+      "properties": {
+        "reason": { "type": "string" },
+        "offset": { "$ref": "#/$defs/offset" },
+        "win32Error": { "anyOf": [{ "allOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "minimum": 1 }] }, { "type": "null" }] }
+      }
+    },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "sampleId", "generation", "stream", "ordinal", "createdUtc100ns", "framingStatus", "framingError", "framingCoverage", "requiredRecordCount", "unsupportedOptionalRecords", "unsupportedRequiredRecords", "interpretedBytes", "durableBytes"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "stream": { "$ref": "#/$defs/stream" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "createdUtc100ns": { "$ref": "#/$defs/nullableU64" },
+        "framingStatus": { "enum": ["framing-complete", "truncated", "corrupt", "unsupported", "io-error"] },
+        "framingError": { "anyOf": [{ "$ref": "#/$defs/framingError" }, { "type": "null" }] },
+        "framingCoverage": { "$ref": "#/$defs/coverage" },
+        "requiredRecordCount": { "$ref": "value.schema.json#/$defs/u64" },
+        "unsupportedOptionalRecords": { "$ref": "value.schema.json#/$defs/u64" },
+        "unsupportedRequiredRecords": { "$ref": "value.schema.json#/$defs/u64" },
+        "interpretedBytes": { "type": "null" },
+        "durableBytes": { "type": "null" }
+      },
+      "oneOf": [
+        { "properties": { "framingStatus": { "const": "framing-complete" }, "framingError": { "type": "null" } } },
+        { "properties": { "framingStatus": { "const": "truncated" }, "framingError": { "type": "object", "properties": { "reason": { "const": "end-of-file" }, "win32Error": { "type": "null" } } } } },
+        { "properties": { "framingStatus": { "const": "corrupt" }, "framingError": { "type": "object", "properties": { "reason": { "enum": ["magic", "header-crc", "header-length", "reserved", "identity", "ordinal", "block-length", "record-count", "sequence", "qpc-range", "stored-crc", "decoded-crc", "record-length", "record-payload-crc", "segment-limit"] }, "win32Error": { "type": "null" } } } } },
+        { "properties": { "framingStatus": { "const": "unsupported" }, "framingError": { "type": "object", "properties": { "reason": { "enum": ["version", "flags", "stream", "codec"] }, "win32Error": { "type": "null" } } } } },
+        { "properties": { "framingStatus": { "const": "io-error" }, "framingError": { "type": "object", "properties": { "reason": { "enum": ["file-size", "file-read"] } } } } }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "request-message.schema.json#/$defs/projectError",
+          "properties": { "errorId": { "enum": ["invalid-params", "project-not-open", "project-id-mismatch", "project-data-not-found", "project-unsafe-path", "project-corrupt", "project-limit-exceeded", "project-unsupported", "project-io-error"] } }
+        },
+        {
+          "$ref": "request-message.schema.json#/$defs/error",
+          "properties": {
+            "errorId": { "enum": ["archive-stream-unavailable", "archive-segment-unavailable"] },
+            "byteOffset": { "type": "null" }
+          },
+          "if": { "properties": { "source": { "const": "cli" } } },
+          "then": { "properties": { "code": { "const": 5 } } },
+          "else": { "properties": { "code": { "minimum": 1 } } }
+        }
+      ]
+    }
+  }
+}
