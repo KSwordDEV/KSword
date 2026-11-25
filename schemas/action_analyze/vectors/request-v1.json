@@ -20,7 +20,7 @@
     { "id": "control-in-id", "set": { "requestId": "q\u007f" }, "outcome": "invalid-envelope" },
     { "id": "read-only-project-with-space", "set": { "method": "project.open", "params": { "path": "D:\\实验 数据\\project.ksaproj" } }, "outcome": "accept", "profile": "project-integration" },
     { "id": "same-project-unavailable-in-shell", "set": { "method": "project.open", "params": { "path": "D:\\实验 数据\\project.ksaproj" } }, "outcome": "unsupported-method" },
-    { "id": "project-write-option-forbidden", "set": { "method": "project.open", "params": { "path": "project.ksaproj", "access": "read-write" } }, "outcome": "invalid-params", "profile": "project-integration" },
+    { "id": "project-write-option-unavailable-in-shell", "set": { "method": "project.open", "params": { "path": "project.ksaproj", "access": "read-write" } }, "outcome": "unsupported-method" },
     { "id": "project-close-requires-identity", "set": { "method": "project.close" }, "outcome": "invalid-params", "profile": "project-integration" },
     { "id": "sample-page", "set": { "method": "sample.list", "params": { "generation": "18446744073709551615", "start": "256", "limit": 256 } }, "projectParams": true, "outcome": "accept", "profile": "project-integration" },
     { "id": "sample-page-missing-generation", "set": { "method": "sample.list", "params": { "start": "256" } }, "projectParams": true, "outcome": "invalid-params", "profile": "project-integration" },

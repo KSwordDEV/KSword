@@ -27,6 +27,99 @@
       "required": ["shutdown"],
       "properties": { "shutdown": { "const": true } }
     },
+    "projectHash": {
+      "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "projectError": {
+      "allOf": [
+        { "$ref": "#/$defs/error" },
+        {
+          "properties": {
+            "errorId": {
+              "enum": [
+                "invalid-params", "project-already-open", "project-not-open", "project-data-not-found",
+                "project-already-exists", "project-read-only", "project-writer-busy", "stale-revision",
+                "project-unsupported", "project-recovery-required", "project-unsafe-path", "project-corrupt",
+                "project-limit-exceeded", "project-io-error", "project-id-mismatch", "stale-generation", "response-too-large"
+              ]
+            },
+            "byteOffset": { "type": "null" }
+          }
+        }
+      ],
+      "if": { "properties": { "source": { "const": "cli" } } },
+      "then": {
+        "oneOf": [
+          { "properties": { "code": { "const": 1 }, "errorId": { "enum": ["invalid-params", "project-already-open", "project-not-open", "project-already-exists", "project-read-only", "stale-revision", "project-unsafe-path", "project-id-mismatch", "stale-generation"] } } },
+          { "properties": { "code": { "const": 3 }, "errorId": { "enum": ["project-io-error", "project-writer-busy"] } } },
+          { "properties": { "code": { "const": 4 }, "errorId": { "const": "project-corrupt" } } },
+          { "properties": { "code": { "const": 5 }, "errorId": { "enum": ["project-data-not-found", "project-unsupported"] } } },
+          { "properties": { "code": { "const": 6 }, "errorId": { "enum": ["project-recovery-required", "project-limit-exceeded", "response-too-large"] } } }
+        ]
+      },
+      "else": { "properties": { "code": { "minimum": 1 } } }
+    },
+    "projectResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "createdUtc", "settings", "revisionId", "revisionHash", "configSemanticHash", "generation", "sampleCount", "access", "recoveredPrevious", "primaryFailure"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "createdUtc": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "settings": { "$ref": "request.schema.json#/$defs/projectSettings" },
+        "revisionId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "revisionHash": { "$ref": "#/$defs/projectHash" },
+        "configSemanticHash": { "$ref": "#/$defs/projectHash" },
+        "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "sampleCount": { "$ref": "value.schema.json#/$defs/u64" },
+        "access": { "$ref": "request.schema.json#/$defs/projectAccess" },
+        "recoveredPrevious": { "type": "boolean" },
+        "primaryFailure": { "anyOf": [{ "$ref": "#/$defs/projectError" }, { "type": "null" }] }
+      },
+      "if": { "properties": { "recoveredPrevious": { "const": true } } },
+      "then": { "properties": { "access": { "const": "read-only" }, "primaryFailure": { "$ref": "#/$defs/projectError" } } },
+      "else": { "properties": { "primaryFailure": { "type": "null" } } }
+    },
+    "projectCloseResult": {
+      "type": "object", "additionalProperties": false, "required": ["projectId", "closed"],
+      "properties": { "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" }, "closed": { "const": true } }
+    },
+    "sampleFields": {
+      "type": "object",
+      "required": ["sampleId", "title", "createdUtc", "revisionId", "snapshotId", "descriptionHash", "status"],
+      "properties": {
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "title": { "$ref": "request.schema.json#/$defs/projectTitle" },
+        "createdUtc": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "revisionId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "snapshotId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "descriptionHash": { "$ref": "#/$defs/projectHash" },
+        "status": { "const": "not-collected" }
+      }
+    },
+    "sampleResult": {
+      "$ref": "#/$defs/sampleFields", "unevaluatedProperties": false,
+      "required": ["projectId", "generation", "frozenSettings", "revisionHash", "configSemanticHash"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "frozenSettings": { "$ref": "request.schema.json#/$defs/projectSettings" },
+        "revisionHash": { "$ref": "#/$defs/projectHash" },
+        "configSemanticHash": { "$ref": "#/$defs/projectHash" }
+      }
+    },
+    "sampleRow": { "$ref": "#/$defs/sampleFields", "unevaluatedProperties": false },
+    "samplePageResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "generation", "start", "sampleCount", "nextStart", "samples"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "start": { "$ref": "value.schema.json#/$defs/u64" },
+        "sampleCount": { "$ref": "value.schema.json#/$defs/u64" },
+        "nextStart": { "anyOf": [{ "$ref": "value.schema.json#/$defs/nonzeroU64" }, { "type": "null" }] },
+        "samples": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/sampleRow" } }
+      }
+    },
     "hello": {
       "required": ["capabilities"],
       "properties": { "type": { "const": "hello" }, "capabilities": { "$ref": "#/$defs/capabilities" } }
@@ -42,7 +135,7 @@
         "callerProcessMonitoring": { "const": "not-monitored" },
         "schemaVersions": { "const": [1] },
         "methods": {
-          "type": "array", "minItems": 3, "uniqueItems": true,
+          "type": "array", "minItems": 3, "maxItems": 11, "uniqueItems": true,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["method", "repl", "summary"],
             "properties": {
@@ -63,11 +156,15 @@
             "arrayItems": { "const": 4096 },
             "requestIdBytes": { "const": 128 },
             "replayEntries": { "const": 4096 },
+            "replayBytes": { "const": 33554432 },
             "pendingOutputFrames": { "const": 16 },
             "outputTimeoutMs": { "const": 5000 }
           }
         }
-      }
+      },
+      "if": { "properties": { "projectStorage": { "const": true } } },
+      "then": { "properties": { "limits": { "required": ["replayBytes"] } } },
+      "else": { "properties": { "methods": { "maxItems": 3 }, "limits": { "not": { "required": ["replayBytes"] } } } }
     },
     "response": {
       "required": ["requestId", "phase", "effectPhase", "result", "error"],

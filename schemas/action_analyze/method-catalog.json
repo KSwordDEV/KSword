@@ -27,35 +27,69 @@
       "effect": "controller-close"
     },
     "project.open": {
+      "repl": "project open",
       "paramsSchema": "request.schema.json#/$defs/projectOpen",
+      "resultSchema": "request-message.schema.json#/$defs/projectResult",
       "availability": "project-integration",
       "state": "project-closed",
-      "effect": "open-read-only-project"
+      "effect": "open-project"
     },
     "project.query": {
+      "repl": "project status",
       "paramsSchema": "request.schema.json#/$defs/projectIdentity",
+      "resultSchema": "request-message.schema.json#/$defs/projectResult",
       "availability": "project-integration",
       "state": "project-open",
       "effect": "read-only"
     },
     "project.close": {
+      "repl": "project close",
       "paramsSchema": "request.schema.json#/$defs/projectIdentity",
+      "resultSchema": "request-message.schema.json#/$defs/projectCloseResult",
       "availability": "project-integration",
       "state": "project-open",
-      "effect": "close-read-only-project"
+      "effect": "close-project"
+    },
+    "project.create": {
+      "repl": "project create",
+      "paramsSchema": "request.schema.json#/$defs/projectCreate",
+      "resultSchema": "request-message.schema.json#/$defs/projectResult",
+      "availability": "project-integration",
+      "state": "project-closed",
+      "effect": "create-project"
+    },
+    "project.save": {
+      "repl": "project save",
+      "paramsSchema": "request.schema.json#/$defs/projectSave",
+      "resultSchema": "request-message.schema.json#/$defs/projectResult",
+      "availability": "project-integration",
+      "state": "project-open-read-write",
+      "effect": "save-project-revision"
     },
     "sample.list": {
+      "repl": "sample list",
       "paramsSchema": "request.schema.json#/$defs/sampleList",
+      "resultSchema": "request-message.schema.json#/$defs/samplePageResult",
       "availability": "project-integration",
       "state": "project-open",
       "effect": "read-only"
     },
     "sample.query": {
+      "repl": "sample status",
       "paramsSchema": "request.schema.json#/$defs/sampleIdentity",
+      "resultSchema": "request-message.schema.json#/$defs/sampleResult",
       "availability": "project-integration",
       "state": "project-open",
       "effect": "read-only"
+    },
+    "sample.create": {
+      "repl": "sample create",
+      "paramsSchema": "request.schema.json#/$defs/sampleCreate",
+      "resultSchema": "request-message.schema.json#/$defs/sampleResult",
+      "availability": "project-integration",
+      "state": "project-open-read-write",
+      "effect": "create-offline-sample"
     }
   },
-  "unsupportedGroups": ["live-operation", "persistent-write", "archive-query", "rule-execution", "request-cancellation"]
+  "unsupportedGroups": ["live-operation", "archive-query", "rule-execution", "request-cancellation"]
 }

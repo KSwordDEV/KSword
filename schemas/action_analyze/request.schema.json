@@ -37,24 +37,63 @@
     },
     "projectOpen": {
       "type": "object", "additionalProperties": false, "required": ["path"],
-      "properties": { "path": { "type": "string", "minLength": 1, "pattern": "^[^\u0000]+(?![\\s\\S])" } }
+      "properties": { "path": { "$ref": "#/$defs/projectPath" }, "access": { "$ref": "#/$defs/projectAccess" } }
+    },
+    "projectPath": { "type": "string", "minLength": 1, "pattern": "^[^\u0000]+(?![\\s\\S])" },
+    "projectAccess": { "enum": ["read-only", "read-write"] },
+    "projectUuid": {
+      "allOf": [{ "$ref": "value.schema.json#/$defs/uuid" }, { "not": { "const": "00000000-0000-0000-0000-000000000000" } }]
+    },
+    "projectTitle": {
+      "$comment": "Apply the maximum to the decoded UTF-8 bytes as well.",
+      "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\u0000-\u001f]+(?![\\s\\S])"
+    },
+    "projectSettings": {
+      "type": "object", "additionalProperties": false, "required": ["title", "notes"],
+      "properties": {
+        "title": { "$ref": "#/$defs/projectTitle" },
+        "notes": {
+          "$comment": "Apply the maximum to the decoded UTF-8 bytes as well.",
+          "type": "string", "maxLength": 65536, "pattern": "^[^\u0000-\u0008\u000b-\u001f]*(?![\\s\\S])"
+        }
+      }
+    },
+    "projectCreate": {
+      "type": "object", "additionalProperties": false, "required": ["path", "settings"],
+      "properties": { "path": { "$ref": "#/$defs/projectPath" }, "settings": { "$ref": "#/$defs/projectSettings" } }
+    },
+    "projectSave": {
+      "type": "object", "additionalProperties": false, "required": ["projectId", "expectedRevisionId", "settings"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/projectUuid" },
+        "expectedRevisionId": { "$ref": "#/$defs/projectUuid" },
+        "settings": { "$ref": "#/$defs/projectSettings" }
+      }
     },
     "projectIdentity": {
       "type": "object", "additionalProperties": false, "required": ["projectId"],
-      "properties": { "projectId": { "$ref": "value.schema.json#/$defs/uuid" } }
+      "properties": { "projectId": { "$ref": "#/$defs/projectUuid" } }
     },
     "sampleIdentity": {
       "type": "object", "additionalProperties": false, "required": ["projectId", "sampleId"],
       "properties": {
-        "projectId": { "$ref": "value.schema.json#/$defs/uuid" },
-        "sampleId": { "$ref": "value.schema.json#/$defs/uuid" }
+        "projectId": { "$ref": "#/$defs/projectUuid" },
+        "sampleId": { "$ref": "#/$defs/projectUuid" }
+      }
+    },
+    "sampleCreate": {
+      "type": "object", "additionalProperties": false, "required": ["projectId", "expectedRevisionId", "title"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/projectUuid" },
+        "expectedRevisionId": { "$ref": "#/$defs/projectUuid" },
+        "title": { "$ref": "#/$defs/projectTitle" }
       }
     },
     "sampleList": {
       "type": "object", "additionalProperties": false, "required": ["projectId"],
       "dependentRequired": { "start": ["generation"] },
       "properties": {
-        "projectId": { "$ref": "value.schema.json#/$defs/uuid" },
+        "projectId": { "$ref": "#/$defs/projectUuid" },
         "generation": { "$ref": "value.schema.json#/$defs/u64" },
         "start": { "$ref": "value.schema.json#/$defs/u64" },
         "limit": { "type": "integer", "minimum": 1, "maximum": 256 }

@@ -44,7 +44,17 @@ def admission(request, methods, envelope, params, limits, profile='shell'):
     if method == 'sample.list' and any(int(arguments[key]) > U64_MAX
                                        for key in ('generation', 'start') if key in arguments):
         return 'invalid-params'
+    if methods[method]['availability'] == 'project-integration' and not fits_project_text(arguments):
+        return 'invalid-params'
     return 'accept'
+
+
+def fits_project_text(value):
+    if 'title' in value and len(value['title'].encode('utf-8')) > 1024:
+        return False
+    if 'notes' in value and len(value['notes'].encode('utf-8')) > 65536:
+        return False
+    return all(fits_project_text(value[key]) for key in ('settings', 'frozenSettings') if key in value)
 
 
 class WireFault(ValueError):
@@ -145,6 +155,105 @@ def inspect_wire(wire, limits, admit):
     return admit(value)
 
 
+def check_capabilities(capability, methods, profile, schema):
+    require(schema.is_valid(capability), True, f'{profile} capabilities shape')
+    declared = {name: entry['repl'] for name, entry in methods.items()
+                if entry['availability'] in ('shell', profile)}
+    advertised = capability['methods']
+    require(len(advertised), len(declared), f'{profile} advertised method count')
+    require({item['method']: item['repl'] for item in advertised}, declared, f'{profile} advertised methods')
+
+
+def project_fixtures(vectors):
+    project_id = vectors['projectId']
+    revision = vectors['revisionId']
+    settings = vectors['settings']
+    hashes = dict(revisionHash=vectors['hash'], configSemanticHash=vectors['hash'])
+    identity = dict(projectId=project_id, generation='5')
+    row = dict(sampleId=vectors['sampleId'], snapshotId='40000000-0000-4000-8000-000000000001',
+               title='Frozen scope', createdUtc='134000000000000000', revisionId=revision,
+               descriptionHash=vectors['hash'], status='not-collected')
+    return {
+        'project': dict(identity, **hashes, createdUtc=row['createdUtc'], revisionId=revision, settings=settings,
+                        sampleCount='2', access='read-write', recoveredPrevious=False, primaryFailure=None),
+        'close': dict(projectId=project_id, closed=True),
+        'sample': dict(identity, **row, **hashes, frozenSettings=settings),
+        'page': dict(identity, start='0', sampleCount='2', nextStart='1', samples=[row]),
+    }
+
+
+def valid_project_result(value, method, validator):
+    if not validator.is_valid(value) or not fits_project_text(value):
+        return False
+    if any(int(value[key]) > U64_MAX for key in ('createdUtc', 'generation', 'sampleCount', 'start', 'nextStart')
+           if key in value and value[key] is not None):
+        return False
+    if 'sampleCount' in value and int(value['sampleCount']) > 4096:
+        return False
+    if method != 'sample.list':
+        return True
+    rows = value['samples']
+    if any(not fits_project_text(row) or int(row['createdUtc']) > U64_MAX for row in rows):
+        return False
+    start, count = int(value['start']), int(value['sampleCount'])
+    end = start + len(rows)
+    if end > count or (end < count and not rows):
+        return False
+    return value['nextStart'] == (str(end) if end < count else None)
+
+
+def check_project_vectors(vectors, shell_vectors, registry, methods, admit, messages, results):
+    profile = 'project-integration'
+    capability = shell_vectors['shellCapabilities']
+    capability = dict(capability, projectStorage=True,
+                      methods=capability['methods'] + vectors['capabilityMethods'],
+                      limits=dict(capability['limits'], replayBytes=33554432))
+    check_capabilities(capability, methods, profile, results['controller.capabilities'])
+
+    fields = {key: vectors[key] for key in ('projectId', 'sampleId', 'settings')}
+    fields['expectedRevisionId'] = vectors['revisionId']
+    for case in vectors['requests']:
+        args = case['params'] | {key: fields[key] for key in case.get('include', [])}
+        if 'titleRepeat' in case:
+            args['title'] = '\U0001f5c2' * case['titleRepeat']
+        request = dict(shell_vectors['baseRequest'], method=case['method'], params=args)
+        require(admit(request, profile), case['outcome'], case['id'])
+        require(admit(request), 'unsupported-method', f"{case['id']} in baseline shell")
+
+    fixtures = project_fixtures(vectors)
+    for case in vectors['results']:
+        method = case['method']
+        value = fixtures[case['base']] | case.get('set', {})
+        require(valid_project_result(value, method, results[method]), case['valid'], case['id'])
+
+    # These are receipt fixtures for adapter regression. Static checks verify their wire shape and identities.
+    project_error = validator('request-message.schema.json#/$defs/projectError', registry)
+    base = dict(shell_vectors['baseMessage'], type='response', requestId='project-1', phase='completed')
+    for case in vectors['receipts']:
+        method = case['method']
+        if 'errorId' in case:
+            error = dict(shell_vectors['error'], errorId=case['errorId'], code=case['code'],
+                         source=case.get('source', 'cli'), byteOffset=None)
+            require(project_error.is_valid(error), True, case['id'])
+            receipt = dict(base, error=error, result=None, effectPhase='not-applicable')
+        else:
+            result = fixtures[case['base']]
+            require(valid_project_result(result, method, results[method]), True, case['id'])
+            receipt = dict(base, error=None, result=result, effectPhase='observed')
+        require(messages.is_valid(receipt), True, case['id'])
+        if case.get('replay') == 'same':
+            replayed = dict(receipt, streamSequence='9')
+            require(messages.is_valid(replayed), True, f"{case['id']} replay")
+            if 'laterGeneration' in case:
+                require(replayed['result']['generation'], fixtures[case['base']]['generation'], case['id'])
+                require(replayed['result']['generation'] != case['laterGeneration'], True, case['id'])
+        if case.get('replay') == 'conflict':
+            error = dict(shell_vectors['error'], errorId='request-id-conflict', code=1, byteOffset=None)
+            rejected = dict(base, streamSequence='9', error=error, result=None, effectPhase='not-applicable')
+            require(messages.is_valid(rejected), True, f"{case['id']} conflict")
+    return sum(len(vectors[key]) for key in ('requests', 'results', 'receipts'))
+
+
 def main():
     schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json')]
     for schema in schemas:
@@ -159,10 +268,7 @@ def main():
     vectors = read('vectors/request-v1.json')
     capability = vectors['shellCapabilities']
     limits = capability['limits']
-    require(len(capability['methods']), len(results), 'advertised method count')
-    require({entry['method']: entry['repl'] for entry in capability['methods']},
-            {name: entry['repl'] for name, entry in methods.items() if entry['availability'] == 'shell'},
-            'advertised methods')
+    check_capabilities(capability, methods, 'shell', results['controller.capabilities'])
 
     def admit(request, profile='shell'):
         return admission(request, methods, envelope, params, limits, profile)
@@ -194,7 +300,9 @@ def main():
         require(valid, case['valid'], case['id'])
 
     total = sum(len(vectors[key]) for key in ('requests', 'wire', 'messages'))
-    print(f'Passed {total} A0.2 request, wire, and output vectors.')
+    project_total = check_project_vectors(read('vectors/request-project-v1.json'), vectors, registry,
+                                          methods, admit, messages, results)
+    print(f'Passed {total} A0.2 baseline and {project_total} pending project vectors.')
 
 
 if __name__ == '__main__':
