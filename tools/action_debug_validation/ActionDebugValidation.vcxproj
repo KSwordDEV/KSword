@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A59C7493-20B6-4470-A1EE-7F2B80941B70}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings"><Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" /></ImportGroup>
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <TargetName>ActionDebugValidation</TargetName><PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <LinkIncremental>false</LinkIncremental>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps><VcpkgEnabled>false</VcpkgEnabled>
+  </PropertyGroup>
+  <Import Project="..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader><DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <MASM><TreatWarningsAsErrors>true</TreatWarningsAsErrors></MASM>
+    <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="DebugSession.cpp" /><ClCompile Include="DebugScenarios.cpp" /></ItemGroup>
+  <ItemGroup><ClInclude Include="DebugSession.h" /><ClInclude Include="FixtureCode.h" /></ItemGroup>
+  <ItemGroup><MASM Include="FixtureCode.asm" /></ItemGroup>
+  <ItemGroup><None Include="Invoke-Validation.ps1" /><None Include="README.md" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets"><Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" /></ImportGroup>
+  <Target Name="PrintDebugBuildPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="DEBUG_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="DEBUG_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="DEBUG_COMPILER=$(VCToolsInstallDir)bin\HostX64\x64\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64'" Text="HostX64 is required." />
+  </Target>
+</Project>
