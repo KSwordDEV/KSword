@@ -20,7 +20,7 @@ namespace {
 
 constexpr wchar_t kPageClass[] = L"KswordARKLight.ActionAnalyze";
 constexpr UINT kComplete = WM_APP + 936;
-enum ControlId { kOpen = 68301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus };
+enum ControlId { kOpen = 68301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly };
 using Ui::Scale;
 
 struct Snapshot {
@@ -36,6 +36,7 @@ struct Page {
     HWND categories = nullptr;
     HWND filterLabel = nullptr;
     HWND filter = nullptr;
+    HWND etwOnly = nullptr;
     HWND actions = nullptr;
     HWND capability = nullptr;
     HWND projection = nullptr;
@@ -126,8 +127,13 @@ void Layout(Page& page) {
         move(page.capability, inset, inset + height + Scale(3), width, Scale(25));
     }
     move(page.categories, inset, top, timelineWidth, height);
+    const int etwWidth = Scale(102);
+    const bool showFilterLabel = mainRight - mainX >= Scale(260);
+    const int filterLeft = mainX + (showFilterLabel ? Scale(57) : 0);
+    ::ShowWindow(page.filterLabel, showFilterLabel ? SW_SHOW : SW_HIDE);
     move(page.filterLabel, mainX, top + Scale(4), Scale(56), height - Scale(4));
-    move(page.filter, mainX + Scale(57), top, mainRight - mainX - Scale(57), height);
+    move(page.filter, filterLeft, top, mainRight - etwWidth - gap - filterLeft, height);
+    move(page.etwOnly, mainRight - etwWidth, top, etwWidth, height);
     move(page.timeline.hwnd(), inset, resultTop, timelineWidth, graphTop - resultTop - gap);
     move(page.list.hwnd(), mainX, resultTop, mainRight - mainX, graphTop - resultTop - gap);
     const int tableWidth = mainRight - mainX;
@@ -227,7 +233,10 @@ void ApplyFilter(Page& page) {
     auto visible = Ui::VirtualListView::FilterRowIndexes(page.list.rows(), query);
     if (page.snapshot) {
         const auto& records = page.snapshot->evidence.rows;
-        std::erase_if(visible, [&](std::size_t i) { return !page.timeline.includes(records[i]); });
+        const bool etwOnly = page.timeline.hasEtw() && ::SendMessageW(page.etwOnly, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        std::erase_if(visible, [&](std::size_t i) {
+            return (etwOnly && !records[i].etw) || !page.timeline.includes(records[i]);
+        });
     }
     page.applyingProjection = true;
     ListView_SetItemState(page.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
@@ -268,6 +277,11 @@ void Open(Page& page, std::wstring path) {
             ::SetWindowTextW(page.categories, page.timeline.hasCategories() ? L"类别筛选…" : L"无可筛选类别");
             if (::GetFocus() == page.categories && !page.timeline.hasCategories()) ::SetFocus(page.filter);
             ::EnableWindow(page.categories, page.timeline.hasCategories());
+            if (!page.timeline.hasEtw()) {
+                if (::GetFocus() == page.etwOnly) ::SetFocus(page.filter);
+                ::SendMessageW(page.etwOnly, BM_SETCHECK, BST_UNCHECKED, 0);
+            }
+            ::EnableWindow(page.etwOnly, page.timeline.hasEtw());
             page.applyingProjection = true;
             ListView_SetItemState(page.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
             page.list.setSharedRows(page.snapshot->presentation);
@@ -343,7 +357,7 @@ void PaintGraph(Page& page, HDC dc) {
 LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
     if (msg == WM_KEYDOWN && wp == VK_TAB) {
         auto& page = *reinterpret_cast<Page*>(data);
-        const std::array order{ page.categories, page.filter, page.timeline.hwnd(), page.list.hwnd(),
+        const std::array order{ page.categories, page.filter, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
             page.open, page.retry, page.details, page.status };
         const auto found = std::find(order.begin(), order.end(), hwnd);
         const auto size = static_cast<int>(order.size());
@@ -364,28 +378,32 @@ bool CreateControls(Page& page) {
     page.open = Ui::CreateButton(page.hwnd, kOpen, L"打开归档段…", 0, 0, 0, 0, Ui::ButtonRole::Primary);
     page.retry = Ui::CreateButton(page.hwnd, kRetry, L"重读上次路径", 0, 0, 0, 0);
     page.actions = Ui::CreateText(page.hwnd, 0, L"归档操作", 0, 0, 0, 0);
-    page.capability = Ui::CreateText(page.hwnd, 0, L"离线只读 · 实时控制与 API／ETW 源分类不可用。", 0, 0, 0, 0);
+    page.capability = Ui::CreateText(page.hwnd, 0, L"只读归档 · 支持 ETW 原始记录回放。", 0, 0, 0, 0);
     page.categories = Ui::CreateButton(page.hwnd, kCategories, L"无可筛选类别", 0, 0, 0, 0);
     page.filterLabel = Ui::CreateText(page.hwnd, 0, L"筛选记录", 0, 0, 0, 0);
     page.filter = MakeEdit(page.hwnd, kFilter, ES_AUTOHSCROLL);
-    if (!page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel || !page.filter) return false;
+    page.etwOnly = ::CreateWindowExW(0, L"BUTTON", L"只看 ETW", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEtwOnly)), ::GetModuleHandleW(nullptr), nullptr);
+    if (!page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel || !page.filter || !page.etwOnly) return false;
     ::EnableWindow(page.retry, FALSE);
     ::EnableWindow(page.categories, FALSE);
+    ::EnableWindow(page.etwOnly, FALSE);
     ::SendMessageW(page.filter, EM_SETLIMITTEXT, 256, 0);
+    ::SendMessageW(page.filter, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"筛选记录"));
     if (!page.timeline.create(page.hwnd, kTimeline, [&page](std::size_t index) {
         SetListSelection(page, index, true);
     })) return false;
     if (!page.list.create(page.hwnd, kRecords, 0, 0, 0, 0, WS_TABSTOP | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER)) return false;
     if (!page.list.addColumns({ { 0, 152, LVCFMT_LEFT, L"时间（接收 QPC）" }, { 1, 66, LVCFMT_RIGHT, L"PID" },
         { 2, 66, LVCFMT_RIGHT, L"TID" }, { 3, 76, LVCFMT_LEFT, L"进程" }, { 4, 240, LVCFMT_LEFT, L"事件 / 记录" },
-        { 5, 168, LVCFMT_LEFT, L"来源字典 ID" }, { 6, 90, LVCFMT_RIGHT, L"记录序号" } })) return false;
+        { 5, 168, LVCFMT_LEFT, L"来源" }, { 6, 90, LVCFMT_RIGHT, L"记录序号" } })) return false;
     page.projection = Ui::CreateText(page.hwnd, 0, L"", 0, 0, 0, 0);
     ::SetWindowPos(page.projection, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     page.details = MakeEdit(page.hwnd, kDetails, ES_MULTILINE | ES_READONLY | WS_VSCROLL | ES_AUTOVSCROLL);
     page.status = MakeEdit(page.hwnd, kStatus, ES_MULTILINE | ES_READONLY | WS_VSCROLL | ES_AUTOVSCROLL);
     if (!page.projection || !page.details || !page.status) return false;
     Ui::AttachTextFindSupport(page.details);
-    for (HWND child : { page.categories, page.filter, page.timeline.hwnd(), page.list.hwnd(),
+    for (HWND child : { page.categories, page.filter, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
         page.open, page.retry, page.details, page.status }) {
         if (!::SetWindowSubclass(child, NavigateControls, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     }
@@ -440,6 +458,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         if (LOWORD(wp) == kOpen && HIWORD(wp) == BN_CLICKED) Browse(*page);
         if (LOWORD(wp) == kRetry && HIWORD(wp) == BN_CLICKED) Open(*page, page->requestPath);
         if (LOWORD(wp) == kCategories && HIWORD(wp) == BN_CLICKED && page->timeline.chooseCategories(page->categories)) ApplyFilter(*page);
+        if (LOWORD(wp) == kEtwOnly && HIWORD(wp) == BN_CLICKED) ApplyFilter(*page);
         if (LOWORD(wp) == kFilter && HIWORD(wp) == EN_CHANGE && page->status) ApplyFilter(*page);
         return 0;
     case WM_NOTIFY: {

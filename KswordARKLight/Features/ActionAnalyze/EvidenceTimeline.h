@@ -19,7 +19,8 @@ public:
     void setVisible(const std::vector<std::size_t>& rows);
     void select(std::optional<std::size_t> record, bool reveal);
     bool includes(const EvidenceRecord& record) const;
-    bool hasCategories() const { return !enabled_.empty(); }
+    bool hasCategories() const { return etwLane_.value_or(enabled_.size()) != 0; }
+    bool hasEtw() const { return etwLane_.has_value(); }
     bool chooseCategories(HWND anchor);
 
 private:

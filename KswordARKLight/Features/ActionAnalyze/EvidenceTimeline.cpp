@@ -65,7 +65,7 @@ void EvidenceTimeline::replace(const std::vector<EvidenceRecord>& rows) {
     }
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const auto& row = rows[i];
-        if (row.receiveQpc) {
+        if (row.receiveQpc && (row.etw || row.eventOrdinal)) {
             points_.push_back({ *row.receiveQpc, i, row.etw ? *etwLane_ : laneFor(row.category) });
         }
     }
@@ -74,22 +74,20 @@ void EvidenceTimeline::replace(const std::vector<EvidenceRecord>& rows) {
 }
 
 bool EvidenceTimeline::includes(const EvidenceRecord& record) const {
-    if (record.etw && etwLane_) {
-        return enabled_[*etwLane_];
-    }
     return !record.eventOrdinal || enabled_[laneFor(record.category)];
 }
 
 bool EvidenceTimeline::chooseCategories(HWND anchor) {
-    if (enabled_.empty()) return false;
+    const auto categoryCount = etwLane_.value_or(enabled_.size());
+    if (!categoryCount) return false;
     const HMENU menu = ::CreatePopupMenu();
     if (!menu) return false;
-    for (std::size_t lane = 0; lane < enabled_.size(); ++lane) {
-        const auto title = etwLane_ == lane ? laneName(lane) : L"类别 " + laneName(lane);
+    for (std::size_t lane = 0; lane < categoryCount; ++lane) {
+        const auto title = L"类别 " + laneName(lane);
         ::AppendMenuW(menu, MF_STRING | (enabled_[lane] ? MF_CHECKED : MF_UNCHECKED), lane + 1, title.c_str());
     }
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    const UINT reset = static_cast<UINT>(enabled_.size() + 1);
+    const UINT reset = static_cast<UINT>(categoryCount + 1);
     ::AppendMenuW(menu, MF_STRING, reset, L"显示所有类别");
     RECT rect{};
     ::GetWindowRect(anchor, &rect);
