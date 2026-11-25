@@ -166,11 +166,32 @@ void RoundTrip(const std::filesystem::path& scratch)
     const auto identity = finish.segment;
     std::size_t seen = 0;
     const auto bodies = a::ScanOpenSegmentBodies(file.handle, identity, std::nullopt,
-        [&](const auto&, const auto&, const auto& records) {
+        [&](const auto& checkedIdentity, const auto&, const auto& records) {
             for (const auto& record : records) {
                 const auto* raw = std::get_if<a::RawRecordV1>(&record.body);
                 Check(raw && record.recordType == 3 && record.recordSchemaVersion == 1 && record.flags == 0,
                       "existing decoder accepts the network wire envelope");
+                // 独立段可给出类型化端点及声明来源，项目核对通过后才提升来源可信度。
+                const auto projected = a::ProjectNetworkFlowRecord(checkedIdentity, record);
+                if (seen < rows.size()) {
+                    Check(projected && projected->flow.recordSequence == rows[seen].recordSequence &&
+                        projected->flow.capture.capturedLength == rows[seen].capture.capturedLength &&
+                        projected->source.sourceId == scope.sourceId && projected->source.sourceEpoch == scope.sourceEpoch &&
+                        projected->sourceTrust == a::NetworkSourceTrust::RecordedDeclaration &&
+                        projected->inlineOffsetInPayload == raw->inlineRawOffsetInPayload &&
+                        projected->inlineBytes == raw->inlineRawData, "standalone typed projection preserves range and declaration trust");
+                } else {
+                    Check(!projected, "terminal record is not a network flow");
+                }
+                if (seen == 1) {
+                    const auto matched = a::ProjectNetworkFlowRecord(checkedIdentity, record, &scope);
+                    Check(matched && matched->sourceTrust == a::NetworkSourceTrust::MatchedVerifiedBinding &&
+                        matched->flow.observation.etw && matched->flow.observation.etw->eventId == 10,
+                        "project binding is matched independently of the archived ETW descriptor");
+                    auto wrongClock = scope;
+                    wrongClock.clockId = "wrong-clock";
+                    Check(!a::ProjectNetworkFlowRecord(checkedIdentity, record, &wrongClock), "a conflicting source binding rejects projection");
+                }
                 const auto* bytes = reinterpret_cast<const std::uint8_t*>(raw->inlineRawData.data());
                 Check(raw->inlineRawData.size() == raw->inlineRawBytes, "exact inline extent");
                 if (seen == 1 || seen == 2 || seen == 4) {

@@ -1,5 +1,6 @@
 #include "NetworkEvidenceArchive.h"
 
+#include "SegmentBodies.h"
 #include "SegmentInspection.h"
 #include "SegmentWire.h"
 #include "../../../shared/evidence/EvidenceJson.h"
@@ -271,6 +272,53 @@ bool ReadBool(const JsonValue& obj, const char* field, bool& value)
     return member && member->tryGetBool(value);
 }
 
+// 读取已解析的字符串字段。不存在或类型不符时拒绝该元数据。
+bool ReadText(const JsonValue& obj, const char* field, std::string& value)
+{
+    const auto* member = obj.find(field);
+    return member && member->tryGetString(value);
+}
+
+// 来源代次采用 RFC 字节顺序。文本与反向编码比对，以保证小写规范形式。
+bool ReadSourceEpoch(const JsonValue& obj, ArchiveUuid& epoch)
+{
+    std::string text; // 元数据声明的规范 UUID。
+    if (!ReadText(obj, "sourceEpoch", text) || text.size() != 36) {
+        return false;
+    }
+    std::size_t offset = 0; // 当前十六进制字节的文本起点。
+    for (auto& byte : epoch) {
+        if (offset < text.size() && text[offset] == '-') {
+            ++offset;
+        }
+        if (text.size() - offset < 2) {
+            return false;
+        }
+        const auto* digit = text.data() + offset;
+        const auto parsed = std::from_chars(digit, digit + 2, byte, 16);
+        if (parsed.ec != std::errc{} || parsed.ptr != digit + 2) {
+            return false;
+        }
+        offset += 2;
+    }
+    return Hex(epoch, 16, true) == text;
+}
+
+// 将段内来源声明和已校验段头组合为绑定值。此步骤仅核对格式。
+bool ReadDeclaredBinding(const SegmentIdentity& segment, const JsonValue& obj, NetworkEvidenceBinding& binding)
+{
+    binding.project = segment.project;
+    binding.sample = segment.sample;
+    std::uint8_t domain = 0; // 原始时钟域编号。
+    if (!ReadText(obj, "sourceId", binding.sourceId) || !ReadSourceEpoch(obj, binding.sourceEpoch) ||
+        !ReadText(obj, "clockId", binding.clockId) || !ReadText(obj, "bootId", binding.bootId) ||
+        !ReadNumber(obj, "clockDomain", domain) || !ReadNumber(obj, "frequencyHz", binding.frequencyHz)) {
+        return false;
+    }
+    binding.clockDomain = static_cast<NetworkTimeDomain>(domain);
+    return ValidBinding(binding);
+}
+
 bool ReadAddress(const JsonValue& obj, const char* field, std::array<std::uint8_t, 16>& value, std::size_t count)
 {
     const auto* member = obj.find(field);
@@ -346,6 +394,26 @@ bool SameMetadata(const JsonValue& actual, const JsonValue& expected)
     return true;
 }
 
+// 统一限制独立投影及归档扫描的 JSON 读取预算。
+Ksword::Evidence::JsonParseResult ParseMetadata(std::string_view text)
+{
+    Ksword::Evidence::JsonLimits limits; // 网络元数据只有一层标量字段。
+    limits.maxDepth = 2;
+    limits.maxTotalBytes = kNetworkMaxMetadataBytes;
+    limits.maxStringBytes = 64;
+    limits.maxContainerItems = 40;
+    limits.maxTotalNodes = 41;
+    return Ksword::Evidence::ParseJson(text, limits);
+}
+
+// 验证完整网络流字段及通信字节范围，供两条读取入口共用。
+bool DecodeFlow(const JsonValue& obj, const NetworkEvidenceBinding& binding, std::uint32_t inlineBytes,
+    NetworkArchivedFlow& row)
+{
+    return ReadFlow(obj, row.observation) && ReadCapture(obj, inlineBytes, row.capture) &&
+        SameMetadata(obj, FlowMetadata(binding, row.observation, row.capture));
+}
+
 bool Decode(const RecordView& record, const NetworkEvidenceBinding& binding,
             std::vector<NetworkArchivedFlow>& rows, NetworkLoss& loss, std::optional<NetworkArchiveEnd>& eof)
 {
@@ -359,22 +427,14 @@ bool Decode(const RecordView& record, const NetworkEvidenceBinding& binding,
     const auto inlineBytes = record.payloadBytes - static_cast<std::uint32_t>(kRawPrefixBytes) - metadataBytes;
     if (inlineBytes > kNetworkMaxInlineBytes) return false;
     const std::string_view text(reinterpret_cast<const char*>(record.payload + kRawPrefixBytes), metadataBytes);
-    Ksword::Evidence::JsonLimits limits;
-    limits.maxDepth = 2;
-    limits.maxTotalBytes = kNetworkMaxMetadataBytes;
-    limits.maxStringBytes = 64;
-    limits.maxContainerItems = 40;
-    limits.maxTotalNodes = 41;
-    const auto parsed = Ksword::Evidence::ParseJson(text, limits);
+    const auto parsed = ParseMetadata(text);
     const auto* type = parsed.value.find("record");
     std::string kind;
     if (!parsed.ok() || !type || !type->tryGetString(kind)) return false;
     if (kind == "flow") {
-        NetworkFlowMetadata flow;
-        NetworkCaptureSummary capture;
-        if (!ReadFlow(parsed.value, flow) || !ReadCapture(parsed.value, inlineBytes, capture) ||
-            !SameMetadata(parsed.value, FlowMetadata(binding, flow, capture))) return false;
-        rows.push_back({record.sequence, record.offset, flow, capture});
+        NetworkArchivedFlow row{record.sequence, record.offset, {}, {}};
+        if (!DecodeFlow(parsed.value, binding, inlineBytes, row)) return false;
+        rows.push_back(row);
         return true;
     }
     if (inlineBytes != 0) return false;
@@ -394,6 +454,39 @@ bool Decode(const RecordView& record, const NetworkEvidenceBinding& binding,
 }
 
 } // namespace
+
+// Standalone 段中的身份和字节来自公共解码器。额外来源凭证须由项目所有者提供。
+std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const SegmentIdentity& segment,
+    const DecodedRecord& record, const NetworkEvidenceBinding* verifiedBinding)
+{
+    const auto* raw = std::get_if<RawRecordV1>(&record.body); // 仅投影现有 RawRecord v1 正文。
+    if (segment.stream != StreamKind::Raw || segment.ordinal == 0 || record.recordSequence == 0 ||
+        record.recordType != kRawRecord || record.recordSchemaVersion != 1 || record.flags != 0 || !raw ||
+        raw->metadataJson.size() > kNetworkMaxMetadataBytes || raw->inlineRawBytes > kNetworkMaxInlineBytes ||
+        raw->inlineRawData.size() != raw->inlineRawBytes ||
+        raw->inlineRawOffsetInPayload != kRawPrefixBytes + raw->metadataJson.size()) {
+        return std::nullopt;
+    }
+
+    const auto parsed = ParseMetadata(raw->metadataJson); // 共享网络记录的封闭字段契约。
+    NetworkFlowRecordProjection projection; // 此值保留范围和来源可信度，正文仍借用回调内存。
+    std::string recordKind; // 网络流与同类型的丢失、结束记录分开处理。
+    if (!parsed.ok() || !ReadText(parsed.value, "record", recordKind) || recordKind != "flow" ||
+        !ReadDeclaredBinding(segment, parsed.value, projection.source) ||
+        (verifiedBinding && !Matches(projection.source, *verifiedBinding)) ||
+        !DecodeFlow(parsed.value, projection.source, raw->inlineRawBytes, projection.flow)) {
+        return std::nullopt;
+    }
+
+    projection.flow.recordSequence = record.recordSequence;
+    projection.flow.recordOffset = record.recordOffset;
+    if (verifiedBinding) {
+        projection.sourceTrust = NetworkSourceTrust::MatchedVerifiedBinding;
+    }
+    projection.inlineOffsetInPayload = raw->inlineRawOffsetInPayload;
+    projection.inlineBytes = raw->inlineRawData;
+    return projection;
+}
 
 const NetworkEndpointMetadata* NetworkFlowMetadata::OutboundDestination() const noexcept
 {

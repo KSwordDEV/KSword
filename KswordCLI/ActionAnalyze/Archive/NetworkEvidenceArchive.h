@@ -5,6 +5,7 @@
 
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace ks::cli::action_analyze::archive {
 
@@ -170,6 +171,25 @@ struct NetworkArchivedFlow {
     NetworkFlowMetadata observation;
     NetworkCaptureSummary capture;
 };
+
+struct DecodedRecord;
+
+enum class NetworkSourceTrust { RecordedDeclaration, MatchedVerifiedBinding };
+
+struct NetworkFlowRecordProjection {
+    NetworkArchivedFlow flow; // 经类型和范围校验的记录身份、端点及捕获信息。
+    NetworkEvidenceBinding source; // 段身份及记录声明的来源、代次、时钟。
+    NetworkSourceTrust sourceTrust = NetworkSourceTrust::RecordedDeclaration;
+    std::uint32_t inlineOffsetInPayload = 0; // 以 RawRecord payload 起点为基准。
+    std::string_view inlineBytes; // 借用共享正文回调中的已校验字节。
+};
+
+// 在 ScanOpenSegmentBodies 的回调内传入已核验的段身份和当前记录，返回网络流投影。
+// 只有项目所有者独立提供并核对 verifiedBinding 后，来源绑定才具备相应的可信度。
+// 可选 ETW 描述符是记录中的声明。缺失时来源类型未知，不能推断为 API。
+// 非网络流或格式不符返回 nullopt。保存投影前须复制仍需保留的 inlineBytes。
+std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const SegmentIdentity& segment,
+    const DecodedRecord& record, const NetworkEvidenceBinding* verifiedBinding = nullptr);
 
 struct NetworkArchiveRecovery {
     SegmentScanResult framing;
