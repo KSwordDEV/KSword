@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{BDED4FF2-515E-45EA-8559-29D077058511}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings"><Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" /></ImportGroup>
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\$(Platform)\Release\</IntDir>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <LinkIncremental>false</LinkIncremental>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <TargetName Condition="'$(Platform)'=='x64'">ActionAnalyzeSyncStopValidationX64</TargetName>
+    <TargetName Condition="'$(Platform)'=='Win32'">ActionAnalyzeSyncStopValidationX86</TargetName>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(MSBuildProjectDirectory)\..\..\Ksword5.1\x64\Release\</OutDir>
+  </PropertyGroup>
+  <Import Project="..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <MASM>
+      <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+      <UseSafeExceptionHandlers Condition="'$(Platform)'=='Win32'">true</UseSafeExceptionHandlers>
+    </MASM>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="FixtureChild.cpp" />
+    <ClCompile Include="DebugOwner.cpp"><ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild></ClCompile>
+    <ClInclude Include="Fixture.h" />
+    <MASM Include="GatesX64.asm"><ExcludedFromBuild Condition="'$(Platform)'!='x64'">true</ExcludedFromBuild></MASM>
+    <MASM Include="GatesX86.asm"><ExcludedFromBuild Condition="'$(Platform)'!='Win32'">true</ExcludedFromBuild></MASM>
+    <None Include="Invoke-Validation.ps1" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets"><Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" /></ImportGroup>
+</Project>
