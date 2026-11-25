@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- 用途：仅构建无 Qt 的自有进程机制夹具，输出复用仓库统一 Release。 -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{67E1355E-7170-481E-81CD-6827CA32A796}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <!-- IntDir 是固定中间目录；OutDir 来自全仓统一规则，不创建运行副本。 -->
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <TargetName>TraceProbeValidation</TargetName>
+  </PropertyGroup>
+  <Import Project="..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="ThreadpoolExecutionProbe.cpp" />
+    <ClCompile Include="StopWorldExecutionProbe.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- 构建前读回绝对输出位置和实际 HostX64 编译器路径，便于审计。 -->
+  <Target Name="PrintProbeBuildPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="PROBE_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="PROBE_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="PROBE_HOSTX64=$(VCToolsInstallDir)bin\HostX64\x64\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64'" Text="HostX64 is required." />
+  </Target>
+</Project>
