@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "backend": "r3",
+  "baseCatalog": "method-catalog.json",
+  "requestEnvelope": "request.schema.json#/$defs/liveEnvelope",
+  "messageSchema": "live-etw-message.schema.json",
+  "resultOverrides": {
+    "controller.capabilities": "live-etw-message.schema.json#/$defs/capabilities"
+  },
+  "methods": {
+    "session.open": {
+      "repl": "open",
+      "requestSchema": "live-etw-session.schema.json",
+      "resultSchema": "live-etw-session.schema.json#/$defs/receipt",
+      "state": "project-open-read-write",
+      "effect": "create-sample-and-start-source"
+    },
+    "session.query": {
+      "repl": "status",
+      "requestSchema": "live-etw-session.schema.json",
+      "resultSchema": "live-etw-session.schema.json#/$defs/receipt",
+      "state": "session-open",
+      "effect": "read-only"
+    },
+    "session.stop": {
+      "repl": "stop",
+      "requestSchema": "live-etw-session.schema.json",
+      "resultSchema": "live-etw-session.schema.json#/$defs/receipt",
+      "state": "session-open",
+      "effect": "stop-source-and-archive"
+    },
+    "session.close": {
+      "repl": "close",
+      "requestSchema": "live-etw-session.schema.json",
+      "resultSchema": "live-etw-session.schema.json#/$defs/closeReceipt",
+      "state": "session-finalized",
+      "effect": "release-session"
+    }
+  }
+}

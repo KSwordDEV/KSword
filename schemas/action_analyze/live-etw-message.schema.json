@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/live-etw-message.schema.json",
+  "title": "ActionAnalyze v1 R3 passive ETW JSONL output",
+  "$ref": "request-message.schema.json#/$defs/messageFields",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/protocolError" },
+    { "$ref": "#/$defs/summary" }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "hello": {
+      "required": ["capabilities"],
+      "properties": { "type": { "const": "hello" }, "capabilities": { "$ref": "#/$defs/capabilities" } }
+    },
+    "capabilities": {
+      "$ref": "request-message.schema.json#/$defs/capabilityFields",
+      "properties": {
+        "backend": { "const": "r3" }, "nativeCapture": { "const": true },
+        "projectStorage": { "const": true }, "archives": { "const": true },
+        "limits": { "required": ["replayBytes"] },
+        "methods": {
+          "minItems": 16, "maxItems": 16,
+          "allOf": [
+            { "contains": { "properties": { "method": { "const": "session.open" }, "repl": { "const": "open" } } }, "maxContains": 1 },
+            { "contains": { "properties": { "method": { "const": "session.query" }, "repl": { "const": "status" } } }, "maxContains": 1 },
+            { "contains": { "properties": { "method": { "const": "session.stop" }, "repl": { "const": "stop" } } }, "maxContains": 1 },
+            { "contains": { "properties": { "method": { "const": "session.close" }, "repl": { "const": "close" } } }, "maxContains": 1 }
+          ]
+        }
+      }
+    },
+    "response": {
+      "$ref": "request-message.schema.json#/$defs/responseFields",
+      "properties": { "error": { "$ref": "#/$defs/optionalError" } }
+    },
+    "protocolError": { "$ref": "request-message.schema.json#/$defs/protocolError" },
+    "optionalError": { "anyOf": [{ "$ref": "request-message.schema.json#/$defs/errorFields" }, { "type": "null" }] },
+    "summary": {
+      "required": ["reason", "exitCode", "clean", "liveSession", "archive", "unresolvedResponsibilities", "error"],
+      "properties": {
+        "type": { "const": "summary" },
+        "reason": { "enum": ["eof", "shutdown", "ctrl-break", "protocol-failed", "input-failed", "internal-error"] },
+        "exitCode": { "enum": [0, 1, 3, 6] }, "clean": { "type": "boolean" },
+        "liveSession": { "anyOf": [{ "$ref": "live-etw-session.schema.json#/$defs/receipt" }, { "type": "null" }] },
+        "archive": { "anyOf": [{ "$ref": "live-etw-session.schema.json#/$defs/archive" }, { "type": "null" }] },
+        "unresolvedResponsibilities": { "enum": [[], ["etw-cleanup"]] },
+        "error": { "$ref": "#/$defs/optionalError" }
+      },
+      "allOf": [
+        { "if": { "properties": { "clean": { "const": true } } }, "then": { "properties": { "unresolvedResponsibilities": { "const": [] } } }, "else": { "properties": { "unresolvedResponsibilities": { "const": ["etw-cleanup"] }, "liveSession": { "properties": { "capture": { "const": "cleanup-pending" } }, "type": "object" } } } },
+        { "if": { "properties": { "liveSession": { "type": "null" } } }, "then": { "properties": { "archive": { "type": "null" }, "clean": { "const": true } } }, "else": { "properties": { "archive": { "type": "object" } } } },
+        { "if": { "properties": { "reason": { "enum": ["eof", "shutdown"] } } }, "then": { "properties": { "exitCode": { "enum": [0, 6] }, "error": { "type": "null" } } } },
+        { "if": { "properties": { "reason": { "const": "ctrl-break" } } }, "then": { "properties": { "exitCode": { "const": 6 }, "error": { "type": "null" } } } },
+        { "if": { "properties": { "reason": { "const": "protocol-failed" } } }, "then": { "properties": { "exitCode": { "const": 1 }, "error": { "type": "object" } } } },
+        { "if": { "properties": { "reason": { "enum": ["input-failed", "internal-error"] } } }, "then": { "properties": { "exitCode": { "const": 3 }, "error": { "type": "object" } } } }
+      ]
+    }
+  }
+}

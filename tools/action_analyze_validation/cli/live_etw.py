@@ -93,6 +93,9 @@ class Child:
         self.process = subprocess.Popen(args, cwd=RELEASE, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         text=True, encoding='utf-8')
         self.output = queue.Queue()
+        self.validate = None  # 夹具目标不使用控制器消息格式。
+        self.sequence = 0  # 按完整已收帧推进。
+        self.controller_id = None  # 第一帧记录本连接的控制器身份。
         self.reader = threading.Thread(target=self.read, args=(read_limit,), daemon=True)
         self.reader.start()
 
@@ -112,7 +115,15 @@ class Child:
     def next(self):
         line = self.output.get(timeout=12)
         assert line, f'Child closed stdout, exit={self.process.poll()}'
-        return json.loads(line)
+        message = json.loads(line)
+        if self.validate:
+            self.validate(message)
+            self.sequence += 1
+            assert int(message['streamSequence']) == self.sequence, message
+            if self.controller_id is None:
+                self.controller_id = message['controllerId']
+            assert message['controllerId'] == self.controller_id, message
+        return message
 
     def stop(self):
         if self.process.poll() is None:
@@ -127,6 +138,8 @@ def call(cli, request_id, method, params, error=None, **fields):
     message = cli.next()
     assert (message['type'], message['requestId']) == ('response', request_id), message
     assert (message['error']['errorId'] if message['error'] else None) == error, message
+    if cli.validate and not error:
+        cli.validate(message, method)
     return message['result']
 
 
@@ -156,15 +169,20 @@ def decode_raw(path):
     return rows, hashlib.sha256(data).hexdigest()
 
 
-def controller(backend, read_limit=None):
+def controller(backend, read_limit=None, validate=None):
     child = Child([CLI, 'analyze', 'session', '--input', 'jsonl', '--output', 'jsonl', '--backend', backend], read_limit)
-    hello = child.next()
-    assert hello['capabilities']['backend'] == backend
-    assert hello['capabilities']['nativeCapture'] == (backend == 'r3')
+    child.validate = validate if backend == 'r3' else None
+    try:
+        hello = child.next()
+        assert hello['capabilities']['backend'] == backend
+        assert hello['capabilities']['nativeCapture'] == (backend == 'r3')
+    except Exception:
+        child.stop()
+        raise
     return child
 
 
-def run(readback=(), inspect_gui=None):
+def run(readback=(), inspect_gui=None, validate=None):
     relative = PROJECT.relative_to(REPO).as_posix()
     assert not PROJECT.exists() and not PROJECT.is_symlink()
     tracked = subprocess.run(['git', 'ls-files', '--', relative], cwd=REPO, check=True, capture_output=True)
@@ -172,8 +190,11 @@ def run(readback=(), inspect_gui=None):
     created_project = False
     children = []
     try:
-        cli = controller('r3')
+        cli = controller('r3', validate=validate)
         children.append(cli)
+        if validate:
+            cli.send('{')  # 独立核对无有效请求 ID 的协议错误帧。
+            assert cli.next()['type'] == 'protocolError'
         report = call(cli, 'p', 'project.create', {'path': str(PROJECT), 'settings': {'title': 'ETW', 'notes': ''}})
         created_project = True
         identity = {'projectId': report['projectId']}
@@ -306,7 +327,7 @@ def run(readback=(), inspect_gui=None):
         assert len(history_rows) == 2 and history_rows[1]['captureArchive'] == capture, history.stdout
 
         # 读完前三帧后停止读 stdout，保持 stdin 活跃以制造真实管道背压。
-        slow = controller('r3', read_limit=3)
+        slow = controller('r3', read_limit=3, validate=validate)
         children.append(slow)
         call(slow, 'slow-project', 'project.open', {'path': str(PROJECT), 'access': 'read-write'})
         slow_capture = call(slow, 'slow-open', 'session.open', dict(options, durationMs=30000, title='Slow output'), **revision)
@@ -323,7 +344,7 @@ def run(readback=(), inspect_gui=None):
         assert slow_terminal['stopReason'] == 'output-lost' and slow_terminal['source']['nativeSessionStopped'], slow_terminal
 
         # 让真实目标自行退出，确认冻结的进程句柄会触发会话收尾。
-        exit_controller = controller('r3')
+        exit_controller = controller('r3', validate=validate)
         children.append(exit_controller)
         call(exit_controller, 'reopen-rw', 'project.open', {'path': str(PROJECT), 'access': 'read-write'})
         exit_capture = call(exit_controller, 'start-exit', 'session.open', dict(options, title='Target exit'), **revision)

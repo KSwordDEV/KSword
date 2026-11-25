@@ -2,7 +2,7 @@
 
 这里是 ActionAnalyze 机器契约的唯一目录。当前内容包括停止组查询投影草案、基础类型与 Stored v1 子集，以及 A0.2 离线 CLI 契约。工程阶段记录见[工程推进记录](../../.claude/memory/ksword-action-analyze-engineering.md)。
 
-显式选择 `--backend r3` 时，CLI 还接受 `session.open/query/stop/close`。四个方法的请求和回执见[被动 ETW 会话 schema](live-etw-session.schema.json)及[请求向量](vectors/live-etw-session-v1.json)。原有离线方法继续使用各自的 A0.2 schema。
+显式选择 `--backend r3` 时，CLI 还接受 `session.open/query/stop/close`。方法目录列出四个方法、继承的项目方法、请求和回执定义。输出包络覆盖握手、响应、协议错误和最终回执。[R3 方法目录](live-etw-method-catalog.json) · [R3 输出包络](live-etw-message.schema.json) · [会话方法 schema](live-etw-session.schema.json) · [请求向量](vectors/live-etw-session-v1.json)
 
 ## 停止组只读投影草案
 
@@ -55,7 +55,7 @@ Light 独立验证器使用仓库的 Stored v1 字节向量。本次正式 Relea
 
 ## A0.2 离线 CLI 子集
 
-方法契约覆盖离线 shell、项目及采样方法和 `archive.inspect`。从仓库根目录运行 `python -B schemas/action_analyze/vectors/validate-request.py` 可校验 62 项基础、47 项项目及 37 项归档检查向量，三组均已通过。正式 CLI 已在已登记的采样上验证归档封装检查。[方法契约](method-contract-v1.md) · [请求契约检查器](vectors/validate-request.py) · [正式 CLI 归档验证回执](../../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt)
+方法契约覆盖离线 shell、项目及采样方法和 `archive.inspect`。从仓库根目录运行 `python -B schemas/action_analyze/vectors/validate-request.py` 可校验 62 项基础、54 项项目及 37 项归档检查向量。正式 CLI 已在已登记的采样上验证归档封装检查。[方法契约](method-contract-v1.md) · [请求契约检查器](vectors/validate-request.py) · [正式 CLI 归档验证回执](../../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt)
 
 ## 网络证据
 
