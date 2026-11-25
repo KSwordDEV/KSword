@@ -879,6 +879,12 @@
     <ClCompile Include="MonitorDock\MonitorDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ActionAnalyze\ActionAnalyzeWorkspace.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2789,6 +2795,12 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <ClInclude Include="MonitorDock\EtwArchiveCompression.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\ActionAnalyzeWorkspace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineProjectReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="MonitorDock\MonitorDock.h">

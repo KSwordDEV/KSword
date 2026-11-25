@@ -428,6 +428,8 @@
     <ClCompile Include="MinidumpDock\MinidumpParser.Streams.cpp" />
     <ClCompile Include="MonitorDock\EtwArchiveCompression.cpp" />
     <ClCompile Include="MonitorDock\MonitorDock.cpp" />
+    <ClCompile Include="ActionAnalyze\ActionAnalyzeWorkspace.cpp" />
+    <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp" />
     <ClCompile Include="MonitorDock\MonitorPanelWidget.cpp" />
     <ClCompile Include="MonitorDock\MonitorTextViewer.cpp" />
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp" />
@@ -952,6 +954,8 @@
     <ClInclude Include="MonitorDock\MonitorTableExport.h" />
     <ClInclude Include="MonitorDock\MonitorCanonicalExport.h" />
     <ClInclude Include="MonitorDock\MonitorNavigationSchema.h" />
+    <ClInclude Include="ActionAnalyze\ActionAnalyzeWorkspace.h" />
+    <ClInclude Include="ActionAnalyze\OfflineProjectReader.h" />
     <ClInclude Include="WindowDock\WindowImmutableTableSupport.h" />
     <ClInclude Include="MonitorDock\EtwArchiveMetadata.h" />
     <ClInclude Include="RegistryDock\OfflineHiveSession.h" />

@@ -77,6 +77,7 @@ class WinAPIDock;
 class ProcessTraceMonitorWidget;
 class DirectKernelCallMonitorWidget;
 class KernelCallbackMonitorWidget;
+namespace ks::action_analyze { class ActionAnalyzeWorkspace; }
 
 // COM 前置声明：避免在头文件引入大量 WMI 头。
 struct IWbemClassObject;
@@ -642,6 +643,8 @@ private:
     void ensureDirectKernelCallTabInitialized();
     void ensureKernelCallbackTabInitialized();
     void ensureWinApiTabInitialized();
+    // 首次激活行为追踪时从宿主创建只读工作台，无返回值。
+    void ensureActionAnalyzeTabInitialized();
 
     // triggerDeferredDiscoveryForCurrentTab 作用：
     // - 输入：无，读取当前内部 Tab；
@@ -911,6 +914,8 @@ private:
     DirectKernelCallMonitorWidget* m_directKernelCallWidget = nullptr; // m_directKernelCallWidget：直接内核调用监控子页。
     QWidget* m_winApiPage = nullptr;        // m_winApiPage：WinAPI 子页宿主容器。
     WinAPIDock* m_winApiWidget = nullptr;   // m_winApiWidget：真正的 WinAPI 监控控件。
+    QWidget* m_actionAnalyzePage = nullptr; // 行为追踪 Tab 的惰性宿主。
+    ks::action_analyze::ActionAnalyzeWorkspace* m_actionAnalyzeWidget = nullptr; // 已挂载的只读工作台。
     QWidget* m_arkRiskCenterPage = nullptr;  // m_arkRiskCenterPage：ARK 风险中心页宿主。
     QPushButton* m_arkRiskRefreshButton = nullptr; // 风险中心刷新按钮。
     QPushButton* m_arkRiskExportJsonButton = nullptr; // 风险中心 JSON 导出按钮。

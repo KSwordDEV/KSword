@@ -9,6 +9,7 @@
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../UI/CompleteExport.h"
 #include "MonitorNavigationSchema.h"
+#include "../ActionAnalyze/ActionAnalyzeWorkspace.h"
 #include "../../../shared/ui/KsPainterChart.h"
 #include <MonitorDock/EtwArchiveCompression.h>
 #include "../UI/VisibleTableWidget.h"
@@ -4852,6 +4853,12 @@ void MonitorDock::triggerDeferredDiscoveryForCurrentTab()
     }
 
     QWidget* currentPage = m_sideTabWidget->currentWidget();
+    // 首次真实激活时准备工作台；文件读取仍需用户明确发起。
+    if (currentPage == m_actionAnalyzePage)
+    {
+        ensureActionAnalyzeTabInitialized();
+        return;
+    }
     if (currentPage == m_arkRiskCenterPage && m_arkRiskExportOperation) {
         const QPointer<MonitorDock> guard(this);
         m_arkRiskExportOperation->reconcile();
@@ -4889,6 +4896,7 @@ QWidget* MonitorDock::monitorNavigationPage(const QString& key) const
     if (key == QStringLiteral("wmi")) return m_wmiPage;
     if (key == QStringLiteral("etw")) return m_etwPage;
     if (key == QStringLiteral("ark-risk")) return m_arkRiskCenterPage;
+    if (key == QLatin1String(ks::monitor::ActionAnalyzeRootId)) return m_actionAnalyzePage;
     return nullptr;
 }
 
@@ -4913,9 +4921,13 @@ ks::ui::PageNavigationCatalog MonitorDock::navigationCatalog(const MonitorDock* 
                 tabs = existing->m_sideTabWidget;
                 target = existing->monitorNavigationPage(page.id);
             }
-            else if (existing->m_winApiWidget && existing->m_winApiWidget->m_resultTabs) {
-                tabs = existing->m_winApiWidget->m_resultTabs;
-                for (int index = 0; index < tabs->count(); ++index)
+            else {
+                // 子目录只查询各自父页已创建的真实 Tab；未实例化时保留冷目录。
+                if (page.parentId == QLatin1String(ks::monitor::ActionAnalyzeRootId))
+                    tabs = existing->m_actionAnalyzeWidget ? existing->m_actionAnalyzeWidget->navigationTabs() : nullptr;
+                else if (existing->m_winApiWidget && page.parentId == QLatin1String("winapi"))
+                    tabs = existing->m_winApiWidget->m_resultTabs;
+                for (int index = 0; tabs && index < tabs->count(); ++index)
                     if (tabs->widget(index)->property("ksword_monitor_navigation_id").toString() == page.id)
                     { target = tabs->widget(index); break; }
             }
@@ -4948,8 +4960,11 @@ QWidget* MonitorDock::activateNavigationDescriptor(const QString& id)
     const QString rootId = *spec->parent ? QString::fromLatin1(spec->parent) : id;
     activateMonitorTab(rootId); // Existing user navigation owns the actual lazy factory and discovery.
     if (!*spec->parent) return monitorNavigationPage(rootId);
-    if (!m_winApiWidget || !m_winApiWidget->m_resultTabs) return nullptr;
-    auto* tabs = m_winApiWidget->m_resultTabs;
+    // 选择真实子页，行为追踪跳转不触发 WinAPI 工厂。
+    auto* tabs = rootId == QLatin1String(ks::monitor::ActionAnalyzeRootId)
+        ? (m_actionAnalyzeWidget ? m_actionAnalyzeWidget->navigationTabs() : nullptr)
+        : (m_winApiWidget ? m_winApiWidget->m_resultTabs : nullptr);
+    if (!tabs) return nullptr;
     for (int index = 0; index < tabs->count(); ++index)
         if (tabs->widget(index)->property("ksword_monitor_navigation_id").toString() == id) {
             if (!tabs->isTabVisible(index) || !tabs->isTabEnabled(index) || !tabs->widget(index)->isEnabled()) return nullptr;
@@ -4972,6 +4987,12 @@ void MonitorDock::activateMonitorTab(const QString& tabKey)
     }
 
     const QString normalizedKey = tabKey.trimmed().toLower();
+    if (normalizedKey == QLatin1String(ks::monitor::ActionAnalyzeRootId) && m_actionAnalyzePage)
+    {
+        ensureActionAnalyzeTabInitialized();
+        m_sideTabWidget->setCurrentWidget(m_actionAnalyzePage);
+        return;
+    }
     if (normalizedKey == QStringLiteral("kernel-callback")
         || normalizedKey == QStringLiteral("kernelcallback")
         || normalizedKey == QStringLiteral("callback"))
@@ -5130,6 +5151,12 @@ void MonitorDock::initializeUi()
     initializeWmiTab();
     initializeEtwTab();
     initializeArkRiskCenterTab();
+
+    // 目录只创建轻量宿主，保持其它监控页的原顺序和默认选择。
+    m_actionAnalyzePage = new QWidget(m_sideTabWidget);
+    m_actionAnalyzePage->setProperty("ksword_page_frame_host", true);
+    ks::monitor::AddMonitorNavigationTab(m_sideTabWidget, m_actionAnalyzePage,
+        QString::fromLatin1(ks::monitor::ActionAnalyzeRootId));
 }
 
 void MonitorDock::initializePerformancePanel()
