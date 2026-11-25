@@ -432,9 +432,12 @@
     <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp" />
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.cpp" />
     <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp" />
     <ClCompile Include="MonitorDock\MonitorPanelWidget.cpp" />
     <ClCompile Include="MonitorDock\MonitorTextViewer.cpp" />
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp" />
@@ -963,6 +966,9 @@
     <ClInclude Include="ActionAnalyze\OfflineProjectReader.h" />
     <ClInclude Include="ActionAnalyze\OfflineSegmentOverview.h" />
     <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.h" />
     <ClInclude Include="WindowDock\WindowImmutableTableSupport.h" />
     <ClInclude Include="MonitorDock\EtwArchiveMetadata.h" />
     <ClInclude Include="RegistryDock\OfflineHiveSession.h" />
@@ -1573,6 +1579,7 @@
     <ClInclude Include="ArkDriverClient\ArkDriverError.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h" />
     <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h" />
+    <ClInclude Include="..\..\shared\evidence\ArchivedEtwObservation.h" />
     <ClInclude Include="..\..\shared\evidence\EvidenceJson.h" />
     <ClInclude Include="..\..\shared\evidence\LiveNavigation.h" />
     <ClInclude Include="..\..\shared\evidence\LosslessValue.h" />

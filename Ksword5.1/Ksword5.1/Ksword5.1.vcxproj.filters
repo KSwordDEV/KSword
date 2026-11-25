@@ -891,13 +891,22 @@
     <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
@@ -2824,6 +2833,15 @@
     <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <QtMoc Include="MonitorDock\MonitorDock.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -4294,6 +4312,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ArchivedEtwObservation.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\evidence\EvidenceJson.h">

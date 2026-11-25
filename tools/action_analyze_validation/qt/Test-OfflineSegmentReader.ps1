@@ -1,6 +1,6 @@
 #requires -Version 7.0
 [CmdletBinding()]
-param()
+param([switch]$VerifyCliEtw)
 
 $ErrorActionPreference = 'Stop'
 # 只复用已安装的 64 位工具链、Qt 和正式 Release 运行库。
@@ -31,15 +31,19 @@ $names = @('valid-header-alone', 'event-segment-with-known-zeroes', 'truncated-s
 $sources = @(
     (Join-Path $PSScriptRoot 'OfflineSegmentReaderTests.cpp'),
     'Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentReader.cpp',
+    # Qt 读取器用归档投影核对可识别的网络 RawRecord，链接同一组依赖。
+    'KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp',
+    'KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp',
+    'KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp',
     'shared\evidence\EvidenceJson.cpp', 'shared\evidence\LosslessValue.cpp'
 ) | ForEach-Object {
     if ([IO.Path]::IsPathRooted($_)) { [IO.Path]::GetFullPath($_) } else { Join-Path $repo $_ }
 }
 $artifacts = @($sources | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) + '.obj' }) +
-    @($names | ForEach-Object { "$_.ksaseg" }) # 清理范围为本次生成的文件。
+    @($names | ForEach-Object { "$_.ksaseg" }) + '00000000000000000001.ksaseg' # 清理范围为本次生成的文件。
 $hostProcess = Get-Process -Id $PID
 $oldPriority = $hostProcess.PriorityClass
 $oldTemp = $env:TEMP
@@ -73,6 +77,12 @@ try {
     Write-Output "Fixture SHA256=$((Get-FileHash -LiteralPath $exe).Hash)"
     & $exe $scratch
     if ($LASTEXITCODE -ne 0) { throw "Fixture exited $LASTEXITCODE." }
+    if ($VerifyCliEtw) {
+        $lightValidator = Join-Path $outRoot 'KswordARKLightStoredEvidenceValidation.exe'
+        $cliTest = Join-Path $repo 'tools\action_analyze_validation\cli\live_etw.py'
+        & py -3.12 -B $cliTest --readback $exe $lightValidator
+        if ($LASTEXITCODE -ne 0) { throw "Live CLI readback exited $LASTEXITCODE." }
+    }
 } finally {
     Pop-Location
     $hostProcess.PriorityClass = $oldPriority
