@@ -124,8 +124,8 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
     print('LIGHT_CONTINUOUS_ETW_REPLAY=PASS', flush=True)
 
 
-def preview(segment, first_event=None, etw_segments=None):
-    """用正式窗口打开指定项目段，核对单段和持续 ETW 原样回放。"""
+def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None):
+    """用正式窗口打开指定项目段，核对 ETW 原样回放或 API 线索。"""
     assert not any(gui.GetClassName(hwnd) == MAIN_CLASS for hwnd in windows()), 'Light is already running'
     binary = RELEASE / 'KswordARKLight.exe'
     saved_state = workspace_state()
@@ -160,6 +160,8 @@ def preview(segment, first_event=None, etw_segments=None):
         samples = control(page, 58310)
         replay = control(page, 58311)
         discard = control(page, 58312)
+        api = control(page, 58313)  # 第一个独立来源开关的原生 ID。
+        filter_edit = control(page, 58304)  # 同表共享的关键字筛选。
         item_count = lambda: gui.SendMessage(records, 0x1004, 0, 0)  # LVM_GETITEMCOUNT
 
         def open_file(path=None):
@@ -205,13 +207,72 @@ def preview(segment, first_event=None, etw_segments=None):
         gui.SendMessage(samples, con.CB_SETCURSEL, selected, 0)
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
         assert gui.IsWindowEnabled(replay) and item_count() == 0
+        memory_before = win32process.GetProcessMemoryInfo(int(process._handle))  # 正式窗口待打开状态。
+        started = time.perf_counter()  # 从点击回放起计算实际可见行等待时间。
         gui.SendMessage(replay, con.BM_CLICK, 0, 0)
+        if api_window_total is not None:
+            wait_for('large API recent window', lambda: item_count() == 4096 and '正在读取' not in text(status))
+            elapsed = (time.perf_counter() - started) * 1000  # 包含 50 ms 轮询取整和异步发布。
+            memory = win32process.GetProcessMemoryInfo(int(process._handle))  # 本应用整进程峰值，含启动。
+            assert f'帧记录 {api_window_total + 1}' in text(status)
+            for key, sequence in ((con.VK_HOME, api_window_total - 4095), (con.VK_END, api_window_total)):
+                gui.SendMessage(records, con.WM_KEYDOWN, key, 0)
+                wait_for('API window endpoint', lambda: f'归档记录序号：{sequence} ' in text(detail))
+                assert f'源归档行号：{sequence}\r\n' in text(detail)
+            print(json.dumps({'rowsVerified': api_window_total, 'rowsDisplayed': item_count(),
+                              'firstVisibleSequence': api_window_total - 4095, 'loadMs': round(elapsed, 2),
+                              'preReplayWorkingSetBytes': memory_before['WorkingSetSize'],
+                              'peakWorkingSetBytes': memory['PeakWorkingSetSize'],
+                              'peakPrivateCommitBytes': memory['PeakPagefileUsage']}), flush=True)
+            return
+
+        if api_rows is not None:
+            # API 导入用收尾记录确认完整性，项目入口仍显示 raw 段状态。
+            wait_for('verified API archive loaded', lambda: item_count() == len(api_rows) and '正在读取' not in text(status))
+            assert gui.IsWindowEnabled(api) and not gui.IsWindowEnabled(etw)
+            gui.SendMessage(records, con.WM_KEYDOWN, con.VK_HOME, 0)
+            for index, row in enumerate(api_rows):
+                # ListView 原生方向键推进选择，不直接修改模型或跨进程写入内存。
+                if index:
+                    gui.SendMessage(records, con.WM_KEYDOWN, con.VK_DOWN, 0)
+                detail_text = wait_for('API detail selected', lambda: text(detail) if row['api'] in text(detail) else '')
+                for value in (sample_id, f"归档记录序号：{row['rawSequence']}", f"源归档行号：{row['sourceSequence']}",
+                              f"FILETIME：{row['time100ns']}", bytes.fromhex(row['packet'])[:128].hex(' '),
+                              '目标身份、实际写入范围、执行和归因未知。'):
+                    assert value in detail_text, detail_text
+
+            gui.SendMessage(api, con.BM_CLICK, 0, 0)
+            assert gui.SendMessage(api, con.BM_GETCHECK, 0, 0) == con.BST_CHECKED and item_count() == len(api_rows)
+            keyword = ctypes.create_unicode_buffer('WriteProcessMemory')  # 筛掉当前选中的节映射行。
+            SEND(filter_edit, con.WM_SETTEXT, 0, ctypes.addressof(keyword))
+            assert item_count() == 1 and text(detail) == detail_text
+            empty = ctypes.create_unicode_buffer('')  # 恢复可见行及原选中详情。
+            SEND(filter_edit, con.WM_SETTEXT, 0, ctypes.addressof(empty))
+            assert item_count() == len(api_rows) and text(detail) == detail_text
+            gui.SendMessage(api, con.BM_CLICK, 0, 0)
+            assert gui.SendMessage(api, con.BM_GETCHECK, 0, 0) == con.BST_UNCHECKED
+
+            # 改动本脚本拥有的段尾，失败时当前表及详情应继续保持。
+            original = segment.read_bytes()
+            try:
+                segment.write_bytes(original[:-1])
+                gui.SendMessage(retry, con.BM_CLICK, 0, 0)
+                wait_for('API corruption retains view', lambda: '保留当前归档' in text(status))
+                assert item_count() == len(api_rows) and text(detail) == detail_text
+            finally:
+                segment.write_bytes(original)
+            gui.SendMessage(retry, con.BM_CLICK, 0, 0)
+            wait_for('API restored', lambda: '正在读取' not in text(status) and '保留当前归档' not in text(status))
+            assert item_count() == len(api_rows) and '归档记录序号：5' in text(detail)
+            print(f'LIGHT_API_PROJECT_REPLAY=PASS SAMPLE={sample_id} ROWS={len(api_rows)}', flush=True)
+            return
+
         if etw_segments is not None:
             verify_continuous(binary, segment, etw_segments, records, detail, status, etw, retry, item_count, verified)
             return
 
         wait_for('verified project checkpoint', verified)
-        assert item_count() == 14
+        assert item_count() == 14 and not gui.IsWindowEnabled(api)
 
         gui.SendMessage(etw, con.BM_CLICK, 0, 0)
         assert item_count() == 12
@@ -281,7 +342,7 @@ def preview(segment, first_event=None, etw_segments=None):
         gui.ShowWindow(main, con.SW_RESTORE)
         gui.SetWindowPos(main, 0, 0, 0, 800, 650, con.SWP_NOZORDER | con.SWP_NOACTIVATE | con.SWP_NOMOVE)
         page_box = gui.GetWindowRect(page)
-        for hwnd in (open_button, retry, records, detail, status, etw):
+        for hwnd in (open_button, retry, records, detail, status, api, etw, filter_edit):
             left, top, right, bottom = gui.GetWindowRect(hwnd)
             assert page_box[0] <= left < right <= page_box[2] and page_box[1] <= top < bottom <= page_box[3]
         assert item_count() == 14 and '归档记录序号：2' in text(detail)

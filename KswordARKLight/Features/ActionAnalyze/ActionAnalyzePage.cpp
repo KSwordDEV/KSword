@@ -24,9 +24,9 @@ constexpr wchar_t kPageClass[] = L"KswordARKLight.ActionAnalyze";
 constexpr UINT kComplete = WM_APP + 936;
 enum ControlId {
     kOpen = 58301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly,
-    kSampleChoice, kReplaySample, kCancelChoice
+    kSampleChoice, kReplaySample, kCancelChoice, kApiOnly
 };
-static_assert(kCancelChoice <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
+static_assert(kApiOnly <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
 
 struct Snapshot {
@@ -34,6 +34,7 @@ struct Snapshot {
     std::optional<ProjectReplayRequest> sample; // 项目回放选择；独立段保持为空。
     SegmentEvidence evidence; // raw 段或独立证据段的本地值快照。
     ReplayCheckpoint checkpoint; // 本次项目重读核对的段范围。
+    bool hasApi = false; // 窗口中存在已核验的 API 线索。
     std::shared_ptr<const std::vector<Ui::VirtualListRow>> presentation; // 后台生成的虚拟表行。
 };
 
@@ -51,6 +52,7 @@ struct Page {
     HWND filterLabel = nullptr;
     HWND filter = nullptr;
     HWND etwOnly = nullptr;
+    HWND apiOnly = nullptr; // 只影响表和瀑布的来源筛选。
     HWND actions = nullptr;
     HWND capability = nullptr;
     HWND projection = nullptr;
@@ -117,6 +119,7 @@ LoadResult Load(const std::wstring& path, const std::optional<ProjectReplayReque
     auto rows = std::make_shared<std::vector<Ui::VirtualListRow>>(); // 表格的后台值数据。
     rows->reserve(snapshot.evidence.rows.size());
     for (const auto& record : snapshot.evidence.rows) {
+        snapshot.hasApi |= !record.apiClue.empty();
         Ui::VirtualListRow row; // 项目已验证的记录序号在整次采样内唯一。
         row.stableKey = std::to_wstring(record.sequence);
         row.itemData = static_cast<LPARAM>(rows->size());
@@ -153,8 +156,10 @@ void Layout(Page& page) {
     const bool stackedChoice = mainRight - mainX < Scale(300) + choiceButtonsWidth + gap;
     const int choiceHeight = page.choices.empty() ? 0 : (stackedChoice ? 2 : 1) * (height + gap);
     const int top = toolbarTop + choiceHeight; // 样本草稿仅占用表格上方自然高度。
-    const int bottom = (std::max)(top + height + Scale(32), static_cast<int>(area.bottom) - inset - Scale(62));
-    const int resultTop = top + height + gap;
+    const int sourceWidth = Scale(93); // 同列来源开关按成组宽度换行。
+    const bool wrapSources = mainRight - mainX < sourceWidth * 2 + gap * 2 + Scale(125);
+    const int resultTop = top + (wrapSources ? 2 : 1) * (height + gap);
+    const int bottom = (std::max)(resultTop + Scale(24), static_cast<int>(area.bottom) - inset - Scale(62));
     const int available = bottom - resultTop;
     const int detailHeight = available / 3;
     const int graphHeight = available >= Scale(350) ? Scale(68) : 0;
@@ -182,13 +187,16 @@ void Layout(Page& page) {
     move(page.replaySample, choiceButtonsX, choiceButtonsY, choiceButtonWidth, height);
     move(page.cancelChoice, choiceButtonsX + choiceButtonWidth + gap, choiceButtonsY, choiceButtonWidth, height);
     move(page.categories, inset, top, timelineWidth, height);
-    const int etwWidth = Scale(102);
-    const bool showFilterLabel = mainRight - mainX >= Scale(260);
+    const int sourceX = wrapSources ? mainX : mainRight - sourceWidth * 2 - gap; // 窄窗时开关占独立一行。
+    const int sourceY = wrapSources ? top + height + gap : top;
+    const int filterRight = wrapSources ? mainRight : sourceX - gap;
+    const bool showFilterLabel = filterRight - mainX >= Scale(180);
     const int filterLeft = mainX + (showFilterLabel ? Scale(57) : 0);
     ::ShowWindow(page.filterLabel, showFilterLabel ? SW_SHOW : SW_HIDE);
     move(page.filterLabel, mainX, top + Scale(4), Scale(56), height - Scale(4));
-    move(page.filter, filterLeft, top, mainRight - etwWidth - gap - filterLeft, height);
-    move(page.etwOnly, mainRight - etwWidth, top, etwWidth, height);
+    move(page.filter, filterLeft, top, filterRight - filterLeft, height);
+    move(page.apiOnly, sourceX, sourceY, sourceWidth, height);
+    move(page.etwOnly, sourceX + sourceWidth + gap, sourceY, sourceWidth, height);
     move(page.timeline.hwnd(), inset, resultTop, timelineWidth, graphTop - resultTop - gap);
     move(page.list.hwnd(), mainX, resultTop, mainRight - mainX, graphTop - resultTop - gap);
     const int tableWidth = mainRight - mainX;
@@ -300,8 +308,11 @@ void ApplyFilter(Page& page) {
     if (page.snapshot) {
         const auto& records = page.snapshot->evidence.rows;
         const bool etwOnly = page.timeline.hasEtw() && ::SendMessageW(page.etwOnly, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        const bool apiOnly = page.snapshot->hasApi && ::SendMessageW(page.apiOnly, BM_GETCHECK, 0, 0) == BST_CHECKED;
         std::erase_if(visible, [&](std::size_t i) {
-            return (etwOnly && !records[i].etw) || !page.timeline.includes(records[i]);
+            const auto& row = records[i]; // 同时选中 API、ETW 时取两类来源的并集。
+            const bool sourceMatch = (!apiOnly && !etwOnly) || (apiOnly && !row.apiClue.empty()) || (etwOnly && row.etw);
+            return !sourceMatch || !page.timeline.includes(row);
         });
     }
     page.applyingProjection = true;
@@ -413,6 +424,11 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
         ::SendMessageW(page.etwOnly, BM_SETCHECK, BST_UNCHECKED, 0);
     }
     ::EnableWindow(page.etwOnly, page.timeline.hasEtw());
+    if (!page.snapshot->hasApi) {
+        if (::GetFocus() == page.apiOnly) ::SetFocus(page.filter);
+        ::SendMessageW(page.apiOnly, BM_SETCHECK, BST_UNCHECKED, 0);
+    }
+    ::EnableWindow(page.apiOnly, page.snapshot->hasApi);
     page.applyingProjection = true;
     ListView_SetItemState(page.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     page.list.setSharedRows(page.snapshot->presentation);
@@ -542,7 +558,7 @@ void PaintGraph(Page& page, HDC dc) {
 LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
     if (msg == WM_KEYDOWN && wp == VK_TAB) {
         auto& page = *reinterpret_cast<Page*>(data);
-        const std::array order{ page.categories, page.filter, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
+        const std::array order{ page.categories, page.filter, page.apiOnly, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
             page.open, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice, page.details, page.status };
         const auto found = std::find(order.begin(), order.end(), hwnd);
         const auto size = static_cast<int>(order.size());
@@ -563,16 +579,20 @@ bool CreateControls(Page& page) {
     page.open = Ui::CreateButton(page.hwnd, kOpen, L"打开归档…", 0, 0, 0, 0, Ui::ButtonRole::Primary);
     page.retry = Ui::CreateButton(page.hwnd, kRetry, L"重读上次路径", 0, 0, 0, 0);
     page.actions = Ui::CreateText(page.hwnd, 0, L"归档操作", 0, 0, 0, 0);
-    page.capability = Ui::CreateText(page.hwnd, 0, L"只读归档 · 支持 ETW 原始记录回放。", 0, 0, 0, 0);
+    page.capability = Ui::CreateText(page.hwnd, 0, L"只读归档 · 支持 API 线索和 ETW 回放。", 0, 0, 0, 0);
     page.categories = Ui::CreateButton(page.hwnd, kCategories, L"无可筛选类别", 0, 0, 0, 0);
     page.filterLabel = Ui::CreateText(page.hwnd, 0, L"筛选记录", 0, 0, 0, 0);
     page.filter = MakeEdit(page.hwnd, kFilter, ES_AUTOHSCROLL);
     page.etwOnly = ::CreateWindowExW(0, L"BUTTON", L"只看 ETW", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEtwOnly)), ::GetModuleHandleW(nullptr), nullptr);
-    if (!page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel || !page.filter || !page.etwOnly) return false;
+    page.apiOnly = ::CreateWindowExW(0, L"BUTTON", L"只看 API", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiOnly)), ::GetModuleHandleW(nullptr), nullptr);
+    if (!page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel ||
+        !page.filter || !page.etwOnly || !page.apiOnly) return false;
     ::EnableWindow(page.retry, FALSE);
     ::EnableWindow(page.categories, FALSE);
     ::EnableWindow(page.etwOnly, FALSE);
+    ::EnableWindow(page.apiOnly, FALSE);
     ::SendMessageW(page.filter, EM_SETLIMITTEXT, 256, 0);
     ::SendMessageW(page.filter, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"筛选记录"));
     if (!page.timeline.create(page.hwnd, kTimeline, [&page](std::size_t index) {
@@ -608,7 +628,9 @@ bool CreateControls(Page& page) {
     AddButtonTip(page.tooltip, page.hwnd, page.retry, L"按上次请求的路径和采样身份重读");
     AddButtonTip(page.tooltip, page.hwnd, page.replaySample, L"只读回放当前选中的采样");
     AddButtonTip(page.tooltip, page.hwnd, page.cancelChoice, L"关闭当前采样选择并保留正在查看的归档");
-    for (HWND child : { page.categories, page.filter, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
+    AddButtonTip(page.tooltip, page.hwnd, page.apiOnly, L"筛选 API 线索。与 ETW 同选时显示两类来源。");
+    AddButtonTip(page.tooltip, page.hwnd, page.etwOnly, L"筛选 ETW 观察。与 API 同选时显示两类来源。");
+    for (HWND child : { page.categories, page.filter, page.apiOnly, page.etwOnly, page.timeline.hwnd(), page.list.hwnd(),
         page.open, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice, page.details, page.status }) {
         if (!::SetWindowSubclass(child, NavigateControls, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     }
@@ -677,7 +699,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             UpdateStatus(*page);
         }
         if (LOWORD(wp) == kCategories && HIWORD(wp) == BN_CLICKED && page->timeline.chooseCategories(page->categories)) ApplyFilter(*page);
-        if (LOWORD(wp) == kEtwOnly && HIWORD(wp) == BN_CLICKED) ApplyFilter(*page);
+        if ((LOWORD(wp) == kEtwOnly || LOWORD(wp) == kApiOnly) && HIWORD(wp) == BN_CLICKED) ApplyFilter(*page);
         if (LOWORD(wp) == kFilter && HIWORD(wp) == EN_CHANGE && page->status) ApplyFilter(*page);
         return 0;
     case WM_NOTIFY: {

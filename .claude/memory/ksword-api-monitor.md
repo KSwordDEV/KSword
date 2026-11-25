@@ -1,5 +1,12 @@
 # API Monitor 定义、x86/x64 引擎、覆盖与异步采集
 
+## ActionAnalyze 三端离线归档核对（2026-11-25）
+
+- WinAPI 磁盘归档在现有写入点标记五类 API 线索。CLI `analyze api-evidence import` 仅读关闭的归档，按原包重新分类，把来源行号和原包写入 Stored raw 段。回放核对整个段及收尾计数，再输出请求页。调用方信息来自归档声明，目标身份、实际写入范围、执行、归因和源覆盖保持未知。
+- 正式 HostX64 Release 的 CLI、Qt 和 Light 共用同一已登记的合成项目。7 条输入保存 5 条线索，CLI 逐字节核对原包，Qt 与 Light 逐行核对详情。两端均实测截断后保留前次结果和恢复重读。Qt 验证 API 筛选及关键字筛选保留选择，Light 验证键盘选择。窗口退出 0，配置恢复，固定测试目录已清理。Qt 验收覆盖浅色及右侧详情。真实运行中的 API 回传和强对象关联尚未接入 ActionAnalyze。回执 `.codex-build-logs/action-analyze-three-product-api.log`。
+- 合成性能回归单机采样。约 20.2 MiB、15000 行、10% 命中时，CLI 导入及读回约 216 ms，峰值工作集 12.3 MiB。约 29.6 MiB、22000 行全命中时约 521 ms，峰值工作集 45.6 MiB。对应 100 行回放约 27／129 ms，峰值工作集约 11 MiB。导入分 64 KiB 读取，同时保留命中的原包直到全部输入通过验证。数据未覆盖实时采集开销。回执 `.codex-build-logs/action-analyze-api-evidence-perf.log`。
+- Light 在「监控 → ActionAnalyze」新增独立 API 筛选，验证选中详情在关键字筛掉该行时保持。22,000 条合成线索完整读回，原生列表显示最近 4,096 条（序号 17,905 至 22,000）。点击回放到结果可见约 190 ms，含验证脚本轮询间隔。回放前工作集约 42.0 MiB，进程工作集峰值约 52.3 MiB，私有提交峰值约 23.2 MiB，含窗口启动开销。正式产物 SHA-256 `5d054981d1c1c019ca81f14fcd6979b56cfe20f15189f96564badd02740c3412`，工作区设置恢复，测试目录清理。旧 ETW 筛选和 800×650 原生窗口几何已复测。回执 `.codex-build-logs/action-analyze-light-api-window-perf.log`。
+
 ## GUI 分类与第三轮强类型扩充（2026-11-08）
 
 - 用户反馈关闭窗口类仍刷大量GDI，并要求继续Raw转强类型。新增 `EventCategory::Gui=15`，原值/包布局不变；`enable_gui` 和界面“GUI API”缺省关闭，旧INI缺省也关闭，独立于 `enable_process` / `enable_window`。主程序写出/启停、CLI分类/help/业务白名单、剪贴板专用会话、子进程继承、事件标签和密度轨道同步。

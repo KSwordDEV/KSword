@@ -1,6 +1,7 @@
 """用合成 API Monitor 归档验证正式 ActionAnalyze 导入和回放。"""
 
 import base64
+import hashlib
 import json
 import struct
 import subprocess
@@ -36,6 +37,46 @@ def cli(*args, code=0):
     result = subprocess.run([EXE, 'analyze', 'api-evidence', *args, '--json'], capture_output=True, timeout=TIMEOUT)
     assert result.returncode == code, (result.returncode, result.stdout, result.stderr)
     return json.loads(result.stdout)['data']
+
+
+def import_fixture(project, title):
+    """为 CLI 和桌面工具创建同一份五类线索采样，返回清单、段路径和正式回放结果。"""
+    creation = subprocess.run([EXE, 'analyze', 'session'], input=f'project create "{project}" Fixture\nquit\n'.encode(),
+                              capture_output=True, timeout=TIMEOUT, check=True)
+    manifest = project / 'project.ksaproj'  # 用户实际打开的项目入口。
+    assert manifest.is_file(), creation.stdout
+
+    # 原始包仅为合成记录。非匹配模块和不一致分类用于核对原包判定。
+    cases = (
+        ('', 'CreateRemoteThreadEx', packet('Other', 'CreateRemoteThreadEx', 9), {}),
+        ('memory-write', 'WriteProcessMemory', packet('KernelBase', 'WriteProcessMemory', 8, 0x52545631, status=299),
+         {'processCreation100ns': '134400565183024180'}),
+        ('apc-queue', 'NtQueueApcThread', packet('NTDLL.DLL', 'NtQueueApcThread', 9, result_kind=1), {}),
+        ('', 'NtWriteVirtualMemory', packet('ntdll', 'NtWriteVirtualMemory', 9), {}),
+        ('thread-create', 'CreateRemoteThreadEx', packet('Kernel32.dll', 'CreateRemoteThreadEx', 9, 0x52545631, returned=20), {}),
+        ('thread-context', 'SetThreadContext', packet('KernelBase', 'SetThreadContext', 9), {}),
+        ('section-map', 'NtMapViewOfSection', packet('ntdll', 'NtMapViewOfSection', 8), {}),
+    )
+    source = project.parent / 'events.jsonl'  # 自有测试目录中的原始输入。
+    original = b''.join(archive_line(i, wire, **extra) for i, (_, _, wire, extra) in enumerate(cases, 1))
+    with source.open('xb') as output:
+        output.write(original)
+    receipt = cli('import', '--archive', source, '--project', project, '--title', title)
+    assert (receipt['status'], receipt['sourceRows'], receipt['clueRows'], receipt['coverage']) == (
+        'readback-verified', '7', '5', 'unknown')
+    assert source.read_bytes() == original
+
+    # 桌面校验按同一个采样 UUID 和实际 CLI 回读行逐条比对。
+    sample = receipt['sampleId']
+    rows = cli('replay', '--project', project, '--sample', sample, '--packet', '1')['rows']
+    expected = [(str(i), family, name, wire.hex()) for i, (family, name, wire, _) in enumerate(cases, 1) if family]
+    assert [(row['sourceSequence'], row['family'], row['api'], row['packet']) for row in rows] == expected, rows
+    assert all(row[key] is None for row in rows for key in ('targetIdentity', 'completedWriteBytes', 'executed', 'attribution'))
+    segment = project / 'samples' / sample / 'raw/00000000000000000001.ksaseg'
+    with EXE.open('rb') as image:
+        print(f"CLI_SHA256={hashlib.file_digest(image, 'sha256').hexdigest()}", flush=True)
+    print(f"CLI_SOURCE_ROWS={receipt['sourceRows']} CLI_CLUES={len(rows)} SAMPLE={sample}", flush=True)
+    return manifest, segment, rows
 
 
 def main():
