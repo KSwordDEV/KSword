@@ -234,10 +234,18 @@ void TestReader(const Fixture& fixture, const Bytes& valid)
     };
 
     auto mutation = valid;
-    mutation[9] ^= 1;
+    Put(mutation, 8, 2, 2);
     checkFailure(mutation, SegmentScanStatus::Corrupt, SegmentIssue::HeaderCrc, 0);
     FixHeader(mutation, 0, 96);
     checkFailure(mutation, SegmentScanStatus::Unsupported, SegmentIssue::Version, 0);
+    mutation = valid;
+    Put(mutation, 10, 2, 1);
+    FixHeader(mutation, 0, 96);
+    checkFailure(mutation, SegmentScanStatus::Unsupported, SegmentIssue::Version, 0);
+    mutation = valid;
+    Put(mutation, kSecondBlock + 6, 2, 2);
+    FixHeader(mutation, kSecondBlock, 80);
+    checkFailure(mutation, SegmentScanStatus::Unsupported, SegmentIssue::Version, kSecondBlock);
     mutation = valid;
     Put(mutation, 16, 4, 1);
     FixHeader(mutation, 0, 96);
@@ -329,17 +337,28 @@ const char* ProbeStatus(const archive::SegmentScanResult& scan)
     switch (scan.status) {
     case SegmentScanStatus::FramingComplete: return "framing-complete";
     case SegmentScanStatus::Truncated: return "truncated";
-    default: break;
+    case SegmentScanStatus::Unsupported:
+        switch (scan.error.issue) {
+        case SegmentIssue::Version: return "unsupported-version";
+        case SegmentIssue::Flags: return "unsupported-flags";
+        case SegmentIssue::Codec: return "unsupported-codec";
+        default: return "unexpected-unsupported";
+        }
+    case SegmentScanStatus::Corrupt: break;
+    default: return "unexpected-status";
     }
     switch (scan.error.issue) {
-    case SegmentIssue::HeaderCrc: return scan.error.offset == 0 ? "segment.headerCrc" : "block.headerCrc";
-    case SegmentIssue::Identity: return "segment.identity";
-    case SegmentIssue::StoredCrc: return "block.storedCrc";
-    case SegmentIssue::Codec: return "block.codec";
-    case SegmentIssue::BlockLength: return "block.length";
-    case SegmentIssue::RecordCount: return "block.recordCount";
-    case SegmentIssue::Sequence: return "record.sequence";
-    default: return "unexpected-status";
+    case SegmentIssue::HeaderCrc: return "header-crc";
+    case SegmentIssue::Identity: return "identity";
+    case SegmentIssue::StoredCrc: return "stored-crc";
+    case SegmentIssue::DecodedCrc: return "decoded-crc";
+    case SegmentIssue::BlockLength: return "block-length";
+    case SegmentIssue::RecordLength: return "record-length";
+    case SegmentIssue::RecordCount: return "record-count";
+    case SegmentIssue::Sequence: return "sequence";
+    case SegmentIssue::QpcRange: return "qpc-range";
+    case SegmentIssue::RecordPayloadCrc: return "record-payload-crc";
+    default: return "unexpected-corruption";
     }
 }
 

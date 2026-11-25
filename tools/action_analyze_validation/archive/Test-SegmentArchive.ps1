@@ -39,30 +39,42 @@ try {
     & $exe $scratch
     if ($LASTEXITCODE -ne 0) { throw "Archive test exited $LASTEXITCODE." }
 
-    $vectors = Get-Content -LiteralPath (Join-Path $repo 'schemas/action_analyze/vectors/stored-v1.json') -Raw | ConvertFrom-Json -AsHashtable
+    $vectorPath = Join-Path $repo 'schemas/action_analyze/vectors/stored-v1.json'
+    $vectors = Get-Content -LiteralPath $vectorPath -Raw | ConvertFrom-Json -AsHashtable
+    Write-Output "A0 vectors SHA256=$((Get-FileHash -LiteralPath $vectorPath).Hash.ToLowerInvariant())"
     $fixtures = $vectors.fixtures
+    $statuses = @{
+        'complete' = 'framing-complete'; 'raw-only' = 'framing-complete'; 'truncated' = 'truncated'
+        'segment.headerCrc' = 'header-crc'; 'segment.identity' = 'identity'; 'segment.major' = 'unsupported-version'
+        'segment.requiredFlags' = 'unsupported-flags'; 'block.headerCrc' = 'header-crc'; 'block.storedCrc' = 'stored-crc'
+        'block.decodedCrc' = 'decoded-crc'; 'block.codec' = 'unsupported-codec'; 'block.length' = 'block-length'
+        'block.recordCount' = 'record-count'; 'block.trailingBytes' = 'record-count'; 'block.qpcRange' = 'qpc-range'
+        'record.headerCrc' = 'header-crc'; 'record.payloadCrc' = 'record-payload-crc'; 'record.length' = 'record-length'
+        'record.sequence' = 'sequence'
+    }
     foreach ($case in $vectors.cases) {
         $base = $fixtures[$case.base]
         $hex = ($base.hex -join '')
         if ($case.Contains('take')) { $hex = $hex.Substring(0, 2 * $case.take) }
         if ($case.Contains('append')) { $hex += ($fixtures[$case.append].hex -join '') }
+        if ($case.Contains('appendHex')) { $hex += $case.appendHex }
         $bytes = [Convert]::FromHexString($hex)
         foreach ($patch in $case.patch) { [Convert]::FromHexString($patch[1]).CopyTo($bytes, [int]$patch[0]) }
         if ($case.Contains('truncate')) { [Array]::Resize([ref]$bytes, [int]$case.truncate) }
         [IO.File]::WriteAllBytes($vectorFile, $bytes)
 
-        $status = $case.status
+        $status = $statuses[$case.status]
         $prefix = $case.prefixBytes
         $blocks = $case.blocks
         $optional = [int]$case.opaqueOptional
-        $required = [int]($status -eq 'raw-only')
-        if ($status -in @('complete', 'raw-only')) { $status = 'framing-complete' }
-        # A0 的正文负例有合法封装，语义检查由 A0 校验器独立断言。
-        if ($status -in @('raw.json', 'event.validityBits', 'event.validityValue')) {
+        $required = [int]($case.status -eq 'raw-only')
+        # A0 的正文负例各有一个完整封装块，使用向量单独提供的封装端点。
+        if ($case.Contains('framedBytes')) {
             $status = 'framing-complete'
-            $prefix = $bytes.Length
+            $prefix = $case.framedBytes
             $blocks = 1
         }
+        if (!$status) { throw "Vector $($case.id) has no framing classification for $($case.status)." }
         $expected = "$status $prefix $blocks $optional $required"
         $actual = & $exe --a0-vector $vectorFile $base.streamKind
         if ($LASTEXITCODE -ne 0 -or $actual -cne $expected) {
