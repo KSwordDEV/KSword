@@ -18,10 +18,17 @@ struct EtwProviderEvidence {
     std::wstring name,guid;
     ULONG status = ERROR_SUCCESS;
 };
+enum class EtwStartupAbort { None, BeforeOpenTrace, BeforeProcessTrace };
+
 struct EtwSessionEvidence {
     std::wstring sessionName;
     bool startAttempted = false,startSucceeded = false,threadStartFailed = false;
-    bool openAttempted = false,processAttempted = false,processCompleted = false;
+    // A startup abort identifies an API call the worker skipped after stop intent.
+    EtwStartupAbort startupAbort = EtwStartupAbort::None;
+    bool openAttempted = false;
+    bool processAttempted = false; // Dispatch committed on the worker, before the native call.
+    bool processCompleted = false;
+    bool tailDeliveryUnconfirmed = false; // No observed entry at STOP, or consumer retired before logger.
     bool closeAttempted = false,statisticsKnown = false,sessionStopped = false,callbackFailed = false;
     ULONG startStatus = ERROR_SUCCESS,openStatus = ERROR_SUCCESS,processStatus = ERROR_SUCCESS,closeStatus = ERROR_SUCCESS;
     ULONG eventsLost = 0,logBuffersLost = 0,realTimeBuffersLost = 0;
@@ -30,9 +37,8 @@ struct EtwSessionEvidence {
     std::vector<ULONG> stopStatuses;
 };
 
-// EtwSessionController owns a real-time ETW session. Inputs are filter state
-// and callbacks; processing starts/stops Windows ETW APIs on a worker thread;
-// callbacks receive compact EtwEvent rows and status text.
+// EtwSessionController owns a real-time ETW session. The owner serializes
+// start and stop calls. The worker opens the consumer and processes records.
 class EtwSessionController final {
 public:
     using EventCallback = std::function<void(const EtwEvent&)>;

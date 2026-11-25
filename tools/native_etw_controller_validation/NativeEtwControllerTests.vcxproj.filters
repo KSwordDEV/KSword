@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Shared ETW">
+      <UniqueIdentifier>{483723D6-10EA-4C82-AC9E-F7EE031D71B5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shared evidence">
+      <UniqueIdentifier>{32D1050D-34F1-4F6B-9404-800BFDD5E156}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\native_etw_controller_tests.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Shared ETW</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Shared ETW</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Shared ETW</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\PassiveEtwSource.cpp"><Filter>Shared ETW</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp"><Filter>Shared ETW</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp"><Filter>Shared evidence</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp"><Filter>Shared evidence</Filter></ClCompile>
+    <ClInclude Include="..\native_etw_controller_fake_api.h" />
+  </ItemGroup>
+</Project>

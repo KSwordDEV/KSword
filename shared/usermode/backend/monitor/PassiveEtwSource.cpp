@@ -70,8 +70,8 @@ PassiveEtwState SessionState(const EtwSessionEvidence& native, bool running, boo
         (native.openAttempted && native.openStatus != ERROR_SUCCESS)) {
         return PassiveEtwState::Failed;
     }
-    if (native.processCompleted && native.processStatus != ERROR_SUCCESS &&
-        !(stopped && native.processStatus == ERROR_CANCELLED)) {
+    if (native.tailDeliveryUnconfirmed ||
+        (native.processCompleted && native.processStatus != ERROR_SUCCESS)) {
         return PassiveEtwState::Failed;
     }
     if (stopped) {
@@ -80,6 +80,8 @@ PassiveEtwState SessionState(const EtwSessionEvidence& native, bool running, boo
     if (native.processCompleted || !running) {
         return PassiveEtwState::Failed;
     }
+    // Running admits a producer once dispatch is committed. Native callbacks and
+    // the terminal result provide the separate evidence for delivery coverage.
     return native.processAttempted ? PassiveEtwState::Running : PassiveEtwState::Starting;
 }
 

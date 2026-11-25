@@ -157,8 +157,14 @@ void EtwSessionController::stop() {
 }
 
 bool EtwSessionController::stopChecked() {
-    running_.store(false);
-    stopRequested_.store(true);
+    {
+        const std::lock_guard lock(mutex_);
+        stopRequested_.store(true);
+        running_.store(false);
+        if (evidence_.processAttempted && evidence_.receivedEvents == 0) {
+            evidence_.tailDeliveryUnconfirmed = true;
+        }
+    }
     stopOwnedSession();
     // Successful STOP lets ProcessTrace drain its final buffer as before.
     // Only a failed STOP needs explicit CloseTrace to wake the consumer.
@@ -200,15 +206,19 @@ void EtwSessionController::stopOwnedSession() {
     if (status == ERROR_SUCCESS || status == ERROR_WMI_INSTANCE_NOT_FOUND) sessionHandle_.store(0);
 }
 bool EtwSessionController::closeConsumer() {
-    const auto handle = consumerHandle_.exchange(INVALID_PROCESSTRACE_HANDLE);
+    const std::lock_guard operation(resourceMutex_);
+    const auto handle = consumerHandle_.load();
     if (handle == INVALID_PROCESSTRACE_HANDLE) return true;
+    const bool beforeStop = sessionHandle_.load() != 0;
     const auto status = ::CloseTrace(handle);
     const bool closed = status == ERROR_SUCCESS || status == ERROR_CTX_CLOSE_PENDING || status == ERROR_INVALID_HANDLE;
-    if (!closed) {
-        auto empty = INVALID_PROCESSTRACE_HANDLE;
-        (void)consumerHandle_.compare_exchange_strong(empty, handle);
+    {
+        const std::lock_guard lock(mutex_);
+        evidence_.closeAttempted = true;
+        evidence_.closeStatus = status;
+        if (closed && beforeStop && evidence_.processAttempted) evidence_.tailDeliveryUnconfirmed = true;
     }
-    { std::lock_guard<std::mutex> lock(mutex_); evidence_.closeAttempted = true; evidence_.closeStatus = status; }
+    if (closed) consumerHandle_.store(INVALID_PROCESSTRACE_HANDLE);
     return closed;
 }
 
@@ -288,33 +298,49 @@ void EtwSessionController::workerLoop() {
     } finished{consumerFinished_};
     const std::wstring sessionName = sessionName_;
 
-    if (stopRequested_.load()) {
-        running_.store(false);
-        return;
-    }
-
     EVENT_TRACE_LOGFILEW logFile{};
     logFile.LoggerName = const_cast<LPWSTR>(sessionName.c_str());
     logFile.ProcessTraceMode = PROCESS_TRACE_MODE_EVENT_RECORD | PROCESS_TRACE_MODE_REAL_TIME;
     logFile.EventRecordCallback = &EtwSessionController::EventRecordCallback;
     logFile.Context = this;
 
-    const TRACEHANDLE traceHandle = ::OpenTraceW(&logFile);
-    const ULONG openStatus = traceHandle == INVALID_PROCESSTRACE_HANDLE ? ::GetLastError() : ERROR_SUCCESS;
-    {std::lock_guard<std::mutex> lock(mutex_);evidence_.openAttempted = true;evidence_.openStatus = openStatus;}
+    TRACEHANDLE traceHandle = INVALID_PROCESSTRACE_HANDLE;
+    ULONG openStatus = ERROR_SUCCESS;
+    bool dispatchProcessTrace = false;
+    {
+        // Keep the logger alive through the submitted OpenTrace call and handle publication.
+        const std::lock_guard operation(resourceMutex_);
+        {
+            const std::lock_guard lock(mutex_);
+            if (stopRequested_.load()) {
+                evidence_.startupAbort = EtwStartupAbort::BeforeOpenTrace;
+                return;
+            }
+        }
+        traceHandle = ::OpenTraceW(&logFile);
+        if (traceHandle == INVALID_PROCESSTRACE_HANDLE) openStatus = ::GetLastError();
+
+        const std::lock_guard lock(mutex_);
+        evidence_.openAttempted = true;
+        evidence_.openStatus = openStatus;
+        if (traceHandle != INVALID_PROCESSTRACE_HANDLE) {
+            consumerHandle_.store(traceHandle);
+            dispatchProcessTrace = !stopRequested_.load();
+            if (dispatchProcessTrace) evidence_.processAttempted = true;
+            else evidence_.startupAbort = EtwStartupAbort::BeforeProcessTrace;
+        }
+    }
     if (traceHandle == INVALID_PROCESSTRACE_HANDLE) {
-        const ULONG errorCode = openStatus;
         stopOwnedSession();
         const bool stopped = stopRequested_.load();
         running_.store(false);
         if (!stopped) {
-            publishLastError(Win32ErrorText(L"OpenTraceW", errorCode));
+            publishLastError(Win32ErrorText(L"OpenTraceW", openStatus));
         }
         return;
     }
-    consumerHandle_.store(traceHandle);
 
-    if (stopRequested_.load()) {
+    if (!dispatchProcessTrace) {
         closeConsumer();
         stopOwnedSession();
         running_.store(false);
@@ -322,9 +348,16 @@ void EtwSessionController::workerLoop() {
     }
 
     TRACEHANDLE handles[] = { traceHandle };
-    {std::lock_guard<std::mutex> lock(mutex_);evidence_.processAttempted = true;}
+    // A stop can still race the native call after dispatch was committed.
+    // Keep its actual return code without inferring the cause from stop intent.
     const ULONG status = ::ProcessTrace(handles, 1, nullptr, nullptr);
-    {std::lock_guard<std::mutex> lock(mutex_);evidence_.processCompleted = true;evidence_.processStatus = status;}
+    {
+        const std::lock_guard operation(resourceMutex_);
+        const std::lock_guard lock(mutex_);
+        evidence_.processCompleted = true;
+        evidence_.processStatus = status;
+        if (sessionHandle_.load() != 0) evidence_.tailDeliveryUnconfirmed = true;
+    }
     closeConsumer();
     stopOwnedSession();
 
