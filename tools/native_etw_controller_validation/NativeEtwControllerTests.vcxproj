@@ -20,6 +20,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <ActionAnalyzeSource>..\..\KswordCLI\ActionAnalyze</ActionAnalyzeSource>
     <TargetName>NativeEtwControllerTests</TargetName>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
     <LinkIncremental>false</LinkIncremental>
@@ -32,6 +33,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <UndefinePreprocessorDefinitions>NDEBUG;%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -49,6 +51,9 @@
     <ClCompile Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp" />
     <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Cli\Controller.cpp;$(ActionAnalyzeSource)\Cli\LiveSession.cpp;$(ActionAnalyzeSource)\Cli\ProjectCommands.cpp;$(ActionAnalyzeSource)\Cli\ArchivedCapture.cpp;$(ActionAnalyzeSource)\Cli\Protocol.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectArchive.cpp;$(ActionAnalyzeSource)\Project\ProjectDocument.cpp;$(ActionAnalyzeSource)\Project\ProjectLock.cpp;$(ActionAnalyzeSource)\Project\ProjectRawEvidence.cpp;$(ActionAnalyzeSource)\Project\ProjectEtwCheckpoint.cpp;$(ActionAnalyzeSource)\Project\ProjectStorage.cpp;$(ActionAnalyzeSource)\Project\SampleCatalog.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Archive\RawEvidenceArchive.cpp;$(ActionAnalyzeSource)\Archive\SegmentBodies.cpp;$(ActionAnalyzeSource)\Archive\SegmentFormat.cpp;$(ActionAnalyzeSource)\Archive\SegmentInspection.cpp;$(ActionAnalyzeSource)\Archive\SegmentReader.cpp;$(ActionAnalyzeSource)\Archive\SegmentWriter.cpp" />
     <ClInclude Include="..\native_etw_controller_fake_api.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

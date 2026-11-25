@@ -221,7 +221,9 @@ Reply Controller::Dispatch(Request request, bool repl) {
     // 先预留整帧空间及 ID 记录再执行，避免变更生效后因账本用满而丢失重放资格。
     const bool validClose = project && project->method == ProjectMethod::Close && project_.CanClose(request.params);
     const bool finishLive = live && session_.CanFinalize(live->method, request);
-    const std::size_t reserved = validClose ? 0 : !live_ ? 1 : !finishLive ? 3 : live->method == LiveMethod::Stop ? 2 : 1;
+    // A failed first STOP is itself replayable. Leave a separate slot for a fresh retry before close.
+    const std::size_t reserved = validClose ? 0 : !live_ ? 1 : !finishLive ? 4 :
+        live->method != LiveMethod::Stop ? 1 : session_.CleanupPending() ? 2 : 3;
     const auto entryLimit = kReplayEntries - reserved;
     const auto byteLimit = kReplayBytes - reserved * (live_ ? kReservedLiveReplyBytes : kReservedCloseBytes);
     const auto responseBudget = validClose ? 256 : finishLive ? kReservedLiveReplyBytes / 2 : kResultBytes;

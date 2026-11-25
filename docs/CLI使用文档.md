@@ -202,6 +202,8 @@ quit
 
 `source.state=running` 表示工作线程已提交 `ProcessTrace` 调用。`source.startupAbort` 记录快速停止时明确跳过的调用阶段。`source.tailDeliveryUnconfirmed=true` 表示无法确认收尾阶段的完整交付，采样状态为 `partial`。原生错误码、系统丢失和本地队列丢失分别报告。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
+R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项目预留回执空间。重放原停止 ID 不会再次调用原生 API。如果重试后仍无法清退，可能没有空间继续接受新的停止 ID；应保留最后一份清退回执，不将待归档状态当作成功。
+
 `archive.status=raw-verified` 表示 `raw` 流第 `1` 段已刷盘且回读校验通过。该段包含采集计划、原始观测和覆盖回执。`archive.checkpoint.status=verified` 表示 `records` 流第 `1` 段的终态覆盖记录及其原始引用已经核对，并且已发布两个流的提交端点。采样创建时的配置快照仍可通过 `sample status` 查看，其中 `not-collected` 表示创建描述的初始状态。采集结果由停止回执及归档记录给出。重开项目后用 `archive inspect SAMPLE_ID raw 1` 核对封装。规范事件及规则执行仍待接入。[被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json) · [终态检查点 schema](../schemas/action_analyze/etw-terminal-checkpoint.schema.json)
 
 #### JSONL 会话

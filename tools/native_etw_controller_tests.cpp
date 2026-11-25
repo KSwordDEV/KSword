@@ -1,10 +1,12 @@
 #include "native_etw_controller_fake_api.h"
 #include "../KswordARKLight/Ui/BackgroundWork.h"
 #include "../shared/usermode/backend/monitor/PassiveEtwSource.h"
+#include "../KswordCLI/ActionAnalyze/Cli/Controller.h"
 
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
@@ -56,6 +58,76 @@ ks::r3::monitor::EtwFilterState Filter() {
     return filter;
 }
 void WaitConsumer() { Eventually([] { std::lock_guard lock(backend.mutex); return backend.entered; }); }
+
+void VerifyCliRetirement(const std::filesystem::path& root, std::string_view finishReason = {}) {
+    using namespace ks::cli::action_analyze;
+    using V = JsonValue;
+    Controller cli(true);
+    const auto object = [](JsonObject fields) { return V::makeObject(std::move(fields)); };
+    const auto string = [](std::string text) { return V::makeString(std::move(text)); };
+    const auto text = [](const V& value, const char* key) {
+        std::string result;
+        assert(value.find(key) && value.find(key)->tryGetString(result));
+        return result;
+    };
+    const auto send = [&](std::string id, const char* method, V params, std::optional<RequestSession> session = {},
+                          std::optional<V> expected = {}) {
+        return cli.Dispatch({std::move(id), method, std::move(params), std::move(session), std::move(expected)}, false);
+    };
+    assert(!std::filesystem::exists(root)); // Cleanup belongs to the fixed-directory runner.
+    const auto path = root.u8string();
+    const auto project = send("project", "project.create", object({{"path", string({path.begin(), path.end()})},
+        {"settings", object({{"title", string("ETW fixture")}, {"notes", string("")}})}}));
+    assert(!project.error);
+    const auto projectId = text(project.result, "projectId");
+    FILETIME created{}, exited{}, kernel{}, user{};
+    assert(GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user));
+    const auto start = static_cast<std::uint64_t>(created.dwHighDateTime) << 32 | created.dwLowDateTime;
+    const auto opened = send("open", "session.open", object({{"projectId", string(projectId)},
+        {"title", string("Owned ETW fixture")}, {"providerId", string("da71e251-d49e-4a7d-aabe-955df1900213")},
+        {"pid", V::makeUInt(GetCurrentProcessId())}, {"creationFileTime", string(std::to_string(start))},
+        {"durationMs", V::makeUInt(120000)}}), {}, object({{"revisionId", string(text(project.result, "revisionId"))}}));
+    assert(!opened.error && text(opened.result, "capture") == "active");
+    const auto* native = opened.result.find("session");
+    assert(native);
+    const RequestSession owner{text(*native, "id"), text(*native, "epoch")};
+    WaitConsumer();
+
+    const auto stop = [&](const char* id, const char* revision) {
+        return send(id, "session.stop", object({}), owner, object({{"stateRevision", string(revision)}}));
+    };
+    if (!finishReason.empty()) {
+        { std::lock_guard lock(backend.mutex); backend.failStop = backend.failClose = 2; }
+        if (finishReason == "shutdown") assert(send("quit", "controller.shutdown", object({})).shutdown);
+        const auto pending = cli.Finish(finishReason);
+        assert(text(pending, "capture") == "cleanup-pending" && text(pending, "stopReason") == finishReason);
+        assert(cli.CleanupPending() && cli.Incomplete() && text(*pending.find("archive"), "status") == "pending");
+        // Release the simulated failure before fixture teardown without losing the pending receipt.
+        assert(text(cli.Finish(finishReason), "capture") == "cleanup-pending");
+        assert(text(cli.Finish(finishReason), "capture") != "cleanup-pending" && !cli.CleanupPending());
+        return;
+    }
+
+    for (int index = 0; index < 4090; ++index) {
+        assert(!send("fill-" + std::to_string(index), "controller.hello",
+            object({{"acceptVersions", V::makeArray({V::makeUInt(1)})}})).error);
+    }
+    const auto overflow = send("full", "controller.hello", object({{"acceptVersions", V::makeArray({V::makeUInt(1)})}}));
+    assert(overflow.error && std::string_view(overflow.error.id) == "request-ledger-full");
+    { std::lock_guard lock(backend.mutex); backend.failStop = backend.failClose = 1; }
+    const auto pending = stop("stop", "1");
+    assert(!pending.error && text(pending.result, "capture") == "cleanup-pending");
+    const auto replay = stop("stop", "1");
+    assert(!replay.error && Ksword::Evidence::WriteJson(pending.result) == Ksword::Evidence::WriteJson(replay.result));
+    { std::lock_guard lock(backend.mutex); assert(backend.stopCalls == 1 && backend.closeCalls == 1); }
+    const auto stopped = stop("retry", text(pending.result, "stateRevision").c_str());
+    assert(!stopped.error && !cli.CleanupPending() && text(*stopped.result.find("archive"), "status") == "raw-verified");
+    const auto closed = send("close", "session.close", object({}), owner,
+        object({{"stateRevision", string(text(stopped.result, "stateRevision"))}}));
+    assert(!closed.error);
+    assert(!send("project-close", "project.close", object({{"projectId", string(projectId)}})).error);
+    assert(send("quit", "controller.shutdown", object({})).shutdown);
+}
 } // namespace
 
 ULONG WINAPI NativeControllerStartTraceW(PTRACEHANDLE handle, LPCWSTR name, PEVENT_TRACE_PROPERTIES) {
@@ -122,7 +194,7 @@ ULONG WINAPI NativeControllerProcessTrace(TRACEHANDLE* handle, ULONG count, LPFI
     return backend.processError;
 }
 
-int main() {
+int wmain(int argc, wchar_t** argv) {
     using namespace ks::r3::monitor;
     {
         EtwSessionController idle;
@@ -309,4 +381,14 @@ int main() {
     }
     Reset();
     std::cout << "PASS: fast stop, native status, tail coverage, STOP+Close ownership and retry, natural exit, provider compensation\n";
+    if (argc == 2) {
+        const std::filesystem::path output(argv[1]);
+        VerifyCliRetirement(output / L"full-ledger");
+        Reset();
+        VerifyCliRetirement(output / L"eof", "eof");
+        Reset();
+        VerifyCliRetirement(output / L"shutdown", "shutdown");
+        Reset();
+        std::cout << "PASS: CLI full ledger stop and retry, pending EOF and shutdown\n";
+    }
 }

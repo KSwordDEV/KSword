@@ -7,6 +7,9 @@
     <Filter Include="Shared evidence">
       <UniqueIdentifier>{32D1050D-34F1-4F6B-9404-800BFDD5E156}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ActionAnalyze CLI">
+      <UniqueIdentifier>{06B8209D-F7F4-4DCB-9AFA-FC6491799877}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\native_etw_controller_tests.cpp" />
@@ -17,6 +20,9 @@
     <ClCompile Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp"><Filter>Shared ETW</Filter></ClCompile>
     <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp"><Filter>Shared evidence</Filter></ClCompile>
     <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp"><Filter>Shared evidence</Filter></ClCompile>
+    <ClCompile Include="$(ActionAnalyzeSource)\Cli\Controller.cpp;$(ActionAnalyzeSource)\Cli\LiveSession.cpp;$(ActionAnalyzeSource)\Cli\ProjectCommands.cpp;$(ActionAnalyzeSource)\Cli\ArchivedCapture.cpp;$(ActionAnalyzeSource)\Cli\Protocol.cpp"><Filter>ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectArchive.cpp;$(ActionAnalyzeSource)\Project\ProjectDocument.cpp;$(ActionAnalyzeSource)\Project\ProjectLock.cpp;$(ActionAnalyzeSource)\Project\ProjectRawEvidence.cpp;$(ActionAnalyzeSource)\Project\ProjectEtwCheckpoint.cpp;$(ActionAnalyzeSource)\Project\ProjectStorage.cpp;$(ActionAnalyzeSource)\Project\SampleCatalog.cpp"><Filter>ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="$(ActionAnalyzeSource)\Archive\RawEvidenceArchive.cpp;$(ActionAnalyzeSource)\Archive\SegmentBodies.cpp;$(ActionAnalyzeSource)\Archive\SegmentFormat.cpp;$(ActionAnalyzeSource)\Archive\SegmentInspection.cpp;$(ActionAnalyzeSource)\Archive\SegmentReader.cpp;$(ActionAnalyzeSource)\Archive\SegmentWriter.cpp"><Filter>ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="..\native_etw_controller_fake_api.h" />
   </ItemGroup>
 </Project>
