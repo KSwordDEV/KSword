@@ -134,6 +134,15 @@ ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRe
             share, OPEN_EXISTING, file); !status) {
         return status;
     }
+    if (request.maxFileBytes) {
+        LARGE_INTEGER fileSize{}; // 从实际持有的段句柄读取字节长度。
+        if (!GetFileSizeEx(file.get(), &fileSize)) {
+            return ProjectStorage::WinFailure("archiveFileSize", GetLastError());
+        }
+        if (static_cast<std::uint64_t>(fileSize.QuadPart) > *request.maxFileBytes) {
+            return Failure(ProjectError::LimitExceeded, "archiveFileSize");
+        }
+    }
     out = Archive::ScanOpenRawEvidence(file.get(), identity, request.endOffset,
         request.previousSequence, request.visitor);
     return {};

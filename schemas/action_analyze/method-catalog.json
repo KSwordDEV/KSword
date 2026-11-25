@@ -76,7 +76,7 @@
     },
     "sample.query": {
       "repl": "sample status",
-      "paramsSchema": "request.schema.json#/$defs/sampleIdentity",
+      "paramsSchema": "request.schema.json#/$defs/sampleQuery",
       "resultSchema": "request-message.schema.json#/$defs/sampleResult",
       "availability": "project-integration",
       "state": "project-open",
@@ -85,7 +85,7 @@
     "sample.create": {
       "repl": "sample create",
       "paramsSchema": "request.schema.json#/$defs/sampleCreate",
-      "resultSchema": "request-message.schema.json#/$defs/sampleResult",
+      "resultSchema": "request-message.schema.json#/$defs/sampleCreateResult",
       "availability": "project-integration",
       "state": "project-open-read-write",
       "effect": "create-offline-sample"

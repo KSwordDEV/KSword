@@ -104,8 +104,13 @@
         "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "frozenSettings": { "$ref": "request.schema.json#/$defs/projectSettings" },
         "revisionHash": { "$ref": "#/$defs/projectHash" },
+        "captureArchive": { "$ref": "live-etw-session.schema.json#/$defs/archivedCapture" },
         "configSemanticHash": { "$ref": "#/$defs/projectHash" }
       }
+    },
+    "sampleCreateResult": {
+      "$ref": "#/$defs/sampleResult",
+      "properties": { "captureArchive": false }
     },
     "sampleRow": { "$ref": "#/$defs/sampleFields", "unevaluatedProperties": false },
     "samplePageResult": {

@@ -342,7 +342,7 @@ def check_archive_vectors(vectors, project_vectors, shell_vectors, registry, met
 
 def main():
     schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json',
-                                       'archive-inspect-method.schema.json')]
+                                       'archive-inspect-method.schema.json', 'live-etw-session.schema.json')]
     for schema in schemas:
         Draft202012Validator.check_schema(schema)
     registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in schemas)

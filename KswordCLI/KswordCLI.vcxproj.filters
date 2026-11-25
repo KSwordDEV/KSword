@@ -84,6 +84,7 @@
     <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\ArchivedCapture.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Transport.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="ActionAnalyze\Cli\Commands.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
@@ -91,6 +92,7 @@
     <ClInclude Include="ActionAnalyze\Cli\LiveSession.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Controller.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\ArchivedCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Transport.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>

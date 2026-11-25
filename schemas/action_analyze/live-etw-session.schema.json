@@ -98,6 +98,40 @@
         "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "#/$defs/nativeCode" }
       }
     },
+    "archivedCapture": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["status"],
+          "properties": { "status": { "enum": ["missing", "unavailable", "limit-exceeded", "unrecognized", "invalid"] } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "segmentOrdinal", "checkedBytes", "observationCount", "plan", "terminal"],
+          "properties": {
+            "status": { "const": "readback-verified" },
+            "segmentOrdinal": { "const": "1" },
+            "checkedBytes": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "observationCount": { "$ref": "#/$defs/u64" },
+            "plan": {
+              "type": "object", "additionalProperties": false,
+              "required": ["providerId", "sourceEpoch", "headerPid", "processCreationFileTime"],
+              "properties": {
+                "providerId": { "$ref": "#/$defs/uuid" }, "sourceEpoch": { "$ref": "#/$defs/uuid" },
+                "headerPid": { "$ref": "#/$defs/openParams/properties/pid" },
+                "processCreationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" }
+              }
+            },
+            "terminal": {
+              "type": "object", "additionalProperties": false, "required": ["stopReason", "nativeSessionStopped"],
+              "properties": {
+                "stopReason": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "nativeSessionStopped": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
     "plan": {
       "type": "object", "additionalProperties": false,
       "required": ["kind", "backend", "session", "sourceEpoch", "revisionId", "snapshotId", "revisionHash", "configSemanticHash", "providerId", "headerPid", "processCreationFileTime", "durationMs", "headerRole", "sourceClock", "receiveClock", "maxRecords", "maxPayloadBytes"],

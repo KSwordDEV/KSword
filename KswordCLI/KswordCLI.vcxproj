@@ -196,6 +196,7 @@
     <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\ArchivedCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Transport.cpp" />
     <ClInclude Include="ActionAnalyze\Cli\Commands.h" />
@@ -203,6 +204,7 @@
     <ClInclude Include="ActionAnalyze\Cli\LiveSession.h" />
     <ClInclude Include="ActionAnalyze\Cli\Controller.h" />
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h" />
+    <ClInclude Include="ActionAnalyze\Cli\ArchivedCapture.h" />
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h" />
     <ClInclude Include="ActionAnalyze\Cli\Transport.h" />
   </ItemGroup>

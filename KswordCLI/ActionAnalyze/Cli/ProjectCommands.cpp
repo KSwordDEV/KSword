@@ -1,5 +1,6 @@
 #include "ProjectCommands.h"
 
+#include "ArchivedCapture.h"
 #include "Controller.h"
 #include "../Archive/SegmentInspection.h"
 #include "../Project/ProjectStorage.h"
@@ -23,7 +24,7 @@ constexpr ProjectCommand kMethods[] = {
     {M::Create, "project.create", "project create", "PATH TITLE [NOTES]", "Create a project in a new directory and open it for writing.", true},
     {M::Save, "project.save", "project save", "TITLE [NOTES]", "Save the project settings against its current revision.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
-    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID", "Read a sample and its frozen project settings.", false},
+    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture]", "Read a sample and its frozen project settings.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
     {M::InspectArchive, "archive.inspect", "archive inspect", "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]",
         "Inspect Stored segment framing in the open project. End offset is an optional byte boundary.", false},
@@ -97,13 +98,17 @@ JsonObject SampleFields(const SampleInfo& sample) {
 }
 
 V SampleResult(const ProjectInfo& info, const SampleInfo& sample, const RevisionSettings& settings,
-               std::string_view revisionHash, std::string_view configSemanticHash) {
+                std::string_view revisionHash, std::string_view configSemanticHash,
+                std::optional<V> capture = std::nullopt) {
     auto fields = SampleFields(sample);
     fields.emplace_back("projectId", Text(info.projectId));
     fields.emplace_back("generation", Number(info.generation));
     fields.emplace_back("frozenSettings", Settings(settings));
     fields.emplace_back("revisionHash", Text(revisionHash));
     fields.emplace_back("configSemanticHash", Text(configSemanticHash));
+    if (capture) {
+        fields.emplace_back("captureArchive", std::move(*capture)); // 仅按显式请求回读归档。
+    }
     return Object(std::move(fields));
 }
 
@@ -275,14 +280,25 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         return Success(SampleResult(saved, sample, saved.settings, saved.revisionHash, saved.configSemanticHash), true);
     }
     case M::QuerySample: {
-        std::string id;
-        if (!Fields(params, {"projectId", "sampleId"}) || !GetUuid(params, "sampleId", id))
-            return Invalid("Expected projectId and sampleId");
+        std::string id; // 要读取的采样 UUID。
+        const auto* option = params.find("includeCapture"); // 选择读取历史原始段。
+        bool includeCapture = false; // 默认只查询冻结配置。
+        if (!KnownKeys(params, {"projectId", "sampleId", "includeCapture"}) || !GetUuid(params, "sampleId", id) ||
+            (option && !option->tryGetBool(includeCapture))) {
+            return Invalid("Expected projectId, sampleId and optional boolean includeCapture");
+        }
         if (const auto error = checkProject()) return {{}, {}, error};
-        SampleRecord sample;
-        const auto result = document_.ReadSample(id, sample);
-        return result ? Success(SampleResult(*info, sample.info, sample.frozenSettings, sample.revisionHash, sample.configSemanticHash))
-                      : FromError(result);
+        SampleRecord sample; // 验证过的创建描述及冻结配置。
+        const auto result = document_.ReadSample(id, sample); // 归档扫描依赖此采样已登记。
+        if (!result) {
+            return FromError(result);
+        }
+        std::optional<V> capture; // 仅在请求指定时返回归档回执。
+        if (includeCapture) {
+            capture = ReadArchivedCapture(document_, sample);
+        }
+        return Success(SampleResult(*info, sample.info, sample.frozenSettings, sample.revisionHash,
+            sample.configSemanticHash, std::move(capture)));
     }
     case M::InspectArchive: {
         std::string sampleId, stream;
@@ -370,8 +386,13 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         if (!words.empty()) return Invalid("This command takes no arguments");
         break;
     case M::QuerySample:
-        if (words.size() != 1) return Invalid("Usage: sample status SAMPLE_ID");
+        if (words.empty() || words.size() > 2 || (words.size() == 2 && words[1] != "capture")) {
+            return Invalid("Usage: sample status SAMPLE_ID [capture]");
+        }
         fields.emplace_back("sampleId", Text(words[0]));
+        if (words.size() == 2) {
+            fields.emplace_back("includeCapture", V::makeBool(true));
+        }
         break;
     case M::InspectArchive:
         if (words.size() < 3 || words.size() > 4)

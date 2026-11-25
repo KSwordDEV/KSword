@@ -26,6 +26,7 @@ struct ProjectRawEvidenceRead {
     std::optional<std::uint64_t> endOffset; // 可传运行期持有的刷盘字节端点。
     std::optional<std::uint64_t> previousSequence;
     ks::cli::action_analyze::archive::SegmentBodyVisitor visitor;
+    std::optional<std::uint64_t> maxFileBytes = std::nullopt; // 整段读取可附加文件大小上限。
 };
 
 } // namespace Ksword::ActionAnalyze

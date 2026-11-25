@@ -241,13 +241,15 @@ quit
 | `project.close` | `projectId` | `project close` | `projectId`、`closed:true` |
 | `sample.create` | `projectId`、`expectedRevisionId`、`title` | `sample create TITLE` | 采样详情 |
 | `sample.list` | `projectId`，可选 `generation`、`start`、`limit` | `sample list [START GENERATION [LIMIT]]` | `projectId`、`generation`、`start`、`sampleCount`、`nextStart`、`samples` |
-| `sample.query` | `projectId`、`sampleId` | `sample status SAMPLE_ID` | 采样详情 |
+| `sample.query` | `projectId`、`sampleId`，可选布尔值 `includeCapture` | `sample status SAMPLE_ID [capture]` | 采样详情，可按需回读 ETW 采集摘要 |
 
 `settings` 包含 `title` 和 `notes`。标题为 1–1024 个 UTF-8 字节。备注最多 64 KiB，可以为空，允许制表符和 LF。项目、修订及采样身份使用规范小写 UUID。`project.save` 与 `sample.create` 在写入前核对项目身份和已保存修订。身份不符返回 `project-id-mismatch`，修订过期返回 `stale-revision`。只读打开后写入返回 `project-read-only`。关闭当前项目、重新打开后使用新请求 ID 查询新快照。
 
 项目信息包含 `projectId`、`createdUtc`、`settings`、`revisionId`、`revisionHash`、`configSemanticHash`、`generation`、`sampleCount`、`access`、`recoveredPrevious`、`primaryFailure`。列表中的采样行包含 `sampleId`、`title`、`createdUtc`、`revisionId`、`snapshotId`、`descriptionHash`、`status`。采样详情在采样行基础上还返回 `projectId`、`generation`、`frozenSettings`、`revisionHash`、`configSemanticHash`。`createdUtc` 为 FILETIME 纪元的 100ns 值。时间、计数和代次使用规范十进制字符串。
 
 `sample.list` 默认从 `"0"` 开始，`limit` 为 1–256 的 JSON 整数，默认 256。显式 `start` 需要指定 `generation`，两者均使用规范十进制字符串。超出输出帧预算时返回放得下的完整行，`nextStart` 等于本页起点加实际返回行数。到末尾时 `nextStart` 为 `null`。代次不符返回 `stale-generation`，从新快照第一页重新查询即可。
+
+`sample status SAMPLE_ID capture` 或 `sample.query` 的 `"includeCapture": true` 会从同一采样的首个 Stored 原始段读取 `captureArchive`。`readback-verified` 提供校验字节范围、观察条数、目标与来源摘要，以及归档中的停止原因和原生清退标志。段须通过项目、采样与配置身份、记录顺序、校验和、来源一致性及结束计数检查。读取上限为 4 MiB。`missing` 表示段未生成或找不到，`unavailable` 表示文件不可读，`limit-exceeded` 表示段超过限额，`unrecognized` 表示首条记录使用其它格式，`invalid` 表示内容或身份核对失败。采样顶层 `status` 保留创建描述。历史查询只读归档，当前活会话用 `session.query` 查询。重试读取使用新的请求 ID。
 
 #### 归档段封装检查
 

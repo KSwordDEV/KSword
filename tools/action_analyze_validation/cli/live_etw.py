@@ -189,6 +189,10 @@ def run(readback=(), inspect_gui=None):
         assert opened['capture'] == 'active', opened
         assert call(cli, 'start', 'session.open', options, **revision) == opened
         assert call(cli, 'p1', 'project.query', identity)['sampleCount'] == '1'
+        # 活采样还未生成原始段，历史查询返回缺失而不接管活会话。
+        active_sample = dict(identity, sampleId=opened['sampleId'], includeCapture=True)
+        assert call(cli, 'sample-active', 'sample.query', active_sample)['captureArchive'] == {'status': 'missing'}
+        call(cli, 'sample-bad-option', 'sample.query', dict(active_sample, includeCapture='true'), error='invalid-params')
         call(cli, 'start', 'session.open', options, error='request-id-conflict',
              expected={'revisionId': '00000000-0000-0000-0000-000000000001'})
         owner = {'session': opened['session']}
@@ -243,6 +247,31 @@ def run(readback=(), inspect_gui=None):
         plan, terminal = rows[0][0], rows[-1][0]
         assert plan['kind'] == 'etw-capture-plan-v1' and plan['processCreationFileTime'] == target['creationFileTime']
         assert terminal['kind'] == 'etw-capture-end-v1' and terminal['source']['eventsLost'] == 0
+        # 同一离线会话先验证旧调用，再按需读取采集摘要。
+        selected = dict(identity, sampleId=sample_id)
+        descriptor = call(reader, 'sample-descriptor', 'sample.query', selected)
+        assert descriptor['status'] == 'not-collected' and 'captureArchive' not in descriptor
+        capture = call(reader, 'sample-capture', 'sample.query', dict(selected, includeCapture=True))['captureArchive']
+        assert capture == {
+            'status': 'readback-verified', 'segmentOrdinal': '1', 'checkedBytes': stopped['archive']['flushedBytes'],
+            'observationCount': '12', 'plan': {key: plan[key] for key in
+                                              ('providerId', 'sourceEpoch', 'headerPid', 'processCreationFileTime')},
+            'terminal': {'stopReason': terminal['stopReason'], 'nativeSessionStopped': True},
+        }, capture
+        eof_sample = dict(identity, sampleId=eof_capture['sampleId'], includeCapture=True)
+        eof_archive = call(reader, 'sample-capture-eof', 'sample.query', eof_sample)['captureArchive']
+        assert eof_archive['terminal']['stopReason'] == 'eof', eof_archive
+
+        # 临时截尾只作用于本测试生成的段，恢复原字节后供两端读取。
+        original_bytes = segment.read_bytes()
+        try:
+            segment.write_bytes(original_bytes[:-1])
+            damaged = call(reader, 'sample-capture-short', 'sample.query', dict(selected, includeCapture=True))
+            assert damaged['captureArchive'] == {'status': 'invalid'}, damaged
+            assert damaged['frozenSettings'] == descriptor['frozenSettings'], damaged
+        finally:
+            segment.write_bytes(original_bytes)
+
         events = [(row, data) for row, data in rows[1:-1] if row['descriptor']['id'] in {1, 2}]
         assert len(events) == 12, events
         for index, (row, data) in enumerate(events):
@@ -268,6 +297,13 @@ def run(readback=(), inspect_gui=None):
         repl_objects = [json.loads(line) for line in repl.stdout.splitlines() if line.startswith('{')]
         assert len(repl_objects) == 6 and repl_objects[3]['archive']['status'] == 'raw-verified', repl.stdout
         assert repl_objects[4]['closed'] and repl_objects[5]['closed'], repl.stdout
+
+        # 用人工命令重开同一份采样报告，核对与 JSONL 回执一致。
+        history = subprocess.run([CLI, 'analyze', 'session'], cwd=RELEASE,
+                                 input=f'project open "{PROJECT}"\nsample status {sample_id} capture\nquit\n',
+                                 text=True, encoding='utf-8', capture_output=True, timeout=15, check=True)
+        history_rows = [json.loads(line) for line in history.stdout.splitlines() if line.startswith('{')]
+        assert len(history_rows) == 2 and history_rows[1]['captureArchive'] == capture, history.stdout
 
         # 读完前三帧后停止读 stdout，保持 stdin 活跃以制造真实管道背压。
         slow = controller('r3', read_limit=3)
@@ -309,7 +345,7 @@ def run(readback=(), inspect_gui=None):
                           'sampleId': sample_id, 'observations': len(events), 'rawSha256': digest,
                           'stopReceipt': stopped, 'reopened': reopened, 'deadlineReceipt': timed_result,
                           'eofSummary': summary, 'replStopReceipt': repl_objects[3], 'targetExitReceipt': exit_receipt,
-                          'slowOutputTerminal': slow_terminal}))
+                          'slowOutputTerminal': slow_terminal, 'captureReadback': capture}))
     finally:
         for child in reversed(children):
             child.stop()
