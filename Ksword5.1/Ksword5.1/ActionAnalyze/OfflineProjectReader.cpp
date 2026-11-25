@@ -17,6 +17,24 @@ namespace
 {
     using Ksword::Evidence::JsonValue;
     using Ksword::Evidence::JsonType;
+    namespace project = Ksword::ActionAnalyze;
+
+    // 将共享项目读侧的错误映射到目录既有状态，file 是显示用的相对路径。
+    ReadProblem ProjectProblem(project::ProjectResult result, const QString& file)
+    {
+        switch (result.error)
+        {
+        case project::ProjectError::Unsupported:
+            return {ReadStatus::Unsupported, file};
+        case project::ProjectError::Corrupt:
+        case project::ProjectError::StaleRevision:
+        case project::ProjectError::LimitExceeded:
+        case project::ProjectError::UnsafePath:
+            return {ReadStatus::Invalid, file};
+        default:
+            return {ReadStatus::Unavailable, file};
+        }
+    }
 
     // A1 离线元数据格式的读取配额，与已发布目录分页一致。
     constexpr auto kDocumentLimit = 4 * 1024 * 1024;
@@ -224,10 +242,13 @@ ProjectSnapshot ReadProjectCatalog(const QString& manifestPath, const CancelChec
     const auto* features = head.find("requiredFeatures");
     const auto* required = features ? features->asArray() : nullptr;
     std::uint64_t number = 0; // 公共 JSON 解析器要求的数值输出类型。
-    std::string feature;
+    std::string feature; // 基础功能的名称，扩展项目也必须声明它。
+    std::string extension; // 可选断点扩展，由共享读取器负责精确校验。
+    const bool extended = required && required->size() == 2 && (*required)[1].tryGetString(extension)
+        && extension == project::kBreakpointDefinitionsFeature; // 只认可已实现的扩展。
     if (!version || version->type() != JsonType::UInt || !version->tryGetU64(number) || number != 1
-        || !required || required->size() != 1 || !required->front().tryGetString(feature)
-        || feature != "cli-offline-project-v1" || Text(head, "producer") != QLatin1String("KswordCLI")
+        || !required || (!extended && required->size() != 1) || !required->front().tryGetString(feature)
+        || feature != project::kOfflineProjectFeature || Text(head, "producer") != QLatin1String("KswordCLI")
         || Text(head, "storagePolicy") != QLatin1String("local-ntfs-offline-metadata"))
     {
         snapshot.problem = { ReadStatus::Unsupported, headFile };
@@ -248,6 +269,26 @@ ProjectSnapshot ReadProjectCatalog(const QString& manifestPath, const CancelChec
     {
         snapshot.problem = { ReadStatus::Invalid, headFile };
         return snapshot;
+    }
+
+    // 扩展配置由项目文档校验并解码，同一目录读取只接受最初清单对应的提交。
+    if (extended)
+    {
+        project::ProjectDocument document; // 本次只读快照，读取过程不持写租约。
+        const auto opened = document.Open(manifestPath.toStdWString(), project::ProjectAccess::ReadOnly); // 共享存储回执。
+        if (!opened)
+        {
+            snapshot.problem = ProjectProblem(opened, headFile);
+            return snapshot;
+        }
+        const auto* info = document.Info(); // 与 Qt 已读取的头部代次和修订线相比较。
+        if (!info || info->projectId != snapshot.id.toStdString() || info->generation != snapshot.generation ||
+            info->revisionId != snapshot.revisionId.toStdString() || !info->settings.breakpointDefinitions)
+        {
+            snapshot.problem = {ReadStatus::Invalid, headFile};
+            return snapshot;
+        }
+        snapshot.breakpointDefinitions = *info->settings.breakpointDefinitions;
     }
 
     const auto catalogFolder = QStringLiteral("catalog/%1/").arg(catalogGeneration);
@@ -301,6 +342,37 @@ ProjectSnapshot ReadProjectCatalog(const QString& manifestPath, const CancelChec
         snapshot.samples.clear(); // 不将残缺目录当作完整结果发布。
     }
     return snapshot;
+}
+
+// 由显式创建请求调用。清单提交后释放写租约，再读回项目及目录，返回真实回执。
+ProjectSnapshot CreateProjectCatalog(const QString& manifestPath, const CancelCheck& isCanceled)
+{
+    const QFileInfo manifest(manifestPath); // 原生选择器提交的项目清单路径。
+    const QDir directory = manifest.absoluteDir(); // 用户输入的新项目文件夹。
+    {
+        ProjectSnapshot failure; // 失败时不发布新项目身份。
+        if (isCanceled())
+        {
+            failure.problem = {ReadStatus::Canceled, manifestPath};
+            return failure;
+        }
+        const QFileInfo folder(directory.absolutePath()); // 已存在的文件夹、文件或链接均不能复用。
+        if (folder.exists() || folder.isSymLink() || folder.isJunction())
+        {
+            failure.problem = {ReadStatus::Invalid, directory.absolutePath()};
+            return failure;
+        }
+
+        project::ProjectDocument document; // 共享存储写者只在此作用域持有租约。
+        const project::RevisionSettings settings{directory.dirName().toUtf8().toStdString(), {}}; // 文件夹名称是初始项目标题。
+        const auto created = document.Create(directory.absolutePath().toStdWString(), settings); // 实际落盘结果。
+        if (!created)
+        {
+            failure.problem = ProjectProblem(created, directory.absolutePath());
+            return failure;
+        }
+    }
+    return ReadProjectCatalog(manifestPath, isCanceled);
 }
 
 // 目录行绑定描述文件，描述文件再绑定冻结的配置快照。
@@ -361,6 +433,33 @@ SampleDetails ReadSampleDetails(const SampleRequest& request, const CancelCheck&
         || !IsText(result.configurationTitle, 1024) || !IsText(result.configurationNotes, 64 * 1024, true))
     {
         result.problem = { ReadStatus::Invalid, snapshotFile };
+    }
+    else if (config && config->find(project::kBreakpointDefinitionsKey))
+    {
+        // 复用扩展配置解析和语义散列核验，从本采样快照取定义数量。
+        project::ProjectDocument document; // 独立只读句柄，保持当前历史采样身份。
+        const auto opened = document.Open(request.manifestPath.toStdWString(), project::ProjectAccess::ReadOnly); // 项目读取回执。
+        if (!opened)
+        {
+            result.problem = ProjectProblem(opened, snapshotFile);
+            return result;
+        }
+        project::SampleRecord frozen; // 由项目文档核验且解码后的冻结配置。
+        const auto read = document.ReadSample(expected.id.toStdString(), frozen); // 同一采样的读取回执。
+        if (!read)
+        {
+            result.problem = ProjectProblem(read, snapshotFile);
+        }
+        else if (document.Info()->projectId != request.projectId.toStdString() ||
+            frozen.info.descriptionHash != expected.descriptionHash.toStdString() ||
+            !frozen.frozenSettings.breakpointDefinitions)
+        {
+            result.problem = {ReadStatus::Invalid, snapshotFile};
+        }
+        else
+        {
+            result.breakpointCount = static_cast<qsizetype>(frozen.frozenSettings.breakpointDefinitions->size());
+        }
     }
     return result;
 }

@@ -35,3 +35,19 @@ Light 的「监控 → ActionAnalyze」新增「只看 ETW」复选框，单独�
 正式 Qt 与 CLI 的 HostX64 Release 构建均退出 `0`。产物分别为 `Ksword5.1/x64/Release/Ksword5.1.exe` 和 `KswordCLI.exe`。Qt 的 SHA-256 为 `53739C55F616F3E9CE0FDFBAF3B567E6EA31A2BA7895DF6D37D43A743C8BF4BF`，CLI 为 `BE9EC3FA0F35289D84EF2C7A4058CBA727D346001CCCC3DED50165BE78389D98`。双语审计通过 31,643 条文本，主题门禁通过。QtCore 通过 17 项 Stored 回归，并用正式 CLI 的自有样本核对 12 条记录、载荷及冻结描述负控。
 
 正式窗口显示 14 条原始记录，ETW 筛选显示其中 12 条。两条流末尾追加未提交的字节后，重读仍保持原表与选中详情。替换成另一采样的原始段或删除 Coverage 段时，窗口报告检查点失败并保留原结果。移走标记时显示旧档回退，恢复标记后再次显示检查点已验证。窗口退出 `0`，外观配置已恢复，测试项目已删除。日志 `.codex-build-logs/action-analyze-qt-checkpoint-gui.log`，构建日志 `.codex-build-logs/ksword-build-check-20261125-022100.raw.log`。本轮使用浅色主题和右侧详情布局，其余桌面矩阵继续验收。
+
+## 项目工作台与三端同采样
+
+- Qt 默认进入「监控 → 行为分析 → 项目与采样」。正式 HostX64 Release 核对空项目的新建入口、同一项目两轮独立扫描、断点定义修订冻结、重启后回查第一轮及坏中段重读。第一轮有 21 条观察，含 12 条 ETW 报头。外观与 ADS 配置均已恢复，固定测试目录已删除。Qt 产物 SHA-256 为 `0df858036bd833f751f32e19a0fd9492855c55b5810ceb6b2b99223e81ae3334`。
+- CLI 导入同一个五类合成 API 采样 `40ee5116-3d82-4098-8fea-bdbca03b7759`，Qt 和 Light 均在目录选择时自动预览并完整回放。Qt 的「查看采样记录」定位最新线索，`QT_SAMPLE_TRACE_TO_RECORD=PASS` 对应记录 5、源行 7。两端均核对五类原始坐标、来源筛选、坏尾隔离和修复重读。
+- CLI、Qt、Light 串行核对同一自有 ETW 采样 `9582d8b7-8bfe-4e79-a8be-d8052c38bda6`。CLI 写入 8 个运行段和 1 个终段，处理 4,101 个查询 ID，停止时 ETW 事件和队列报告丢失均为 0。Qt 和 Light 各回放 642 条记录，ETW 筛选各显示 624 条，最后一条 ETW 观察位于第 8 段的记录 639。Light 首段自动预览 14 条，缺第二段标记时保留 14 条，第三段覆盖流损坏时保留 28 条。恢复后读回 642 条。窗口退出 0，配置恢复，固定项目目录已删除。
+- Light 正式 HostX64 Release 从默认页新建空工程，在同一自有 PID 上连续采样两轮，各写 2 段，分别核对 12／14 条 ETW 载荷和 16／18 条原始记录。两轮终态报告 ETW 丢失、队列丢弃均为 0。重启后可打开同一工程，回放第二轮 `4d3d0309-d979-439a-b2e9-5c695bb38f86`。两次窗口退出 0，配置恢复，固定目录已删除。Light 产物 SHA-256 为 `768e1db335e6c91e99456cda05373615edb159c66e92da9b0624c4f8257437b3`。
+
+从仓库根目录使用统一 Release 产物，逐条运行以下回归。脚本使用独立非输入桌面。
+
+```powershell
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/live_archive_reopen.py
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --api
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --cross-client
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/live_project_preview.py
+```

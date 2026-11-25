@@ -9,6 +9,7 @@
 #include <charconv>
 #include <limits>
 #include <string_view>
+#include <utility>
 
 namespace ks::cli::action_analyze::archive {
 namespace {
@@ -414,30 +415,47 @@ bool DecodeFlow(const JsonValue& obj, const NetworkEvidenceBinding& binding, std
         SameMetadata(obj, FlowMetadata(binding, row.observation, row.capture));
 }
 
+// 从已验证封装的记录提取借用的网络正文视图。这里只检查类型及长度，尚未验证 JSON 字段。
+std::optional<RawRecordV1> ReadNetworkRawBody(const RecordView& record)
+{
+    if (record.type != kRawRecord || record.schemaVersion != 1 || record.flags != 0 || !record.payload ||
+        record.payloadBytes <= kRawPrefixBytes ||
+        record.payloadBytes > kRawPrefixBytes + kNetworkMaxMetadataBytes + kNetworkMaxInlineBytes) {
+        return std::nullopt;
+    }
+    const auto metadataBytes = wire::Get<std::uint32_t>(record.payload, 0); // 线上小端 JSON 字节数。
+    if (metadataBytes > kNetworkMaxMetadataBytes || metadataBytes > record.payloadBytes - kRawPrefixBytes) {
+        return std::nullopt;
+    }
+    const auto inlineOffset = static_cast<std::uint32_t>(kRawPrefixBytes) + metadataBytes; // 正文内字节起点。
+    const auto inlineBytes = record.payloadBytes - inlineOffset; // 实际保留的字节数。
+    if (inlineBytes > kNetworkMaxInlineBytes) {
+        return std::nullopt;
+    }
+    const auto* payload = reinterpret_cast<const char*>(record.payload); // 视图共享原正文缓冲区。
+    return RawRecordV1{{payload + kRawPrefixBytes, metadataBytes}, inlineOffset, inlineBytes,
+        {payload + inlineOffset, inlineBytes}};
+}
+
+// 验证绑定到独占段的记录，并填入当前块的流、丢失或终态信息。
 bool Decode(const RecordView& record, const NetworkEvidenceBinding& binding,
             std::vector<NetworkArchivedFlow>& rows, NetworkLoss& loss, std::optional<NetworkArchiveEnd>& eof)
 {
-    if (record.type != kRawRecord || record.schemaVersion != 1 || record.flags != 0 ||
-        record.payloadBytes <= kRawPrefixBytes ||
-        record.payloadBytes > kRawPrefixBytes + kNetworkMaxMetadataBytes + kNetworkMaxInlineBytes) {
+    const auto raw = ReadNetworkRawBody(record); // 与通用 Stored 回读入口共用的正文范围。
+    if (!raw) {
         return false;
     }
-    const auto metadataBytes = wire::Get<std::uint32_t>(record.payload, 0);
-    if (metadataBytes > kNetworkMaxMetadataBytes || metadataBytes > record.payloadBytes - kRawPrefixBytes) return false;
-    const auto inlineBytes = record.payloadBytes - static_cast<std::uint32_t>(kRawPrefixBytes) - metadataBytes;
-    if (inlineBytes > kNetworkMaxInlineBytes) return false;
-    const std::string_view text(reinterpret_cast<const char*>(record.payload + kRawPrefixBytes), metadataBytes);
-    const auto parsed = ParseMetadata(text);
+    const auto parsed = ParseMetadata(raw->metadataJson);
     const auto* type = parsed.value.find("record");
     std::string kind;
     if (!parsed.ok() || !type || !type->tryGetString(kind)) return false;
     if (kind == "flow") {
         NetworkArchivedFlow row{record.sequence, record.offset, {}, {}};
-        if (!DecodeFlow(parsed.value, binding, inlineBytes, row)) return false;
+        if (!DecodeFlow(parsed.value, binding, raw->inlineRawBytes, row)) return false;
         rows.push_back(row);
         return true;
     }
-    if (inlineBytes != 0) return false;
+    if (raw->inlineRawBytes != 0) return false;
     if (kind == "loss") {
         return !HasLoss(loss) && ReadLoss(parsed.value, loss) &&
             SameMetadata(parsed.value, LossMetadata(binding, loss));
@@ -486,6 +504,65 @@ std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const Segmen
     projection.inlineOffsetInPayload = raw->inlineRawOffsetInPayload;
     projection.inlineBytes = raw->inlineRawData;
     return projection;
+}
+
+// 从 CRC 已验证的 RawRecord 正文提取有限视图，再交给共用网络字段解码器。
+std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const SegmentIdentity& segment,
+    const RecordView& record, const NetworkEvidenceBinding* verifiedBinding)
+{
+    if (segment.stream != StreamKind::Raw) {
+        return std::nullopt;
+    }
+    const auto raw = ReadNetworkRawBody(record); // 仅在 Raw 流中解释网络正文。
+    if (!raw) {
+        return std::nullopt;
+    }
+    const DecodedRecord decoded{record.sequence, record.offset, record.type, record.schemaVersion,
+        record.flags, *raw}; // 封装与共同正文解码器产出的值一致。
+    return ProjectNetworkFlowRecord(segment, decoded, verifiedBinding);
+}
+
+// 将线上状态和实际保留量合并为供读侧使用的材料分类。
+NetworkCommunicationEvidence NetworkCaptureSummary::CommunicationEvidence() const noexcept
+{
+    if (state == NetworkPayloadState::MetadataOnly) {
+        return NetworkCommunicationEvidence::MetadataOnly;
+    }
+    if (capturedLength != 0) {
+        return NetworkCommunicationEvidence::RetainedBytes;
+    }
+    if (state == NetworkPayloadState::NoPayload) {
+        return NetworkCommunicationEvidence::ConfirmedEmpty;
+    }
+    return state == NetworkPayloadState::Truncated ? NetworkCommunicationEvidence::MissingBytes
+        : NetworkCommunicationEvidence::UnknownPresence;
+}
+
+// 复制有界正文预览并保留完整归档锚点，使界面行脱离输入块的生命周期。
+std::optional<NetworkStoredFlowPreview> PreviewStoredNetworkFlow(const SegmentIdentity& segment,
+    const RecordView& record, const NetworkEvidenceBinding* verifiedBinding)
+{
+    if (record.offset < kSegmentHeaderBytes + kBlockHeaderBytes || record.offset > kMaxSegmentBytes ||
+        std::uint64_t{kRecordHeaderBytes} + record.payloadBytes > kMaxSegmentBytes - record.offset) {
+        return std::nullopt;
+    }
+    auto decoded = ProjectNetworkFlowRecord(segment, record, verifiedBinding); // 校验完整正文，随后只复制前缀。
+    if (!decoded) {
+        return std::nullopt;
+    }
+    NetworkStoredFlowPreview preview; // 结果拥有来源和字节内容。
+    preview.segmentOrdinal = segment.ordinal;
+    preview.flow = decoded->flow;
+    preview.source = std::move(decoded->source);
+    preview.sourceTrust = decoded->sourceTrust;
+
+    if (!decoded->inlineBytes.empty()) {
+        preview.inlineFileOffset = record.offset + kRecordHeaderBytes + decoded->inlineOffsetInPayload;
+        const auto* begin = reinterpret_cast<const std::uint8_t*>(decoded->inlineBytes.data()); // 保持字节位值。
+        const auto size = std::min(decoded->inlineBytes.size(), kNetworkStoredPreviewBytes); // 只限预览。
+        preview.bytes.assign(begin, begin + size);
+    }
+    return preview;
 }
 
 const NetworkEndpointMetadata* NetworkFlowMetadata::OutboundDestination() const noexcept

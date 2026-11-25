@@ -9,6 +9,7 @@
 #include <memory>
 
 class QCheckBox;
+class QDialog;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -31,6 +32,8 @@ namespace ks::action_analyze
     class SegmentWaterfall;
     class LiveEtwCapture;
     struct LiveEtwReceipt;
+    struct ToolbarOverviewCapabilities;
+    struct SampleSensitiveClue;
 
     // 行为追踪总览独立持有归档证据，项目页提供可选的身份对照。
     class OfflineSegmentOverview final : public QWidget
@@ -40,33 +43,56 @@ namespace ks::action_analyze
         explicit OfflineSegmentOverview(QWidget* parent);
         ~OfflineSegmentOverview() override;
 
-        // 更新用于对照的目录身份和选中采样；不切换归档或选择。
-        void setProjectContext(const QString& projectId, const QString& sampleId, const QString& sampleStatus);
+        // 更新下一次采样的项目清单和目录对照；不改变正在运行的采样归属。
+        void setProjectContext(const ProjectSnapshot& project, const QString& sampleId, const QString& sampleStatus);
         // 显式从目录打开选中采样的首个原始段。返回是否已开始读取。
-        bool openSampleArchive(const SampleRequest& sample);
+        bool openSampleArchive(const SampleRequest& sample, const SampleSensitiveClue* clue = nullptr);
+        // 由工作台的新扫描入口激活参数控件，不创建采样或改动目标草稿。
+        void focusScanTarget();
         // 工作台各页共用此状态回执；调用方只订阅读取，不控制原生会话。
         std::function<void(const QString&)> sessionStatusChanged;
+        // 项目真实登记后通知目录按当前选择刷新；不激活项目页。
+        std::function<void(const QString&, const QString&)> liveSampleRegistered;
+        std::function<void()> openBreakpointPage; // 工作台负责切换到已经登记的全局断点页。
+        std::function<void()> activateOverview; // 浮窗的归档动作受理后定位共用总览。
 
     protected:
         // 接收语言变化，更新固定文案及当前数据显示。
         void changeEvent(QEvent* event) override;
+        void showEvent(QShowEvent* event) override;
 
     private:
         // 打开文件对话框或将指定文件作为下一次后台读取请求。
         void chooseSegment();
-        bool openSegment(const QString& path, std::optional<SampleRequest> sample = std::nullopt);
+        bool openSegment(const QString& path, std::optional<SampleRequest> sample = std::nullopt,
+            const SampleSensitiveClue* clue = nullptr);
         // 取消有效读取代次，继续展示上次成功提交的结果。
         void cancelRead();
         // 接收后台值，保留失败前的已发布结果。
         void publish(const SegmentSnapshot& result);
         // 在现有工具带加采集入口，并在同一视图应用实时快照。
-        void createLiveControls(QWidget* band, ks::ui::FlowLayout* controls);
+        void createLiveControls(ks::ui::FlowLayout* parameters, ks::ui::FlowLayout* actions);
+        // 建立可停靠的动作带。浮出时移动同一组按钮，关闭浮窗时归位。
+        QWidget* createActionToolbar();
+        void toggleActionToolbar();
+        void restoreActionToolbar();
+        void updateActionToolbarText();
+        // 按动作自然宽度、当前屏幕工作区计算浮窗尺寸下限。不改内嵌栏布局。
+        void fitFloatingActionToolbar();
         void startLive();
         void stopLive();
         void refreshLive(bool final = false);
         void finishLive(const LiveEtwReceipt& result);
         void updateLiveControls();
         void followLive();
+        // 打开最近一次监控已核验的归档前缀，并同步这个图标的可用性。
+        void openCapturedArchive();
+        void updateCapturedArchiveAction();
+        // 将当前会话和已显示结果投影成工具条资格，供按钮与执行入口共用。
+        ToolbarOverviewCapabilities toolbarCapabilities() const;
+        // 时间线或表格操作冻结当前窗口；后台采集继续。
+        void pauseLiveView();
+        bool liveViewInteracting() const;
         void setActiveSnapshot(const SegmentSnapshot& result);
         // 同一输入路径和段身份允许沿用类别、时间和选择。
         void fillCategories(bool preserve);
@@ -124,6 +150,8 @@ namespace ks::action_analyze
         QLabel* m_graphStatus = nullptr; // 关系和来源解析能力。
         QLabel* m_objectStatus = nullptr; // 通过菜单显式查看的对象证据。
         OfflineObjectEvidence* m_objects = nullptr; // 当前证据的可导航对象引用。
+        QString m_projectManifest; // 下次开始时冻结的项目清单路径。
+        QString m_projectRevision; // 已打开项目的配置修订，启动时重新核对。
         QString m_projectId; // 已打开项目的 UUID。
         QString m_sampleId; // 当前目录所选采样的 UUID。
         QString m_sampleStatus; // 无段时显示的项目采样状态。
@@ -132,6 +160,8 @@ namespace ks::action_analyze
         std::shared_ptr<const SegmentSnapshot> m_snapshot; // 最后发布的段。
         SegmentEnd m_latestEnd = SegmentEnd::Unavailable; // 最新读取结尾；可与保留结果不同。
         quint64 m_latestOffset = 0; // 最新问题发生的位置。
+        quint64 m_latestVerifiedOrdinal = 0; // 最新请求核验通过的最后一段，独立于仍显示的旧结果。
+        quint64 m_latestFailedOrdinal = 0; // 最新请求遇到的第一个坏段。
         bool m_latestPublished = false; // 最新读取是否替换了视图。
         bool m_reading = false; // 有有效的读取请求在途。
         bool m_updatingSelection = false; // 表格和瀑布相互更新时防止回环。
@@ -139,6 +169,7 @@ namespace ks::action_analyze
         std::optional<quint64> m_lower; // 已应用包含下界。
         std::optional<quint64> m_upper; // 已应用不含上界。
         std::optional<quint64> m_sequence; // 用户选择，过滤时可以暂不可见。
+        std::optional<SegmentRow> m_selectedLiveRow; // 同一采样内独立保留的选中证据。
         std::optional<ArchivedObjectObservation> m_objectFilter; // 生效的采样内对象范围。
         std::optional<ArchivedObjectObservation> m_viewedObject; // 用户显式查看的归档引用。
         QSet<quint16> m_filterCategories; // 当前选中的实际归档类别。
@@ -149,12 +180,23 @@ namespace ks::action_analyze
         QPushButton* m_startLive = nullptr; // 真实采样入口。
         QPushButton* m_stopLive = nullptr; // 请求收尾或重试同一所有者的清退。
         QPushButton* m_followLive = nullptr; // 只恢复视图跟随。
+        QPushButton* m_captureArchive = nullptr; // 打开原监控所写归档，与当前项目浏览选择无关。
+        QPushButton* m_breakpointPage = nullptr; // 打开全局断点定义，不改变活动会话。
+        QWidget* m_actionDock = nullptr; // 内嵌工具带原位，浮出时不占用页面高度。
+        QWidget* m_actionStrip = nullptr; // 两种布局共用的真实按钮宿主。
+        QDialog* m_actionWindow = nullptr; // 只在首次浮出时创建的原生置顶窗口。
+        QPushButton* m_floatActions = nullptr; // 浮出或停靠入口，由窗口归属决定提示。
         std::shared_ptr<LiveEtwCapture> m_live; // 后台操作和实时快照共用的会话所有者。
         QString m_liveFeedback; // 最近一次实时请求的回执。
+        QString m_liveManifest; // 当前采样冻结的项目清单，不随项目浏览改变。
+        QString m_liveProjectId; // 当前采样的实际项目归属。
+        QString m_announcedSample; // 已通知目录刷新的真实采样，避免重复触发。
         bool m_liveRegistered = false; // 同一个工作台拥有唯一原生任务和预览刷新。
         bool m_liveBusy = false; // 已提交启动或清退事务。
         bool m_liveRecovery = false; // 清退仍有未解决责任。
         bool m_liveStopping = false; // 已请求收尾，等待真实回执。
         bool m_followingLive = true; // 拖选或查看历史时暂停显示跟随。
+        bool m_livePreviewEnabled = false; // 用户打开正式归档后禁止实时结果回投覆盖。
+        bool m_liveHasRows = false; // 停止后仍可回到同一采样的最后窗口。
     };
 }

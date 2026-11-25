@@ -1,4 +1,7 @@
 #include "ActionAnalyzeWorkspace.h"
+#include "ActionAnalyzeBreakpointPage.h"
+#include "BehaviorRulesPage.h"
+#include "ToolbarCapabilities.h"
 #include "OfflineSegmentOverview.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../MonitorDock/MonitorDock.h"
@@ -19,8 +22,10 @@
 
 #include <QAbstractTableModel>
 #include <QDateTime>
+#include <QDir>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QItemSelectionModel>
@@ -167,9 +172,15 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     auto* toolbar = new QWidget(this); // 项目操作工具带。
     ks::ui::StylePrimaryToolbar(toolbar);
     auto* tools = new ks::ui::FlowLayout(toolbar, 8, 8, 6); // 按可用宽度换行的动作布局。
+    m_create = new QPushButton(toolbar);
+    m_create->setObjectName(QStringLiteral("action_analyze_create_project"));
+    ks::ui::SetThemeButtonIcon(m_create, QIcon(QStringLiteral(":/Icon/codeeditor_new.svg")));
     m_open = new QPushButton(toolbar);
-    ks::ui::ApplyFlatButtonTheme(m_open, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
     ks::ui::SetThemeButtonIcon(m_open, QIcon(QStringLiteral(":/Icon/process_open_folder.svg")));
+    m_newScan = new QPushButton(toolbar);
+    m_newScan->setObjectName(QStringLiteral("action_analyze_new_scan"));
+    ks::ui::ApplyFlatButtonTheme(m_newScan, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
+    ks::ui::SetThemeButtonIcon(m_newScan, QIcon(QStringLiteral(":/Icon/process_resume.svg")));
     // 重读和取消使用项目主题的方形图标按钮，保留可访问名称及释义。
     m_retry = new QPushButton(toolbar);
     KswordTheme::ApplyStandardIconButtonMetrics(m_retry);
@@ -177,7 +188,7 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     m_cancel = new QPushButton(toolbar);
     KswordTheme::ApplyStandardIconButtonMetrics(m_cancel);
     ks::ui::SetThemeButtonIcon(m_cancel, QIcon(QStringLiteral(":/Icon/process_stop.svg")));
-    for (auto* button : {m_open, m_retry, m_cancel}) // 按自然操作顺序加入工具带。
+    for (auto* button : {m_create, m_open, m_newScan, m_retry, m_cancel}) // 按自然操作顺序加入工具带。
     {
         tools->addWidget(button);
     }
@@ -197,8 +208,18 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     m_tabs->setObjectName(QStringLiteral("action_analyze_tabs"));
     m_overview = new OfflineSegmentOverview(m_tabs);
     m_overview->setObjectName(QStringLiteral("action_analyze_overview"));
-    ks::monitor::AddMonitorNavigationTab(m_tabs, m_overview, QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
     ks::monitor::AddMonitorNavigationTab(m_tabs, createProjectBrowser(), QString::fromLatin1(ks::monitor::ActionAnalyzeSamplesId));
+    ks::monitor::AddMonitorNavigationTab(m_tabs, m_overview, QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
+    ks::monitor::AddMonitorNavigationTab(m_tabs, CreateBehaviorRulesPage(m_tabs), QString::fromLatin1(ks::monitor::ActionAnalyzeRulesId));
+    m_breakpoints = new ActionAnalyzeBreakpointPage(m_tabs);
+    ks::monitor::AddMonitorNavigationTab(m_tabs, m_breakpoints, QString::fromLatin1(ks::monitor::ActionAnalyzeBreakpointsId));
+    m_overview->openBreakpointPage = [this]() {
+        m_tabs->setCurrentWidget(m_breakpoints);
+    };
+    m_overview->activateOverview = [this]() {
+        // 浮窗请求受理后切回共用结果页，保留其它页的草稿与选择。
+        m_tabs->setCurrentWidget(m_overview);
+    };
     ks::ui::StyleChildPageTabs(m_tabs);
     layout->addWidget(m_tabs, 1);
     m_sessionStatus = StatusLabel(this);
@@ -208,8 +229,26 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
         // 底栏显示会话的真实回执，切到规则和断点页也可读。
         m_sessionStatus->setText(receipt.isEmpty() ? sourceText(QStringLiteral("尚未开始监控。")) : receipt);
     };
+    const auto refreshProject = [this](const QString& manifest, const QString& projectId) {
+        // 只刷新仍在查看的项目。采样登记和保存断点共用现有读取入口。
+        if (!m_readingProject && !m_projectCanceled && m_projectProblem.status == ReadStatus::Ready &&
+            m_project.id == projectId && m_project.manifestPath == manifest && m_requestedPath == manifest)
+        {
+            openProject(manifest);
+        }
+    };
+    m_overview->liveSampleRegistered = refreshProject;
+    m_breakpoints->projectDefinitionsSaved = refreshProject;
 
-    // 所有工作由用户发起，导航及主题切换不执行文件 I/O。
+    // 项目与扫描入口始终可见。打开扫描参数只切页，实际采集仍须显式启动。
+    connect(m_create, &QPushButton::clicked, this, &ActionAnalyzeWorkspace::chooseNewProject);
+    connect(m_newScan, &QPushButton::clicked, this, [this]() {
+        if (m_newScan->isEnabled())
+        {
+            m_tabs->setCurrentWidget(m_overview);
+            m_overview->focusScanTarget();
+        }
+    });
     connect(m_open, &QPushButton::clicked, this, [this]() {
         chooseProject();
     });
@@ -217,6 +256,10 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
         openProject(m_requestedPath);
     });
     connect(m_cancel, &QPushButton::clicked, this, [this]() {
+        if (m_creatingProject)
+        {
+            return;
+        }
         m_projectRead->cancel();
         m_readingProject = false;
         m_projectCanceled = true;
@@ -303,14 +346,36 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
     });
     connect(m_sampleArchive, &QPushButton::clicked, this, [this]() {
         // 显式请求以此刻选中的项目与采样为准。活动操作的真实状态在总览可查看。
-        if (m_hasVerifiedSample && !m_readingSample && m_sampleProblem.status == ReadStatus::Ready)
+        if (sampleArchiveEligibility().enabled())
         {
-            const SampleRequest selected{m_project.manifestPath, m_project.id, m_selected};
-            m_overview->openSampleArchive(selected);
-            m_tabs->setCurrentWidget(m_overview);
+            const SampleRequest selected{m_project.manifestPath, m_project.id, m_selected}; // 此刻的冻结采样。
+            const auto* clue = m_sampleAnalysis && !m_sampleAnalysisIssue && !m_sampleAnalysis->recentClues.isEmpty()
+                ? &m_sampleAnalysis->recentClues.constLast() : nullptr; // 默认定位最后一条已核验线索。
+            if (m_overview->openSampleArchive(selected, clue))
+            {
+                m_tabs->setCurrentWidget(m_overview);
+            }
         }
     });
     return page;
+}
+
+// 用文件选择器输入新项目的目录名称。实际创建由共享项目文档完成。
+void ActionAnalyzeWorkspace::chooseNewProject()
+{
+    if (m_readingProject)
+    {
+        return;
+    }
+    const QString base = m_project.manifestPath.isEmpty() ? QDir::homePath() :
+        QFileInfo(QFileInfo(m_project.manifestPath).absolutePath()).absolutePath(); // 当前项目的上一级目录。
+    const QString directory = QFileDialog::getSaveFileName(this,
+        sourceText(QStringLiteral("输入新项目的文件夹名称")), base, {}, nullptr,
+        QFileDialog::DontConfirmOverwrite); // 共享创建器拒绝已存在的目标目录。
+    if (!directory.isEmpty())
+    {
+        openProject(QDir(directory).absoluteFilePath(QStringLiteral("project.ksaproj")), true);
+    }
 }
 
 // 打开原生只读文件选择器；取消选择不会替换当前项目。
@@ -325,8 +390,8 @@ void ActionAnalyzeWorkspace::chooseProject()
     }
 }
 
-// 按明确选定的路径读取；失败只更新操作回执，原目录保持可查看。
-void ActionAnalyzeWorkspace::openProject(const QString& path)
+// 选择已存在的清单，或先原子提交新清单再读取。同一任务返回结果和失败位置。
+void ActionAnalyzeWorkspace::openProject(const QString& path, bool create)
 {
     if (path.isEmpty())
     {
@@ -334,12 +399,14 @@ void ActionAnalyzeWorkspace::openProject(const QString& path)
     }
     m_requestedPath = path;
     m_readingProject = true;
+    m_creatingProject = create;
     m_projectCanceled = false;
     m_projectProblem = {};
     updateStatus();
-    m_projectRead->submit<QString, ProjectSnapshot>(path,
-        [](const QString& selected, const ks::ui::AsyncOperationToken& token) {
-            return ReadProjectCatalog(selected, [&token]() { return token.isCanceled(); });
+    const auto accepted = m_projectRead->submit<QString, ProjectSnapshot>(path, // 零表示未受理任务。
+        [create](const QString& selected, const ks::ui::AsyncOperationToken& token) {
+            const auto canceled = [&token]() { return token.isCanceled(); }; // 项目工作拥有唯一代次。
+            return create ? CreateProjectCatalog(selected, canceled) : ReadProjectCatalog(selected, canceled);
         },
         [this](const ProjectSnapshot& snapshot, quint64 generation) {
             const auto commit = ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("action_analyze_catalog"),
@@ -354,6 +421,7 @@ void ActionAnalyzeWorkspace::openProject(const QString& path)
             if (commit == ks::ui::UiCommitSubmission::Rejected)
             {
                 m_readingProject = false;
+                m_creatingProject = false;
                 m_projectProblem = {ReadStatus::Unavailable, QStringLiteral("project.ksaproj")};
                 updateStatus();
             }
@@ -361,15 +429,24 @@ void ActionAnalyzeWorkspace::openProject(const QString& path)
         },
         [this](std::exception_ptr) {
             m_readingProject = false;
+            m_creatingProject = false;
             m_projectProblem = {ReadStatus::Unavailable, m_requestedPath};
             updateStatus();
         });
+    if (!accepted)
+    {
+        m_readingProject = false;
+        m_creatingProject = false;
+        m_projectProblem = {ReadStatus::Unavailable, path};
+        updateStatus();
+    }
 }
 
 // 仅在读取成功后替换目录。同项目刷新使用稳定 UUID 恢复选择。
 void ActionAnalyzeWorkspace::applyProject(const ProjectSnapshot& snapshot)
 {
     m_readingProject = false;
+    m_creatingProject = false;
     m_projectProblem = snapshot.problem;
     if (snapshot.problem.status != ReadStatus::Ready)
     {
@@ -383,10 +460,14 @@ void ActionAnalyzeWorkspace::applyProject(const ProjectSnapshot& snapshot)
     {
         m_selected = {};
         m_hasVerifiedSample = false;
+        m_verifiedSample.reset();
         m_sampleDetails = {};
+        m_sampleAnalysis.reset();
+        m_sampleAnalysisIssue.reset();
     }
     ks::ui::DetailLayoutRegistry::prepareDataRebuild(m_fields);
     m_project = snapshot;
+    m_breakpoints->setProjectContext(m_project);
     m_catalog->replaceRows(snapshot.samples);
 
     // 恢复精确行；换项目后由用户进入目录并选择。读取完成不动当前页签。
@@ -416,6 +497,9 @@ void ActionAnalyzeWorkspace::readSelectedSample()
     {
         m_sampleDetails = {};
         m_hasVerifiedSample = false;
+        m_verifiedSample.reset();
+        m_sampleAnalysis.reset();
+        m_sampleAnalysisIssue.reset();
     }
     m_selected = row ? *row : SampleSummary{};
     m_sampleProblem = {};
@@ -427,19 +511,49 @@ void ActionAnalyzeWorkspace::readSelectedSample()
         return;
     }
 
-    const SampleRequest request{m_project.manifestPath, m_project.id, m_selected};
-    m_sampleRead->submit<SampleRequest, SampleDetails>(request,
+    struct SelectedSampleResult
+    {
+        SampleDetails details; // 选中目录行的描述与冻结配置。
+        std::optional<ArchivedSampleAnalysis> analysis; // 通过身份核验后读取的归档预览。
+    };
+    const SampleRequest request{m_project.manifestPath, m_project.id, m_selected}; // 同一请求绑定两种只读结果。
+    m_sampleRead->submit<SampleRequest, SelectedSampleResult>(request,
         [](const SampleRequest& selected, const ks::ui::AsyncOperationToken& token) {
-            return ReadSampleDetails(selected, [&token]() { return token.isCanceled(); });
-        },
-        [this](const SampleDetails& details, quint64) {
-            m_readingSample = false;
-            m_sampleProblem = details.problem;
-            // 本次失败单独显示，最后验证成功的同一采样配置仍可查看。
-            if (details.problem.status == ReadStatus::Ready)
+            const auto canceled = [&token]() { return token.isCanceled(); }; // 两步共用代次和取消门禁。
+            SelectedSampleResult result; // 先核验目录行，再接触其归档。
+            result.details = ReadSampleDetails(selected, canceled);
+            if (result.details.problem.status == ReadStatus::Ready && !canceled())
             {
-                m_sampleDetails = details;
+                result.analysis = ReadArchivedSampleAnalysis(selected, canceled);
+            }
+            return result;
+        },
+        [this, request](const SelectedSampleResult& result, quint64) {
+            m_readingSample = false;
+            m_sampleProblem = result.details.problem;
+            // 本次失败单独显示，最后验证成功的同一采样配置仍可查看。
+            if (result.details.problem.status == ReadStatus::Ready)
+            {
+                m_sampleDetails = result.details;
                 m_hasVerifiedSample = true;
+                m_verifiedSample = request;
+            }
+            // 回读质量下降时保留同一样本的旧分类和其真实水位，另记本次状态。
+            if (result.analysis)
+            {
+                const auto& analysis = *result.analysis; // 本次后台回执。
+                const bool keepPrior = m_sampleAnalysis && m_sampleAnalysis->verified &&
+                    (!analysis.verified || analysis.lastSegment < m_sampleAnalysis->lastSegment ||
+                        (m_sampleAnalysis->end == SegmentEnd::Complete && analysis.end != SegmentEnd::Complete));
+                if (keepPrior)
+                {
+                    m_sampleAnalysisIssue = analysis;
+                }
+                else
+                {
+                    m_sampleAnalysis = analysis;
+                    m_sampleAnalysisIssue.reset();
+                }
             }
             updateStatus();
             updateSampleDocument();
@@ -460,7 +574,7 @@ void ActionAnalyzeWorkspace::updateSampleDocument()
     document.title = QStringLiteral("采样详情");
     if (m_selected.id.isEmpty())
     {
-        document.note(QStringLiteral("从目录选择一项采样以查看冻结的配置。"));
+        document.note(QStringLiteral("从目录选择采样以查看分析结果和冻结配置。"));
     }
     else
     {
@@ -481,6 +595,21 @@ void ActionAnalyzeWorkspace::updateSampleDocument()
             document.note(DescribeProblem(m_sampleProblem));
         }
 
+        // 分析结果紧跟采样身份，配置和分析失败各有自己的回执。
+        if (m_sampleAnalysis)
+        {
+            if (m_readingSample || m_sampleProblem.status != ReadStatus::Ready || m_sampleAnalysisIssue)
+            {
+                document.note(QStringLiteral("下方保留上次核验的采样分析。"));
+            }
+            AppendArchivedSampleAnalysis(document, *m_sampleAnalysis);
+            if (m_sampleAnalysisIssue)
+            {
+                document.section(QStringLiteral("本次分析读取状态"));
+                AppendArchivedSampleAnalysisStatus(document, *m_sampleAnalysisIssue);
+            }
+        }
+
         // 跨读取保留的配置明确标成上次验证结果，避免被当成这一次读回。
         if (m_hasVerifiedSample)
         {
@@ -491,9 +620,29 @@ void ActionAnalyzeWorkspace::updateSampleDocument()
                 .field(QStringLiteral("项目标题"), m_sampleDetails.configurationTitle)
                 .field(QStringLiteral("说明"), m_sampleDetails.configurationNotes)
                 .field(QStringLiteral("配置语义散列"), m_sampleDetails.configurationHash);
+            if (m_sampleDetails.breakpointCount)
+            {
+                document.field(QStringLiteral("冻结断点定义数"), QString::number(*m_sampleDetails.breakpointCount));
+            }
         }
     }
     m_fields->setDocument(document);
+}
+
+// 将当前选区与实际读回的请求比较。返回值同时供按钮状态和点击守卫使用。
+ToolbarActionEligibility ActionAnalyzeWorkspace::sampleArchiveEligibility() const
+{
+    ToolbarArchiveState state; // 只读投影，不构造新的采样或归档对象。
+    state.manifestPath = m_project.manifestPath;
+    state.selection = {{m_project.id, m_selected.id}, m_selected.descriptionHash};
+    state.readingSample = m_readingSample;
+    state.sampleReadFailed = m_sampleProblem.status != ReadStatus::Ready;
+    if (m_verifiedSample && m_verifiedSample->manifestPath == state.manifestPath)
+    {
+        const auto& verified = *m_verifiedSample; // 由异步回执确认的请求身份。
+        state.verifiedSample = ToolbarArchiveSample{{verified.projectId, verified.sample.id}, verified.sample.descriptionHash};
+    }
+    return EvaluateToolbarArchiveLocation(state);
 }
 
 // 并列更新操作进度、真实发布身份和采样的可用性。
@@ -501,25 +650,38 @@ void ActionAnalyzeWorkspace::updateStatus()
 {
     using ks::ui::StatusRole;
     const bool hasProject = !m_project.id.isEmpty();
+    m_create->setText(sourceText(QStringLiteral("新建行为分析项目")));
+    m_create->setToolTip(sourceText(QStringLiteral("在新文件夹中创建行为分析项目。")));
+    m_create->setEnabled(!m_readingProject);
     m_open->setText(sourceText(QStringLiteral("打开行为分析项目")));
     m_open->setToolTip(sourceText(QStringLiteral("选择项目清单，以只读方式载入。")));
+    m_open->setEnabled(!m_readingProject);
+    m_newScan->setText(sourceText(QStringLiteral("新一轮扫描")));
+    m_newScan->setEnabled(hasProject && !m_readingProject);
+    m_newScan->setToolTip(hasProject
+        ? sourceText(QStringLiteral("设置本轮目标，将新采样保存在当前项目中。"))
+        : sourceText(QStringLiteral("请先新建或打开行为分析项目。")));
     m_retry->setAccessibleName(sourceText(QStringLiteral("重新读取")));
     m_retry->setToolTip(m_requestedPath.isEmpty()
         ? sourceText(QStringLiteral("请先选择项目清单。"))
         : sourceText(QStringLiteral("重新读取所选项目：%1")).arg(m_requestedPath));
     m_cancel->setAccessibleName(sourceText(QStringLiteral("取消读取")));
     m_cancel->setToolTip(sourceText(QStringLiteral("取消本次读取并保留已显示的项目。")));
-    m_cancel->setVisible(m_readingProject);
+    m_cancel->setVisible(m_readingProject && !m_creatingProject);
     m_retry->setEnabled(!m_requestedPath.isEmpty() && !m_readingProject);
     m_sampleRetry->setText(sourceText(QStringLiteral("重新读取采样")));
-    m_sampleRetry->setToolTip(sourceText(QStringLiteral("重读选中采样的冻结配置。")));
+    m_sampleRetry->setToolTip(sourceText(QStringLiteral("重读选中采样的分析结果与冻结配置。")));
     // 在途读保持按钮可获焦；再次触发时由 Click 处理器忽略。
     m_sampleRetry->setEnabled(!m_selected.id.isEmpty());
-    m_sampleArchive->setText(sourceText(QStringLiteral("打开采样归档")));
-    const bool canOpenArchive = m_hasVerifiedSample && !m_readingSample && m_sampleProblem.status == ReadStatus::Ready;
-    m_sampleArchive->setEnabled(canOpenArchive);
-    m_sampleArchive->setToolTip(canOpenArchive ? sourceText(QStringLiteral("在总览中打开所选采样的首个原始段。"))
-        : sourceText(QStringLiteral("请先选择并读取一项采样。")));
+    m_sampleArchive->setText(sourceText(QStringLiteral("查看采样记录")));
+    const auto archive = sampleArchiveEligibility(); // 由同一冻结身份和读取回执决定是否可打开。
+    m_sampleArchive->setEnabled(archive.enabled());
+    const QString archiveHint = archive.reason == ToolbarDisabledReason::SampleReadInProgress
+        ? sourceText(QStringLiteral("正在读取采样详情…"))
+        : archive.reason == ToolbarDisabledReason::SampleReadFailed ? DescribeProblem(m_sampleProblem)
+        : sourceText(QStringLiteral("请先选择并读取一项采样。")); // 禁用提示使用真实回执或当前依赖。
+    m_sampleArchive->setToolTip(archive.enabled() ? sourceText(QStringLiteral("在总览中查看当前项目所选采样的记录。"))
+        : archiveHint);
     m_source->setVisible(hasProject);
     m_manifestPath->setVisible(hasProject);
     m_manifestPath->setText(m_project.manifestPath);
@@ -531,7 +693,8 @@ void ActionAnalyzeWorkspace::updateStatus()
     QString message;
     if (m_readingProject)
     {
-        message = sourceText(QStringLiteral("正在读取项目：%1")).arg(m_requestedPath);
+        message = (m_creatingProject ? sourceText(QStringLiteral("正在创建项目：%1"))
+            : sourceText(QStringLiteral("正在读取项目：%1"))).arg(m_requestedPath);
         role = StatusRole::Info;
     }
     else if (m_projectCanceled)
@@ -546,7 +709,7 @@ void ActionAnalyzeWorkspace::updateStatus()
     }
     else if (!hasProject)
     {
-        message = sourceText(QStringLiteral("选择项目清单以查看离线采样。"));
+        message = sourceText(QStringLiteral("新建项目开始扫描，或打开现有项目查看历次采样。"));
     }
     else if (m_project.samples.isEmpty())
     {
@@ -572,7 +735,7 @@ void ActionAnalyzeWorkspace::updateStatus()
     {
         eventState = DescribeProblem(m_sampleProblem);
     }
-    m_overview->setProjectContext(m_project.id, m_selected.id, eventState);
+    m_overview->setProjectContext(m_project, m_selected.id, eventState);
 }
 }
 

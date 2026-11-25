@@ -109,6 +109,11 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="Features\ActionAnalyze\ProjectReplay.cpp" />
+    <ClCompile Include="Features\ActionAnalyze\NetworkReplayPresentation.cpp" />
+    <ClCompile Include="Features\ActionAnalyze\LiveCapture.cpp" />
+    <ClCompile Include="Features\ActionAnalyze\NativeLiveSession.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -118,6 +123,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
@@ -341,6 +347,10 @@
     <ClInclude Include="Features\ActionAnalyze\EvidenceTimeline.h" />
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h" />
+    <ClInclude Include="Features\ActionAnalyze\NetworkReplayPresentation.h" />
+    <ClInclude Include="Features\ActionAnalyze\LiveCapture.h" />
+    <ClInclude Include="Features\ActionAnalyze\NativeLiveSession.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h" />
     <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h" />
     <ClInclude Include="..\shared\evidence\ApiMonitorClue.h" />
     <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
@@ -1076,6 +1086,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\PassiveEtwSource.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\PassiveEtwSource.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h" />

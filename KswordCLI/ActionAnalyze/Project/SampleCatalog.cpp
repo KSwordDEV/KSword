@@ -175,6 +175,7 @@ ProjectResult PublishSample(const Directory& root, const ProjectInfo& project, c
     Directory snapshotDir;
     if (auto result = OpenDirectory(sampleDir, {L"snapshots"}, snapshotDir, true); !result) return result;
 
+    // 快照内嵌所选已提交修订的全部定义与标识，历史读取不借用当前配置。
     const auto snapshot = Object({{"kind", Text("offline-config-snapshot")}, {"projectId", Text(project.projectId)},
         {"sampleId", Text(sample.sampleId)}, {"snapshotId", Text(sample.snapshotId)},
         {"revisionId", Text(project.revisionId)}, {"revisionHash", Text(project.revisionHash)},
@@ -196,7 +197,7 @@ ProjectResult PublishSample(const Directory& root, const ProjectInfo& project, c
 }
 
 ProjectResult ReadSampleRecord(const Directory& root, std::string_view projectId,
-                               const SampleInfo& expected, SampleRecord& out) {
+                               const SampleInfo& expected, bool allowBreakpointDefinitions, SampleRecord& out) {
     SampleRecord record;
     const auto id = WideAscii(expected.sampleId);
     JsonValue doc;
@@ -224,7 +225,10 @@ ProjectResult ReadSampleRecord(const Directory& root, std::string_view projectId
         !IsString(snapshot, "snapshotId", expected.snapshotId) || !IsString(snapshot, "revisionId", expected.revisionId) ||
         !GetHash(snapshot, "revisionHash", record.revisionHash) ||
         !GetHash(snapshot, "configSemanticHash", record.configSemanticHash) ||
-        !ParseSettings(*snapshot.find("config"), record.frozenSettings)) return ReadError("sampleSnapshot");
+        !ReadStoredSettings(*snapshot.find("config"), record.frozenSettings) ||
+        (record.frozenSettings.breakpointDefinitions.has_value() && !allowBreakpointDefinitions)) {
+        return ReadError("sampleSnapshot");
+    }
     std::string actual;
     if (auto result = ConfigHash(record.frozenSettings, actual); !result) return result;
     if (actual != record.configSemanticHash) return ReadError("snapshotConfigHash");

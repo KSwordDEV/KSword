@@ -19,12 +19,17 @@ struct Head {
     ProjectInfo info;
     SampleCatalog catalog;
     std::string journalHash;
+    bool hasBreakpointDefinitions = false; // 清单声明的能力须和当前修订形状一致。
 };
 
 ProjectResult Corrupt(const char* detail) { return Failure(ProjectError::Corrupt, detail); }
 
-bool IsValid(const RevisionSettings& settings) {
-    return IsText(settings.title, kMaxTitleBytes) && IsText(settings.notes, kMaxNotesBytes, true);
+// 调用方传入草稿或采样所采用的已提交修订。仅旧配置兼容缺省参数。
+ProjectResult CheckExpectedRevision(const ProjectInfo& info, std::string_view expected, bool required) {
+    if (!required && expected.empty()) return {};
+    if (!IsUuid(expected)) return Failure(ProjectError::InvalidArgument, "expectedRevisionId");
+    if (expected != info.revisionId) return Failure(ProjectError::StaleRevision, "expectedRevisionId");
+    return {};
 }
 
 JsonValue CatalogRef(const SampleCatalog& catalog) {
@@ -39,8 +44,10 @@ bool ReadCatalogRef(const JsonValue& object, SampleCatalog& catalog) {
 
 JsonValue Manifest(const Head& head) {
     const auto& info = head.info;
+    JsonArray features{Text(kOfflineProjectFeature)};
+    if (head.hasBreakpointDefinitions) features.push_back(Text(kBreakpointDefinitionsFeature));
     return Object({{"kind", Text("action-analyze-project")}, {"version", JsonValue::makeUInt(1)},
-        {"requiredFeatures", JsonValue::makeArray({Text(kOfflineProjectFeature)})},
+        {"requiredFeatures", JsonValue::makeArray(std::move(features))},
         {"projectId", Text(info.projectId)}, {"title", Text(info.settings.title)}, {"createdUtc", Number(info.createdUtc)},
         {"currentRevisionId", Text(info.revisionId)}, {"currentRevisionHash", Text(info.revisionHash)},
         {"configSemanticHash", Text(info.configSemanticHash)}, {"journalGeneration", Number(info.generation)},
@@ -58,9 +65,11 @@ ProjectResult ParseManifest(const JsonValue& doc, Head& out) {
     const auto* list = features ? features->asArray() : nullptr;
     if (!list) return Corrupt("requiredFeatures");
     std::string feature;
-    if (list->size() != 1 || !list->front().tryGetString(feature) || feature != kOfflineProjectFeature) {
+    if (list->empty() || list->size() > 2 || !list->front().tryGetString(feature) || feature != kOfflineProjectFeature ||
+        (list->size() == 2 && (!(*list)[1].tryGetString(feature) || feature != kBreakpointDefinitionsFeature))) {
         return Failure(ProjectError::Unsupported, "requiredFeatures");
     }
+    out.hasBreakpointDefinitions = list->size() == 2;
     auto& info = out.info;
     if (!Fields(doc, {"kind", "version", "requiredFeatures", "projectId", "title", "createdUtc",
                       "currentRevisionId", "currentRevisionHash", "configSemanticHash", "journalGeneration",
@@ -132,8 +141,9 @@ bool SameCatalog(const SampleCatalog& left, const SampleCatalog& right) {
     return left.generation == right.generation && left.hash == right.hash;
 }
 
-ProjectResult ReadRevision(const Directory& root, ProjectInfo& info,
+ProjectResult ReadRevision(const Directory& root, Head& head,
                            std::string& parentId, std::string& parentHash) {
+    auto& info = head.info;
     JsonValue revision;
     if (auto result = Read(root, {L"revisions"}, WideAscii(info.revisionId) + L".json", info.revisionHash, revision);
         !result) return result;
@@ -142,7 +152,8 @@ ProjectResult ReadRevision(const Directory& root, ProjectInfo& info,
                            "configSemanticHash", "config"}) || !IsString(revision, "kind", "offline-project-revision") ||
         !IsString(revision, "projectId", info.projectId) || !IsString(revision, "revisionId", info.revisionId) ||
         !IsString(revision, "configSemanticHash", info.configSemanticHash) ||
-        !ParseSettings(*revision.find("config"), settings) || settings.title != info.settings.title) {
+        !ReadStoredSettings(*revision.find("config"), settings) || settings.title != info.settings.title ||
+        settings.breakpointDefinitions.has_value() != head.hasBreakpointDefinitions) {
         return Corrupt("revisionFields");
     }
     if (!IsNull(revision, "parentRevisionId") || !IsNull(revision, "parentRevisionHash")) {
@@ -165,7 +176,7 @@ ProjectResult LoadHead(const Directory& root, bool fallback, Head& out) {
     if (auto result = ParseManifest(doc, head); !result) return result;
     auto& info = head.info;
     std::string parentId, parentHash;
-    if (auto result = ReadRevision(root, info, parentId, parentHash); !result) return result;
+    if (auto result = ReadRevision(root, head, parentId, parentHash); !result) return result;
     Commit current;
     if (auto result = ReadCommit(root, info, info.generation, head.journalHash, current); !result) return result;
     if (current.revisionId != info.revisionId || current.revisionHash != info.revisionHash ||
@@ -281,6 +292,7 @@ ProjectResult CheckCurrentManifest(const Directory& root, const Head& expected) 
         actual.info.revisionHash != expected.info.revisionHash ||
         actual.info.configSemanticHash != expected.info.configSemanticHash ||
         actual.info.settings.title != expected.info.settings.title || actual.info.createdUtc != expected.info.createdUtc ||
+        actual.hasBreakpointDefinitions != expected.hasBreakpointDefinitions ||
         !SameCatalog(actual.catalog, expected.catalog)) return Failure(ProjectError::StaleRevision, "manifestChanged");
     // 锁只协调遵循协议的写者。写入前同时核对当前三个直接引用的精确字节。
     if (auto result = Read(root, {L"journal"}, NumberFile(expected.info.generation), expected.journalHash, doc); !result) return result;
@@ -338,7 +350,8 @@ const Directory* ProjectDocument::RootForRead() const noexcept { return state_ ?
 
 ProjectResult ProjectDocument::Create(const std::wstring& directory, const RevisionSettings& settings) {
     if (state_) return Failure(ProjectError::AlreadyOpen, "project");
-    if (!IsValid(settings)) return Failure(ProjectError::InvalidArgument, "revisionSettings");
+    RevisionSettings prepared;
+    if (auto result = PrepareSettings(settings, nullptr, prepared); !result) return result;
     auto next = std::make_unique<State>();
     auto& root = next->root;
     if (auto result = OpenRoot(directory, true, true, root); !result) return result;
@@ -350,7 +363,8 @@ ProjectResult ProjectDocument::Create(const std::wstring& directory, const Revis
     if (auto result = next->lock.AcquireReader(root); !result) return result;
     auto& head = next->head;
     auto& info = head.info;
-    info.settings = settings;
+    head.hasBreakpointDefinitions = prepared.breakpointDefinitions.has_value();
+    info.settings = std::move(prepared);
     info.createdUtc = UtcNow();
     info.access = ProjectAccess::ReadWrite;
     if (auto result = NewId(info.projectId); !result) return result;
@@ -384,17 +398,19 @@ ProjectResult ProjectDocument::Save(const RevisionSettings& settings, std::strin
     if (!state_) return Failure(ProjectError::NotOpen, "project");
     const auto& previous = state_->head;
     if (previous.info.access != ProjectAccess::ReadWrite) return Failure(ProjectError::ReadOnly, "project");
-    if (!IsValid(settings)) return Failure(ProjectError::InvalidArgument, "revisionSettings");
-    if (!expectedRevisionId.empty()) {
-        if (!IsUuid(expectedRevisionId)) return Failure(ProjectError::InvalidArgument, "expectedRevisionId");
-        if (expectedRevisionId != previous.info.revisionId) return Failure(ProjectError::StaleRevision, "expectedRevisionId");
-    }
+    const bool requiresRevision = previous.hasBreakpointDefinitions || settings.breakpointDefinitions.has_value();
+    if (auto result = CheckExpectedRevision(previous.info, expectedRevisionId, requiresRevision); !result) return result;
     const auto& root = state_->root;
     if (auto result = CheckCurrentManifest(root, previous); !result) return result;
-    if (settings.title == previous.info.settings.title && settings.notes == previous.info.settings.notes) return {};
+
+    // 全部定义完成基准核对和规范化后，才分配提交代号并写入不可变文件。
+    RevisionSettings prepared;
+    if (auto result = PrepareSettings(settings, &previous.info.settings, prepared); !result) return result;
+    if (prepared == previous.info.settings) return {};
 
     auto next = previous;
-    next.info.settings = settings;
+    next.hasBreakpointDefinitions = prepared.breakpointDefinitions.has_value();
+    next.info.settings = std::move(prepared);
     if (auto result = NextGeneration(root, next, false); !result) return result;
     if (auto result = PublishRevision(root, next.info, &previous.info); !result) return result;
     if (auto result = CommitHead(root, next, &previous, "saveRevision", next.info.revisionId, next.info.revisionHash);
@@ -403,11 +419,14 @@ ProjectResult ProjectDocument::Save(const RevisionSettings& settings, std::strin
     return {};
 }
 
-ProjectResult ProjectDocument::CreateSample(std::string_view title, SampleInfo& out) {
+ProjectResult ProjectDocument::CreateSample(std::string_view title, SampleInfo& out, std::string_view expectedRevisionId) {
     if (!state_) return Failure(ProjectError::NotOpen, "project");
     const auto& previous = state_->head;
     if (previous.info.access != ProjectAccess::ReadWrite) return Failure(ProjectError::ReadOnly, "project");
     if (!IsText(title, kMaxTitleBytes)) return Failure(ProjectError::InvalidArgument, "sampleTitle");
+    if (auto result = CheckExpectedRevision(previous.info, expectedRevisionId, previous.hasBreakpointDefinitions); !result) {
+        return result;
+    }
     if (previous.catalog.count >= kProjectSampleLimit) return Failure(ProjectError::LimitExceeded, "sampleLimit");
 
     const auto& root = state_->root;
@@ -443,7 +462,7 @@ ProjectResult ProjectDocument::ReadSample(std::string_view sampleId, SampleRecor
     SampleInfo summary;
     const auto& projectId = state_->head.info.projectId;
     if (auto result = state_->head.catalog.Find(state_->root, projectId, sampleId, summary); !result) return result;
-    return ReadSampleRecord(state_->root, projectId, summary, out);
+    return ReadSampleRecord(state_->root, projectId, summary, state_->head.hasBreakpointDefinitions, out);
 }
 
 ProjectResult ProjectDocument::ListOrphans(std::vector<std::string>& out) const {

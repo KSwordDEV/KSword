@@ -1,9 +1,11 @@
 #include "OfflineSegmentReader.h"
+#include "LiveSampleArchive.h"
 
 #include "../../../KswordCLI/ActionAnalyze/Archive/SegmentBodies.h"
 #include "../../../KswordCLI/ActionAnalyze/Archive/NetworkEvidenceArchive.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
-#include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectRawEvidence.h"
+#include "../../../shared/evidence/ApiMonitorClue.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 #include "../../../shared/evidence/EvidenceJson.h"
 
@@ -11,6 +13,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <algorithm>
+#include <deque>
+#include <iterator>
 #include <windows.h>
 
 namespace ks::action_analyze
@@ -19,10 +23,11 @@ namespace
 {
     namespace archive = ks::cli::action_analyze::archive;
     namespace project = Ksword::ActionAnalyze;
-    constexpr std::uint64_t kPreviewBytes = 64ull * 1024 * 1024; // 扫描的文件前缀上限。
-    constexpr qsizetype kPreviewRows = 4096; // 一次提交到 UI 的记录上限。
+    constexpr std::uint64_t kPreviewBytes = 64ull * 1024 * 1024; // 独立段扫描的文件前缀上限。
+    constexpr std::size_t kPreviewRows = 4096; // 一次提交到 UI 的记录上限。
     constexpr std::size_t kNetworkPreviewBytes = 256; // 每条已验证网络记录保留此前缀。
     constexpr std::size_t kEtwPreviewBytes = 128; // 详情显示的实际 UserData 前缀。
+    constexpr std::size_t kApiPreviewBytes = 64; // API 详情只复制报头前缀。
 
     // 只读且独占文件位置的句柄，离开工作线程函数前释放。
     struct SegmentFile
@@ -168,38 +173,73 @@ namespace
         return SegmentEnd::Unavailable;
     }
 
-    // 从目录重开冻结采样。成功时在 snapshot 标记状态，在 checkpoint 保留已核对双流的端点和散列。
-    bool CheckProjectCheckpoint(const SampleRequest& expected, SegmentSnapshot& snapshot,
-        project::ProjectEtwCheckpoint& checkpoint)
+    // 把共享扫描器借出的单条记录投影为 Qt 值。偏移只在该源段中有效。
+    SegmentRow ProjectRecord(const archive::SegmentIdentity& identity, const archive::DecodedRecord& record,
+        std::uint64_t end)
     {
-        project::ProjectDocument document; // 本次读取专用的只读项目快照与目录句柄。
-        if (!document.Open(expected.manifestPath.toStdWString(), project::ProjectAccess::ReadOnly))
+        SegmentRow row; // 不借用共享解码块内存的结果。
+        row.sequence = record.recordSequence;
+        row.offset = record.recordOffset;
+        row.segmentOrdinal = identity.ordinal;
+        row.type = record.recordType;
+        row.version = record.recordSchemaVersion;
+        row.payloadBytes = static_cast<quint32>(end - record.recordOffset - archive::kRecordHeaderBytes);
+        ProjectBody(record.body, row);
+        if (identity.stream == archive::StreamKind::Raw)
         {
-            return false;
+            ProjectRawEtw(record.body, row);
         }
-        const auto sampleId = expected.sample.id.toStdString(); // 目录请求中的规范 UUID。
-        project::SampleRecord sample; // 已登记并回读的冻结采样描述。
-        if (document.Info()->projectId != expected.projectId.toStdString() ||
-            !document.ReadSample(sampleId, sample) || sample.info.descriptionHash != expected.sample.descriptionHash.toStdString())
+        // 借用已校验载荷，只复制结果需要的前缀及本段内的起点。
+        if (const auto network = archive::ProjectNetworkFlowRecord(identity, record))
         {
-            snapshot.end = SegmentEnd::WrongSample;
-            return false;
+            const auto length = (std::min)(network->inlineBytes.size(), kNetworkPreviewBytes); // 字节预览长度。
+        const auto offset = record.recordOffset + archive::kRecordHeaderBytes + network->inlineOffsetInPayload; // 字节起点。
+            row.network = SegmentNetworkEvidence{network->flow, network->source, network->sourceTrust, offset,
+                QByteArray(network->inlineBytes.data(), static_cast<qsizetype>(length))};
+            row.receiveQpc = network->flow.observation.receiveQpc;
+            row.actorId = network->flow.observation.processObjectId;
         }
+        return row;
+    }
 
-        // 已发布标记所引用的任何依赖都必须有效。只有缺少标记的旧档可以按文件边界读取。
-        const auto verified = document.ReadEtwCheckpoint(sampleId, checkpoint); // 共用 CLI 的完整双流校验。
-        if (verified)
+    // 复制通过校验的 API 线索与有界报头预览。输入记录来自同一 Stored 原始段。
+    SegmentRow ProjectApiClue(const Ksword::Evidence::ArchivedApiMonitorClue& clue,
+        const archive::SegmentIdentity& identity, const archive::DecodedRecord& record, std::uint64_t end)
+    {
+        SegmentRow row; // 不借用扫描块或原包的 UI 行。
+        row.sequence = record.recordSequence;
+        row.offset = record.recordOffset;
+        row.segmentOrdinal = identity.ordinal;
+        row.type = record.recordType;
+        row.version = record.recordSchemaVersion;
+        row.payloadBytes = static_cast<quint32>(end - record.recordOffset - archive::kRecordHeaderBytes);
+        row.decoded = true;
+
+        // 头部 PID/TID 只作来源提示，操作菜单所需的对象字段继续为空。
+        row.pid = clue.packet.pid;
+        row.tid = clue.packet.tid;
+        row.archivedApi = SegmentApiClue{QString::fromWCharArray(clue.clue->api.data(), clue.clue->api.size()),
+            QString::fromLatin1(clue.clue->family.data(), clue.clue->family.size()), clue.packet.timestamp100ns,
+            clue.sourceSequence, clue.readerCreation ? std::optional<quint64>(clue.readerCreation) : std::nullopt,
+            QByteArray(reinterpret_cast<const char*>(&clue.packet), kApiPreviewBytes)};
+        return row;
+    }
+
+    // 仅对首条原始记录识别未发布的连续采样；旧独立段与旧计划仍按旧档诊断预览。
+    bool IsContinuousPlan(const archive::DecodedRecord& record)
+    {
+        const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 计划属于 RawRecord v1。
+        if (!raw || record.recordSequence != 1)
         {
-            snapshot.checkpoint = SegmentCheckpoint::Verified;
-            return true;
+            return false;
         }
-        if (verified.error == project::ProjectError::NotFound)
-        {
-            snapshot.checkpoint = SegmentCheckpoint::Unpublished;
-            return true;
-        }
-        snapshot.end = SegmentEnd::InvalidCheckpoint;
-        return false;
+        const auto parsed = Ksword::Evidence::ParseJson(raw->metadataJson); // 与检查点共用的元数据语义。
+        const auto* kind = parsed.ok() ? parsed.value.find("kind") : nullptr; // 报文类型字段。
+        const auto* duration = parsed.ok() ? parsed.value.find("durationMs") : nullptr; // 零表示连续模式。
+        std::string name; // 解码后的类型。
+        std::uint64_t ms = 0; // 以毫秒保存的计划时长。
+        return kind && kind->tryGetString(name) && name == "etw-capture-plan-v1" && duration &&
+            duration->type() == Ksword::Evidence::JsonType::UInt && duration->tryGetU64(ms) && ms == 0;
     }
 }
 
@@ -218,61 +258,31 @@ QString SampleRawSegmentPath(const SampleRequest& sample)
     return QDir(root).filePath(QStringLiteral("samples/%1/raw/00000000000000000001.ksaseg").arg(sample.sample.id));
 }
 
-// 从同一只读文件句柄先获得段身份，再按此身份读取公共语义前缀。
-SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCanceled, const SampleRequest* expected)
+namespace
+{
+// 读取独立文件或无检查点的旧段。项目回退识别 Qt 首条记录后改走严格整段回放。
+SegmentSnapshot ReadStandalone(const QString& path, const CancelCheck& isCanceled, const SampleRequest* expected,
+    bool* qtLive = nullptr)
 {
     SegmentSnapshot snapshot; // 只有通过实际检查的数据才发布。
-    project::ProjectEtwCheckpoint checkpoint; // 项目终态规定的字节边界和散列。
     snapshot.path = path;
+    snapshot.checkpoint = expected ? SegmentCheckpoint::Unpublished : SegmentCheckpoint::NotRequested;
     if (isCanceled())
     {
         snapshot.end = SegmentEnd::Canceled;
         return snapshot;
     }
-    // 绑定请求既要核对目录选中的路径，也要核对打开句柄的最终文件路径。
-    if (expected)
-    {
-        const auto boundPath = SampleRawSegmentPath(*expected); // 请求的唯一候选文件。
-        if (boundPath.isEmpty() || QDir::fromNativeSeparators(path).compare(boundPath, Qt::CaseInsensitive) != 0)
-        {
-            snapshot.end = SegmentEnd::WrongSample;
-            return snapshot;
-        }
-        if (!CheckProjectCheckpoint(*expected, snapshot, checkpoint))
-        {
-            return snapshot;
-        }
-        if (isCanceled())
-        {
-            snapshot.end = SegmentEnd::Canceled;
-            return snapshot;
-        }
-    }
     const auto nativePath = QDir::toNativeSeparators(path).toStdWString(); // Win32 打开路径。
     const SegmentFile file{CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
-    const bool committed = snapshot.checkpoint == SegmentCheckpoint::Verified; // 后续投影必须来自该已提交前缀。
     if (file.handle == INVALID_HANDLE_VALUE || GetFileType(file.handle) != FILE_TYPE_DISK)
     {
-        snapshot.end = committed ? SegmentEnd::InvalidCheckpoint : SegmentEnd::Unavailable;
         return snapshot;
     }
     if (expected && !MatchesProjectPath(file.handle, path))
     {
         snapshot.end = SegmentEnd::WrongSample;
         return snapshot;
-    }
-
-    // 从本次投影所持的只读句柄回读相同散列，避免校验后换文件仍被标为已提交。
-    if (committed)
-    {
-        std::string hash; // 本句柄下已提交前缀的 SHA-256。
-        if (!project::ProjectStorage::HashArchivePrefix(file.handle, checkpoint.raw.end.byteOffset, hash) ||
-            hash != checkpoint.raw.sha256)
-        {
-            snapshot.end = SegmentEnd::InvalidCheckpoint;
-            return snapshot;
-        }
     }
 
     // 首次只验证段头，冻结同一文件、大小和真实段身份。
@@ -300,9 +310,11 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
     snapshot.prefixBytes = archive::kSegmentHeaderBytes;
 
     // 记录回调只接受经过共享扫描器验证的块和已理解的必需正文。
-    const auto boundary = committed ? checkpoint.raw.end.byteOffset
-        : (std::min)(header.fileBytes, kPreviewBytes); // 实际字节读取上限。
+    const auto boundary = (std::min)(header.fileBytes, kPreviewBytes); // 实际字节读取上限。
     std::optional<SegmentEnd> stop; // Qt 预览提前停止的原因。
+    Ksword::Evidence::ApiMonitorClueReadback api; // 导入段读到合法尾记前不发布行。
+    bool apiImport = false; // 由首条记录声明的专用导入格式。
+    std::deque<SegmentRow> apiRows; // 有界最近窗口，扫描会继续验证窗口外记录。
     const auto body = archive::ScanOpenSegmentBodies(file.handle, identity, boundary,
         [&](const archive::SegmentIdentity& checkedIdentity, const archive::BlockInfo& block,
             const std::vector<archive::DecodedRecord>& records) {
@@ -313,11 +325,58 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
                 {
                     stop = SegmentEnd::Canceled;
                 }
-                else if (snapshot.rows.size() >= kPreviewRows)
+                else if (qtLive && checkedIdentity.stream == archive::StreamKind::Raw &&
+                    snapshot.rows.isEmpty() && !apiImport && apiRows.empty())
+                {
+                    const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 已验证封装的首条记录。
+                    SegmentRow first; // 仅作格式探测，严格扫描会重新构造可发布的行。
+                    QtLiveTerminal terminal; // 首段允许是零观测的单独终止段。
+                    if (raw && ProjectQtLiveMetadata(*raw, first, terminal) != QtLiveRecordKind::Other)
+                    {
+                        *qtLive = true;
+                        return false;
+                    }
+                }
+                if (!stop && checkedIdentity.stream == archive::StreamKind::Raw && (apiImport || record.recordSequence == 1))
+                {
+                    const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 已解封的 raw 元数据。
+                    const auto metadata = raw ? Ksword::Evidence::ParseJson(raw->metadataJson) : Ksword::Evidence::JsonParseResult{};
+                    apiImport = apiImport || (raw && metadata.ok() && Ksword::Evidence::IsApiMonitorClueImport(metadata.value));
+                    if (apiImport)
+                    {
+                        std::optional<Ksword::Evidence::ArchivedApiMonitorClue> clue; // 尾记不会产生表格行。
+                        if (!raw || !metadata.ok() || record.recordSequence != api.clues + 1 ||
+                            !api.Accept(metadata.value, raw->inlineRawData, clue))
+                        {
+                            stop = SegmentEnd::Invalid;
+                        }
+                        else
+                        {
+                            // 整段的校验水位与最近窗口容量独立推进。
+                            const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset;
+                            if (clue)
+                            {
+                                if (apiRows.size() == kPreviewRows)
+                                {
+                                    apiRows.pop_front();
+                                }
+                                apiRows.push_back(ProjectApiClue(*clue, checkedIdentity, record, end));
+                            }
+                            snapshot.prefixBytes = end;
+                            continue;
+                        }
+                    }
+                }
+                if (!stop && expected && snapshot.rows.isEmpty() && IsContinuousPlan(record))
+                {
+                    stop = SegmentEnd::IncompleteSample;
+                    snapshot.checkpoint = SegmentCheckpoint::Pending;
+                }
+                else if (!stop && static_cast<std::size_t>(snapshot.rows.size()) >= kPreviewRows)
                 {
                     stop = SegmentEnd::PreviewLimit;
                 }
-                else if ((record.flags & archive::kRequiredRecord) && std::holds_alternative<std::monostate>(record.body))
+                else if (!stop && (record.flags & archive::kRequiredRecord) && std::holds_alternative<std::monostate>(record.body))
                 {
                     stop = SegmentEnd::Unsupported;
                 }
@@ -329,28 +388,8 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
 
                 // Stored 记录无填充，下一记录或块尾即为当前记录的精确边界。
                 const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset;
-                SegmentRow row; // 值投影不借用共享解码器缓冲区。
-                row.sequence = record.recordSequence;
-                row.offset = record.recordOffset;
-                row.type = record.recordType;
-                row.version = record.recordSchemaVersion;
-                row.payloadBytes = static_cast<quint32>(end - record.recordOffset - archive::kRecordHeaderBytes);
-                ProjectBody(record.body, row);
-                if (checkedIdentity.stream == archive::StreamKind::Raw)
-                {
-                    ProjectRawEtw(record.body, row);
-                    snapshot.hasArchivedEtw |= row.archivedEtw.has_value();
-                }
-                // 从公共解码器借用已校验的载荷，只复制用于当前结果的前缀。
-                if (const auto network = archive::ProjectNetworkFlowRecord(checkedIdentity, record))
-                {
-                    const auto length = (std::min)(network->inlineBytes.size(), kNetworkPreviewBytes); // 预览保留的字节数。
-                    const auto offset = record.recordOffset + archive::kRecordHeaderBytes + network->inlineOffsetInPayload; // 已校验载荷在文件中的起点。
-                    row.network = SegmentNetworkEvidence{network->flow, network->source, network->sourceTrust, offset,
-                        QByteArray(network->inlineBytes.data(), static_cast<qsizetype>(length))};
-                    row.receiveQpc = network->flow.observation.receiveQpc;
-                    row.actorId = network->flow.observation.processObjectId;
-                }
+                auto row = ProjectRecord(checkedIdentity, record, end); // 不借用扫描内存。
+                snapshot.hasArchivedEtw |= row.archivedEtw.has_value();
                 snapshot.rows.append(std::move(row));
                 snapshot.prefixBytes = end;
             }
@@ -372,24 +411,330 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
     }
     else
     {
-        snapshot.end = committed && body.framing.status == archive::SegmentScanStatus::FramingComplete
-            ? SegmentEnd::Complete : ScanEnd(body.framing, boundary);
+        snapshot.end = ScanEnd(body.framing, boundary);
         snapshot.failureOffset = body.framing.error.offset;
         if (snapshot.end == SegmentEnd::PreviewLimit && !snapshot.failureOffset)
         {
             snapshot.failureOffset = snapshot.prefixBytes;
         }
     }
-    // 项目终态只发布完整的已提交投影。跳过水位后的尾部，取消时同样丢弃暂存行。
-    if (committed && (snapshot.end != SegmentEnd::Complete || snapshot.prefixBytes != boundary))
+    // API 导入只有在校验完整文件和尾记后才交出行，失败重读保留页面旧结果。
+    if (apiImport && snapshot.end == SegmentEnd::Complete)
     {
-        snapshot.rows.clear();
-        snapshot.hasArchivedEtw = false;
-        if (snapshot.end != SegmentEnd::Canceled)
+        if (api.ended)
         {
-            snapshot.end = SegmentEnd::InvalidCheckpoint;
+            snapshot.hasArchivedApi = true;
+            snapshot.verifiedRows = api.clues;
+            snapshot.rows.assign(std::make_move_iterator(apiRows.begin()), std::make_move_iterator(apiRows.end()));
+        }
+        else
+        {
+            snapshot.end = SegmentEnd::Invalid;
         }
     }
+    // 旧档诊断也不能把已识别的连续首段或取消的结果提交到页面。
+    if (snapshot.end == SegmentEnd::IncompleteSample || snapshot.end == SegmentEnd::Canceled)
+    {
+        SegmentSnapshot pending; // 仅返回稳定的请求锚点和状态，不发布未提交数据。
+        pending.path = path;
+        pending.end = snapshot.end;
+        pending.checkpoint = snapshot.checkpoint;
+        return pending;
+    }
     return snapshot;
+}
+
+// 只在整段通过验证后推进共享窗口，坏段没有机会移出已核验的旧行。
+void MergePage(std::deque<SegmentRow>& rows, std::deque<SegmentRow>& page)
+{
+    for (auto& row : page)
+    {
+        if (rows.size() == kPreviewRows)
+        {
+            rows.pop_front();
+        }
+        rows.push_back(std::move(row));
+    }
+}
+
+// 统一项目首段锚点和采样身份。保留可筛选的 ETW 头，包括纯 raw 头。
+void FinishProjectReplay(const SampleRequest& expected, std::deque<SegmentRow>& rows, SegmentSnapshot& snapshot)
+{
+    snapshot.projectId = expected.projectId;
+    snapshot.sampleId = expected.sample.id;
+    snapshot.ordinal = 1;
+    snapshot.stream = static_cast<quint32>(archive::StreamKind::Raw);
+    snapshot.hasArchivedEtw = std::any_of(rows.cbegin(), rows.cend(),
+        [](const auto& row) { return row.liveEtw.has_value(); });
+    snapshot.rows.assign(std::make_move_iterator(rows.begin()), std::make_move_iterator(rows.end()));
+}
+
+// 同一采样的连续 Qt raw 文件逐段整体验证，找不到下一段时只报告已验证的中间前缀。
+SegmentSnapshot ReadQtRawReplay(const QString& path, const CancelCheck& isCanceled, const SampleRequest& expected,
+    const project::ProjectDocument& document, const std::string& sampleId, quint64 maxSegments)
+{
+    SegmentSnapshot snapshot; // 返回页只拥有已验证的文件信息及观测行。
+    snapshot.path = path;
+    std::deque<SegmentRow> rows; // 跨段保留最近窗口。
+    quint64 previousSource = 0; // 已通过整段验证的原观测水位，允许队列丢弃导致的跳号。
+    for (quint64 ordinal = 1; !isCanceled(); ++ordinal)
+    {
+        // 预算只在已提交段边界检查，已验证窗口仍可用于自动预览。
+        if (maxSegments && ordinal > maxSegments)
+        {
+            snapshot.end = SegmentEnd::PreviewLimit;
+            break;
+        }
+        std::deque<SegmentRow> page; // 暂存当前候选段的观测行。
+        std::optional<QtLiveTerminal> terminal; // 同段终止记录，必须是最后一条。
+        auto source = previousSource; // 候选段的原观测水位。
+        quint64 invalidOffset = 0; // 语义错误位置优先于共享扫描器的停止位置。
+        // raw 写入器分配连续封装序号。共有项目读取器核对固定路径、身份和整个文件。
+        const project::ProjectRawEvidenceRead request{document.Info()->projectId, sampleId, ordinal,
+            std::nullopt, snapshot.verifiedRows,
+            [&](const archive::SegmentIdentity& identity, const archive::BlockInfo& block,
+                const std::vector<archive::DecodedRecord>& records) {
+                for (std::size_t index = 0; index < records.size(); ++index)
+                {
+                    if (isCanceled())
+                    {
+                        return false;
+                    }
+                    // Stored 块内无填充，下一记录或块端点即当前记录的边界。
+                    const auto& record = records.at(index); // 共享读取器已验证封装类型与序号。
+                    const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset;
+                    SegmentRow row; // 先验证 Qt 语义，再填入不可变归档坐标。
+                    QtLiveTerminal candidate; // 只有终止类型会提供统计。
+                    const auto kind = ProjectQtLiveMetadata(std::get<archive::RawRecordV1>(record.body), row, candidate);
+                    if (!terminal && kind == QtLiveRecordKind::Terminal && candidate.observed >= source &&
+                        candidate.observed - candidate.dropped == record.recordSequence - 1)
+                    {
+                        terminal = candidate;
+                        continue;
+                    }
+                    if (terminal || kind != QtLiveRecordKind::Observation || !row.liveSourceSequence ||
+                        *row.liveSourceSequence <= source)
+                    {
+                        invalidOffset = record.recordOffset;
+                        return false;
+                    }
+
+                    // 只保留声明的进程活动或 ETW 头，不生成任何载荷或跨流引用。
+                    source = *row.liveSourceSequence;
+                    row.sequence = record.recordSequence;
+                    row.offset = record.recordOffset;
+                    row.segmentOrdinal = identity.ordinal;
+                    row.type = record.recordType;
+                    row.version = record.recordSchemaVersion;
+                    row.decoded = true;
+                    row.payloadBytes = static_cast<quint32>(end - record.recordOffset - archive::kRecordHeaderBytes);
+                    if (page.size() == kPreviewRows)
+                    {
+                        page.pop_front();
+                    }
+                    page.push_back(std::move(row));
+                }
+                return true;
+            }, kPreviewBytes};
+        archive::RawEvidenceScanResult raw; // 只有完整文件的实际端点可提交。
+        const auto result = document.ReadRawEvidenceSegment(request, raw);
+        if (isCanceled())
+        {
+            break;
+        }
+        if (result.error == project::ProjectError::NotFound)
+        {
+            snapshot.end = SegmentEnd::IncompleteSample;
+            break;
+        }
+
+        const auto& framing = raw.segment.framing; // 段文件自身的包络回执。
+        if (!result || !raw.checked || !raw.VerifiedBoundary(*raw.checked) || raw.checked->byteOffset != framing.fileBytes)
+        {
+            snapshot.end = !result ? (result.error == project::ProjectError::LimitExceeded ? SegmentEnd::PreviewLimit
+                : SegmentEnd::Unavailable) : SegmentEnd::Invalid;
+            snapshot.failedOrdinal = ordinal;
+            snapshot.failureOffset = invalidOffset ? invalidOffset : raw.invalidRecordOffset;
+            if (!snapshot.failureOffset)
+            {
+                snapshot.failureOffset = raw.segment.bodyFailure.recordOffset ? raw.segment.bodyFailure.recordOffset
+                    : framing.error.offset;
+            }
+            break;
+        }
+
+        MergePage(rows, page);
+        previousSource = source;
+        snapshot.checkpoint = SegmentCheckpoint::QtRawVerified;
+        snapshot.lastVerifiedOrdinal = ordinal;
+        snapshot.verifiedRows = raw.checked->lastSequence;
+        snapshot.fileBytes = framing.fileBytes;
+        snapshot.prefixBytes = raw.checked->byteOffset;
+        if (terminal)
+        {
+            snapshot.qtArchiveDropped = terminal->dropped;
+            snapshot.end = SegmentEnd::Complete;
+            break;
+        }
+    }
+
+    if (isCanceled())
+    {
+        snapshot = {};
+        snapshot.path = path;
+        snapshot.end = SegmentEnd::Canceled;
+    }
+    else if (snapshot.lastVerifiedOrdinal)
+    {
+        FinishProjectReplay(expected, rows, snapshot);
+    }
+    return snapshot;
+}
+
+// 复用安全项目句柄按检查点水位扫描。先暂存末页，只有字节和散列都一致才交给调用方。
+bool ReadCommittedSegment(const project::ProjectDocument& document, const std::string& sampleId,
+    quint64 ordinal, const project::ProjectEtwCheckpoint& checkpoint, const CancelCheck& isCanceled,
+    std::deque<SegmentRow>& page, SegmentSnapshot& snapshot)
+{
+    const project::ProjectRawEvidenceRead request{document.Info()->projectId, sampleId, ordinal, // 冻结读取身份与水位。
+        checkpoint.raw.end.byteOffset, checkpoint.planRawSequence - 1,
+        [&](const archive::SegmentIdentity& identity, const archive::BlockInfo& block,
+            const std::vector<archive::DecodedRecord>& records) {
+            for (std::size_t index = 0; index < records.size(); ++index)
+            {
+                if (isCanceled())
+                {
+                    return false;
+                }
+                // 段内也可能超过整页配额。暂存最近行，坏段不得淘汰已验证的旧行。
+                if (page.size() == kPreviewRows)
+                {
+                    page.pop_front();
+                }
+                const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset; // 记录端点。
+                page.push_back(ProjectRecord(identity, records.at(index), end));
+            }
+            return true;
+        }};
+    archive::RawEvidenceScanResult raw; // 同一个禁止写入的句柄验证正文、端点及 SHA-256。
+    std::string hash; // 本次实际投影文件的已提交前缀散列。
+    if (!document.ReadRawEvidenceSegment(request, raw, &hash) || !raw.VerifiedBoundary(checkpoint.raw.end) ||
+        hash != checkpoint.raw.sha256)
+    {
+        snapshot.failureOffset = raw.invalidRecordOffset ? raw.invalidRecordOffset : raw.segment.bodyFailure.recordOffset;
+        if (!snapshot.failureOffset)
+        {
+            snapshot.failureOffset = raw.segment.framing.error.offset;
+        }
+        return false;
+    }
+    snapshot.fileBytes = raw.segment.framing.fileBytes;
+    snapshot.prefixBytes = checkpoint.raw.end.byteOffset;
+    return true;
+}
+
+// 绑定同一个已登记采样，按序验证发布的双流。缺标记不等于终止，不扫描未提交的后续 raw 文件。
+SegmentSnapshot ReadProjectReplay(const QString& path, const CancelCheck& isCanceled, const SampleRequest& expected,
+    quint64 maxSegments)
+{
+    SegmentSnapshot snapshot; // 仅发布连续通过验证的归档前缀或失败回执。
+    snapshot.path = path;
+    const auto boundPath = SampleRawSegmentPath(expected); // 请求的唯一入口路径。
+    if (boundPath.isEmpty() || QDir::fromNativeSeparators(path).compare(boundPath, Qt::CaseInsensitive) != 0)
+    {
+        snapshot.end = SegmentEnd::WrongSample;
+        return snapshot;
+    }
+    project::ProjectDocument document; // 本次读取专用的项目目录句柄。
+    if (!document.Open(expected.manifestPath.toStdWString(), project::ProjectAccess::ReadOnly))
+    {
+        return snapshot;
+    }
+    const auto sampleId = expected.sample.id.toStdString(); // 目录请求中的规范 UUID。
+    project::SampleRecord sample; // 重新核对已登记的冻结采样描述。
+    if (document.Info()->projectId != expected.projectId.toStdString() || !document.ReadSample(sampleId, sample) ||
+        sample.info.descriptionHash != expected.sample.descriptionHash.toStdString())
+    {
+        snapshot.end = SegmentEnd::WrongSample;
+        return snapshot;
+    }
+
+    // 全采样只保留最近窗口。单段验证失败或取消时，绝不提交该段的行。
+    std::deque<SegmentRow> rows; // 各已验证段合并后的最近行。
+    std::uint64_t previousSequence = 0; // 上一个已验证检查点的原始水位。
+    for (quint64 ordinal = 1; !isCanceled(); ++ordinal) // 按连续发布序号逐段核验。
+    {
+        // 达到自动预算后不读取下一段，显式回放使用原有完整范围。
+        if (maxSegments && ordinal > maxSegments)
+        {
+            snapshot.end = SegmentEnd::PreviewLimit;
+            break;
+        }
+        project::ProjectEtwCheckpoint checkpoint; // 本次段的双流水位及终段标记。
+        const auto result = document.ReadEtwCheckpoint(sampleId, checkpoint, ordinal); // 先验覆盖结果和 raw。
+        if (isCanceled())
+        {
+            break;
+        }
+        if (result.error == project::ProjectError::NotFound)
+        {
+            if (ordinal == 1)
+            {
+                bool qtLive = false; // 首条记录确认 Qt 格式后才进入纯 raw 项目路径。
+                auto legacy = ReadStandalone(path, isCanceled, &expected, &qtLive);
+                return qtLive ? ReadQtRawReplay(path, isCanceled, expected, document, sampleId, maxSegments) : std::move(legacy);
+            }
+            snapshot.end = SegmentEnd::IncompleteSample;
+            break;
+        }
+
+        // 原始序号为全采样连续序列，不接受段间重叠或断号。
+        std::deque<SegmentRow> page; // 仅当前候选段，可整体丢弃。
+        if (!result || previousSequence == UINT64_MAX || checkpoint.planRawSequence != previousSequence + 1 ||
+            !ReadCommittedSegment(document, sampleId, ordinal, checkpoint, isCanceled, page, snapshot))
+        {
+            snapshot.end = SegmentEnd::InvalidCheckpoint;
+            snapshot.failedOrdinal = ordinal;
+            break;
+        }
+
+        // 当前段已完整回读，旧页只淘汰被最近窗口替换的行。
+        MergePage(rows, page);
+        snapshot.checkpoint = SegmentCheckpoint::Verified;
+        snapshot.lastVerifiedOrdinal = ordinal;
+        previousSequence = checkpoint.raw.end.lastSequence;
+        if (checkpoint.finalSegment)
+        {
+            snapshot.end = SegmentEnd::Complete;
+            break;
+        }
+    }
+
+    // 取消回执不能替换先前页面状态，也不能泄漏途中暂存的行。
+    if (isCanceled())
+    {
+        SegmentSnapshot canceled; // 只有可归属的取消回执。
+        canceled.path = path;
+        canceled.end = SegmentEnd::Canceled;
+        return canceled;
+    }
+    if (snapshot.lastVerifiedOrdinal)
+    {
+        snapshot.verifiedRows = previousSequence; // 已从 1 连续读到此序号，含首尾元数据。
+        FinishProjectReplay(expected, rows, snapshot);
+    }
+    return snapshot;
+}
+} // namespace
+
+// 项目请求进入多段只读回放；独立文件继续使用诊断式前缀预览。
+SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCanceled, const SampleRequest* expected,
+    quint64 maxProjectSegments)
+{
+    if (expected && !isCanceled())
+    {
+        return ReadProjectReplay(path, isCanceled, *expected, maxProjectSegments);
+    }
+    return ReadStandalone(path, isCanceled, expected);
 }
 }

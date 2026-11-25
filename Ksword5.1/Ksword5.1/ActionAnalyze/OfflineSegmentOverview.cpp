@@ -61,6 +61,10 @@ namespace
     // 用记录正文的种类编号，或用记录头的实际类型标识一行。
     QString RowLabel(const SegmentRow& row)
     {
+        if (row.archivedApi)
+        {
+            return row.archivedApi->api;
+        }
         if (row.liveEtw)
         {
             return sourceText(QStringLiteral("ETW 事件 %1 / v%2")).arg(row.liveEtw->eventId).arg(row.liveEtw->version);
@@ -134,6 +138,8 @@ namespace
             return sourceText(QStringLiteral("归档文件与所选项目或采样不匹配。"));
         case SegmentEnd::InvalidCheckpoint:
             return sourceText(QStringLiteral("无法验证项目检查点或其引用的归档数据。"));
+        case SegmentEnd::IncompleteSample:
+            return sourceText(QStringLiteral("归档尚未发布有效终段。"));
         }
         return {};
     }
@@ -301,6 +307,9 @@ public:
         m_selected = sequence;
         update();
     }
+
+    // 拖动期间不得替换用于像素到时间转换的轴范围。
+    bool isDragging() const { return m_dragging; }
 
     std::function<void(quint64)> pick; // 点击或键盘定位后的稳定序号。
     std::function<void(quint64, std::optional<quint64>)> range; // 半开 [起点, 终点) 回调。
@@ -552,8 +561,8 @@ OfflineSegmentOverview::OfflineSegmentOverview(QWidget* parent) : QWidget(parent
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
 
-    // 上排放置段操作和已提交结果身份，失败路径另由回执显示。
-    auto* header = new QWidget(this); // 实时采样与归档读入共用工具带。
+    // 上排保留输入及归档操作，第二排的会话动作可以独立浮出。
+    auto* header = new QWidget(this); // 采集参数与归档读入保持在总览。
     auto* controls = new ks::ui::FlowLayout(header, 8, 8, 6); // 随窗口宽度换行。
     ks::ui::StylePrimaryToolbar(header);
     m_open = new QPushButton(header);
@@ -564,12 +573,16 @@ OfflineSegmentOverview::OfflineSegmentOverview(QWidget* parent) : QWidget(parent
     m_cancel = new QPushButton(header);
     KswordTheme::ApplyStandardIconButtonMetrics(m_cancel);
     ks::ui::SetThemeButtonIcon(m_cancel, QIcon(QStringLiteral(":/Icon/process_stop.svg")));
-    createLiveControls(header, controls);
+    layout->addWidget(header);
+    layout->addWidget(createActionToolbar());
+    auto* actions = static_cast<ks::ui::FlowLayout*>(m_actionStrip->layout()); // 工具条创建的共享流式布局。
+    createLiveControls(controls, actions);
+    actions->addWidget(m_floatActions);
     controls->addWidget(m_open);
     controls->addWidget(m_retry);
     controls->addWidget(m_cancel);
     ks::ui::NormalizeToolbarLayout(controls);
-    layout->addWidget(header);
+    ks::ui::NormalizeToolbarLayout(actions);
     m_identity = EvidenceLabel(this);
     m_context = EvidenceLabel(this);
     m_status = EvidenceLabel(this);
@@ -698,6 +711,7 @@ OfflineSegmentOverview::OfflineSegmentOverview(QWidget* parent) : QWidget(parent
         openSegment(m_lastPath, m_lastSampleRequest);
     });
     connect(m_cancel, &QPushButton::clicked, this, &OfflineSegmentOverview::cancelRead);
+    connect(m_apiSource, &QCheckBox::toggled, this, &OfflineSegmentOverview::applyFilters);
     connect(m_etwSource, &QCheckBox::toggled, this, &OfflineSegmentOverview::applyFilters);
     connect(m_keyword, &QLineEdit::textChanged, this, &OfflineSegmentOverview::applyFilters);
     connect(m_more, &QPushButton::toggled, m_timeBand, &QWidget::setVisible);
@@ -723,17 +737,15 @@ OfflineSegmentOverview::OfflineSegmentOverview(QWidget* parent) : QWidget(parent
     connect(m_table->selectionModel(), &QItemSelectionModel::currentChanged, this,
         [this](const QModelIndex& current, const QModelIndex&) {
             const auto* row = m_model->at(current.row()); // 当前真正存在的表行。
-             if (!m_updatingSelection && row)
-             {
-                 m_followingLive = false;
-                 selectSequence(row->sequence, false);
-                 updateLiveControls();
+            if (!m_updatingSelection && row)
+            {
+                pauseLiveView();
+                selectSequence(row->sequence, false);
             }
         });
     m_waterfall->pick = [this](quint64 sequence) {
-        m_followingLive = false;
+        pauseLiveView();
         selectSequence(sequence, true);
-        updateLiveControls();
     };
     m_waterfall->range = [this](quint64 low, std::optional<quint64> high) {
         m_start->setText(QString::number(low));
@@ -756,14 +768,39 @@ OfflineSegmentOverview::~OfflineSegmentOverview()
     m_liveOperation->close();
 }
 
-// 接收项目页已确认的身份，只用于比较和空态提示。
-void OfflineSegmentOverview::setProjectContext(const QString& projectId, const QString& sampleId,
+// 冻结当前目录作为下次采样草稿，既有实时采样和结果不重新归属。
+void OfflineSegmentOverview::setProjectContext(const ProjectSnapshot& project, const QString& sampleId,
     const QString& sampleStatus)
 {
-    m_projectId = projectId;
+    m_projectManifest = project.manifestPath;
+    m_projectRevision = project.revisionId;
+    m_projectId = project.id;
     m_sampleId = sampleId;
     m_sampleStatus = sampleStatus;
     updateText();
+}
+
+// 从其它标签返回时立即补读最新投影，暂停的历史窗口继续原样保留。
+void OfflineSegmentOverview::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refreshLive();
+}
+
+// 只暂停实时窗口，不停止目标查询、来源或归档。未接管的旧表不影响新采样。
+void OfflineSegmentOverview::pauseLiveView()
+{
+    if (m_snapshot && m_snapshot->live)
+    {
+        m_followingLive = false;
+        updateLiveControls();
+    }
+}
+
+// 界面投影回调不得在鼠标时间范围草稿期间重定位轴。
+bool OfflineSegmentOverview::liveViewInteracting() const
+{
+    return m_waterfall->isDragging();
 }
 
 // 遇到语言变更时刷新固定文本，保留冻结数据与 Time 草稿。
@@ -782,6 +819,8 @@ void OfflineSegmentOverview::changeEvent(QEvent* event)
             updateText();
             updateDetails();
         }
+        // 按新语言的按钮自然宽度调整当前浮窗，保留它的拖动位置。
+        fitFloatingActionToolbar();
     }
 }
 
@@ -831,10 +870,6 @@ void OfflineSegmentOverview::fillCategories(bool preserve)
 // 数字草稿没有通过验证时，原结果和有效时间范围保持原样。
 void OfflineSegmentOverview::applyTimeRange()
 {
-    if (m_snapshot && m_snapshot->live && (!m_start->text().isEmpty() || !m_end->text().isEmpty()))
-    {
-        m_followingLive = false;
-    }
     if (!m_snapshot)
     {
         return;
@@ -847,6 +882,10 @@ void OfflineSegmentOverview::applyTimeRange()
     {
         updateText();
         return;
+    }
+    if (low || high)
+    {
+        pauseLiveView();
     }
     m_lower = low;
     m_upper = high;
@@ -863,11 +902,12 @@ void OfflineSegmentOverview::applyFilters()
     QList<qsizetype> visible; // 当前匹配的源行序号。
     visible.reserve(m_snapshot->rows.size());
     const auto keyword = m_keyword->text().trimmed(); // 实际应用的关键字。
-    const bool etwOnly = m_etwSource->isChecked() && (m_snapshot->live || m_snapshot->hasArchivedEtw);
+    const bool showApi = m_apiSource->isChecked() && m_snapshot->hasArchivedApi; // 只匹配已核对的 API 行。
+    const bool showEtw = m_etwSource->isChecked() && (m_snapshot->live || m_snapshot->hasArchivedEtw); // 活动和归档共用 ETW 条件。
     for (qsizetype index = 0; index < m_snapshot->rows.size(); ++index)
     {
         const auto& row = m_snapshot->rows.at(index); // 阻止未知字段误匹配过滤。
-        if (etwOnly && !row.liveEtw)
+        if ((showApi || showEtw) && !(showApi && row.archivedApi) && !(showEtw && row.liveEtw))
         {
             continue;
         }
@@ -890,6 +930,7 @@ void OfflineSegmentOverview::applyFilters()
             && !MatchesNumber(row.category, keyword) && !MatchesNumber(row.receiveQpc, keyword)
             && !MatchesNumber(row.pid, keyword) && !MatchesNumber(row.tid, keyword)
             && !(row.network && matchesNetworkKeyword(*row.network, keyword))
+            && !(row.archivedApi && row.archivedApi->family.contains(keyword, Qt::CaseInsensitive))
             && !(row.liveEtw && row.liveEtw->provider.contains(keyword, Qt::CaseInsensitive)))
         {
             continue;
@@ -916,6 +957,11 @@ void OfflineSegmentOverview::selectSequence(quint64 sequence, bool scrollTable)
     m_sequence = sequence;
     m_waterfall->setSelected(sequence);
     const auto found = m_model->locate(sequence); // 可能因过滤暂不显示。
+    if (!m_updatingSelection && m_snapshot && m_snapshot->live && found.isValid())
+    {
+        const auto* row = m_model->at(found.row()); // 原始所选记录的值快照，不受滚动淘汰影响。
+        m_selectedLiveRow = *row;
+    }
     if (found.isValid() && m_table->currentIndex().row() != found.row())
     {
         const bool wasUpdating = m_updatingSelection; // 保留外层模型事务的门禁。
@@ -962,11 +1008,13 @@ void OfflineSegmentOverview::updateText()
     m_keyword->setPlaceholderText(sourceText(QStringLiteral("筛选事件或网络端点")));
     m_keyword->setToolTip(sourceText(QStringLiteral("只匹配已显示的归档字段。")));
     m_keyword->setEnabled(m_snapshot && !m_snapshot->rows.isEmpty());
-    // 当前读取模式不接受独立验证的来源绑定。工具提示与摘要使用同一解释。
+    // 根据实际回读的来源启用独立筛选。来源分类不改变已归档的任何行。
     m_apiSource->setText(QStringLiteral("API"));
     m_etwSource->setText(QStringLiteral("ETW"));
     const auto sourceUnavailable = sourceText(QStringLiteral("独立归档段缺少已验证的 API／ETW 来源绑定。")); // 来源条件不可用的原因。
-    m_apiSource->setToolTip(sourceUnavailable);
+    const bool archivedApi = m_snapshot && m_snapshot->hasArchivedApi; // 导入尾记验证成功时才允许 API 筛选。
+    m_apiSource->setEnabled(archivedApi);
+    m_apiSource->setToolTip(archivedApi ? sourceText(QStringLiteral("只显示归档 API 线索。")) : sourceUnavailable);
     const bool archivedEtw = m_snapshot && m_snapshot->hasArchivedEtw; // 来源字段通过正文检查。
     m_etwSource->setEnabled(live || archivedEtw);
     m_etwSource->setToolTip(live ? sourceText(QStringLiteral("按已启用的 ETW 来源筛选。"))
@@ -999,7 +1047,9 @@ void OfflineSegmentOverview::updateText()
     m_context->setVisible(m_snapshot && !live);
     if (live)
     {
-        m_identity->setText(sourceText(QStringLiteral("实时采样 %1 · 未归档")).arg(m_snapshot->sampleId));
+        m_identity->setText(m_snapshot->projectId.isEmpty()
+            ? sourceText(QStringLiteral("实时采样 %1 · 未归档")).arg(m_snapshot->sampleId)
+            : sourceText(QStringLiteral("实时采样 %1 · 项目 %2")).arg(m_snapshot->sampleId, m_snapshot->projectId));
     }
     else if (m_snapshot)
     {
@@ -1042,7 +1092,24 @@ void OfflineSegmentOverview::updateText()
     {
         // 终态水位可能早于物理文件末尾，状态分别报告检查点和实际预览范围。
         const bool verified = m_snapshot->checkpoint == SegmentCheckpoint::Verified; // 原始流与记录流均已复核。
-        status = verified ? sourceText(QStringLiteral("已验证项目检查点。")) : EndText(m_latestEnd);
+        const bool qtRaw = m_snapshot->checkpoint == SegmentCheckpoint::QtRawVerified; // 本端只保存 raw 流。
+        if (verified)
+        {
+            status = sourceText(QStringLiteral("已验证项目检查点。"));
+        }
+        else if (qtRaw)
+        {
+            status = m_latestEnd == SegmentEnd::Complete ? sourceText(QStringLiteral("已验证 Qt 原始归档和终止记录。"))
+                : sourceText(QStringLiteral("已验证 Qt 原始归档前缀。"));
+        }
+        if (status.isEmpty() || m_latestEnd != SegmentEnd::Complete)
+        {
+            if (!status.isEmpty())
+            {
+                status += u' ';
+            }
+            status += EndText(m_latestEnd);
+        }
         status += u' ' + sourceText(QStringLiteral("已校验前缀 %1 / %2 字节。"))
             .arg(m_snapshot->prefixBytes).arg(m_snapshot->fileBytes);
         if (m_snapshot->checkpoint == SegmentCheckpoint::Unpublished)
@@ -1060,9 +1127,21 @@ void OfflineSegmentOverview::updateText()
             status += u' ' + sourceText(QStringLiteral("仍显示上次提交的结果。"));
         }
     }
-    if (!live && !m_reading && m_latestOffset && m_latestEnd != SegmentEnd::Complete)
+    if (!live && !m_reading && !m_lastPath.isEmpty())
     {
-        status += u' ' + sourceText(QStringLiteral("停止位置：%1 字节。")).arg(m_latestOffset);
+        // 失败回执使用当前读取的段号，即使表格继续显示上一份完整结果。
+        if (m_latestVerifiedOrdinal)
+        {
+            status += u' ' + sourceText(QStringLiteral("已验证至第 %1 段。")).arg(m_latestVerifiedOrdinal);
+        }
+        if (m_latestFailedOrdinal)
+        {
+            status += u' ' + sourceText(QStringLiteral("第 %1 段校验失败。")).arg(m_latestFailedOrdinal);
+        }
+        if (m_latestOffset && m_latestEnd != SegmentEnd::Complete)
+        {
+            status += u' ' + sourceText(QStringLiteral("停止位置：%1 字节。")).arg(m_latestOffset);
+        }
     }
     m_status->setVisible(!status.isEmpty());
     m_status->setText(status);
@@ -1080,6 +1159,11 @@ void OfflineSegmentOverview::updateText()
         {
             counts += u' ' + sourceText(QStringLiteral("没有记录符合当前筛选。"));
         }
+        if (live && m_snapshot->liveRevision > static_cast<quint64>(m_snapshot->rows.size()))
+        {
+            counts += u' ' + sourceText(QStringLiteral("实时窗口已滚动移出 %1 条旧记录。"))
+                .arg(m_snapshot->liveRevision - static_cast<quint64>(m_snapshot->rows.size()));
+        }
         if (m_lower || m_upper)
         {
             counts += u' ' + sourceText(QStringLiteral("接收 QPC 范围 [%1, %2)。"))
@@ -1093,9 +1177,21 @@ void OfflineSegmentOverview::updateText()
         {
             counts += u' ' + objectFilterSummary();
         }
-        if (!live && !m_snapshot->rows.isEmpty())
+        if (archivedApi)
+        {
+            counts += u' ' + sourceText(QStringLiteral("已核验 %1 条归档 API 线索。覆盖范围未知。")).arg(m_snapshot->verifiedRows);
+        }
+        else if (!live && m_snapshot->lastVerifiedOrdinal)
+        {
+            counts += u' ' + sourceText(QStringLiteral("已验证 %1 条归档记录。")).arg(m_snapshot->verifiedRows);
+        }
+        else if (!live && !archivedEtw && !m_snapshot->rows.isEmpty())
         {
             counts += u' ' + sourceUnavailable;
+        }
+        if (m_snapshot->qtArchiveDropped.value_or(0) != 0)
+        {
+            counts += u' ' + sourceText(QStringLiteral("归档队列丢弃 %1 条观测。")).arg(*m_snapshot->qtArchiveDropped);
         }
     }
     if (m_invalidRange)
@@ -1113,20 +1209,44 @@ void OfflineSegmentOverview::updateDetails()
     document.title = m_snapshot && m_snapshot->live ? QStringLiteral("记录详情") : QStringLiteral("归档记录详情");
     if (m_snapshot && m_sequence)
     {
-        const auto selected = std::find_if(m_snapshot->rows.cbegin(), m_snapshot->rows.cend(), [this](const SegmentRow& row) {
+        const auto current = std::find_if(m_snapshot->rows.cbegin(), m_snapshot->rows.cend(), [this](const SegmentRow& row) {
             return row.sequence == *m_sequence;
         });
-        if (selected != m_snapshot->rows.cend())
+        // 实时窗口淘汰已选记录后保留该记录及详情，不自动选邻行。
+        const auto* selected = current != m_snapshot->rows.cend() ? &*current
+            : m_selectedLiveRow && m_selectedLiveRow->sequence == *m_sequence ? &*m_selectedLiveRow : nullptr;
+        if (selected)
         {
-            updateObjectEvidence(&*selected);
+            updateObjectEvidence(selected);
             if (!m_model->locate(*m_sequence).isValid())
             {
                 document.note(QStringLiteral("所选记录当前不在显示范围内。"));
             }
+            if (selected->archivedApi)
+            {
+                // 归档座标与调用方头字段可复制。目标身份和实际执行情况仍没有证据。
+                const auto& clue = *selected->archivedApi; // 当前已核验的 API 线索。
+                document.section(QStringLiteral("归档 API 线索"))
+                    .field(QStringLiteral("采样 ID"), m_snapshot->sampleId)
+                    .field(QStringLiteral("归档段号"), QString::number(selected->segmentOrdinal))
+                    .field(QStringLiteral("记录序号"), QString::number(selected->sequence))
+                    .field(QStringLiteral("文件偏移（字节）"), QString::number(selected->offset))
+                    .field(QStringLiteral("事件"), clue.api)
+                    .field(QStringLiteral("线索类别"), clue.family)
+                    .field(QStringLiteral("源归档行号"), QString::number(clue.sourceSequence))
+                    .field(QStringLiteral("FILETIME"), QString::number(clue.time))
+                    .field(QStringLiteral("来源头 PID"), EvidenceNumber(selected->pid))
+                    .field(QStringLiteral("来源头 TID"), EvidenceNumber(selected->tid))
+                    .field(QStringLiteral("来源声明的调用方创建时间"), EvidenceNumber(clue.callerCreation))
+                    .field(QStringLiteral("API 原包前缀（十六进制）"), QString::fromLatin1(clue.preview.toHex(' ')))
+                    .note(QStringLiteral("目标身份、实际写入范围、执行和归因未知。"));
+                m_details->setDocument(document);
+                return;
+            }
             if (selected->liveEtw)
             {
                 const auto& header = *selected->liveEtw; // 原始描述符字段和记录上下文。
-                document.section(selected->archivedEtw ? QStringLiteral("归档记录") : QStringLiteral("实时事件"))
+                document.section(m_snapshot->live ? QStringLiteral("实时事件") : QStringLiteral("归档记录"))
                     .field(QStringLiteral("采样 ID"), m_snapshot->sampleId)
                     .field(QStringLiteral("记录序号"), QString::number(selected->sequence))
                     .field(QStringLiteral("ETW Provider GUID"), header.provider)
@@ -1136,11 +1256,20 @@ void OfflineSegmentOverview::updateDetails()
                     .field(QStringLiteral("接收 QPC"), EvidenceNumber(selected->receiveQpc))
                     .field(QStringLiteral("来源头 PID"), EvidenceNumber(selected->pid))
                     .field(QStringLiteral("来源头 TID"), EvidenceNumber(selected->tid));
+                if (!m_snapshot->live)
+                {
+                    document.field(QStringLiteral("归档段号"), QString::number(selected->segmentOrdinal))
+                        .field(QStringLiteral("文件偏移（字节）"), QString::number(selected->offset));
+                }
+                if (selected->liveSourceSequence)
+                {
+                    document.field(QStringLiteral("原采集序号"), QString::number(*selected->liveSourceSequence))
+                        .note(QStringLiteral("此记录仅保存 ETW 报头，未采集载荷。"));
+                }
                 if (selected->archivedEtw)
                 {
                     const auto& payload = *selected->archivedEtw; // 归档声明与实际内联数据分开显示。
-                    document.field(QStringLiteral("文件偏移（字节）"), QString::number(selected->offset))
-                        .field(QStringLiteral("ETW 来源代次"), payload.sourceEpoch)
+                    document.field(QStringLiteral("ETW 来源代次"), payload.sourceEpoch)
                         .field(QStringLiteral("接收 QPC 频率（Hz）"), EvidenceNumber(payload.qpcFrequencyHz))
                         .field(QStringLiteral("ETW 原始载荷字节数"), QString::number(payload.originalBytes))
                         .field(QStringLiteral("归档保留字节数"), QString::number(payload.storedBytes))
@@ -1169,11 +1298,21 @@ void OfflineSegmentOverview::updateDetails()
                     .field(QStringLiteral("区间 CPU 时间（毫秒）"), QString::number(analysis.cpu100ns / 10000.0, 'f', 3))
                     .field(QStringLiteral("区间读 I/O 字节"), EvidenceNumber(analysis.readBytes))
                     .field(QStringLiteral("区间写 I/O 字节"), EvidenceNumber(analysis.writeBytes));
+                if (selected->liveSourceSequence)
+                {
+                    // 归档重开保持原观测序号和实际文件坐标，实时详情仍沿用原字段。
+                    document.field(QStringLiteral("归档段号"), QString::number(selected->segmentOrdinal))
+                        .field(QStringLiteral("记录序号"), QString::number(selected->sequence))
+                        .field(QStringLiteral("原采集序号"), QString::number(*selected->liveSourceSequence))
+                        .field(QStringLiteral("文件偏移（字节）"), QString::number(selected->offset))
+                        .field(QStringLiteral("接收 QPC"), EvidenceNumber(selected->receiveQpc));
+                }
                 m_details->setDocument(document);
                 return;
             }
             document.section(QStringLiteral("归档记录"))
                 .field(QStringLiteral("采样 ID"), m_snapshot->sampleId)
+                .field(QStringLiteral("归档段号"), QString::number(selected->segmentOrdinal))
                 .field(QStringLiteral("记录序号"), QString::number(selected->sequence))
                 .field(QStringLiteral("文件偏移（字节）"), QString::number(selected->offset))
                 .field(QStringLiteral("正文长度（字节）"), QString::number(selected->payloadBytes))

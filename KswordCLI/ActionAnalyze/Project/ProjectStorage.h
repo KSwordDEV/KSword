@@ -80,7 +80,13 @@ bool GetNumber(const JsonValue& object, std::string_view key, std::uint64_t& out
 bool IsString(const JsonValue& object, std::string_view key, std::string_view expected);
 bool IsNull(const JsonValue& object, std::string_view key);
 JsonValue Settings(const RevisionSettings& settings);
+// 旧命令输入保持严格双字段，持久配置按其形状独立验证与反序列化。
 bool ParseSettings(const JsonValue& config, RevisionSettings& out);
+// 读取项目保存请求的完整草稿。新增项使用空 ID 和修订 0。
+bool ParseSettingsDraft(const JsonValue& config, RevisionSettings& out);
+bool ReadStoredSettings(const JsonValue& config, RevisionSettings& out);
+// 全量草稿基于当前修订分配新项 ID 和逐项修订，返回可持久化的规范配置。
+ProjectResult PrepareSettings(const RevisionSettings& draft, const RevisionSettings* base, RevisionSettings& out);
 ProjectResult ConfigHash(const RevisionSettings& settings, std::string& out);
 
 } // namespace Ksword::ActionAnalyze::ProjectStorage

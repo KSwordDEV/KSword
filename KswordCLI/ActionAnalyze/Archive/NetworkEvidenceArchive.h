@@ -79,6 +79,15 @@ enum class NetworkCaptureLayer { FlowMetadata, TransportPayload, IpPacket, LinkF
 enum class NetworkPayloadState { MetadataOnly, NoPayload, Complete, Truncated, Captured };
 enum class NetworkInlinePolicy { RequireInline, RetainPrefix };
 
+// 供离线展示区分实际材料与采集状态。Captured/Truncated 的线上状态允许保留零字节。
+enum class NetworkCommunicationEvidence {
+    MetadataOnly,      // 本条仅有端点、计数等流元数据。
+    ConfirmedEmpty,    // 在本记录的捕获层已确认原始长度为零。
+    RetainedBytes,     // 归档中有实际字节，是否完整使用 NetworkPayloadState 判断。
+    MissingBytes,      // 已声明截断或已知存在原始字节，归档保留为零。
+    UnknownPresence,   // 既无归档字节也无原始长度或截断证据。
+};
+
 struct NetworkCapturedBytes {
     NetworkCaptureLayer layer = NetworkCaptureLayer::FlowMetadata;
     std::optional<std::uint64_t> originalLength;
@@ -93,6 +102,9 @@ struct NetworkCaptureSummary {
     std::uint64_t producerCapturedLength = 0;
     std::uint32_t capturedLength = 0;
     bool sourceTruncated = false;
+
+    // 仅对已校验的捕获摘要使用。结果不使用 ETW observedBytes 等跨层计数。
+    NetworkCommunicationEvidence CommunicationEvidence() const noexcept;
 };
 
 enum class NetworkArchiveEnd : std::uint8_t { Stopped = 1, SourceUnavailable = 2, SourceFailed = 3 };
@@ -190,6 +202,27 @@ struct NetworkFlowRecordProjection {
 // 非网络流或格式不符返回 nullopt。保存投影前须复制仍需保留的 inlineBytes。
 std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const SegmentIdentity& segment,
     const DecodedRecord& record, const NetworkEvidenceBinding* verifiedBinding = nullptr);
+
+// Stored 读者也可以直接传入已经验证封装和 CRC 的原始记录，正文验证与上面入口相同。
+// 返回结果借用 record.payload，保存时使用下方拥有字节的投影或自行复制。
+std::optional<NetworkFlowRecordProjection> ProjectNetworkFlowRecord(const SegmentIdentity& segment,
+    const RecordView& record, const NetworkEvidenceBinding* verifiedBinding = nullptr);
+
+inline constexpr std::size_t kNetworkStoredPreviewBytes = 256; // 每行最多复制的通信正文前缀。
+
+struct NetworkStoredFlowPreview {
+    std::uint64_t segmentOrdinal = 0; // 原记录及数据偏移所属段。
+    NetworkArchivedFlow flow; // 保留记录序号、原捕获状态与完整的归档长度。
+    NetworkEvidenceBinding source; // 归档中的来源声明和同段项目/采样身份。
+    NetworkSourceTrust sourceTrust = NetworkSourceTrust::RecordedDeclaration;
+    std::optional<std::uint64_t> inlineFileOffset; // 有保留字节时，Stored v1 文件内的字节起点。
+    std::vector<std::uint8_t> bytes; // 拥有内容的有界预览，允许跨块回调保存。
+};
+
+// 从已通过封装验证的 codec=Stored 原始记录生成可存入 Light 结果行的投影。
+// 可选来源绑定须来自项目的独立核验。未识别或无效记录返回 nullopt。
+std::optional<NetworkStoredFlowPreview> PreviewStoredNetworkFlow(const SegmentIdentity& segment,
+    const RecordView& record, const NetworkEvidenceBinding* verifiedBinding = nullptr);
 
 struct NetworkArchiveRecovery {
     SegmentScanResult framing;

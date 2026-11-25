@@ -3,8 +3,10 @@
   <ItemGroup>
     <ClCompile Include="StoredEvidenceValidation.cpp" />
     <ClCompile Include="ProjectReplayValidation.cpp" />
+    <ClCompile Include="..\..\..\..\tools\action_analyze_validation\light\NetworkReplayValidation.cpp" />
     <ClCompile Include="..\StoredEvidence.cpp" />
     <ClCompile Include="..\ProjectReplay.cpp" />
+    <ClCompile Include="..\NetworkReplayPresentation.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp" />
@@ -12,6 +14,7 @@
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
+    <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
@@ -21,6 +24,7 @@
     <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\StoredEvidence.h" />
     <ClInclude Include="..\ProjectReplay.h" />
+    <ClInclude Include="..\NetworkReplayPresentation.h" />
     <ClInclude Include="..\..\..\..\shared\evidence\ArchivedEtwObservation.h" />
   </ItemGroup>
 </Project>

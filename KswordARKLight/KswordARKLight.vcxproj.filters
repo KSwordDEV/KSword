@@ -204,6 +204,9 @@
     <ClCompile Include="Features\ActionAnalyze\EvidenceTimeline.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\StoredEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\ProjectReplay.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\NetworkReplayPresentation.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\LiveCapture.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\NativeLiveSession.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -211,6 +214,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -616,6 +620,10 @@
       <Filter>Features\ActionAnalyze</Filter>
     </ClInclude>
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\NetworkReplayPresentation.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\LiveCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\NativeLiveSession.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h"><Filter>Shared Evidence</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ApiMonitorClue.h"><Filter>Shared Evidence</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\EvidenceJson.h">
@@ -1701,6 +1709,10 @@
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\monitor\PassiveEtwSource.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
+    <ClInclude Include="..\shared\usermode\backend\monitor\PassiveEtwSource.h"><Filter>Shared R3 Backend</Filter></ClInclude>
+    <ClInclude Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h"><Filter>Shared R3 Backend</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h">

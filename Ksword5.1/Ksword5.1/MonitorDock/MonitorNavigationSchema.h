@@ -18,7 +18,9 @@ namespace ks::monitor
     inline constexpr char ActionAnalyzeRootId[] = "monitor.action_analyze";
     inline constexpr char ActionAnalyzeOverviewId[] = "monitor.action_analyze.overview";
     inline constexpr char ActionAnalyzeSamplesId[] = "monitor.action_analyze.samples";
-    inline constexpr std::array<MonitorNavigationSpec, 12> MonitorNavigationSpecs{{
+    inline constexpr char ActionAnalyzeRulesId[] = "monitor.action_analyze.rules";
+    inline constexpr char ActionAnalyzeBreakpointsId[] = "monitor.action_analyze.breakpoints";
+    inline constexpr std::array<MonitorNavigationSpec, 14> MonitorNavigationSpecs{{
         {"process-trace", "", L"进程定向", "monitor.tab.process_trace", ":/Icon/process_main.svg", "process|trace", true},
         {"kernel-callback", "", L"内核回调", "monitor.tab.kernel_callback", ":/Icon/process_threads.svg", "kernelcallback|callback", false},
         {"direct-kernel-call", "", L"直接内核调用", "monitor.tab.direct_kernel_call", ":/Icon/process_threads.svg", "directkernelcall|syscall", false},
@@ -30,8 +32,10 @@ namespace ks::monitor
         {"ark-risk", "", L"ARK 风险中心", "monitor.tab.ark_risk_center", ":/Icon/process_critical.svg", "risk|ark-risk-center", false},
         {ActionAnalyzeRootId, "", L"行为分析", "monitor.tab.action_analyze", ":/Icon/process_details.svg",
             "actionanalyze|behavior|behaviour|analysis|trace|offline", false},
-        {ActionAnalyzeOverviewId, ActionAnalyzeRootId, L"总览", "monitor.tab.action_analyze.overview", "", "overview|events|evidence", true},
-        {ActionAnalyzeSamplesId, ActionAnalyzeRootId, L"项目与采样", "monitor.tab.action_analyze.samples", "", "project|sample|archive", false}
+        {ActionAnalyzeSamplesId, ActionAnalyzeRootId, L"项目与采样", "monitor.tab.action_analyze.samples", "", "project|sample|archive", true},
+        {ActionAnalyzeOverviewId, ActionAnalyzeRootId, L"总览", "monitor.tab.action_analyze.overview", "", "overview|events|evidence|scan", false},
+        {ActionAnalyzeRulesId, ActionAnalyzeRootId, L"行为规则", "monitor.tab.action_analyze.rules", "", "rule|editor", false},
+        {ActionAnalyzeBreakpointsId, ActionAnalyzeRootId, L"全局断点", "monitor.tab.action_analyze.breakpoints", "", "breakpoint|debug", false}
     }};
     inline const MonitorNavigationSpec* FindMonitorNavigationSpec(const QString& id)
     {

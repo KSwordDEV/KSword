@@ -19,7 +19,7 @@ public:
     void setVisible(const std::vector<std::size_t>& rows);
     void select(std::optional<std::size_t> record, bool reveal);
     bool includes(const EvidenceRecord& record) const;
-    bool hasCategories() const { return etwLane_.value_or(enabled_.size()) != 0; }
+    bool hasCategories() const { return categoryLaneCount_ != 0; }
     bool hasEtw() const { return etwLane_.has_value(); }
     bool chooseCategories(HWND anchor);
 
@@ -42,7 +42,9 @@ private:
     std::vector<std::uint16_t> categories_;
     std::vector<bool> enabled_;
     bool other_ = false;
+    std::size_t categoryLaneCount_ = 0; // 只包含规范事件的类别泳道。
     std::optional<std::size_t> etwLane_; // 原始 ETW 记录专用泳道，互不占用归档类别号。
+    std::optional<std::size_t> networkLane_; // 网络行独立排列，只用实际接收 QPC。
     int offset_ = 0;
     short wheelRemainder_ = 0;
 };

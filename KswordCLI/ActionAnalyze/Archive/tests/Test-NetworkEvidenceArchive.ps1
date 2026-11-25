@@ -46,7 +46,8 @@ try {
     $process.PriorityClass = $oldPriority
     $artifacts = @($sourceNames | ForEach-Object { "$(Split-Path -Leaf $_).obj" })
     $artifacts += 'EvidenceJson.obj', 'LosslessValue.obj', '00000000000000000001.ksaseg',
-        '00000000000000000002.ksaseg', '00000000000000000004.ksaseg', '00000000000000000005.ksaseg'
+        '00000000000000000002.ksaseg', '00000000000000000004.ksaseg', '00000000000000000005.ksaseg',
+        '00000000000000000006.ksaseg'
     foreach ($name in $artifacts) {
         $file = Join-Path $scratch $name
         if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file }

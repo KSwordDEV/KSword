@@ -29,6 +29,17 @@ namespace ks::action_analyze
         QByteArray preview; // 用于详情的有限十六进制预览输入。
     };
 
+    // 归档 API 只保留来源事实。报头 PID/TID 表示调用方，无法据此确定目标。
+    struct SegmentApiClue
+    {
+        QString api; // 原包中的精确导出名。
+        QString family; // 共用分类器返回的线索类别。
+        quint64 time = 0; // API Monitor 原始 FILETIME。
+        quint64 sourceSequence = 0; // 原始 events.jsonl 行号。
+        std::optional<quint64> callerCreation; // 源归档声明的调用方创建时间。
+        QByteArray preview; // 详情控件显示的有界原包预览。
+    };
+
     // 本端直接读取同一进程实例的计数差，缺失的 I/O 计数保持未知。
     struct LiveProcessObservation
     {
@@ -51,8 +62,9 @@ namespace ks::action_analyze
     // 表内数值来自已校验的段头、记录头或已理解的正文。
     struct SegmentRow
     {
-        quint64 sequence = 0; // 段内稳定记录身份。
+        quint64 sequence = 0; // 封装记录序号；项目多段回放中跨段连续。
         quint64 offset = 0; // 记录头在源文件中的字节位置。
+        quint64 segmentOrdinal = 0; // 归档行的源文件段号；实时行保持零。
         quint16 type = 0; // Stored 记录类型编号。
         quint16 version = 0; // 正文模式版本。
         bool decoded = false; // 是否存在可用的正文投影。
@@ -70,12 +82,14 @@ namespace ks::action_analyze
         std::optional<SegmentNetworkEvidence> network; // 已知网络记录的只读证据。
         std::optional<LiveEtwHeader> liveEtw; // 实时与归档共用的 ETW 事件头。
         std::optional<SegmentEtwPayload> archivedEtw; // 仅从已校验的原始段复制。
+        std::optional<SegmentApiClue> archivedApi; // 归档 API 线索及原事件坐标。
         std::optional<LiveProcessObservation> liveProcess; // 预设进程活动分析的区间观测。
+        std::optional<quint64> liveSourceSequence; // Qt 自写档保留的原观测序号，丢弃会形成间隔。
     };
 
     enum class SegmentEnd
     {
-        Complete,       // 到达只读文件的扫描边界。
+        Complete,       // 独立段或旧档读完；已提交项目回放到达经验证的终段。
         Unavailable,    // 文件无法读取。
         Truncated,      // 段尾不足以继续校验。
         Invalid,        // 封装或已支持正文损坏。
@@ -83,34 +97,42 @@ namespace ks::action_analyze
         PreviewLimit,   // 达到预览扫描配额。
         Canceled,       // 调用方取消，结果不可发布。
         WrongSample,    // 文件超出绑定项目或段头身份不匹配。
-        InvalidCheckpoint // 项目终态标记或所引用的证据无法验证。
+        InvalidCheckpoint, // 项目检查点或所引用的证据无法验证。
+        IncompleteSample // 仅有已验证的中间段，或连续采样首段尚未发布。
     };
 
-    // 项目入口明确区分旧档和已验证的终态。独立段没有项目检查点回执。
-    enum class SegmentCheckpoint { NotRequested, Unpublished, Verified };
+    // 双流检查点与 Qt 整个 raw 文件有各自的核验边界，采样终态以 SegmentEnd 为准。
+    enum class SegmentCheckpoint { NotRequested, Unpublished, Verified, Pending, QtRawVerified };
 
     struct SegmentSnapshot
     {
-        QString path; // 用户选择的独立文件路径。
+        QString path; // 独立文件路径，或项目回放的首段路径（用于稳定的重读身份）。
         QString projectId; // 段头记录的项目 UUID。
         QString sampleId; // 段头记录的采样 UUID。
-        quint64 ordinal = 0; // 段号，零表示无可用段头。
+        quint64 ordinal = 0; // 入口段号，零表示无已发布结果；项目回放有结果时固定为 1。
         quint32 stream = 0; // 段头中的流类型。
-        quint64 fileBytes = 0; // 文件起始大小。
-        quint64 prefixBytes = 0; // 已通过本预览支持检查的记录端点。
+        quint64 fileBytes = 0; // 最近已验证段的文件大小，独立段为该文件大小。
+        quint64 prefixBytes = 0; // 同段已验证的字节端点。
         quint64 failureOffset = 0; // 首个停止位置，单位字节。
         SegmentEnd end = SegmentEnd::Unavailable; // 扫描结束原因。
         SegmentCheckpoint checkpoint = SegmentCheckpoint::NotRequested; // 检查点读取结果。
         QList<SegmentRow> rows; // 正文可理解的行和明确标记的可选不透明记录。
-        bool live = false; // 同一总览中的未归档实时来源。
-        bool hasArchivedEtw = false; // 预览前缀中至少有一条可识别的 ETW 记录。
+        bool live = false; // 同一总览中的实时投影，与磁盘归档独立。
+        quint64 liveRevision = 0; // 本次实时来源累计接纳的记录数，滚动淘汰后仍递增。
+        bool hasArchivedEtw = false; // 当前行窗口中至少有一条可识别的归档 ETW 记录。
+        bool hasArchivedApi = false; // 已通过来源导入尾记及 Stored 封装校验。
+        quint64 lastVerifiedOrdinal = 0; // 项目回放的连续提交水位。
+        quint64 verifiedRows = 0; // 项目已验证的累计行数，含被最近窗口移出的行。
+        quint64 failedOrdinal = 0; // 本次无法验证的段号，零表示无坏段。
+        std::optional<quint64> qtArchiveDropped; // 只在 Qt 终止记录通过核验后公布归档队列丢弃数。
     };
 
     // 从已冻结的目录请求计算 raw/1 的规范路径，非法项目或采样标识返回空字符串。
     QString SampleRawSegmentPath(const SampleRequest& sample);
 
     // 工作线程按路径只读扫描 Stored 段，返回配额内的不可变证据投影。
-    // 可选目录请求校验冻结的项目、采样描述和终态检查点，再读取对应原始段。
+    // 可选目录请求校验冻结的项目、采样及连续检查点，仅保留最近窗口中的已验证行。
+    // maxProjectSegments 为零时读取整个已发布范围，否则到预算时返回经过验证的前缀。
     SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCanceled,
-        const SampleRequest* expected = nullptr);
+        const SampleRequest* expected = nullptr, quint64 maxProjectSegments = 0);
 }

@@ -1,6 +1,4 @@
 """通过正式 Qt 主程序验证自有进程的实时分析与停止回执。"""
-import ctypes
-from ctypes import wintypes
 import hashlib
 import json
 from pathlib import Path
@@ -11,7 +9,13 @@ import time
 ROOT = Path(__file__).resolve().parents[3]  # 仓库与正式 Release 的定位基准。
 RELEASE = ROOT / "Ksword5.1/x64/Release"
 SAMPLE = RELEASE / "ActionAnalyzeQtPreviewValidation.bin"  # 固定、自有进程的测试文件。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT / "tools/ksword_mcp"))
+from isolated_desktop import launch_gui, require_isolated_desktop, test_windows
+import win32con
+import win32gui
+import win32process
+from pywintypes import error as Win32Error
 from ksword_mcp.protocol import BridgeError
 from ksword_mcp.winpipe import BridgeClient
 
@@ -68,8 +72,8 @@ def unique(nodes, predicate):
     return matches[0]
 
 
-def open_overview(client):
-    """沿实际监控目录打开行为分析，返回总览控件查询函数。"""
+def open_workspace(client):
+    """沿实际监控目录打开行为分析，返回工作台控件查询函数。"""
     until(lambda: client.call("hello", {}), lambda reply: reply["status"] == "ok", timeout=35)
     pages = client.call("pages", {})["data"]["pages"]  # 只根据真实目录定位监控 Dock。
     monitor = unique(pages, lambda page: page["title"] in {"监控", "Monitor"})
@@ -94,6 +98,17 @@ def open_overview(client):
     def nodes():
         return snapshot(visible_page["id"])
 
+    active = until(nodes, lambda rows: any(node["visible"] and
+                   node["object_name"] == "action_analyze_tabs" for node in rows))
+    return nodes, active
+
+
+def open_overview(client):
+    """通过已登记的总览页进入现有观察控件，默认项目页无需变更。"""
+    nodes, workspace = open_workspace(client)
+    overview = unique(workspace, lambda node: node["object_name"] == "action_analyze_tabs")
+    index = next(i for i, title in enumerate(overview["tabs"]) if title in {"总览", "Overview"})
+    dispatch(client, "set_field", object_id=overview["id"], value=index, confirmed=True)
     active = until(nodes, lambda rows: any(node["visible"] and
                    node["object_name"] == "action_analyze_target_pid" for node in rows))
     print("NAVIGATION=Monitor/ActionAnalyze/Overview", flush=True)
@@ -191,21 +206,14 @@ def close_gui(gui):
     """只向测试子进程的顶层窗口请求关闭，失败时用原句柄收尾。"""
     if gui.poll() is not None:
         return
-    user = ctypes.WinDLL("user32", use_last_error=True)
-    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
-
-    @callback_type
-    def close_window(window, unused):
-        owner = wintypes.DWORD()  # 窗口必须属于真实测试子进程。
-        user.GetWindowThreadProcessId(window, ctypes.byref(owner))
-        if owner.value == gui.pid:
-            user.PostMessageW(window, 0x0010, 0, 0)
-        return True
-
-    user.EnumWindows(close_window, 0)
+    for window in test_windows():  # 只查看隔离桌面和本次产品 PID。
+        try:
+            if win32process.GetWindowThreadProcessId(window)[1] == gui.pid:
+                win32gui.PostMessage(window, win32con.WM_CLOSE, 0, 0)
+        except Win32Error as error:
+            # 主窗收到请求后可能同步销毁同一枚举列表中的辅助窗。
+            if error.winerror != 1400:
+                raise
     try:
         gui.wait(8)
     except subprocess.TimeoutExpired:
@@ -215,6 +223,7 @@ def close_gui(gui):
 
 def main():
     """使用正式目录的配置和程序，所有测试进程退出后逐字节恢复原配置。"""
+    require_isolated_desktop()
     exe = RELEASE / "Ksword5.1.exe"
     settings = RELEASE / "Style/appearance_settings.json"
     original = settings.read_bytes()  # 不创建配置备份副本，原字节随测试持有。
@@ -231,8 +240,7 @@ def main():
         settings.write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
         target = subprocess.Popen([sys.executable, "-B", __file__, "--sample"], stdin=subprocess.PIPE,
                                   creationflags=subprocess.CREATE_NO_WINDOW)
-        gui = subprocess.Popen([str(exe), "--mcp", "--mcp-no-auto-elevation"], cwd=RELEASE,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        gui = launch_gui([exe, "--mcp", "--mcp-no-auto-elevation"], cwd=RELEASE)
         with exe.open("rb") as image:
             print(f"GUI_PID={gui.pid} SHA256={hashlib.file_digest(image, 'sha256').hexdigest()}", flush=True)
         verify(BridgeClient(gui.pid), target.pid)

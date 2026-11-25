@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ArchivedSampleAnalysis.h"
 #include "OfflineProjectReader.h"
 #include <QWidget>
 
@@ -18,6 +19,8 @@ namespace ks::action_analyze
 {
     class SampleCatalogModel;
     class OfflineSegmentOverview;
+    class ActionAnalyzeBreakpointPage;
+    struct ToolbarActionEligibility;
 
     // Qt 行为追踪页。页面持有只读项目投影，不持有任何活动采样会话。
     class ActionAnalyzeWorkspace final : public QWidget
@@ -40,9 +43,10 @@ namespace ks::action_analyze
     private:
         // 构造项目目录页，返回页签直接持有的页面。
         QWidget* createProjectBrowser();
-        // 打开用户所选清单，或使用相同入口重试最近一次读取。
+        // 选择新项目目录，或选择现有清单。写入与目录回读共用项目任务。
+        void chooseNewProject();
         void chooseProject();
-        void openProject(const QString& path);
+        void openProject(const QString& path, bool create = false);
         void applyProject(const ProjectSnapshot& snapshot);
         // 根据当前目录行发起单个后台读；没有目录行时清空详情。
         void readSelectedSample();
@@ -50,9 +54,13 @@ namespace ks::action_analyze
         void updateSampleDocument();
         // 根据当前加载阶段、已发布项目和采样刷新工具与状态文字。
         void updateStatus();
+        // 返回目录当前选中归档的资格，点击和界面刷新使用同一判断。
+        ToolbarActionEligibility sampleArchiveEligibility() const;
 
         QTabWidget* m_tabs = nullptr; // 概览和项目采样目录的子导航。
+        QPushButton* m_create = nullptr; // 新建独立项目目录并打开。
         QPushButton* m_open = nullptr; // 显式选择项目清单。
+        QPushButton* m_newScan = nullptr; // 跳到当前项目的新一轮扫描参数。
         QPushButton* m_retry = nullptr; // 重读最近一次所选的项目清单。
         QPushButton* m_cancel = nullptr; // 取消当前项目读取并保留原目录。
         QPushButton* m_sampleRetry = nullptr; // 重读当前目录行，不依赖项目打开历史。
@@ -61,6 +69,7 @@ namespace ks::action_analyze
         QLabel* m_source = nullptr; // 已发布目录实际对应的项目与代次。
         QLabel* m_manifestPath = nullptr; // 只显示已发布清单路径。
         OfflineSegmentOverview* m_overview = nullptr; // 独立归档投影与当前项目身份对照。
+        ActionAnalyzeBreakpointPage* m_breakpoints = nullptr; // 同一工作台内保存项目定义的页面。
         QLabel* m_sessionStatus = nullptr; // 当前页面的真实会话状态。
         QTableView* m_samples = nullptr; // 项目已提交采样目录。
         SampleCatalogModel* m_catalog = nullptr; // 稳定样本身份的按需表模型。
@@ -73,9 +82,13 @@ namespace ks::action_analyze
         ReadProblem m_projectProblem; // 最近一次项目读取的独立回执。
         SampleSummary m_selected; // 详情请求冻结的采样目录行。
         SampleDetails m_sampleDetails; // 同一目录行最后一次验证成功的配置。
+        std::optional<ArchivedSampleAnalysis> m_sampleAnalysis; // 当前样本最后一次发布的只读分类。
+        std::optional<ArchivedSampleAnalysis> m_sampleAnalysisIssue; // 保留原分类时用于显示新读回的异常。
+        std::optional<SampleRequest> m_verifiedSample; // 最后一次成功读取使用的冻结目录身份。
         ReadProblem m_sampleProblem; // 当前采样最近一次读取的独立回执。
         bool m_hasVerifiedSample = false; // 目前保留的配置是否已通过读取验证。
         bool m_readingProject = false; // 项目请求尚未结束。
+        bool m_creatingProject = false; // 后台可能正在提交清单，此阶段不可取消写入。
         bool m_projectCanceled = false; // 用户取消了最近一次项目读取。
         bool m_readingSample = false; // 详情请求尚未结束。
     };

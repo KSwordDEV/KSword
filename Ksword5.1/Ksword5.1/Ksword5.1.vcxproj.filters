@@ -882,7 +882,12 @@
     <ClCompile Include="ActionAnalyze\ActionAnalyzeWorkspace.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ActionAnalyze\ActionAnalyzeBreakpointPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ArchivedSampleAnalysis.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\BehaviorRuleDraft.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\BehaviorRulesPage.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\LiveEtwCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\LiveSampleArchive.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\ObjectContextMenu.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -896,6 +901,8 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Live.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Toolbar.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ToolbarCapabilities.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Loading.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -939,6 +946,10 @@
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\AnalysisRun.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\FilterAst.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresets.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2854,7 +2865,15 @@
     <ClInclude Include="ActionAnalyze\ActionAnalyzeWorkspace.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ActionAnalyze\ActionAnalyzeBreakpointPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ArchivedSampleAnalysis.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\BehaviorRuleDraft.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\BehaviorRulesPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresets.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\LiveEtwCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\LiveSampleArchive.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ToolbarCapabilities.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ObjectContextMenu.h">
       <Filter>Header Files</Filter>
     </ClInclude>

@@ -474,7 +474,7 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
         next->durationMs = static_cast<unsigned>(duration);
         next->revisionHash = info->revisionHash;
         next->configSemanticHash = info->configSemanticHash;
-        if (const auto result = project.CreateSample(title, next->sample); !result)
+        if (const auto result = project.CreateSample(title, next->sample, revision); !result)
             return Reject("sample-create-failed", result.detail, 3, result.nativeError);
         state_ = std::move(next);
         state_->deadline = Clock::now() + std::chrono::milliseconds(duration);

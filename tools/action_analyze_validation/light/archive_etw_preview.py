@@ -14,6 +14,8 @@ import win32gui as gui
 import win32process
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'cli'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from isolated_desktop import launch_gui, require_isolated_desktop, test_windows
 from live_etw import RELEASE, run
 
 
@@ -25,16 +27,15 @@ SEND.restype = ctypes.c_ssize_t
 
 
 def windows(parent=None):
+    if parent is None:
+        return test_windows()
     handles = []
 
     def collect(hwnd, _):
         handles.append(hwnd)
         return True
 
-    if parent is None:
-        gui.EnumWindows(collect, None)
-    else:
-        gui.EnumChildWindows(parent, collect, None)
+    gui.EnumChildWindows(parent, collect, None)
     return handles
 
 
@@ -126,10 +127,14 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
 
 def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None):
     """用正式窗口打开指定项目段，核对 ETW 原样回放或 API 线索。"""
-    assert not any(gui.GetClassName(hwnd) == MAIN_CLASS for hwnd in windows()), 'Light is already running'
+    require_isolated_desktop()
+    # 测试桌面的窗口枚举无法发现其它桌面的实例，共用配置按真实进程检查。
+    existing = subprocess.run(['tasklist.exe', '/fi', 'IMAGENAME eq KswordARKLight.exe', '/fo', 'csv', '/nh'],
+                              capture_output=True, timeout=10, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    assert b'"kswordarklight.exe"' not in existing.stdout.lower(), 'Light is already running'
     binary = RELEASE / 'KswordARKLight.exe'
     saved_state = workspace_state()
-    process = subprocess.Popen([binary, '--no-auto-elevation'], cwd=RELEASE)
+    process = launch_gui([binary, '--no-auto-elevation'], cwd=RELEASE)
     main = None
 
     def owned_window(class_name, title=None):
@@ -167,7 +172,7 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
         def open_file(path=None):
             gui.PostMessage(open_button, con.BM_CLICK, 0, 0)
             try:
-                dialog = wait_for('Light file dialog', lambda: owned_window('#32770', '打开 ActionAnalyze 归档'))
+                dialog = wait_for('Light file dialog', lambda: owned_window('#32770', '打开 ActionAnalyze 工程'))
             except AssertionError as error:
                 captions = [(gui.GetClassName(hwnd), gui.GetWindowText(hwnd)) for hwnd in windows()
                             if win32process.GetWindowThreadProcessId(hwnd)[1] == process.pid and gui.IsWindowVisible(hwnd)]
@@ -206,7 +211,16 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
                         if text(samples, con.CB_GETLBTEXT, index).startswith(sample_id + ' · '))
         gui.SendMessage(samples, con.CB_SETCURSEL, selected, 0)
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
-        assert gui.IsWindowEnabled(replay) and item_count() == 0
+        assert gui.IsWindowEnabled(replay)
+        if api_window_total is None:
+            preview_status = wait_for('automatic sample preview', lambda: text(status)
+                                      if f'快速预览 · {sample_id}' in text(status) else '')
+            assert item_count() > 0 and sample_id in text(detail), preview_status
+            if api_rows is not None:
+                assert 'API 导入尾记已核验' in preview_status and item_count() == len(api_rows)
+            if etw_segments is not None:
+                assert '已核验首段' in preview_status and item_count() == int(etw_segments[0]['lastSequence'])
+            print(f'LIGHT_AUTOMATIC_SAMPLE_PREVIEW=PASS SAMPLE={sample_id} ROWS={item_count()}', flush=True)
         memory_before = win32process.GetProcessMemoryInfo(int(process._handle))  # 正式窗口待打开状态。
         started = time.perf_counter()  # 从点击回放起计算实际可见行等待时间。
         gui.SendMessage(replay, con.BM_CLICK, 0, 0)
@@ -287,15 +301,17 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
         open_file()
         assert item_count() == 14 and text(detail) == selected_text
         open_file(manifest)
-        wait_for('reopened sample chooser', lambda: gui.IsWindowVisible(samples))
+        wait_for('reopened sample chooser', lambda: gui.IsWindowVisible(samples) and gui.IsWindowEnabled(discard))
         assert item_count() == 14 and text(detail) == selected_text
         gui.SendMessage(discard, con.BM_CLICK, 0, 0)
-        assert not gui.IsWindowVisible(samples) and '已取消选择采样' in text(status)
+        # 取消只清除预览选择，工程目录和上一次完整回放仍可访问。
+        assert gui.IsWindowVisible(samples) and gui.SendMessage(samples, con.CB_GETCURSEL, 0, 0) == con.CB_ERR
+        assert not gui.IsWindowEnabled(replay) and '已取消选择采样' in text(status)
         assert item_count() == 14 and text(detail) == selected_text
 
         # Submit again so the retry control owns the sample rather than the catalog.
         open_file(manifest)
-        wait_for('sample chooser before retry cases', lambda: gui.IsWindowVisible(samples))
+        wait_for('sample chooser before retry cases', lambda: gui.IsWindowVisible(samples) and gui.IsWindowEnabled(samples))
         gui.SendMessage(samples, con.CB_SETCURSEL, selected, 0)
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
         gui.SendMessage(replay, con.BM_CLICK, 0, 0)
@@ -373,10 +389,32 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
 
 
 if __name__ == '__main__':
-    if sys.argv[1:] == ['--continuous']:
+    if sys.argv[1:] == ['--api']:
+        # 由正式 CLI 导入一份合成样本，再让两个桌面端回放同一个采样。
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'qt'))
+        from archive_api_preview import fixture_directory, import_fixture, test_window, verify_window
+
+        with fixture_directory() as directory:
+            manifest, segment, expected = import_fixture(directory)  # 当前夹具的项目、原始段和 CLI 回读期望。
+            with test_window() as client:
+                verify_window(client, manifest, segment, expected)
+            preview(segment, api_rows=expected)
+    elif sys.argv[1:] == ['--cross-client']:
+        # Qt 和 Light 在同一 CLI 项目仍存在时串行回放，避免同时操作窗口配置。
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'qt'))
+        from archive_etw_preview import preview_continuous
+        from continuous_etw import run as run_continuous
+
+        def preview_clients(segment, *, etw_segments):
+            """把同一个 CLI 首段和检查点回执交给两个正式桌面端。"""
+            preview_continuous(segment, etw_segments=etw_segments)
+            preview(segment, etw_segments=etw_segments)
+
+        run_continuous(inspect_gui=preview_clients)
+    elif sys.argv[1:] == ['--continuous']:
         from continuous_etw import run as run_continuous
         run_continuous(inspect_gui=preview)
     elif not sys.argv[1:]:
         run(inspect_gui=preview)
     else:
-        raise SystemExit('Usage: archive_etw_preview.py [--continuous]')
+        raise SystemExit('Usage: archive_etw_preview.py [--continuous|--cross-client|--api]')

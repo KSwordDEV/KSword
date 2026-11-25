@@ -1,18 +1,30 @@
 #include "LiveEtwCapture.h"
 #include "../UI/AsyncOperation.h"
 
-#include <chrono>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <algorithm>
+#include <iterator>
 #include <objbase.h>
 
 namespace ks::action_analyze
 {
 namespace
 {
-    using namespace std::chrono_literals;
-    constexpr qsizetype kLiveRows = 4096; // 与归档预览采用同一行数预算。
-    constexpr auto kDuration = 120s; // 有界采样，避免打开后忘记结束。
+    constexpr std::size_t kProcessRows = 120; // 保留最近约两分钟的活动区间，不限采集时长。
+    constexpr std::size_t kEtwRows = 4096 - kProcessRows; // 预览总预算与离线视图一致。
     constexpr quint64 kProcessIntervalMs = 1000; // 预设活动分析的最短区间。
-    constexpr qsizetype kEtwRows = kLiveRows - kDuration.count(); // 为每个活动区间预留一行。
+    constexpr quint64 kArchiveIntervalMs = 5000; // 周期刷盘，也限制常驻的段创建频率。
+    constexpr qsizetype kArchiveBatch = 256; // 单段最多含这些观察，收尾记录独立写入。
+    constexpr qsizetype kArchiveQueue = 4096; // 慢磁盘不阻塞 ETW 回调；队列满显式计数。
+
+    // 常驻采集仍使用共享投递门禁，但长时间等待不占用短任务的并发名额。
+    struct PoolCapacityLease
+    {
+        QThreadPool* pool = QThreadPool::globalInstance(); // 与 AsyncOperation 的实际派发池一致。
+        PoolCapacityLease() { pool->releaseThread(); }
+        ~PoolCapacityLease() { pool->reserveThread(); }
+    };
 
     // 把系统 FILETIME 作为无符号刻度读回，保持原始 100ns 精度。
     quint64 FileTicks(const FILETIME& value)
@@ -85,11 +97,11 @@ namespace
     }
 }
 
-LiveEtwCapture::LiveEtwCapture(QString project, quint32 pid, QUuid provider)
-    : m_pid(pid), m_provider(provider.isNull() ? QString() : provider.toString().toUpper())
+LiveEtwCapture::LiveEtwCapture(LiveArchiveProject project, quint32 pid, QUuid provider)
+    : m_pid(pid), m_provider(provider.isNull() ? QString() : provider.toString().toUpper()), m_project(std::move(project))
 {
-    // 已打开项目只作为采样上下文。此处没有写入项目目录。
-    m_snapshot.projectId = std::move(project);
+    // 无项目时只使用内存 UUID；正式项目登记后以磁盘采样身份为准。
+    m_snapshot.projectId = m_project.projectId;
     m_snapshot.sampleId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_snapshot.live = true;
     m_snapshot.end = SegmentEnd::Complete;
@@ -97,6 +109,7 @@ LiveEtwCapture::LiveEtwCapture(QString project, quint32 pid, QUuid provider)
 
 LiveEtwReceipt LiveEtwCapture::collect(const ks::ui::AsyncOperationToken& token)
 {
+    const PoolCapacityLease releaseCapacity; // 从实际执行线程释放共享池的计数名额，结束时成对恢复。
     // 打开指定对象并保留句柄，目标退出时结束采集，防止按同 PID 续采。
     const auto target = std::shared_ptr<TargetHandle>(new TargetHandle{
         OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, m_pid)}); // 回调保留同一实例句柄。
@@ -126,6 +139,28 @@ LiveEtwReceipt LiveEtwCapture::collect(const ks::ui::AsyncOperationToken& token)
         LiveEtwReceipt canceled; // 尚未启用来源，也没有待清退的原生会话。
         canceled.end = CaptureEnd::Requested;
         return canceled;
+    }
+
+    if (!m_project.manifest.isEmpty())
+    {
+        auto sample = m_writer.open(m_project, m_pid); // 目标资格核实后登记，返回提交身份。
+        const std::lock_guard lock(m_mutex); // 只发布值，不在锁内做磁盘 I/O。
+        if (!sample)
+        {
+            m_archive = m_writer.status();
+            LiveEtwReceipt failed;
+            failed.error = m_archive.error;
+            failed.archive = m_archive;
+            return failed;
+        }
+        m_snapshot.sampleId = sample->sample.id;
+        m_registeredSample = std::move(sample);
+        m_acceptArchive = true;
+    }
+    m_end = CaptureEnd::Requested;
+    if (token.isCanceled() || m_stop.load())
+    {
+        return recover(); // 已登记的采样需要独立的真实结束记录。
     }
     m_collecting.store(true);
     m_ready.store(true);
@@ -158,23 +193,23 @@ LiveEtwReceipt LiveEtwCapture::collect(const ks::ui::AsyncOperationToken& token)
             (void)m_controller.start(filter);
         }
     }
-    const auto deadline = std::chrono::steady_clock::now() + kDuration; // 不受系统时钟调整影响。
-    m_end = CaptureEnd::Requested;
+    quint64 lastArchive = GetTickCount64(); // 单调节拍，档案写入不会以预览容量为界。
     while (!token.isCanceled() && !m_stop.load())
     {
-        if (std::chrono::steady_clock::now() >= deadline)
-        {
-            m_end = CaptureEnd::TimeLimit;
-            break;
-        }
-        const auto wait = WaitForSingleObject(target->value, 25); // 保留目标退出和系统错误的区别。
+        const auto wait = WaitForSingleObject(target->value, 100); // 目标退出立即唤醒，停止请求最多等待一个周期。
         if (wait != WAIT_TIMEOUT)
         {
             m_end = wait == WAIT_OBJECT_0 ? CaptureEnd::TargetExited : CaptureEnd::ProcessError;
             m_processError = wait == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
             break;
         }
-        if (GetTickCount64() - previous.tickMs < kProcessIntervalMs)
+        const auto now = GetTickCount64(); // 同轮使用一份时间判断值。
+        if (now - lastArchive >= kArchiveIntervalMs)
+        {
+            flushArchive(false);
+            lastArchive = now;
+        }
+        if (now - previous.tickMs < kProcessIntervalMs)
         {
             continue;
         }
@@ -200,13 +235,7 @@ LiveEtwReceipt LiveEtwCapture::collect(const ks::ui::AsyncOperationToken& token)
 void LiveEtwCapture::appendProcess(const LiveProcessObservation& observation)
 {
     const std::lock_guard lock(m_mutex); // 序号与 ETW 消费回调共享。
-    if (m_snapshot.rows.size() >= kLiveRows)
-    {
-        ++m_omitted;
-        return;
-    }
     SegmentRow row; // 预设分析记录无 ETW 原始报头和归档偏移。
-    row.sequence = static_cast<quint64>(m_snapshot.rows.size()) + 1;
     row.pid = m_pid;
     row.liveProcess = observation;
     LARGE_INTEGER qpc{}; // 区间提交时使用同一个本机接收时钟。
@@ -214,7 +243,7 @@ void LiveEtwCapture::appendProcess(const LiveProcessObservation& observation)
     {
         row.receiveQpc = static_cast<quint64>(qpc.QuadPart);
     }
-    m_snapshot.rows.append(std::move(row));
+    appendRow(std::move(row), m_processRows, kProcessRows);
 }
 
 void LiveEtwCapture::append(const ks::r3::monitor::EtwEvent& event)
@@ -226,14 +255,8 @@ void LiveEtwCapture::append(const ks::r3::monitor::EtwEvent& event)
         return;
     }
     const std::lock_guard lock(m_mutex); // 写入和快照发布不能交叉修改列表。
-    if (m_etwRows >= kEtwRows)
-    {
-        ++m_omitted;
-        return;
-    }
     LARGE_INTEGER qpc{}; // 本端收到事件时的单调时钟。
     SegmentRow row; // 同一总览模型中的直接来源行。
-    row.sequence = static_cast<quint64>(m_snapshot.rows.size()) + 1;
     if (QueryPerformanceCounter(&qpc))
     {
         row.receiveQpc = static_cast<quint64>(qpc.QuadPart);
@@ -241,8 +264,116 @@ void LiveEtwCapture::append(const ks::r3::monitor::EtwEvent& event)
     row.pid = event.processId;
     row.tid = event.threadId;
     row.liveEtw = LiveEtwHeader{m_provider, event.timestamp, event.eventId, event.version, event.opcode};
-    m_snapshot.rows.append(std::move(row));
-    ++m_etwRows;
+    appendRow(std::move(row), m_etwRows, kEtwRows);
+}
+
+// 滚动淘汰只影响未来的视图快照；序号不复用，也不改变当前采集状态。
+void LiveEtwCapture::appendRow(SegmentRow row, std::deque<SegmentRow>& window, std::size_t limit)
+{
+    row.sequence = ++m_snapshot.liveRevision;
+    if (m_acceptArchive)
+    {
+        if (m_archiveQueue.size() < kArchiveQueue)
+        {
+            m_archiveQueue.append(row);
+        }
+        else
+        {
+            ++m_archive.dropped;
+        }
+    }
+    window.push_back(std::move(row));
+    if (window.size() > limit)
+    {
+        window.pop_front();
+        ++m_evicted;
+    }
+}
+
+// 从 GUI 回读归档状态值，互斥只覆盖短的队列交换和回执发布。
+LiveArchiveStatus LiveEtwCapture::archiveStatus() const
+{
+    const std::lock_guard lock(m_mutex); // 读取已发布状态。
+    return m_archive;
+}
+
+// 给目录刷新和工具条返回同一份冻结的采样身份。未登记时返回空值。
+std::optional<SampleRequest> LiveEtwCapture::registeredSample() const
+{
+    const std::lock_guard lock(m_mutex); // 采样身份冻结后的本地副本。
+    return m_registeredSample;
+}
+
+// 只回读当前采样 ID，供工具条区分临时窗口和其他采样的旧结果。
+QString LiveEtwCapture::sampleId() const
+{
+    const std::lock_guard lock(m_mutex); // 与项目登记时的身份切换串行。
+    return m_snapshot.sampleId;
+}
+
+// 收尾先排空已接纳的观察，只有原生停止成功后才写最终记录。
+void LiveEtwCapture::flushArchive(bool final)
+{
+    QList<SegmentRow> pending; // 此次交给磁盘线程的冻结队列。
+    quint64 dropped = 0; // 完成时实际归档队列丢失数。
+    quint64 observed = 0; // 全程实际接纳的预览观测数。
+    {
+        const std::lock_guard lock(m_mutex); // 交换队列后立即放开供消费者继续入队。
+        if (!m_acceptArchive)
+        {
+            return;
+        }
+        pending.swap(m_archiveQueue);
+        dropped = m_archive.dropped;
+        observed = m_snapshot.liveRevision;
+        if (final)
+        {
+            m_acceptArchive = false;
+        }
+    }
+
+    qsizetype next = 0; // 已确认的本批前缀；失败批次不纳入已确认。
+    while (next < pending.size())
+    {
+        const auto size = (std::min)(kArchiveBatch, pending.size() - next); // 有界段正文。
+        if (!m_writer.write(pending.mid(next, size)))
+        {
+            break;
+        }
+        next += size;
+    }
+    if (final && next == pending.size() && m_writer.status().error.isEmpty())
+    {
+        const auto native = m_controller.evidence(); // 终态只使用实际清退回执。
+        const auto reason = m_end == CaptureEnd::TargetExited ? QStringLiteral("target-exited")
+            : m_end == CaptureEnd::ProcessError ? QStringLiteral("process-error") : QStringLiteral("requested");
+        const auto end = QJsonDocument(QJsonObject{{QStringLiteral("kind"), QStringLiteral("qt-live-end-v1")},
+            {QStringLiteral("reason"), reason}, {QStringLiteral("observed"), QString::number(observed)},
+            {QStringLiteral("headerPid"), QString::number(m_pid)},
+            {QStringLiteral("creationFileTime"), QString::number(m_created)},
+            {QStringLiteral("provider"), m_provider.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m_provider)},
+            {QStringLiteral("archiveQueueDropped"), QString::number(dropped)},
+            {QStringLiteral("nativeTailUnconfirmed"), native.tailDeliveryUnconfirmed},
+            {QStringLiteral("eventsLost"), native.statisticsKnown ? QJsonValue(QString::number(native.eventsLost)) : QJsonValue(QJsonValue::Null)}})
+            .toJson(QJsonDocument::Compact).toStdString(); // 用正式封装写入终态元数据。
+        m_writer.write({}, end);
+    }
+    const auto& written = m_writer.status(); // 工作线程实际刷盘并回读的前缀。
+    const bool failed = !written.error.isEmpty(); // 失败后不跳写破损段之后的文件。
+    if (final || failed)
+    {
+        m_writer.close();
+    }
+    const std::lock_guard lock(m_mutex); // 向界面发布，保留同时增加的丢失数。
+    m_archive.verifiedSegments = written.verifiedSegments;
+    m_archive.finished = written.finished;
+    m_archive.error = written.error;
+    if (failed)
+    {
+        m_archive.dropped += static_cast<quint64>(pending.size() - next + m_archiveQueue.size());
+        m_archiveQueue.clear();
+        m_acceptArchive = false;
+    }
 }
 
 EtwCoverage LiveEtwCapture::coverage() const
@@ -262,20 +393,28 @@ EtwCoverage LiveEtwCapture::coverage() const
     return state.processAttempted ? EtwCoverage::Active : EtwCoverage::Starting;
 }
 
-std::optional<SegmentSnapshot> LiveEtwCapture::preview(const QString& displayedSample, qsizetype displayedRows) const
+std::optional<SegmentSnapshot> LiveEtwCapture::preview(const QString& displayedSample, quint64 displayedRevision,
+    bool keepExistingEvidence) const
 {
-    const std::lock_guard lock(m_mutex); // 返回共享的 Qt 值，不借用回调线程内存。
-    if (!m_ready.load() || (m_snapshot.rows.isEmpty() && displayedRows >= 0) ||
-        (displayedSample == m_snapshot.sampleId && displayedRows == m_snapshot.rows.size()))
+    const std::lock_guard lock(m_mutex); // 在同一修订复制两个窗口，不借用回调缓冲。
+    if (!m_ready.load() || (keepExistingEvidence && !m_snapshot.liveRevision) ||
+        (displayedSample == m_snapshot.sampleId && displayedRevision == m_snapshot.liveRevision))
     {
         return std::nullopt;
     }
-    return m_snapshot;
+    auto snapshot = m_snapshot; // 保留当时实际的项目、采样和累计修订。
+    snapshot.rows.reserve(static_cast<qsizetype>(m_processRows.size() + m_etwRows.size()));
+    std::merge(m_processRows.cbegin(), m_processRows.cend(), m_etwRows.cbegin(), m_etwRows.cend(),
+        std::back_inserter(snapshot.rows), [](const SegmentRow& left, const SegmentRow& right) {
+            return left.sequence < right.sequence;
+        });
+    return snapshot;
 }
 
 LiveEtwReceipt LiveEtwCapture::recover()
 {
     const bool stopped = m_controller.stopChecked(); // 原生所有者负责清退同一会话。
+    flushArchive(stopped);
     m_collecting.store(false);
     return receipt(stopped);
 }
@@ -293,7 +432,8 @@ LiveEtwReceipt LiveEtwCapture::receipt(bool stopped) const
         result.loss = state.eventsLost;
     }
     if (!m_provider.isEmpty() && (!state.startSucceeded || state.threadStartFailed || !state.processAttempted ||
-        state.callbackFailed || !stopped ||
+        state.callbackFailed || !stopped || state.tailDeliveryUnconfirmed ||
+        (!state.providers.empty() && state.providers.front().status != ERROR_SUCCESS) ||
         (state.processCompleted && state.processStatus != ERROR_SUCCESS && state.processStatus != ERROR_CANCELLED)))
     {
         // stopChecked 会更新普通状态，原生错误从结构回执读取。
@@ -308,8 +448,9 @@ LiveEtwReceipt LiveEtwCapture::receipt(bool stopped) const
         }
     }
     const std::lock_guard lock(m_mutex); // 同时返回最终的行预算回执。
-    result.omitted = m_omitted;
-    result.hasRows = !m_snapshot.rows.isEmpty();
+    result.evicted = m_evicted;
+    result.hasRows = m_snapshot.liveRevision != 0;
+    result.archive = m_archive;
     return result;
 }
 }

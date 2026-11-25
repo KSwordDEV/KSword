@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstring>
+#include <limits>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "ole32.lib")
@@ -464,20 +465,261 @@ bool IsNull(const JsonValue& object, std::string_view key) {
     return field && field->isNull();
 }
 
+namespace {
+
+// 定义文本先按 UTF-8 校验，再检查单行展示不应包含的控制和分隔字符。
+bool IsDefinitionText(std::string_view text, std::size_t limit) {
+    if (!IsText(text, limit) || text.front() == ' ' || text.back() == ' ') return false;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const auto byte = static_cast<unsigned char>(text[index]);
+        if (byte == 0x7f) return false;
+        if (byte == 0xc2 && index + 1 < text.size()) {
+            const auto next = static_cast<unsigned char>(text[index + 1]);
+            if (next >= 0x80 && next <= 0x9f) return false;
+        }
+    }
+    return text.find("\xe2\x80\xa8") == text.npos && text.find("\xe2\x80\xa9") == text.npos;
+}
+
+// 校验离线位置和模块标识，适用于草稿和存盘值。
+bool IsDefinitionBody(const BreakpointDefinition& row) {
+    const auto& module = row.module;
+    if (!IsDefinitionText(module.name, 255) || module.name.back() == '.' ||
+        module.name.find_first_of("/\\:*?\"<>|") != module.name.npos ||
+        (module.imageSha256 && !IsHash(*module.imageSha256))) return false;
+    if (std::holds_alternative<BreakpointRva>(row.location)) return true;
+    const auto* symbol = std::get_if<BreakpointSymbol>(&row.location);
+    return symbol && IsDefinitionText(symbol->symbol, 512) &&
+        (!symbol->pdb || (IsUuid(symbol->pdb->guid) && symbol->pdb->age != 0));
+}
+
+// 稳定比较模块标签的 ASCII 大小写，避免依赖宿主界面语言或 Unicode 映射。
+char FoldModuleAscii(char value) {
+    return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A')) : value;
+}
+
+bool SameLocation(const BreakpointDefinition& left, const BreakpointDefinition& right) {
+    const auto& a = left.module.name;
+    const auto& b = right.module.name;
+    return left.location == right.location && left.module.imageSha256 == right.module.imageSha256 &&
+        std::equal(a.begin(), a.end(), b.begin(), b.end(), [](char x, char y) {
+            return FoldModuleAscii(x) == FoldModuleAscii(y);
+        });
+}
+
+// 定义集合很小，逐项比较以避免再建一份规范定位键编码。
+bool HasLocation(const std::vector<BreakpointDefinition>& rows, const BreakpointDefinition& row) {
+    return std::any_of(rows.begin(), rows.end(), [&](const BreakpointDefinition& existing) {
+        return SameLocation(existing, row);
+    });
+}
+
+// 写入定义集合。所有对象键以字节顺序构造，字段校验排除了需特殊规范转义的 C0。
+JsonValue DefinitionLocationJson(const BreakpointDefinition& row) {
+    if (const auto* rva = std::get_if<BreakpointRva>(&row.location)) {
+        return Object({{"kind", Text("module-rva")}, {"rva", Number(rva->rva)}});
+    }
+    const auto& symbol = std::get<BreakpointSymbol>(row.location);
+    auto pdb = symbol.pdb ? Object({{"age", Number(symbol.pdb->age)}, {"guid", Text(symbol.pdb->guid)}})
+                          : JsonValue::makeNull();
+    return Object({{"kind", Text("module-symbol")}, {"pdb", std::move(pdb)}, {"symbol", Text(symbol.symbol)}});
+}
+
+JsonValue DefinitionsJson(const std::vector<BreakpointDefinition>& rows) {
+    JsonArray result;
+    result.reserve(rows.size());
+    for (const auto& row : rows) {
+        auto module = Object({{"imageSha256", row.module.imageSha256 ? Text(*row.module.imageSha256) : JsonValue::makeNull()},
+                              {"name", Text(row.module.name)}});
+        result.push_back(Object({{"breakpointDefinitionId", Text(row.breakpointDefinitionId)},
+            {"definitionRevision", Number(row.definitionRevision)}, {"enabled", JsonValue::makeBool(row.enabled)},
+            {"location", DefinitionLocationJson(row)}, {"module", std::move(module)}}));
+    }
+    return JsonValue::makeArray(std::move(result));
+}
+
+// 用现有十进制解析器读取后检查目标字段宽度。
+bool ReadU32(const JsonValue& doc, std::string_view key, std::uint32_t& out) {
+    std::uint64_t value = 0;
+    if (!GetNumber(doc, key, value) || value > std::numeric_limits<std::uint32_t>::max()) return false;
+    out = static_cast<std::uint32_t>(value);
+    return true;
+}
+
+// 读取唯一的定位分支，拒绝其它分支的字段和未知种类。
+bool ReadLocation(const JsonValue& doc, BreakpointDefinition& row) {
+    if (IsString(doc, "kind", "module-rva")) {
+        BreakpointRva rva;
+        if (!Fields(doc, {"kind", "rva"}) || !ReadU32(doc, "rva", rva.rva)) return false;
+        row.location = rva;
+        return true;
+    }
+    BreakpointSymbol symbol;
+    if (!IsString(doc, "kind", "module-symbol") || !Fields(doc, {"kind", "symbol", "pdb"}) ||
+        !GetString(doc, "symbol", symbol.symbol)) return false;
+    const auto& pdb = *doc.find("pdb");
+    if (!pdb.isNull()) {
+        BreakpointPdb identity;
+        if (!Fields(pdb, {"guid", "age"}) || !GetUuid(pdb, "guid", identity.guid) ||
+            !ReadU32(pdb, "age", identity.age) || identity.age == 0) return false;
+        symbol.pdb = std::move(identity);
+    }
+    row.location = std::move(symbol);
+    return true;
+}
+
+// 读取单条定义。草稿允许显式的新项标记，已存文件要求已分配的身份。
+bool ReadDefinition(const JsonValue& doc, BreakpointDefinition& row, bool draft) {
+    if (!Fields(doc, {"breakpointDefinitionId", "definitionRevision", "enabled", "module", "location"}) ||
+        !GetString(doc, "breakpointDefinitionId", row.breakpointDefinitionId) ||
+        !GetNumber(doc, "definitionRevision", row.definitionRevision) ||
+        !doc.find("enabled")->tryGetBool(row.enabled)) return false;
+    const bool newDraft = draft && row.breakpointDefinitionId.empty() && row.definitionRevision == 0; // 新项由写入器分配身份。
+    if (!newDraft && (!IsUuid(row.breakpointDefinitionId) || row.definitionRevision == 0)) {
+        return false;
+    }
+    const auto& module = *doc.find("module"); // 模块字段在两种配置形状中一致。
+    if (!Fields(module, {"name", "imageSha256"}) || !GetString(module, "name", row.module.name)) return false;
+    if (!IsNull(module, "imageSha256")) {
+        std::string hash; // 输入提供的可选映像散列。
+        if (!GetHash(module, "imageSha256", hash)) return false;
+        row.module.imageSha256 = std::move(hash);
+    }
+    return ReadLocation(*doc.find("location"), row) && IsDefinitionBody(row);
+}
+
+// 分配草稿行身份或比较其基准，已删除和来自别的修订的 ID 不可重新提交。
+ProjectResult PrepareDefinition(BreakpointDefinition& row, const std::vector<BreakpointDefinition>& base,
+                                const std::vector<BreakpointDefinition>& prepared) {
+    const auto hasId = [&](const std::vector<BreakpointDefinition>& rows) {
+        return std::find_if(rows.begin(), rows.end(), [&](const BreakpointDefinition& existing) {
+            return row.breakpointDefinitionId == existing.breakpointDefinitionId;
+        });
+    };
+    if (row.breakpointDefinitionId.empty()) {
+        if (row.definitionRevision) return Failure(ProjectError::InvalidArgument, "newBreakpointRevision");
+        if (auto result = NewId(row.breakpointDefinitionId); !result) return result;
+        if (!IsUuid(row.breakpointDefinitionId) || hasId(base) != base.end() || hasId(prepared) != prepared.end()) {
+            return Failure(ProjectError::IoError, "createBreakpointId");
+        }
+        row.definitionRevision = 1;
+        return {};
+    }
+
+    // 当前定义版本标记作为逐项基准，变化才递增持久修订。
+    const auto previous = hasId(base);
+    if (!IsUuid(row.breakpointDefinitionId) || previous == base.end() || hasId(prepared) != prepared.end()) {
+        return Failure(ProjectError::InvalidArgument, "breakpointDefinitionId");
+    }
+    if (row.definitionRevision != previous->definitionRevision) {
+        return Failure(ProjectError::StaleRevision, "breakpointDefinitionRevision");
+    }
+    if (row != *previous) {
+        if (row.definitionRevision == std::numeric_limits<std::uint64_t>::max()) {
+            return Failure(ProjectError::LimitExceeded, "breakpointDefinitionRevision");
+        }
+        ++row.definitionRevision;
+    }
+    return {};
+}
+
+} // namespace
+
 JsonValue Settings(const RevisionSettings& settings) {
-    return Object({{"title", Text(settings.title)}, {"notes", Text(settings.notes)}});
+    JsonObject fields{{"title", Text(settings.title)}, {"notes", Text(settings.notes)}};
+    if (settings.breakpointDefinitions) {
+        fields.emplace_back(kBreakpointDefinitionsKey, DefinitionsJson(*settings.breakpointDefinitions));
+    }
+    return Object(std::move(fields));
 }
 
 bool ParseSettings(const JsonValue& config, RevisionSettings& out) {
-    return Fields(config, {"title", "notes"}) && GetString(config, "title", out.title) &&
-        GetString(config, "notes", out.notes) && IsText(out.title, kMaxTitleBytes) &&
-        IsText(out.notes, kMaxNotesBytes, true);
+    return Fields(config, {"title", "notes"}) && ReadStoredSettings(config, out);
+}
+
+// 两种读取路径共用字段校验。磁盘读取额外要求有序、唯一的已提交集合。
+static bool ReadSettings(const JsonValue& config, RevisionSettings& out, bool draft) {
+    RevisionSettings settings; // 成功完成全部校验后才发布到 out。
+    const auto* field = config.find(kBreakpointDefinitionsKey); // 缺省字段表示旧配置。
+    const bool knownFields = field ? Fields(config, {"title", "notes", kBreakpointDefinitionsKey}) :
+                                     Fields(config, {"title", "notes"});
+    if (!knownFields || !GetString(config, "title", settings.title) || !GetString(config, "notes", settings.notes) ||
+        !IsText(settings.title, kMaxTitleBytes) || !IsText(settings.notes, kMaxNotesBytes, true)) return false;
+
+    // 空数组仍保留扩展格式。草稿的排序与基准校验由写入器在持锁期间完成。
+    if (field) {
+        const auto* array = field->asArray(); // 唯一允许的定义集合形状。
+        if (!array || array->size() > kProjectBreakpointLimit) return false;
+        auto& rows = settings.breakpointDefinitions.emplace(); // 已解码的定义集合。
+        rows.reserve(array->size());
+        for (const auto& value : *array) {
+            BreakpointDefinition row; // 当前输入项的离线字段。
+            if (!ReadDefinition(value, row, draft)) {
+                return false;
+            }
+            if (!draft && ((!rows.empty() && rows.back().breakpointDefinitionId >= row.breakpointDefinitionId) ||
+                HasLocation(rows, row))) {
+                return false;
+            }
+            rows.push_back(std::move(row));
+        }
+    }
+    out = std::move(settings);
+    return true;
+}
+
+bool ParseSettingsDraft(const JsonValue& config, RevisionSettings& out) {
+    return ReadSettings(config, out, true);
+}
+
+bool ReadStoredSettings(const JsonValue& config, RevisionSettings& out) {
+    return ReadSettings(config, out, false);
+}
+
+ProjectResult PrepareSettings(const RevisionSettings& draft, const RevisionSettings* base, RevisionSettings& out) {
+    if (!IsText(draft.title, kMaxTitleBytes) || !IsText(draft.notes, kMaxNotesBytes, true)) {
+        return Failure(ProjectError::InvalidArgument, "revisionSettings");
+    }
+    if (!draft.breakpointDefinitions) {
+        if (base && base->breakpointDefinitions) return Failure(ProjectError::InvalidArgument, "missingBreakpointDefinitions");
+        out = draft;
+        return {};
+    }
+    if (draft.breakpointDefinitions->size() > kProjectBreakpointLimit) {
+        return Failure(ProjectError::LimitExceeded, "breakpointDefinitionCount");
+    }
+
+    // 整批草稿规范化成功后才交给发布方，返回值总是按稳定 ID 排序。
+    const std::vector<BreakpointDefinition> empty;
+    const auto& previous = base && base->breakpointDefinitions ? *base->breakpointDefinitions : empty;
+    RevisionSettings settings{draft.title, draft.notes};
+    auto& rows = settings.breakpointDefinitions.emplace();
+    rows.reserve(draft.breakpointDefinitions->size());
+    for (const auto& proposed : *draft.breakpointDefinitions) {
+        if (!IsDefinitionBody(proposed) || HasLocation(rows, proposed)) {
+            return Failure(ProjectError::InvalidArgument, "breakpointLocation");
+        }
+        auto row = proposed;
+        if (auto result = PrepareDefinition(row, previous, rows); !result) return result;
+        rows.push_back(std::move(row));
+    }
+    std::sort(rows.begin(), rows.end(), [](const auto& left, const auto& right) {
+        return left.breakpointDefinitionId < right.breakpointDefinitionId;
+    });
+    out = std::move(settings);
+    return {};
 }
 
 ProjectResult ConfigHash(const RevisionSettings& settings, std::string& out) {
-    // aa-cjson-v1。离线配置固定两个键，按 UTF-8 字节序写入后再加域前缀。
+    // aa-cjson-v1。按已知键序写入。旧双字段对象保持原字节与原散列域。
     using namespace std::string_literals;
-    auto input = "KSAA\0cli-offline-config-v1\0{\"notes\":"s;
+    auto input = "KSAA\0cli-offline-config-v1\0{"s;
+    if (settings.breakpointDefinitions) {
+        input = "KSAA\0project-breakpoint-config-v1\0{\"breakpointDefinitions\":"s;
+        input += Evidence::WriteJson(DefinitionsJson(*settings.breakpointDefinitions));
+        input += ',';
+    }
+    input += "\"notes\":";
     CanonicalString(settings.notes, input);
     input += ",\"title\":";
     CanonicalString(settings.title, input);

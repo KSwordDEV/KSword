@@ -13,6 +13,7 @@ namespace {
 namespace Project = Ksword::ActionAnalyze;
 namespace Storage = Project::ProjectStorage;
 constexpr wchar_t kManifestName[] = L"project.ksaproj"; // 正式项目清单的固定名称。
+constexpr std::uint64_t kSelectionRawBytes = 16ULL * 1024 * 1024;
 
 // 将共享项目错误保留给桌面状态区，兼顾项目错误类型和具体失败步骤。
 std::string ReplayDiagnostic(const Project::ProjectResult& result) {
@@ -38,7 +39,7 @@ ProjectReplayEvidence ReplayFailure(const Project::ProjectResult& result) {
 
 // 通过固定目录句柄读取指定段。已发布段从同一文件句柄复核散列、身份和端点。
 SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const ProjectReplayRequest& request,
-    std::uint64_t ordinal, const Project::ProjectEtwCheckpoint* checkpoint) {
+    std::uint64_t ordinal, const Project::ProjectEtwCheckpoint* checkpoint, ProjectReplayMode mode) {
     const auto digits = std::to_wstring(ordinal); // 规范段文件名的十进制编号。
     const auto name = std::wstring(20 - digits.size(), L'0') + digits + L".ksaseg"; // 项目内固定文件名。
     Storage::Handle file; // 禁止其它句柄在本次读回期间写入或删除文件。
@@ -47,6 +48,17 @@ SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const Projec
     }
     const SegmentIdentity expected{request.projectId, request.sampleId, 1, ordinal}; // 正确的 raw 段头身份。
     if (!checkpoint) {
+        if (mode == ProjectReplayMode::SelectionPreview) {
+            LARGE_INTEGER size{};
+            if (!::GetFileSizeEx(file.get(), &size)) {
+                return ReplayFailure(Storage::WinFailure("replayRawSize", ::GetLastError())).raw;
+            }
+            if (static_cast<std::uint64_t>(size.QuadPart) > kSelectionRawBytes) {
+                SegmentEvidence limited;
+                limited.diagnostic = "replaySelectionLimit";
+                return limited;
+            }
+        }
         return ReadOpenStoredEvidence(file.get(), std::nullopt, &expected);
     }
 
@@ -67,9 +79,10 @@ SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const Projec
 }
 
 // 首标记不存在时允许旧段或有尾记的 API 段回放。持续计划等待首次发布。
-ProjectReplayEvidence ReadBeforeFirstCheckpoint(const Storage::Directory& directory, const ProjectReplayRequest& request) {
+ProjectReplayEvidence ReadBeforeFirstCheckpoint(const Storage::Directory& directory, const ProjectReplayRequest& request,
+    ProjectReplayMode mode) {
     ProjectReplayEvidence result; // 在项目回退与等待中只提交允许展示的内容。
-    result.raw = ReadRawSegment(directory, request, 1, nullptr);
+    result.raw = ReadRawSegment(directory, request, 1, nullptr, mode);
     if (result.raw.continuousEtwPlan) {
         result.raw = {};
         result.raw.diagnostic = "checkpointPending";
@@ -90,12 +103,14 @@ bool IsProjectReplayManifest(const std::wstring& path) {
 
 ProjectReplayCatalog ReadProjectReplayCatalog(const std::wstring& manifestPath) {
     ProjectReplayCatalog catalog; // 只在全部页面通过项目校验后交付选择数据。
+    catalog.manifestPath = manifestPath;
     Storage::Directory root; // 与后续文档打开同一已固定的项目根。
     Project::ProjectDocument project; // 后台线程独占的只读项目。
     auto status = PinProjectRoot(manifestPath, root); // 逐组件拒绝不安全路径。
     if (status) status = project.Open(manifestPath, Project::ProjectAccess::ReadOnly);
     if (status) {
         const auto& info = *project.Info(); // 此次目录所绑定的已提交项目代次。
+        catalog.projectId = info.projectId;
         catalog.recoveredPrevious = info.recoveredPrevious;
         catalog.choices.reserve(static_cast<std::size_t>(info.sampleCount));
         while (catalog.choices.size() < info.sampleCount) {
@@ -122,7 +137,25 @@ ProjectReplayCatalog ReadProjectReplayCatalog(const std::wstring& manifestPath) 
     return catalog;
 }
 
-ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request) {
+ProjectReplayCatalog CreateProjectReplayCatalog(const std::wstring& directory) {
+    ProjectReplayCatalog catalog;
+    const std::filesystem::path root(directory);
+    catalog.manifestPath = (root / kManifestName).wstring();
+    Project::ProjectDocument project;
+    const auto name = root.filename().u8string();
+    const std::string title(reinterpret_cast<const char*>(name.data()), name.size());
+    const auto status = root.is_absolute() ? project.Create(directory, {title, ""}) :
+        Storage::Failure(Project::ProjectError::InvalidArgument, "replayProjectPath");
+    if (status) {
+        catalog.projectId = project.Info()->projectId;
+    } else {
+        catalog.diagnostic = ReplayDiagnostic(status);
+        catalog.systemError = status.nativeError;
+    }
+    return catalog;
+}
+
+ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, ProjectReplayMode mode) {
     Storage::Directory root; // 固定清单所在的本地目录及祖先句柄。
     if (const auto status = PinProjectRoot(request.manifestPath, root); !status) return ReplayFailure(status);
     Project::ProjectDocument project; // 当前读取所绑定的已提交项目快照。
@@ -150,14 +183,14 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request) {
         Project::ProjectEtwCheckpoint checkpoint; // 本段已经双流校验的范围。
         auto status = project.ReadEtwCheckpoint(request.sampleId, checkpoint, ordinal);
         if (status.error == Project::ProjectError::NotFound && ordinal == 1) {
-            return ReadBeforeFirstCheckpoint(rawDirectory, request);
+            return ReadBeforeFirstCheckpoint(rawDirectory, request, mode);
         }
 
         // 读取失败时保留此前已确认的段，源文件位置始终属于各自的段。
         if (status && (lastSequence == UINT64_MAX || checkpoint.planRawSequence != lastSequence + 1)) {
             status = Storage::Failure(Project::ProjectError::Corrupt, "replayRawSequence");
         }
-        auto segment = status ? ReadRawSegment(rawDirectory, request, ordinal, &checkpoint) : ReplayFailure(status).raw;
+        auto segment = status ? ReadRawSegment(rawDirectory, request, ordinal, &checkpoint, mode) : ReplayFailure(status).raw;
         if (!segment.diagnostic.empty()) {
             result.checkpoint.state = status.error == Project::ProjectError::NotFound ? CheckpointState::Pending : CheckpointState::Partial;
             result.checkpoint.pendingOrdinal = ordinal;
@@ -180,6 +213,10 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request) {
         result.checkpoint.recordsEnd = checkpoint.records.end.byteOffset;
         if (checkpoint.finalSegment) {
             result.checkpoint.state = CheckpointState::Verified;
+            break;
+        }
+        if (mode == ProjectReplayMode::SelectionPreview) {
+            result.checkpoint.state = CheckpointState::PreviewLimited;
             break;
         }
     }

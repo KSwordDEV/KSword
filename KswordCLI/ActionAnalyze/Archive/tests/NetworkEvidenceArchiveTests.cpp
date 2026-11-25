@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <windows.h>
 
 namespace {
@@ -352,7 +353,114 @@ void PayloadBudget(const std::filesystem::path& scratch)
         "read back all accepted communication bytes through the common decoder");
     const auto recovered = a::ScanOpenNetworkEvidence(file.handle, scope, 5);
     Check(recovered.eof == a::NetworkArchiveEnd::Stopped && recovered.loss.queueDropped == 1 &&
-        recovered.checkedBytes == finished.writtenBytes, "readback preserves byte-budget loss and EOF");
+         recovered.checkedBytes == finished.writtenBytes, "readback preserves byte-budget loss and EOF");
+}
+
+// 使用现有写入器生成独立 Stored 段，直接测试 Light 将使用的 RecordView 入口。
+void StoredPreview(const std::filesystem::path& scratch)
+{
+    using Layer = a::NetworkCaptureLayer;
+    using Material = a::NetworkCommunicationEvidence;
+    constexpr std::uint64_t ordinal = 6; // 夹具专属的段号。
+    const auto scope = Binding(); // 测试所有者独立掌握的来源绑定。
+    a::NetworkEvidenceArchive writer(scratch, scope, ordinal, 12348);
+    auto flow = Flow(); // 合成文档地址，已报告的流量计数不代表保留字节。
+    flow.observedBytes = 400;
+    Check(writer.Submit(scope, flow) == NetworkSubmitStatus::Queued, "queue flow metadata with positive count");
+
+    // 覆盖三种没有内联字节的不同观测，另保留一个明示来源截断的反例。
+    Check(writer.Submit(scope, flow, {Layer::TransportPayload, 0, {}}) == NetworkSubmitStatus::Queued,
+        "queue confirmed empty communication");
+    Check(writer.Submit(scope, flow, {Layer::TransportPayload, std::nullopt, {}}) == NetworkSubmitStatus::Queued,
+        "queue zero retained bytes with unknown original length");
+    Check(writer.Submit(scope, flow, {Layer::IpPacket, 100, {}}) == NetworkSubmitStatus::Queued,
+        "queue no retained bytes with known original length");
+    Check(writer.Submit(scope, flow, {Layer::IpPacket, std::nullopt, {}, true}) == NetworkSubmitStatus::Queued,
+        "queue no retained bytes with explicit truncation");
+
+    // 用真实二进制覆盖 NUL、高位和界面预览截断，保留原始长度供回读核对。
+    std::array<std::uint8_t, a::kNetworkStoredPreviewBytes + 1> original{}; // 人工构造的通信字节。
+    std::copy(kKnownBytes.begin(), kKnownBytes.end(), original.begin());
+    original.back() = 0xbc;
+    flow.family = a::NetworkFamily::IPv6;
+    flow.sourceField.address = {};
+    flow.sourceField.address.back() = 1;
+    flow.destinationField.address = {0x20, 0x01, 0x0d, 0xb8};
+    flow.etw.reset();
+    Check(writer.Submit(scope, flow, {Layer::TransportPayload, original.size(), original}) == NetworkSubmitStatus::Queued,
+        "queue a binary capture larger than the visual preview");
+    Check(writer.ReportSourceLoss(scope, 3), "record source loss separately from flow evidence");
+    const auto finished = writer.Finish(a::NetworkArchiveEnd::Stopped); // 完整刷新后的夹具段。
+    Check(finished.eofFlushed, "flush Stored preview fixture");
+
+    const File file(Segment(scratch, ordinal)); // 整个夹具只读；不启动任何采集源。
+    std::vector<a::NetworkStoredFlowPreview> rows; // 模拟跨块回调保留的 Light 可见行。
+    std::string_view expectedTail(reinterpret_cast<const char*>(original.data()), original.size()); // 逐字节比对。
+    const auto scanned = a::ScanOpenSegment(file.handle, {finished.segment, std::nullopt, std::nullopt},
+        [&](const auto&, const auto& records) {
+            for (const auto& record : records) {
+                auto row = a::PreviewStoredNetworkFlow(finished.segment, record); // 借用当前块，返回拥有内存的值。
+                if (record.sequence > 6) {
+                    Check(!row, "loss and terminal records are not mislabeled as flows");
+                    continue;
+                }
+                Check(row && row->segmentOrdinal == ordinal && row->flow.recordSequence == record.sequence &&
+                    row->flow.recordOffset == record.offset && row->source.sourceEpoch == scope.sourceEpoch &&
+                    row->sourceTrust == a::NetworkSourceTrust::RecordedDeclaration,
+                    "owning preview preserves record anchor and declaration trust");
+                if (record.sequence == 6) {
+                    // 有效前缀和文件内偏移来自同一已校验记录。
+                    const auto raw = a::ProjectNetworkFlowRecord(finished.segment, record, &scope);
+                    Check(raw && raw->inlineBytes == expectedTail &&
+                        raw->sourceTrust == a::NetworkSourceTrust::MatchedVerifiedBinding &&
+                        row->inlineFileOffset == record.offset + a::kRecordHeaderBytes + raw->inlineOffsetInPayload,
+                        "shared RecordView projection preserves exact content and independent binding");
+
+                    // 不可信的调用声明和错误的正文范围均不得产生网络证据行。
+                    auto badBinding = scope; // 独立来源代次不匹配。
+                    ++badBinding.sourceEpoch[0];
+                    Check(!a::PreviewStoredNetworkFlow(finished.segment, record, &badBinding), "reject wrong source epoch");
+                    auto badRecord = record; // 模拟调用者交付缺少最后一个实际字节的正文。
+                    --badRecord.payloadBytes;
+                    Check(!a::PreviewStoredNetworkFlow(finished.segment, badRecord), "reject false retained extent");
+                    badRecord = record;
+                    badRecord.offset = (std::numeric_limits<std::uint64_t>::max)();
+                    Check(!a::PreviewStoredNetworkFlow(finished.segment, badRecord), "reject impossible physical anchor");
+                }
+                rows.push_back(std::move(*row));
+            }
+            return true;
+        });
+    Check(scanned.status == SegmentScanStatus::FramingComplete && rows.size() == 6, "scan only valid flow projections");
+
+    // 无内联字节时，文件锚点仅定位记录，不返回不存在的字节起点。
+    const std::array states{Material::MetadataOnly, Material::ConfirmedEmpty, Material::UnknownPresence,
+        Material::MissingBytes, Material::MissingBytes}; // 与写入序号逐项对应。
+    for (std::size_t index = 0; index < states.size(); ++index) {
+        const auto& row = rows[index]; // 已脱离块内存的回读行。
+        Check(row.flow.capture.CommunicationEvidence() == states[index] && row.bytes.empty() && !row.inlineFileOffset,
+            "zero retained extent preserves the reason bytes are absent");
+    }
+    const auto& captured = rows.back(); // 有实际字节，界面上限不改变归档完整性。
+    Check(captured.flow.capture.CommunicationEvidence() == Material::RetainedBytes &&
+        captured.flow.capture.state == a::NetworkPayloadState::Complete &&
+        captured.flow.capture.capturedLength == original.size() && captured.bytes.size() == a::kNetworkStoredPreviewBytes &&
+        std::equal(captured.bytes.begin(), captured.bytes.end(), original.begin()),
+        "owned preview retains exact binary prefix after scan returns");
+    Check(captured.flow.observation.family == a::NetworkFamily::IPv6 && !captured.flow.observation.etw &&
+        captured.flow.observation.sourceField.port == 0 && captured.flow.observation.OutboundDestination() &&
+        captured.flow.observation.OutboundDestination()->address == flow.destinationField.address,
+        "IPv6 endpoint, known-zero port, and absent ETW declaration survive projection");
+
+    // 独立从文件绝对锚点读取全部字节，核对界面收敛前缀与归档中的完整正文。
+    std::array<std::uint8_t, original.size()> archived{}; // 从文件读取的实际保留字节。
+    LARGE_INTEGER byteStart{}; // 文件内偏移已受 Stored 段上限约束。
+    byteStart.QuadPart = static_cast<LONGLONG>(captured.inlineFileOffset.value_or(0));
+    DWORD bytesRead = 0; // 原生读取的已交付字节数。
+    Check(captured.inlineFileOffset && SetFilePointerEx(file.handle, byteStart, nullptr, FILE_BEGIN) &&
+        ReadFile(file.handle, archived.data(), static_cast<DWORD>(archived.size()), &bytesRead, nullptr) &&
+        bytesRead == archived.size() && archived == original,
+        "physical byte anchor reopens the complete archived payload");
 }
 
 } // namespace
@@ -366,6 +474,7 @@ int wmain(int argc, wchar_t** argv)
         Recovery(scratch);
         Failure(scratch);
         PayloadBudget(scratch);
+        StoredPreview(scratch);
         std::cout << "PASS " << assertions << " network archive checks\n";
         return 0;
     } catch (const std::exception& error) {

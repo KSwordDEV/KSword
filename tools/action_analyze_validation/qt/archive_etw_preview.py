@@ -3,17 +3,64 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
-from live_preview import RELEASE, BridgeClient, close_gui, dispatch, open_overview, unique, until
+from live_preview import RELEASE, BridgeClient, close_gui, dispatch, open_overview, require_isolated_desktop, unique, until
+from isolated_desktop import launch_gui
+from archive_api_preview import open_project_sample, read_table, test_window
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from live_etw import run
 
 
+def preview_continuous(segment, *, etw_segments):
+    """接收 CLI 的首段和检查点回执，用正式 Qt 核对同一采样的终段和最后一条 ETW 坐标。"""
+    sample_id = segment.parents[1].name  # CLI 生成的真实采样标识。
+    manifest = segment.parents[3] / "project.ksaproj"  # 同一夹具内由 CLI 发布的目录。
+    total = int(etw_segments[-1]["lastSequence"])  # 包括每段首尾记录。
+    observations = sum(int(part["observationCount"]) for part in etw_segments)  # ETW 独立筛选预期。
+    with test_window() as client:
+        nodes = open_project_sample(client, manifest, sample_id, title="Owned file I/O")  # 沿真实目录按 UUID 打开。
+        table = unique(nodes(), lambda node: node["visible"] and node["class"] == "QTableView"
+                       and {"PID", "TID"} <= set(read_table(client, node)["headers"]))  # 回放记录表。
+        until(lambda: read_table(client, table), lambda model: model["row_total"] == total)
+        assert any(node["visible"] and f"已验证至第 {len(etw_segments)} 段。" in node["name"] for node in nodes())
+
+        # 用正式工具栏过滤 ETW，并读取该筛选下的末行。
+        etw = unique(nodes(), lambda node: node["visible"] and node["type"] == "button" and node["name"] == "ETW")
+        dispatch(client, "set_field", object_id=etw["id"], value=True, confirmed=True)
+        filtered = until(lambda: read_table(client, table), lambda model: model["row_total"] == observations)
+        dispatch(client, "select_row", object_id=table["id"], row=observations - 1,
+                 revision=filtered["revision"], confirmed=True)
+
+        def fields():
+            """回读可见归档详情，返回字段映射或空字典。"""
+            for view in nodes():  # 忽略主表及隐藏的字段模型。
+                if not view["visible"] or view["type"] != "item_view" or view["id"] == table["id"]:
+                    continue
+                rows = read_table(client, view)["rows"]  # 详情可直接展开或保留归档父节点。
+                for index, row in enumerate(rows):
+                    if row and row[0] == "归档记录":
+                        rows = read_table(client, view, [index])["rows"]
+                        break
+                values = {str(row[0]): str(row[1]) for row in rows if len(row) >= 2}  # 从正式字段模型取值。
+                if "ETW 来源代次" in values:
+                    return values
+            return {}
+
+        # 终段只有收尾元数据，最后一次观察在倒数第二段的尾记之前。
+        last_sequence = str(int(etw_segments[-2]["lastSequence"]) - 1)
+        selected = until(fields, lambda value: value.get("记录序号") == last_sequence)
+        assert selected["采样 ID"] == sample_id and selected["归档段号"] == str(len(etw_segments) - 1), selected
+        dispatch(client, "set_field", object_id=etw["id"], value=False, confirmed=True)
+        until(lambda: read_table(client, table), lambda model: model["row_total"] == total)
+        assert fields() == selected
+        print(f"QT_CONTINUOUS_ETW_REPLAY=PASS SAMPLE={sample_id} RAW={total} ETW={observations}", flush=True)
+
+
 def preview(segment, first_event):
     """只操作本次启动的 Qt 窗口，并恢复原有外观配置字节。"""
+    require_isolated_desktop()
     executable = RELEASE / "Ksword5.1.exe"
     settings = RELEASE / "Style/appearance_settings.json"
     assert not settings.is_symlink()
@@ -28,8 +75,7 @@ def preview(segment, first_event):
         settings.write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
         # 使用 Qt 窗口文件选择器，避免系统文件对话框跨进程可访问性差异。
         environment = dict(os.environ, QT_QPA_PLATFORM="windows:dialogs=none")
-        gui = subprocess.Popen([executable, "--mcp", "--mcp-no-auto-elevation"], cwd=RELEASE, env=environment,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        gui = launch_gui([executable, "--mcp", "--mcp-no-auto-elevation"], cwd=RELEASE, env=environment)
         client = BridgeClient(gui.pid)
         nodes, active = open_overview(client)
         def dialog():

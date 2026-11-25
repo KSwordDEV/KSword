@@ -310,8 +310,9 @@ Result Import(const Args& args)
     if (const auto open = document.Open(path, project::ProjectAccess::ReadWrite); !open) {
         return Failure(3, L"project-unavailable", 0, open.nativeError, {}, open.detail);
     }
+    const auto revision = document.Info()->revisionId; // 冻结本次明确打开并核验的写入项目修订。
     project::SampleInfo sample; // 项目服务分配的新采样身份。
-    if (const auto create = document.CreateSample(title, sample); !create) {
+    if (const auto create = document.CreateSample(title, sample, revision); !create) {
         return Failure(3, L"sample-create-failed", 0, create.nativeError, {}, create.detail);
     }
     archive::RawEvidenceReceipt receipt; // 同一写入器确认的刷盘边界。

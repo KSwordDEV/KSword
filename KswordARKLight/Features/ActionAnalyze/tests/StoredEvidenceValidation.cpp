@@ -13,6 +13,8 @@
 
 // 使用工程固定测试目录创建、验证并清理只含合成被动 ETW 记录的项目。
 void VerifyProjectReplay(const std::filesystem::path& testOutput);
+// 使用同一固定输出位置生成并清理合成网络段，核对 Light 读取和展示文本。
+void VerifyNetworkReplay(const std::filesystem::path& testOutput);
 
 namespace {
 
@@ -162,7 +164,7 @@ void VerifyLiveCliReadback(const std::wstring& path) {
         [&](const auto& choice) { return choice.request.sampleId == result.identity->sampleId; }); // 同一采样的冻结请求。
     Check(selected != catalog.choices.end(), "CLI sample present in Light project catalog");
     const auto replay = ReadProjectReplay(selected->request); // 使用生产项目回放入口。
-    Check(replay.checkpoint == CheckpointState::Verified && replay.recordsEnd > 0 && replay.raw.diagnostic.empty() &&
+    Check(replay.checkpoint.state == CheckpointState::Verified && replay.checkpoint.recordsEnd > 0 && replay.raw.diagnostic.empty() &&
         replay.raw.identity == result.identity && replay.raw.decodedPrefixBytes == result.decodedPrefixBytes &&
         replay.raw.rows.size() == result.rows.size(), "verified CLI checkpoint in Light");
     for (std::size_t index = 0; index < result.rows.size(); ++index) {
@@ -184,6 +186,10 @@ int wmain(int argc, wchar_t** argv) {
         }
         if (argc == 3 && std::wstring_view(argv[1]) == L"--project-fixture") {
             VerifyProjectReplay(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--network-fixture") {
+            VerifyNetworkReplay(argv[2]);
             return 0;
         }
         Check(argc == 2, "pass schemas/action_analyze/vectors/stored-v1.json");

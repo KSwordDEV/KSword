@@ -15,6 +15,7 @@ namespace {
 
 using Bytes = std::span<const std::uint8_t>;
 using namespace Ksword::Evidence;
+namespace Archive = ks::cli::action_analyze::archive;
 
 constexpr std::size_t kSegmentHeaderBytes = 96;
 constexpr std::size_t kBlockHeaderBytes = 80;
@@ -96,12 +97,37 @@ bool HasLeadingZero(std::string_view text) {
     return false;
 }
 
+// 把已通过 UTF-8 校验的正文转换成有界预览，保留原始 JSON 拼写。
+void AppendJsonPreview(Bytes bytes, std::wstring& preview) {
+    auto end = bytes.size(); // 显示的末端必须位于完整 UTF-8 字符边界。
+    if (end > kJsonPreviewBytes) {
+        end = kJsonPreviewBytes;
+        while ((bytes[end] & 0xc0) == 0x80) {
+            --end;
+        }
+    }
+    const auto* data = reinterpret_cast<const char*>(bytes.data()); // 已验证的 UTF-8 字节。
+    const auto length = static_cast<int>(end); // Win32 转码输入长度。
+    const int units = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, nullptr, 0);
+    std::wstring text(static_cast<std::size_t>(units), L'\0'); // 本次转码后的宽字符正文。
+    ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, text.data(), units);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == L'\n' && (i == 0 || text[i - 1] != L'\r')) {
+            preview += L'\r';
+        }
+        preview += text[i];
+    }
+    if (end < bytes.size()) {
+        preview += L"\r\n[JSON 预览截断]";
+    }
+}
+
 bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = nullptr,
     JsonValue* metadata = nullptr) {
     constexpr unsigned kMaxJson = 4 * 1024 * 1024;
     if (bytes.empty() || bytes.size() > kMaxJson) return false;
     const auto* data = reinterpret_cast<const char*>(bytes.data());
-    int length = static_cast<int>(bytes.size());
+    const int length = static_cast<int>(bytes.size());
     if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, nullptr, 0) == 0) return false;
     JsonLimits limits;
     limits.maxTotalBytes = kMaxJson;
@@ -132,22 +158,9 @@ bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = 
     if (metadata) {
         *metadata = std::move(parsed.value); // 将本次已校验的同一正文交给 ETW 投影。
     }
-    if (!preview) return true;
-
-    // Cut on a UTF-8 scalar boundary and keep the original spelling of the bytes.
-    if (bytes.size() > kJsonPreviewBytes) {
-        auto end = kJsonPreviewBytes;
-        while ((bytes[end] & 0xc0) == 0x80) --end;
-        length = static_cast<int>(end);
+    if (preview) {
+        AppendJsonPreview(bytes, *preview);
     }
-    const int units = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, nullptr, 0);
-    std::wstring text(static_cast<std::size_t>(units), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, text.data(), units);
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == L'\n' && (i == 0 || text[i - 1] != L'\r')) *preview += L'\r';
-        *preview += text[i];
-    }
-    if (static_cast<std::size_t>(length) < bytes.size()) *preview += L"\r\n[JSON 预览截断]";
     return true;
 }
 
@@ -167,7 +180,8 @@ std::wstring HexPreview(Bytes bytes) {
 
 // 解码一个已通过封装检查的记录，并按需要构造独立预览。
 std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream,
-    bool& apiImport, ApiMonitorClueReadback& api, bool& showRow, bool& continuousEtwPlan) {
+    const Archive::SegmentIdentity& identity, bool& apiImport, ApiMonitorClueReadback& api,
+    bool& showRow, bool& continuousEtwPlan) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
         if (apiImport) return "raw.apiImportRecord";
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
@@ -178,9 +192,9 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
         const auto jsonBytes = static_cast<std::size_t>(Little(payload, 0, 4));
         if (jsonBytes > payload.size() - 4) return "raw.length";
         std::wstring json;
-        JsonValue metadata; // 只解释可见原始行，API 导入则校验整段。
-        if (!ReadJsonObject(payload.subspan(4, jsonBytes), show ? &json : nullptr, nullptr,
-            rawStream && (show || apiImport || row.sequence == 1) ? &metadata : nullptr)) return "raw.json";
+        JsonValue metadata; // 识别 API、ETW 和网络记录的原始元数据。
+        const auto jsonData = payload.subspan(4, jsonBytes); // 已验证的归档 JSON 子范围。
+        if (!ReadJsonObject(jsonData, nullptr, nullptr, rawStream ? &metadata : nullptr)) return "raw.json";
         const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
         apiImport = apiImport || (rawStream && row.sequence == 1 && IsApiMonitorClueImport(metadata));
         if (rawStream && row.sequence == 1) {
@@ -207,6 +221,25 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
             }
             return {};
         }
+        if (rawStream) {
+            const auto* kind = metadata.find("kind"); // 只对声明为网络流的正文执行专用校验。
+            const auto* record = metadata.find("record"); // 丢失摘要与尾记保留普通原始行。
+            std::string kindName, recordName; // 来自同一条原始记录的两个类型字段。
+            if (kind && kind->tryGetString(kindName) && kindName == "ksword.actionAnalyze.network.v1" &&
+                record && record->tryGetString(recordName) && recordName == "flow") {
+                const Archive::RecordView view{row.type, row.schemaVersion, row.flags, row.sequence,
+                    row.offset, payload.data(), row.payloadBytes, true}; // 本条的封装、边界与 CRC 已通过。
+                if (!show) {
+                    return Archive::ProjectNetworkFlowRecord(identity, view) ? "" : "raw.networkFlow";
+                }
+                row.network = Archive::PreviewStoredNetworkFlow(identity, view);
+                if (!row.network) {
+                    return "raw.networkFlow";
+                }
+                row.receiveQpc = row.network->flow.observation.receiveQpc;
+                return {};
+            }
+        }
         if (show && rawStream) {
             row.etw = ReadArchivedEtwObservation(metadata, inlineData.size());
             if (row.etw) {
@@ -215,8 +248,11 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
                 row.receiveQpc = row.etw->receiveQpc;
             }
         }
-        if (show) row.preview = L"原始记录元数据（归档 JSON）\r\n" + json +
-            L"\r\n\r\n内联原始字节（" + std::to_wstring(inlineData.size()) + L" 字节）\r\n" + HexPreview(inlineData);
+        if (show) {
+            AppendJsonPreview(jsonData, json); // 保留普通原始行的原文拼写和有界字节显示。
+            row.preview = L"原始记录元数据（归档 JSON）\r\n" + json +
+                L"\r\n\r\n内联原始字节（" + std::to_wstring(inlineData.size()) + L" 字节）\r\n" + HexPreview(inlineData);
+        }
         return {};
     }
 
@@ -302,6 +338,10 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
         return out;
     }
     out.identity = identity;
+    Archive::SegmentIdentity archiveIdentity{static_cast<Archive::StreamKind>(identity.streamKind),
+        identity.ordinal}; // 使用同一已验证段头的 RFC 顺序身份，直接交给共用正文投影。
+    std::copy_n(header.begin() + 32, archiveIdentity.project.size(), archiveIdentity.project.begin());
+    std::copy_n(header.begin() + 48, archiveIdentity.sample.size(), archiveIdentity.sample.begin());
     out.createdUtc100ns = Little(header, 64, 8);
     out.framedBytes = out.decodedPrefixBytes = kSegmentHeaderBytes;
     std::optional<std::uint64_t> previousBlock, previousSequence;
@@ -374,7 +414,7 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             const bool show = firstDecodeError.empty() && decodeError.empty() &&
                 (keepLatest || apiImport || out.rows.size() + rows.size() < kEvidenceRows);
             bool showRow = show; // API 导入尾记不进入结果列表。
-            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, apiImport, api, showRow,
+            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, archiveIdentity, apiImport, api, showRow,
                 out.continuousEtwPlan);
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {

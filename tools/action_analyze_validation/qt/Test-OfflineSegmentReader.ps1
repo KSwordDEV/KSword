@@ -18,6 +18,7 @@ $intRoot = (Resolve-Path (Join-Path $repo 'Ksword5.1\Ksword5.1\x64\Release')).Pa
 $outRoot = (Resolve-Path (Join-Path $repo 'Ksword5.1\x64\Release')).Path
 $scratch = Join-Path $intRoot 'ActionAnalyzeOfflineSegmentReaderTests'
 $exe = Join-Path $outRoot 'ActionAnalyzeOfflineSegmentReaderTests.exe'
+$replayProject = Join-Path $scratch 'replay-project' # 默认用例独占且创建的项目目录。
 $tracked = git --no-optional-locks -C $repo ls-files -- 'Ksword5.1/Ksword5.1/x64/Release/ActionAnalyzeOfflineSegmentReaderTests' 'Ksword5.1/x64/Release/ActionAnalyzeOfflineSegmentReaderTests.exe'
 if ($LASTEXITCODE -ne 0 -or $tracked -or (Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $exe)) {
     throw 'Fixture paths must be free and untracked.'
@@ -32,6 +33,7 @@ $sources = @(
     (Join-Path $PSScriptRoot 'OfflineSegmentReaderTests.cpp'),
     'Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentReader.cpp',
     'Ksword5.1\Ksword5.1\ActionAnalyze\OfflineProjectReader.cpp',
+    'Ksword5.1\Ksword5.1\ActionAnalyze\LiveSampleArchive.cpp',
     # Qt 读取器用归档投影核对可识别的网络 RawRecord，链接同一组依赖。
     'KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp',
@@ -100,6 +102,14 @@ try {
     foreach ($name in $artifacts) {
         $path = Join-Path $scratch $name
         if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path }
+    }
+    # scratch 在运行之前已确认不存在且未被跟踪。仅删除用例实际创建的项目。
+    if (Test-Path -LiteralPath $replayProject -PathType Container) {
+        $actualProject = Get-Item -LiteralPath $replayProject -Force
+        if ($actualProject.FullName -cne $replayProject -or ($actualProject.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Fixture project cleanup path changed.'
+        }
+        Remove-Item -LiteralPath $actualProject.FullName -Recurse -Force
     }
     if (!(Get-ChildItem -LiteralPath $scratch -Force)) { Remove-Item -LiteralPath $scratch }
     if (Test-Path -LiteralPath $exe -PathType Leaf) { Remove-Item -LiteralPath $exe }

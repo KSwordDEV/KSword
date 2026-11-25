@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Core/Win32Lean.h"
+#include "../../../KswordCLI/ActionAnalyze/Archive/NetworkEvidenceArchive.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 
 #include <cstdint>
@@ -42,6 +43,7 @@ struct EvidenceRecord {
     std::uint16_t category = 0;
     std::uint32_t eventKind = 0;
     std::optional<Ksword::Evidence::ArchivedEtwObservation> etw; // 归档声明的 ETW 记录上下文。
+    std::optional<ks::cli::action_analyze::archive::NetworkStoredFlowPreview> network; // CRC 与正文均通过的网络流。
     std::wstring apiClue; // 已核验的归档 API 导出名，非空表示线索行。
     std::wstring apiFamily; // 共用分类器返回的线索类别。
     std::wstring preview;

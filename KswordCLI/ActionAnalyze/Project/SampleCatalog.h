@@ -28,7 +28,8 @@ private:
 
 ProjectResult PublishSample(const ProjectStorage::Directory& root, const ProjectInfo& project,
                             const SampleInfo& sample, std::string& sampleHash);
+// 已升级项目可同时读取旧快照与含定义的快照，旧清单只接受旧快照。
 ProjectResult ReadSampleRecord(const ProjectStorage::Directory& root, std::string_view projectId,
-                               const SampleInfo& expected, SampleRecord& out);
+                               const SampleInfo& expected, bool allowBreakpointDefinitions, SampleRecord& out);
 
 } // namespace Ksword::ActionAnalyze

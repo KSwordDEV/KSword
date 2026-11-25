@@ -1,4 +1,5 @@
 #include "OfflineSegmentOverview.h"
+#include "ArchivedSampleAnalysis.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
@@ -7,6 +8,7 @@
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QSignalBlocker>
+#include <algorithm>
 
 namespace ks::action_analyze
 {
@@ -20,15 +22,16 @@ void OfflineSegmentOverview::chooseSegment()
 }
 
 // 用目录的稳定 ID 构造首个 raw 段路径。最终文件身份由后台读取器核对。
-bool OfflineSegmentOverview::openSampleArchive(const SampleRequest& sample)
+bool OfflineSegmentOverview::openSampleArchive(const SampleRequest& sample, const SampleSensitiveClue* clue)
 {
-    return openSegment(SampleRawSegmentPath(sample), sample);
+    return openSegment(SampleRawSegmentPath(sample), sample, clue);
 }
 
 // 冻结路径与目录身份后交给后台。只有仍有效的请求可以切换证据来源。
-bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<SampleRequest> sample)
+bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<SampleRequest> sample,
+    const SampleSensitiveClue* clue)
 {
-    if (path.isEmpty() || m_liveBusy || m_liveRecovery)
+    if (path.isEmpty())
     {
         return false;
     }
@@ -41,19 +44,33 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
     m_lastSampleRequest = sample;
     m_reading = true;
     updateText();
-    m_read->submit<Request, SegmentSnapshot>({path, std::move(sample)},
+    const auto anchor = clue ? std::optional<SampleSensitiveClue>(*clue) : std::nullopt; // 不借用目录字段文档。
+    const auto accepted = m_read->submit<Request, SegmentSnapshot>({path, std::move(sample)}, // 实际读取任务代次，零表示未受理。
         [](const Request& requested, const ks::ui::AsyncOperationToken& token) {
             return ReadOfflineSegment(requested.path, [&token]() {
                 return token.isCanceled();
             }, requested.sample ? &*requested.sample : nullptr);
         },
-        [this](const SegmentSnapshot& segment, quint64 generation) {
+        [this, anchor](const SegmentSnapshot& segment, quint64 generation) {
             // 表格操作暂时锁定更新时，推迟结果并在提交时复查代次。
             const auto commit = ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("action_analyze_segment"),
-                {m_host}, [this, segment, generation]() {
+                {m_host}, [this, segment, generation, anchor]() {
                     if (m_read->isCurrent(generation))
                     {
                         publish(segment);
+                        // 同时核对采样、段、记录和原包分类坐标，避免跳到回读时已更新的行。
+                        if (anchor && m_latestPublished)
+                        {
+                            const auto row = std::find_if(segment.rows.cbegin(), segment.rows.cend(), [&](const SegmentRow& candidate) {
+                                return candidate.segmentOrdinal == anchor->segment && candidate.sequence == anchor->sequence &&
+                                    candidate.archivedApi && candidate.archivedApi->sourceSequence == anchor->sourceSequence &&
+                                    candidate.archivedApi->api == anchor->api;
+                            }); // 回放窗口中的同一条已核验观察。
+                            if (row != segment.rows.cend())
+                            {
+                                selectSequence(row->sequence, true);
+                            }
+                        }
                     }
                     m_read->completeDeferred(generation);
                 });
@@ -66,7 +83,11 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
         [this](std::exception_ptr) {
             publish({});
         });
-    return true;
+    if (!accepted)
+    {
+        publish({});
+    }
+    return accepted != 0;
 }
 
 // 取消按钮与异步门禁同步，已排队的旧提交不能改写视图。
@@ -87,6 +108,8 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
     m_reading = false;
     m_latestEnd = result.end;
     m_latestOffset = result.failureOffset;
+    m_latestVerifiedOrdinal = result.lastVerifiedOrdinal;
+    m_latestFailedOrdinal = result.failedOrdinal;
     // 重读同一文件失败时，旧结果保留原范围并附加本次失败回执。
     const bool keepComplete = m_snapshot && m_snapshot->path == result.path
         && m_snapshot->end == SegmentEnd::Complete && result.end != SegmentEnd::Complete;
@@ -98,6 +121,7 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
         return;
     }
 
+    m_livePreviewEnabled = false;
     setActiveSnapshot(result);
 }
 
@@ -112,6 +136,7 @@ void OfflineSegmentOverview::setActiveSnapshot(const SegmentSnapshot& result)
         const QSignalBlocker guard(m_keyword); // 新段重置关键字，不提交临时模型。
         m_keyword->clear();
         m_sequence.reset();
+        m_selectedLiveRow.reset();
         m_lower.reset();
         m_upper.reset();
         m_start->clear();

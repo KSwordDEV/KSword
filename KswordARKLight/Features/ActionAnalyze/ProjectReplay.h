@@ -21,11 +21,14 @@ struct ProjectReplayChoice {
 struct ProjectReplayCatalog {
     std::string diagnostic; // 空值表示已读到目录，包括成功的空目录。
     std::uint32_t systemError = 0; // 原生错误码（若有）。
+    std::wstring manifestPath;
+    std::string projectId; // 空目录也有可用的项目身份。
     bool recoveredPrevious = false; // 目录来自恢复的上一次项目提交。
     std::vector<ProjectReplayChoice> choices; // 仅含已提交的目录记录。
 };
 
-enum class CheckpointState { NotChecked, NotPublished, Pending, Partial, Verified };
+enum class CheckpointState { NotChecked, NotPublished, Pending, Partial, Verified, PreviewLimited };
+enum class ProjectReplayMode { Explicit, SelectionPreview };
 
 struct ReplayCheckpoint {
     CheckpointState state = CheckpointState::NotChecked; // 区分独立读取、等待、部分与终态。
@@ -43,7 +46,10 @@ struct ProjectReplayEvidence {
 bool IsProjectReplayManifest(const std::wstring& path);
 // 在后台读取已提交目录，返回供选择的值快照。
 ProjectReplayCatalog ReadProjectReplayCatalog(const std::wstring& manifestPath);
-// 在后台复核冻结请求和提交，再投影同一只读句柄中的 raw 字节。
-ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request);
+// 通过共享写入器在尚不存在的本地目录建立项目。
+ProjectReplayCatalog CreateProjectReplayCatalog(const std::wstring& directory);
+// 选择预览核对首段。显式回放继续核验后续已提交段。
+ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request,
+    ProjectReplayMode mode = ProjectReplayMode::Explicit);
 
 } // namespace Ksword::Features::ActionAnalyze

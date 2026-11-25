@@ -274,7 +274,7 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         if (const auto error = checkProject()) return {{}, {}, error};
         if (revision != info->revisionId) return FromError({ProjectError::StaleRevision, 0, "Project revision has changed"});
         SampleInfo sample;
-        const auto result = document_.CreateSample(title, sample);
+        const auto result = document_.CreateSample(title, sample, revision);
         if (!result) return FromError(result);
         const auto& saved = *document_.Info();
         return Success(SampleResult(saved, sample, saved.settings, saved.revisionHash, saved.configSemanticHash), true);

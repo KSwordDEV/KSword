@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace ks::cli::action_analyze::archive {
@@ -25,6 +26,9 @@ struct ProjectEtwCheckpoint;
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
+inline constexpr char kBreakpointDefinitionsFeature[] = "project-breakpoint-definitions-v1";
+inline constexpr char kBreakpointDefinitionsKey[] = "breakpointDefinitions"; // 项目配置和冻结快照共用的字段名。
+inline constexpr std::size_t kProjectBreakpointLimit = 64;
 inline constexpr std::uint64_t kProjectCatalogPageSize = 256;
 inline constexpr std::uint64_t kProjectSampleLimit = 4096;
 
@@ -46,9 +50,49 @@ const char* ProjectErrorName(ProjectError error) noexcept;
 
 enum class ProjectAccess { ReadOnly, ReadWrite };
 
+// 模块文件标签及可选的精确映像散列，均为离线输入值。
+struct BreakpointModule {
+    std::string name;
+    std::optional<std::string> imageSha256;
+    bool operator==(const BreakpointModule&) const = default;
+};
+
+// RSDS 标识与 age 一起标记符号所属 PDB。
+struct BreakpointPdb {
+    std::string guid;
+    std::uint32_t age = 0;
+    bool operator==(const BreakpointPdb&) const = default;
+};
+
+// 模块相对位置以 32 位 RVA 保存。
+struct BreakpointRva {
+    std::uint32_t rva = 0;
+    bool operator==(const BreakpointRva&) const = default;
+};
+
+// 精确符号文本及可选 PDB 标识。
+struct BreakpointSymbol {
+    std::string symbol;
+    std::optional<BreakpointPdb> pdb;
+    bool operator==(const BreakpointSymbol&) const = default;
+};
+
+// 草稿新项以空 ID 和修订 0 提交，已保存项携带当前稳定 ID 和逐项修订。
+struct BreakpointDefinition {
+    std::string breakpointDefinitionId;
+    std::uint64_t definitionRevision = 0;
+    bool enabled = true;
+    BreakpointModule module;
+    std::variant<BreakpointRva, BreakpointSymbol> location;
+    bool operator==(const BreakpointDefinition&) const = default;
+};
+
 struct RevisionSettings {
     std::string title;
     std::string notes;
+    // 缺省表示旧配置形状，空集合表示扩展配置中已明确清空。
+    std::optional<std::vector<BreakpointDefinition>> breakpointDefinitions = std::nullopt;
+    bool operator==(const RevisionSettings&) const = default;
 };
 
 struct ProjectInfo {
@@ -98,9 +142,10 @@ public:
     void Close() noexcept;
     const ProjectInfo* Info() const noexcept;
 
-    // 编辑端可传入草稿基于的修订 ID，避免晚到的保存覆盖当前修订。
+    // 保存完整草稿。扩展配置要求草稿基于的项目修订 ID。
     ProjectResult Save(const RevisionSettings& settings, std::string_view expectedRevisionId = {});
-    ProjectResult CreateSample(std::string_view title, SampleInfo& out);
+    // 冻结当前已提交配置。扩展配置要求本次采用的项目修订 ID。
+    ProjectResult CreateSample(std::string_view title, SampleInfo& out, std::string_view expectedRevisionId = {});
     // start 是当前 generation 内的零基序号。每次最多返回一页容量。
     ProjectResult ListSamples(std::uint64_t start, std::uint64_t limit,
                               std::vector<SampleInfo>& out) const;

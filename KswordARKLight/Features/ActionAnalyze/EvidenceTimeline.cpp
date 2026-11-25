@@ -42,6 +42,9 @@ std::wstring EvidenceTimeline::laneName(std::size_t lane) const {
     if (etwLane_ == lane) {
         return L"ETW";
     }
+    if (networkLane_ == lane) {
+        return L"网络";
+    }
     return lane < categories_.size() ? std::to_wstring(categories_[lane]) : L"其余";
 }
 
@@ -57,16 +60,23 @@ void EvidenceTimeline::replace(const std::vector<EvidenceRecord>& rows) {
     categories_.erase(std::unique(categories_.begin(), categories_.end()), categories_.end());
     other_ = categories_.size() > kNamedLanes;
     if (other_) categories_.resize(kNamedLanes);
-    enabled_.assign(categories_.size() + (other_ ? 1 : 0), true);
+    categoryLaneCount_ = categories_.size() + (other_ ? 1 : 0);
+    enabled_.assign(categoryLaneCount_, true);
     etwLane_.reset();
     if (std::any_of(rows.begin(), rows.end(), [](const auto& row) { return row.etw.has_value(); })) {
         etwLane_ = enabled_.size(); // ETW 泳道位于所有 CanonicalEvent 类别之后。
         enabled_.push_back(true);
     }
+    networkLane_.reset();
+    if (std::any_of(rows.begin(), rows.end(), [](const auto& row) { return row.network && row.receiveQpc; })) {
+        networkLane_ = enabled_.size(); // 源时间戳可能来自不同域，不能代替接收 QPC。
+        enabled_.push_back(true);
+    }
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const auto& row = rows[i];
-        if (row.receiveQpc && (row.etw || row.eventOrdinal)) {
-            points_.push_back({ *row.receiveQpc, i, row.etw ? *etwLane_ : laneFor(row.category) });
+        if (row.receiveQpc && (row.network || row.etw || row.eventOrdinal)) {
+            const auto lane = row.network ? *networkLane_ : row.etw ? *etwLane_ : laneFor(row.category);
+            points_.push_back({ *row.receiveQpc, i, lane });
         }
     }
     std::stable_sort(points_.begin(), points_.end(), [](const Point& a, const Point& b) { return a.ticks < b.ticks; });
@@ -78,7 +88,7 @@ bool EvidenceTimeline::includes(const EvidenceRecord& record) const {
 }
 
 bool EvidenceTimeline::chooseCategories(HWND anchor) {
-    const auto categoryCount = etwLane_.value_or(enabled_.size());
+    const auto categoryCount = categoryLaneCount_; // 不修改专用来源泳道。
     if (!categoryCount) return false;
     const HMENU menu = ::CreatePopupMenu();
     if (!menu) return false;

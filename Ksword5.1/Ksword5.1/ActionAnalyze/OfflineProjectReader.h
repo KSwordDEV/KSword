@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectDocument.h"
 #include <QList>
 #include <QString>
 #include <functional>
@@ -32,6 +33,7 @@ namespace ks::action_analyze
         QString revisionId;       // 清单指定的当前修订。
         quint64 generation = 0;   // 清单发布时的代次。
         QList<SampleSummary> samples; // 仅来自清单指定的采样目录页。
+        std::vector<Ksword::ActionAnalyze::BreakpointDefinition> breakpointDefinitions; // 当前已提交修订的定义，旧项目为空。
         ReadProblem problem;
     };
 
@@ -47,6 +49,7 @@ namespace ks::action_analyze
         QString configurationTitle; // 快照中冻结的标题。
         QString configurationNotes; // 快照中冻结的说明。
         QString configurationHash;  // 快照中记录的配置语义散列。
+        std::optional<qsizetype> breakpointCount; // 扩展快照冻结的定义数量，旧快照缺省。
         ReadProblem problem;
     };
 
@@ -54,6 +57,8 @@ namespace ks::action_analyze
 
     // 后台根据清单路径读取目录及采样摘要，返回带状态的只读值快照。
     ProjectSnapshot ReadProjectCatalog(const QString& manifestPath, const CancelCheck& isCanceled);
+    // 在尚不存在的本地目录提交新项目，再返回项目目录。已有目录不参与创建。
+    ProjectSnapshot CreateProjectCatalog(const QString& manifestPath, const CancelCheck& isCanceled);
     // 后台按冻结请求读取已选采样及配置；出错时不提交任何新详情。
     SampleDetails ReadSampleDetails(const SampleRequest& request, const CancelCheck& isCanceled);
 }

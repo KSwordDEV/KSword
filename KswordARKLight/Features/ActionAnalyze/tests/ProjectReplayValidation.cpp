@@ -2,8 +2,10 @@
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectRawEvidence.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
+#include "../../../../shared/evidence/ApiMonitorClue.h"
 
 #include <array>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -43,7 +45,8 @@ void WriteBytes(const fs::path& path, const std::string& bytes) {
 }
 
 // 用生产写入器生成三条 raw 记录与一条 Coverage，不采集真实进程。
-Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, const Project::SampleInfo& sample) {
+Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, const Project::SampleInfo& sample,
+    bool rotated = false) {
     using V = Ksword::Evidence::JsonValue;
     const auto projectId = project.Info()->projectId; // 当前测试项目 UUID。
     Project::SampleRecord checked; // 从生产目录回读的冻结配置。
@@ -53,7 +56,7 @@ Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, co
         {"revisionId", Text(sample.revisionId)}, {"snapshotId", Text(sample.snapshotId)},
         {"revisionHash", Text(checked.revisionHash)}, {"configSemanticHash", Text(checked.configSemanticHash)},
         {"providerId", Text(kProvider)}, {"sourceEpoch", Text(kSourceEpoch)}, {"headerPid", V::makeUInt(100)},
-        {"processCreationFileTime", Number(101)}})); // 序号 1，冻结目标和配置。
+        {"processCreationFileTime", Number(101)}, {"durationMs", V::makeUInt(rotated ? 0U : 100U)}}));
     const auto observation = Ksword::Evidence::WriteJson(Object({{"kind", Text("etw-observation-v1")},
         {"providerId", Text(kProvider)}, {"sourceEpoch", Text(kSourceEpoch)}, {"headerPid", V::makeUInt(100)},
         {"headerTid", V::makeUInt(200)}, {"descriptor", Object({{"id", V::makeUInt(1)},
@@ -62,7 +65,8 @@ Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, co
         {"storedPayloadBytes", Number(4)}, {"malformedPayload", V::makeBool(false)},
         {"receiveQpc", Number(30)}, {"qpcFrequencyHz", Number(10)}})); // 序号 2，已知内联原字节。
     const auto end = Ksword::Evidence::WriteJson(Object({{"kind", Text("etw-capture-end-v1")},
-        {"stopReason", Text("fixture")}, {"source", Object({{"sourceEpoch", Text(kSourceEpoch)},
+        {"stopReason", Text(rotated ? "segment-rotated" : "fixture")}, {"finalSegment", V::makeBool(!rotated)},
+        {"segmentObservations", Number(1)}, {"source", Object({{"sourceEpoch", Text(kSourceEpoch)},
             {"enqueued", Number(1)}, {"queued", Number(0)}, {"nativeSessionStopped", V::makeBool(true)},
             {"eventsLost", V::makeUInt(0)}, {"logBuffersLost", V::makeUInt(0)},
             {"realTimeBuffersLost", V::makeUInt(0)}, {"queueDropped", Number(0)},
@@ -86,14 +90,46 @@ Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, co
     return checkpoint;
 }
 
+void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& sample) {
+    namespace Evidence = Ksword::Evidence;
+    namespace Monitor = ks::winapi_monitor;
+    Monitor::ApiMonitorEventPacket packet{};
+    packet.size = sizeof(packet);
+    packet.version = Monitor::kProtocolVersion;
+    packet.eventKind = static_cast<std::uint32_t>(Monitor::EventKind::ApiCall);
+    packet.category = static_cast<std::uint32_t>(Monitor::EventCategory::Memory);
+    packet.pid = 100;
+    packet.tid = 200;
+    packet.sessionIdentity = 1;
+    wcscpy_s(packet.moduleName, L"kernelbase.dll");
+    wcscpy_s(packet.apiName, L"WriteProcessMemory");
+    const auto clue = Evidence::WriteJson(Object({{"kind", Text(Evidence::kApiMonitorClueRecord)},
+        {"sourceSequence", Number(3)}}));
+    const auto end = Evidence::WriteJson(Object({{"kind", Text(Evidence::kApiMonitorClueEnd)},
+        {"sourceRows", Number(4)}, {"clueRows", Number(1)}}));
+    const std::array inputs{Archive::RawEvidenceInput{clue, {reinterpret_cast<const char*>(&packet), sizeof(packet)}},
+        Archive::RawEvidenceInput{end, {}}};
+    Archive::RawEvidenceReceipt raw;
+    const auto written = project.WriteRawEvidenceSegment({project.Info()->projectId, sample.sampleId, 1, {}, [&](auto& writer) {
+        return writer.Append(inputs).result.status == Archive::SegmentWriteStatus::Ok ? Project::ProjectResult{} :
+            Failure(Project::ProjectError::IoError, "fixtureApiAppend");
+    }}, raw);
+    Check(written && raw.flushed.has_value(), "write fixture API import");
+}
+
 // 在不会覆盖已有输出的固定项目目录，验证 Light 同一生产入口的成功与失败情形。
 void Run(const fs::path& folder) {
     const auto root = folder / L"项目"; // 有界 Unicode 项目路径。
     const auto manifest = (root / L"project.ksaproj").wstring(); // 用户选择的文件身份。
+    const auto created = Light::CreateProjectReplayCatalog(root.wstring());
+    Check(created.diagnostic.empty() && !created.projectId.empty() && created.manifestPath == manifest && created.choices.empty(),
+        "create empty Unicode project through the Light adapter");
+    Check(!Light::CreateProjectReplayCatalog(root.wstring()).diagnostic.empty(), "create refuses an existing project directory");
     Project::ProjectDocument writer; // 仅用于准备这次自有测试数据。
-    Check(static_cast<bool>(writer.Create(root.wstring(), {"ETW fixture", ""})), "create fixture project");
+    Check(static_cast<bool>(writer.Open(manifest, Project::ProjectAccess::ReadWrite)), "open fixture project for collection");
     const auto emptyCatalog = Light::ReadProjectReplayCatalog(manifest);
-    Check(emptyCatalog.diagnostic.empty() && emptyCatalog.choices.empty(), "initial catalog empty");
+    Check(emptyCatalog.diagnostic.empty() && emptyCatalog.choices.empty() && emptyCatalog.projectId == created.projectId &&
+        emptyCatalog.manifestPath == manifest, "empty catalog carries project identity before the first sample");
     Project::SampleInfo sample; // 采样身份用于生成独立的 raw 和 records 路径。
     Project::SampleInfo other; // 名称相同的已登记采样，验证选择不能仅依赖标题。
     Check(writer.CreateSample("同名采样", sample) && writer.CreateSample("同名采样", other), "register two samples");
@@ -114,11 +150,16 @@ void Run(const fs::path& folder) {
     const auto marker = ReadBytes(markerPath);
 
     const auto initial = Light::ReadProjectReplay(request); // 同一文件散列后重新定位投影。
-    Check(initial.checkpoint == Light::CheckpointState::Verified && initial.raw.diagnostic.empty() &&
+    Check(initial.checkpoint.state == Light::CheckpointState::Verified && initial.raw.diagnostic.empty() &&
         initial.raw.rows.size() == 3 && initial.raw.decodedPrefixBytes == checkpoint.raw.end.byteOffset &&
-        initial.recordsEnd == checkpoint.records.end.byteOffset, "verified extent and row count");
+        initial.checkpoint.recordsEnd == checkpoint.records.end.byteOffset, "verified extent and row count");
     Check(initial.raw.rows[1].etw && initial.raw.rows[1].etw->sourceEpoch == kSourceEpoch &&
         initial.raw.rows[1].preview.find(L"00 ff 80 4b") != std::wstring::npos, "exact archived ETW bytes");
+    const auto previewMode = Light::ProjectReplayMode::SelectionPreview;
+    const auto initialPreview = Light::ReadProjectReplay(request, previewMode);
+    Check(initialPreview.checkpoint.state == Light::CheckpointState::Verified && initialPreview.raw.rows.size() == 3 &&
+        initialPreview.raw.rows[1].etw && initialPreview.raw.decodedPrefixBytes == checkpoint.raw.end.byteOffset,
+        "selection preview verifies a single terminal checkpoint");
     Check(ReadBytes(rawPath) == raw && ReadBytes(recordsPath) == records && ReadBytes(markerPath) == marker,
         "verified read leaves original files untouched");
 
@@ -126,7 +167,7 @@ void Run(const fs::path& folder) {
     WriteBytes(rawPath, raw + raw.substr(Archive::kSegmentHeaderBytes));
     WriteBytes(recordsPath, records + "torn");
     const auto tailed = Light::ReadProjectReplay(request); // 坏尾不影响已提交范围。
-    Check(tailed.checkpoint == Light::CheckpointState::Verified && tailed.raw.rows.size() == 3 &&
+    Check(tailed.checkpoint.state == Light::CheckpointState::Verified && tailed.raw.rows.size() == 3 &&
         tailed.raw.fileBytes > tailed.raw.decodedPrefixBytes, "both appended tails excluded");
     const auto standalone = Light::OpenStoredEvidence(rawPath.wstring()); // 旧单段入口仍按物理 EOF 判定坏尾。
     Check(standalone.rows.size() == 3 && !standalone.diagnostic.empty(), "single segment retains its diagnostic prefix");
@@ -136,7 +177,7 @@ void Run(const fs::path& folder) {
     // 有标记但依赖失败时结果不携带可发布行。
     const auto reject = [&] (std::string_view label) {
         const auto checked = Light::ReadProjectReplay(request); // 生产项目回放拒绝失败的提交。
-        Check(checked.checkpoint == Light::CheckpointState::NotChecked && !checked.raw.identity &&
+        Check(checked.checkpoint.lastVerifiedOrdinal == 0 && !checked.raw.identity &&
             checked.raw.rows.empty() && !checked.raw.diagnostic.empty(), label);
     };
     WriteBytes(recordsPath, records.substr(0, records.size() - 1));
@@ -172,12 +213,17 @@ void Run(const fs::path& folder) {
     // 只有真正缺少提交标记的自有项目才显示独立的旧 raw 预览状态。
     Check(fs::remove(markerPath), "remove fixture marker");
     const auto legacy = Light::ReadProjectReplay(request); // 原 raw 无改动，按旧档读取。
-    Check(legacy.checkpoint == Light::CheckpointState::NotPublished && legacy.raw.rows.size() == 3 &&
-        legacy.recordsEnd == 0, "legacy raw is visible without a durability claim");
+    Check(legacy.checkpoint.state == Light::CheckpointState::NotPublished && legacy.raw.rows.size() == 3 &&
+        legacy.checkpoint.recordsEnd == 0, "legacy raw is visible without a durability claim");
     WriteBytes(rawPath, raw + "broken");
     const auto legacyTail = Light::ReadProjectReplay(request); // 旧档只显示真实可用的诊断前缀。
-    Check(legacyTail.checkpoint == Light::CheckpointState::NotPublished && legacyTail.raw.rows.size() == 3 &&
+    Check(legacyTail.checkpoint.state == Light::CheckpointState::NotPublished && legacyTail.raw.rows.size() == 3 &&
         !legacyTail.raw.diagnostic.empty(), "legacy bad tail retains its verified prefix");
+    fs::resize_file(rawPath, 16ULL * 1024 * 1024 + 1);
+    const auto largePreview = Light::ReadProjectReplay(request, previewMode);
+    Check(!largePreview.raw.identity && largePreview.raw.rows.empty() && largePreview.raw.diagnostic == "replaySelectionLimit",
+        "selection preview bounds an uncheckpointed raw file before decoding");
+    Check(Light::ReadProjectReplay(request).raw.rows.size() == 3, "explicit replay still reads the available legacy prefix");
 
     // 旧档不能接收另一个采样的段，即使路径和文件名相同。
     const auto otherArchive = root / L"samples" / WideAscii(other.sampleId) / L"raw"; // 自有第二个采样。
@@ -187,7 +233,38 @@ void Run(const fs::path& folder) {
     Check(!wrong.raw.identity && wrong.raw.rows.empty() && wrong.raw.diagnostic == "segment.identity", "cross-sample legacy raw rejected");
     WriteBytes(rawPath, raw);
     WriteBytes(markerPath, marker);
-    Check(Light::ReadProjectReplay(request).checkpoint == Light::CheckpointState::Verified, "retry succeeds after fixture restoration");
+    Check(Light::ReadProjectReplay(request).checkpoint.state == Light::CheckpointState::Verified,
+        "retry succeeds after fixture restoration");
+
+    Check(static_cast<bool>(writer.Open(manifest, Project::ProjectAccess::ReadWrite)), "reopen for continuous fixture");
+    Project::SampleInfo rotating;
+    Check(static_cast<bool>(writer.CreateSample("continuous preview", rotating)), "register continuous fixture sample");
+    const auto rotated = WriteCapture(writer, rotating, true);
+    Check(!rotated.finalSegment, "fixture publishes a nonterminal checkpoint");
+    Project::SampleInfo imported;
+    Check(static_cast<bool>(writer.CreateSample("API preview", imported)), "register API fixture sample");
+    WriteApiClue(writer, imported);
+    writer.Close();
+
+    const Light::ProjectReplayRequest rotatingRequest{manifest, request.projectId, rotating.sampleId, rotating.descriptionHash};
+    const auto quick = Light::ReadProjectReplay(rotatingRequest, previewMode);
+    Check(quick.checkpoint.state == Light::CheckpointState::PreviewLimited && quick.checkpoint.lastVerifiedOrdinal == 1 &&
+        quick.checkpoint.pendingOrdinal == 0 && quick.raw.rows.size() == 3,
+        "selection preview stops at the first verified segment without investigating later markers");
+    const auto explicitReplay = Light::ReadProjectReplay(rotatingRequest);
+    Check(explicitReplay.checkpoint.state == Light::CheckpointState::Pending && explicitReplay.checkpoint.pendingOrdinal == 2 &&
+        explicitReplay.raw.rows.size() == 3, "explicit replay reads beyond the first segment and reports the pending marker");
+
+    const Light::ProjectReplayRequest apiRequest{manifest, request.projectId, imported.sampleId, imported.descriptionHash};
+    const auto api = Light::ReadProjectReplay(apiRequest, previewMode);
+    Check(api.checkpoint.state == Light::CheckpointState::NotPublished && api.raw.apiClues == 1 && api.raw.rows.size() == 1 &&
+        api.raw.rows[0].apiClue == L"WriteProcessMemory" && api.raw.rows[0].apiFamily == L"memory-write" &&
+        !api.raw.rows[0].targetObjectId && !api.raw.rows[0].eventOrdinal, "verified API family without inferred relations");
+    const auto apiPath = root / L"samples" / WideAscii(imported.sampleId) / L"raw" / kSegment;
+    fs::resize_file(apiPath, fs::file_size(apiPath) - 1);
+    const auto brokenApi = Light::ReadProjectReplay(apiRequest, previewMode);
+    Check(brokenApi.raw.rows.empty() && brokenApi.raw.apiClues == 0 && !brokenApi.raw.diagnostic.empty(),
+        "incomplete API import does not publish classifications");
 }
 
 } // namespace
@@ -206,5 +283,5 @@ void VerifyProjectReplay(const std::filesystem::path& testOutput) {
         throw;
     }
     Check(fs::remove_all(folder) > 0 && !fs::exists(folder), "clean fixture output");
-    std::cout << "PASS Light project replay: verified two-stream bounds, tail isolation, legacy raw, identity and retry\n";
+    std::cout << "PASS Light project replay: creation, preview bounds, API families, checked streams, identity and retry\n";
 }
