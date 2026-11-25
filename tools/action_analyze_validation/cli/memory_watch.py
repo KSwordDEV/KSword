@@ -15,6 +15,7 @@ import time
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "Ksword5.1/x64/Release/KswordCLI.exe"
 REPORT = ROOT / ".codex-build-logs/action-analyze-memory-watch-report.json"
+THREAD_REPORT = ROOT / ".codex-build-logs/action-analyze-memory-watch-threads-report.json"
 FILETIME_EPOCH = 116444736000000000
 
 
@@ -27,6 +28,8 @@ def target():
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.GetCurrentProcess.restype = wintypes.HANDLE
     kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel.GetCurrentThread.restype = wintypes.HANDLE
+    kernel.GetThreadTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
     kernel.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD]
     kernel.VirtualAlloc.restype = ctypes.c_void_p
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
@@ -37,6 +40,18 @@ def target():
     address = kernel.VirtualAlloc(None, 4096, 0x3000, 0x04)
     check(address, "VirtualAlloc failed")
     emit = lambda **obj: print(json.dumps(obj), flush=True)
+    worker = None
+    worker_done = threading.Event()
+    worker_identity = queue.Queue()
+
+    def wait_as_worker():
+        created, exited, kernel_used, user_used = [wintypes.FILETIME() for _ in range(4)]
+        known = kernel.GetThreadTimes(kernel.GetCurrentThread(), ctypes.byref(created), ctypes.byref(exited),
+                                      ctypes.byref(kernel_used), ctypes.byref(user_used))
+        creation_time = (created.dwHighDateTime << 32) | created.dwLowDateTime if known else 0
+        worker_identity.put((threading.get_native_id(), creation_time))
+        worker_done.wait(10)
+
     try:
         emit(address=hex(address), creation=(creation.dwHighDateTime << 32) | creation.dwLowDateTime)
         for op in sys.stdin:
@@ -48,11 +63,28 @@ def target():
                 prior = wintypes.DWORD()
                 check(kernel.VirtualProtect(address, 4096, 0x01, ctypes.byref(prior)), "VirtualProtect failed")
                 emit(operation="protect", previousProtection=prior.value)
+            elif op.strip() == "thread-start":
+                check(worker is None, "Worker already started")
+                worker = threading.Thread(target=wait_as_worker, daemon=True)
+                worker.start()
+                tid, created = worker_identity.get(timeout=5)
+                check(created, "Worker GetThreadTimes failed")
+                emit(operation="thread-start", tid=tid, creation=created)
+            elif op.strip() == "thread-end":
+                check(worker is not None and worker.is_alive(), "No live worker to join")
+                worker_done.set()
+                worker.join(timeout=5)
+                check(not worker.is_alive(), "Worker did not exit")
+                emit(operation="thread-end", tid=worker.native_id)
             elif op.strip() == "exit":
+                emit(operation="exit")
                 return
             else:
                 raise ValueError(op)
     finally:
+        if worker is not None:
+            worker_done.set()
+            worker.join(timeout=5)
         check(kernel.VirtualFree(address, 0, 0x8000), "VirtualFree failed")
 
 
@@ -82,7 +114,7 @@ def analyze(cli_args, action=None):
                 proc.kill()
 
 
-def validate(report, proc, messages):
+def validate(report, proc, messages, threads_only):
     seed = read_record(messages)
     report["sample"] = {"pid": proc.pid, **seed}
 
@@ -116,6 +148,37 @@ def validate(report, proc, messages):
     mismatch = capture("wrongCreationTime", 3, commands(creation=seed["creation"] + 1))
     check(int(mismatch["readSamples"]) == 0 and mismatch["win32Error"] == 87, "Wrong identity was not rejected")
 
+    if threads_only:
+        check(mismatch["observations"] == [] and mismatch["threadObservation"]["targetStatus"] == "identity-mismatch",
+              "Wrong process generation produced observations")
+
+        def exercise_worker():
+            operation("thread-start")
+            time.sleep(1)
+            operation("thread-end")
+
+        threaded = capture("startedAndExitedThread", 0, commands(samples=32, interval=125), action=exercise_worker)
+        rows = threaded["observations"]
+        check(len(rows) == 32 and threaded["threadObservation"]["targetStatus"] == "alive", "Missing full owned capture")
+        check(all(row["threadObservation"]["snapshotStatus"] == "complete" for row in rows), "Incomplete thread snapshot")
+        check(all(int(row["difference"]["changedByteCount"]) == 0 for row in rows[1:]), "Worker changed sampled bytes")
+        worker_key = report["sample"]["thread-start"]
+        observed = [(row["ordinal"], event) for row in rows for event in row["threadObservation"]["events"]
+                    if event["tid"] == worker_key["tid"] and event["creationTime100ns"] is not None and
+                    int(event["creationTime100ns"]) == worker_key["creation"]]
+        check([event["status"] for _, event in observed] == ["newly-observed", "exited"],
+              f"Unexpected worker observations: {observed}")
+        first, last = (index for index, _ in observed)
+        baseline_time = int(rows[0]["threadObservation"]["snapshotEndUtc100ns"])
+        first_seen_time = int(rows[first]["threadObservation"]["snapshotEndUtc100ns"])
+        check(0 < first < last and baseline_time < worker_key["creation"] <= first_seen_time,
+              "Independent worker creation time is outside the observed interval")
+
+        exited = capture("targetExited", 6, commands(samples=32, interval=125), action=lambda: operation("exit"))
+        check(exited["threadObservation"]["targetStatus"] == "exited" and not exited["complete"] and
+              0 < int(exited["readSamples"]) < 32, "Target exit did not preserve the sampled prefix")
+        return
+
     change = capture("changed", 0, commands(samples=24, interval=125), action=lambda: operation("write"))
     rows = change["observations"]
     diffs = [i for i, row in enumerate(rows) if row["difference"] and int(row["difference"]["changedByteCount"])]
@@ -134,9 +197,10 @@ def validate(report, proc, messages):
           "Unreadable mapping did not preserve the verified prefix")
 
 
-def main():
+def main(threads_only=False):
     report = {"cli": str(CLI), "sha256": hashlib.sha256(CLI.read_bytes()).hexdigest(), "passed": False}
-    REPORT.parent.mkdir(exist_ok=True)
+    report_path = THREAD_REPORT if threads_only else REPORT
+    report_path.parent.mkdir(exist_ok=True)
     try:
         with subprocess.Popen([sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--target"],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8") as proc:
@@ -144,9 +208,10 @@ def main():
             reader = threading.Thread(target=read_records, args=(proc.stdout, messages), daemon=True)
             reader.start()
             try:
-                validate(report, proc, messages)
-                proc.stdin.write("exit\n")
-                proc.stdin.flush()
+                validate(report, proc, messages, threads_only)
+                if not threads_only:
+                    proc.stdin.write("exit\n")
+                    proc.stdin.flush()
                 check(proc.wait(timeout=10) == 0, "Sample did not cleanly release its buffer and exit")
                 report["passed"] = True
             finally:
@@ -156,13 +221,18 @@ def main():
                 report["sampleExitCode"] = proc.returncode
                 reader.join(timeout=2)
     finally:
-        REPORT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        print(REPORT)
-    print("PASS bounded R3 memory observations: unchanged, identity mismatch, exact ranges, unreadable mapping prefix")
+        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(report_path)
+    if threads_only:
+        print("PASS bounded R3 thread observations: process identity, worker observed/exited, unchanged bytes, process exit prefix")
+    else:
+        print("PASS bounded R3 memory observations: unchanged, identity mismatch, exact ranges, unreadable mapping prefix")
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--target"]:
         target()
+    elif sys.argv[1:] == ["--threads-only"]:
+        main(threads_only=True)
     else:
         main()
