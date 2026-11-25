@@ -46,9 +46,11 @@
   <ItemGroup>
     <ClCompile Include="PassiveApiArchiveValidation.cpp" />
     <ClCompile Include="..\..\..\shared\evidence\PassiveApiArchiveTail.cpp" />
+    <ClCompile Include="..\..\..\shared\evidence\PassiveApiSourceDiagnosis.cpp" />
     <ClCompile Include="..\..\..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\..\..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\..\..\shared\evidence\PassiveApiArchiveTail.h" />
+    <ClInclude Include="..\..\..\shared\evidence\PassiveApiSourceDiagnosis.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="PrintTestBuildPaths" BeforeTargets="ClCompile">

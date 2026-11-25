@@ -1,4 +1,5 @@
 #include "../../../shared/evidence/PassiveApiArchiveTail.h"
+#include "../../../shared/evidence/PassiveApiSourceDiagnosis.h"
 
 #include <cstdio>
 #include <stdexcept>
@@ -280,6 +281,75 @@ void TestEmptyReceipt(const wchar_t* path, Evidence::PassiveApiSource source)
     Check(tail.Poll().empty() && tail.Status().state == State::Sealed, "seal confirmed empty archive");
     Check(tail.Status().validatedRows == 0 && !tail.Status().reportedAgentDrops, "empty archive has unknown coverage");
 }
+
+// 读取诊断对象中的固定文本项。缺失、类型错误和值错误都让调用方的判据失败。
+bool HasText(const Json& report, std::string_view key, std::string_view expected)
+{
+    const auto* field = report.find(key); // 由当前快照持有的诊断字段。
+    std::string actual; // 不把 null 或数值转成文本。
+    return field && field->tryGetString(actual) && actual == expected;
+}
+
+// 用自有文件和生产格式的合成通知验诊断。生产方连接始终由独立来源确认。
+void TestDiagnosis(const wchar_t* path, Evidence::PassiveApiSource source)
+{
+    FixtureFile file(path); // 本用例独占的追加文件。
+    Tail tail; // 使用生产尾读器校验归档行和身份。
+    Evidence::PassiveApiSourceDiagnosis diagnosis; // 只消费已核验行。
+    file.Attach(tail, source);
+    Check(HasText(diagnosis.Report(tail.Status(), false), "input", "awaiting-first-read"), "opened before first read");
+    Check(tail.Poll().empty(), "no rows in empty file");
+    auto report = diagnosis.Report(tail.Status(), false); // 本轮报告在下一次附加写入之前生成。
+    Check(HasText(report, "input", "idle-at-tail") && HasText(report, "prefixIdentity", "unverified"), "idle and unverified are independent");
+    Check(HasText(report, "agentLoss", "unknown"), "unreported loss stays unknown");
+
+    // 向文件追加一条来源声明，再让诊断模块读取报告。默认成功码与实际生产方一致。
+    const auto notice = [&](const wchar_t* name, std::uint64_t sequence, std::int32_t result = 0) {
+        auto packet = MakeDrop(source, L""); // 借用相同模块与分类的内部原包结构。
+        wcscpy_s(packet.apiName, name);
+        packet.resultCode = result;
+        file.Append(MakeLine(packet, sequence, source.readerCreation));
+        for (const auto& row : tail.Poll()) { // 只交付尾读器验过的连续原始行。
+            diagnosis.Observe(row);
+        }
+        return diagnosis.Report(tail.Status(), false);
+    };
+    report = notice(L"SessionReady", 1);
+    Check(HasText(report, "sessionReadySequence", "1") && HasText(report, "producerConnection", "unknown"), "historical ready notice only");
+    Check(HasText(report, "prefixIdentity", "prefix-consistent"), "first row validates prefix identity claims");
+    Check(report.find("captureNotice") && report.find("captureNotice")->isNull(), "session handshake did not declare capture readiness");
+
+    // 生命周期成功、部分覆盖和终止声明各自保留与原包的坐标。
+    (void)notice(L"HooksPartial", 2);
+    report = notice(L"HooksInstalled", 3);
+    Check(HasText(report, "captureNotice", "HooksInstalled") && HasText(report, "partialNoticeSequence", "2"), "success retains historical partial report");
+    report = notice(L"HooksRemoved", 4, 1);
+    Check(HasText(report, "captureNoticeSequence", "3"), "ignore unexpected removal status code");
+    report = notice(L"HooksRemoved", 5);
+    Check(HasText(report, "captureNotice", "HooksRemoved") && HasText(report, "producerConnection", "unknown"), "removal does not report pipe disconnect");
+    report = notice(L"SessionReady", 6);
+    Check(report.find("captureNotice") && report.find("captureNotice")->isNull(), "new handshake does not reuse old capture notice");
+
+    // 对确定错误和普通读错采用不同标签。只有提供的源统计可以被称为零上报。
+    auto status = tail.Status(); // 保留真实前缀，模拟不能从当前文件强制触发的读错误。
+    status.state = State::ReadFailed;
+    status.win32Error = ERROR_DEVICE_NOT_CONNECTED;
+    Check(HasText(diagnosis.Report(status, true), "input", "device-disconnected"), "explicit device disconnect");
+    status.win32Error = ERROR_CRC;
+    Check(HasText(diagnosis.Report(status, true), "input", "read-failed"), "CRC read fails without inferred disconnect");
+    status.reportedAgentDrops = 0;
+    Check(HasText(diagnosis.Report(status, true), "agentLoss", "zero-reported"), "reported zero is separately labeled");
+    status.reportedAgentDrops = 7;
+    Check(HasText(diagnosis.Report(status, true), "agentLoss", "loss-reported"), "known lower bound survives error");
+    status.state = State::Cutoff;
+    status.partialLineBytes = 5;
+    Check(HasText(diagnosis.Report(status, true), "input", "cutoff-partial-line"), "cutoff can include an incomplete row");
+    status.state = State::PartialLine;
+    Check(HasText(diagnosis.Report(status, false), "input", "waiting-for-line-end"), "partial tail waits for data while reader follows");
+    Check(HasText(diagnosis.Report(status, true), "input", "stopped-before-cutoff"), "local stop while waiting for data");
+    Check(Evidence::PassiveApiOpenFailureName(ERROR_PATH_NOT_FOUND) == "source-missing", "missing source at open");
+    Check(Evidence::PassiveApiOpenFailureName(ERROR_ACCESS_DENIED) == "source-access-denied", "source access denied at open");
+}
 } // namespace
 
 // 用命令行的一条固定夹具路径运行所有自有来源测试。成功返回零，失败打印首个断言。
@@ -302,6 +372,7 @@ int wmain(int argc, wchar_t** argv)
         TestEnd(argv[1], source, {End::UnknownCount, 0}, State::UnconfirmedEnd, false);
         TestEarlyReceipt(argv[1], source);
         TestEmptyReceipt(argv[1], source);
+        TestDiagnosis(argv[1], source);
 
         // 各负控均从新文件开始，避免上一用例的终态掩盖失败。
         TestBadRow(argv[1], source, MakeLine(packet, 2, 0), State::IdentityMismatch);

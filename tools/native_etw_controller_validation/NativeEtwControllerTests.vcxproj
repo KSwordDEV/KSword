@@ -51,6 +51,13 @@
     <ClCompile Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp" />
     <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="..\..\shared\evidence\ObjectIdentity.cpp" />
+    <!-- 控制器回归使用正式 CLI 分发，需要同步链接其来源和归档依赖。 -->
+    <ClCompile Include="..\..\shared\evidence\PassiveApiArchiveTail.cpp;..\..\shared\evidence\PassiveApiSourceDiagnosis.cpp" />
+    <ClCompile Include="..\..\KswordCLI\CommandRegistry.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Cli\PassiveApiCapture.cpp;$(ActionAnalyzeSource)\Cli\SysmonThreadCommand.cpp;$(ActionAnalyzeSource)\Cli\Transport.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Detection\SysmonThreadSource.cpp;$(ActionAnalyzeSource)\Detection\InjectionDiscovery.cpp;$(ActionAnalyzeSource)\Detection\CrossProcessEvidenceGraph.cpp;$(ActionAnalyzeSource)\Detection\ArchivedEvidenceGraph.cpp;$(ActionAnalyzeSource)\Detection\EvidenceRelationTree.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Cli\Controller.cpp;$(ActionAnalyzeSource)\Cli\LiveSession.cpp;$(ActionAnalyzeSource)\Cli\ProjectCommands.cpp;$(ActionAnalyzeSource)\Cli\ArchivedCapture.cpp;$(ActionAnalyzeSource)\Cli\Protocol.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectArchive.cpp;$(ActionAnalyzeSource)\Project\ProjectDocument.cpp;$(ActionAnalyzeSource)\Project\ProjectLock.cpp;$(ActionAnalyzeSource)\Project\ProjectRawEvidence.cpp;$(ActionAnalyzeSource)\Project\ProjectEtwCheckpoint.cpp;$(ActionAnalyzeSource)\Project\ProjectStorage.cpp;$(ActionAnalyzeSource)\Project\SampleCatalog.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Archive\RawEvidenceArchive.cpp;$(ActionAnalyzeSource)\Archive\SegmentBodies.cpp;$(ActionAnalyzeSource)\Archive\SegmentFormat.cpp;$(ActionAnalyzeSource)\Archive\SegmentInspection.cpp;$(ActionAnalyzeSource)\Archive\SegmentReader.cpp;$(ActionAnalyzeSource)\Archive\SegmentWriter.cpp" />

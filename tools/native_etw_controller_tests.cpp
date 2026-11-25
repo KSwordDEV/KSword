@@ -30,6 +30,8 @@ struct Backend {
     unsigned stopCalls = 0, closeCalls = 0;
     ULONG openError = ERROR_SUCCESS, closeResult = ERROR_SUCCESS;
     ULONG enableError = ERROR_SUCCESS, processError = ERROR_CANCELLED;
+    ULONG stopResult = ERROR_SUCCESS; // logger 存在时，停止生效后的属性读取结果。
+    bool deliverTail = false; // 仅在 logger 停止且消费者仍然打开时交付末条记录。
 } backend;
 template<class Predicate> void Eventually(Predicate predicate) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -51,6 +53,8 @@ void Reset() {
     backend.openError = backend.closeResult = ERROR_SUCCESS;
     backend.enableError = ERROR_SUCCESS;
     backend.processError = ERROR_CANCELLED;
+    backend.stopResult = ERROR_SUCCESS;
+    backend.deliverTail = false;
 }
 ks::r3::monitor::EtwFilterState Filter() {
     ks::r3::monitor::EtwFilterState filter;
@@ -140,7 +144,8 @@ ULONG WINAPI NativeControllerStartTraceW(PTRACEHANDLE handle, LPCWSTR name, PEVE
     *handle = kSessionHandle;
     return ERROR_SUCCESS;
 }
-ULONG WINAPI NativeControllerControlTraceW(TRACEHANDLE handle, LPCWSTR name, PEVENT_TRACE_PROPERTIES, ULONG action) {
+// 模拟自有 logger 的 STOP，输出参数可以含有未承诺有效的统计字节。
+ULONG WINAPI NativeControllerControlTraceW(TRACEHANDLE handle, LPCWSTR name, PEVENT_TRACE_PROPERTIES properties, ULONG action) {
     std::lock_guard lock(backend.mutex);
     assert(handle == kSessionHandle && name == backend.identity && action == EVENT_TRACE_CONTROL_STOP);
     ++backend.stopCalls;
@@ -148,7 +153,13 @@ ULONG WINAPI NativeControllerControlTraceW(TRACEHANDLE handle, LPCWSTR name, PEV
     const bool existed = backend.session;
     backend.session = false;
     backend.changed.notify_all();
-    return existed ? ERROR_SUCCESS : ERROR_WMI_INSTANCE_NOT_FOUND;
+    if (existed && backend.stopResult == ERROR_MORE_DATA) {
+        // 夹具放入不同哨兵值，检测产品是否误信不完整的输出。
+        properties->EventsLost = 91;
+        properties->LogBuffersLost = 92;
+        properties->RealTimeBuffersLost = 93;
+    }
+    return existed ? backend.stopResult : ERROR_WMI_INSTANCE_NOT_FOUND;
 }
 ULONG WINAPI NativeControllerEnableTraceEx2(TRACEHANDLE, LPCGUID, ULONG, UCHAR, ULONGLONG, ULONGLONG, ULONG, PENABLE_TRACE_PARAMETERS) {
     std::lock_guard lock(backend.mutex);
@@ -179,6 +190,7 @@ ULONG WINAPI NativeControllerCloseTrace(TRACEHANDLE handle) {
     backend.changed.notify_all();
     return backend.closeResult;
 }
+// 等待 logger 停止或消费者关闭，在允许排空时向调用方投递末条记录。
 ULONG WINAPI NativeControllerProcessTrace(TRACEHANDLE* handle, ULONG count, LPFILETIME, LPFILETIME) {
     std::unique_lock lock(backend.mutex);
     assert(count == 1 && *handle == kConsumerHandle);
@@ -191,6 +203,13 @@ ULONG WINAPI NativeControllerProcessTrace(TRACEHANDLE* handle, ULONG count, LPFI
     backend.entered = true;
     backend.changed.notify_all();
     backend.changed.wait(lock, [] { return !backend.session || !backend.consumer || backend.endConsumer; });
+    if (backend.deliverTail && !backend.session && backend.consumer) {
+        EVENT_RECORD tail{}; // 一条只在 logger 停止后可见的自有事件。
+        tail.EventHeader.ProviderId = kProvider;
+        tail.EventHeader.EventDescriptor.Id = 69;
+        tail.UserContext = backend.eventContext;
+        backend.eventCallback(&tail);
+    }
     return backend.processError;
 }
 
@@ -291,6 +310,35 @@ int wmain(int argc, wchar_t** argv) {
         assert(terminal.native.statisticsKnown && terminal.native.tailDeliveryUnconfirmed == !observed);
         Reset();
     }
+    {
+        // STOP 已生效，但属性未完整回读。让消费者正常排空，并阻止重复 STOP。
+        PassiveEtwSource source; // 使用实际产品的队列与原生清退代码。
+        PassiveEtwOptions options; // 冻结本次自有 provider 的采集范围。
+        options.provider = kProvider;
+        {
+            const std::lock_guard lock(backend.mutex); // 启动前冻结本例的替身行为。
+            backend.stopResult = ERROR_MORE_DATA;
+            backend.processError = ERROR_SUCCESS;
+            backend.deliverTail = true;
+        }
+        assert(source.start(options));
+        WaitConsumer();
+        assert(source.status().queued == 0);
+        assert(source.stop());
+        const auto terminal = source.status(); // 清退完成后采样者可读取尾部和未知丢失状态。
+        assert(terminal.state == PassiveEtwState::Stopped && terminal.native.sessionStopped);
+        assert(terminal.native.consumerJoined && !terminal.native.tailDeliveryUnconfirmed);
+        assert(terminal.native.stopStatuses == std::vector<ULONG>{ERROR_MORE_DATA});
+        assert(!terminal.native.statisticsKnown && terminal.native.eventsLost == 0 &&
+            terminal.native.logBuffersLost == 0 && terminal.native.realTimeBuffersLost == 0);
+        assert(terminal.native.receivedEvents == 2 && terminal.providerEvents == 1 && terminal.enqueued == 1);
+        const auto tail = source.drain(1); // 最后一次缓冲区交付被真实入队，仍可在 STOP 后取出。
+        assert(terminal.queued == 1 && tail.size() == 1 && tail.front().descriptor.id == 69);
+        assert(source.stop()); // 相同所有者重复停止不得再接触已经清退的 logger。
+        const std::lock_guard lock(backend.mutex);
+        assert(!backend.session && !backend.consumer && backend.stopCalls == 1 && backend.closeCalls == 1);
+    }
+    Reset();
     {
         // Close can be accepted before the logger is stopped. A clean retry
         // and ProcessTrace=0 still cannot establish complete tail delivery.

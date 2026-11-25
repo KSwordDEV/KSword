@@ -166,8 +166,7 @@ bool EtwSessionController::stopChecked() {
         }
     }
     stopOwnedSession();
-    // Successful STOP lets ProcessTrace drain its final buffer as before.
-    // Only a failed STOP needs explicit CloseTrace to wake the consumer.
+    // logger 已清退时让 ProcessTrace 自行排空。仍持有 logger 时才用 CloseTrace 唤醒消费者。
     if (sessionHandle_.load() != 0 && !closeConsumer() && !consumerFinished_.load(std::memory_order_acquire)) {
         return false;
     }
@@ -199,15 +198,36 @@ bool EtwSessionController::running() const {
 EtwSessionEvidence EtwSessionController::evidence() const {
     std::lock_guard<std::mutex> lock(mutex_);return evidence_;
 }
+// 对当前自有 logger 请求 STOP，将资源是否清退和原生统计是否回读分别写入证据。
 void EtwSessionController::stopOwnedSession() {
-    std::lock_guard<std::mutex> operation(resourceMutex_);const auto handle = sessionHandle_.load();if (!handle || sessionName_.empty()) return;
-    auto buffer = MakeTracePropertiesBuffer(sessionName_);auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(buffer.data());
-    const auto status = ::ControlTraceW(handle,sessionName_.c_str(),properties,EVENT_TRACE_CONTROL_STOP);
-    {std::lock_guard<std::mutex> lock(mutex_);evidence_.stopStatuses.push_back(status);
-        if (status == ERROR_SUCCESS) {evidence_.statisticsKnown = true;evidence_.eventsLost = properties->EventsLost;evidence_.logBuffersLost = properties->LogBuffersLost;evidence_.realTimeBuffersLost = properties->RealTimeBuffersLost;}
-        if (status == ERROR_SUCCESS || status == ERROR_WMI_INSTANCE_NOT_FOUND) evidence_.sessionStopped = true;
+    const std::lock_guard operation(resourceMutex_); // 串行化 STOP、消费打开和关闭。
+    const auto handle = sessionHandle_.load(); // 本次启动获得的 logger 句柄。
+    if (!handle || sessionName_.empty()) {
+        return;
     }
-    if (status == ERROR_SUCCESS || status == ERROR_WMI_INSTANCE_NOT_FOUND) sessionHandle_.store(0);
+
+    auto buffer = MakeTracePropertiesBuffer(sessionName_); // 接收本次 STOP 的属性和统计。
+    auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(buffer.data()); // Windows 回写位置。
+    const auto status = ::ControlTraceW(handle, sessionName_.c_str(), properties, EVENT_TRACE_CONTROL_STOP); // 原始结果码。
+    // ControlTraceW 约定 MORE_DATA 在 STOP 生效后返回。NOT_FOUND 则只证明 logger 已不存在。
+    const bool retired = status == ERROR_SUCCESS || status == ERROR_MORE_DATA ||
+        status == ERROR_WMI_INSTANCE_NOT_FOUND;
+    {
+        const std::lock_guard lock(mutex_); // 同一次调用的结果一并写入状态快照。
+        evidence_.stopStatuses.push_back(status);
+        if (status == ERROR_SUCCESS) {
+            evidence_.statisticsKnown = true;
+            evidence_.eventsLost = properties->EventsLost;
+            evidence_.logBuffersLost = properties->LogBuffersLost;
+            evidence_.realTimeBuffersLost = properties->RealTimeBuffersLost;
+        }
+        if (retired) {
+            evidence_.sessionStopped = true;
+        }
+    }
+    if (retired) {
+        sessionHandle_.store(0);
+    }
 }
 bool EtwSessionController::closeConsumer() {
     const std::lock_guard operation(resourceMutex_);
