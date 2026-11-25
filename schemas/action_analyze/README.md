@@ -54,3 +54,9 @@ Light 独立验证器使用仓库的 Stored v1 字节向量。本次正式 Relea
 ## A0.2 离线 CLI 子集
 
 方法契约覆盖离线 shell、项目及采样方法和 `archive.inspect`。从仓库根目录运行 `python -B schemas/action_analyze/vectors/validate-request.py` 可校验 62 项基础、47 项项目及 37 项归档检查向量，三组均已通过。正式 CLI 已在已登记的采样上验证归档封装检查。[方法契约](method-contract-v1.md) · [请求契约检查器](vectors/validate-request.py) · [正式 CLI 归档验证回执](../../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt)
+
+## 网络证据
+
+网络归档沿用 Stored v1 的 `RawRecord`。记录内最多保留 1,536 字节元数据和 65,536 字节实际捕获内容。旧 R3 `PacketRecord` 来源最多提供 4,096 字节。来源有截断证据时保留截断状态，ETW 计数按仅元数据处理。出站链接需要同一采样的规范事件、原始记录、来源代次和强进程身份。检查点还须覆盖两条流及其依赖。参见[网络证据契约](network-evidence-draft.schema.json)和[正反向量](vectors/network-evidence-draft.json)。
+
+用 `python -B schemas/action_analyze/check_network_evidence.py` 校验向量中的 JSON 结构、长度、队列边界和出站引用。原生读写、真实采集和检查点恢复分别验收。

@@ -1,0 +1,76 @@
+{
+  "$comment": "Merge common, the selected base and set in that order. The captured base includes flow. inlineHex gives literal tail bytes. For inlineRepeat, cycle through byte values 0 to 255 until the specified size. An omitted tail is empty. metadataBytes pads the compact UTF-8 JSON with spaces to exercise the framing limit. Link cases override the resolved context separately from the link object.",
+  "common": {
+    "kind": "ksword.actionAnalyze.network.v1", "sourceId": "kernel-network",
+    "sourceEpoch": "44444444-4444-4444-8444-444444444444",
+    "clockId": "sample-qpc", "bootId": "sample-boot", "clockDomain": "1", "frequencyHz": "10000000"
+  },
+  "flow": {
+    "record": "flow", "family": "4", "protocol": "6", "direction": "2",
+    "sourceAddress": "c0000201", "sourcePort": "52000", "destinationAddress": "c6336402", "destinationPort": "443",
+    "payloadPid": "40", "createTime100ns": "134000000000000000", "processObjectId": "1", "sourceTick": "20",
+    "producerSequence": "0", "receiveQpc": null, "observedBytes": "0", "eventId": "10", "version": "0", "opcode": "10",
+    "captureLayer": "flow-metadata", "payloadState": "metadata-only", "encoding": null, "originalLength": null,
+    "producerCapturedLength": "0", "capturedLength": "0", "sourceTruncated": false
+  },
+  "captured": {
+    "eventId": null, "version": null, "opcode": null, "observedBytes": null, "producerSequence": null,
+    "captureLayer": "transport-payload", "payloadState": "complete", "encoding": "bytes", "originalLength": "4",
+    "producerCapturedLength": "4", "capturedLength": "4"
+  },
+  "rawCases": [
+    { "id": "etw-zero-counter-does-not-prove-no-payload", "base": "flow", "valid": true },
+    { "id": "native-etw-user-data-is-not-a-communication-tail", "base": "flow", "inlineHex": "01020304", "valid": false },
+    { "id": "known-empty-payload", "base": "captured", "set": { "payloadState": "no-payload", "originalLength": "0", "producerCapturedLength": "0", "capturedLength": "0" }, "valid": true },
+    { "id": "exact-communication-bytes", "base": "captured", "inlineHex": "00ff4100", "valid": true },
+    { "id": "producer-truncated-ipv6", "base": "captured", "set": { "family": "6", "sourceAddress": "20010db8000000000000000000000001", "destinationAddress": "20010db8000000000000000000000002", "sourcePort": "0", "protocol": "17", "payloadState": "truncated", "originalLength": "10", "sourceTruncated": true }, "inlineHex": "00ff4100", "valid": true },
+    { "id": "unknown-original-length", "base": "captured", "set": { "payloadState": "captured", "originalLength": null }, "inlineHex": "00ff4100", "valid": true },
+    { "id": "known-truncation-with-unknown-original-length", "base": "captured", "set": { "payloadState": "truncated", "originalLength": null, "sourceTruncated": true }, "inlineHex": "00ff4100", "valid": true },
+    { "id": "legacy-raw-socket-retains-4096-of-known-larger-packet", "base": "captured", "set": { "captureLayer": "ip-packet", "payloadState": "truncated", "originalLength": "8192", "producerCapturedLength": "4096", "capturedLength": "4096", "sourceTruncated": true }, "inlineRepeat": 4096, "valid": true },
+    { "id": "maximum-inline", "base": "captured", "set": { "captureLayer": "ip-packet", "originalLength": "65536", "producerCapturedLength": "65536", "capturedLength": "65536" }, "inlineRepeat": 65536, "valid": true },
+    { "id": "metadata-byte-ceiling", "base": "flow", "metadataBytes": 1536, "valid": true },
+    { "id": "metadata-over-byte-ceiling", "base": "flow", "metadataBytes": 1537, "valid": false },
+    { "id": "explicit-writer-prefix-is-truncated", "base": "captured", "set": { "payloadState": "truncated", "originalLength": "65537", "producerCapturedLength": "65537", "capturedLength": "65536" }, "inlineRepeat": 65536, "valid": true },
+    { "id": "inline-over-limit", "base": "captured", "set": { "originalLength": "65537", "producerCapturedLength": "65537", "capturedLength": "65537" }, "inlineRepeat": 65537, "valid": false },
+    { "id": "old-inline-cap-would-lose-accepted-bytes", "base": "captured", "set": { "payloadState": "truncated", "originalLength": "65536", "producerCapturedLength": "65536", "capturedLength": "4096" }, "inlineRepeat": 4096, "valid": false },
+    { "id": "stored-length-mismatch", "base": "captured", "inlineHex": "00ff41", "valid": false },
+    { "id": "producer-length-exceeds-original", "base": "captured", "set": { "originalLength": "3" }, "inlineHex": "00ff4100", "valid": false },
+    { "id": "prefix-cannot-report-complete", "base": "captured", "set": { "originalLength": "5" }, "inlineHex": "00ff4100", "valid": false },
+    { "id": "noncanonical-source-sequence", "base": "flow", "set": { "producerSequence": "00" }, "valid": false },
+    { "id": "port-overflow", "base": "flow", "set": { "sourcePort": "65536" }, "valid": false },
+    { "id": "wrong-address-family", "base": "flow", "set": { "family": "6" }, "valid": false },
+    { "id": "qpc-needs-frequency", "base": "flow", "set": { "frequencyHz": null }, "valid": false },
+    { "id": "filetime-without-frequency", "base": "flow", "set": { "clockDomain": "2", "frequencyHz": null }, "valid": true },
+    { "id": "unknown-native-etw-descriptor", "base": "flow", "set": { "eventId": null }, "valid": false },
+    { "id": "metadata-has-no-blob-pointer", "base": "flow", "set": { "blob": null }, "valid": false },
+    { "id": "unquantified-source-loss", "base": "common", "set": { "record": "loss", "queueDropped": "0", "sourceLost": "0", "sourceLossUnquantified": true, "queueCounterSaturated": false, "sourceCounterSaturated": false }, "valid": true },
+    { "id": "source-unavailable-eof", "base": "common", "set": { "record": "eof", "reason": "2" }, "valid": true }
+  ],
+  "admissionCases": [
+    { "id": "default-keeps-full-source-ceiling", "producerBytes": 65536, "retainPrefix": false, "queuedRows": 0, "queuedPayloadBytes": 0, "outcome": "Queued", "keptBytes": 65536 },
+    { "id": "default-defers-large-evidence", "producerBytes": 65537, "retainPrefix": false, "queuedRows": 0, "queuedPayloadBytes": 0, "outcome": "NeedsBlob", "keptBytes": 0 },
+    { "id": "explicit-prefix-at-queue-byte-ceiling", "producerBytes": 65537, "retainPrefix": true, "queuedRows": 63, "queuedPayloadBytes": 4128768, "outcome": "Queued", "keptBytes": 65536 },
+    { "id": "next-byte-over-queue-budget", "producerBytes": 1, "retainPrefix": false, "queuedRows": 64, "queuedPayloadBytes": 4194304, "outcome": "QueueFull", "keptBytes": 0 },
+    { "id": "metadata-row-count-still-bounded", "producerBytes": 0, "retainPrefix": false, "queuedRows": 256, "queuedPayloadBytes": 0, "outcome": "QueueFull", "keptBytes": 0 }
+  ],
+  "outboundLink": {
+    "projectId": "11111111-1111-4111-8111-111111111111", "sampleId": "22222222-2222-4222-8222-222222222222",
+    "eventOrdinal": "0", "rawSegmentOrdinal": "1", "rawRecordSequence": "5", "checkpointGeneration": "3"
+  },
+  "resolvedLink": {
+    "segment": { "projectId": "11111111-1111-4111-8111-111111111111", "sampleId": "22222222-2222-4222-8222-222222222222", "ordinal": "1" },
+    "event": { "eventOrdinal": "0", "primaryRawRecordSequence": "5", "sourceId": "kernel-network", "sourceEpoch": "44444444-4444-4444-8444-444444444444", "processObjectId": "1" },
+    "checkpoint": { "generation": "3", "coversRaw": true, "coversEvent": true },
+    "destination": { "address": "c6336402", "port": "443" }
+  },
+  "linkCases": [
+    { "id": "published-dependency-closure", "set": {}, "valid": true },
+    { "id": "readable-uncheckpointed-tail", "set": { "checkpointGeneration": null }, "valid": true },
+    { "id": "wrong-sample", "set": { "sampleId": "33333333-3333-4333-8333-333333333333" }, "valid": false },
+    { "id": "raw-record-offset-is-not-an-archive-sequence", "set": { "rawRecordSequence": "0" }, "valid": false },
+    { "id": "generation-without-dependency-closure", "set": { "checkpointGeneration": "4" }, "valid": false },
+    { "id": "checkpoint-must-cover-both-streams", "set": {}, "checkpoint": { "coversRaw": false }, "valid": false },
+    { "id": "foreign-source-epoch", "set": {}, "raw": { "sourceEpoch": "55555555-5555-4555-8555-555555555555" }, "valid": false },
+    { "id": "inbound-cannot-confirm-outbound-address", "set": {}, "raw": { "direction": "1" }, "valid": false }
+  ]
+}
