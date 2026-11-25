@@ -8,12 +8,12 @@ Qt 入口为「监控 → 行为分析 → 总览／项目与采样」（`monito
 
 | 核对项 | Qt 项目与采样 | Win32 归档段 |
 | --- | --- | --- |
-| 打开与选择 | 只读打开 `project.ksaproj`。首次或换项目时由用户选采样，按选中 UUID 异步读冻结配置。同项目重读按 UUID 恢复仍存在的选项。快速连选时仅当前选择可发布详情。 | 只读打开单个 Stored v1 `.ksaseg`，采样 ID 和段编号取自段头。页面选择的是段内记录，没有项目目录或采样选择器。文本、类别筛选隐藏已选记录后，保留该记录及其详情。 |
+| 打开与选择 | 只读打开 `project.ksaproj`。首次或换项目时由用户选采样，按选中 UUID 异步读冻结配置。同项目重读按 UUID 恢复仍存在的选项。快速连选时仅当前选择可发布详情。 | 从 `project.ksaproj` 选择并提交已登记采样，也可打开单个 Stored v1 `.ksaseg`。取消目录选择或筛掉已选记录时保留原详情。 |
 | 读取失败与恢复 | 打开或重读项目失败、取消读取时保留原项目目录、选择和已显示详情，单独显示请求结果，可重读请求路径。可按 UUID 重读当前采样。同一采样的重读失败时显示错误并保留其上次已验证的配置。 | 打开失败或无可用记录前缀时保留先前归档、选中记录及详情，显示请求路径和错误，可重读。新段有可读前缀时显示该前缀及失败位置或预览上限，并更新当前段身份。 |
 | 可见数据与状态 | 项目目录、采样身份和冻结配置可查。已读 `not-collected` 显示「未采集」。五列表头可见，当前无事件行、可用时间轴或传播关系。 | 可用记录按接收 QPC 投影，瀑布鼠标／键盘可选记录，列表与详情联动。记录引用标为归档字段／未解析。分别核对完整段、可读前缀、空段、筛选无匹配和无法解释的必需记录。 |
-| 能力边界 | API／ETW 显示开关禁用并说明原因，状态为离线只读、无活动会话。 | 可做类别和文本筛选。API／ETW 来源分类、时间范围框选和已核实的传播边仍待接入，状态为离线只读。 |
+| 能力边界 | API／ETW 显示开关禁用并说明原因，状态为离线只读、无活动会话。 | 支持类别、文本和独立 ETW 筛选。API 分类、时间范围框选和已核实的传播边待接入。 |
 | 离线验证依据 | `221cda4ba` 正式 CLI 的 `project_v1` 通过。V1 smoke 通过 16 项请求、22 项传输向量及回执缓存的条数和字节上限检查。 | `345472b89` 的 469 项截断检查与 35 项 A0 封装向量覆盖归档层。Light 本端独立验证器通过 35 项 Stored 向量及 2 项 Win32 文件用例。 |
-| 构建与实机状态 | 首版只读项目页通过 HostX64 Release 构建。改名后的窗口导航、采样切换、错误恢复及旧入口仍待实际窗口验收。 | Light 和独立验证器正式构建均通过，0 警告、0 错误。实际窗口的记录投影、选择、错误恢复及旧入口回归待记录。[Light 构建与验证回执](#light-构建与验证回执) |
+| 构建与实机状态 | 首版只读项目页通过 HostX64 Release 构建。项目直达、筛选和恢复已验证。 | Light 正式构建及窗口回放已通过。实际测试覆盖项目选择、筛选、键盘、错误恢复和独立段打开。[Light 窗口回执](#light-普通权限打开归档) |
 
 当前切片按实有的打开、重读、选择和错误反馈验收。`a302d03cc` 的项目归档解析器通过 28 项原生检查和 71 项项目生命周期夹具检查。正式 CLI 已通过 `archive.inspect` 的 ASCII、Unicode 路径及 JSONL、REPL 检查。两端的完整工作台按下方矩阵另行验收。[CLI 归档验证](../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt)
 
@@ -130,3 +130,13 @@ Win32 沿 `FeatureRegistry.cpp` 的「监控」入口，经 `MonitorFeature.cpp`
 正式 Light 的 HostX64 Release 构建为 0 警告、0 错误，复用的签名驱动镜像散列一致。`Ksword5.1/x64/Release/KswordARKLight.exe` 的 SHA-256 为 `326F92DCDA5D22B100EA45050C4651EA46F5E60E863A8221A62272EBA21D2402`。原生夹具通过 35 项 Stored 向量、2 项 Win32 文件用例以及双流端点、坏尾、依赖缺失、散列、身份和重读用例。固定测试目录内的合成项目已清理。
 
 同一份 CLI 自有样本 `674a1a10-4f59-45cb-b930-9f56e485c571` 通过正式 CLI 重开、Light 生产读取器回放和正式 Qt 窗口回放。Light 核对 14 行与提交端点，12 条 ETW 载荷逐字节一致。Qt 验证筛选、选中详情、检查点失败与恢复。测试项目已删除，Qt 配置已恢复。Light 产品窗口仍待完成启动提权后的验证。构建和三端回读日志为 `.codex-build-logs/action-analyze-light-project-checkpoint.log`、`.codex-build-logs/action-analyze-light-cli-project-build.log` 和 `.codex-build-logs/action-analyze-three-reader-project.log`。
+
+### Light 普通权限打开归档
+
+使用 `KswordARKLight.exe --no-auto-elevation` 可用当前 Windows 令牌直接进入工作台。通过「监控 → ActionAnalyze → 打开归档」浏览当前用户可读的 `project.ksaproj` 或 `.ksaseg`。管理操作仍由各自入口检查权限。此选项适用于远程或断开的桌面会话，也可用于主动以普通权限检查归档。
+
+正式窗口复验发现原控件 ID 超过 `WM_COMMAND` 的 16 位范围。修正后，文件选择器、回放、重读、筛选和采样操作均可从原控件触发。HostX64 Release 构建退出 `0`，0 警告、0 错误。现有签名驱动镜像散列一致。正式产物 `Ksword5.1/x64/Release/KswordARKLight.exe` 的 SHA-256 为 `E586C1992EED04EEC87F042D7C859A30D000BDF7FFEAF73F18F08363ECDFCE84`。
+
+CLI、正式 Qt 与正式 Light 使用同一个样本 `5325e80e-2b21-4d55-bd57-d7538c29e268`。Light 窗口完成项目选择、取消、14／12／14 行切换、瀑布键盘选择、8 字节预览、双流坏尾隔离、Coverage 缺失保留详情、旧档回退、原位重读和独立段打开。800×650 窗口的主要控件边界通过几何检查。Qt 和 Light 都正常退出，工作区配置已恢复，测试项目已清理。实际视觉对比、跨显示器 DPI、鼠标拖选和主题矩阵待验。
+
+运行 `py -3.12 -B tools/action_analyze_validation/light/archive_etw_preview.py` 可复现 Light 正式窗口用例。需要 pywin32、现有 Release 产物和运行自有 ETW provider 的权限。构建日志位于 `.codex-build-logs/action-analyze-light-control-id-build.log`，三端同样本回执位于 `.codex-build-logs/action-analyze-three-product-project.log`。

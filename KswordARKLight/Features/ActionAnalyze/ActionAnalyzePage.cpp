@@ -23,9 +23,10 @@ namespace {
 constexpr wchar_t kPageClass[] = L"KswordARKLight.ActionAnalyze";
 constexpr UINT kComplete = WM_APP + 936;
 enum ControlId {
-    kOpen = 68301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly,
+    kOpen = 58301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly,
     kSampleChoice, kReplaySample, kCancelChoice
 };
+static_assert(kCancelChoice <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
 
 struct Snapshot {

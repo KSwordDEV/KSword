@@ -11,6 +11,7 @@
 - `Ui/WorkspaceHost` 是二级 tab 的统一宿主：稳定 tab id、placeholder、异步首次物化、同步命令路由物化、失败重试、布局和激活回调都由宿主维护。
 - “已投递”和“正在创建”必须是两个状态；同步导航可越过已投递但尚未执行的消息，不能把 placeholder 错当成真实页面。
 - Hardware、Driver、Network、Window、SysTools 使用该宿主。重采样或重枚举动作应放在真实页面 factory 或首次激活回调，不放在外层模块创建阶段。
+- `WM_COMMAND` 只在 `wParam` 低 16 位交付控件 ID。ActionAnalyze 从 `683xx` 移到 `583xx` 后，打开、筛选和采样选择恢复响应。仅走生产读取器的测试不会覆盖这类控件通知问题。正式窗口回归从「监控 → ActionAnalyze」操作原生控件。
 
 ## 实体导航和命令框
 

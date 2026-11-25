@@ -4,9 +4,30 @@
 
 #include "../Core/Win32Lean.h"
 
+#include <shellapi.h>
+
 #include <string>
+#include <string_view>
 
 namespace {
+
+// 查找显式启动选项。按 Windows 参数规则解析，返回是否跳过自动提权提示。
+bool SkipAutomaticElevation() {
+    int count = 0; // 命令行参数数量，含可执行文件名称。
+    LPWSTR* args = ::CommandLineToArgvW(::GetCommandLineW(), &count); // 系统分配的参数数组。
+    if (!args) {
+        return false;
+    }
+    bool skip = false; // 只接受完整、独立的选项。
+    for (int index = 1; index < count; ++index) {
+        if (std::wstring_view(args[index]) == L"--no-auto-elevation") {
+            skip = true;
+            break;
+        }
+    }
+    ::LocalFree(args);
+    return skip;
+}
 
 // TraceStartupStep writes one millisecond timing line to the debugger. Inputs
 // are the step name plus the measured duration; processing is non-modal and
@@ -41,7 +62,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     const bool runningAsAdmin = Ksword::Core::IsRunningAsAdmin();
     TraceStartupStep(L"IsRunningAsAdmin", ::GetTickCount64() - afterProbeMessage);
 
-    if (!runningAsAdmin) {
+    // 普通权限可直接进入现有工作台。实际管理操作仍由各自的入口检查权限。
+    if (!runningAsAdmin && !SkipAutomaticElevation()) {
         const ULONGLONG beforeRunas = ::GetTickCount64();
         TraceStartupText(L"calling ShellExecuteExW(runas)");
         if (Ksword::Core::RelaunchElevated()) {
