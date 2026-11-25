@@ -802,6 +802,16 @@ namespace
 
 namespace ks::ui
 {
+    void OpenThemedTextMessage(QWidget* owner, QMessageBox::Icon icon, const QString& title, const QString& text)
+    {
+        // 保留原生消息框事件，由本模块的全局事件过滤器准备共享主题。
+        auto* messageBox = new QMessageBox(icon, title, QString(), QMessageBox::Ok, owner); // 窗口对象由父窗口持有。
+        messageBox->setTextFormat(Qt::PlainText);
+        messageBox->setText(text);
+        messageBox->setAttribute(Qt::WA_DeleteOnClose);
+        messageBox->open();
+    }
+
     void InstallGlobalMessageBoxTheme(QApplication* appInstance)
     {
         if (appInstance == nullptr)

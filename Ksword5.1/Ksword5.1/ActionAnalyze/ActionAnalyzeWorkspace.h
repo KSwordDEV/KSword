@@ -56,6 +56,7 @@ namespace ks::action_analyze
         QPushButton* m_retry = nullptr; // 重读最近一次所选的项目清单。
         QPushButton* m_cancel = nullptr; // 取消当前项目读取并保留原目录。
         QPushButton* m_sampleRetry = nullptr; // 重读当前目录行，不依赖项目打开历史。
+        QPushButton* m_sampleArchive = nullptr; // 打开所选采样的原始归档。
         QLabel* m_status = nullptr; // 当前读取进度、空结果或失败。
         QLabel* m_source = nullptr; // 已发布目录实际对应的项目与代次。
         QLabel* m_manifestPath = nullptr; // 只显示已发布清单路径。

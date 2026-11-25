@@ -1,28 +1,36 @@
 #pragma once
 
 #include "OfflineSegmentReader.h"
+#include "OfflineObjectEvidence.h"
 
 #include <QSet>
+#include <functional>
 #include <QWidget>
 #include <memory>
 
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QTableView;
+class QTimer;
 
 namespace ks::ui
 {
     class AsyncOperation;
+    class FlowLayout;
     class ResultTableHost;
     class StructuredFieldView;
+    struct FieldDocument;
 }
 
 namespace ks::action_analyze
 {
     class SegmentTableModel;
     class SegmentWaterfall;
+    class LiveEtwCapture;
+    struct LiveEtwReceipt;
 
     // 行为追踪总览独立持有归档证据，项目页提供可选的身份对照。
     class OfflineSegmentOverview final : public QWidget
@@ -34,6 +42,10 @@ namespace ks::action_analyze
 
         // 更新用于对照的目录身份和选中采样；不切换归档或选择。
         void setProjectContext(const QString& projectId, const QString& sampleId, const QString& sampleStatus);
+        // 显式从目录打开选中采样的首个原始段。返回是否已开始读取。
+        bool openSampleArchive(const SampleRequest& sample);
+        // 工作台各页共用此状态回执；调用方只订阅读取，不控制原生会话。
+        std::function<void(const QString&)> sessionStatusChanged;
 
     protected:
         // 接收语言变化，更新固定文案及当前数据显示。
@@ -42,11 +54,20 @@ namespace ks::action_analyze
     private:
         // 打开文件对话框或将指定文件作为下一次后台读取请求。
         void chooseSegment();
-        void openSegment(const QString& path);
+        bool openSegment(const QString& path, std::optional<SampleRequest> sample = std::nullopt);
         // 取消有效读取代次，继续展示上次成功提交的结果。
         void cancelRead();
         // 接收后台值，保留失败前的已发布结果。
         void publish(const SegmentSnapshot& result);
+        // 在现有工具带加采集入口，并在同一视图应用实时快照。
+        void createLiveControls(QWidget* band, ks::ui::FlowLayout* controls);
+        void startLive();
+        void stopLive();
+        void refreshLive(bool final = false);
+        void finishLive(const LiveEtwReceipt& result);
+        void updateLiveControls();
+        void followLive();
+        void setActiveSnapshot(const SegmentSnapshot& result);
         // 同一输入路径和段身份允许沿用类别、时间和选择。
         void fillCategories(bool preserve);
         // 从草稿读取并提交半开范围，失败保留上次范围。
@@ -60,6 +81,17 @@ namespace ks::action_analyze
         // 刷新状态和共享详情文档，不执行文件 I/O。
         void updateText();
         void updateDetails();
+        // 建立底部键盘可访问的引用区及共享菜单入口。
+        QWidget* createObjectEvidence(QWidget* parent);
+        // 同步证据清单和选中的对象身份；nullptr 清空当前记录引用。
+        void updateObjectEvidence(const SegmentRow* row);
+        // 校验对象归属并报告当前应用的对象筛选。
+        bool matchesSample(const ArchivedObjectObservation& object) const;
+        QString objectFilterSummary() const;
+        // 将已验证的网络投影加到当前记录的共享详情文档。
+        static void appendNetworkEvidence(ks::ui::FieldDocument& document, const SegmentNetworkEvidence& evidence);
+        // 用实际网络端点和协议扩展关键字匹配。
+        static bool matchesNetworkKeyword(const SegmentNetworkEvidence& evidence, const QString& keyword);
 
         ks::ui::AsyncOperation* m_read = nullptr; // 归档独立工作槽。
         ks::ui::ResultTableHost* m_host = nullptr; // 紧凑表格和提交门禁。
@@ -74,6 +106,8 @@ namespace ks::action_analyze
         QLabel* m_endLabel = nullptr; // 不含结束端点的输入标签。
         QWidget* m_timeBand = nullptr; // 可展开的附加时间筛选区。
         QLineEdit* m_keyword = nullptr; // 表中编号、时间和事件的关键字。
+        QCheckBox* m_apiSource = nullptr; // 独立的 API 显示条件，仅可在来源核验后开放。
+        QCheckBox* m_etwSource = nullptr; // 独立的 ETW 显示条件，仅可在来源核验后开放。
         QPushButton* m_more = nullptr; // 展开或收起附加时间筛选。
         QPushButton* m_clear = nullptr; // 清除所有已应用的显示筛选。
         QLineEdit* m_start = nullptr; // 时间起点草稿。
@@ -88,10 +122,13 @@ namespace ks::action_analyze
         QLabel* m_status = nullptr; // 最新读取回执及可读范围。
         QLabel* m_filterStatus = nullptr; // 结果数量或时间草稿错误。
         QLabel* m_graphStatus = nullptr; // 关系和来源解析能力。
+        QLabel* m_objectStatus = nullptr; // 通过菜单显式查看的对象证据。
+        OfflineObjectEvidence* m_objects = nullptr; // 当前证据的可导航对象引用。
         QString m_projectId; // 已打开项目的 UUID。
         QString m_sampleId; // 当前目录所选采样的 UUID。
         QString m_sampleStatus; // 无段时显示的项目采样状态。
         QString m_lastPath; // 最新读取请求路径。
+        std::optional<SampleRequest> m_lastSampleRequest; // 重试沿用已冻结的目录身份。
         std::shared_ptr<const SegmentSnapshot> m_snapshot; // 最后发布的段。
         SegmentEnd m_latestEnd = SegmentEnd::Unavailable; // 最新读取结尾；可与保留结果不同。
         quint64 m_latestOffset = 0; // 最新问题发生的位置。
@@ -102,6 +139,22 @@ namespace ks::action_analyze
         std::optional<quint64> m_lower; // 已应用包含下界。
         std::optional<quint64> m_upper; // 已应用不含上界。
         std::optional<quint64> m_sequence; // 用户选择，过滤时可以暂不可见。
+        std::optional<ArchivedObjectObservation> m_objectFilter; // 生效的采样内对象范围。
+        std::optional<ArchivedObjectObservation> m_viewedObject; // 用户显式查看的归档引用。
         QSet<quint16> m_filterCategories; // 当前选中的实际归档类别。
+        ks::ui::AsyncOperation* m_liveOperation = nullptr; // 原生会话只在后台启动和收尾。
+        QTimer* m_liveTimer = nullptr; // 有新事件时发布同一总览快照。
+        QLineEdit* m_pidInput = nullptr; // 本次启动的目标 PID 草稿。
+        QLineEdit* m_providerInput = nullptr; // 本次启动的 ETW provider GUID 草稿。
+        QPushButton* m_startLive = nullptr; // 真实采样入口。
+        QPushButton* m_stopLive = nullptr; // 请求收尾或重试同一所有者的清退。
+        QPushButton* m_followLive = nullptr; // 只恢复视图跟随。
+        std::shared_ptr<LiveEtwCapture> m_live; // 后台操作和实时快照共用的会话所有者。
+        QString m_liveFeedback; // 最近一次实时请求的回执。
+        bool m_liveRegistered = false; // 同一个工作台拥有唯一原生任务和预览刷新。
+        bool m_liveBusy = false; // 已提交启动或清退事务。
+        bool m_liveRecovery = false; // 清退仍有未解决责任。
+        bool m_liveStopping = false; // 已请求收尾，等待真实回执。
+        bool m_followingLive = true; // 拖选或查看历史时暂停显示跟随。
     };
 }

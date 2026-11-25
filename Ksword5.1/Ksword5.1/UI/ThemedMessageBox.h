@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QApplication>
+#include <QMessageBox>
 
 namespace ks::ui
 {
@@ -19,4 +20,7 @@ namespace ks::ui
     // 参数：无。
     // 返回值：无。
     void RefreshGlobalMessageBoxTheme();
+
+    // 在 GUI 线程打开由父窗口拥有的窗口模态消息，纯文本显示正文，关闭时销毁。
+    void OpenThemedTextMessage(QWidget* owner, QMessageBox::Icon icon, const QString& title, const QString& text);
 }

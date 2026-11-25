@@ -192,15 +192,22 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     layout->addWidget(m_manifestPath);
     layout->addWidget(m_status);
 
-    // 概览与项目目录各自保持子页选择。未接通的规则和断点留待真实编辑器。
+    // 总览与编辑器共用正式导航。各页保留自己的选择和草稿。
     m_tabs = new QTabWidget(this);
+    m_tabs->setObjectName(QStringLiteral("action_analyze_tabs"));
     m_overview = new OfflineSegmentOverview(m_tabs);
+    m_overview->setObjectName(QStringLiteral("action_analyze_overview"));
     ks::monitor::AddMonitorNavigationTab(m_tabs, m_overview, QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
     ks::monitor::AddMonitorNavigationTab(m_tabs, createProjectBrowser(), QString::fromLatin1(ks::monitor::ActionAnalyzeSamplesId));
     ks::ui::StyleChildPageTabs(m_tabs);
     layout->addWidget(m_tabs, 1);
     m_sessionStatus = StatusLabel(this);
+    m_sessionStatus->setObjectName(QStringLiteral("action_analyze_session_status"));
     layout->addWidget(m_sessionStatus);
+    m_overview->sessionStatusChanged = [this](const QString& receipt) {
+        // 底栏显示会话的真实回执，切到规则和断点页也可读。
+        m_sessionStatus->setText(receipt.isEmpty() ? sourceText(QStringLiteral("尚未开始监控。")) : receipt);
+    };
 
     // 所有工作由用户发起，导航及主题切换不执行文件 I/O。
     connect(m_open, &QPushButton::clicked, this, [this]() {
@@ -251,6 +258,10 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
     m_sampleRetry = new QPushButton(toolbar);
     ks::ui::SetThemeButtonIcon(m_sampleRetry, QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
     tools->addWidget(m_sampleRetry);
+    m_sampleArchive = new QPushButton(toolbar);
+    m_sampleArchive->setObjectName(QStringLiteral("action_analyze_sample_archive"));
+    ks::ui::SetThemeButtonIcon(m_sampleArchive, QIcon(QStringLiteral(":/Icon/process_open_folder.svg")));
+    tools->addWidget(m_sampleArchive);
     tools->addStretch();
     ks::ui::NormalizeToolbarRow(tools);
     layout->addWidget(toolbar);
@@ -288,6 +299,15 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
         if (!m_readingSample)
         {
             readSelectedSample();
+        }
+    });
+    connect(m_sampleArchive, &QPushButton::clicked, this, [this]() {
+        // 显式请求以此刻选中的项目与采样为准。活动操作的真实状态在总览可查看。
+        if (m_hasVerifiedSample && !m_readingSample && m_sampleProblem.status == ReadStatus::Ready)
+        {
+            const SampleRequest selected{m_project.manifestPath, m_project.id, m_selected};
+            m_overview->openSampleArchive(selected);
+            m_tabs->setCurrentWidget(m_overview);
         }
     });
     return page;
@@ -467,7 +487,7 @@ void ActionAnalyzeWorkspace::updateSampleDocument()
             const auto title = m_readingSample || m_sampleProblem.status != ReadStatus::Ready
                 ? QStringLiteral("上次验证的冻结配置") : QStringLiteral("冻结配置");
             document.section(title)
-                .field(QStringLiteral("采集状态"), QStringLiteral("未采集"), true)
+                .field(QStringLiteral("创建时采集状态"), QStringLiteral("未采集"), true)
                 .field(QStringLiteral("项目标题"), m_sampleDetails.configurationTitle)
                 .field(QStringLiteral("说明"), m_sampleDetails.configurationNotes)
                 .field(QStringLiteral("配置语义散列"), m_sampleDetails.configurationHash);
@@ -495,6 +515,11 @@ void ActionAnalyzeWorkspace::updateStatus()
     m_sampleRetry->setToolTip(sourceText(QStringLiteral("重读选中采样的冻结配置。")));
     // 在途读保持按钮可获焦；再次触发时由 Click 处理器忽略。
     m_sampleRetry->setEnabled(!m_selected.id.isEmpty());
+    m_sampleArchive->setText(sourceText(QStringLiteral("打开采样归档")));
+    const bool canOpenArchive = m_hasVerifiedSample && !m_readingSample && m_sampleProblem.status == ReadStatus::Ready;
+    m_sampleArchive->setEnabled(canOpenArchive);
+    m_sampleArchive->setToolTip(canOpenArchive ? sourceText(QStringLiteral("在总览中打开所选采样的首个原始段。"))
+        : sourceText(QStringLiteral("请先选择并读取一项采样。")));
     m_source->setVisible(hasProject);
     m_manifestPath->setVisible(hasProject);
     m_manifestPath->setText(m_project.manifestPath);
@@ -537,7 +562,7 @@ void ActionAnalyzeWorkspace::updateStatus()
     m_status->setText(message);
     ks::ui::ApplyStatusRole(m_status, role);
 
-    // 只有读回的采样描述明确标成 not-collected 时才显示未采集。
+    // 采样创建描述与归档回执分别呈现。
     QString eventState = sourceText(QStringLiteral("打开归档段以查看离线记录。"));
     if (m_readingSample)
     {
@@ -547,14 +572,7 @@ void ActionAnalyzeWorkspace::updateStatus()
     {
         eventState = DescribeProblem(m_sampleProblem);
     }
-    else if (!m_selected.id.isEmpty())
-    {
-        eventState = sourceText(QStringLiteral("项目元数据记录此采样未采集。可以单独打开归档段核对。"));
-    }
     m_overview->setProjectContext(m_project.id, m_selected.id, eventState);
-    m_sessionStatus->setText(m_selected.id.isEmpty()
-        ? sourceText(QStringLiteral("离线只读 · 未选择采样 · 无活动会话"))
-        : sourceText(QStringLiteral("离线只读 · 采样 %1 · 无活动会话")).arg(m_selected.id));
 }
 }
 

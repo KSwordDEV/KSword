@@ -882,10 +882,30 @@
     <ClCompile Include="ActionAnalyze\ActionAnalyzeWorkspace.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ActionAnalyze\LiveEtwCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ObjectContextMenu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\ObjectDiagnosticExport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Live.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Loading.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Network.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Objects.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineObjectEvidence.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp">
@@ -909,6 +929,9 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2824,10 +2847,20 @@
     <ClInclude Include="ActionAnalyze\ActionAnalyzeWorkspace.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ActionAnalyze\LiveEtwCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ObjectContextMenu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\ObjectDiagnosticExport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ActionAnalyze\OfflineProjectReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ActionAnalyze\OfflineSegmentOverview.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineObjectEvidence.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h">
