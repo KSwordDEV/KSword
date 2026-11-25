@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- 固定 HostX64 发行配置，仅编译网络投影和数据适配器。 -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{83DE85D7-39BD-4A1A-BCCB-43E77D7A375B}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <TargetName>NetworkEvidenceValidation</TargetName>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <LinkIncremental>false</LinkIncremental>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <VcpkgEnabled>false</VcpkgEnabled>
+  </PropertyGroup>
+  <Import Project="..\..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="NetworkEvidenceValidation.cpp" />
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\KernelNetworkEvidenceProjection.cpp" />
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\PacketEvidenceProjection.cpp" />
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\PacketCaptureRecordAdapter.cpp" />
+    <ClInclude Include="..\..\..\shared\usermode\backend\monitor\KernelNetworkEvidenceProjection.h" />
+    <ClInclude Include="..\..\..\shared\usermode\backend\monitor\PacketEvidenceProjection.h" />
+    <ClInclude Include="..\..\..\shared\usermode\backend\monitor\PacketCaptureRecordAdapter.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="PrintTestBuildPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="HOSTX64=$(VCToolsInstallDir)bin\HostX64\x64\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64' or !Exists('$(VCToolsInstallDir)bin\HostX64\x64\cl.exe')" Text="HostX64 is required." />
+  </Target>
+</Project>
