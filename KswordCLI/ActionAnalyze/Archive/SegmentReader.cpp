@@ -317,23 +317,19 @@ ScanFailure ReadBlocks(HANDLE handle, std::uint64_t scanEnd, const SegmentScanOp
     return {};
 }
 
-ScanFailure Scan(const std::filesystem::path& path, const SegmentScanOptions& options,
+ScanFailure Scan(HANDLE file, const SegmentScanOptions& options,
                  const SegmentBlockVisitor& visitor, SegmentScanResult& result)
 {
-    // 读取持有同一文件句柄，禁止共享删除。活动段增长时以初始端点为界。
-    const ReadHandle file{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
-    if (file.value == INVALID_HANDLE_VALUE) {
-        return {SegmentScanStatus::IoError, {SegmentIssue::FileOpen, 0, GetLastError()}};
-    }
     LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file.value, &size)) {
+    if (!GetFileSizeEx(file, &size)) {
         return {SegmentScanStatus::IoError, {SegmentIssue::FileSize, 0, GetLastError()}};
     }
+    // 活动段增长时以扫描开始时观测的文件大小为界。
+    result.fileSizeKnown = true;
     result.fileBytes = static_cast<std::uint64_t>(size.QuadPart);
     const auto scanEnd = std::min(result.fileBytes, options.endOffset.value_or(result.fileBytes));
     std::array<std::uint8_t, kSegmentHeaderBytes> bytes{};
-    if (const auto failure = ReadHeader(file.value, bytes, wire::kSegmentMagic, 0, scanEnd)) {
+    if (const auto failure = ReadHeader(file, bytes, wire::kSegmentMagic, 0, scanEnd)) {
         return failure;
     }
     SegmentHeader header;
@@ -345,7 +341,7 @@ ScanFailure Scan(const std::filesystem::path& path, const SegmentScanOptions& op
     }
     result.header = header;
     result.framedBytes = bytes.size();
-    return ReadBlocks(file.value, scanEnd, options, visitor, result);
+    return ReadBlocks(file, scanEnd, options, visitor, result);
 }
 
 } // namespace
@@ -354,8 +350,29 @@ SegmentScanResult ScanSegment(const std::filesystem::path& path,
                               const SegmentScanOptions& options,
                               const SegmentBlockVisitor& visitor)
 {
+    // 只打开一次，读取时持有同一文件句柄并禁止共享删除。
+    const ReadHandle file{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+    if (file.value == INVALID_HANDLE_VALUE) {
+        SegmentScanResult result;
+        result.status = SegmentScanStatus::IoError;
+        result.error = {SegmentIssue::FileOpen, 0, GetLastError()};
+        return result;
+    }
+    return ScanOpenSegment(file.value, options, visitor);
+}
+
+SegmentScanResult ScanOpenSegment(void* fileHandle, const SegmentScanOptions& options,
+                                  const SegmentBlockVisitor& visitor)
+{
     SegmentScanResult result;
-    const auto failure = Scan(path, options, visitor, result);
+    const LARGE_INTEGER start{};
+    if (!SetFilePointerEx(fileHandle, start, nullptr, FILE_BEGIN)) {
+        result.status = SegmentScanStatus::IoError;
+        result.error = {SegmentIssue::FileRead, 0, GetLastError()};
+        return result;
+    }
+    const auto failure = Scan(fileHandle, options, visitor, result);
     result.status = failure.status;
     result.error = failure.error;
     return result;

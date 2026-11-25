@@ -27,6 +27,7 @@ struct SegmentScanResult {
     SegmentScanStatus status = SegmentScanStatus::FramingComplete;
     SegmentError error;
     std::optional<SegmentHeader> header;
+    bool fileSizeKnown = false;
     std::uint64_t fileBytes = 0;
     std::uint64_t framedBytes = 0;
     // 本层只检查封装，始终为 nullopt。语义可读端点由调用方独立验证和维护。
@@ -48,5 +49,11 @@ using SegmentBlockVisitor = std::function<bool(const BlockInfo&, const std::vect
 SegmentScanResult ScanSegment(const std::filesystem::path& path,
                               const SegmentScanOptions& options = {},
                               const SegmentBlockVisitor& visitor = {});
+
+// 借用调用方已验证的同步 Win32 文件句柄。扫描从文件头开始并推进文件位置。
+// 调用方保持文件打开，并保证扫描期间独占使用此句柄的文件位置。
+SegmentScanResult ScanOpenSegment(void* fileHandle,
+                                  const SegmentScanOptions& options = {},
+                                  const SegmentBlockVisitor& visitor = {});
 
 } // namespace ks::cli::action_analyze::archive
