@@ -430,6 +430,11 @@
     <ClCompile Include="MonitorDock\MonitorDock.cpp" />
     <ClCompile Include="ActionAnalyze\ActionAnalyzeWorkspace.cpp" />
     <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp" />
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.cpp" />
+    <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp" />
     <ClCompile Include="MonitorDock\MonitorPanelWidget.cpp" />
     <ClCompile Include="MonitorDock\MonitorTextViewer.cpp" />
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp" />
@@ -956,6 +961,8 @@
     <ClInclude Include="MonitorDock\MonitorNavigationSchema.h" />
     <ClInclude Include="ActionAnalyze\ActionAnalyzeWorkspace.h" />
     <ClInclude Include="ActionAnalyze\OfflineProjectReader.h" />
+    <ClInclude Include="ActionAnalyze\OfflineSegmentOverview.h" />
+    <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h" />
     <ClInclude Include="WindowDock\WindowImmutableTableSupport.h" />
     <ClInclude Include="MonitorDock\EtwArchiveMetadata.h" />
     <ClInclude Include="RegistryDock\OfflineHiveSession.h" />

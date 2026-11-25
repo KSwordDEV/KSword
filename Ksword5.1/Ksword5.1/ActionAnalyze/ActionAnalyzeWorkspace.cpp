@@ -1,4 +1,5 @@
 #include "ActionAnalyzeWorkspace.h"
+#include "OfflineSegmentOverview.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../MonitorDock/MonitorDock.h"
 #include "../MonitorDock/MonitorNavigationSchema.h"
@@ -17,7 +18,6 @@
 #include "../theme.h"
 
 #include <QAbstractTableModel>
-#include <QCheckBox>
 #include <QDateTime>
 #include <QEvent>
 #include <QFileDialog>
@@ -27,7 +27,6 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSplitter>
-#include <QStandardItemModel>
 #include <QTimeZone>
 #include <QVBoxLayout>
 
@@ -195,13 +194,13 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
 
     // 概览与项目目录各自保持子页选择。未接通的规则和断点留待真实编辑器。
     m_tabs = new QTabWidget(this);
-    ks::monitor::AddMonitorNavigationTab(m_tabs, createOverview(), QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
+    m_overview = new OfflineSegmentOverview(m_tabs);
+    ks::monitor::AddMonitorNavigationTab(m_tabs, m_overview, QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
     ks::monitor::AddMonitorNavigationTab(m_tabs, createProjectBrowser(), QString::fromLatin1(ks::monitor::ActionAnalyzeSamplesId));
     ks::ui::StyleChildPageTabs(m_tabs);
     layout->addWidget(m_tabs, 1);
     m_sessionStatus = StatusLabel(this);
     layout->addWidget(m_sessionStatus);
-    retranslateOverview();
 
     // 所有工作由用户发起，导航及主题切换不执行文件 I/O。
     connect(m_open, &QPushButton::clicked, this, [this]() {
@@ -234,103 +233,9 @@ void ActionAnalyzeWorkspace::changeEvent(QEvent* event)
     if (event->type() == QEvent::LanguageChange && m_catalog)
     {
         m_catalog->retranslate();
-        retranslateOverview();
         updateStatus();
         updateSampleDocument();
     }
-}
-
-// 概览按设计放置左瀑布、中部事件、右上操作状态和底部传播资料。
-QWidget* ActionAnalyzeWorkspace::createOverview()
-{
-    auto* page = new QWidget(m_tabs);
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
-    auto* vertical = new QSplitter(Qt::Vertical, page);
-    auto* middle = new QSplitter(Qt::Horizontal, vertical);
-    middle->setChildrenCollapsible(false);
-    layout->addWidget(vertical);
-
-    // 还没有事件时间戳时不绘制轴或泳道标记。
-    auto* waterfall = new QWidget(middle);
-    ks::ui::StylePrimaryContentPanel(waterfall, false);
-    auto* waterfallLayout = new QVBoxLayout(waterfall);
-    waterfallLayout->setContentsMargins(8, 8, 8, 8);
-    m_waterfallTitle = new QLabel(waterfall);
-    ks::ui::StylePrimarySectionTitle(m_waterfallTitle);
-    m_waterfallStatus = StatusLabel(waterfall);
-    waterfallLayout->addWidget(m_waterfallTitle);
-    waterfallLayout->addWidget(m_waterfallStatus);
-    waterfallLayout->addStretch(1);
-
-    // 两路显示开关独立，当前未取得任何来源时皆不可用。
-    auto* eventPane = new QWidget(middle);
-    auto* eventLayout = new QVBoxLayout(eventPane);
-    eventLayout->setContentsMargins(0, 0, 0, 0);
-    eventLayout->setSpacing(6);
-    auto* toolbar = new QWidget(eventPane);
-    ks::ui::StylePrimaryToolbar(toolbar);
-    auto* sources = new ks::ui::FlowLayout(toolbar, 8, 8, 6);
-    m_apiSource = new QCheckBox(toolbar);
-    m_etwSource = new QCheckBox(toolbar);
-    m_apiSource->setEnabled(false);
-    m_etwSource->setEnabled(false);
-    sources->addWidget(m_apiSource);
-    sources->addWidget(m_etwSource);
-    m_liveStatus = StatusLabel(toolbar);
-    m_liveStatus->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    sources->addExpandingWidget(m_liveStatus, 195);
-    ks::ui::NormalizeToolbarLayout(sources);
-    eventLayout->addWidget(toolbar);
-
-    // 仍展示规定的五列。没有真实项目事件时共享操作条由模型计数禁用。
-    m_eventStatus = StatusLabel(eventPane);
-    eventLayout->addWidget(m_eventStatus);
-    auto* eventTable = new ks::ui::TableActionTableView(eventPane);
-    eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    eventTable->verticalHeader()->hide();
-    m_events = new QStandardItemModel(0, 5, eventTable);
-    ks::ui::ResultTableCapabilities capabilities;
-    capabilities.headerClickSorting = false;
-    capabilities.actionBar = ks::ui::TableActionBarMode::Compact;
-    ks::ui::ResultTableHost::ensure(eventTable)->bindModel(m_events, {{0, QStringLiteral("time")},
-        {1, QStringLiteral("pid")}, {2, QStringLiteral("tid")}, {3, QStringLiteral("process")},
-        {4, QStringLiteral("event")}}, capabilities);
-    eventLayout->addWidget(eventTable, 1);
-    middle->setStretchFactor(0, 0);
-    middle->setStretchFactor(1, 1);
-    middle->setSizes({185, 720});
-    vertical->addWidget(middle);
-
-    // 缺少实例及关系证据时保持自然高度，空间留给中央视图。
-    auto* propagation = new QWidget(vertical);
-    ks::ui::StylePrimaryContentPanel(propagation, false);
-    auto* graphLayout = new QVBoxLayout(propagation);
-    graphLayout->setContentsMargins(8, 8, 8, 8);
-    m_propagationTitle = new QLabel(propagation);
-    ks::ui::StylePrimarySectionTitle(m_propagationTitle);
-    m_propagationStatus = StatusLabel(propagation);
-    graphLayout->addWidget(m_propagationTitle);
-    graphLayout->addWidget(m_propagationStatus);
-    vertical->addWidget(propagation);
-    vertical->setStretchFactor(0, 1);
-    return page;
-}
-
-// 更新可见列名和无来源时的指引，状态由 updateStatus 更新。
-void ActionAnalyzeWorkspace::retranslateOverview()
-{
-    m_waterfallTitle->setText(sourceText(QStringLiteral("时间瀑布")));
-    m_propagationTitle->setText(sourceText(QStringLiteral("证据传播")));
-    m_apiSource->setText(QStringLiteral("API"));
-    m_etwSource->setText(QStringLiteral("ETW"));
-    const auto reason = sourceText(QStringLiteral("当前项目格式不包含事件来源。"));
-    m_apiSource->setToolTip(reason);
-    m_etwSource->setToolTip(reason);
-    m_liveStatus->setText(sourceText(QStringLiteral("实时操作需要活动会话")));
-    m_events->setHorizontalHeaderLabels({sourceText(QStringLiteral("时间")), QStringLiteral("PID"),
-        QStringLiteral("TID"), sourceText(QStringLiteral("进程")), sourceText(QStringLiteral("事件"))});
 }
 
 // 目录与详情沿用 Monitor 风险中心的共享模型宿主及详情布局。
@@ -633,7 +538,7 @@ void ActionAnalyzeWorkspace::updateStatus()
     ks::ui::ApplyStatusRole(m_status, role);
 
     // 只有读回的采样描述明确标成 not-collected 时才显示未采集。
-    QString eventState = sourceText(QStringLiteral("在项目与采样中选择采样。"));
+    QString eventState = sourceText(QStringLiteral("打开归档段以查看离线记录。"));
     if (m_readingSample)
     {
         eventState = sourceText(QStringLiteral("正在读取采样详情…"));
@@ -644,11 +549,9 @@ void ActionAnalyzeWorkspace::updateStatus()
     }
     else if (!m_selected.id.isEmpty())
     {
-        eventState = sourceText(QStringLiteral("此采样未采集事件。API 和 ETW 显示筛选不可用。"));
+        eventState = sourceText(QStringLiteral("项目元数据记录此采样未采集。可以单独打开归档段核对。"));
     }
-    m_eventStatus->setText(eventState);
-    m_waterfallStatus->setText(sourceText(QStringLiteral("未取得可用于时间范围的事件时间。")));
-    m_propagationStatus->setText(sourceText(QStringLiteral("未取得可用于证据图的实例与关系。")));
+    m_overview->setProjectContext(m_project.id, m_selected.id, eventState);
     m_sessionStatus->setText(m_selected.id.isEmpty()
         ? sourceText(QStringLiteral("离线只读 · 未选择采样 · 无活动会话"))
         : sourceText(QStringLiteral("离线只读 · 采样 %1 · 无活动会话")).arg(m_selected.id));

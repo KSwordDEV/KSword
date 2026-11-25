@@ -885,6 +885,21 @@
     <ClCompile Include="ActionAnalyze\OfflineProjectReader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2801,6 +2816,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ActionAnalyze\OfflineProjectReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineSegmentOverview.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="MonitorDock\MonitorDock.h">

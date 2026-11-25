@@ -4,9 +4,7 @@
 #include <QWidget>
 
 class QLabel;
-class QCheckBox;
 class QPushButton;
-class QStandardItemModel;
 class QTabWidget;
 class QTableView;
 namespace ks::ui
@@ -19,6 +17,7 @@ namespace ks::ui
 namespace ks::action_analyze
 {
     class SampleCatalogModel;
+    class OfflineSegmentOverview;
 
     // Qt 行为追踪页。页面持有只读项目投影，不持有任何活动采样会话。
     class ActionAnalyzeWorkspace final : public QWidget
@@ -39,11 +38,8 @@ namespace ks::action_analyze
         void changeEvent(QEvent* event) override;
 
     private:
-        // 构造概览或项目目录页；返回页签直接持有的页面。
-        QWidget* createOverview();
+        // 构造项目目录页，返回页签直接持有的页面。
         QWidget* createProjectBrowser();
-        // 更新总览中的可用性和实际来源，不从配置推断事件。
-        void retranslateOverview();
         // 打开用户所选清单，或使用相同入口重试最近一次读取。
         void chooseProject();
         void openProject(const QString& path);
@@ -63,15 +59,7 @@ namespace ks::action_analyze
         QLabel* m_status = nullptr; // 当前读取进度、空结果或失败。
         QLabel* m_source = nullptr; // 已发布目录实际对应的项目与代次。
         QLabel* m_manifestPath = nullptr; // 只显示已发布清单路径。
-        QLabel* m_eventStatus = nullptr; // 选中采样的事件来源可用性。
-        QLabel* m_waterfallTitle = nullptr; // 瀑布区域标题。
-        QLabel* m_waterfallStatus = nullptr; // 未连通时间范围时的说明。
-        QLabel* m_propagationTitle = nullptr; // 底部传播视图标题。
-        QLabel* m_propagationStatus = nullptr; // 当前范围的传播资料可用性。
-        QLabel* m_liveStatus = nullptr; // 独立的实时操作区及不可用原因。
-        QCheckBox* m_apiSource = nullptr; // API 投影开关，待事件入口有效后才启用。
-        QCheckBox* m_etwSource = nullptr; // ETW 投影开关，待事件入口有效后才启用。
-        QStandardItemModel* m_events = nullptr; // 概览事件表，离线元数据格式不填充事件。
+        OfflineSegmentOverview* m_overview = nullptr; // 独立归档投影与当前项目身份对照。
         QLabel* m_sessionStatus = nullptr; // 当前页面的真实会话状态。
         QTableView* m_samples = nullptr; // 项目已提交采样目录。
         SampleCatalogModel* m_catalog = nullptr; // 稳定样本身份的按需表模型。
