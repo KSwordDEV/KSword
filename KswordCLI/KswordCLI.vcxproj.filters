@@ -88,6 +88,15 @@
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Transport.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Archive">
+    <ClCompile Include="ActionAnalyze\Archive\SegmentFormat.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Archive\SegmentReader.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Archive\SegmentWriter.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClInclude Include="ActionAnalyze\Archive\SegmentFormat.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Archive\SegmentReader.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Archive\SegmentWriter.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3NetworkPing.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />

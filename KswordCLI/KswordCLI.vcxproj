@@ -200,6 +200,15 @@
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h" />
     <ClInclude Include="ActionAnalyze\Cli\Transport.h" />
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Archive">
+    <ClCompile Include="ActionAnalyze\Archive\SegmentFormat.cpp" />
+    <ClCompile Include="ActionAnalyze\Archive\SegmentReader.cpp" />
+    <ClCompile Include="ActionAnalyze\Archive\SegmentWriter.cpp" />
+    <ClInclude Include="ActionAnalyze\Archive\SegmentFormat.h" />
+    <ClInclude Include="ActionAnalyze\Archive\SegmentReader.h" />
+    <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h" />
+    <ClInclude Include="ActionAnalyze\Archive\SegmentWriter.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
