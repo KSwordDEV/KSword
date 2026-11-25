@@ -1,0 +1,72 @@
+{
+  "inventoryVersion": 1,
+  "sourceDefinitionSha256": "67aa8a6476434d7af2564b1a2dc1a8f12aa16fd792cfe55e2ee2b6489cd049d1",
+  "sourceDefinitionCount": 898,
+  "rowCount": 256,
+  "rowsByArea": {
+    "E01": 27,
+    "E02": 31,
+    "E03": 41,
+    "E04": 44,
+    "E05": 10,
+    "E06": 16,
+    "E07": 16,
+    "E08": 7,
+    "E09": 3,
+    "E10": 9,
+    "E11": 13,
+    "E12": 8,
+    "E13": 16,
+    "E14": 12,
+    "E15": 42,
+    "E16": 6
+  },
+  "ruleOverlapRows": 11,
+  "legacyRaw": {
+    "packetKind": "ApiCall",
+    "resultKind": "EntryOnly",
+    "phase": "entry",
+    "registerSlots": {
+      "x86": [
+        "ECX",
+        "EDX"
+      ],
+      "x64": [
+        "RCX",
+        "RDX",
+        "R8",
+        "R9"
+      ]
+    },
+    "maximumStackSlots": 4,
+    "pointeesCaptured": false,
+    "typedResultCaptured": false,
+    "evidence": [
+      {
+        "path": "APIMonitor_x64/hook/HookTargets.cpp",
+        "line": 1840,
+        "anchor": "void RawHookEnter("
+      },
+      {
+        "path": "APIMonitor_x64/hook/HookTargets.cpp",
+        "line": 7134,
+        "anchor": "void DiscoverRawHookBindingsForLoadedModules()"
+      }
+    ]
+  },
+  "rowsByDeclarationState": {
+    "absent-from-strong": 58,
+    "not-an-agent-export": 47,
+    "strong-defined": 151
+  },
+  "architectureEvidenceCounts": {
+    "historical-hook-unavailable": 2,
+    "historical-return-matched": 14,
+    "unverified-in-inventory": 496
+  },
+  "dataSha256": {
+    "environment-entry-catalog.jsonl": "57bb1143f02d48a4fc3448c7ea9ecba05319d574d3e8e6eae7be2f5e1171a9fa",
+    "historical-api-matches.jsonl": "c96bbdc1127acd46d132e220a0a5ce4463e53fb70bc43b981453d29286a6b20f",
+    "rule-overlap.jsonl": "10e6a1aec33e299ada79f3d588766cb05b9b3c5fcbce3309dddf0119c80dc923"
+  }
+}

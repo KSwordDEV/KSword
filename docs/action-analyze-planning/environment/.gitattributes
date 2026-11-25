@@ -1,0 +1,2 @@
+*.jsonl text eol=lf
+inventory-check.json text eol=lf
