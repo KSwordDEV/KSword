@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{BF876D44-CA88-4310-A73C-F2ABBA93C9AB}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\CrossProcessEvidenceGraphValidation\</IntDir>
+    <TargetName>ActionAnalyzeCrossProcessEvidenceGraphValidation</TargetName>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <Import Project="..\..\..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem><AdditionalDependencies>Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="CrossProcessEvidenceGraphTests.cpp" />
+    <ClCompile Include="..\CrossProcessEvidenceGraph.cpp" />
+    <ClCompile Include="..\InjectionDiscovery.cpp" />
+    <ClCompile Include="..\SysmonThreadSource.cpp" />
+    <ClCompile Include="..\..\..\..\shared\evidence\ObjectIdentity.cpp" />
+    <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
+    <ClInclude Include="..\CrossProcessEvidenceGraph.h" />
+    <ClInclude Include="..\InjectionDiscovery.h" />
+    <ClInclude Include="..\SysmonThreadSource.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

@@ -11,7 +11,8 @@
     },
     "nullableOffset": { "anyOf": [{ "$ref": "#/$defs/offset" }, { "type": "null" }] },
     "nullableU64": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u64" }, { "type": "null" }] },
-    "params": {
+    "params": { "oneOf": [{ "$ref": "#/$defs/framingParams" }, { "$ref": "#/$defs/graphParams" }] },
+    "framingParams": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "sampleId", "stream", "ordinal"],
       "properties": {
@@ -21,6 +22,23 @@
         "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "endOffset": { "$ref": "#/$defs/offset" }
       }
+    },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64 },
+    "graphParams": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "sampleId", "stream", "ordinal", "view"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "stream": { "const": "raw" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "view": { "const": "graph" },
+        "afterSequence": { "$ref": "value.schema.json#/$defs/u64", "default": "0" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 },
+        "expectedSha256": { "$ref": "#/$defs/hash" }
+      },
+      "if": { "required": ["afterSequence"], "properties": { "afterSequence": { "not": { "const": "0" } } } },
+      "then": { "required": ["expectedSha256"] }
     },
     "coverage": {
       "type": "object", "additionalProperties": false,
@@ -55,7 +73,8 @@
         "win32Error": { "anyOf": [{ "allOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "minimum": 1 }] }, { "type": "null" }] }
       }
     },
-    "result": {
+    "result": { "oneOf": [{ "$ref": "#/$defs/framingResult" }, { "$ref": "#/$defs/graphResult" }] },
+    "framingResult": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "sampleId", "generation", "stream", "ordinal", "createdUtc100ns", "framingStatus", "framingError", "framingCoverage", "requiredRecordCount", "unsupportedOptionalRecords", "unsupportedRequiredRecords", "interpretedBytes", "durableBytes"],
       "properties": {
@@ -82,11 +101,96 @@
         { "properties": { "framingStatus": { "const": "io-error" }, "framingError": { "type": "object", "properties": { "reason": { "enum": ["file-size", "file-read"] } } } } }
       ]
     },
+    "graphRaw": {
+      "type": "object", "additionalProperties": false,
+      "required": ["segmentOrdinal", "blockOrdinal", "recordSequence", "recordOffset", "inlineOffset", "inlineBytes"],
+      "properties": {
+        "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "blockOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordOffset": { "$ref": "#/$defs/offset" },
+        "inlineOffset": { "$ref": "#/$defs/offset" },
+        "inlineBytes": { "$ref": "#/$defs/offset" }
+      }
+    },
+    "graphObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "apiFamily", "apiCategory", "headerPid", "headerTid", "actorInstance", "targetInstance", "threadInstance", "execution", "finding", "gaps", "sourceId", "sourceEpoch", "sourceGroup", "sourceSequence", "eventOrdinal", "raw"],
+      "properties": {
+        "operation": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "apiFamily": { "description": "Stable clue family recomputed from the API import packet." },
+        "apiCategory": { "description": "API Monitor business category checked against the imported packet." },
+        "headerPid": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "type": "null" }] },
+        "headerTid": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "type": "null" }] },
+        "actorInstance": { "type": "null" },
+        "targetInstance": { "type": "null" },
+        "threadInstance": { "type": "null" },
+        "execution": { "type": "null" },
+        "finding": { "type": "null" },
+        "gaps": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["source-unverified", "legacy-summary-only", "actor-instance-unknown", "target-instance-unknown", "actual-write-range-unknown", "thread-instance-unknown", "execution-unknown", "etw-context-only", "invalid-native-record", "source-payload-truncated"] }
+        },
+        "sourceId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sourceEpoch": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sourceGroup": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sourceSequence": { "$ref": "#/$defs/nullableU64" },
+        "eventOrdinal": { "type": "null" },
+        "raw": { "$ref": "#/$defs/graphRaw" }
+      },
+      "oneOf": [
+        { "properties": { "apiFamily": { "enum": ["memory-write", "section-map"] }, "apiCategory": { "const": "memory" } } },
+        { "properties": { "apiFamily": { "enum": ["thread-create", "apc-queue", "thread-context"] }, "apiCategory": { "const": "thread" } } },
+        { "properties": { "apiFamily": { "type": "null" }, "apiCategory": { "type": "null" } } }
+      ]
+    },
+    "graphResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["view", "projectId", "sampleId", "generation", "stream", "ordinal", "descriptionHash", "archiveSource", "sourceCoverage", "machineId", "bootId", "prefix", "finalSegment", "observationCount", "nextAfterSequence", "nodes", "relations", "observations"],
+      "properties": {
+        "view": { "const": "graph" },
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "stream": { "const": "raw" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "descriptionHash": { "$ref": "#/$defs/hash" },
+        "archiveSource": { "enum": ["api-import", "etw-checkpoint"] },
+        "sourceCoverage": { "const": "unknown" },
+        "machineId": { "type": "null" },
+        "bootId": { "type": "null" },
+        "prefix": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sha256", "endOffset", "lastBlockOrdinal", "lastSequence"],
+          "properties": {
+            "sha256": { "$ref": "#/$defs/hash" },
+            "endOffset": { "$ref": "#/$defs/offset" },
+            "lastBlockOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "lastSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+          }
+        },
+        "finalSegment": { "type": ["boolean", "null"] },
+        "observationCount": { "$ref": "value.schema.json#/$defs/u64" },
+        "nextAfterSequence": { "$ref": "#/$defs/nullableU64" },
+        "nodes": { "const": [] },
+        "relations": { "const": [] },
+        "observations": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/graphObservation" } }
+      },
+      "if": { "properties": { "archiveSource": { "const": "etw-checkpoint" } } },
+      "then": { "properties": {
+        "finalSegment": { "type": "boolean" },
+        "observations": { "items": { "properties": { "apiFamily": { "type": "null" } } } }
+      } },
+      "else": { "properties": {
+        "finalSegment": { "type": "null" },
+        "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } }
+      } }
+    },
     "error": {
       "oneOf": [
         {
           "$ref": "request-message.schema.json#/$defs/projectError",
-          "properties": { "errorId": { "enum": ["invalid-params", "project-not-open", "project-id-mismatch", "project-data-not-found", "project-unsafe-path", "project-corrupt", "project-limit-exceeded", "project-unsupported", "project-io-error"] } }
+          "properties": { "errorId": { "enum": ["invalid-params", "project-not-open", "project-id-mismatch", "project-data-not-found", "project-unsafe-path", "project-corrupt", "project-limit-exceeded", "project-unsupported", "project-io-error", "stale-revision", "response-too-large"] } }
         },
         {
           "$ref": "request-message.schema.json#/$defs/error",

@@ -42,7 +42,7 @@ def read_catalog(name):
 
 FORMAT = read_catalog("archive-format.json")
 LIMITS = FORMAT["limits"]
-SCHEMAS = {name: read_catalog(name + ".schema.json") for name in ("value", "identity")}
+SCHEMAS = {name: read_catalog(name + ".schema.json") for name in ("value", "identity", "etw-coverage-v1")}
 REGISTRY = Registry().with_resources((schema["$id"], Resource.from_contents(schema)) for schema in SCHEMAS.values())
 FORMATS = FormatChecker()
 
@@ -440,6 +440,13 @@ def check_stored_vectors():
 def check_catalogs():
     for schema in SCHEMAS.values():
         Draft202012Validator.check_schema(schema)
+    coverage = FORMAT["etwCoverageV1"]
+    coverage_schema = SCHEMAS["etw-coverage-v1"]
+    check_equal(coverage["type"], FORMAT["recordTypeIds"]["Coverage"], "ETW coverage record type")
+    check_equal(coverage["streamKind"], FORMAT["streamKinds"]["records"], "ETW coverage stream")
+    check_equal(coverage["payloadSchema"], coverage_schema["$id"].rsplit("/", 1)[1], "ETW coverage schema")
+    check_equal(coverage["payloadDiscriminator"], {"kind": coverage_schema["properties"]["kind"]["const"]},
+                "ETW coverage discriminator")
     for name in ("segmentHeader", "blockHeader", "recordHeader", "canonicalEventCoreV1"):
         layout = FORMAT[name]
         cursor = 0

@@ -114,7 +114,7 @@ JsonValue Controller::Capabilities(bool live) {
 }
 
 std::string Controller::CapabilitiesText(bool live) {
-    std::string text = std::string(live ? "R3 passive ETW controller, protocol " : "Offline controller, protocol ") + std::to_string(kSchemaVersion) +
+    std::string text = std::string(live ? "R3 passive capture controller, protocol " : "Offline controller, protocol ") + std::to_string(kSchemaVersion) +
         ". Project storage, offline sample descriptors and Stored segment framing inspection are available.\n";
     text += "Limits per line and frame: " + std::to_string(kInputBytes) + " input bytes, " +
         std::to_string(kOutputBytes) + " output bytes.\n";
@@ -216,8 +216,8 @@ Reply Controller::Dispatch(Request request, bool repl) {
     if (method && method->run == Shutdown) {
         return method->run(request.params);
     }
-    // A live status poll has no effect to replay. Continuous sessions may be polled indefinitely.
-    if (live && ((live->method == LiveMethod::Query && session_.Continuous()) || live->method == LiveMethod::Findings))
+    // 持续采样与被动归档允许反复查询当前状态，无需为每次只读更新保留回执。
+    if (live && ((live->method == LiveMethod::Query && session_.UncachedQuery()) || live->method == LiveMethod::Findings))
         return session_.Dispatch(live->method, request, project_.Document());
     auto requestKey = identity();
     const auto charge = request.id.size() + request.method.size() + requestKey.size() + kReplayEntryOverhead;

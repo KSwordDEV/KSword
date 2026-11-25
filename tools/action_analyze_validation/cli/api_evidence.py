@@ -8,7 +8,7 @@ import subprocess
 import time
 
 from project_v1 import owned_project_path
-from smoke import EXE, TIMEOUT
+from smoke import EXE, SESSION, TIMEOUT, contract, line, request
 
 
 def packet(module, api, category, marker=0, result_kind=0, status=0, returned=0):
@@ -79,6 +79,57 @@ def import_fixture(project, title):
     return manifest, segment, rows
 
 
+def read_graph(project, project_id, sample, *pages):
+    """通过正式 JSONL 会话读图，按同一方法契约验证成功回执。"""
+    envelope, methods = contract()
+    method = 'archive.inspect'
+    schema_base = 'https://ksword.invalid/schemas/action_analyze/'
+    result_validator = envelope.evolve(schema={'$ref': schema_base + methods[method]['resultSchema']})
+    params = {'projectId': project_id, 'sampleId': sample, 'stream': 'raw', 'ordinal': '1', 'view': 'graph'}
+    commands = [request('open', 'project.open', {'path': str(project)})]
+    commands.extend(request(f'graph-{index}', method, params | page) for index, page in enumerate(pages))
+    commands.append(request('shutdown', 'controller.shutdown'))
+    session = subprocess.run([EXE, *SESSION], input=b''.join(map(line, commands)), capture_output=True, timeout=TIMEOUT)
+    assert session.returncode == 0 and not session.stderr, (session.returncode, session.stdout, session.stderr)
+    replies = {record['requestId']: record for raw in session.stdout.splitlines()
+               if (record := json.loads(raw))['type'] == 'response'}
+    assert replies['open']['error'] is None, replies['open']
+    assert replies['shutdown']['error'] is None, replies['shutdown']
+    graph_replies = [replies[f'graph-{index}'] for index in range(len(pages))]
+    for reply in graph_replies:
+        if reply['error'] is None:
+            result_validator.validate(reply['result'])
+    return graph_replies
+
+
+def check_graph(project, project_id, sample, segment, packets):
+    """核对分类、分页和原包坐标，保留身份与执行证据的缺口。"""
+    contents = segment.read_bytes()
+    digest = hashlib.sha256(contents).hexdigest()
+    first, following, stale = read_graph(project, project_id, sample, {'limit': 1},
+                                       {'afterSequence': '1', 'expectedSha256': digest},
+                                       {'afterSequence': '1', 'expectedSha256': '0' * 64})
+    assert first['error'] is None and following['error'] is None, (first, following)
+    assert stale['result'] is None and stale['error']['errorId'] == 'stale-revision', stale
+    head, tail = first['result'], following['result']
+    assert (head['nextAfterSequence'], tail['nextAfterSequence']) == ('1', None)
+    for page in (head, tail):
+        assert (page['archiveSource'], page['observationCount'], page['sourceCoverage']) == ('api-import', '5', 'unknown')
+        assert page['prefix']['sha256'] == digest and page['nodes'] == [] and page['relations'] == []
+    rows = head['observations'] + tail['observations']
+    assert [(row['sourceSequence'], row['apiFamily'], row['apiCategory'], row['operation']) for row in rows] == [
+        ('2', 'memory-write', 'memory', 'WriteProcessMemory'), ('3', 'apc-queue', 'thread', 'NtQueueApcThread'),
+        ('5', 'thread-create', 'thread', 'CreateRemoteThreadEx'), ('6', 'thread-context', 'thread', 'SetThreadContext'),
+        ('7', 'section-map', 'memory', 'NtMapViewOfSection'),
+    ], rows
+    for row, wire in zip(rows, packets, strict=True):
+        assert (row['headerPid'], row['headerTid']) == (42, 43)
+        assert all(row[key] is None for key in ('actorInstance', 'targetInstance', 'threadInstance', 'execution', 'finding'))
+        assert 'source-unverified' in row['gaps']
+        offset, size = int(row['raw']['inlineOffset']), int(row['raw']['inlineBytes'])
+        assert contents[offset:offset + size] == wire
+
+
 def main():
     """从同一项目验证原包、分页、负例、容量与耗时。"""
     write = packet('KernelBase', 'WriteProcessMemory', 8, 0x52545631, status=299)
@@ -92,6 +143,7 @@ def main():
         result = subprocess.run([EXE, 'analyze', 'session'], input=f'project create "{project}" Fixture\nquit\n'.encode(),
                                 capture_output=True, timeout=TIMEOUT, check=True)
         assert project.joinpath('project.ksaproj').is_file(), result.stdout
+        project_id = next(json.loads(row)['projectId'] for row in result.stdout.splitlines() if row.startswith(b'{'))
         source = project.parent / 'events.jsonl'  # 固定测试根中独占创建的合成事件文件。
         source.write_bytes(b''.join(archive_line(index, wire, **extra) for index, (wire, extra) in enumerate(
             [(unrelated, {}), (write, {'processCreation100ns': '134400565183024180'}), (apc, {}),
@@ -116,9 +168,12 @@ def main():
 
         # 尾部损坏时页不交付任何线索。输入损坏应在写项目之前被拒绝。
         segment = project / 'samples' / sample / 'raw' / '00000000000000000001.ksaseg'
+        check_graph(project, project_id, sample, segment, (write, apc, create, context, mapping))
         clean = segment.read_bytes()
         segment.write_bytes(clean[:-1])
         assert cli(*replay, code=4)['status'] == 'archive-invalid-or-incomplete'
+        broken, = read_graph(project, project_id, sample, {'limit': 1})
+        assert broken['result'] is None and broken['error']['errorId'] == 'project-corrupt', broken
         segment.write_bytes(clean)
         assert cli(*replay)['clueRows'] == '5'
         source.write_bytes(known_input[:-3])
@@ -137,6 +192,7 @@ def main():
         assert (perf['sourceRows'], perf['clueRows']) == ('15000', '1500')
         print(f'PASS mixed import: 15000 rows, {source.stat().st_size} bytes, 1500 clues, {elapsed:.3f}s')
         print('PASS source/Stored corruption, raw packet equality, pagination, identity gaps, all five clue families')
+        print('PASS archive graph classification, raw anchors, continuation and unverified-tail rejection')
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@
 #include "ArchivedCapture.h"
 #include "Controller.h"
 #include "../Archive/SegmentInspection.h"
+#include "../Detection/ArchivedEvidenceGraph.h"
 #include "../Project/ProjectStorage.h"
 
 #include <algorithm>
@@ -16,18 +17,23 @@ using namespace Ksword::ActionAnalyze::ProjectStorage;
 using Ksword::Evidence::WriteJson;
 using V = JsonValue;
 using M = ProjectMethod;
+namespace Detection = Ksword::ActionAnalyze::Detection;
+
+constexpr auto kArchiveGraphPageRows = Detection::kArchivedGraphDefaultRows; // CLI 帧只容纳固定数量的来源观察。
 
 constexpr ProjectCommand kMethods[] = {
     {M::Open, "project.open", "project open", "PATH [read-only|read-write]", "Open a saved project. Defaults to read-only.", true},
     {M::Query, "project.query", "project status", "", "Read the open project and its current saved revision.", false},
     {M::Close, "project.close", "project close", "", "Release the open project and its lock.", true},
     {M::Create, "project.create", "project create", "PATH TITLE [NOTES]", "Create a project in a new directory and open it for writing.", true},
-    {M::Save, "project.save", "project save", "TITLE [NOTES]", "Save the project settings against its current revision.", true},
+    {M::Save, "project.save", "project save", "TITLE [NOTES] | settings EXPECTED_REVISION QUOTED_JSON",
+        "Save the project settings against its current revision.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
     {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]", "Read a sample and its frozen project settings.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
-    {M::InspectArchive, "archive.inspect", "archive inspect", "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]",
-        "Inspect Stored segment framing in the open project. End offset is an optional byte boundary.", false},
+    {M::InspectArchive, "archive.inspect", "archive inspect",
+        "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET | graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]]",
+        "Inspect Stored segment framing or read a verified raw evidence graph page in the open project.", false},
 };
 
 Reply Invalid(const char* message) {
@@ -201,6 +207,93 @@ V ArchiveJson(const ProjectInfo& project, std::string_view sampleId, std::string
         {"unsupportedRequiredRecords", Number(inspected.unsupportedRequiredRecords)},
         {"interpretedBytes", V::makeNull()}, {"durableBytes", V::makeNull()}});
 }
+
+// 将已支持归档格式的缺口转换为稳定的协议值。
+const char* GraphGap(Detection::Issue issue) {
+    using I = Detection::Issue;
+    switch (issue) {
+    case I::SourceUnverified: return "source-unverified";
+    case I::LegacySummaryOnly: return "legacy-summary-only";
+    case I::ActorInstanceUnknown: return "actor-instance-unknown";
+    case I::TargetInstanceUnknown: return "target-instance-unknown";
+    case I::ActualWriteRangeUnknown: return "actual-write-range-unknown";
+    case I::ThreadInstanceUnknown: return "thread-instance-unknown";
+    case I::ExecutionUnknown: return "execution-unknown";
+    case I::EtwContextOnly: return "etw-context-only";
+    case I::InvalidNativeRecord: return "invalid-native-record";
+    case I::SourcePayloadTruncated: return "source-payload-truncated";
+    default: throw std::logic_error("Unexpected archived graph gap");
+    }
+}
+
+// 来源提示与实际归档位置分别编码。当前归档输出上下文观察，角色及执行状态为未知。
+V GraphObservationJson(const Detection::GraphObservation& observation,
+                       const Detection::ArchivedGraphRecord& record) {
+    const auto& source = observation.evidence.value(); // 本路径的观察均有读侧核验过的原始锚点。
+    JsonArray gaps; // 依来源保留原始缺口顺序。
+    for (const auto gap : observation.gaps) {
+        gaps.push_back(Text(GraphGap(gap)));
+    }
+    return Object({{"operation", Text(record.operation)},
+        {"apiFamily", record.apiFamily.empty() ? V::makeNull() : Text(record.apiFamily)},
+        {"apiCategory", record.apiCategory.empty() ? V::makeNull() : Text(record.apiCategory)},
+        {"headerPid", record.headerPid ? V::makeUInt(*record.headerPid) : V::makeNull()},
+        {"headerTid", record.headerTid ? V::makeUInt(*record.headerTid) : V::makeNull()},
+        {"actorInstance", V::makeNull()}, {"targetInstance", V::makeNull()}, {"threadInstance", V::makeNull()},
+        {"execution", V::makeNull()}, {"finding", V::makeNull()}, {"gaps", V::makeArray(std::move(gaps))},
+        {"sourceId", Text(source.sourceId)}, {"sourceEpoch", Text(source.sourceEpoch)},
+        {"sourceGroup", Text(source.sourceGroup)}, {"sourceSequence", OptionalNumber(source.sourceSequence)},
+        {"eventOrdinal", OptionalNumber(source.eventOrdinal)},
+        {"raw", Object({{"segmentOrdinal", Number(record.segmentOrdinal)}, {"blockOrdinal", Number(record.blockOrdinal)},
+            {"recordSequence", Number(record.recordSequence)}, {"recordOffset", Number(record.recordOffset)},
+            {"inlineOffset", Number(record.inlineOffset)}, {"inlineBytes", Number(record.inlineBytes)}})}});
+}
+
+// 从已打开项目查询一页已验证的 raw 归档。续页使用同一段和前缀摘要。
+Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleId, std::uint64_t ordinal,
+                       const V& params) {
+    std::uint64_t after = 0; // 首页从第一条观察开始。
+    std::uint64_t limit = kArchiveGraphPageRows; // 本帧最多返回的观察数。
+    std::string sha256; // 可由客户端提供上一页的前缀摘要。
+    const auto* count = params.find("limit"); // 与项目列表相同，页大小使用 JSON 整数。
+    const auto* hash = params.find("expectedSha256"); // 可选的规范 SHA-256 十六进制字符串。
+    if ((params.find("afterSequence") && !GetNumber(params, "afterSequence", after)) ||
+        (count && (count->type() != JsonType::UInt || !count->tryGetU64(limit) || !limit || limit > kArchiveGraphPageRows)) ||
+        (hash && (!hash->tryGetString(sha256) || !IsHash(sha256))) || (after && !hash)) {
+        return Invalid("Expected limit in 1..100, a decimal afterSequence and expectedSha256 for a continuation");
+    }
+
+    Detection::ArchivedGraphPage page; // 已通过来源读取器核验的快照。
+    const auto status = Detection::ReadArchivedEvidenceGraph(document,
+        {sampleId, ordinal, after, static_cast<std::size_t>(limit), sha256}, page);
+    if (!status) {
+        return FromError(status);
+    }
+    if (!page.graph.nodes.empty() || !page.graph.edges.empty() || page.records.size() != page.graph.observations.size()) {
+        throw std::logic_error("Unexpected archived graph projection");
+    }
+    JsonArray rows; // 坐标与观察按适配器的同一索引输出。
+    rows.reserve(page.records.size());
+    for (std::size_t index = 0; index < page.records.size(); ++index) {
+        rows.push_back(GraphObservationJson(page.graph.observations[index], page.records[index]));
+    }
+
+    const bool etw = page.source == Detection::ArchivedGraphSource::CommittedEtw; // 来源已由归档内容判断。
+    auto result = Object({{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
+        {"sampleId", Text(page.graph.scope.sampleId)}, {"generation", Number(document.Info()->generation)},
+        {"stream", Text("raw")}, {"ordinal", Number(page.segmentOrdinal)}, {"descriptionHash", Text(page.descriptionHash)},
+        {"archiveSource", Text(etw ? "etw-checkpoint" : "api-import")}, {"sourceCoverage", Text("unknown")},
+        {"machineId", V::makeNull()}, {"bootId", V::makeNull()},
+        {"prefix", Object({{"sha256", Text(page.sha256)}, {"endOffset", Number(page.end.byteOffset)},
+            {"lastBlockOrdinal", Number(page.end.blockOrdinal)}, {"lastSequence", Number(page.end.lastSequence)}})},
+        {"finalSegment", page.etwFinalSegment ? V::makeBool(*page.etwFinalSegment) : V::makeNull()},
+        {"observationCount", Number(page.observationCount)}, {"nextAfterSequence", OptionalNumber(page.nextAfterSequence)},
+        {"nodes", V::makeArray({})}, {"relations", V::makeArray({})}, {"observations", V::makeArray(std::move(rows))}});
+    if (WriteJson(result).size() > kResultBytes) {
+        return {{}, {}, {"response-too-large", "Archive graph page exceeds the response budget", {}, 6}};
+    }
+    return Success(std::move(result));
+}
 } // namespace
 
 std::span<const ProjectCommand> ProjectCommands::Catalog() noexcept { return kMethods; }
@@ -256,14 +349,16 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         document_.Close();
         return Success(Object({{"projectId", Text(projectId)}, {"closed", V::makeBool(true)}}), true);
     case M::Save: {
-        RevisionSettings settings;
-        std::string revision;
-        const auto* draft = params.find("settings");
-        if (!Fields(params, {"projectId", "expectedRevisionId", "settings"}) || !draft || !ParseSettings(*draft, settings) ||
-            !GetUuid(params, "expectedRevisionId", revision)) return Invalid("Expected projectId, expectedRevisionId and settings");
+        RevisionSettings settings; // 完整草稿含可选的断点定义集合。
+        std::string revision; // 用户明确采用的项目修订。
+        const auto* draft = params.find("settings"); // 与项目身份及修订一起进入保存事务。
+        if (!Fields(params, {"projectId", "expectedRevisionId", "settings"}) || !draft ||
+            !ParseSettingsDraft(*draft, settings) || !GetUuid(params, "expectedRevisionId", revision)) {
+            return Invalid("Expected projectId, expectedRevisionId and complete project settings");
+        }
         if (const auto error = checkProject()) return {{}, {}, error};
         if (revision != info->revisionId) return FromError({ProjectError::StaleRevision, 0, "Project revision has changed"});
-        const auto result = document_.Save(settings, revision);
+        const auto result = document_.Save(settings, revision); // 返回写入器实际发布的修订及定义。
         return result ? Success(ProjectJson(*document_.Info()), true) : FromError(result);
     }
     case M::CreateSample: {
@@ -304,6 +399,20 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
             sample.configSemanticHash, std::move(capture)));
     }
     case M::InspectArchive: {
+        const auto* view = params.find("view"); // 命令可显式改读证据图页。
+        if (view) {
+            std::string sampleId; // 要回读的登记采样。
+            std::uint64_t ordinal = 0; // 显式选择的 raw 段号。
+            if (!KnownKeys(params, {"projectId", "sampleId", "stream", "ordinal", "view", "afterSequence", "limit", "expectedSha256"}) ||
+                !GetUuid(params, "sampleId", sampleId) || !IsString(params, "view", "graph") ||
+                !IsString(params, "stream", "raw") || !GetNumber(params, "ordinal", ordinal) || !ordinal) {
+                return Invalid("Graph view requires sampleId, stream raw and a positive ordinal");
+            }
+            if (const auto error = checkProject()) {
+                return {{}, {}, error};
+            }
+            return ReadArchiveGraph(document_, sampleId, ordinal, params);
+        }
         std::string sampleId, stream;
         std::uint64_t ordinal = 0, end = 0;
         const bool hasEnd = params.find("endOffset") != nullptr;
@@ -376,8 +485,18 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         break;
     case M::Create:
     case M::Save: {
-        const bool create = method == M::Create;
-        const std::size_t offset = create ? 1 : 0;
+        const bool create = method == M::Create; // 项目创建使用旧双字段参数。
+        if (!create && words.size() == 3 && words[0] == "settings") {
+            // 显式修订和完整 JSON 草稿使用同一 JSONL 保存入口。
+            auto parsed = Ksword::Evidence::ParseJson(words[2]); // 第三个参数是已去除 REPL 外层引号的 JSON。
+            if (!parsed.ok() || !parsed.value.asObject()) {
+                return Invalid("Expected a quoted JSON object for project settings");
+            }
+            fields.emplace_back("expectedRevisionId", Text(words[1]));
+            fields.emplace_back("settings", std::move(parsed.value));
+            break;
+        }
+        const std::size_t offset = create ? 1 : 0; // 项目路径占创建命令的第一个参数。
         if (words.size() < offset + 1 || words.size() > offset + 2) return Invalid("Expected a title and optional notes (plus path for project create)");
         if (create) fields.emplace_back("path", Text(words[0]));
         else fields.emplace_back("expectedRevisionId", Text(info->revisionId));
@@ -399,12 +518,36 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         if (words.size() == 3) fields.emplace_back("captureOrdinal", Text(words[2]));
         break;
     case M::InspectArchive:
-        if (words.size() < 3 || words.size() > 4)
-            return Invalid("Usage: archive inspect SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]");
+        if (words.size() < 3) {
+            return Invalid("Usage: archive inspect SAMPLE_ID raw|records|control ORDINAL [END_OFFSET | graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]]");
+        }
         fields.emplace_back("sampleId", Text(words[0]));
         fields.emplace_back("stream", Text(words[1]));
         fields.emplace_back("ordinal", Text(words[2]));
-        if (words.size() == 4) fields.emplace_back("endOffset", Text(words[3]));
+        if (words.size() >= 4 && words[3] == "graph") {
+            if (words.size() == 6 || words.size() > 7) {
+                return Invalid("Usage: archive inspect SAMPLE_ID raw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]");
+            }
+            fields.emplace_back("view", Text("graph"));
+            if (words.size() >= 5) {
+                std::uint64_t limit = 0; // 用与 JSONL 相同的整数参数进入分发。
+                const auto& raw = words[4]; // REPL 中尚未解析的页大小。
+                const auto* end = raw.data() + raw.size(); // 十进制解析须消费整个参数。
+                const auto parsed = std::from_chars(raw.data(), end, limit);
+                if (parsed.ec != std::errc{} || parsed.ptr != end) {
+                    return Invalid("LIMIT must be a decimal integer");
+                }
+                fields.emplace_back("limit", V::makeUInt(limit));
+            }
+            if (words.size() == 7) {
+                fields.emplace_back("afterSequence", Text(words[5]));
+                fields.emplace_back("expectedSha256", Text(words[6]));
+            }
+        } else if (words.size() == 4) {
+            fields.emplace_back("endOffset", Text(words[3]));
+        } else if (words.size() > 4) {
+            return Invalid("Usage: archive inspect SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]");
+        }
         break;
     case M::CreateSample:
         if (words.size() != 1) return Invalid("Usage: sample create TITLE");

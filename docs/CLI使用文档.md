@@ -174,7 +174,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 `api-evidence import` 接受主程序「监控 → WinAPI」生成的 `events.jsonl`，输入上限 32 MiB。导入从 `packetBase64` 重新判定五类线索：内存写、线程创建、APC 排队、线程上下文和节映射。原始行号与 Stored 记录序号分别保存。文件完整、线索非空时创建新采样。源文件损坏退出 `4`，项目或写入错误退出 `3`，输入没有匹配项时返回 `no-clues`。`replay` 仅在完整段和导入收尾记录均通过校验后输出结果。把 `nextAfter` 传给下一次的 `--after`。每页默认 25 条，上限 100 条。`--packet 1` 返回完整原包的十六进制。源覆盖、目标进程身份、实际写入范围、执行与归因保持未知。
 
-导入后的采样可在 Light「监控 → ActionAnalyze」中打开。CLI 的 `--packet 1` 可取回完整包。
+导入后的采样可在 Qt「监控 → 行为分析 → 项目与采样」和 Light「监控 → ActionAnalyze」中打开。Qt 总览可勾选 `API` 筛选并查看来源坐标。CLI 的 `--packet 1` 可取回完整包，桌面详情提供有界前缀。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 
@@ -224,6 +224,8 @@ quit
 
 `pid` 与显式 `durationMs` 是 JSON 整数。**不传 `durationMs` 时持续记录**，无须发送查询驱动采集，回执的计划用 `durationMs:0` 表示没有期限。传入期限时沿用 1,000–120,000 毫秒的有限抓取。`creationFileTime` 和 `stateRevision` 是十进制字符串，Provider 使用不带花括号的规范小写 UUID。`session.open` 冻结本次项目修订并创建新样本。对 stop 和 close 的比较依据是上次报告的 `stateRevision`。机器会话按方法、参数、会话身份和 `expected` 去重。普通请求占满账本后，有效的停止、会话关闭和项目关闭可用预留额度。持续模式的 `session.query` 是不占累计账本的只读状态查询，调用方仍应为每条请求分配新 ID。`controller.shutdown` 可用新请求 ID 直接发起收尾。
 
+`r3` 的 JSONL `session.open` 也可跟随已授权的本地 WinAPI 归档。使用 `apiArchive` 对象代替 `providerId` 与 `sysmonTargetGuid`，提供 `path`（现有 `.jsonl` 的绝对路径）、`sessionIdentity`（非零十进制字符串）和 `authorized:true`。继续传入 `projectId`、`title`、`pid`、`creationFileTime` 和 `expected.revisionId`。可选的 `durationMs` 沿用相同范围。该来源仅提供文件与归档声明的一致性证据。`source.validatedRows` 是已校验的完整归档行数，`archive.recordedRows` 是已提交并回读的原包数，`source.coverage` 为 `unknown`。停止时固定可见文件边界，报告是否到达截止位置和未完成的尾部。 [方法契约](../schemas/action_analyze/live-etw-session.schema.json)
+
 `source.state=running` 表示工作线程已提交 `ProcessTrace` 调用。`source.startupAbort` 记录快速停止时明确跳过的调用阶段。`source.tailDeliveryUnconfirmed=true` 表示无法确认收尾阶段的完整交付，采样状态为 `partial`。原生错误码、系统丢失和本地队列丢失分别报告。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
 R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项目预留回执空间。重放原停止 ID 不会再次调用原生 API。如果重试后仍无法清退，可能没有空间继续接受新的停止 ID；应保留最后一份清退回执，不将待归档状态当作成功。
@@ -264,14 +266,22 @@ R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项�
 | --- | --- | --- | --- |
 | `project.create` | `path`、`settings` | `project create PATH TITLE [NOTES]` | 项目信息 |
 | `project.open` | `path`，可选 `access` 为 `read-only` 或 `read-write` | `project open PATH [read-only\|read-write]` | 项目信息 |
-| `project.query` | `projectId` | `project status` | 项目信息 |
-| `project.save` | `projectId`、`expectedRevisionId`、`settings` | `project save TITLE [NOTES]` | 保存后的项目信息 |
+| `project.query` | `projectId` | `project status` | 项目信息及已保存的断点定义 |
+| `project.save` | `projectId`、`expectedRevisionId`、`settings` | `project save TITLE [NOTES]` 或 `project save settings EXPECTED_REVISION QUOTED_JSON` | 保存后的项目信息 |
 | `project.close` | `projectId` | `project close` | `projectId`、`closed:true` |
 | `sample.create` | `projectId`、`expectedRevisionId`、`title` | `sample create TITLE` | 采样详情 |
 | `sample.list` | `projectId`，可选 `generation`、`start`、`limit` | `sample list [START GENERATION [LIMIT]]` | `projectId`、`generation`、`start`、`sampleCount`、`nextStart`、`samples` |
 | `sample.query` | `projectId`、`sampleId`，可选布尔值 `includeCapture` | `sample status SAMPLE_ID [capture]` | 采样详情，可按需回读 ETW 采集摘要 |
 
 `settings` 包含 `title` 和 `notes`。标题为 1–1024 个 UTF-8 字节。备注最多 64 KiB，可以为空，允许制表符和 LF。项目、修订及采样身份使用规范小写 UUID。`project.save` 与 `sample.create` 在写入前核对项目身份和已保存修订。身份不符返回 `project-id-mismatch`，修订过期返回 `stale-revision`。只读打开后写入返回 `project-read-only`。关闭当前项目、重新打开后使用新请求 ID 查询新快照。
+
+`project.save` 可在完整 `settings` 中携带 `breakpointDefinitions`。字段最多 64 条，显式 `[]` 表示清空。已有定义携带 `project status` 返回的 ID 和逐项修订，新增项携带 `"breakpointDefinitionId":""` 和 `"definitionRevision":"0"`。项目写入器为新项分配 ID，保存后通过 `result.settings` 返回已提交定义。升级后的项目每次保存都要提供完整定义集合。历史采样通过 `frozenSettings` 返回创建时采用的版本。定义在项目中保存声明式配置意图。 [定义字段与约束](action-analyze-planning/project-breakpoint-definitions.md)
+
+REPL 的完整配置写法使用 `project status` 返回的 `revisionId`。把整个 JSON 对象放入一个双引号参数，内部双引号按 REPL 规则写两次。以下示例提交空定义集合，执行前把修订 UUID 换成所选项目的基准修订。
+
+```text
+project save settings 20000000-0000-4000-8000-000000000001 "{""title"":""调查项目"",""notes"":"""",""breakpointDefinitions"":[]}"
+```
 
 项目信息包含 `projectId`、`createdUtc`、`settings`、`revisionId`、`revisionHash`、`configSemanticHash`、`generation`、`sampleCount`、`access`、`recoveredPrevious`、`primaryFailure`。列表中的采样行包含 `sampleId`、`title`、`createdUtc`、`revisionId`、`snapshotId`、`descriptionHash`、`status`。采样详情在采样行基础上还返回 `projectId`、`generation`、`frozenSettings`、`revisionHash`、`configSemanticHash`。`createdUtc` 为 FILETIME 纪元的 100ns 值。时间、计数和代次使用规范十进制字符串。
 
@@ -288,6 +298,12 @@ R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项�
 结果包含 `projectId`、`sampleId`、`generation`、`stream`、`ordinal`、`createdUtc100ns` 和 `framingStatus`。`framingCoverage` 提供 `requestedEndOffset`、`fileBytes`、`scanLimitBytes`、`framedBytes`、`blockCount`、`lastBlockOrdinal`、`lastSequence`。时间、偏移和计数以规范十进制字符串返回，无法确认的可选值为 `null`。`requiredRecordCount`、`unsupportedOptionalRecords` 和 `unsupportedRequiredRecords` 只统计已通过封装校验的块。`interpretedBytes` 与 `durableBytes` 均为 `null`，分别表示尚无记录正文解释和归档持久化水位证据。
 
 `framing-complete` 表示本次检查范围通过封装校验。`truncated`、`corrupt`、`unsupported` 和 `io-error` 仍返回读到的检查结果和已验证前缀。`framingError` 为 `null` 或包含稳定的 `reason`、十进制字符串 `offset`、整数或 `null` 的 `win32Error`。例如 `identity` 指段头身份与所选段不符，`end-of-file` 指检查端点超出文件大小或可读范围未覆盖完整封装，`codec` 指当前扫描器不支持的编码。无效参数（包括流名）返回 `invalid-params`，当前项目中找不到采样返回 `project-data-not-found`，缺少所选流目录或段文件分别返回 `archive-stream-unavailable` 和 `archive-segment-unavailable`。JSONL 以相同请求 ID 和参数重放已保存的检查结果，请求错误可重试。使用新的 ID 检查当前归档字节。
+
+#### 归档证据图
+
+打开项目后，用 `archive inspect SAMPLE_ID raw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]` 读取指定段的一页证据。JSONL 使用 `archive.inspect`，参数为 `projectId`、`sampleId`、`stream:"raw"`、`ordinal` 和 `view:"graph"`。`limit` 是可选整数，范围 1–100，默认 100。`afterSequence` 默认 `"0"`。翻页时保留同一采样与段号，将 `nextAfterSequence` 和 `prefix.sha256` 分别传为 `afterSequence` 和 `expectedSha256`，并使用新的请求 ID。`nextAfterSequence:null` 表示本段没有剩余观察。前缀散列变化返回 `stale-revision`。图视图的读取端点由归档校验确定。
+
+当前支持通过段尾计数校验的 API 导入段和通过双流检查点校验的 ETW 段。`prefix` 标明本页对应的已核验字节端点、末块、末序号和 SHA-256。每条 `observations[]` 保留来源标识、代次、原生序号及 `raw` 坐标。`recordOffset` 和 `inlineOffset` 分别指向记录头与内联数据。`headerPid` 和 `headerTid` 是来源报头中的提示字段。实例、执行和 `finding` 为 `null`，`nodes` 与 `relations` 为空，`sourceCoverage` 为 `unknown`。`observationCount` 统计本段核验范围内的全部来源观察。损坏或缺失证据返回请求错误。[方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
 
 ### `log`
 

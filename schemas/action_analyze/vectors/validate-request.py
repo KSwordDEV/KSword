@@ -53,7 +53,8 @@ def admission(request, methods, envelope, params, limits, profile='shell'):
     if methods[method]['availability'] == 'project-integration' and not fits_project_text(arguments):
         return 'invalid-params'
     if method == 'archive.inspect':
-        if int(arguments['ordinal']) > U64_MAX or int(arguments.get('endOffset', '0')) > ARCHIVE_LIMIT:
+        if (int(arguments['ordinal']) > U64_MAX or int(arguments.get('afterSequence', '0')) > U64_MAX
+                or int(arguments.get('endOffset', '0')) > ARCHIVE_LIMIT):
             return 'invalid-params'
     return 'accept'
 
@@ -331,13 +332,23 @@ def check_archive_vectors(vectors, project_vectors, shell_vectors, registry, met
         accepted = messages.is_valid(response) and valid_archive_result(result, results[method])
         require(accepted, case['valid'], case['id'])
 
+    graph = vectors['graphResult']
+    for case in vectors['graphResults']:
+        row = graph['observations'][0] | case.get('row', {})
+        if 'remove' in case:
+            del row[case['remove']]
+        result = graph | case.get('set', {}) | {'observations': [row]}
+        response = dict(base_message, result=result, error=None)
+        accepted = messages.is_valid(response) and results[method].is_valid(result)
+        require(accepted, case['valid'], case['id'])
+
     errors = validator(methods[method]['errorSchema'], registry)
     for case in vectors['errors']:
         error = dict(shell_vectors['error'], errorId=case['errorId'], source=case['source'], code=case['code'],
                      byteOffset=None)
         response = dict(base_message, result=None, error=error)
         require(messages.is_valid(response) and errors.is_valid(error), case['valid'], case['errorId'])
-    return sum(len(vectors[key]) for key in ('requests', 'results', 'errors')) + 3
+    return sum(len(vectors[key]) for key in ('requests', 'results', 'graphResults', 'errors')) + 3
 
 
 def main():

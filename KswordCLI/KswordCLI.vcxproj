@@ -207,6 +207,10 @@
     <ClCompile Include="..\shared\evidence\ObjectIdentity.cpp" />
     <ClCompile Include="ActionAnalyze\Memory\PassiveDirtyMemory.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\PassiveApiCapture.cpp" />
+    <ClCompile Include="..\shared\evidence\PassiveApiArchiveTail.cpp" />
+    <ClCompile Include="ActionAnalyze\Detection\ArchivedEvidenceGraph.cpp" />
+    <ClCompile Include="ActionAnalyze\Detection\CrossProcessEvidenceGraph.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ArchivedCapture.cpp" />
@@ -229,6 +233,10 @@
     <ClInclude Include="..\shared\evidence\ObjectIdentity.h" />
     <ClInclude Include="ActionAnalyze\Memory\PassiveDirtyMemory.h" />
     <ClInclude Include="ActionAnalyze\Cli\LiveSession.h" />
+    <ClInclude Include="ActionAnalyze\Cli\PassiveApiCapture.h" />
+    <ClInclude Include="..\shared\evidence\PassiveApiArchiveTail.h" />
+    <ClInclude Include="ActionAnalyze\Detection\ArchivedEvidenceGraph.h" />
+    <ClInclude Include="ActionAnalyze\Detection\CrossProcessEvidenceGraph.h" />
     <ClInclude Include="ActionAnalyze\Cli\Controller.h" />
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h" />
     <ClInclude Include="ActionAnalyze\Cli\ArchivedCapture.h" />

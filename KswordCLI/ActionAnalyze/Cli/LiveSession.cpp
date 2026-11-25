@@ -1,6 +1,7 @@
 #include "LiveSession.h"
 
 #include "Controller.h"
+#include "PassiveApiCapture.h"
 #include "SysmonThreadCommand.h"
 #include "../../CommandRegistry.h"
 #include "../Detection/SysmonThreadSource.h"
@@ -31,10 +32,10 @@ constexpr auto kFlushInterval = std::chrono::seconds(1);
 
 constexpr LiveCommand kCommands[] = {
     {LiveMethod::Open, "session.open", "open", "PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS|sysmon=GUID] TITLE",
-        "Start passive ETW recording in the writable project. Omit duration for continuous capture."},
+        "Start passive ETW or follow an authorized local API archive (JSONL apiArchive). Omit duration to follow continuously."},
     {LiveMethod::Query, "session.query", "status", "", "Read the current sample, native source status and archive receipt."},
     {LiveMethod::Findings, "session.findings", "findings", "", "Read the optional Sysmon subscription status and latest observed remote thread creation."},
-    {LiveMethod::Stop, "session.stop", "stop", "", "Stop the source, verify the Stored raw segment and publish its coverage checkpoint."},
+    {LiveMethod::Stop, "session.stop", "stop", "", "Stop the local capture, verify Stored evidence and report the source-specific receipt."},
     {LiveMethod::Close, "session.close", "close", "", "Release a finalized sample. Stop it first if it is still active."},
 };
 
@@ -171,6 +172,8 @@ struct LiveSession::State {
     Clock::time_point nextFlush;
     std::string reason;
     PassiveEtwSource source;
+    std::unique_ptr<PassiveApiCapture> api; // 可选的本地只读来源，与原生 ETW 路径互斥。
+    V apiPlan; // 保存到项目并随活会话回读的冻结来源描述。
     std::unique_ptr<Detection::SysmonThreadSubscription> sysmon; // 可选独立日志来源，使用显式 Sysmon GUID。
     std::optional<Detection::SysmonThreadObservation> latestFinding; // 运行期只读最新发现，不代表已归档。
     std::uint64_t findings = 0; // 本次会话实际收到并处理的观察总数。
@@ -230,6 +233,12 @@ struct LiveSession::State {
     }
 
     V Report() const {
+        if (api) {
+            return Object({{"session", Identity()}, {"projectId", Text(projectId)}, {"sampleId", Text(sample.sampleId)},
+                {"stateRevision", Number(Revision())}, {"capture", Text(!finalized ? "active" : api->Incomplete() ? "partial" : "stopped")},
+                {"stopReason", reason.empty() ? V::makeNull() : Text(reason)}, {"plan", apiPlan},
+                {"source", api->SourceReport()}, {"archive", api->ArchiveReport()}});
+        }
         const auto status = finalized ? terminal : source.status();
         auto archiveStatus = JsonObject{
             {"status", Text(!archiveResult ? "failed" : verified ? "raw-verified" : finalized ? "failed" : "pending")},
@@ -330,6 +339,11 @@ struct LiveSession::State {
     void Stop(ProjectDocument& project, std::string_view why) {
         if (finalized) return;
         if (reason.empty()) reason = why;
+        if (api) {
+            api->Finish(project, sample.sampleId, reason);
+            finalized = true;
+            return;
+        }
         if (sysmon) {
             sysmon->stop();
             DrainFindings();
@@ -377,10 +391,12 @@ LiveSession::LiveSession() = default;
 LiveSession::~LiveSession() = default;
 std::span<const LiveCommand> LiveSession::Catalog() noexcept { return kCommands; }
 bool LiveSession::HasSample() const noexcept { return static_cast<bool>(state_); }
-bool LiveSession::Continuous() const noexcept { return state_ && state_->Continuous(); }
+bool LiveSession::UncachedQuery() const noexcept { return state_ && (state_->api || state_->Continuous()); }
 bool LiveSession::NeedsTick() const noexcept { return state_ && !state_->finalized && !state_->cleanupPending; }
 bool LiveSession::CleanupPending() const noexcept { return state_ && state_->cleanupPending; }
-bool LiveSession::Incomplete() const noexcept { return state_ && state_->Partial(); }
+bool LiveSession::Incomplete() const noexcept {
+    return state_ && (state_->api ? state_->api->Incomplete() : state_->Partial());
+}
 
 bool LiveSession::CanFinalize(LiveMethod method, const Request& request) const {
     if (!state_ || !request.session || request.session->id != state_->sample.sampleId ||
@@ -393,8 +409,17 @@ bool LiveSession::CanFinalize(LiveMethod method, const Request& request) const {
 
 void LiveSession::Tick(ProjectDocument& project) {
     if (!NeedsTick()) return;
-    state_->DrainFindings();
     const auto now = Clock::now();
+    // API 归档只观察文件，进程退出或状态均不用于推断写入方结束。
+    if (state_->api) {
+        if (!state_->Continuous() && now >= state_->deadline) {
+            state_->Stop(project, "duration-limit");
+        } else if (!state_->api->Tick(project, state_->sample.sampleId)) {
+            state_->Stop(project, state_->api->FailureReason());
+        }
+        return;
+    }
+    state_->DrainFindings();
     if (!state_->Continuous() && now >= state_->deadline) state_->Stop(project, "duration-limit");
     else if (WaitForSingleObject(state_->target.get(), 0) == WAIT_OBJECT_0) state_->Stop(project, "target-exited");
     else {
@@ -422,6 +447,9 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
         const auto* info = project.Info();
         if (!info) return Reject("project-not-open", "Open a writable project first");
         if (info->access != ProjectAccess::ReadWrite) return Reject("project-read-only", "Open a writable project first");
+        if (request.params.find("apiArchive")) {
+            return OpenApiArchive(request, project);
+        }
         std::string projectId, revision, title, provider;
         std::uint64_t pid = 0, created = 0, duration = 0;
         const auto& params = request.params;
@@ -510,6 +538,65 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
         {"stateRevision", Number(4)}, {"closed", V::makeBool(true)}});
     state_.reset();
     return Observation(std::move(result), true);
+}
+
+Reply LiveSession::OpenApiArchive(const Request& request, ProjectDocument& project)
+{
+    const auto& params = request.params; // 只读取已有的一次授权输入描述。
+    const auto& input = *params.find("apiArchive"); // 通过公开方法分支固定的对象。
+    const auto* durationField = params.find("durationMs"); // 缺失表示持续跟随。
+    const auto* pidField = params.find("pid"); // 授权提供的归档调用方 PID。
+    const auto* authorization = input.find("authorized"); // 调用方必须作明确授权声明。
+    const bool fieldsValid = durationField ?
+        Fields(params, {"projectId", "title", "pid", "creationFileTime", "apiArchive", "durationMs"}) :
+        Fields(params, {"projectId", "title", "pid", "creationFileTime", "apiArchive"});
+    std::string projectId, revision, title, path; // 冻结项目身份、标题及本地文件选择。
+    std::uint64_t pid = 0, creation = 0, identity = 0, duration = 0; // 无损输入数值。
+    bool authorized = false; // 显式确认前不打开任何源文件。
+    if (!fieldsValid || !Fields(input, {"path", "sessionIdentity", "authorized"}) ||
+        !GetUuid(params, "projectId", projectId) || !GetUuid(*request.expected, "revisionId", revision) ||
+        !GetString(params, "title", title) || !IsText(title, kMaxTitleBytes) || !GetString(input, "path", path) ||
+        !pidField || pidField->type() != JsonType::UInt || !pidField->tryGetU64(pid) || !pid || pid > MAXDWORD ||
+        !GetNumber(params, "creationFileTime", creation) || !creation || !GetNumber(input, "sessionIdentity", identity) ||
+        !identity || (durationField && (durationField->type() != JsonType::UInt || !durationField->tryGetU64(duration) ||
+            duration < kMinDurationMs || duration > kMaxDurationMs))) {
+        return Reject("invalid-params", "Expected projectId, title, PID, creation FILETIME and apiArchive with path, sessionIdentity and authorized");
+    }
+    if (!authorization || !authorization->tryGetBool(authorized) || !authorized) {
+        return Reject("source-not-authorized", "apiArchive.authorized must affirm this existing local archive is authorized");
+    }
+
+    const auto* info = project.Info(); // 已打开的唯一写项目，当前调用期间仍保持原租约。
+    if (info->projectId != projectId || info->revisionId != revision) {
+        return Reject("stale-revision", "The open project or its saved revision changed");
+    }
+    auto next = std::make_unique<State>(); // 所有资格检查通过后才发布的会话。
+    next->api = std::make_unique<PassiveApiCapture>();
+    if (const auto result = next->api->Open(path, {identity, static_cast<std::uint32_t>(pid), creation}); !result) {
+        return Reject("source-unavailable", result.detail, 5, result.nativeError);
+    }
+    if (const auto result = NewId(next->epoch); !result) {
+        return Reject("session-create-failed", result.detail, 3, result.nativeError);
+    }
+    next->revisionHash = info->revisionHash;
+    next->configSemanticHash = info->configSemanticHash;
+    if (const auto result = project.CreateSample(title, next->sample, revision); !result) {
+        return Reject("sample-create-failed", result.detail, 3, result.nativeError);
+    }
+
+    // 活会话与项目 raw 包共用一份身份。输入路径只在准入过程中使用。
+    next->projectId = std::move(projectId);
+    next->durationMs = static_cast<unsigned>(duration);
+    next->apiPlan = Object({{"kind", Text("api-archive-follow-plan-v1")}, {"projectId", Text(next->projectId)},
+        {"session", next->Identity()}, {"revisionId", Text(next->sample.revisionId)}, {"snapshotId", Text(next->sample.snapshotId)},
+        {"revisionHash", Text(next->revisionHash)}, {"configSemanticHash", Text(next->configSemanticHash)},
+        {"sourceEpoch", Text(next->epoch)}, {"file", next->api->FileIdentity()}, {"readerPid", V::makeUInt(pid)},
+        {"readerCreation100ns", Number(creation)}, {"sessionIdentity", Number(identity)}, {"durationMs", V::makeUInt(duration)},
+        {"identity", Text("archive-consistency-only")}});
+    next->api->SetPlan(next->apiPlan);
+    next->deadline = Clock::now() + std::chrono::milliseconds(duration);
+    state_ = std::move(next);
+    return Observation(state_->Report(), true);
 }
 
 Reply LiveSession::DispatchRepl(LiveMethod method, const JsonArray& args, ProjectDocument& project) {

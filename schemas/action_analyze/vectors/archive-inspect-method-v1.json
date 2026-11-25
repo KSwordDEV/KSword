@@ -1,7 +1,7 @@
 {
   "capabilityMethod": {
     "method": "archive.inspect", "repl": "archive inspect",
-    "summary": "Inspect Stored segment framing in the open project. End offset is an optional byte boundary."
+    "summary": "Inspect Stored segment framing or read a verified raw evidence graph page in the open project."
   },
   "params": {
     "projectId": "12345678-9abc-4def-8123-456789abcdef",
@@ -40,7 +40,12 @@
     { "id": "ordinal-overflow", "set": { "ordinal": "18446744073709551616" }, "outcome": "invalid-params" },
     { "id": "end-offset-over-limit", "set": { "endOffset": "1073741825" }, "outcome": "invalid-params" },
     { "id": "end-offset-null", "set": { "endOffset": null }, "outcome": "invalid-params" },
-    { "id": "nil-sample-id", "set": { "sampleId": "00000000-0000-0000-0000-000000000000" }, "outcome": "invalid-params" }
+    { "id": "nil-sample-id", "set": { "sampleId": "00000000-0000-0000-0000-000000000000" }, "outcome": "invalid-params" },
+    { "id": "graph-first-page", "set": { "view": "graph", "limit": 1 }, "outcome": "accept" },
+    { "id": "graph-requires-raw", "set": { "view": "graph", "stream": "records" }, "outcome": "invalid-params" },
+    { "id": "graph-rejects-unverified-byte-boundary", "set": { "view": "graph", "endOffset": "96" }, "outcome": "invalid-params" },
+    { "id": "graph-continuation-requires-prefix", "set": { "view": "graph", "afterSequence": "1" }, "outcome": "invalid-params" },
+    { "id": "graph-continuation", "set": { "view": "graph", "afterSequence": "1", "expectedSha256": "36346bf029c8152ba5f9cb2e21d207d4d39f3a64534a74cc448b2b694d17f4c0" }, "outcome": "accept" }
   ],
   "results": [
     { "id": "complete-framing", "set": {}, "valid": true },
@@ -65,6 +70,40 @@
     { "id": "missing-stream-is-not-a-framing-status", "set": { "framingStatus": "archive-stream-unavailable" }, "valid": false },
     { "id": "framing-cannot-exceed-scan-limit", "set": {}, "coverage": { "framedBytes": "219" }, "valid": false },
     { "id": "zero-is-known-sequence", "set": {}, "coverage": { "lastSequence": null }, "valid": false }
+  ],
+  "graphResult": {
+    "view": "graph",
+    "projectId": "12345678-9abc-4def-8123-456789abcdef",
+    "sampleId": "fedcba98-7654-4321-a234-56789abcdef0",
+    "generation": "2", "stream": "raw", "ordinal": "1",
+    "descriptionHash": "36346bf029c8152ba5f9cb2e21d207d4d39f3a64534a74cc448b2b694d17f4c0",
+    "archiveSource": "api-import", "sourceCoverage": "unknown", "machineId": null, "bootId": null,
+    "prefix": { "sha256": "36346bf029c8152ba5f9cb2e21d207d4d39f3a64534a74cc448b2b694d17f4c0",
+      "endOffset": "2015", "lastBlockOrdinal": "2", "lastSequence": "2" },
+    "finalSegment": null, "observationCount": "1", "nextAfterSequence": null, "nodes": [], "relations": [],
+    "observations": [{
+      "operation": "WriteProcessMemory", "apiFamily": "memory-write", "apiCategory": "memory",
+      "headerPid": 42, "headerTid": 43,
+      "actorInstance": null, "targetInstance": null, "threadInstance": null, "execution": null, "finding": null,
+      "gaps": ["source-unverified", "legacy-summary-only", "actor-instance-unknown", "target-instance-unknown", "actual-write-range-unknown"],
+      "sourceId": "api-monitor-import:1234", "sourceEpoch": "api-import:fedcba98-7654-4321-a234-56789abcdef0",
+      "sourceGroup": "api-monitor", "sourceSequence": "2", "eventOrdinal": null,
+      "raw": { "segmentOrdinal": "1", "blockOrdinal": "1", "recordSequence": "1", "recordOffset": "145",
+        "inlineOffset": "243", "inlineBytes": "1000" }
+    }]
+  },
+  "graphResults": [
+    { "id": "verified-import-classification", "valid": true },
+    { "id": "apc-thread-classification", "row": { "operation": "NtQueueApcThread", "apiFamily": "apc-queue", "apiCategory": "thread" }, "valid": true },
+    { "id": "api-classification-pair-required", "row": { "apiFamily": null, "apiCategory": null }, "valid": false },
+    { "id": "classification-field-required", "remove": "apiCategory", "valid": false },
+    { "id": "family-category-mismatch", "row": { "apiCategory": "thread" }, "valid": false },
+    { "id": "unknown-family", "row": { "apiFamily": "other" }, "valid": false },
+    { "id": "classification-does-not-prove-execution", "row": { "execution": true }, "valid": false },
+    { "id": "etw-null-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true },
+      "row": { "operation": "etw-observation-v1", "apiFamily": null, "apiCategory": null, "sourceId": "etw:fixture",
+        "sourceEpoch": "etw-fixture", "sourceGroup": "etw:fixture", "sourceSequence": null, "gaps": ["etw-context-only"] }, "valid": true },
+    { "id": "etw-cannot-claim-api-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true }, "valid": false }
   ],
   "errors": [
     { "errorId": "archive-stream-unavailable", "source": "win32", "code": 3, "valid": true },

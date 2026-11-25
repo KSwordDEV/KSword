@@ -68,7 +68,7 @@
       "properties": {
         "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "createdUtc": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
-        "settings": { "$ref": "request.schema.json#/$defs/projectSettings" },
+        "settings": { "$ref": "request.schema.json#/$defs/projectSavedSettings" },
         "revisionId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "revisionHash": { "$ref": "#/$defs/projectHash" },
         "configSemanticHash": { "$ref": "#/$defs/projectHash" },
@@ -105,7 +105,7 @@
       "properties": {
         "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
-        "frozenSettings": { "$ref": "request.schema.json#/$defs/projectSettings" },
+        "frozenSettings": { "$ref": "request.schema.json#/$defs/projectSavedSettings" },
         "revisionHash": { "$ref": "#/$defs/projectHash" },
         "captureArchive": { "$ref": "live-etw-session.schema.json#/$defs/archivedCapture" },
         "configSemanticHash": { "$ref": "#/$defs/projectHash" }

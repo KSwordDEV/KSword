@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ksword.invalid/schemas/action_analyze/live-etw-session.schema.json",
-  "title": "ActionAnalyze v1 passive ETW session methods",
+  "title": "ActionAnalyze v1 passive session methods",
   "$ref": "#/$defs/request",
   "$defs": {
     "uuid": { "$ref": "request.schema.json#/$defs/projectUuid" },
@@ -26,6 +26,26 @@
         "sysmonTargetGuid": { "$ref": "#/$defs/uuid" }
       }
     },
+    "openApiArchiveParams": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "title", "pid", "creationFileTime", "apiArchive"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/uuid" },
+        "title": { "$ref": "request.schema.json#/$defs/projectTitle" },
+        "pid": { "$ref": "#/$defs/openParams/properties/pid" },
+        "creationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
+        "durationMs": { "$ref": "#/$defs/openParams/properties/durationMs" },
+        "apiArchive": {
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "sessionIdentity", "authorized"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "sessionIdentity": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "authorized": { "const": true }
+          }
+        }
+      }
+    },
     "request": {
       "$ref": "request.schema.json#/$defs/liveEnvelope",
       "properties": { "method": { "enum": ["session.open", "session.query", "session.findings", "session.stop", "session.close"] } },
@@ -36,7 +56,7 @@
             "required": ["expected"],
             "properties": {
               "session": false,
-              "params": { "$ref": "#/$defs/openParams" },
+              "params": { "oneOf": [{ "$ref": "#/$defs/openParams" }, { "$ref": "#/$defs/openApiArchiveParams" }] },
               "expected": {
                 "type": "object", "additionalProperties": false, "required": ["revisionId"],
                 "properties": { "revisionId": { "$ref": "#/$defs/uuid" } }
@@ -79,9 +99,74 @@
         "stateRevision": { "enum": ["1", "2", "3"] },
         "capture": { "enum": ["active", "cleanup-pending", "stopped", "partial"] },
         "stopReason": { "type": ["string", "null"] },
-        "plan": { "$ref": "#/$defs/plan" },
-        "source": { "$ref": "#/$defs/source" },
-        "archive": { "$ref": "#/$defs/archive" }
+        "plan": { "oneOf": [{ "$ref": "#/$defs/plan" }, { "$ref": "#/$defs/apiArchivePlan" }] },
+        "source": {},
+        "archive": {}
+      },
+      "if": { "properties": { "plan": { "properties": { "kind": { "const": "api-archive-follow-plan-v1" } } } } },
+      "then": { "properties": { "source": { "$ref": "#/$defs/apiArchiveSource" }, "archive": { "$ref": "#/$defs/apiArchiveReport" } } },
+      "else": { "properties": { "source": { "$ref": "#/$defs/source" }, "archive": { "$ref": "#/$defs/archive" } } }
+    },
+    "apiArchivePlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "projectId", "session", "revisionId", "snapshotId", "revisionHash", "configSemanticHash", "sourceEpoch", "file", "readerPid", "readerCreation100ns", "sessionIdentity", "durationMs", "identity"],
+      "properties": {
+        "kind": { "const": "api-archive-follow-plan-v1" }, "projectId": { "$ref": "#/$defs/uuid" },
+        "session": { "$ref": "#/$defs/session" }, "revisionId": { "$ref": "#/$defs/uuid" },
+        "snapshotId": { "$ref": "#/$defs/uuid" }, "sourceEpoch": { "$ref": "#/$defs/uuid" },
+        "revisionHash": { "$ref": "#/$defs/plan/properties/revisionHash" },
+        "configSemanticHash": { "$ref": "#/$defs/plan/properties/configSemanticHash" },
+        "readerPid": { "$ref": "#/$defs/openParams/properties/pid" },
+        "readerCreation100ns": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
+        "sessionIdentity": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "durationMs": { "$ref": "#/$defs/plan/properties/durationMs" },
+        "identity": { "const": "archive-consistency-only" },
+        "file": {
+          "type": "object", "additionalProperties": false,
+          "required": ["volumeSerial", "fileId", "initialVisibleBytes"],
+          "properties": {
+            "volumeSerial": { "$ref": "#/$defs/u64" }, "fileId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+            "initialVisibleBytes": { "$ref": "#/$defs/u64" }
+          }
+        }
+      }
+    },
+    "apiArchiveSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "state", "readerPid", "readerCreation100ns", "sessionIdentity", "identity", "validatedRows", "validatedBytes", "visibleBytes", "clueRows", "reportedAgentDrops", "cutoffBytes", "cutoffReached", "partialLineBytes", "writerReceipt", "coverage", "win32Error", "latestClue"],
+      "properties": {
+        "kind": { "const": "passive-api-archive" },
+        "state": { "enum": ["unopened", "reading", "at-tail", "partial-line", "sealed", "unconfirmed-end", "truncated-tail", "writer-failed", "receipt-mismatch", "source-changed", "identity-mismatch", "invalid-record", "read-failed", "cutoff", "unknown"] },
+        "readerPid": { "$ref": "#/$defs/apiArchivePlan/properties/readerPid" },
+        "readerCreation100ns": { "$ref": "#/$defs/apiArchivePlan/properties/readerCreation100ns" },
+        "sessionIdentity": { "$ref": "#/$defs/apiArchivePlan/properties/sessionIdentity" },
+        "identity": { "const": "archive-consistency-only" },
+        "validatedRows": { "$ref": "#/$defs/u64" }, "validatedBytes": { "$ref": "#/$defs/u64" },
+        "visibleBytes": { "$ref": "#/$defs/nullableU64" }, "clueRows": { "$ref": "#/$defs/u64" },
+        "reportedAgentDrops": { "$ref": "#/$defs/nullableU64" }, "cutoffBytes": { "$ref": "#/$defs/nullableU64" },
+        "cutoffReached": { "type": "boolean" }, "partialLineBytes": { "$ref": "#/$defs/u64" },
+        "writerReceipt": { "type": "null" }, "coverage": { "const": "unknown" },
+        "win32Error": { "$ref": "value.schema.json#/$defs/u32" },
+        "latestClue": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["api", "family", "sourceSequence", "rawVerified"],
+          "properties": {
+            "api": { "type": "string" }, "family": { "type": "string" },
+            "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }, "rawVerified": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "apiArchiveReport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "segmentOrdinal", "recordedRows", "pendingRows", "queueDropped", "unconfirmedRows", "lastSequence", "flushedBytes", "error", "win32Error"],
+      "properties": {
+        "status": { "enum": ["pending", "raw-verified", "failed"] },
+        "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordedRows": { "$ref": "#/$defs/u64" }, "pendingRows": { "$ref": "#/$defs/u64" },
+        "queueDropped": { "const": "0" }, "unconfirmedRows": { "$ref": "#/$defs/u64" },
+        "lastSequence": { "$ref": "#/$defs/nullableU64" }, "flushedBytes": { "$ref": "#/$defs/nullableU64" },
+        "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "value.schema.json#/$defs/u32" }
       }
     },
     "closeReceipt": {

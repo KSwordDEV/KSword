@@ -156,7 +156,7 @@ int RunSession(const Args& args) {
 } // namespace
 
 void RegisterCommands() {
-    addFamily(L"analyze", L"ActionAnalyze projects, passive R3 ETW and bounded memory observation.");
+    addFamily(L"analyze", L"ActionAnalyze projects, passive sources and bounded memory observation.");
     RegisterMemoryWatch();
     RegisterDirtyMemoryCommand();
     RegisterBreakpointCommand();
@@ -181,7 +181,7 @@ void RegisterCommands() {
     Command session;
     session.path = L"analyze session";
     session.syntax = L"KswordCLI.exe analyze session [--input repl|jsonl --output text|jsonl] [--backend offline|r3]";
-    session.summary = L"Keep one project controller alive. Select r3 for continuous or timed passive ETW recording.";
+    session.summary = L"Keep one project controller alive. Select r3 for passive ETW or JSONL following of an authorized local API archive.";
     session.options = L"Default: --input repl --output text --backend offline. JSONL requires UTF-8 byte streams.";
     session.notes = L"JSONL requires LF or CRLF. Use help in the REPL and quit to close. EOF also closes the controller.";
     session.runStreaming = RunSession;

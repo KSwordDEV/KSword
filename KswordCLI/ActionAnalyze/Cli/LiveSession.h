@@ -29,7 +29,8 @@ public:
     static std::span<const LiveCommand> Catalog() noexcept;
 
     bool HasSample() const noexcept;
-    bool Continuous() const noexcept;
+    // 高频只读来源的状态查询不占用有界请求账本。
+    bool UncachedQuery() const noexcept;
     bool NeedsTick() const noexcept;
     bool CleanupPending() const noexcept;
     bool Incomplete() const noexcept;
@@ -40,6 +41,8 @@ public:
     Reply DispatchRepl(LiveMethod method, const JsonArray& args, Ksword::ActionAnalyze::ProjectDocument& project);
 
 private:
+    // 校验 JSONL 授权与冻结身份，绑定单一只读来源并创建项目采样。
+    Reply OpenApiArchive(const Request& request, Ksword::ActionAnalyze::ProjectDocument& project);
     struct State;
     std::unique_ptr<State> state_;
 };
