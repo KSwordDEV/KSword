@@ -15,3 +15,5 @@
 Windows 实际 API 行为及正式 CLI 归档由自有 provider 产品回归另行验证。固定的替身 `87` 和线程门闩用于核对实现分支。
 
 HostX64 替身夹具运行退出 `0`，临时测试 EXE、PDB 和中间生成文件已移除。正式 CLI 用自有 provider 核对 12 条观察与精确载荷，快速 EOF 和快速 REPL 停止报告 `partial`，都已完成原生清退并可重开归档。收到事件后的人工停止报告 `stopped`，目标退出报告 `target-exited`。正式 JSONL 验证通过 71 帧及 10 项请求向量。产物位于 `Ksword5.1/x64/Release/KswordCLI.exe`，构建和运行日志为 `.codex-build-logs/action-analyze-cli-checkpoint-shared-build.log`、`.codex-build-logs/action-analyze-cli-etw-cleanup-contract.log`。真实 Windows 的 STOP／Close 双失败由替身回归提供分支证据，正式 CLI 的满账本清退重试仍待覆盖。
+
+加入 `startupAbort` 和 `tailDeliveryUnconfirmed` 字段后，正式 CLI HostX64 构建退出 `0`。产物 SHA-256 为 `7ED74105E5EE1E3AFFE0055274C9F001E15A9EADAEC36F00DE3AEAF3D519836D`。实际快速 REPL 停止回报 `before-open-trace`，快速 EOF 回报 `ProcessTrace=0` 及 `tailDeliveryUnconfirmed=true`。两条回执均为 `partial`，原生清退完成，终态字段与 Stored 记录一致。已收到 12 条事件的人工停止回报 `stopped`。正式 JSONL 复验通过 72 帧及 10 项请求向量，测试项目已删除。构建与运行日志为 `.codex-build-logs/action-analyze-cli-startup-receipt-build.log` 和 `.codex-build-logs/action-analyze-cli-etw-startup-receipt.log`。

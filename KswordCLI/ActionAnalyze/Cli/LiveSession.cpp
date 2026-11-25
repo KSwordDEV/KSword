@@ -71,17 +71,32 @@ V OptionalStatus(bool attempted, ULONG code) {
     return attempted ? V::makeUInt(code) : V::makeNull();
 }
 
+// 将控制器明确跳过的启动阶段映射为 JSON 值。没有跳过时返回空值。
+V StartupAbortJson(EtwStartupAbort stage) {
+    switch (stage) {
+    case EtwStartupAbort::BeforeOpenTrace:
+        return Text("before-open-trace");
+    case EtwStartupAbort::BeforeProcessTrace:
+        return Text("before-process-trace");
+    case EtwStartupAbort::None:
+        return V::makeNull();
+    }
+    return V::makeNull();
+}
+
+// 活会话和 Stored 终态使用同一原生回执投影，保留所有已观测的错误码。
 V SourceJson(const PassiveEtwStatus& status) {
-    const auto& native = status.native;
-    // Retain the first and latest STOP code and the attempt count across retries.
-    const auto& stop = native.stopStatuses;
+    const auto& native = status.native; // 控制器的阶段与原生状态快照。
+    const auto& stop = native.stopStatuses; // 重试时保留第一次及最近一次 STOP 的结果。
     return Object({{"state", Text(SourceState(status.state))}, {"sourceEpoch", Text(status.sourceEpoch)},
         {"inputWin32Error", V::makeUInt(status.inputError)},
         {"startWin32Error", OptionalStatus(native.startAttempted, native.startStatus)},
         {"enableWin32Error", native.providers.empty() ? V::makeNull() : V::makeUInt(native.providers.front().status)},
         {"openWin32Error", OptionalStatus(native.openAttempted, native.openStatus)},
+        {"startupAbort", StartupAbortJson(native.startupAbort)},
         {"processAttempted", V::makeBool(native.processAttempted)},
         {"processWin32Error", OptionalStatus(native.processCompleted, native.processStatus)},
+        {"tailDeliveryUnconfirmed", V::makeBool(native.tailDeliveryUnconfirmed)},
         {"closeWin32Error", OptionalStatus(native.closeAttempted, native.closeStatus)},
         {"firstStopWin32Error", stop.empty() ? V::makeNull() : V::makeUInt(stop.front())},
         {"lastStopWin32Error", stop.empty() ? V::makeNull() : V::makeUInt(stop.back())},

@@ -204,7 +204,15 @@ def verify_empty_stop(receipt, segment, reason):
     assert receipt['archive']['checkpoint'] == {'status': 'verified', 'error': None}, receipt
     source = receipt['source']
     assert source['nativeSessionStopped'] and source['enqueued'] == '0', receipt
-    if not source['processAttempted'] or source['processWin32Error'] not in (0, 1223):
+    # 根据真实启动时序核对跳过的调用及覆盖回执。
+    stage = source['startupAbort']
+    if stage == 'before-open-trace':
+        assert source['openWin32Error'] is None and not source['processAttempted'], source
+    elif stage == 'before-process-trace':
+        assert source['openWin32Error'] == 0 and not source['processAttempted'], source
+    else:
+        assert stage is None, source
+    if source['tailDeliveryUnconfirmed'] or not source['processAttempted'] or source['processWin32Error'] != 0:
         assert receipt['capture'] == 'partial', receipt
     rows, _ = decode_raw(segment)
     assert len(rows) == 2, rows
@@ -307,6 +315,7 @@ def run(readback=(), inspect_gui=None, validate=None):
         assert stopped['capture'] == 'stopped' and stopped['archive']['status'] == 'raw-verified', stopped
         assert stopped['archive']['checkpoint'] == {'status': 'verified', 'error': None}, stopped
         assert stopped['source']['nativeSessionStopped'] and stopped['source']['queueDropped'] == '0', stopped
+        assert stopped['source']['startupAbort'] is None and not stopped['source']['tailDeliveryUnconfirmed'], stopped
         assert call(cli, 'stop', 'session.stop', {}, **stop_fields) == stopped
         close_fields = dict(owner, expected={'stateRevision': stopped['stateRevision']})
         closed = call(cli, 'close', 'session.close', {}, **close_fields)

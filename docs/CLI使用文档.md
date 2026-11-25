@@ -200,7 +200,7 @@ quit
 
 `pid` 与 `durationMs` 是 JSON 整数。持续时间为 1,000–120,000 毫秒。`creationFileTime` 和 `stateRevision` 是十进制字符串，Provider 使用不带花括号的规范小写 UUID。`session.open` 冻结本次项目修订并创建新样本。对 stop 和 close 的比较依据是上次报告的 `stateRevision`。机器会话按方法、参数、会话身份和 `expected` 去重。普通请求占满账本后，有效的停止、会话关闭和项目关闭可用预留额度。`controller.shutdown` 可用新请求 ID 直接发起收尾。
 
-`source.state=running` 表示消费线程已开始处理。终态分别报告来源状态、Windows 原生错误、系统丢失和本地队列丢失。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
+`source.state=running` 表示工作线程已提交 `ProcessTrace` 调用。`source.startupAbort` 记录快速停止时明确跳过的调用阶段。`source.tailDeliveryUnconfirmed=true` 表示无法确认收尾阶段的完整交付，采样状态为 `partial`。原生错误码、系统丢失和本地队列丢失分别报告。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
 `archive.status=raw-verified` 表示 `raw` 流第 `1` 段已刷盘且回读校验通过。该段包含采集计划、原始观测和覆盖回执。`archive.checkpoint.status=verified` 表示 `records` 流第 `1` 段的终态覆盖记录及其原始引用已经核对，并且已发布两个流的提交端点。采样创建时的配置快照仍可通过 `sample status` 查看，其中 `not-collected` 表示创建描述的初始状态。采集结果由停止回执及归档记录给出。重开项目后用 `archive inspect SAMPLE_ID raw 1` 核对封装。规范事件及规则执行仍待接入。[被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json) · [终态检查点 schema](../schemas/action_analyze/etw-terminal-checkpoint.schema.json)
 
