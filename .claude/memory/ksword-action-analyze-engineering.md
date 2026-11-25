@@ -55,4 +55,10 @@ Qt 和 Win32 总览作者开工前均须读 `design-taste-frontend`。Qt 首版�
 
 Light 与独立 Stored 验证器的正式 Release 构建均以 BelowNormal 优先级使用 HostX64 工具链，两项构建均为 0 警告、0 错误。验证器通过 35 项 Stored 向量和 2 项 Win32 文件用例。正式产物为 `Ksword5.1/x64/Release/KswordARKLight.exe` 和 `Ksword5.1/x64/Release/KswordARKLightStoredEvidenceValidation.exe`。签名驱动镜像的 SHA-256 构建前后一致。[Light 构建与验证回执](../../docs/ActionAnalyze总览交互与验收.md#light-构建与验证回执)
 
+## 网络证据的离线验收
+
+网络草案通过 39 项静态向量。原生网络归档夹具在固定 `KswordCLI/x64/Release/ActionAnalyzeNetworkEvidenceValidation` 中构建并从统一 Release 运行，HostX64 `/W4 /WX` 的 539 项断言通过。包含 65,536 字节逐字节往返、队列回绕、源及队列丢失回执、实际截断文件后的已验证前缀。夹具段、对象文件和 EXE 已清理。投影夹具通过 112 项合成检查，包括八个 ETW 双栈收发描述符、IPv4 UDP／IPv6 TCP 原始内容及截断前缀。
+
+旧 R3 `PacketRecord` 交付的实际字节最多 4,096，归档 writer 内联上限 65,536。ETW 计数按仅元数据处理。归档 writer 运行在样本单写者持有的串行通道，段刷新只产生文件前缀回执。实时接线、规范事件引用、BlobStore、检查点及跨端项目重开须单独验收。[网络草案](../../schemas/action_analyze/README.md#网络证据)
+
 阶段依据保存在本地计划 `docs/ActionAnalyze工程开工基线.md`、`docs/ActionAnalyze施工任务与契约落点.md` 和 `docs/ActionAnalyze同步全局断点与性能复查.md`。首次启动时工作区有既有规划、验证夹具和资料目录尚未提交。集成须用限定路径提交，逐批核对来源、文档链接依赖、生成文件和行数。
