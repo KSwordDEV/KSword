@@ -602,6 +602,7 @@
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h">
       <Filter>Features\ActionAnalyze</Filter>
     </ClInclude>
+    <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h"><Filter>Shared Evidence</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\EvidenceJson.h">
       <Filter>Shared Evidence</Filter>
     </ClInclude>

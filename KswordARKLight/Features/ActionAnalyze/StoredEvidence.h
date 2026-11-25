@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../shared/evidence/ArchivedEtwObservation.h"
+
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -37,6 +39,7 @@ struct EvidenceRecord {
     std::optional<std::uint32_t> headerTid;
     std::uint16_t category = 0;
     std::uint32_t eventKind = 0;
+    std::optional<Ksword::Evidence::ArchivedEtwObservation> etw; // 归档声明的 ETW 记录上下文。
     std::wstring preview;
 };
 

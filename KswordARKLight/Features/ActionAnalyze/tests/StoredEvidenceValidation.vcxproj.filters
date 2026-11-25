@@ -6,5 +6,6 @@
     <ClCompile Include="..\..\..\..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\StoredEvidence.h" />
+    <ClInclude Include="..\..\..\..\shared\evidence\ArchivedEtwObservation.h" />
   </ItemGroup>
 </Project>

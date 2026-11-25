@@ -60,6 +60,10 @@ template<typename T>
 std::wstring Number(std::optional<T> value) { return value ? std::to_wstring(*value) : L"—"; }
 
 std::wstring RecordName(const EvidenceRecord& row) {
+    // ETW 源描述符独立于 CanonicalEvent 种类，沿用原记录序号定位。
+    if (row.etw) {
+        return L"ETW 事件 " + std::to_wstring(row.etw->eventId) + L" / v" + std::to_wstring(row.etw->version);
+    }
     if (row.eventOrdinal) return L"事件 #" + std::to_wstring(*row.eventOrdinal) + L" · 种类 " +
         std::to_wstring(row.eventKind) + L" · 类别 " + std::to_wstring(row.category);
     if (row.type == 3 && row.schemaVersion == 1) return L"原始记录 #" + std::to_wstring(row.sequence);
@@ -75,7 +79,8 @@ Snapshot Load(const std::wstring& path) {
         row.stableKey = std::to_wstring(record.sequence);
         row.itemData = static_cast<LPARAM>(rows->size());
         row.cells = { Number(record.receiveQpc), Number(record.headerPid), Number(record.headerTid), L"—",
-            RecordName(record), Number(record.sourceDictionaryId), std::to_wstring(record.sequence) };
+            RecordName(record), record.etw ? WideAscii(record.etw->providerId) : Number(record.sourceDictionaryId),
+            std::to_wstring(record.sequence) };
         rows->push_back(std::move(row));
     }
     snapshot.presentation = std::move(rows);

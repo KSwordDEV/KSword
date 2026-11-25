@@ -134,10 +134,30 @@ void Verify(const std::filesystem::path& vectorFile) {
     std::cout << "StoredEvidence: " << verified << " literal vectors + 2 Win32 file cases PASS\n";
 }
 
+// 打开正式 CLI 产生的文件，核对自有样本中的观察行及关联边界。
+void VerifyLiveCliReadback(const std::wstring& path) {
+    const auto result = OpenStoredEvidence(path); // Light 正式读取器。
+    Check(result.identity && result.diagnostic.empty() && result.rows.size() == 14, "complete CLI ETW segment");
+    Check(!result.rows.front().etw && !result.rows.back().etw, "capture plan and terminal coverage are separate");
+    for (std::size_t i = 0; i < 12; ++i) {
+        const auto& row = result.rows.at(i + 1); // 带原始载荷的观察行。
+        Check(row.etw && row.etw->eventId == 1 + i % 2 && row.etw->originalPayloadBytes == 8 &&
+            row.etw->providerId == "d4a71ada-81b0-4b15-a173-417f33bc8107" && row.headerPid && row.headerTid &&
+            row.receiveQpc && !row.eventOrdinal && !row.actorObjectId && !row.threadObjectId, "ETW record context");
+        const auto expected = std::wstring(L"0") + static_cast<wchar_t>(L'0' + i / 2) + L" 00 00 00 1c 00 00 00";
+        Check(row.preview.find(expected) != std::wstring::npos, "ETW byte preview matches owned payload");
+    }
+    std::cout << "PASS Light CLI ETW readback: 12 events and exact bytes\n";
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--etw-file") {
+            VerifyLiveCliReadback(argv[2]);
+            return 0;
+        }
         Check(argc == 2, "pass schemas/action_analyze/vectors/stored-v1.json");
         Verify(argv[1]);
         return 0;

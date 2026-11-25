@@ -89,15 +89,20 @@ def sample(path):
 class Child:
     """Bound pipe reads and retain each child's own lifecycle for cleanup."""
 
-    def __init__(self, args):
+    def __init__(self, args, read_limit=None):
         self.process = subprocess.Popen(args, cwd=RELEASE, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         text=True, encoding='utf-8')
         self.output = queue.Queue()
-        threading.Thread(target=self.read, daemon=True).start()
+        self.reader = threading.Thread(target=self.read, args=(read_limit,), daemon=True)
+        self.reader.start()
 
-    def read(self):
+    def read(self, limit):
+        count = 0
         for line in self.process.stdout:
             self.output.put(line)
+            count += 1
+            if count == limit:
+                return
         self.output.put('')
 
     def send(self, value):
@@ -151,15 +156,15 @@ def decode_raw(path):
     return rows, hashlib.sha256(data).hexdigest()
 
 
-def controller(backend):
-    child = Child([CLI, 'analyze', 'session', '--input', 'jsonl', '--output', 'jsonl', '--backend', backend])
+def controller(backend, read_limit=None):
+    child = Child([CLI, 'analyze', 'session', '--input', 'jsonl', '--output', 'jsonl', '--backend', backend], read_limit)
     hello = child.next()
     assert hello['capabilities']['backend'] == backend
     assert hello['capabilities']['nativeCapture'] == (backend == 'r3')
     return child
 
 
-def run():
+def run(readback=(), inspect_gui=None):
     relative = PROJECT.relative_to(REPO).as_posix()
     assert not PROJECT.exists() and not PROJECT.is_symlink()
     tracked = subprocess.run(['git', 'ls-files', '--', relative], cwd=REPO, check=True, capture_output=True)
@@ -233,7 +238,8 @@ def run():
         assert reopened['framingCoverage']['framedBytes'] == stopped['archive']['flushedBytes']
         assert reopened['framingCoverage']['lastSequence'] == stopped['archive']['lastSequence']
         assert call(reader, 'inspect-eof', 'archive.inspect', dict(request, sampleId=eof_capture['sampleId']))['framingStatus'] == 'framing-complete'
-        rows, digest = decode_raw(PROJECT / 'samples' / sample_id / 'raw' / '00000000000000000001.ksaseg')
+        segment = PROJECT / 'samples' / sample_id / 'raw' / '00000000000000000001.ksaseg'
+        rows, digest = decode_raw(segment)
         plan, terminal = rows[0][0], rows[-1][0]
         assert plan['kind'] == 'etw-capture-plan-v1' and plan['processCreationFileTime'] == target['creationFileTime']
         assert terminal['kind'] == 'etw-capture-end-v1' and terminal['source']['eventsLost'] == 0
@@ -244,6 +250,11 @@ def run():
             assert row['sourceEpoch'] == plan['sourceEpoch'] and row['descriptor']['id'] == 1 + index % 2, row
             assert len(data) == row['originalPayloadBytes'] == 8, row
             assert data == struct.pack('<II', index // 2, len(PAYLOAD)), row
+        # 两个读取器使用同一正式段，生成的项目仍由本用例负责清理。
+        for validator in readback:
+            subprocess.run([validator, '--etw-file', segment], cwd=RELEASE, check=True, timeout=15)
+        if inspect_gui:
+            inspect_gui(segment, events[0])
         call(reader, 'shutdown', 'controller.shutdown', {})
         assert reader.next()['reason'] == 'shutdown'
         assert reader.process.wait(timeout=10) == 0
@@ -257,12 +268,48 @@ def run():
         repl_objects = [json.loads(line) for line in repl.stdout.splitlines() if line.startswith('{')]
         assert len(repl_objects) == 6 and repl_objects[3]['archive']['status'] == 'raw-verified', repl.stdout
         assert repl_objects[4]['closed'] and repl_objects[5]['closed'], repl.stdout
+
+        # 读完前三帧后停止读 stdout，保持 stdin 活跃以制造真实管道背压。
+        slow = controller('r3', read_limit=3)
+        children.append(slow)
+        call(slow, 'slow-project', 'project.open', {'path': str(PROJECT), 'access': 'read-write'})
+        slow_capture = call(slow, 'slow-open', 'session.open', dict(options, durationMs=30000, title='Slow output'), **revision)
+        slow.reader.join(timeout=3)
+        assert not slow.reader.is_alive()
+        messages = ''.join(json.dumps(dict(schemaVersion=1, requestId=f'slow-{index}', method='session.query',
+                                           params={}, session=slow_capture['session'])) + '\n' for index in range(30))
+        slow.process.stdin.write(messages)
+        slow.process.stdin.flush()
+        assert slow.process.wait(timeout=12) == 3, 'Expected the CLI transport to fail on blocked output'
+        slow_path = PROJECT / 'samples' / slow_capture['sampleId'] / 'raw' / '00000000000000000001.ksaseg'
+        slow_rows, _ = decode_raw(slow_path)
+        slow_terminal = slow_rows[-1][0]  # 停止回执从已写档案回读，stdout 无法保证交付。
+        assert slow_terminal['stopReason'] == 'output-lost' and slow_terminal['source']['nativeSessionStopped'], slow_terminal
+
+        # 让真实目标自行退出，确认冻结的进程句柄会触发会话收尾。
+        exit_controller = controller('r3')
+        children.append(exit_controller)
+        call(exit_controller, 'reopen-rw', 'project.open', {'path': str(PROJECT), 'access': 'read-write'})
+        exit_capture = call(exit_controller, 'start-exit', 'session.open', dict(options, title='Target exit'), **revision)
+        exit_owner = {'session': exit_capture['session']}
         producer.send('exit')
         assert producer.process.wait(timeout=10) == 0
+        for index in range(60):
+            exit_receipt = call(exit_controller, f'exit-query-{index}', 'session.query', {}, **exit_owner)
+            if exit_receipt['stopReason'] == 'target-exited':
+                break
+            time.sleep(.05)
+        assert exit_receipt['stopReason'] == 'target-exited', exit_receipt
+        assert exit_receipt['archive']['status'] == 'raw-verified' and exit_receipt['source']['nativeSessionStopped'], exit_receipt
+        call(exit_controller, 'exit-close', 'session.close', {}, **exit_owner,
+             expected={'stateRevision': exit_receipt['stateRevision']})
+        call(exit_controller, 'exit-shutdown', 'controller.shutdown', {})
+        assert exit_controller.next()['clean'] and exit_controller.process.wait(timeout=10) == 0
         print(json.dumps({'cliSha256': hashlib.sha256(CLI.read_bytes()).hexdigest(), 'pid': target['pid'],
                           'sampleId': sample_id, 'observations': len(events), 'rawSha256': digest,
                           'stopReceipt': stopped, 'reopened': reopened, 'deadlineReceipt': timed_result,
-                          'eofSummary': summary, 'replStopReceipt': repl_objects[3]}))
+                          'eofSummary': summary, 'replStopReceipt': repl_objects[3], 'targetExitReceipt': exit_receipt,
+                          'slowOutputTerminal': slow_terminal}))
     finally:
         for child in reversed(children):
             child.stop()
@@ -275,5 +322,7 @@ def run():
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--sample']:
         sample(Path(sys.argv[2]))
+    elif sys.argv[1:2] == ['--readback']:
+        run([Path(path).resolve(strict=True) for path in sys.argv[2:]])
     else:
         run()

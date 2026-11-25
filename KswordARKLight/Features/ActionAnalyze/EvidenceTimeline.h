@@ -27,6 +27,7 @@ private:
     int pointY(const Point& point) const;
     int laneX(std::size_t lane, int width) const;
     std::size_t laneFor(std::uint16_t category) const;
+    std::wstring laneName(std::size_t lane) const;
     void scrollTo(int offset);
     void paint();
     void click(int x, int y);
@@ -40,6 +41,7 @@ private:
     std::vector<std::uint16_t> categories_;
     std::vector<bool> enabled_;
     bool other_ = false;
+    std::optional<std::size_t> etwLane_; // 原始 ETW 记录专用泳道，互不占用归档类别号。
     int offset_ = 0;
     short wheelRemainder_ = 0;
 };

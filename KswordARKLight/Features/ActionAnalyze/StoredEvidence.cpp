@@ -94,7 +94,8 @@ bool HasLeadingZero(std::string_view text) {
     return false;
 }
 
-bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = nullptr) {
+bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = nullptr,
+    JsonValue* metadata = nullptr) {
     constexpr unsigned kMaxJson = 4 * 1024 * 1024;
     if (bytes.empty() || bytes.size() > kMaxJson) return false;
     const auto* data = reinterpret_cast<const char*>(bytes.data());
@@ -106,7 +107,7 @@ bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = 
     limits.maxStringBytes = 65536;
     const std::string_view input(data, bytes.size());
     if (input.starts_with("\xef\xbb\xbf") || HasLeadingZero(input)) return false;
-    const auto parsed = ParseJson(input, limits);
+    auto parsed = ParseJson(input, limits);
     if (!parsed.ok() || !parsed.value.asObject() || !SupportedJsonValues(parsed.value, 0)) return false;
     if (event) {
         const auto headerId = [&](std::string_view key) -> std::optional<std::uint32_t> {
@@ -125,6 +126,9 @@ bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = 
         };
         event->headerPid = headerId("source.headerPid");
         event->headerTid = headerId("source.headerTid");
+    }
+    if (metadata) {
+        *metadata = std::move(parsed.value); // 将本次已校验的同一正文交给 ETW 投影。
     }
     if (!preview) return true;
 
@@ -159,7 +163,8 @@ std::wstring HexPreview(Bytes bytes) {
     return result;
 }
 
-std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show) {
+// 解码一个已通过封装检查的记录，并按需要构造独立预览。
+std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
         return {};
@@ -169,10 +174,20 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show) {
         const auto jsonBytes = static_cast<std::size_t>(Little(payload, 0, 4));
         if (jsonBytes > payload.size() - 4) return "raw.length";
         std::wstring json;
-        if (!ReadJsonObject(payload.subspan(4, jsonBytes), show ? &json : nullptr)) return "raw.json";
+        JsonValue metadata; // 仅在发布 raw 流中的行时解释来源字段。
+        if (!ReadJsonObject(payload.subspan(4, jsonBytes), show ? &json : nullptr, nullptr,
+            show && rawStream ? &metadata : nullptr)) return "raw.json";
+        const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
+        if (show && rawStream) {
+            row.etw = ReadArchivedEtwObservation(metadata, inlineData.size());
+            if (row.etw) {
+                row.headerPid = row.etw->headerPid;
+                row.headerTid = row.etw->headerTid;
+                row.receiveQpc = row.etw->receiveQpc;
+            }
+        }
         if (show) row.preview = L"原始记录元数据（归档 JSON）\r\n" + json +
-            L"\r\n\r\n内联原始字节（" + std::to_wstring(payload.size() - 4 - jsonBytes) + L" 字节）\r\n" +
-            HexPreview(payload.subspan(4 + jsonBytes));
+            L"\r\n\r\n内联原始字节（" + std::to_wstring(inlineData.size()) + L" 字节）\r\n" + HexPreview(inlineData);
         return {};
     }
 
@@ -321,7 +336,7 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             if (Little(record, 24, 4) != Crc32c(payload)) { fail("record.payloadCrc", recordOffset + 32); break; }
 
             const bool show = firstDecodeError.empty() && decodeError.empty() && out.rows.size() + rows.size() < kEvidenceRows;
-            const auto error = DecodeRecord(payload, row, show);
+            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1);
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
                 if (row.flags & 1) ++opaqueRequired;

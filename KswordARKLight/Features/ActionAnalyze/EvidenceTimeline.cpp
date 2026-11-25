@@ -18,10 +18,6 @@ constexpr wchar_t kTimelineClass[] = L"KswordARKLight.ActionAnalyzeTimeline";
 constexpr std::size_t kNamedLanes = 4;
 using Ksword::Ui::Scale;
 
-std::wstring LaneName(const std::vector<std::uint16_t>& categories, std::size_t lane) {
-    return lane < categories.size() ? std::to_wstring(categories[lane]) : L"其余";
-}
-
 } // namespace
 
 bool EvidenceTimeline::create(HWND parent, int controlId, std::function<void(std::size_t)> select) {
@@ -41,6 +37,14 @@ std::size_t EvidenceTimeline::laneFor(std::uint16_t category) const {
     return static_cast<std::size_t>(std::find(categories_.begin(), categories_.end(), category) - categories_.begin());
 }
 
+// 从当前快照的真实类别布局返回泳道标题。
+std::wstring EvidenceTimeline::laneName(std::size_t lane) const {
+    if (etwLane_ == lane) {
+        return L"ETW";
+    }
+    return lane < categories_.size() ? std::to_wstring(categories_[lane]) : L"其余";
+}
+
 void EvidenceTimeline::replace(const std::vector<EvidenceRecord>& rows) {
     points_.clear();
     categories_.clear();
@@ -54,15 +58,25 @@ void EvidenceTimeline::replace(const std::vector<EvidenceRecord>& rows) {
     other_ = categories_.size() > kNamedLanes;
     if (other_) categories_.resize(kNamedLanes);
     enabled_.assign(categories_.size() + (other_ ? 1 : 0), true);
+    etwLane_.reset();
+    if (std::any_of(rows.begin(), rows.end(), [](const auto& row) { return row.etw.has_value(); })) {
+        etwLane_ = enabled_.size(); // ETW 泳道位于所有 CanonicalEvent 类别之后。
+        enabled_.push_back(true);
+    }
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const auto& row = rows[i];
-        if (row.receiveQpc) points_.push_back({ *row.receiveQpc, i, laneFor(row.category) });
+        if (row.receiveQpc) {
+            points_.push_back({ *row.receiveQpc, i, row.etw ? *etwLane_ : laneFor(row.category) });
+        }
     }
     std::stable_sort(points_.begin(), points_.end(), [](const Point& a, const Point& b) { return a.ticks < b.ticks; });
     scrollTo(0);
 }
 
 bool EvidenceTimeline::includes(const EvidenceRecord& record) const {
+    if (record.etw && etwLane_) {
+        return enabled_[*etwLane_];
+    }
     return !record.eventOrdinal || enabled_[laneFor(record.category)];
 }
 
@@ -71,7 +85,7 @@ bool EvidenceTimeline::chooseCategories(HWND anchor) {
     const HMENU menu = ::CreatePopupMenu();
     if (!menu) return false;
     for (std::size_t lane = 0; lane < enabled_.size(); ++lane) {
-        const auto title = L"类别 " + LaneName(categories_, lane);
+        const auto title = etwLane_ == lane ? laneName(lane) : L"类别 " + laneName(lane);
         ::AppendMenuW(menu, MF_STRING | (enabled_[lane] ? MF_CHECKED : MF_UNCHECKED), lane + 1, title.c_str());
     }
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -153,7 +167,7 @@ void EvidenceTimeline::paint() {
         for (std::size_t lane = 0; lane < enabled_.size(); ++lane) {
             const int x = laneX(lane, rect.right);
             const int half = ((rect.right - Scale(8)) / static_cast<int>(enabled_.size())) / 2;
-            label(LaneName(categories_, lane), { x - half, Scale(39), x + half, Scale(57) }, DT_CENTER);
+            label(laneName(lane), { x - half, Scale(39), x + half, Scale(57) }, DT_CENTER);
             RECT line{ x, Scale(58), x + 1, rect.bottom };
             ::FillRect(dc, &line, ::GetSysColorBrush(COLOR_3DLIGHT));
         }
