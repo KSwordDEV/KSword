@@ -42,11 +42,15 @@ Light 的「监控 → ActionAnalyze」新增「只看 ETW」复选框，单独�
 - CLI 导入同一个五类合成 API 采样 `40ee5116-3d82-4098-8fea-bdbca03b7759`，Qt 和 Light 均在目录选择时自动预览并完整回放。Qt 的「查看采样记录」定位最新线索，`QT_SAMPLE_TRACE_TO_RECORD=PASS` 对应记录 5、源行 7。两端均核对五类原始坐标、来源筛选、坏尾隔离和修复重读。
 - CLI、Qt、Light 串行核对同一自有 ETW 采样 `9582d8b7-8bfe-4e79-a8be-d8052c38bda6`。CLI 写入 8 个运行段和 1 个终段，处理 4,101 个查询 ID，停止时 ETW 事件和队列报告丢失均为 0。Qt 和 Light 各回放 642 条记录，ETW 筛选各显示 624 条，最后一条 ETW 观察位于第 8 段的记录 639。Light 首段自动预览 14 条，缺第二段标记时保留 14 条，第三段覆盖流损坏时保留 28 条。恢复后读回 642 条。窗口退出 0，配置恢复，固定项目目录已删除。
 - Light 正式 HostX64 Release 从默认页新建空工程，在同一自有 PID 上连续采样两轮，各写 2 段，分别核对 12／14 条 ETW 载荷和 16／18 条原始记录。两轮终态报告 ETW 丢失、队列丢弃均为 0。重启后可打开同一工程，回放第二轮 `4d3d0309-d979-439a-b2e9-5c695bb38f86`。两次窗口退出 0，配置恢复，固定目录已删除。Light 产物 SHA-256 为 `768e1db335e6c91e99456cda05373615edb159c66e92da9b0624c4f8257437b3`。
+- Qt 正式窗口在采样 `dbed4f1f-893c-466a-ab4c-51a3555c3b85` 选择第一条线索，进入总览后核对 `raw/1 #1`、源行 `2`。五条线索的 64 字节预览、独立筛选、坏尾恢复和选择保留通过。浅色窗口退出 0，配置恢复，固定目录已清理。Qt 产物 SHA-256 为 `cb78935a504b45cc07f5e08a6d995606361172d799bd4d04d9e974ca2b89dd51`，构建日志为 `.codex-build-logs/ksword-build-check-20261125-071036.raw.log`。
+- 同一 Qt 产物在深色主题下复验全部操作，采样 `fef5d4c4-a3b2-4e1b-b40f-303362051992`。窗口退出 0，配置恢复，固定目录已清理。窗口自动化核对了操作与实际数据，颜色对比、DPI 和背景模式待验。
 
 从仓库根目录使用统一 Release 产物，逐条运行以下回归。脚本使用独立非输入桌面。
 
 ```powershell
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/live_archive_reopen.py
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/archive_api_preview.py
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/archive_api_preview.py --dark
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --api
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --cross-client
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/live_project_preview.py

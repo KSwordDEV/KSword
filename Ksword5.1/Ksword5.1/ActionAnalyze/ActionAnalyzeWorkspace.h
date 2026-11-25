@@ -4,6 +4,7 @@
 #include "OfflineProjectReader.h"
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
 class QPushButton;
 class QTabWidget;
@@ -52,6 +53,8 @@ namespace ks::action_analyze
         void readSelectedSample();
         // 向同一结构化字段文档发布已验证的选中采样内容。
         void updateSampleDocument();
+        // 用当前采样线索更新选择菜单，保留同一条已选原始记录。
+        void updateSampleClues();
         // 根据当前加载阶段、已发布项目和采样刷新工具与状态文字。
         void updateStatus();
         // 返回目录当前选中归档的资格，点击和界面刷新使用同一判断。
@@ -65,6 +68,8 @@ namespace ks::action_analyze
         QPushButton* m_cancel = nullptr; // 取消当前项目读取并保留原目录。
         QPushButton* m_sampleRetry = nullptr; // 重读当前目录行，不依赖项目打开历史。
         QPushButton* m_sampleArchive = nullptr; // 打开所选采样的原始归档。
+        QComboBox* m_sampleClue = nullptr; // 此采样内明确选定的原始记录锚点。
+        QList<SampleSensitiveClue> m_displayedClues; // 当前选项与归档坐标的对应关系。
         QLabel* m_status = nullptr; // 当前读取进度、空结果或失败。
         QLabel* m_source = nullptr; // 已发布目录实际对应的项目与代次。
         QLabel* m_manifestPath = nullptr; // 只显示已发布清单路径。

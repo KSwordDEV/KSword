@@ -1,5 +1,4 @@
 #include "OfflineSegmentOverview.h"
-#include "ArchivedSampleAnalysis.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
@@ -42,9 +41,11 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
     };
     m_lastPath = path;
     m_lastSampleRequest = sample;
+    m_lastClue = clue ? std::optional<SampleSensitiveClue>(*clue) : std::nullopt;
+    m_clueMissing = false;
     m_reading = true;
     updateText();
-    const auto anchor = clue ? std::optional<SampleSensitiveClue>(*clue) : std::nullopt; // 不借用目录字段文档。
+    const auto anchor = m_lastClue; // 冻结锚点，排队回执独立于后续请求。
     const auto accepted = m_read->submit<Request, SegmentSnapshot>({path, std::move(sample)}, // 实际读取任务代次，零表示未受理。
         [](const Request& requested, const ks::ui::AsyncOperationToken& token) {
             return ReadOfflineSegment(requested.path, [&token]() {
@@ -68,7 +69,14 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
                             }); // 回放窗口中的同一条已核验观察。
                             if (row != segment.rows.cend())
                             {
+                                // 已定位后，普通重读沿用总览当前选择，允许用户自由查看别的记录。
+                                m_lastClue.reset();
                                 selectSequence(row->sequence, true);
+                            }
+                            else
+                            {
+                                m_clueMissing = true;
+                                updateText();
                             }
                         }
                     }

@@ -21,13 +21,13 @@
 #include "../theme.h"
 
 #include <QAbstractTableModel>
+#include <QComboBox>
 #include <QDateTime>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
-#include <QHBoxLayout>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QPushButton>
@@ -294,19 +294,24 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
     auto* page = new QWidget(m_tabs); // 项目目录与详情的实际页签。
     auto* layout = new QVBoxLayout(page); // 放置局部工具带和目录分栏。
     layout->setContentsMargins(0, 0, 0, 0);
-    // 重读选中采样独立于项目工具带，原生按钮支持键盘直接操作。
+    // 宽窗并排显示采样操作，窄窗使用与项目工具带相同的换行布局。
     auto* toolbar = new QWidget(page); // 当前采样的恢复入口。
-    auto* tools = new QHBoxLayout(toolbar); // 单项恢复动作保持自然高度。
+    auto* tools = new ks::ui::FlowLayout(toolbar, 8, 8, 6); // 按可用宽度换行。
     ks::ui::StylePrimaryToolbar(toolbar);
     m_sampleRetry = new QPushButton(toolbar);
     ks::ui::SetThemeButtonIcon(m_sampleRetry, QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
     tools->addWidget(m_sampleRetry);
+    m_sampleClue = new QComboBox(toolbar);
+    m_sampleClue->setObjectName(QStringLiteral("action_analyze_sample_clue"));
+    m_sampleClue->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_sampleClue->setMinimumContentsLength(23);
+    m_sampleClue->hide();
+    tools->addWidget(m_sampleClue);
     m_sampleArchive = new QPushButton(toolbar);
     m_sampleArchive->setObjectName(QStringLiteral("action_analyze_sample_archive"));
     ks::ui::SetThemeButtonIcon(m_sampleArchive, QIcon(QStringLiteral(":/Icon/process_open_folder.svg")));
     tools->addWidget(m_sampleArchive);
-    tools->addStretch();
-    ks::ui::NormalizeToolbarRow(tools);
+    ks::ui::NormalizeToolbarLayout(tools);
     layout->addWidget(toolbar);
 
     auto* splitter = new QSplitter(Qt::Vertical, page); // 可调整目录和字段详情的高度。
@@ -349,8 +354,13 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
         if (sampleArchiveEligibility().enabled())
         {
             const SampleRequest selected{m_project.manifestPath, m_project.id, m_selected}; // 此刻的冻结采样。
-            const auto* clue = m_sampleAnalysis && !m_sampleAnalysisIssue && !m_sampleAnalysis->recentClues.isEmpty()
-                ? &m_sampleAnalysis->recentClues.constLast() : nullptr; // 默认定位最后一条已核验线索。
+            const int choice = m_sampleClue->currentIndex(); // 首项定位最新线索，后续项使用明确的原始坐标。
+            const SampleSensitiveClue* clue = nullptr; // 无已核验证据时仅打开采样。
+            if (!m_sampleAnalysisIssue && !m_displayedClues.isEmpty())
+            {
+                clue = choice > 0 && choice <= m_displayedClues.size()
+                    ? &m_displayedClues.at(choice - 1) : &m_displayedClues.constLast();
+            }
             if (m_overview->openSampleArchive(selected, clue))
             {
                 m_tabs->setCurrentWidget(m_overview);
@@ -627,6 +637,37 @@ void ActionAnalyzeWorkspace::updateSampleDocument()
         }
     }
     m_fields->setDocument(document);
+    updateSampleClues();
+}
+
+// 将同一份采样分析投影为可操作的记录目录，校验未通过时保留已有选项并禁用定位。
+void ActionAnalyzeWorkspace::updateSampleClues()
+{
+    const auto clues = m_sampleAnalysis ? m_sampleAnalysis->recentClues : QList<SampleSensitiveClue>{}; // 最近已核验的窗口。
+    const auto automatic = sourceText(QStringLiteral("最新 API 线索")); // 默认使用当前窗口最近的线索。
+    const auto available = !clues.isEmpty() && sampleArchiveEligibility().enabled() && !m_sampleAnalysisIssue; // 诊断状态与定位资格分开。
+    if (clues != m_displayedClues || m_sampleClue->itemText(0) != automatic)
+    {
+        const int previousIndex = m_sampleClue->currentIndex() - 1; // 首项没有固定的归档坐标。
+        const auto previous = previousIndex >= 0 && previousIndex < m_displayedClues.size()
+            ? std::optional<SampleSensitiveClue>(m_displayedClues.at(previousIndex)) : std::nullopt;
+        m_displayedClues = clues;
+        m_sampleClue->clear();
+        m_sampleClue->addItem(automatic);
+        // 沿用详情中的归档顺序，显示类别和记录坐标便于对照。
+        for (const auto& clue : m_displayedClues)
+        {
+            m_sampleClue->addItem(ArchivedClueLabel(clue));
+        }
+        const auto restored = previous ? m_displayedClues.indexOf(*previous) : -1; // 只恢复原始坐标完全一致的选项。
+        m_sampleClue->setCurrentIndex(static_cast<int>(restored + 1));
+    }
+    m_sampleClue->setVisible(!clues.isEmpty());
+    m_sampleClue->setEnabled(available);
+    m_sampleClue->setAccessibleName(sourceText(QStringLiteral("采样证据定位")));
+    m_sampleClue->setToolTip(available
+        ? sourceText(QStringLiteral("选择一条线索，再打开采样记录。"))
+        : sourceText(QStringLiteral("重新读取采样以核验证据位置。")));
 }
 
 // 将当前选区与实际读回的请求比较。返回值同时供按钮状态和点击守卫使用。

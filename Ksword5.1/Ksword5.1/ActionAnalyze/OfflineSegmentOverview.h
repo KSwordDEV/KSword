@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ArchivedSampleAnalysis.h"
 #include "OfflineSegmentReader.h"
 #include "OfflineObjectEvidence.h"
 
@@ -33,7 +34,6 @@ namespace ks::action_analyze
     class LiveEtwCapture;
     struct LiveEtwReceipt;
     struct ToolbarOverviewCapabilities;
-    struct SampleSensitiveClue;
 
     // 行为追踪总览独立持有归档证据，项目页提供可选的身份对照。
     class OfflineSegmentOverview final : public QWidget
@@ -157,6 +157,8 @@ namespace ks::action_analyze
         QString m_sampleStatus; // 无段时显示的项目采样状态。
         QString m_lastPath; // 最新读取请求路径。
         std::optional<SampleRequest> m_lastSampleRequest; // 重试沿用已冻结的目录身份。
+        std::optional<SampleSensitiveClue> m_lastClue; // 重试仍定位本次请求的同一条证据。
+        bool m_clueMissing = false; // 最新完成的归档读取未重新核验所请求的证据。
         std::shared_ptr<const SegmentSnapshot> m_snapshot; // 最后发布的段。
         SegmentEnd m_latestEnd = SegmentEnd::Unavailable; // 最新读取结尾；可与保留结果不同。
         quint64 m_latestOffset = 0; // 最新问题发生的位置。

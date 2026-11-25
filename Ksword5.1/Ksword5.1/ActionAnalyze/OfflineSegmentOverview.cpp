@@ -708,7 +708,7 @@ OfflineSegmentOverview::OfflineSegmentOverview(QWidget* parent) : QWidget(parent
     // 绑定归档专用动作，焦点留在用户当前使用的控件。
     connect(m_open, &QPushButton::clicked, this, &OfflineSegmentOverview::chooseSegment);
     connect(m_retry, &QPushButton::clicked, this, [this]() {
-        openSegment(m_lastPath, m_lastSampleRequest);
+        openSegment(m_lastPath, m_lastSampleRequest, m_lastClue ? &*m_lastClue : nullptr);
     });
     connect(m_cancel, &QPushButton::clicked, this, &OfflineSegmentOverview::cancelRead);
     connect(m_apiSource, &QCheckBox::toggled, this, &OfflineSegmentOverview::applyFilters);
@@ -1141,6 +1141,11 @@ void OfflineSegmentOverview::updateText()
         if (m_latestOffset && m_latestEnd != SegmentEnd::Complete)
         {
             status += u' ' + sourceText(QStringLiteral("停止位置：%1 字节。")).arg(m_latestOffset);
+        }
+        if (m_clueMissing)
+        {
+            status += u' ' + sourceText(QStringLiteral("本次回放未核验到所选线索。"));
+            role = StatusRole::Warning;
         }
     }
     m_status->setVisible(!status.isEmpty());

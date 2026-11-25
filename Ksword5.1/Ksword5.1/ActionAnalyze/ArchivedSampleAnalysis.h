@@ -18,6 +18,7 @@ namespace ks::action_analyze
         quint64 segment = 0; // 采样内的 raw 段号。
         quint64 sequence = 0; // Stored 记录序号。
         quint64 sourceSequence = 0; // 源文件行号。
+        bool operator==(const SampleSensitiveClue&) const = default;
     };
 
     // 采样自动预览的结果。完整性和结果数量分别呈现。
@@ -43,4 +44,6 @@ namespace ks::action_analyze
     void AppendArchivedSampleAnalysis(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis);
     // 单独追加最近失败或部分读取状态，用于继续展示同一样本的上次分类。
     void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis);
+    // 根据已核验线索生成当前语言的选择器标签，保留原 API 名称与记录坐标。
+    QString ArchivedClueLabel(const SampleSensitiveClue& clue);
 }

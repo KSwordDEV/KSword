@@ -72,6 +72,14 @@ void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const A
     }
 }
 
+// 返回可辨识的类别、API 名称和 raw 坐标，供下拉选项使用。
+QString ArchivedClueLabel(const SampleSensitiveClue& clue)
+{
+    const auto& family = Categories()[static_cast<std::size_t>(clue.family)]; // 由归档分类器核对的类别。
+    return QStringLiteral("%1 · %2 · raw/%3 #%4")
+        .arg(ks::i18n::sourceText(family.name), clue.api).arg(clue.segment).arg(clue.sequence);
+}
+
 // 工作线程复用正式回放的格式、身份和完整性验证，再从同一窗口提取证据。
 ArchivedSampleAnalysis ReadArchivedSampleAnalysis(const SampleRequest& request, const CancelCheck& isCanceled)
 {

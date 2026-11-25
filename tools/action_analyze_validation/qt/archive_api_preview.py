@@ -99,7 +99,7 @@ def import_fixture(directory):
 
 
 @contextmanager
-def test_window():
+def test_window(theme="light"):
     """启动正式 Qt 并提供本次 PID 的桥接客户端，退出后恢复外观和停靠布局。"""
     from isolated_desktop import launch_gui, require_isolated_desktop
 
@@ -124,14 +124,14 @@ def test_window():
     draft = json.loads(originals[settings].decode("utf-8-sig")) if originals[settings] is not None else {}
     draft.update(startup_auto_request_admin=False, startup_auto_install_r0_driver=False,
                  startup_scale_recommend_prompt_disabled=True, dump_auto_check_enabled=False, mcp_auto_start=False,
-                 ui_language="zh-CN", startup_default_tab_key="welcome", theme_mode="light", detail_display_scheme="right")
+                 ui_language="zh-CN", startup_default_tab_key="welcome", theme_mode=theme, detail_display_scheme="right")
     environment = dict(os.environ, QT_QPA_PLATFORM="windows:dialogs=none")  # 使用实际的 Qt 文件选择器。
     gui = None  # 只操作本脚本创建的子进程及其窗口。
     try:
         settings.write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
         gui = launch_gui([executable, "--mcp", "--mcp-no-auto-elevation"], cwd=RELEASE, env=environment)
         with executable.open("rb") as image:
-            print(f"GUI_PID={gui.pid} QT_SHA256={hashlib.file_digest(image, 'sha256').hexdigest()}", flush=True)
+            print(f"GUI_PID={gui.pid} THEME={theme} QT_SHA256={hashlib.file_digest(image, 'sha256').hexdigest()}", flush=True)
         yield BridgeClient(gui.pid)
     finally:
         try:
@@ -182,7 +182,7 @@ def open_project(client, manifest):
     return nodes
 
 
-def open_project_sample(client, manifest, sample, *, title=TITLE):
+def open_project_sample(client, manifest, sample, *, title=TITLE, clue=None):
     """沿真实目录打开 manifest 中指定采样，返回工作台快照读取函数。"""
     nodes = open_project(client, manifest)
     tabs = unique(nodes(), lambda n: n["object_name"] == "action_analyze_tabs")
@@ -218,6 +218,10 @@ def open_project_sample(client, manifest, sample, *, title=TITLE):
         assert "归档分类流程" in groups and all(not node["visible"] for node in nodes()
                                                 if node["object_name"] == "action_analyze_target_pid"), groups
         print(f"QT_SAMPLE_ANALYSIS_ON_SELECTION=PASS SAMPLE={sample}", flush=True)
+    if clue is not None:
+        picker = unique(nodes(), lambda n: n["object_name"] == "action_analyze_sample_clue")  # 当前采样的定位选项。
+        assert picker["visible"] and picker["enabled"], picker
+        dispatch(client, "set_field", object_id=picker["id"], value=clue, confirmed=True)
     dispatch(client, "action", object_id=launch["id"], action="press", confirmed=True)
     return nodes
 
@@ -225,7 +229,7 @@ def open_project_sample(client, manifest, sample, *, title=TITLE):
 def verify_window(client, manifest, segment, expected):
     """核对真实表格、共享详情、显示筛选以及自有归档坏尾的原位恢复。"""
     sample = segment.parents[1].name  # 同一 Stored 样本的 ID。
-    nodes = open_project_sample(client, manifest, sample)
+    nodes = open_project_sample(client, manifest, sample, clue=1)
 
     def status_has(text):
         """根据当前可见标签检查回执中的指定文本。"""
@@ -256,10 +260,11 @@ def verify_window(client, manifest, segment, expected):
                 return fields, any(UNKNOWN in row for row in root)
         return {}, False
 
-    # 从采样页进入总览时应默认定位到最新线索，无需再手动选一次记录。
-    latest = expected[-1]  # 导入回执给出的真实归档位置。
-    fields, _ = until(details, lambda value: value[0].get("事件") == latest["api"])
-    assert fields["采样 ID"] == sample and fields["源归档行号"] == latest["sourceSequence"], fields
+    # 选中一个早于最新项的线索，进入总览后对照采样、原始记录和来源行号。
+    selected = expected[0]  # 导入回执给出的第一个已核验线索。
+    fields, _ = until(details, lambda value: value[0].get("事件") == selected["api"])
+    assert (fields["采样 ID"], fields["记录序号"], fields["源归档行号"]) == (
+        sample, selected["rawSequence"], selected["sourceSequence"]), fields
     print(f"QT_SAMPLE_TRACE_TO_RECORD=PASS RAW={fields['记录序号']}", flush=True)
 
     # 逐行对照 CLI 保存的原包、原始坐标、来源头及证据限制。
@@ -315,9 +320,11 @@ def verify_window(client, manifest, segment, expected):
 
 def main():
     """从统一 Release 启动正式 CLI 与 Qt，完成回放和清理后打印通过回执。"""
+    arguments = sys.argv[1:]  # 独立桌面启动器转发的可选主题参数。
+    assert arguments in ([], ["--dark"]), arguments
     with fixture_directory() as directory:
         manifest, segment, expected = import_fixture(directory)
-        with test_window() as client:
+        with test_window("dark" if arguments else "light") as client:
             verify_window(client, manifest, segment, expected)
     print("QT_API_REPLAY=PASS", flush=True)
 
