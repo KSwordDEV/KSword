@@ -1,0 +1,249 @@
+{
+  "artifactKind": "planning-source-inventory",
+  "planningVersion": 1,
+  "observedOn": "2026-11-24",
+  "productSchema": false,
+  "scope": "All blobs from nine fixed upstream trees; candidate files are a conservative path/extension classification, not executable or validated rules",
+  "sources": [
+    {
+      "sourceId": "capa",
+      "repo": "https://github.com/mandiant/capa-rules",
+      "commit": "ffd03fc584e87fed57ddf225c8ab3cd0345dc8cf",
+      "candidateRoots": [
+        ""
+      ],
+      "extensions": [
+        ".yml",
+        ".yaml"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 1059,
+      "ruleCount": null,
+      "packageLicenseDeclared": "Apache-2.0",
+      "licensePath": "LICENSE.txt",
+      "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "7e555f15fe94ebbdacee9443b4a7ad1064b4f0f3ccf935ce4a7c2cfa94b071df",
+      "repositoryBlobCount": 1071,
+      "licenseUrl": "https://github.com/mandiant/capa-rules/blob/ffd03fc584e87fed57ddf225c8ab3cd0345dc8cf/LICENSE.txt"
+    },
+    {
+      "sourceId": "sigma",
+      "repo": "https://github.com/SigmaHQ/sigma",
+      "commit": "7228cccddc63a771924ab585e072f4fbb63690fb",
+      "candidateRoots": [
+        "rules/",
+        "rules-emerging-threats/",
+        "rules-threat-hunting/",
+        "rules-compliance/",
+        "rules-dfir/",
+        "rules-placeholder/"
+      ],
+      "extensions": [
+        ".yml",
+        ".yaml"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 3807,
+      "ruleCount": null,
+      "packageLicenseDeclared": "DRL-1.1",
+      "licensePath": "LICENSE",
+      "licenseSha256": "4213ed7e21d9435b0aa0aa7d11016e6ab3e4664fa71738ff507306fadce79597",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "d9564363c10714e62405c76dd41759148384aec24f636813fb8af4cb4007653d",
+      "repositoryBlobCount": 5603,
+      "licenseUrl": "https://github.com/SigmaHQ/sigma/blob/7228cccddc63a771924ab585e072f4fbb63690fb/LICENSE"
+    },
+    {
+      "sourceId": "elastic-protections",
+      "repo": "https://github.com/elastic/protections-artifacts",
+      "commit": "418cfd9aaa89ffc4b6a55e3d01c384facf4fd548",
+      "candidateRoots": [
+        "behavior/"
+      ],
+      "extensions": [
+        ".toml",
+        ".yml",
+        ".yaml",
+        ".json"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 1346,
+      "ruleCount": null,
+      "packageLicenseDeclared": "Elastic-2.0",
+      "licensePath": "LICENSE.txt",
+      "licenseSha256": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "f2a39a0dc06a0a3bb82e9ce427c6f57b37c9c581424e6286ed925642b8c810b4",
+      "repositoryBlobCount": 2423,
+      "licenseUrl": "https://github.com/elastic/protections-artifacts/blob/418cfd9aaa89ffc4b6a55e3d01c384facf4fd548/LICENSE.txt"
+    },
+    {
+      "sourceId": "cape",
+      "repo": "https://github.com/CAPESandbox/community",
+      "commit": "1844e971751eddafcab28f42108ee82f39706171",
+      "candidateRoots": [
+        "modules/signatures/"
+      ],
+      "extensions": [
+        ".py"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 598,
+      "ruleCount": null,
+      "packageLicenseDeclared": null,
+      "licensePath": null,
+      "licenseSha256": null,
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "ef8d16438085f16ba39daff9d8057b91c9a8529aa46bca150eb4e261a2f3ca85",
+      "repositoryBlobCount": 1330
+    },
+    {
+      "sourceId": "splunk",
+      "repo": "https://github.com/splunk/security_content",
+      "commit": "689e177da0c31da9154b51d3dbdd2af40462a03c",
+      "candidateRoots": [
+        "detections/"
+      ],
+      "extensions": [
+        ".yml",
+        ".yaml"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 2229,
+      "ruleCount": null,
+      "packageLicenseDeclared": "Apache-2.0",
+      "licensePath": "LICENSE",
+      "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "bfa293c8170162d1919ebede91d05ad70ea56e4e5e6e61345453707742a13376",
+      "repositoryBlobCount": 4391,
+      "licenseUrl": "https://github.com/splunk/security_content/blob/689e177da0c31da9154b51d3dbdd2af40462a03c/LICENSE"
+    },
+    {
+      "sourceId": "elastic-detection",
+      "repo": "https://github.com/elastic/detection-rules",
+      "commit": "8bbc8b1b5aa674196ff7c7588f311cfac457ee4e",
+      "candidateRoots": [
+        "rules/"
+      ],
+      "extensions": [
+        ".toml"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 2384,
+      "ruleCount": null,
+      "packageLicenseDeclared": "Elastic-2.0",
+      "licensePath": "LICENSE.txt",
+      "licenseSha256": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "e06ad1b0cd3555366ad0f5b5a289852d19c52f4ff314e1b3d9b270d0144bf4ad",
+      "repositoryBlobCount": 3478,
+      "licenseUrl": "https://github.com/elastic/detection-rules/blob/8bbc8b1b5aa674196ff7c7588f311cfac457ee4e/LICENSE.txt"
+    },
+    {
+      "sourceId": "cuckoo",
+      "repo": "https://github.com/cuckoosandbox/community",
+      "commit": "14864b9fa2ba2576ca11887caf37616eaec6d941",
+      "candidateRoots": [
+        "modules/signatures/"
+      ],
+      "extensions": [
+        ".py"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 492,
+      "ruleCount": null,
+      "packageLicenseDeclared": null,
+      "licensePath": null,
+      "licenseSha256": null,
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "e82d32ab9d08c15c5dddf23f71efe025f40a5d7291f0d119e95d152ae4bfad86",
+      "repositoryBlobCount": 1368
+    },
+    {
+      "sourceId": "signature-base",
+      "repo": "https://github.com/Neo23x0/signature-base",
+      "commit": "fffcaa4d3931d791a2553f01457966144418a316",
+      "candidateRoots": [
+        "yara/"
+      ],
+      "extensions": [
+        ".yar",
+        ".yara"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 755,
+      "ruleCount": null,
+      "packageLicenseDeclared": "DRL-1.1",
+      "licensePath": "LICENSE",
+      "licenseSha256": "8a959b2413d0c83ca1b3ce9153076c649abf2e4bbfebbb493fb24c2074a1eb8a",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "ae2e7b8ce0093ac1c2300547ae19d6b9e3aa754aabea928f63b4dcd41cd38750",
+      "repositoryBlobCount": 780,
+      "licenseUrl": "https://github.com/Neo23x0/signature-base/blob/fffcaa4d3931d791a2553f01457966144418a316/LICENSE"
+    },
+    {
+      "sourceId": "fibratus",
+      "repo": "https://github.com/rabbitstack/fibratus",
+      "commit": "0d2cb65b379673542da6ff35992f81fa603fe5a1",
+      "candidateRoots": [
+        "rules/"
+      ],
+      "extensions": [
+        ".yml",
+        ".yaml"
+      ],
+      "status": "planning-inventory",
+      "treeComplete": true,
+      "candidateFileCount": 140,
+      "ruleCount": null,
+      "packageLicenseDeclared": "Apache-2.0",
+      "licensePath": "LICENSE.MD",
+      "licenseSha256": "e7b8eea9e5291a53fd377e8a233c1badf689803769e4357b68216767b3f790c8",
+      "fileExceptionsReviewed": false,
+      "distributionCompatibilityReviewed": false,
+      "bodyCollectionComplete": false,
+      "treeResponseSha256": "cd418afa81637e4c74f2b68a87cbf37b9833513197010fbf2c994322d0f1366e",
+      "repositoryBlobCount": 1024,
+      "licenseUrl": "https://github.com/rabbitstack/fibratus/blob/0d2cb65b379673542da6ff35992f81fa603fe5a1/LICENSE.MD"
+    },
+    {
+      "sourceId": "ksword-sandbox",
+      "repo": "https://github.com/KSwordDEV/KSwordSandbox.git",
+      "commit": "79525023f5c0373a6d31bbca896db2db9b7be5f4",
+      "path": "rules/behavior-rules.json",
+      "fileSha256": "65134e89e199340e342c8e241a229eb4063653ec57bd48d69f9a597f3ba61337",
+      "candidateRuleCount": 601,
+      "uniqueRuleIds": 601,
+      "selectorCount": 205,
+      "packageLicenseDeclared": null,
+      "status": "license-pending",
+      "releasable": false
+    }
+  ]
+}

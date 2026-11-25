@@ -1,0 +1,4 @@
+# Preserve the source lock's recorded CRLF bytes and the inventory's LF bytes.
+/source-lock.json -text !eol
+/local-candidates.jsonl text eol=lf
+/upstream-files/*.jsonl text eol=lf

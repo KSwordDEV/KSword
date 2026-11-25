@@ -1,0 +1,90 @@
+{
+  "artifactKind": "planning-upstream-file-parts",
+  "manifestVersion": 1,
+  "maxLinesPerPart": 2000,
+  "concatenated": {
+    "originalFileName": "upstream-files.jsonl",
+    "lineCount": 21468,
+    "byteCount": 7569550,
+    "sha256": "b147bc8045d26fd07425da5c180b95be1bd51865e7b64a7295d94319388a3769"
+  },
+  "parts": [
+    {
+      "path": "part-001.jsonl",
+      "firstLine": 1,
+      "lineCount": 2000,
+      "byteCount": 719916,
+      "sha256": "5f0cc15641e8495c32928a8f88a2db1bd8cf99fea3f7fc3d6f6f7da48531042c"
+    },
+    {
+      "path": "part-002.jsonl",
+      "firstLine": 2001,
+      "lineCount": 2000,
+      "byteCount": 762069,
+      "sha256": "215d9990b2507fddc774ee8b8bebe80791b32b9430d0b60532510584236b174b"
+    },
+    {
+      "path": "part-003.jsonl",
+      "firstLine": 4001,
+      "lineCount": 2000,
+      "byteCount": 720779,
+      "sha256": "ed1d4b437e8ed38a41e9730919a24a355a93cda5c2e245f414437a564d14c5d8"
+    },
+    {
+      "path": "part-004.jsonl",
+      "firstLine": 6001,
+      "lineCount": 2000,
+      "byteCount": 751268,
+      "sha256": "4cd07e2ab7edbe06ca8c2602a345739d2ebeb4d7202bb2c9039e42ccd4e89643"
+    },
+    {
+      "path": "part-005.jsonl",
+      "firstLine": 8001,
+      "lineCount": 2000,
+      "byteCount": 658036,
+      "sha256": "31c2d15a1a7dc6061d35322dbdaf7e27fa932a2999447db334b43d81ed041374"
+    },
+    {
+      "path": "part-006.jsonl",
+      "firstLine": 10001,
+      "lineCount": 2000,
+      "byteCount": 680911,
+      "sha256": "d70804b1e6a6a0e7f0e68d6964cdf048860dea35662b4abeb2f2106030c115db"
+    },
+    {
+      "path": "part-007.jsonl",
+      "firstLine": 12001,
+      "lineCount": 2000,
+      "byteCount": 682991,
+      "sha256": "c9be9697ffb129e4e73fa6e58b3eb6d6cc5949bfb5839e8871f0513b94897c22"
+    },
+    {
+      "path": "part-008.jsonl",
+      "firstLine": 14001,
+      "lineCount": 2000,
+      "byteCount": 695940,
+      "sha256": "eed82cec6ef81b4a5ff1e9a3965d7a7a68e142e1232e5856b1da468da1318f46"
+    },
+    {
+      "path": "part-009.jsonl",
+      "firstLine": 16001,
+      "lineCount": 2000,
+      "byteCount": 738951,
+      "sha256": "101680129c32db3c873f7299cd91c36f0ab287ed09dfac66a6ccb999b5d60ed0"
+    },
+    {
+      "path": "part-010.jsonl",
+      "firstLine": 18001,
+      "lineCount": 2000,
+      "byteCount": 683635,
+      "sha256": "7438c01d5cd73a13b74aaabb08fcdc45fa500dfe887571aea9e912dd71a7a2fe"
+    },
+    {
+      "path": "part-011.jsonl",
+      "firstLine": 20001,
+      "lineCount": 1468,
+      "byteCount": 475054,
+      "sha256": "3075e514073d26d687cc21327b627d2b847ae609e1ae6782826ab4fa3240e2e7"
+    }
+  ]
+}

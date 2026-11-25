@@ -1,0 +1,33 @@
+{
+  "artifactKind": "planning-inventory-check",
+  "upstreamSources": 9,
+  "completeTrees": 9,
+  "upstreamBlobRows": 21468,
+  "candidateFileRows": 12810,
+  "localCandidates": 601,
+  "localUniqueIds": 601,
+  "files": {
+    "license-evidence/capa.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "license-evidence/elastic-detection.txt": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+    "license-evidence/elastic-protections.txt": "48255018b41fc0e965b1115af7e6779bc218bb8a6747d561da800d5022622aa2",
+    "license-evidence/fibratus.txt": "e7b8eea9e5291a53fd377e8a233c1badf689803769e4357b68216767b3f790c8",
+    "license-evidence/sigma.txt": "4213ed7e21d9435b0aa0aa7d11016e6ab3e4664fa71738ff507306fadce79597",
+    "license-evidence/signature-base.txt": "8a959b2413d0c83ca1b3ce9153076c649abf2e4bbfebbb493fb24c2074a1eb8a",
+    "license-evidence/splunk.txt": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "local-candidates.jsonl": "6d4e8b6491cf348b6ab3f96ceccf4da7ad5951fc1c15466be72690aa096ac5a0",
+    "source-lock.json": "e0ee97b259c5e4ce778e63f1ddc41b9ac873564cc5e91d839c331beb007b2fed",
+    "upstream-files/manifest.json": "abb5b928acfcb70fbc8f01c85c470001b43e2d4e019bd02ec48b7fd88180ffd6",
+    "upstream-files/part-001.jsonl": "5f0cc15641e8495c32928a8f88a2db1bd8cf99fea3f7fc3d6f6f7da48531042c",
+    "upstream-files/part-002.jsonl": "215d9990b2507fddc774ee8b8bebe80791b32b9430d0b60532510584236b174b",
+    "upstream-files/part-003.jsonl": "ed1d4b437e8ed38a41e9730919a24a355a93cda5c2e245f414437a564d14c5d8",
+    "upstream-files/part-004.jsonl": "4cd07e2ab7edbe06ca8c2602a345739d2ebeb4d7202bb2c9039e42ccd4e89643",
+    "upstream-files/part-005.jsonl": "31c2d15a1a7dc6061d35322dbdaf7e27fa932a2999447db334b43d81ed041374",
+    "upstream-files/part-006.jsonl": "d70804b1e6a6a0e7f0e68d6964cdf048860dea35662b4abeb2f2106030c115db",
+    "upstream-files/part-007.jsonl": "c9be9697ffb129e4e73fa6e58b3eb6d6cc5949bfb5839e8871f0513b94897c22",
+    "upstream-files/part-008.jsonl": "eed82cec6ef81b4a5ff1e9a3965d7a7a68e142e1232e5856b1da468da1318f46",
+    "upstream-files/part-009.jsonl": "101680129c32db3c873f7299cd91c36f0ab287ed09dfac66a6ccb999b5d60ed0",
+    "upstream-files/part-010.jsonl": "7438c01d5cd73a13b74aaabb08fcdc45fa500dfe887571aea9e912dd71a7a2fe",
+    "upstream-files/part-011.jsonl": "3075e514073d26d687cc21327b627d2b847ae609e1ae6782826ab4fa3240e2e7"
+  },
+  "errors": []
+}
