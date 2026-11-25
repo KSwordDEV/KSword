@@ -33,8 +33,7 @@ struct Snapshot {
     std::wstring path; // 已打开的段或项目清单路径。
     std::optional<ProjectReplayRequest> sample; // 项目回放选择；独立段保持为空。
     SegmentEvidence evidence; // raw 段或独立证据段的本地值快照。
-    CheckpointState checkpoint = CheckpointState::NotChecked; // 实际验证的提交状态。
-    std::uint64_t recordsEnd = 0; // 成功时的 records/1 端点。
+    ReplayCheckpoint checkpoint; // 本次项目重读核对的段范围。
     std::shared_ptr<const std::vector<Ui::VirtualListRow>> presentation; // 后台生成的虚拟表行。
 };
 
@@ -107,10 +106,9 @@ LoadResult Load(const std::wstring& path, const std::optional<ProjectReplayReque
     snapshot.path = path;
     snapshot.sample = sample;
     if (sample) {
-        auto replay = ReadProjectReplay(*sample); // 使用与正式 CLI 共用的终态验证。
+        auto replay = ReadProjectReplay(*sample); // 使用与正式 CLI 共用的双流验证。
         snapshot.evidence = std::move(replay.raw);
         snapshot.checkpoint = replay.checkpoint;
-        snapshot.recordsEnd = replay.recordsEnd;
     } else {
         snapshot.evidence = OpenStoredEvidence(path);
     }
@@ -119,7 +117,7 @@ LoadResult Load(const std::wstring& path, const std::optional<ProjectReplayReque
     auto rows = std::make_shared<std::vector<Ui::VirtualListRow>>(); // 表格的后台值数据。
     rows->reserve(snapshot.evidence.rows.size());
     for (const auto& record : snapshot.evidence.rows) {
-        Ui::VirtualListRow row; // 使用归档记录序号作为段内稳定键。
+        Ui::VirtualListRow row; // 项目已验证的记录序号在整次采样内唯一。
         row.stableKey = std::to_wstring(record.sequence);
         row.itemData = static_cast<LPARAM>(rows->size());
         row.cells = { Number(record.receiveQpc), Number(record.headerPid), Number(record.headerTid), L"—",
@@ -224,15 +222,20 @@ void UpdateDetails(Page& page) {
         const auto& evidence = snapshot.evidence;
         const auto& identity = *evidence.identity;
         text = (snapshot.sample ? L"清单：" : L"归档：") + snapshot.path + L"\r\n项目：" + WideAscii(identity.projectId) +
-            L"\r\n采样：" + WideAscii(identity.sampleId) + L"\r\n流编号：" + std::to_wstring(identity.streamKind) +
-            L"    段号：" + std::to_wstring(identity.ordinal) +
-            L"    段创建 FILETIME：" + std::to_wstring(evidence.createdUtc100ns) +
-            L"\r\n文件身份（卷序列 / 文件索引 / 修改 FILETIME）：" +
-            (evidence.fileIdentity.empty() ? L"不可用" : evidence.fileIdentity) + L"\r\n\r\n";
+            L"\r\n采样：" + WideAscii(identity.sampleId) + L"\r\n流编号：" + std::to_wstring(identity.streamKind);
+        // 多段采样的文件标识属于最新段，不用它描述选中的历史行。
+        if (snapshot.checkpoint.lastVerifiedOrdinal <= 1) {
+            text += L"    段号：" + std::to_wstring(identity.ordinal) +
+                L"    段创建 FILETIME：" + std::to_wstring(evidence.createdUtc100ns) +
+                L"\r\n文件身份（卷序列 / 文件索引 / 修改 FILETIME）：" +
+                (evidence.fileIdentity.empty() ? L"不可用" : evidence.fileIdentity);
+        }
+        text += L"\r\n\r\n";
     }
     if (record) {
         text += RecordName(*record) + L"\r\n归档记录序号：" + std::to_wstring(record->sequence) +
-            L"    块号：" + std::to_wstring(record->blockOrdinal) + L"    文件字节偏移：" + std::to_wstring(record->offset) +
+            L"    所属段号：" + std::to_wstring(record->segmentOrdinal) + L"    块号：" +
+            std::to_wstring(record->blockOrdinal) + L"    文件字节偏移：" + std::to_wstring(record->offset) +
             L"\r\n类型：" + std::to_wstring(record->type) + L"    格式版本：" + std::to_wstring(record->schemaVersion) +
             L"    标志：" + std::to_wstring(record->flags) + L"    负载字节：" + std::to_wstring(record->payloadBytes) + L"\r\n";
         if (record->eventOrdinal) {
@@ -256,8 +259,14 @@ void UpdateStatus(Page& page) {
             if (!text.empty()) text += L"\r\n";
             text += page.snapshotStatus;
         }
+        const auto ordinal = page.snapshot->checkpoint.lastVerifiedOrdinal; // 字节范围对应的已验证段。
         text += L"\r\n当前归档  ·  显示 " + std::to_wstring(page.list.visibleIndexes().size()) +
-            L" / " + std::to_wstring(result.rows.size()) + L" 条预览  ·  帧记录 " + std::to_wstring(result.records) +
+            L" / " + std::to_wstring(result.rows.size()) + L" 条预览";
+        if (ordinal > 1) {
+            text += L"  ·  已核验 " + std::to_wstring(result.lastSequence.value_or(0)) + L" 条  ·  第 " +
+                std::to_wstring(ordinal) + L" 段";
+        }
+        text += L"  ·  帧记录 " + std::to_wstring(result.records) +
             L"  ·  帧前缀 " + std::to_wstring(result.framedBytes) + L" / " + std::to_wstring(result.fileBytes) +
             L" B  ·  解码前缀 " + std::to_wstring(result.decodedPrefixBytes) + L" B";
         if (page.selected && !std::binary_search(page.list.visibleIndexes().begin(), page.list.visibleIndexes().end(), *page.selected)) {
@@ -370,6 +379,11 @@ void PresentCatalog(Page& page, ProjectReplayCatalog catalog) {
 
 // 发布一份成功的加载结果。同一归档重读按记录序号保留原选择。
 void PublishSnapshot(Page& page, Snapshot loaded) {
+    if (!loaded.checkpoint.lastVerifiedOrdinal && loaded.checkpoint.state == CheckpointState::Pending) {
+        page.requestStatus = L"等待第 1 段检查点发布，可重读。";
+        UpdateStatus(page);
+        return;
+    }
     if (!loaded.evidence.identity || (!loaded.evidence.diagnostic.empty() && loaded.evidence.rows.empty())) {
         ShowReadFailure(page, Diagnostic(loaded.evidence));
         return;
@@ -380,7 +394,7 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
         page.snapshot->evidence.identity == loaded.evidence.identity) {
         const auto& rows = loaded.evidence.rows; // 新完成的证据快照。
         const auto found = std::find_if(rows.begin(), rows.end(), [selected](const auto& row) {
-            return row.sequence == selected->sequence;
+            return row.segmentOrdinal == selected->segmentOrdinal && row.sequence == selected->sequence;
         });
         if (found != rows.end()) selection = static_cast<std::size_t>(found - rows.begin());
     }
@@ -407,10 +421,16 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
 
     // 分别显示项目提交状态、诊断预览和独立段的扫描状态。
     const auto& result = page.snapshot->evidence;
-    if (page.snapshot->checkpoint == CheckpointState::Verified) {
-        page.snapshotStatus = L"终态检查点已验证 · records/1 " + std::to_wstring(page.snapshot->recordsEnd) + L" B";
+    const auto& checkpoint = page.snapshot->checkpoint; // 最新段的检查点和后续归档状态。
+    if (checkpoint.state == CheckpointState::Verified) {
+        page.snapshotStatus = L"终态检查点已验证 · records/" + std::to_wstring(checkpoint.lastVerifiedOrdinal) +
+            L" " + std::to_wstring(checkpoint.recordsEnd) + L" B";
         if (result.fileBytes > result.decodedPrefixBytes) page.snapshotStatus += L" · raw 尾部未纳入";
-    } else if (page.snapshot->checkpoint == CheckpointState::NotPublished) {
+    } else if (checkpoint.state == CheckpointState::Pending || checkpoint.state == CheckpointState::Partial) {
+        page.snapshotStatus = L"已核验至第 " + std::to_wstring(checkpoint.lastVerifiedOrdinal) + L" 段 · 第 " +
+            std::to_wstring(checkpoint.pendingOrdinal) +
+            (checkpoint.state == CheckpointState::Pending ? L" 段检查点尚未发布" : L" 段核验失败 · " + Diagnostic(result));
+    } else if (checkpoint.state == CheckpointState::NotPublished) {
         page.snapshotStatus = L"未发布终态检查点 · 仅查看 raw 段";
         if (!result.diagnostic.empty()) page.snapshotStatus += L" · " + Diagnostic(result);
     } else if (!result.diagnostic.empty()) {

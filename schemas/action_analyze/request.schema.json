@@ -104,10 +104,12 @@
     },
     "sampleQuery": {
       "type": "object", "additionalProperties": false, "required": ["projectId", "sampleId"],
+      "dependentSchemas": { "captureOrdinal": { "required": ["includeCapture"], "properties": { "includeCapture": { "const": true } } } },
       "properties": {
         "projectId": { "$ref": "#/$defs/projectUuid" },
         "sampleId": { "$ref": "#/$defs/projectUuid" },
-        "includeCapture": { "type": "boolean" }
+        "includeCapture": { "type": "boolean" },
+        "captureOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
       }
     },
     "sampleCreate": {

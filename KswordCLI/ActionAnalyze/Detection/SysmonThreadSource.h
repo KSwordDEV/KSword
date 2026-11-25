@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -71,5 +73,46 @@ struct SysmonThreadReadResult {
 
 // 仅读本机既存 Sysmon Operational，固定 Event 8/提供者，倒序、有界；不安装、不启用、不改日志。
 SysmonThreadReadResult ReadLocalSysmonThreadEvents(const SysmonThreadQuery& query);
+
+inline constexpr std::size_t kSysmonMaxQueuedObservations = 256;
+
+enum class SysmonSubscriptionState {
+    Idle, InvalidRequest, Starting, Running, Stopping, Stopped,
+    ChannelUnavailable, AccessDenied, Discontinuous, Failed,
+};
+
+struct SysmonSubscriptionStatus {
+    SysmonSubscriptionState state = SysmonSubscriptionState::Idle;
+    std::wstring targetGuid;
+    std::size_t capacity = 0, queued = 0;
+    std::uint64_t examined = 0, enqueued = 0, queueDropped = 0;
+    std::uint64_t unsupportedVersions = 0, malformed = 0, renderFailed = 0;
+    std::wstring_view nativeStage, firstRenderFailureStage; // 固定字符串。
+    std::uint32_t nativeError = 0, firstRenderError = 0, closeError = 0;
+    bool subscribed = false; // 原生订阅曾建立，不证明 Sysmon 正在生成 Event 8。
+    bool tailDeliveryUnconfirmed = false;
+};
+
+// 单次、本机、仅未来的 Sysmon Operational Event 8。独立线程读入，不需要查询请求推进；
+// 队列满时丢弃新观察并计数。由宿主持有本次来源身份；不重订阅或回放历史。
+class SysmonThreadSubscription final {
+public:
+    SysmonThreadSubscription();
+    ~SysmonThreadSubscription();
+    SysmonThreadSubscription(const SysmonThreadSubscription&) = delete;
+    SysmonThreadSubscription& operator=(const SysmonThreadSubscription&) = delete;
+
+    // true 表示后台启动已受理，status() 的 Running 才表示订阅建立。启动一次；无效请求不访问日志。
+    bool start(std::wstring_view targetGuid, std::size_t capacity = kSysmonMaxQueuedObservations);
+    // 唤醒并等待读线程退出，保留已入队观察；不保证通道尾部全部交付。可重复调用。
+    void stop();
+    // 移出至多 maxRecords 条，使用原生交付顺序；停后仍可排空。
+    std::vector<SysmonThreadObservation> drain(std::size_t maxRecords);
+    SysmonSubscriptionStatus status() const;
+
+private:
+    struct State;
+    std::unique_ptr<State> state_;
+};
 
 } // namespace Ksword::ActionAnalyze::Detection

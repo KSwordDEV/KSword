@@ -31,7 +31,7 @@ def check_contract():
     method_schemas.update({name: validator(ref) for name, ref in catalog['resultOverrides'].items()})
     output = validator(catalog['messageSchema'])
 
-    # 独立验证四种方法及非法参数，现场测试核对真实响应。
+    # 独立验证实时方法及非法参数，现场测试核对真实响应。
     requests = read('vectors/live-etw-session-v1.json')
     request_schema = validator('live-etw-session.schema.json')
     for group, expected in (('valid', True), ('invalid', False)):
@@ -58,7 +58,8 @@ def check_contract():
 
     run(validate=validate)
     assert kinds == {'hello', 'response', 'protocolError', 'summary'}, kinds
-    print(f'PASS R3 passive ETW contract: {count} live output frames and 10 request vectors')
+    vectors = len(requests['valid']) + len(requests['invalid'])
+    print(f'PASS R3 passive ETW contract: {count} live output frames and {vectors} request vectors')
 
 
 if __name__ == '__main__':

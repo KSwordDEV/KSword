@@ -4,6 +4,8 @@
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 
 #include <filesystem>
+#include <deque>
+#include <iterator>
 
 namespace Ksword::Features::ActionAnalyze {
 namespace {
@@ -11,7 +13,6 @@ namespace {
 namespace Project = Ksword::ActionAnalyze;
 namespace Storage = Project::ProjectStorage;
 constexpr wchar_t kManifestName[] = L"project.ksaproj"; // 正式项目清单的固定名称。
-constexpr wchar_t kRawName[] = L"00000000000000000001.ksaseg"; // 终态切片的固定 raw/1。
 
 // 将共享项目错误保留给桌面状态区，兼顾项目错误类型和具体失败步骤。
 std::string ReplayDiagnostic(const Project::ProjectResult& result) {
@@ -33,6 +34,51 @@ ProjectReplayEvidence ReplayFailure(const Project::ProjectResult& result) {
     evidence.raw.diagnostic = ReplayDiagnostic(result);
     evidence.raw.systemError = result.nativeError;
     return evidence;
+}
+
+// 通过固定目录句柄读取指定段。已发布段从同一文件句柄复核散列、身份和端点。
+SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const ProjectReplayRequest& request,
+    std::uint64_t ordinal, const Project::ProjectEtwCheckpoint* checkpoint) {
+    const auto digits = std::to_wstring(ordinal); // 规范段文件名的十进制编号。
+    const auto name = std::wstring(20 - digits.size(), L'0') + digits + L".ksaseg"; // 项目内固定文件名。
+    Storage::Handle file; // 禁止其它句柄在本次读回期间写入或删除文件。
+    if (const auto status = Storage::OpenFile(directory, name, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, file); !status) {
+        return ReplayFailure(status).raw;
+    }
+    const SegmentIdentity expected{request.projectId, request.sampleId, 1, ordinal}; // 正确的 raw 段头身份。
+    if (!checkpoint) {
+        return ReadOpenStoredEvidence(file.get(), std::nullopt, &expected);
+    }
+
+    const auto& end = checkpoint->raw.end; // 检查点限定的完整块水位。
+    std::string hash; // 从实际用于投影的文件读回的已提交前缀摘要。
+    if (const auto status = Storage::HashArchivePrefix(file.get(), end.byteOffset, hash); !status) {
+        return ReplayFailure(status).raw;
+    }
+    if (hash != checkpoint->raw.sha256) {
+        return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayRawHash")).raw;
+    }
+    auto segment = ReadOpenStoredEvidence(file.get(), end.byteOffset, &expected, true); // 本段最近行及真实解析端点。
+    if (segment.diagnostic.empty() && (segment.decodedPrefixBytes != end.byteOffset ||
+        segment.lastBlockOrdinal != end.blockOrdinal || segment.lastSequence != end.lastSequence)) {
+        segment.diagnostic = "replayRawProjection";
+    }
+    return segment;
+}
+
+// 首标记不存在时允许旧段或有尾记的 API 段回放。持续计划等待首次发布。
+ProjectReplayEvidence ReadBeforeFirstCheckpoint(const Storage::Directory& directory, const ProjectReplayRequest& request) {
+    ProjectReplayEvidence result; // 在项目回退与等待中只提交允许展示的内容。
+    result.raw = ReadRawSegment(directory, request, 1, nullptr);
+    if (result.raw.continuousEtwPlan) {
+        result.raw = {};
+        result.raw.diagnostic = "checkpointPending";
+        result.checkpoint.state = CheckpointState::Pending;
+        result.checkpoint.pendingOrdinal = 1;
+    } else {
+        result.checkpoint.state = CheckpointState::NotPublished;
+    }
+    return result;
 }
 
 } // namespace
@@ -92,46 +138,55 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request) {
         return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayDescriptionHash"));
     }
 
-    // 共用接口负责两条流及提交标记。只有标记缺失才能回退到项目内的 raw 段。
-    Project::ProjectEtwCheckpoint checkpoint; // 通过验证的两流范围和散列。
-    const auto terminal = project.ReadEtwCheckpoint(request.sampleId, checkpoint);
-    if (!terminal && terminal.error != Project::ProjectError::NotFound) return ReplayFailure(terminal);
-
     // 生成目录名只用已验证 UUID，打开路径和文件身份交由共享存储层核对。
     const auto sampleName = Storage::WideAscii(sample.info.sampleId); // 固定目录分量。
     Storage::Directory rawDirectory; // 目录链在本次散列和投影期间保持固定。
     const auto directoryStatus = Storage::OpenDirectory(root, {L"samples", sampleName, L"raw"}, rawDirectory);
     if (!directoryStatus) return ReplayFailure(directoryStatus);
-    Storage::Handle rawFile; // 同一同步只读句柄贯穿散列和后续投影，禁止写入及删除共享。
-    const auto fileStatus = Storage::OpenFile(rawDirectory, kRawName, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, rawFile);
-    if (!fileStatus) return ReplayFailure(fileStatus);
-
-    std::optional<std::uint64_t> readEnd; // 旧 raw 使用实际文件范围，已提交项目用精确端点。
-    if (terminal) {
-        readEnd = checkpoint.raw.end.byteOffset;
-        std::string hash; // 实际用于投影的文件前缀 SHA-256。
-        if (const auto status = Storage::HashArchivePrefix(rawFile.get(), *readEnd, hash); !status) {
-            return ReplayFailure(status);
+    ProjectReplayEvidence result; // 只携带已验证的连续前缀与尾段诊断。
+    std::deque<EvidenceRecord> rows; // 在整个采样上独立保留固定数量的最近记录。
+    std::uint64_t lastSequence = 0; // 检查点之间必须使用连续的全采样原始序号。
+    for (std::uint64_t ordinal = 1; ordinal != 0; ++ordinal) {
+        Project::ProjectEtwCheckpoint checkpoint; // 本段已经双流校验的范围。
+        auto status = project.ReadEtwCheckpoint(request.sampleId, checkpoint, ordinal);
+        if (status.error == Project::ProjectError::NotFound && ordinal == 1) {
+            return ReadBeforeFirstCheckpoint(rawDirectory, request);
         }
-        if (hash != checkpoint.raw.sha256) {
-            return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayRawHash"));
+
+        // 读取失败时保留此前已确认的段，源文件位置始终属于各自的段。
+        if (status && (lastSequence == UINT64_MAX || checkpoint.planRawSequence != lastSequence + 1)) {
+            status = Storage::Failure(Project::ProjectError::Corrupt, "replayRawSequence");
+        }
+        auto segment = status ? ReadRawSegment(rawDirectory, request, ordinal, &checkpoint) : ReplayFailure(status).raw;
+        if (!segment.diagnostic.empty()) {
+            result.checkpoint.state = status.error == Project::ProjectError::NotFound ? CheckpointState::Pending : CheckpointState::Partial;
+            result.checkpoint.pendingOrdinal = ordinal;
+            result.raw.diagnostic = std::move(segment.diagnostic);
+            result.raw.systemError = segment.systemError;
+            result.raw.failureOffset = segment.failureOffset;
+            break;
+        }
+
+        // 本段完整通过核验，可以更新最近窗口并推进检查点。
+        for (auto& row : segment.rows) {
+            if (rows.size() == kEvidenceRows) {
+                rows.pop_front();
+            }
+            rows.push_back(std::move(row));
+        }
+        lastSequence = checkpoint.raw.end.lastSequence;
+        result.raw = std::move(segment);
+        result.checkpoint.lastVerifiedOrdinal = ordinal;
+        result.checkpoint.recordsEnd = checkpoint.records.end.byteOffset;
+        if (checkpoint.finalSegment) {
+            result.checkpoint.state = CheckpointState::Verified;
+            break;
         }
     }
-
-    const SegmentIdentity expected{request.projectId, sample.info.sampleId, 1, 1}; // 项目 raw/1 的预期段头。
-    ProjectReplayEvidence result; // 完整提交投影或显式标记的旧 raw 前缀。
-    result.raw = ReadOpenStoredEvidence(rawFile.get(), readEnd, &expected);
-    if (!terminal) {
-        result.checkpoint = CheckpointState::NotPublished;
-        return result;
+    if (result.raw.identity) {
+        result.raw.identity->ordinal = 1; // 逻辑结果锚定整次采样，行内保留实际段号。
+        result.raw.rows.assign(std::make_move_iterator(rows.begin()), std::make_move_iterator(rows.end()));
     }
-    if (!result.raw.diagnostic.empty() || result.raw.decodedPrefixBytes != *readEnd ||
-        result.raw.lastBlockOrdinal != checkpoint.raw.end.blockOrdinal ||
-        result.raw.lastSequence != checkpoint.raw.end.lastSequence) {
-        return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayRawProjection", result.raw.systemError));
-    }
-    result.checkpoint = CheckpointState::Verified;
-    result.recordsEnd = checkpoint.records.end.byteOffset;
     return result;
 }
 

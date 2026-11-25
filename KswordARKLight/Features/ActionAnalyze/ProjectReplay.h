@@ -25,12 +25,18 @@ struct ProjectReplayCatalog {
     std::vector<ProjectReplayChoice> choices; // 仅含已提交的目录记录。
 };
 
-enum class CheckpointState { NotChecked, NotPublished, Verified };
+enum class CheckpointState { NotChecked, NotPublished, Pending, Partial, Verified };
+
+struct ReplayCheckpoint {
+    CheckpointState state = CheckpointState::NotChecked; // 区分独立读取、等待、部分与终态。
+    std::uint64_t lastVerifiedOrdinal = 0; // 已核对双流的连续段上界。
+    std::uint64_t pendingOrdinal = 0; // 缺失或失败的下一段。
+    std::uint64_t recordsEnd = 0; // 最近核验段的 records 文件端点。
+};
 
 struct ProjectReplayEvidence {
-    SegmentEvidence raw; // 声明范围内的 raw 投影，失败时不携带可发布行。
-    CheckpointState checkpoint = CheckpointState::NotChecked; // 归档提交状态。
-    std::uint64_t recordsEnd = 0; // 仅在终态检查点通过时提供 records/1 端点。
+    SegmentEvidence raw; // 已验证前缀的最近窗口，字节计数属于最近的已核验段。
+    ReplayCheckpoint checkpoint; // 已核验范围及下一段的状态。
 };
 
 // 供现有打开入口识别固定清单文件名，不从孤立段自动推断它所属的项目。

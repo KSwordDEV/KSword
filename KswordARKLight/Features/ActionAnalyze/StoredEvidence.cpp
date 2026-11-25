@@ -167,7 +167,7 @@ std::wstring HexPreview(Bytes bytes) {
 
 // 解码一个已通过封装检查的记录，并按需要构造独立预览。
 std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream,
-    bool& apiImport, ApiMonitorClueReadback& api, bool& showRow) {
+    bool& apiImport, ApiMonitorClueReadback& api, bool& showRow, bool& continuousEtwPlan) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
         if (apiImport) return "raw.apiImportRecord";
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
@@ -183,6 +183,14 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
             rawStream && (show || apiImport || row.sequence == 1) ? &metadata : nullptr)) return "raw.json";
         const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
         apiImport = apiImport || (rawStream && row.sequence == 1 && IsApiMonitorClueImport(metadata));
+        if (rawStream && row.sequence == 1) {
+            const auto* kind = metadata.find("kind"); // 区别新采集计划和旧的独立 raw 文件。
+            const auto* duration = metadata.find("durationMs"); // 零表示无预设时限。
+            std::string name; // 元数据中的计划类型。
+            std::uint64_t milliseconds = 0; // 只接受非负整数型时长。
+            continuousEtwPlan = kind && kind->tryGetString(name) && name == "etw-capture-plan-v1" &&
+                duration && duration->type() == JsonType::UInt && duration->tryGetU64(milliseconds) && milliseconds == 0;
+        }
         if (apiImport) {
             std::optional<ArchivedApiMonitorClue> clue; // 尾记只更新回读状态，省略 UI 行。
             const std::string_view original(reinterpret_cast<const char*>(inlineData.data()), inlineData.size());
@@ -254,7 +262,9 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
 
 } // namespace
 
-SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, const SegmentIdentity* expected) {
+// 从只读输入流投影行。项目已提交段可要求最近窗口，诊断用独立段保留早期行。
+SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, const SegmentIdentity* expected,
+    bool keepLatest) {
     SegmentEvidence out;
     out.fileBytes = size;
     const auto fail = [&](std::string_view diagnostic, std::uint64_t offset) {
@@ -299,7 +309,7 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
     std::uint64_t firstDecodeErrorOffset = 0;
     bool apiImport = false; // 由首条原始记录明确声明的 API 导入格式。
     ApiMonitorClueReadback api; // 共享尾记和来源序号校验状态。
-    std::deque<EvidenceRecord> apiWindow; // 与 Qt 保持相同的最近记录窗口，校验完成前不交付。
+    std::deque<EvidenceRecord> recentRows; // 最近窗口仅在整段核验完成后交付。
 
     while (out.framedBytes < size) {
         const auto start = out.framedBytes;
@@ -342,6 +352,7 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             if (body.size() - position < kRecordHeaderBytes) { fail("record.length", recordOffset); break; }
             const auto record = Bytes(body).subspan(position, kRecordHeaderBytes);
             EvidenceRecord row;
+            row.segmentOrdinal = identity.ordinal;
             row.offset = recordOffset;
             row.blockOrdinal = blockOrdinal;
             row.type = static_cast<std::uint16_t>(Little(record, 4, 2));
@@ -361,20 +372,21 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             if (Little(record, 24, 4) != Crc32c(payload)) { fail("record.payloadCrc", recordOffset + 32); break; }
 
             const bool show = firstDecodeError.empty() && decodeError.empty() &&
-                (apiImport || out.rows.size() + rows.size() < kEvidenceRows); // 通用段保留旧的前缀预览。
+                (keepLatest || apiImport || out.rows.size() + rows.size() < kEvidenceRows);
             bool showRow = show; // API 导入尾记不进入结果列表。
-            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, apiImport, api, showRow);
+            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, apiImport, api, showRow,
+                out.continuousEtwPlan);
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
                 if (row.flags & 1) ++opaqueRequired;
                 else ++opaqueOptional;
             }
             if (showRow && error.empty()) {
-                if (apiImport) {
-                    if (apiWindow.size() == kEvidenceRows) {
-                        apiWindow.pop_front();
+                if (keepLatest || apiImport) {
+                    if (recentRows.size() == kEvidenceRows) {
+                        recentRows.pop_front();
                     }
-                    apiWindow.push_back(std::move(row));
+                    recentRows.push_back(std::move(row));
                 } else {
                     rows.push_back(std::move(row));
                 }
@@ -416,10 +428,12 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
         if (out.diagnostic.empty() && !api.ended) fail("raw.apiImportEnd", out.decodedPrefixBytes);
         if (out.diagnostic.empty()) {
             out.apiClues = api.clues;
-            out.rows.assign(std::make_move_iterator(apiWindow.begin()), std::make_move_iterator(apiWindow.end()));
         } else {
             out.rows.clear();
         }
+    }
+    if ((keepLatest || apiImport) && out.diagnostic.empty()) {
+        out.rows.assign(std::make_move_iterator(recentRows.begin()), std::make_move_iterator(recentRows.end()));
     }
     return out;
 }
@@ -441,7 +455,7 @@ SegmentEvidence OpenStoredEvidence(const std::wstring& path) {
 
 // 单段和项目回放复用投影。项目端点只在实际文件包含整个范围时才可用。
 SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
-    const SegmentIdentity* expected) {
+    const SegmentIdentity* expected, bool keepLatest) {
     SegmentEvidence error; // 无法取得文件范围时的只读回执。
     LARGE_INTEGER size{}; // 本次句柄的物理长度。
     if (::GetFileType(file) != FILE_TYPE_DISK) {
@@ -472,7 +486,7 @@ SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t>
         const auto count = static_cast<DWORD>(buffer.size()); // 已受段和块格式限额约束。
         if (!::ReadFile(file, buffer.data(), count, &received, nullptr)) return ::GetLastError();
         return received == count ? DWORD{0} : DWORD{ERROR_HANDLE_EOF};
-    }, expected);
+    }, expected, keepLatest);
     result.fileBytes = physicalBytes;
     BY_HANDLE_FILE_INFORMATION identity{}; // 详情显示的本地卷、文件和修改身份。
     if (::GetFileInformationByHandle(file, &identity)) {

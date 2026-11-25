@@ -1,17 +1,22 @@
 #include "LiveSession.h"
 
 #include "Controller.h"
+#include "SysmonThreadCommand.h"
+#include "../../CommandRegistry.h"
+#include "../Detection/SysmonThreadSource.h"
 #include "../Project/ProjectEtwCheckpoint.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
 #include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <objbase.h>
 
 namespace ks::cli::action_analyze {
 namespace {
+namespace Detection = Ksword::ActionAnalyze::Detection;
 using namespace Ksword::ActionAnalyze;
 using namespace Ksword::ActionAnalyze::ProjectStorage;
 using namespace ks::r3::monitor;
@@ -21,11 +26,14 @@ using Clock = std::chrono::steady_clock;
 constexpr unsigned kMaxDurationMs = 120000;
 constexpr unsigned kMinDurationMs = 1000;
 constexpr std::size_t kBatchSize = 32;
+constexpr std::size_t kSegmentRecords = 512;
+constexpr auto kFlushInterval = std::chrono::seconds(1);
 
 constexpr LiveCommand kCommands[] = {
-    {LiveMethod::Open, "session.open", "open", "PID CREATION_FILETIME PROVIDER_UUID DURATION_MS TITLE",
-        "Start one bounded passive ETW sample in the writable project."},
+    {LiveMethod::Open, "session.open", "open", "PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS|sysmon=GUID] TITLE",
+        "Start passive ETW recording in the writable project. Omit duration for continuous capture."},
     {LiveMethod::Query, "session.query", "status", "", "Read the current sample, native source status and archive receipt."},
+    {LiveMethod::Findings, "session.findings", "findings", "", "Read the optional Sysmon subscription status and latest observed remote thread creation."},
     {LiveMethod::Stop, "session.stop", "stop", "", "Stop the source, verify the Stored raw segment and publish its coverage checkpoint."},
     {LiveMethod::Close, "session.close", "close", "", "Release a finalized sample. Stop it first if it is still active."},
 };
@@ -36,6 +44,19 @@ Reply Reject(const char* id, const char* message, int code = 1, DWORD native = 0
 
 Reply Observation(V value, bool effect = false) {
     return {std::move(value), {}, {}, false, effect};
+}
+
+// 复用来源的 JSON 投影。输入是来源生成的 Windows 字符串，输出为会话的结构化 JSON 值。
+V SourceValue(const Json& projection) {
+    const auto length = static_cast<int>(projection.text.size());
+    const auto bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, projection.text.data(), length,
+        nullptr, 0, nullptr, nullptr);
+    if (!bytes) return V::makeNull();
+    std::string utf8(bytes, '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, projection.text.data(), length,
+            utf8.data(), bytes, nullptr, nullptr) != bytes) return V::makeNull();
+    const auto parsed = Ksword::Evidence::ParseJson(utf8);
+    return parsed.ok() ? parsed.value : V::makeNull();
 }
 
 std::uint64_t FileTime(const FILETIME& time) {
@@ -147,8 +168,12 @@ struct LiveSession::State {
     std::uint64_t created = 0;
     unsigned durationMs = 0;
     Clock::time_point deadline;
+    Clock::time_point nextFlush;
     std::string reason;
     PassiveEtwSource source;
+    std::unique_ptr<Detection::SysmonThreadSubscription> sysmon; // 可选独立日志来源，使用显式 Sysmon GUID。
+    std::optional<Detection::SysmonThreadObservation> latestFinding; // 运行期只读最新发现，不代表已归档。
+    std::uint64_t findings = 0; // 本次会话实际收到并处理的观察总数。
     PassiveEtwStatus terminal;
     archive::RawEvidenceReceipt raw;
     ProjectResult archiveResult;
@@ -156,6 +181,28 @@ struct LiveSession::State {
     bool cleanupPending = false;
     bool finalized = false;
     bool verified = false;
+    std::uint64_t segmentOrdinal = 0;
+    std::uint64_t recorded = 0;
+
+    bool Continuous() const noexcept { return durationMs == 0; }
+
+    // 从已经建立的订阅移出一批观察。由运行循环和停止路径推进，状态查询只读结果。
+    void DrainFindings() {
+        if (!sysmon) return;
+        auto batch = sysmon->drain(Detection::kSysmonMaxQueuedObservations);
+        if (!batch.empty()) {
+            findings += batch.size();
+            latestFinding = std::move(batch.back());
+        }
+    }
+
+    V FindingsReport() const {
+        return Object({{"session", Identity()}, {"sampleId", Text(sample.sampleId)},
+            {"state", Text(sysmon ? "requested" : "not-configured")},
+            {"source", sysmon ? SourceValue(SysmonSubscriptionJson(sysmon->status())) : V::makeNull()},
+            {"observations", Number(findings)},
+            {"latest", latestFinding ? SourceValue(SysmonObservationJson(*latestFinding)) : V::makeNull()}});
+    }
 
     V Identity() const { return Object({{"id", Text(sample.sampleId)}, {"epoch", Text(epoch)}}); }
     std::uint64_t Revision() const noexcept { return finalized ? 3 : cleanupPending ? 2 : 1; }
@@ -174,29 +221,46 @@ struct LiveSession::State {
 
     bool Partial() const noexcept {
         return cleanupPending || (finalized && (!verified || !checkpointResult || terminal.state != PassiveEtwState::Stopped ||
-            !terminal.native.statisticsKnown || !terminal.native.processAttempted ||
+             !terminal.native.statisticsKnown || !terminal.native.processAttempted ||
+             !terminal.native.processCompleted || terminal.native.processStatus != ERROR_SUCCESS ||
+             terminal.native.tailDeliveryUnconfirmed || terminal.native.callbackFailed ||
             terminal.native.eventsLost || terminal.native.logBuffersLost ||
             terminal.native.realTimeBuffersLost || terminal.queueDropped || terminal.payloadTruncated ||
-            terminal.malformedPayload));
+             terminal.malformedPayload || (Continuous() && recorded != terminal.enqueued)));
     }
 
     V Report() const {
         const auto status = finalized ? terminal : source.status();
+        auto archiveStatus = JsonObject{
+            {"status", Text(!archiveResult ? "failed" : verified ? "raw-verified" : finalized ? "failed" : "pending")},
+            {"segmentOrdinal", Number(segmentOrdinal ? segmentOrdinal : 1)},
+            {"flushedBytes", raw.flushed ? Number(raw.flushed->byteOffset) : V::makeNull()},
+            {"lastSequence", raw.flushed ? Number(raw.flushed->lastSequence) : V::makeNull()},
+            {"error", archiveResult ? V::makeNull() : Text(archiveResult.detail)},
+            {"win32Error", V::makeUInt(archiveResult.nativeError)},
+            {"checkpoint", Object({{"status", Text(!archiveResult ? "raw-unavailable" : !checkpointResult ? "failed" :
+                verified ? "verified" : finalized ? "raw-unavailable" : "pending")},
+                {"error", checkpointResult ? V::makeNull() : Text(checkpointResult.detail)}})}};
+        if (Continuous()) archiveStatus.emplace_back("recordedObservations", Number(recorded));
         return Object({{"session", Identity()}, {"projectId", Text(projectId)}, {"sampleId", Text(sample.sampleId)},
             {"stateRevision", Number(Revision())}, {"capture", Text(!finalized ?
                 (cleanupPending ? "cleanup-pending" : "active") : (Partial() ? "partial" : "stopped"))},
             {"stopReason", reason.empty() ? V::makeNull() : Text(reason)}, {"plan", Plan(status)},
-            {"source", SourceJson(status)}, {"archive", Object({
-                {"status", Text(verified ? "raw-verified" : finalized ? "failed" : "pending")},
-                {"segmentOrdinal", Number(1)},
-                {"flushedBytes", raw.flushed ? Number(raw.flushed->byteOffset) : V::makeNull()},
-                {"lastSequence", raw.flushed ? Number(raw.flushed->lastSequence) : V::makeNull()},
-                {"error", archiveResult ? V::makeNull() : Text(archiveResult.detail)},
-                 {"win32Error", archiveResult.nativeError ? V::makeUInt(archiveResult.nativeError) : V::makeNull()},
-                 {"checkpoint", Object({
-                     {"status", Text(!finalized ? "pending" : !verified ? "raw-unavailable" :
-                         checkpointResult ? "verified" : "failed")},
-                     {"error", checkpointResult ? V::makeNull() : Text(checkpointResult.detail)}})}})}});
+             {"source", SourceJson(status)}, {"archive", Object(std::move(archiveStatus))}});
+    }
+
+    ProjectResult AppendBatch(archive::RawEvidenceArchive& writer, std::span<const PassiveEtwRecord> records) {
+        std::vector<std::string> metadata;
+        std::vector<archive::RawEvidenceInput> inputs;
+        metadata.reserve(records.size());
+        inputs.reserve(records.size());
+        for (const auto& record : records) {
+            metadata.push_back(RecordMetadata(record));
+            const auto& bytes = record.payloadPrefix;
+            inputs.push_back({metadata.back(), bytes.empty() ? std::string_view{} :
+                std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())});
+        }
+        return AppendResult(writer.Append(inputs));
     }
 
     ProjectResult Append(archive::RawEvidenceArchive& writer) {
@@ -204,17 +268,7 @@ struct LiveSession::State {
         const archive::RawEvidenceInput head{plan, {}};
         if (const auto result = AppendResult(writer.Append(std::span(&head, 1))); !result) return result;
         for (auto records = source.drain(kBatchSize); !records.empty(); records = source.drain(kBatchSize)) {
-            std::vector<std::string> metadata;
-            std::vector<archive::RawEvidenceInput> inputs;
-            metadata.reserve(records.size());
-            inputs.reserve(records.size());
-            for (const auto& record : records) {
-                metadata.push_back(RecordMetadata(record));
-                const auto& bytes = record.payloadPrefix;
-                inputs.push_back({metadata.back(), bytes.empty() ? std::string_view{} :
-                    std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())});
-            }
-            if (const auto result = AppendResult(writer.Append(inputs)); !result) return result;
+            if (const auto result = AppendBatch(writer, records); !result) return result;
         }
         auto coverage = source.status();
         const auto end = WriteJson(Object({{"kind", Text("etw-capture-end-v1")}, {"stopReason", Text(reason)},
@@ -223,12 +277,74 @@ struct LiveSession::State {
         return AppendResult(writer.Append(std::span(&tail, 1)));
     }
 
+    // 写入至多一个队列快照，只有双流检查点提交后才推进对外可见的段号。
+    bool FlushContinuous(ProjectDocument& project, bool final) {
+        if (!archiveResult || !checkpointResult) return false;
+        auto records = source.drain(kSegmentRecords);
+        if (records.empty() && !final) return true;
+        const auto status = source.status();
+        const auto ordinal = segmentOrdinal + 1;
+        const auto previous = raw.flushed ? raw.flushed->lastSequence : 0;
+        archive::RawEvidenceReceipt next;
+        archiveResult = project.WriteRawEvidenceSegment({projectId, sample.sampleId, ordinal, previous,
+            [&](auto& writer) -> ProjectResult {
+                const auto plan = WriteJson(Plan(status));
+                const archive::RawEvidenceInput head{plan, {}};
+                if (const auto result = AppendResult(writer.Append(std::span(&head, 1))); !result) return result;
+                const std::span observations(records);
+                for (std::size_t i = 0; i < observations.size(); i += kBatchSize) {
+                    if (const auto result = AppendBatch(writer, observations.subspan(i,
+                            (std::min)(kBatchSize, observations.size() - i))); !result) return result;
+                }
+                const auto end = WriteJson(Object({{"kind", Text("etw-capture-end-v1")},
+                    {"stopReason", Text(final ? std::string_view(reason) : "segment-rotated")},
+                    {"finalSegment", V::makeBool(final)}, {"segmentObservations", Number(records.size())},
+                    {"source", SourceJson(status)}}));
+                const archive::RawEvidenceInput tail{end, {}};
+                return AppendResult(writer.Append(std::span(&tail, 1)));
+            }}, next);
+        if (!archiveResult) return false;
+        if (!next.flushed || next.flushed->lastSequence <= previous ||
+            next.flushed->lastSequence - previous != records.size() + 2) {
+            archiveResult = Failure(ProjectError::Corrupt, "archiveRawVerification");
+            return false;
+        }
+        const auto statistic = [known = status.native.statisticsKnown](ULONG value) -> std::optional<std::uint32_t> {
+            if (!known) return std::nullopt;
+            return static_cast<std::uint32_t>(value);
+        };
+        const archive::EtwCoverageV1 coverage{providerId, status.sourceEpoch, ordinal, previous + 1,
+            next.flushed->lastSequence, records.size(), statistic(status.native.eventsLost),
+            statistic(status.native.logBuffersLost), statistic(status.native.realTimeBuffersLost),
+            status.queueDropped, status.payloadTruncated, status.malformedPayload};
+        ProjectEtwCheckpoint checkpoint;
+        checkpointResult = project.PublishEtwCheckpoint(sample.sampleId, *next.flushed, coverage, checkpoint);
+        if (!checkpointResult) return false;
+        raw = std::move(next);
+        segmentOrdinal = ordinal;
+        recorded += records.size();
+        verified = true;
+        return true;
+    }
+
     void Stop(ProjectDocument& project, std::string_view why) {
         if (finalized) return;
         if (reason.empty()) reason = why;
+        if (sysmon) {
+            sysmon->stop();
+            DrainFindings();
+        }
         cleanupPending = !source.stop();
         if (cleanupPending) return;
         terminal = source.status();
+        if (Continuous()) {
+            FlushContinuous(project, true);
+            terminal = source.status();
+            target.reset();
+            finalized = true;
+            return;
+        }
+        segmentOrdinal = 1;
         const auto enqueued = terminal.enqueued;
         archiveResult = project.WriteRawEvidenceSegment({projectId, sample.sampleId, 1, {},
             [this](auto& writer) { return Append(writer); }}, raw);
@@ -261,6 +377,7 @@ LiveSession::LiveSession() = default;
 LiveSession::~LiveSession() = default;
 std::span<const LiveCommand> LiveSession::Catalog() noexcept { return kCommands; }
 bool LiveSession::HasSample() const noexcept { return static_cast<bool>(state_); }
+bool LiveSession::Continuous() const noexcept { return state_ && state_->Continuous(); }
 bool LiveSession::NeedsTick() const noexcept { return state_ && !state_->finalized && !state_->cleanupPending; }
 bool LiveSession::CleanupPending() const noexcept { return state_ && state_->cleanupPending; }
 bool LiveSession::Incomplete() const noexcept { return state_ && state_->Partial(); }
@@ -276,12 +393,18 @@ bool LiveSession::CanFinalize(LiveMethod method, const Request& request) const {
 
 void LiveSession::Tick(ProjectDocument& project) {
     if (!NeedsTick()) return;
-    if (Clock::now() >= state_->deadline) state_->Stop(project, "duration-limit");
+    state_->DrainFindings();
+    const auto now = Clock::now();
+    if (!state_->Continuous() && now >= state_->deadline) state_->Stop(project, "duration-limit");
     else if (WaitForSingleObject(state_->target.get(), 0) == WAIT_OBJECT_0) state_->Stop(project, "target-exited");
     else {
-        const auto state = state_->source.status().state;
-        if (state != PassiveEtwState::Starting && state != PassiveEtwState::Running)
+        const auto status = state_->source.status();
+        if (status.state != PassiveEtwState::Starting && status.state != PassiveEtwState::Running)
             state_->Stop(project, "source-unavailable");
+        else if (state_->Continuous() && (now >= state_->nextFlush || status.queued >= kSegmentRecords / 2)) {
+            state_->nextFlush = now + kFlushInterval;
+            if (!state_->FlushContinuous(project, false)) state_->Stop(project, "archive-unavailable");
+        }
     }
 }
 
@@ -304,14 +427,25 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
         const auto& params = request.params;
         const auto* pidField = params.find("pid");
         const auto* durationField = params.find("durationMs");
-        if (!Fields(params, {"projectId", "title", "providerId", "pid", "creationFileTime", "durationMs"}) ||
+        const auto* discoveryField = params.find("sysmonTargetGuid");
+        const bool fieldsValid = durationField ? Fields(params, {"projectId", "title", "providerId", "pid", "creationFileTime", "durationMs"}) :
+            discoveryField ? Fields(params, {"projectId", "title", "providerId", "pid", "creationFileTime", "sysmonTargetGuid"}) :
+            Fields(params, {"projectId", "title", "providerId", "pid", "creationFileTime"});
+        std::wstring discoveryGuid; // 只从调用方明确指定的来源标识启动订阅。
+        if (discoveryField) {
+            std::string guid;
+            if (!discoveryField->tryGetString(guid) || !IsUuid(guid) || !Detection::NormalizeSysmonGuid(WideAscii(guid)))
+                return Reject("invalid-params", "sysmonTargetGuid must be a canonical nonzero Sysmon ProcessGuid");
+            discoveryGuid = WideAscii(guid);
+        }
+        if (!fieldsValid ||
             !GetUuid(params, "projectId", projectId) || !GetUuid(*request.expected, "revisionId", revision) ||
             !GetUuid(params, "providerId", provider) || !GetString(params, "title", title) || !IsText(title, kMaxTitleBytes) ||
             !GetNumber(params, "creationFileTime", created) || !created ||
             !pidField || pidField->type() != JsonType::UInt || !pidField->tryGetU64(pid) || !pid || pid > MAXDWORD ||
-            !durationField || durationField->type() != JsonType::UInt || !durationField->tryGetU64(duration) ||
-            duration < kMinDurationMs || duration > kMaxDurationMs)
-            return Reject("invalid-params", "Expected projectId, title, providerId, PID, creation FILETIME and durationMs in 1000..120000");
+            (durationField && (durationField->type() != JsonType::UInt || !durationField->tryGetU64(duration) ||
+                duration < kMinDurationMs || duration > kMaxDurationMs)))
+            return Reject("invalid-params", "Expected projectId, title, providerId, PID, creation FILETIME and optional durationMs in 1000..120000");
         if (info->projectId != projectId || info->revisionId != revision)
             return Reject("stale-revision", "The open project or its saved revision changed");
 
@@ -344,6 +478,11 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
             return Reject("sample-create-failed", result.detail, 3, result.nativeError);
         state_ = std::move(next);
         state_->deadline = Clock::now() + std::chrono::milliseconds(duration);
+        state_->nextFlush = Clock::now() + kFlushInterval;
+        if (!discoveryGuid.empty()) {
+            state_->sysmon = std::make_unique<Detection::SysmonThreadSubscription>();
+            state_->sysmon->start(discoveryGuid);
+        }
         if (!state_->source.start(options)) state_->Stop(project, "source-unavailable");
         return Observation(state_->Report(), true);
     }
@@ -352,9 +491,9 @@ Reply LiveSession::Dispatch(LiveMethod method, const Request& request, ProjectDo
         request.session->epoch != state_->epoch)
         return Reject("session-id-mismatch", "The current controller does not own this session epoch");
     if (!Fields(request.params, {})) return Reject("invalid-params", "This method requires empty params");
-    if (method == LiveMethod::Query) {
+    if (method == LiveMethod::Query || method == LiveMethod::Findings) {
         if (request.expected) return Reject("invalid-expected", "Query omits expected");
-        return Observation(state_->Report());
+        return Observation(method == LiveMethod::Query ? state_->Report() : state_->FindingsReport());
     }
     std::uint64_t revision = 0;
     if (!request.expected || !Fields(*request.expected, {"stateRevision"}) ||
@@ -379,24 +518,28 @@ Reply LiveSession::DispatchRepl(LiveMethod method, const JsonArray& args, Projec
     if (method == LiveMethod::Open) {
         if (!project.Info()) return Reject("project-not-open", "Open a writable project first");
         std::string pidText, created, provider, durationText, title;
-        if (args.size() != 5 || !args[0].tryGetString(pidText) || !args[1].tryGetString(created) ||
-            !args[2].tryGetString(provider) || !args[3].tryGetString(durationText) || !args[4].tryGetString(title))
-            return Reject("invalid-params", "Usage: open PID CREATION_FILETIME PROVIDER_UUID DURATION_MS TITLE");
+        if ((args.size() != 4 && args.size() != 5) || !args[0].tryGetString(pidText) || !args[1].tryGetString(created) ||
+            !args[2].tryGetString(provider) || !args.back().tryGetString(title) ||
+            (args.size() == 5 && !args[3].tryGetString(durationText)))
+            return Reject("invalid-params", "Usage: open PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS|sysmon=GUID] TITLE");
         const auto toUInt = [](const std::string& text) -> V {
             std::uint64_t value = 0;
             const auto end = text.data() + text.size();
             const auto parsed = std::from_chars(text.data(), end, value);
             return parsed.ec == std::errc{} && parsed.ptr == end ? V::makeUInt(value) : V::makeNull();
         };
-        request.params = Object({{"projectId", Text(project.Info()->projectId)}, {"title", Text(title)},
-            {"pid", toUInt(pidText)}, {"durationMs", toUInt(durationText)},
-            {"creationFileTime", Text(created)}, {"providerId", Text(provider)}});
+        JsonObject fields{{"projectId", Text(project.Info()->projectId)}, {"title", Text(title)},
+            {"pid", toUInt(pidText)}, {"creationFileTime", Text(created)}, {"providerId", Text(provider)}};
+        if (durationText.starts_with("sysmon=")) fields.emplace_back("sysmonTargetGuid", Text(std::string_view(durationText).substr(7)));
+        else if (args.size() == 5) fields.emplace_back("durationMs", toUInt(durationText));
+        request.params = Object(std::move(fields));
         request.expected = Object({{"revisionId", Text(project.Info()->revisionId)}});
     } else {
         if (!args.empty()) return Reject("invalid-params", "This command takes no arguments");
         if (state_) {
             request.session = RequestSession{state_->sample.sampleId, state_->epoch};
-            if (method != LiveMethod::Query) request.expected = Object({{"stateRevision", Number(state_->Revision())}});
+            if (method != LiveMethod::Query && method != LiveMethod::Findings)
+                request.expected = Object({{"stateRevision", Number(state_->Revision())}});
         }
     }
     auto reply = Dispatch(method, request, project);

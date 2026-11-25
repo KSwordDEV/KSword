@@ -21,6 +21,7 @@ struct SegmentIdentity {
 };
 
 struct EvidenceRecord {
+    std::uint64_t segmentOrdinal = 0; // 此行文件内偏移所属的段。
     std::uint64_t offset = 0;
     std::uint64_t blockOrdinal = 0;
     std::uint64_t sequence = 0;
@@ -60,6 +61,7 @@ struct SegmentEvidence {
     std::size_t opaqueOptionalRecords = 0;
     std::size_t opaqueRequiredRecords = 0;
     std::uint64_t apiClues = 0; // 仅完整通过导入尾记时提供总数。
+    bool continuousEtwPlan = false; // 首条记录声明持续采集，项目回放须等待检查点。
     std::string diagnostic;
     std::uint32_t systemError = 0;
     std::wstring fileIdentity;
@@ -73,12 +75,12 @@ inline constexpr std::uint64_t kEvidenceScanBytes = 64ULL * 1024 * 1024;
 // Return a nonzero native error if the span cannot be filled.
 using ReadExact = std::function<std::uint32_t(std::span<std::uint8_t>)>;
 SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read,
-    const SegmentIdentity* expected = nullptr);
+    const SegmentIdentity* expected = nullptr, bool keepLatest = false);
 
 SegmentEvidence OpenStoredEvidence(const std::wstring& path);
 
 // 读取调用方持有的同步只读句柄。可选端点限定本次投影，fileBytes 仍表示物理长度。
 SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
-    const SegmentIdentity* expected = nullptr);
+    const SegmentIdentity* expected = nullptr, bool keepLatest = false);
 
 } // namespace Ksword::Features::ActionAnalyze

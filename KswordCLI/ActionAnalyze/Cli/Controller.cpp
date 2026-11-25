@@ -216,6 +216,9 @@ Reply Controller::Dispatch(Request request, bool repl) {
     if (method && method->run == Shutdown) {
         return method->run(request.params);
     }
+    // A live status poll has no effect to replay. Continuous sessions may be polled indefinitely.
+    if (live && ((live->method == LiveMethod::Query && session_.Continuous()) || live->method == LiveMethod::Findings))
+        return session_.Dispatch(live->method, request, project_.Document());
     auto requestKey = identity();
     const auto charge = request.id.size() + request.method.size() + requestKey.size() + kReplayEntryOverhead;
     // 先预留整帧空间及 ID 记录再执行，避免变更生效后因账本用满而丢失重放资格。

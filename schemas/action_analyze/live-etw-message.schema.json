@@ -22,9 +22,10 @@
         "projectStorage": { "const": true }, "archives": { "const": true },
         "limits": { "required": ["replayBytes"] },
         "methods": {
-          "minItems": 16, "maxItems": 16,
+          "minItems": 17, "maxItems": 17,
           "allOf": [
             { "contains": { "properties": { "method": { "const": "session.open" }, "repl": { "const": "open" } } }, "maxContains": 1 },
+            { "contains": { "properties": { "method": { "const": "session.findings" }, "repl": { "const": "findings" } } }, "maxContains": 1 },
             { "contains": { "properties": { "method": { "const": "session.query" }, "repl": { "const": "status" } } }, "maxContains": 1 },
             { "contains": { "properties": { "method": { "const": "session.stop" }, "repl": { "const": "stop" } } }, "maxContains": 1 },
             { "contains": { "properties": { "method": { "const": "session.close" }, "repl": { "const": "close" } } }, "maxContains": 1 }

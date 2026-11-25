@@ -47,7 +47,7 @@ def creation_time():
     return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
 
 
-def sample(path):
+def sample(path, *, batched=False):
     """Emit one event after each successful write and verified read of the owned file."""
     api = ct.WinDLL('advapi32')
     api.EventRegister.argtypes = [ct.c_void_p, ct.c_void_p, ct.c_void_p, ct.POINTER(ct.c_uint64)]
@@ -70,10 +70,17 @@ def sample(path):
 
         with path.open('x+b') as output:
             # 两次采样共享同一自有进程和文件。每条写入命令独立产生六次读写。
+            next_iteration = 0
             while (command := input()) != 'exit':
-                assert command == 'write', command
+                if batched:
+                    action, count = command.split()
+                    count = int(count)
+                    assert action == 'write' and 1 <= count <= 100, command
+                else:
+                    assert command == 'write', command
+                    count = 6
                 assert api.EventProviderEnabled(handle, 4, 0)
-                for iteration in range(6):
+                for iteration in range(next_iteration, next_iteration + count):
                     output.seek(0)
                     assert output.write(PAYLOAD) == len(PAYLOAD)
                     output.flush()
@@ -82,7 +89,9 @@ def sample(path):
                     output.seek(0)
                     assert output.read() == PAYLOAD
                     recorded(2, iteration)
-                print('{"operations":12}', flush=True)
+                if batched:
+                    next_iteration += count
+                print(json.dumps({'operations': 2 * count}), flush=True)
     finally:
         assert api.EventUnregister(handle) == 0
 
@@ -149,7 +158,7 @@ def call(cli, request_id, method, params, error=None, **fields):
     return message['result']
 
 
-def decode_raw(path):
+def decode_raw(path, first_sequence=1):
     """Cross-check the bytes and source descriptors independently of the C++ Stored reader."""
     data = path.read_bytes()
     assert data[:8] == b'KSAASEG\0'
@@ -165,7 +174,7 @@ def decode_raw(path):
         end = offset + size
         for _ in range(count):
             length, record_type, schema, _, payload_size, seq = struct.unpack_from('<IHHIIQ', data, offset)
-            assert (record_type, schema, length, seq) == (3, 1, payload_size + 32, len(rows) + 1)
+            assert (record_type, schema, length, seq) == (3, 1, payload_size + 32, first_sequence + len(rows))
             metadata_size, = struct.unpack_from('<I', data, offset + 32)
             start = offset + 36
             rows.append((json.loads(data[start:start + metadata_size]), data[start + metadata_size:offset + length]))

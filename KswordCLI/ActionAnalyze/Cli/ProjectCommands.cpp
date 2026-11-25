@@ -24,7 +24,7 @@ constexpr ProjectCommand kMethods[] = {
     {M::Create, "project.create", "project create", "PATH TITLE [NOTES]", "Create a project in a new directory and open it for writing.", true},
     {M::Save, "project.save", "project save", "TITLE [NOTES]", "Save the project settings against its current revision.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
-    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture]", "Read a sample and its frozen project settings.", false},
+    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]", "Read a sample and its frozen project settings.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
     {M::InspectArchive, "archive.inspect", "archive inspect", "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]",
         "Inspect Stored segment framing in the open project. End offset is an optional byte boundary.", false},
@@ -282,10 +282,13 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
     case M::QuerySample: {
         std::string id; // 要读取的采样 UUID。
         const auto* option = params.find("includeCapture"); // 选择读取历史原始段。
+        const auto* ordinalField = params.find("captureOrdinal"); // 未指定时仍读首段。
+        std::uint64_t ordinal = 1;
         bool includeCapture = false; // 默认只查询冻结配置。
-        if (!KnownKeys(params, {"projectId", "sampleId", "includeCapture"}) || !GetUuid(params, "sampleId", id) ||
-            (option && !option->tryGetBool(includeCapture))) {
-            return Invalid("Expected projectId, sampleId and optional boolean includeCapture");
+        if (!KnownKeys(params, {"projectId", "sampleId", "includeCapture", "captureOrdinal"}) || !GetUuid(params, "sampleId", id) ||
+            (option && !option->tryGetBool(includeCapture)) ||
+            (ordinalField && (!includeCapture || !GetNumber(params, "captureOrdinal", ordinal) || !ordinal))) {
+            return Invalid("Expected projectId, sampleId, optional boolean includeCapture and positive captureOrdinal when enabled");
         }
         if (const auto error = checkProject()) return {{}, {}, error};
         SampleRecord sample; // 验证过的创建描述及冻结配置。
@@ -295,7 +298,7 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         }
         std::optional<V> capture; // 仅在请求指定时返回归档回执。
         if (includeCapture) {
-            capture = ReadArchivedCapture(document_, sample);
+            capture = ReadArchivedCapture(document_, sample, ordinal);
         }
         return Success(SampleResult(*info, sample.info, sample.frozenSettings, sample.revisionHash,
             sample.configSemanticHash, std::move(capture)));
@@ -386,13 +389,14 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         if (!words.empty()) return Invalid("This command takes no arguments");
         break;
     case M::QuerySample:
-        if (words.empty() || words.size() > 2 || (words.size() == 2 && words[1] != "capture")) {
-            return Invalid("Usage: sample status SAMPLE_ID [capture]");
+        if (words.empty() || words.size() > 3 || (words.size() >= 2 && words[1] != "capture")) {
+            return Invalid("Usage: sample status SAMPLE_ID [capture [ORDINAL]]");
         }
         fields.emplace_back("sampleId", Text(words[0]));
-        if (words.size() == 2) {
+        if (words.size() >= 2) {
             fields.emplace_back("includeCapture", V::makeBool(true));
         }
+        if (words.size() == 3) fields.emplace_back("captureOrdinal", Text(words[2]));
         break;
     case M::InspectArchive:
         if (words.size() < 3 || words.size() > 4)

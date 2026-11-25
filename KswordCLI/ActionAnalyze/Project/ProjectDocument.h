@@ -118,8 +118,9 @@ public:
     ProjectResult PublishEtwCheckpoint(std::string_view sampleId,
         const ks::cli::action_analyze::archive::RawEvidenceBoundary& rawEnd,
         const ks::cli::action_analyze::archive::EtwCoverageV1& coverage, ProjectEtwCheckpoint& out);
-    // 读取登记采样的终态标记并校验双流。NotFound 仅表示尚无终态标记。
-    ProjectResult ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out) const;
+    // 校验指定代次的双流。NotFound 仅表示该代次的标记不存在。
+    ProjectResult ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out,
+        std::uint64_t ordinal = 1) const;
     // 显式扫描未纳入当前目录的样本目录名，返回尚待核验的孤立候选 ID。
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 

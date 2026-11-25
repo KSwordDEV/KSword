@@ -69,5 +69,6 @@ Light 与独立 Stored 验证器的正式 Release 构建均以 BelowNormal 优�
 
 ## 被动 ETW 桌面回放
 
+- 2026-11-25 正式 CLI 与 Light 共用 9 段持续 ETW 项目。CLI 记录 624 条 ETW 观察并查询 4,101 个不同 ID。Light 检查终段、624 条 ETW 筛选结果、跨段末观察的归档坐标和重读选择。移走第 2 段检查点后窗口报告该段尚未发布并只显示第 1 段的 14 条原始记录。截断第 3 段覆盖流后报告核验失败并显示前两段的 28 条。恢复后读回全部 642 条。旧 ETW 单段与五类 API 归档在同一 Light 产物复测通过。窗口正常退出，测试配置恢复，固定目录清理完成。日志 `.codex-build-logs/action-analyze-light-continuous-etw.log`，构建产物位于 `Ksword5.1/x64/Release/`。指定普通 R0 及 Light 实时采集仍待验。
 - `3403fe3dc` 已推送至 `origin/ActionAnalyze`。Qt 项目入口重开冻结的项目及采样描述，再复用 CLI 校验 `raw/1` 与 `records/1`。只读句柄验证相同 raw 散列后，仅投影已提交前缀。标记缺失显示旧档回退，缺依赖或错采样保留原表和选择。独立段入口保留诊断式部分预览。
 - 正式 Qt HostX64 构建、双语及主题门禁通过。真实 Qt 复验 14／12 行、同一详情、未提交尾部、缺 Coverage、错采样、旧档回退和恢复重读。窗口退出 `0`，测试项目和配置均已清理或恢复。浅色及右侧详情已验，Light 项目回放及完整桌面矩阵继续验收。[Qt 回执](../../tools/action_analyze_validation/qt/ETW-Readback.md#qt-项目检查点)

@@ -11,7 +11,7 @@ namespace ks::cli::action_analyze {
 
 struct Reply;
 
-enum class LiveMethod { Open, Query, Stop, Close };
+enum class LiveMethod { Open, Query, Findings, Stop, Close };
 
 struct LiveCommand {
     LiveMethod method;
@@ -21,7 +21,7 @@ struct LiveCommand {
     std::string_view summary;
 };
 
-// The request thread owns the project lease and finalizes one bounded passive source.
+// The request thread owns the project lease and services one passive source.
 class LiveSession final {
 public:
     LiveSession();
@@ -29,6 +29,7 @@ public:
     static std::span<const LiveCommand> Catalog() noexcept;
 
     bool HasSample() const noexcept;
+    bool Continuous() const noexcept;
     bool NeedsTick() const noexcept;
     bool CleanupPending() const noexcept;
     bool Incomplete() const noexcept;

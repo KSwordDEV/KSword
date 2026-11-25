@@ -77,7 +77,55 @@ def restore_state(original):
     assert workspace_state() == original
 
 
-def preview(segment, first_event):
+def verify_continuous(binary, segment, segments, records, detail, status, etw, retry, item_count, verified):
+    """通过正式界面测试连续段、未发布检查点、损坏与恢复。"""
+    sample = segment.parents[1]  # 由 CLI 验收拥有并负责清理。
+    counts = [int(part['lastSequence']) for part in segments]  # 全采样连续原始水位。
+    observations = sum(int(part['observationCount']) for part in segments)  # 仅 ETW 观察条数。
+    wait_for('terminal segment', lambda: verified() and f'records/{len(segments)} ' in text(status))
+    assert item_count() == min(4096, counts[-1])
+    gui.SendMessage(etw, con.BM_CLICK, 0, 0)
+    assert item_count() == observations
+    gui.SendMessage(records, con.WM_KEYDOWN, con.VK_END, 0)
+    detail_text = wait_for('last ETW observation', lambda: text(detail) if f'所属段号：{len(segments)-1}' in text(detail) else '')
+    assert f'归档记录序号：{counts[-2]-1}' in detail_text
+    gui.SendMessage(etw, con.BM_CLICK, 0, 0)
+    gui.SendMessage(records, con.WM_KEYDOWN, con.VK_HOME, 0)
+    wait_for('first record', lambda: '归档记录序号：1 ' in text(detail))
+
+    # 暂时移走第二段的提交标记，仍只应看到第一段已发布范围。
+    marker = sample / 'checkpoints/00000000000000000002.json'
+    saved = marker.with_suffix('.pending')  # 固定测试目录中的自有文件。
+    assert not saved.exists()
+    marker.rename(saved)
+    try:
+        gui.SendMessage(retry, con.BM_CLICK, 0, 0)
+        wait_for('second checkpoint unpublished', lambda: '第 2 段检查点尚未发布' in text(status))
+        assert item_count() == counts[0] and '归档记录序号：1 ' in text(detail)
+    finally:
+        saved.rename(marker)
+
+    # 损坏第三段 records，读取者只应提交完整通过双流校验的前两段。
+    coverage = sample / 'records/00000000000000000003.ksaseg'
+    original = coverage.read_bytes()  # 恢复原始字节用于再次校验。
+    try:
+        coverage.write_bytes(original[:-1])
+        gui.SendMessage(retry, con.BM_CLICK, 0, 0)
+        wait_for('third checkpoint invalid', lambda: '第 3 段核验失败' in text(status))
+        assert item_count() == counts[1] and '归档记录序号：1 ' in text(detail)
+    finally:
+        coverage.write_bytes(original)
+    gui.SendMessage(retry, con.BM_CLICK, 0, 0)
+    wait_for('all continuous checkpoints restored', verified)
+    assert item_count() == counts[-1] and '归档记录序号：1 ' in text(detail)
+    print(json.dumps({'lightSha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'sampleId': sample.name,
+                     'segments': len(segments), 'rows': counts[-1], 'etwRows': observations,
+                     'unpublishedPrefixRows': counts[0], 'damagedPrefixRows': counts[1]}, ensure_ascii=False), flush=True)
+    print('LIGHT_CONTINUOUS_ETW_REPLAY=PASS', flush=True)
+
+
+def preview(segment, first_event=None, etw_segments=None):
+    """用正式窗口打开指定项目段，核对单段和持续 ETW 原样回放。"""
     assert not any(gui.GetClassName(hwnd) == MAIN_CLASS for hwnd in windows()), 'Light is already running'
     binary = RELEASE / 'KswordARKLight.exe'
     saved_state = workspace_state()
@@ -158,6 +206,10 @@ def preview(segment, first_event):
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
         assert gui.IsWindowEnabled(replay) and item_count() == 0
         gui.SendMessage(replay, con.BM_CLICK, 0, 0)
+        if etw_segments is not None:
+            verify_continuous(binary, segment, etw_segments, records, detail, status, etw, retry, item_count, verified)
+            return
+
         wait_for('verified project checkpoint', verified)
         assert item_count() == 14
 
@@ -260,4 +312,10 @@ def preview(segment, first_event):
 
 
 if __name__ == '__main__':
-    run(inspect_gui=preview)
+    if sys.argv[1:] == ['--continuous']:
+        from continuous_etw import run as run_continuous
+        run_continuous(inspect_gui=preview)
+    elif not sys.argv[1:]:
+        run(inspect_gui=preview)
+    else:
+        raise SystemExit('Usage: archive_etw_preview.py [--continuous]')

@@ -14,19 +14,21 @@
     },
     "openParams": {
       "type": "object", "additionalProperties": false,
-      "required": ["projectId", "title", "pid", "creationFileTime", "providerId", "durationMs"],
+      "required": ["projectId", "title", "pid", "creationFileTime", "providerId"],
+      "not": { "required": ["durationMs", "sysmonTargetGuid"] },
       "properties": {
         "projectId": { "$ref": "#/$defs/uuid" },
         "title": { "$ref": "request.schema.json#/$defs/projectTitle" },
         "pid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
         "creationFileTime": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "providerId": { "$ref": "#/$defs/uuid" },
-        "durationMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
+        "durationMs": { "type": "integer", "minimum": 1000, "maximum": 120000 },
+        "sysmonTargetGuid": { "$ref": "#/$defs/uuid" }
       }
     },
     "request": {
       "$ref": "request.schema.json#/$defs/liveEnvelope",
-      "properties": { "method": { "enum": ["session.open", "session.query", "session.stop", "session.close"] } },
+      "properties": { "method": { "enum": ["session.open", "session.query", "session.findings", "session.stop", "session.close"] } },
       "allOf": [
         {
           "if": { "properties": { "method": { "const": "session.open" } } },
@@ -50,7 +52,7 @@
           }
         },
         {
-          "if": { "properties": { "method": { "const": "session.query" } } },
+          "if": { "properties": { "method": { "enum": ["session.query", "session.findings"] } } },
           "then": { "properties": { "expected": false } }
         },
         {
@@ -89,11 +91,23 @@
         "stateRevision": { "const": "4" }, "closed": { "const": true }
       }
     },
+    "findingsReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["session", "sampleId", "state", "source", "observations", "latest"],
+      "properties": {
+        "session": { "$ref": "#/$defs/session" }, "sampleId": { "$ref": "#/$defs/uuid" },
+        "state": { "enum": ["requested", "not-configured"] },
+        "observations": { "$ref": "#/$defs/u64" },
+        "source": { "type": ["object", "null"] }, "latest": { "type": ["object", "null"] }
+      }
+    },
     "archive": {
       "type": "object", "additionalProperties": false,
       "required": ["status", "segmentOrdinal", "flushedBytes", "lastSequence", "error", "win32Error"],
       "properties": {
-        "status": { "enum": ["pending", "raw-verified", "failed"] }, "segmentOrdinal": { "const": "1" },
+        "status": { "enum": ["pending", "raw-verified", "failed"] },
+        "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordedObservations": { "$ref": "#/$defs/u64" },
         "flushedBytes": { "$ref": "#/$defs/nullableU64" }, "lastSequence": { "$ref": "#/$defs/nullableU64" },
         "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "#/$defs/nativeCode" },
         "checkpoint": {
@@ -121,7 +135,8 @@
           "properties": {
             "status": { "const": "readback-verified" },
             "checkpoint": { "const": "verified" },
-            "segmentOrdinal": { "const": "1" },
+            "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "finalSegment": { "type": "boolean" },
             "checkedBytes": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
             "observationCount": { "$ref": "#/$defs/u64" },
             "plan": {
@@ -155,7 +170,7 @@
         "configSemanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "providerId": { "$ref": "#/$defs/uuid" }, "headerPid": { "$ref": "#/$defs/openParams/properties/pid" },
         "processCreationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
-        "durationMs": { "$ref": "#/$defs/openParams/properties/durationMs" },
+        "durationMs": { "oneOf": [{ "const": 0 }, { "$ref": "#/$defs/openParams/properties/durationMs" }] },
         "headerRole": { "const": "record-context" }, "sourceClock": { "const": "filetime-100ns" },
         "receiveClock": { "const": "local-qpc" }, "maxRecords": { "const": 512 }, "maxPayloadBytes": { "const": 4096 }
       }

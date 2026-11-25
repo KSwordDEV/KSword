@@ -11,18 +11,23 @@ namespace {
 namespace Archive = ks::cli::action_analyze::archive;
 using namespace ProjectStorage;
 using Archive::EtwCoverageV1;
-constexpr std::wstring_view kCheckpointFile = L"00000000000000000001.json";
 constexpr std::uint64_t kRawLimit = 4u << 20;
 
-JsonValue PrefixDocument(const EtwCheckpointPrefix& prefix) {
-    return Object({{"ordinal", Number(1)}, {"block", Number(prefix.end.blockOrdinal)},
+std::wstring CheckpointFile(std::uint64_t ordinal) {
+    const auto digits = std::to_wstring(ordinal);
+    return std::wstring(20 - digits.size(), L'0') + digits + L".json";
+}
+
+JsonValue PrefixDocument(const EtwCheckpointPrefix& prefix, std::uint64_t ordinal) {
+    return Object({{"ordinal", Number(ordinal)}, {"block", Number(prefix.end.blockOrdinal)},
         {"endOffset", Number(prefix.end.byteOffset)}, {"lastSequence", Number(prefix.end.lastSequence)},
         {"sha256", Text(prefix.sha256)}});
 }
 
-bool ReadPrefix(const JsonValue* doc, EtwCheckpointPrefix& prefix) {
+bool ReadPrefix(const JsonValue* doc, EtwCheckpointPrefix& prefix, std::uint64_t ordinal) {
     if (!doc || !Fields(*doc, {"ordinal", "block", "endOffset", "lastSequence", "sha256"})) return false;
-    return IsString(*doc, "ordinal", "1") && GetNumber(*doc, "block", prefix.end.blockOrdinal) &&
+    std::uint64_t actual = 0;
+    return GetNumber(*doc, "ordinal", actual) && actual == ordinal && GetNumber(*doc, "block", prefix.end.blockOrdinal) &&
         prefix.end.blockOrdinal > 0 && GetNumber(*doc, "endOffset", prefix.end.byteOffset) &&
         prefix.end.byteOffset > Archive::kSegmentHeaderBytes && prefix.end.byteOffset <= kRawLimit &&
         GetNumber(*doc, "lastSequence", prefix.end.lastSequence) && prefix.end.lastSequence > 0 &&
@@ -42,14 +47,19 @@ bool MatchesStatistic(const JsonValue& doc, std::string_view key, std::optional<
 }
 
 ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& sample, const EtwCoverageV1& coverage,
-                        EtwCheckpointPrefix& prefix) {
-    if (coverage.rawSegmentOrdinal != 1 || coverage.planRawSequence != 1 ||
-        coverage.endRawSequence != prefix.end.lastSequence || coverage.observationCount + 2 != coverage.endRawSequence) {
+                        ProjectEtwCheckpoint& checkpoint) {
+    auto& prefix = checkpoint.raw; // 已刷盘端点与同一文件句柄读回的摘要。
+    if (!coverage.rawSegmentOrdinal || !coverage.planRawSequence ||
+        (coverage.rawSegmentOrdinal == 1 && coverage.planRawSequence != 1) ||
+        coverage.endRawSequence != prefix.end.lastSequence || coverage.endRawSequence <= coverage.planRawSequence ||
+        coverage.observationCount != coverage.endRawSequence - coverage.planRawSequence - 1) {
         return Failure(ProjectError::Corrupt, "checkpointRawRange");
     }
     std::uint64_t headerPid = 0;
+    bool continuous = false;
     Archive::RawEvidenceScanResult scan;
-    const ProjectRawEvidenceRead request{project.Info()->projectId, sample.info.sampleId, 1, prefix.end.byteOffset, 0,
+    const ProjectRawEvidenceRead request{project.Info()->projectId, sample.info.sampleId,
+        coverage.rawSegmentOrdinal, prefix.end.byteOffset, coverage.planRawSequence - 1,
         [&](const auto&, const auto&, const auto& records) {
             for (const auto& record : records) {
                 const auto& raw = std::get<Archive::RawRecordV1>(record.body);
@@ -67,11 +77,22 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                         !IsString(doc.value, "providerId", coverage.providerId) ||
                         !IsString(doc.value, "sourceEpoch", coverage.sourceEpoch) || !pid ||
                         pid->type() != JsonType::UInt || !pid->tryGetU64(headerPid) || !headerPid || headerPid > UINT32_MAX) return false;
+                    const auto* duration = doc.value.find("durationMs");
+                    std::uint64_t ms = 0;
+                    continuous = duration && duration->type() == Evidence::JsonType::UInt && duration->tryGetU64(ms) && ms == 0;
+                    if (coverage.rawSegmentOrdinal > 1 && !continuous) return false;
                 } else if (record.recordSequence == coverage.endRawSequence) {
                     const auto* source = doc.value.find("source");
+                    if (continuous) {
+                        const auto* final = doc.value.find("finalSegment"); // 区别普通分段与整次采样终止。
+                        if (!source || !final || !final->tryGetBool(checkpoint.finalSegment) ||
+                            checkpoint.finalSegment == IsString(doc.value, "stopReason", "segment-rotated") ||
+                            (checkpoint.finalSegment && !MatchesCount(*source, "queued", 0))) return false;
+                    }
                     if (raw.inlineRawBytes || !IsString(doc.value, "kind", "etw-capture-end-v1") || !source ||
                         !IsString(*source, "sourceEpoch", coverage.sourceEpoch) ||
-                        !MatchesCount(*source, "enqueued", coverage.observationCount) || !MatchesCount(*source, "queued", 0) ||
+                        (continuous ? !MatchesCount(doc.value, "segmentObservations", coverage.observationCount) :
+                            (!MatchesCount(*source, "enqueued", coverage.observationCount) || !MatchesCount(*source, "queued", 0))) ||
                         !MatchesStatistic(*source, "eventsLost", coverage.eventsLost) ||
                         !MatchesStatistic(*source, "logBuffersLost", coverage.logBuffersLost) ||
                         !MatchesStatistic(*source, "realTimeBuffersLost", coverage.realTimeBuffersLost) ||
@@ -98,7 +119,7 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
 ProjectResult VerifyRecords(const Directory& root, const Archive::SegmentIdentity& identity, std::string_view sampleId,
                             EtwCheckpointPrefix& prefix, EtwCoverageV1& coverage) {
     const auto name = Archive::NameInspectionSegment(identity);
-    if (!name || prefix.end.blockOrdinal != 1 || prefix.end.lastSequence != 1 ||
+    if (!name || prefix.end.blockOrdinal != 1 || prefix.end.lastSequence != identity.ordinal ||
         prefix.end.byteOffset > Archive::kSegmentHeaderBytes + Archive::kMaxEtwCoverageV1Bytes + 256) {
         return Failure(ProjectError::Corrupt, "checkpointRecordsRange");
     }
@@ -109,7 +130,7 @@ ProjectResult VerifyRecords(const Directory& root, const Archive::SegmentIdentit
     bool valid = false;
     const auto scan = Archive::ScanOpenSegmentBodies(file.get(), identity, prefix.end.byteOffset,
         [&](const auto&, const auto& block, const auto& records) {
-            if (block.ordinal != 1 || records.size() != 1 || records.front().recordSequence != 1) return false;
+            if (block.ordinal != 1 || records.size() != 1 || records.front().recordSequence != identity.ordinal) return false;
             if (const auto* body = std::get_if<EtwCoverageV1>(&records.front().body)) {
                 coverage = *body;
                 valid = true;
@@ -128,8 +149,8 @@ ProjectResult VerifyRecords(const Directory& root, const Archive::SegmentIdentit
     return {};
 }
 
-Archive::SegmentIdentity RecordsIdentity(const ProjectInfo& project, const SampleRecord& sample) {
-    return {Archive::StreamKind::Records, 1, UuidBytes(project.projectId), UuidBytes(sample.info.sampleId)};
+Archive::SegmentIdentity RecordsIdentity(const ProjectInfo& project, const SampleRecord& sample, std::uint64_t ordinal) {
+    return {Archive::StreamKind::Records, ordinal, UuidBytes(project.projectId), UuidBytes(sample.info.sampleId)};
 }
 
 } // namespace
@@ -148,38 +169,52 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
     }
     ProjectEtwCheckpoint draft;
     draft.raw.end = rawEnd;
-    if (const auto result = VerifyRaw(*this, sample, coverage, draft.raw); !result) return result;
+    if (const auto result = VerifyRaw(*this, sample, coverage, draft); !result) return result;
 
-    const auto identity = RecordsIdentity(*Info(), sample);
+    const auto ordinal = coverage.rawSegmentOrdinal;
+    const auto identity = RecordsIdentity(*Info(), sample, ordinal);
     const auto name = Archive::NameInspectionSegment(identity);
     if (!name) return Failure(ProjectError::InvalidArgument, "checkpointRecordsIdentity");
     const auto sampleDirectory = WideAscii(sample.info.sampleId);
     Directory records;
-    if (const auto result = OpenDirectory(*root, {L"samples", sampleDirectory, name->streamDirectory}, records, true); !result) return result;
-    Archive::SegmentWriter writer(std::filesystem::path(records.path) / name->fileName, {identity, UtcNow()}, 0);
-    auto written = writer.AppendBlock({{Archive::kCoverageRecordType, 1, Archive::kRequiredRecord, 1, std::move(bytes)}});
+    const auto recordPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), name->streamDirectory};
+    auto directoryResult = OpenDirectory(*root, recordPath, records);
+    if (directoryResult.error == ProjectError::NotFound) {
+        directoryResult = OpenDirectory(*root, recordPath, records, true);
+    }
+    if (!directoryResult) return directoryResult;
+    Archive::SegmentWriter writer(std::filesystem::path(records.path) / name->fileName, {identity, UtcNow()}, ordinal - 1);
+    auto written = writer.AppendBlock({{Archive::kCoverageRecordType, 1, Archive::kRequiredRecord, ordinal, std::move(bytes)}});
     if (written.status == Archive::SegmentWriteStatus::Ok) written = writer.Flush();
     if (written.status == Archive::SegmentWriteStatus::Ok) written = writer.Close();
     if (written.status != Archive::SegmentWriteStatus::Ok) return Failure(ProjectError::IoError, "checkpointRecordsWrite", written.error.win32Error);
-    draft.records.end = {writer.FlushedBytes(), 1, 1};
+    draft.records.end = {writer.FlushedBytes(), 1, ordinal};
+    draft.planRawSequence = coverage.planRawSequence;
     EtwCoverageV1 checked;
     if (const auto result = VerifyRecords(*root, identity, sampleId, draft.records, checked); !result) return result;
-    if (const auto result = VerifyRaw(*this, sample, checked, draft.raw); !result) return result;
+    if (const auto result = VerifyRaw(*this, sample, checked, draft); !result) return result;
 
     Directory checkpoints;
-    if (const auto result = OpenDirectory(*root, {L"samples", sampleDirectory, L"checkpoints"}, checkpoints, true); !result) return result;
-    const auto document = Object({{"kind", Text("etw-terminal-checkpoint-v1")}, {"generation", Number(1)},
+    const auto markerPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), std::wstring_view(L"checkpoints")};
+    directoryResult = OpenDirectory(*root, markerPath, checkpoints);
+    if (directoryResult.error == ProjectError::NotFound) {
+        directoryResult = OpenDirectory(*root, markerPath, checkpoints, true);
+    }
+    if (!directoryResult) return directoryResult;
+    const auto document = Object({{"kind", Text("etw-terminal-checkpoint-v1")}, {"generation", Number(ordinal)},
         {"projectId", Text(Info()->projectId)}, {"sampleId", Text(sample.info.sampleId)},
-        {"descriptionHash", Text(sample.info.descriptionHash)}, {"raw", PrefixDocument(draft.raw)},
-        {"records", PrefixDocument(draft.records)}});
-    if (const auto result = Publish(*root, {L"samples", sampleDirectory, L"checkpoints"}, kCheckpointFile, document, false); !result) return result;
+        {"descriptionHash", Text(sample.info.descriptionHash)}, {"raw", PrefixDocument(draft.raw, ordinal)},
+        {"records", PrefixDocument(draft.records, ordinal)}});
+    if (const auto result = Publish(*root, {L"samples", sampleDirectory, L"checkpoints"}, CheckpointFile(ordinal), document, false); !result) return result;
     out = std::move(draft);
     return {};
 }
 
 // 从项目快照读取采样描述与终态标记，只有标记缺失时返回 NotFound。
-ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out) const {
+ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out,
+                                                 std::uint64_t ordinal) const {
     out = {};
+    if (!ordinal) return Failure(ProjectError::InvalidArgument, "checkpointOrdinal");
     const auto* root = RootForRead(); // 当前项目持有的目录句柄。
     if (!root) return Failure(ProjectError::NotOpen, "project");
     SampleRecord sample; // 已登记采样及其冻结描述。
@@ -188,22 +223,25 @@ ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, Proj
     }
     JsonValue document; // 本次读取的检查点标记。
     if (const auto result = Read(*root, {L"samples", WideAscii(sample.info.sampleId), L"checkpoints"},
-            kCheckpointFile, {}, document); !result) return result;
+            CheckpointFile(ordinal), {}, document); !result) return result;
     ProjectEtwCheckpoint checked;
+    std::uint64_t generation = 0;
     if (!Fields(document, {"kind", "generation", "projectId", "sampleId", "descriptionHash", "raw", "records"}) ||
-        !IsString(document, "kind", "etw-terminal-checkpoint-v1") || !IsString(document, "generation", "1") ||
+        !IsString(document, "kind", "etw-terminal-checkpoint-v1") || !GetNumber(document, "generation", generation) || generation != ordinal ||
         !IsString(document, "projectId", Info()->projectId) || !IsString(document, "sampleId", sample.info.sampleId) ||
         !IsString(document, "descriptionHash", sample.info.descriptionHash) ||
-        !ReadPrefix(document.find("raw"), checked.raw) || !ReadPrefix(document.find("records"), checked.records)) {
+        !ReadPrefix(document.find("raw"), checked.raw, ordinal) || !ReadPrefix(document.find("records"), checked.records, ordinal)) {
         return Failure(ProjectError::Corrupt, "checkpointDocument");
     }
     EtwCoverageV1 coverage;
-    if (const auto result = VerifyRecords(*root, RecordsIdentity(*Info(), sample), sampleId, checked.records, coverage); !result) {
+    if (const auto result = VerifyRecords(*root, RecordsIdentity(*Info(), sample, ordinal), sampleId, checked.records, coverage); !result) {
         return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointRecordsMissing") : result;
     }
-    if (const auto result = VerifyRaw(*this, sample, coverage, checked.raw); !result) {
+    if (coverage.rawSegmentOrdinal != ordinal) return Failure(ProjectError::Corrupt, "checkpointOrdinalMismatch");
+    if (const auto result = VerifyRaw(*this, sample, coverage, checked); !result) {
         return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointRawMissing") : result;
     }
+    checked.planRawSequence = coverage.planRawSequence;
     out = std::move(checked);
     return {};
 }
