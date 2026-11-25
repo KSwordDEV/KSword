@@ -60,8 +60,6 @@ def sample(path):
     assert api.EventRegister(guid, None, None, ct.byref(handle)) == 0
     try:
         print(json.dumps({'pid': os.getpid(), 'creationFileTime': creation_time()}), flush=True)
-        assert input() == 'write'
-        assert api.EventProviderEnabled(handle, 4, 0)
 
         def recorded(event_id, iteration):
             data = struct.pack('<II', iteration, len(PAYLOAD))
@@ -71,17 +69,20 @@ def sample(path):
             assert api.EventWrite(handle, ct.byref(descriptor), 1, ct.byref(event_data)) == 0
 
         with path.open('x+b') as output:
-            for iteration in range(6):
-                output.seek(0)
-                assert output.write(PAYLOAD) == len(PAYLOAD)
-                output.flush()
-                os.fsync(output.fileno())
-                recorded(1, iteration)
-                output.seek(0)
-                assert output.read() == PAYLOAD
-                recorded(2, iteration)
-        print('{"operations":12}', flush=True)
-        assert input() == 'exit'
+            # 两次采样共享同一自有进程和文件。每条写入命令独立产生六次读写。
+            while (command := input()) != 'exit':
+                assert command == 'write', command
+                assert api.EventProviderEnabled(handle, 4, 0)
+                for iteration in range(6):
+                    output.seek(0)
+                    assert output.write(PAYLOAD) == len(PAYLOAD)
+                    output.flush()
+                    os.fsync(output.fileno())
+                    recorded(1, iteration)
+                    output.seek(0)
+                    assert output.read() == PAYLOAD
+                    recorded(2, iteration)
+                print('{"operations":12}', flush=True)
     finally:
         assert api.EventUnregister(handle) == 0
 
@@ -112,10 +113,15 @@ class Child:
         self.process.stdin.write(value + '\n')
         self.process.stdin.flush()
 
-    def next(self):
+    def next_line(self):
+        """从子进程获得下一条完整文本行，超时或 EOF 时报告失败。"""
         line = self.output.get(timeout=12)
         assert line, f'Child closed stdout, exit={self.process.poll()}'
-        message = json.loads(line)
+        return line
+
+    def next(self):
+        """解析并核对控制器输出的一帧 JSON。"""
+        message = json.loads(self.next_line())
         if self.validate:
             self.validate(message)
             self.sequence += 1
@@ -180,6 +186,30 @@ def controller(backend, read_limit=None, validate=None):
         child.stop()
         raise
     return child
+
+
+def read_repl(child):
+    """跳过人工会话的普通文字，返回下一条业务回执。"""
+    for _ in range(8):
+        line = child.next_line()  # 同一进程的 stdout 带上线超时。
+        assert not line.startswith('error:'), line
+        if line.startswith('{'):
+            return json.loads(line)
+    raise AssertionError('REPL did not return a JSON receipt')
+
+
+def verify_empty_stop(receipt, segment, reason):
+    """核对没有生产记录时的停止及回读，保留原生启动竞态的实际回执。"""
+    assert receipt['stopReason'] == reason and receipt['archive']['status'] == 'raw-verified', receipt
+    source = receipt['source']
+    assert source['nativeSessionStopped'] and source['enqueued'] == '0', receipt
+    if not source['processAttempted'] or source['processWin32Error'] not in (0, 1223):
+        assert receipt['capture'] == 'partial', receipt
+    rows, _ = decode_raw(segment)
+    assert len(rows) == 2, rows
+    assert rows[0] == (receipt['plan'], b''), rows[0]
+    assert rows[-1] == ({'kind': 'etw-capture-end-v1', 'stopReason': reason, 'source': source}, b''), rows[-1]
+    assert segment.stat().st_size == int(receipt['archive']['flushedBytes']), receipt
 
 
 def run(readback=(), inspect_gui=None, validate=None):
@@ -252,6 +282,9 @@ def run(readback=(), inspect_gui=None, validate=None):
         summary = cli.next()
         assert summary['reason'] == 'eof' and summary['clean'] and summary['liveSession']['stopReason'] == 'eof', summary
         assert summary['archive']['status'] == 'raw-verified', summary
+        eof_segment = PROJECT / 'samples' / eof_capture['sampleId'] / 'raw' / '00000000000000000001.ksaseg'
+        verify_empty_stop(summary['liveSession'], eof_segment, 'eof')
+        assert summary['exitCode'] == (6 if summary['liveSession']['capture'] == 'partial' else 0), summary
         assert cli.process.wait(timeout=10) == summary['exitCode']
         reader = controller('offline')
         children.append(reader)
@@ -318,6 +351,8 @@ def run(readback=(), inspect_gui=None, validate=None):
         repl_objects = [json.loads(line) for line in repl.stdout.splitlines() if line.startswith('{')]
         assert len(repl_objects) == 6 and repl_objects[3]['archive']['status'] == 'raw-verified', repl.stdout
         assert repl_objects[4]['closed'] and repl_objects[5]['closed'], repl.stdout
+        quick_segment = PROJECT / 'samples' / repl_objects[1]['sampleId'] / 'raw' / '00000000000000000001.ksaseg'
+        verify_empty_stop(repl_objects[3], quick_segment, 'requested')
 
         # 用人工命令重开同一份采样报告，核对与 JSONL 回执一致。
         history = subprocess.run([CLI, 'analyze', 'session'], cwd=RELEASE,
@@ -325,6 +360,45 @@ def run(readback=(), inspect_gui=None, validate=None):
                                  text=True, encoding='utf-8', capture_output=True, timeout=15, check=True)
         history_rows = [json.loads(line) for line in history.stdout.splitlines() if line.startswith('{')]
         assert len(history_rows) == 2 and history_rows[1]['captureArchive'] == capture, history.stdout
+
+        # 用同一自有目标验证人工会话从就绪、生产记录到阻塞等待中的实际命令输入。
+        repl_live = Child([CLI, 'analyze', 'session', '--backend', 'r3'])
+        children.append(repl_live)
+        repl_live.send(f'project open "{PROJECT}" read-write')
+        assert read_repl(repl_live)['projectId'] == report['projectId']
+        repl_live.send(f'open {target["pid"]} {target["creationFileTime"]} {PROVIDER} 12000 "REPL observed sample"')
+        repl_opened = read_repl(repl_live)  # 冻结本次人工会话的采样 ID。
+        assert repl_opened['capture'] == 'active', repl_opened
+        for _ in range(40):
+            repl_live.send('status')
+            repl_status = read_repl(repl_live)  # 等待原生消费线程进入 ProcessTrace。
+            if repl_status['source']['state'] == 'running':
+                break
+            time.sleep(.05)
+        else:
+            raise AssertionError(repl_status)
+        producer.send('write')  # 此处使用同一进程，再产生 12 条独立观察。
+        assert producer.next()['operations'] == 12
+        for _ in range(45):
+            repl_live.send('status')
+            repl_status = read_repl(repl_live)
+            if repl_status['source']['enqueued'] == '12':
+                break
+            time.sleep(.05)
+        else:
+            raise AssertionError(repl_status)
+        repl_live.send('stop')
+        repl_observed = read_repl(repl_live)  # 停止后再读取已刷盘段。
+        assert repl_observed['capture'] == 'stopped' and repl_observed['archive']['status'] == 'raw-verified', repl_observed
+        repl_segment = PROJECT / 'samples' / repl_opened['sampleId'] / 'raw' / '00000000000000000001.ksaseg'
+        repl_rows, _ = decode_raw(repl_segment)  # 按归档原序比对载荷。
+        assert len(repl_rows) == 14 and [data for _, data in repl_rows[1:-1]] == [data for _, data in events]
+        repl_live.send('close')
+        assert read_repl(repl_live)['closed']
+        repl_live.send('project close')
+        assert read_repl(repl_live)['closed']
+        repl_live.send('quit')
+        assert repl_live.process.wait(timeout=10) == 0
 
         # 读完前三帧后停止读 stdout，保持 stdin 活跃以制造真实管道背压。
         slow = controller('r3', read_limit=3, validate=validate)
@@ -366,7 +440,8 @@ def run(readback=(), inspect_gui=None, validate=None):
                           'sampleId': sample_id, 'observations': len(events), 'rawSha256': digest,
                           'stopReceipt': stopped, 'reopened': reopened, 'deadlineReceipt': timed_result,
                           'eofSummary': summary, 'replStopReceipt': repl_objects[3], 'targetExitReceipt': exit_receipt,
-                          'slowOutputTerminal': slow_terminal, 'captureReadback': capture}))
+                          'slowOutputTerminal': slow_terminal, 'captureReadback': capture,
+                          'replObservationReceipt': repl_observed}))
     finally:
         for child in reversed(children):
             child.stop()
