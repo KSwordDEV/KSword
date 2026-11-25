@@ -23,6 +23,11 @@ CAPABILITIES = ('analyze', 'capabilities', '--json', '--backend', 'offline')
 METADATA = ('file', 'metadata', 'query', '--path', 'schemas/action_analyze/request.schema.json',
             '--backend', 'r3', '--json')
 TIMEOUT = 15
+PROFILES = {
+    'shell': (False, False, 3, ('shell',)),
+    'project-v1': (True, False, 11, ('shell', 'project-integration')),
+    'archive-v1': (True, True, 12, ('shell', 'project-integration', 'archive-inspection')),
+}
 
 
 def read(relative):
@@ -40,7 +45,10 @@ def artifact_sha():
 
 def contract():
     schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json')]
-    registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in schemas)
+    # Older checkpoints lack the archive schema. The registry stays local to this repository.
+    archive_schema = SCHEMAS / 'archive-inspect-method.schema.json'
+    resources = schemas + ([read(archive_schema.name)] if archive_schema.is_file() else [])
+    registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in resources)
     return Draft202012Validator(schemas[-1], registry=registry), read('method-catalog.json')['methods']
 
 
@@ -50,19 +58,21 @@ def probe_profile(shell_caps, methods, expected='auto'):
     result = json.loads(stdout)
     require((result['backend'], result['status']), ('offline', 'success'), 'offline capabilities result')
     caps = result['data']
-    profile = {False: 'shell', True: 'project-v1'}[caps['projectStorage']]
+    profile = next(name for name, (projects, archives, _, _) in PROFILES.items()
+                   if caps['projectStorage'] is projects and caps['archives'] is archives)
     if expected != 'auto':
         require(profile, expected, 'advertised profile')
+    _, _, count, availability = PROFILES[profile]
+    names = {entry['method']: entry['repl'] for entry in caps['methods']}
+    require((len(names), len(caps['methods'])), (count, count), f'{profile} exact method count')
+    require(names, {name: row['repl'] for name, row in methods.items()
+                    if row['availability'] in availability}, f'{profile} method catalog')
     if profile == 'shell':
         require(caps, shell_caps, 'initial shell capabilities')
     else:
-        names = {entry['method']: entry['repl'] for entry in caps['methods']}
-        require(names, {name: row['repl'] for name, row in methods.items()
-                        if row['availability'] in ('shell', 'project-integration')}, 'V1 method catalog')
-        require(len(names), len(caps['methods']), 'unique V1 method names')
         require([entry for entry in caps['methods'] if entry['method'].startswith('controller.')],
                 shell_caps['methods'], 'original controller methods')
-        require(caps | {'projectStorage': False, 'methods': shell_caps['methods'],
+        require(caps | {'projectStorage': False, 'archives': False, 'methods': shell_caps['methods'],
                         'limits': {k: v for k, v in caps['limits'].items() if k != 'replayBytes'}},
                 shell_caps, 'original shell capability values')
         require(caps['limits'].get('replayBytes'), 32 << 20, 'advertised replay byte budget')
@@ -168,6 +178,7 @@ def smoke_commands(caps):
     require(text.count('Protocol version 1\n'), 1, 'REPL ignores commands after quit')
     require('action> ' in text, False, 'redirected REPL has no console prompt')
     require('project create PATH' in text, caps['projectStorage'], 'REPL project help availability')
+    require('archive inspect SAMPLE_ID' in text, caps['archives'], 'REPL archive help availability')
 
 
 @contextmanager
@@ -348,7 +359,7 @@ def smoke_ledger(validator, caps):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--profile', default='auto', choices=('auto', 'shell', 'project-v1'))
+    parser.add_argument('--profile', default='auto', choices=('auto', *PROFILES))
     options = parser.parse_args()
     digest = artifact_sha()
     print(f'{EXE} SHA256 {digest}')

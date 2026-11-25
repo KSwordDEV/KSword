@@ -1,19 +1,24 @@
 # ActionAnalyze CLI product acceptance
 
-Run from the repository root with Python 3.12 and the same `jsonschema` dependency used by the A0.2 vector checker. Both scripts use the existing `Ksword5.1/x64/Release/KswordCLI.exe` and print its SHA-256 and the native exit codes.
+Run from the repository root with Python 3.12 and the same `jsonschema` dependency used by the A0.2 vector checker. The product tests use the existing `Ksword5.1/x64/Release/KswordCLI.exe` and print its SHA-256 and the native exit codes.
 
 ```powershell
 py -3.12 -B schemas/action_analyze/vectors/validate-request.py
+py -3.12 -B schemas/action_analyze/check_base_v1.py
 py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile shell
 py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile project-v1
+py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile archive-v1
 py -3.12 -B tools/action_analyze_validation/cli/project_v1.py
+py -3.12 -B tools/action_analyze_validation/cli/archive_v1.py
 ```
 
-`smoke.py` defaults to `--profile auto`. An explicit profile asserts what the executable must advertise. Both profiles exercise the same controller methods, JSONL framing and shutdown, redirected REPL, help, option rejection, and the legacy R3 file metadata query against the checked-in request schema. The shell profile checks that project methods are unavailable. The project profile checks its eight additional advertised methods against the method catalog and accounts for the entry reserved for project close. A baseline `unsupported-method` vector applies only when the executable omits that exact method from capabilities. The V1 harness exercises the advertised project methods against its owned project. [A0.2 method contract](../../../schemas/action_analyze/method-contract-v1.md)
+`smoke.py` defaults to `--profile auto`. An explicit profile checks the advertised flags, exact method names and count against the selected profile. The `shell`, `project-v1`, and `archive-v1` profiles have 3, 11, and 12 methods respectively. All profiles exercise the controller methods, JSONL framing and shutdown, redirected REPL, help, option rejection, and the legacy R3 file metadata query against the checked-in request schema. The two profiles with project support account for the entry reserved for project close. A baseline `unsupported-method` vector applies only when the executable omits that method from capabilities. [A0.2 method contract](../../../schemas/action_analyze/method-contract-v1.md)
 
-`project_v1.py` gates fixture creation on the advertised project profile and a valid JSONL greeting. It exercises two samples with distinct frozen settings in one process, generation-based pagination, stale and read-only writes, close and reopen, controller and REPL isolation, and bounded replay. The byte limit test checks that cached replies, project close, and shutdown remain available and that a rejected write leaves the reopened project unchanged.
+`project_v1.py` accepts `project-v1` and `archive-v1`. It gates fixture creation on the advertised profile and a valid JSONL greeting. It exercises two samples with distinct frozen settings in one process, generation-based pagination, stale and read-only writes, close and reopen, controller and REPL isolation, and bounded replay. The byte limit test checks that cached replies, project close, and shutdown remain available and that a rejected write leaves the reopened project unchanged.
 
-The V1 fixture lives only in `Ksword5.1/x64/Release/action-analyze-cli-validation/`. The harness claims an empty fixed directory, refuses an existing directory, and checks directory identity, tracked paths, and reparse attributes before removing its own fixture. V1 exits `77` when the binary advertises only the shell, before creating any fixture.
+`archive_v1.py` accepts `archive-v1`. It registers a sample through the CLI for each of two owned projects with ASCII and Unicode paths. It copies the checked-in Stored vectors into the registered sample directories and updates only the segment headers to bind the generated identities and ordinals. It checks `archive.inspect` in JSONL and the REPL, verifies that interpretation and durability remain unknown, and checks the segment bytes after inspection. [Stored vectors](../../../schemas/action_analyze/vectors/stored-v1.json)
+
+Run the project and archive suites sequentially because both use `Ksword5.1/x64/Release/action-analyze-cli-validation/`. Each suite claims an empty fixed directory, refuses an existing directory, and checks directory identity, tracked paths, and reparse attributes before removing its fixture. Each suite exits `77` before creating the fixture when its provider is unavailable.
 
 ## First shell build evidence
 
@@ -37,3 +42,15 @@ The 2026-11-24 HostX64 Release build completed with exit `0`, zero warnings, and
 | Cleanup | The owned scratch directory was removed and its absence was verified. |
 
 The first V1 smoke run sent the shell-only `project-write-option-unavailable-in-shell` vector to the advertised project provider and received `project-data-not-found` with native code `2`. The profile filter now omits all three corresponding shell-only vectors on the V1 artifact.
+
+## Archive V1 build and test receipt
+
+The 2026-11-24 BelowNormal HostX64 Release build completed with exit `0`, zero warnings, and zero errors. The build log is `.codex-build-logs/action-analyze-cli-archive-20261124-225953.log`. The tested executable was 6,078,976 bytes with SHA-256 `D58516ACF125270D1EE882598E25796A417EF986EA5F858037C5978D8F323A54`.
+
+| Check | Result |
+| --- | --- |
+| `smoke.py --profile archive-v1` | Exit `0`. The advertised catalog had exactly 12 methods. The executable passed 16 request and 22 wire vectors. It accepted 4,095 ordinary replies before returning `request-ledger-full` with code `6`. Cached replay and fresh shutdown passed. |
+| `project_v1.py` | Exit `0` with the archive profile. Project revision, sample, paging, reopen, and isolation checks passed. The byte limit bound after 499 large replies. Cached replay, reserved close, fresh shutdown, and the read-only reopen check passed. |
+| `archive_v1.py` | Exit `0` for ASCII and Unicode project paths. A valid header framed 96 bytes. A tail truncated at byte 339 retained the 218-byte prefix and reported `end-of-file` at 339. A valid-CRC header with the wrong project ID reported `corrupt` with reason `identity` and a zero-byte prefix. Missing stream and missing segment returned their respective request errors with Win32 code `2`. Unknown optional and required record counts matched the vector cases. `interpretedBytes` and `durableBytes` were `null` throughout. The explicit 96-byte scan matched between JSONL and REPL. |
+| Static contracts | All 62 baseline, 47 project and 37 archive inspection vectors passed. A0 base validation also passed 66 value, identity and JSON cases and 35 Stored cases, plus CRC and UUID checks. |
+| Cleanup | Both suites removed the scratch path and verified its absence. The artifact SHA-256 matched across the runs. |

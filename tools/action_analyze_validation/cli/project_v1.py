@@ -64,6 +64,8 @@ class Client:
         self.exchange = exchange
         self.results = {name: validator.evolve(schema={'$ref': SCHEMA_BASE + entry['resultSchema']})
                         for name, entry in methods.items() if 'resultSchema' in entry}
+        self.errors = {name: validator.evolve(schema={'$ref': SCHEMA_BASE + entry['errorSchema']})
+                       for name, entry in methods.items() if 'errorSchema' in entry}
 
     def call(self, request_id, method, params=None, *, effect=False, error=None):
         record = self.exchange(line(request(request_id, method, params)))
@@ -71,6 +73,8 @@ class Client:
                 ('response', request_id, 'observed' if effect else 'not-applicable'), request_id)
         if record['error']:
             actual = (record['error']['errorId'], record['error']['code'])
+            if method in self.errors and actual[0] not in ('request-id-conflict', 'request-ledger-full'):
+                self.errors[method].validate(record['error'])
         else:
             actual = None
         require(actual, error, request_id)
@@ -243,7 +247,7 @@ def main():
     print(f'{EXE} SHA256 {digest}')
     validator, methods = contract()
     profile, caps = probe_profile(read('vectors/request-v1.json')['shellCapabilities'], methods)
-    if profile != 'project-v1':
+    if profile == 'shell':
         print('V1 acceptance skipped. The Release artifact advertises the shell profile.')
         return 77
 
