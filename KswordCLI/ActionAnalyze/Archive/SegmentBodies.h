@@ -11,6 +11,8 @@ struct RawRecordV1 {
     std::string_view metadataJson;
     std::uint32_t inlineRawOffsetInPayload = 0;
     std::uint32_t inlineRawBytes = 0;
+    // 借用当前已校验块中的原始字节，读者须在回调返回前使用或复制。
+    std::string_view inlineRawData;
 };
 
 // 所有引用均限于本采样，需由上层解析。四个枚举字段保留线上编号。

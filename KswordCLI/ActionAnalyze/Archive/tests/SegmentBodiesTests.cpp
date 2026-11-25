@@ -63,6 +63,8 @@ void CheckRaw(const archive::DecodedRecord& record)
           "RawRecord type, version and flags");
     Check(raw->metadataJson == "{}" && raw->inlineRawOffsetInPayload == 6 && raw->inlineRawBytes == 4,
           "RawRecord metadata and inline raw extent");
+    // 字节向量包含 NUL 和非 UTF-8 字节，读回值保持原样。
+    Check(raw->inlineRawData == std::string_view("\x00\xff\x80\x4b", 4), "RawRecord callback preserves inline bytes");
 }
 
 void CheckEvent(const archive::DecodedRecord& record)

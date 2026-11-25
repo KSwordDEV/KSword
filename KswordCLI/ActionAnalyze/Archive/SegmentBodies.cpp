@@ -108,8 +108,11 @@ BodyIssue DecodeRaw(const RecordView& record, RecordBody& body)
     if (const auto issue = CheckJson(json); issue != BodyIssue::None) {
         return issue;
     }
-    const auto inlineOffset = kRawPrefixBytes + jsonBytes;
-    body = RawRecordV1{json, inlineOffset, record.payloadBytes - inlineOffset};
+    const auto inlineOffset = kRawPrefixBytes + jsonBytes; // 正文内联原始字节的起点。
+    const auto inlineBytes = record.payloadBytes - inlineOffset; // 已验证的实存字节数。
+    // 交给读者的原始二进制视图与当前块缓冲区共用生命周期。
+    const std::string_view inlineData(reinterpret_cast<const char*>(record.payload + inlineOffset), inlineBytes);
+    body = RawRecordV1{json, inlineOffset, inlineBytes, inlineData};
     return BodyIssue::None;
 }
 
