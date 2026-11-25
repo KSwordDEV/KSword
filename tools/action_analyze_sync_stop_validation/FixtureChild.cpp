@@ -17,6 +17,8 @@ DWORD WINAPI HeartbeatWorker(void*) {
     return 0;
 }
 
+DWORD WINAPI RetiredWorker(void*) { return 0; }
+
 LONG Heartbeat() {
     return InterlockedCompareExchange(&state.heartbeat, 0, 0);
 }
@@ -38,10 +40,10 @@ int MatchLocalBreakpoint(const EXCEPTION_POINTERS* exception, void (*gate)()) {
         ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
 }
 
-bool RegisterRoute(DWORD epoch) {
+bool RegisterRoute(DWORD epoch, DWORD retiredTid) {
     const ULONG_PTR arguments[] = {epoch, kVersion, reinterpret_cast<ULONG_PTR>(&EnterGate),
         reinterpret_cast<ULONG_PTR>(&ReturnGate), reinterpret_cast<ULONG_PTR>(&ForeignGate),
-        reinterpret_cast<ULONG_PTR>(&state)};
+        reinterpret_cast<ULONG_PTR>(&state), retiredTid};
     // 若 owner 未确认，走本地拒绝路径，后续不会进入任何 INT3 站点。
     __try {
         RaiseException(kReadyException, 0, ReadyArgCount, arguments);
@@ -105,8 +107,8 @@ __declspec(noinline) BOOL SelectedCall(HANDLE semaphore, LONG releaseCount, DWOR
     return result;
 }
 
-int Exercise(HANDLE semaphore, LONG releaseCount, DWORD epoch) {
-    if (!WaitForWorker() || !RegisterRoute(epoch)) { return 21; }
+int Exercise(HANDLE semaphore, LONG releaseCount, DWORD epoch, DWORD retiredTid) {
+    if (!WaitForWorker() || !RegisterRoute(epoch, retiredTid)) { return 21; }
     ExerciseStaleEpoch(epoch, releaseCount);
     if (state.staleDelivered != 1) { return 22; }
 
@@ -130,12 +132,22 @@ int Exercise(HANDLE semaphore, LONG releaseCount, DWORD epoch) {
 }  // namespace
 
 int RunChild(int argc, wchar_t** argv) {
-    if (argc != 4 || !IsDebuggerPresent()) { return 20; }
+    const bool ledgerScope = argc == 5 && wcscmp(argv[4], L"--ledger-scope") == 0;
+    if ((!ledgerScope && argc != 4) || !IsDebuggerPresent()) { return 20; }
     const LONG releaseCount = wcscmp(argv[2], L"success") == 0 ? 1 : wcscmp(argv[2], L"error") == 0 ? 2 : 0;
     wchar_t* end = nullptr;
     const auto parsedEpoch = wcstoull(argv[3], &end, 10);
     if (!releaseCount || !parsedEpoch || parsedEpoch > (std::numeric_limits<DWORD>::max)() || *end) { return 20; }
 
+    DWORD retiredTid = 0;
+    if (ledgerScope) {
+        // 正常加入真实已退出线程，由外部调试器核对退出事件及原始对象。
+        const HANDLE retired = CreateThread(nullptr, 0, RetiredWorker, nullptr, 0, &retiredTid);
+        if (!retired) { return 27; }
+        const DWORD retiredResult = WaitForSingleObject(retired, 1500);
+        const BOOL retiredClosed = CloseHandle(retired);
+        if (retiredResult != WAIT_OBJECT_0 || !retiredClosed) { return 28; }
+    }
     HANDLE semaphore = CreateSemaphoreW(nullptr, 0, 1, nullptr);
     if (!semaphore) { return 24; }
     HANDLE worker = CreateThread(nullptr, 0, HeartbeatWorker, nullptr, 0, &state.workerTid);
@@ -143,7 +155,7 @@ int RunChild(int argc, wchar_t** argv) {
         CloseHandle(semaphore);
         return 25;
     }
-    const int result = Exercise(semaphore, releaseCount, static_cast<DWORD>(parsedEpoch));
+    const int result = Exercise(semaphore, releaseCount, static_cast<DWORD>(parsedEpoch), retiredTid);
     InterlockedExchange(&stopWorker, 1);
     const DWORD wait = WaitForSingleObject(worker, 1500);
     const BOOL workerClosed = CloseHandle(worker);
@@ -156,7 +168,8 @@ int RunChild(int argc, wchar_t** argv) {
 int wmain(int argc, wchar_t** argv) {
     if (argc > 1 && wcscmp(argv[1], L"--child") == 0) { return sb02::RunChild(argc, argv); }
 #if defined(_M_X64)
-    if (argc == 1) { return sb02::RunOwner(); }
+    if (argc == 1) { return sb02::RunOwner(false); }
+    if (argc == 2 && wcscmp(argv[1], L"--ledger") == 0) { return sb02::RunOwner(true); }
 #endif
     return 2;
 }

@@ -17,7 +17,7 @@ constexpr LONG kEnterSequence = 2;
 constexpr LONG kReturnSequence = 3;
 
 enum class Phase : DWORD { Enter = 1, Return = 2 };
-enum ReadyArg { EpochArg, VersionArg, EnterArg, ReturnArg, ForeignArg, StateArg, ReadyArgCount };
+enum ReadyArg { EpochArg, VersionArg, EnterArg, ReturnArg, ForeignArg, StateArg, RetiredTidArg, ReadyArgCount };
 
 // 固定宽度，供 x64 owner 读取两个位数的子进程。槽内不传地址或句柄。
 struct Hit {
@@ -54,7 +54,7 @@ static_assert(offsetof(State, heartbeat) == 48 && sizeof(State) == 88);
 int RunChild(int argc, wchar_t** argv);
 
 #if defined(_M_X64)
-int RunOwner();
+int RunOwner(bool ledgerMode);
 #endif
 
 }  // namespace sb02

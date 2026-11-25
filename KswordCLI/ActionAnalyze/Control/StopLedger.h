@@ -52,9 +52,9 @@ struct NativeStop {
 enum class MemberEvidence { Pending, CoveredByEvent, NoOwnedHold, Exited, Unknown };
 enum class IncidentalQuality { Verified, Partial, NotCollected };
 enum class MemberState { Pending, Held, NotHeld, Exited, ReleasePending, Released, RecoveryRequired, Unknown };
-enum class OriginHold { Held, Released, Exited, Unknown };
+enum class OriginHold { Held, ReleasePending, RecoveryRequired, Released, Exited };
 enum class GroupState {
-    GroupBuilding, HeldComplete, HeldPartial, NotHeld, ReleasePending, Released, RecoveryRequired, Ended,
+    GroupBuilding, OriginHeld, HeldComplete, HeldPartial, NotHeld, ReleasePending, Released, RecoveryRequired, Ended,
     UnprojectableNativeHold
 };
 enum class EventState { Held, ReleasePending, Retryable, Indeterminate, Released, RetiredOnExit };

@@ -1,4 +1,4 @@
-param([string]$MSBuild)
+param([string]$MSBuild, [switch]$Ledger)
 
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -6,7 +6,8 @@ $project = Join-Path $PSScriptRoot 'ActionAnalyzeSyncStopValidation.vcxproj'
 $release = Join-Path $repo 'Ksword5.1\x64\Release'
 $logs = Join-Path $repo '.codex-build-logs\behavior-planning'
 $runId = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fffffff') + "-$PID"
-$prefix = Join-Path $logs "action-analyze-sb02-$runId"
+$mode = if ($Ledger) { 'ledger' } else { 'baseline' }
+$prefix = Join-Path $logs "action-analyze-sb02-$mode-$runId"
 $owner = Join-Path $release 'ActionAnalyzeSyncStopValidationX64.exe'
 $child = Join-Path $release 'ActionAnalyzeSyncStopValidationX86.exe'
 
@@ -81,6 +82,7 @@ try {
     }
 
     $start = [Diagnostics.ProcessStartInfo]::new($owner)
+    if ($Ledger) { $start.ArgumentList.Add('--ledger') }
     $start.WorkingDirectory = $release
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
@@ -99,7 +101,7 @@ try {
     $output = $outTask.GetAwaiter().GetResult() + $errTask.GetAwaiter().GetResult()
     $runExit = $run.ExitCode
     $output | Set-Content -LiteralPath "$prefix-run.log" -Encoding utf8
-    $output -split '\r?\n' | Where-Object { $_ -match '^(OWNER|SESSION|ARCHITECTURE|ROUTE|STOP|FORWARD|CLEANUP|RESULT|UNEXPECTED|FAIL_|WIN32_FAILURE|ASSERT FAIL)' }
+    $output -split '\r?\n' | Where-Object { $_ -match '^(OWNER|SESSION|ARCHITECTURE|ROUTE|STOP|FORWARD|CLEANUP|LEDGER|RESULT|UNEXPECTED|FAIL_|WIN32_FAILURE|ASSERT FAIL)' }
 } catch {
     $failure = $_
 } finally {
@@ -112,19 +114,38 @@ try {
         $cleanup = @($output -split '\r?\n' | Where-Object { $_ -match '^CLEANUP ' })
         $stops = @($output -split '\r?\n' | Where-Object { $_ -match '^STOP ' })
         $forwards = @($output -split '\r?\n' | Where-Object { $_ -match '^FORWARD ' })
+        $ledgerEvidence = @($output -split '\r?\n' | Where-Object { $_ -match '^LEDGER(?:_| )' })
+        $ledgerPassed = if ($Ledger) {
+            ($ledgerEvidence -match '^LEDGER_SCOPE ').Count -eq 4 -and
+            ($ledgerEvidence -match '^LEDGER .*state=held-complete ').Count -eq 4 -and
+            ($ledgerEvidence -match '^LEDGER .*state=origin-held ').Count -eq 4 -and
+            ($ledgerEvidence -match '^LEDGER_FAILURE ').Count -eq 2 -and
+            ($ledgerEvidence -match '^LEDGER_WITHHELD ').Count -eq 4 -and
+            ($ledgerEvidence -match '^LEDGER_READBACK ').Count -eq 2 -and
+            ($ledgerEvidence -match '^LEDGER_EXIT_RETIRED ').Count -eq 2 -and
+            ($ledgerEvidence -match '^LEDGER_RELEASED ').Count -eq 8 -and
+            ($ledgerEvidence -match '^LEDGER_NATIVE_CONTINUE ').Count -eq 8 -and
+            ($ledgerEvidence -match '^LEDGER_OWNER_FAILURE ').Count -eq 0
+        } else { $ledgerEvidence.Count -eq 0 }
         $failedChecks = ([regex]::Matches($output, '(?m)^ASSERT FAIL ')).Count
-        $passed = !$failure -and $runExit -eq 0 -and !$watchdog -and $output -match '(?m)^RESULT=PASS sessions=4 ' -and
+        $passed = !$failure -and $runExit -eq 0 -and !$watchdog -and $ledgerPassed -and
+            $output -match "(?m)^RESULT=PASS sessions=4 assertions=\d+ mode=$mode\r?$" -and
             $childPids.Count -eq 4 -and $remaining.Count -eq 0 -and $cleanup.Count -eq 4 -and $stops.Count -eq 8 -and
             $forwards.Count -eq 8 -and $failedChecks -eq 0 -and $output -notmatch '(?m)^EVENT_FILE_CLOSE_FAILED '
         [ordered]@{
             osVersion = [Environment]::OSVersion.Version.ToString(); result = if ($passed) { 'PASS' } else { 'FAIL' }
             recordedAt = (Get-Date).ToUniversalTime().ToString('o'); msbuild = $MSBuild; buildPriority = 'BelowNormal'; builds = $builds
+            validationMode = $mode; ledgerEvidence = $ledgerEvidence
             runExit = $runExit; watchdogTriggered = $watchdog; failure = if ($failure) { $failure.ToString() } else { $null }
             ownerPid = if ($run) { $run.Id } else { $null }; childPids = $childPids; remainingFixtureChildPids = $remaining
             assertionsPassed = ([regex]::Matches($output, '(?m)^ASSERT PASS ')).Count; assertionsFailed = $failedChecks
             cleanup = $cleanup; stops = $stops; forwardedExceptions = $forwards; artifacts = $artifacts
             sources = @(Get-ChildItem -LiteralPath $PSScriptRoot -File | Sort-Object Name | ForEach-Object {
                 [ordered]@{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash }
+            })
+            ledgerSources = @('StopLedger.h', 'StopLedger.cpp' | ForEach-Object {
+                $path = "KswordCLI/ActionAnalyze/Control/$_"
+                [ordered]@{ name = $path; sha256 = (Get-FileHash -LiteralPath (Join-Path $repo $path)).Hash }
             })
             configurationFilesCreated = 0; runtimeCopiesCreated = 0
         } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$prefix-metadata.json" -Encoding utf8

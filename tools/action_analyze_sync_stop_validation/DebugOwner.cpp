@@ -1,11 +1,15 @@
 #include "Fixture.h"
+#include "LedgerBridge.h"
 
 #include <Psapi.h>
 #include <array>
 #include <cstdio>
 #include <cwchar>
+#include <map>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace sb02 {
@@ -64,8 +68,8 @@ struct LaunchAttributes {
 
 class Session {
 public:
-    Session(bool wow, bool success, DWORD epoch)
-        : wow_(wow), success_(success), epoch_(epoch), releaseCount_(success ? 1 : 2) {}
+    Session(bool wow, bool success, DWORD epoch, bool ledgerMode)
+        : wow_(wow), success_(success), epoch_(epoch), releaseCount_(success ? 1 : 2), ledgerMode_(ledgerMode) {}
     ~Session() { CleanupFailedRun(); }
 
     void Run(const std::wstring& path);
@@ -79,6 +83,7 @@ private:
     void Bind(const EXCEPTION_RECORD& record);
     void HandleGate(const EXCEPTION_DEBUG_INFO& info);
     void Hold(const char* stage, std::uintptr_t site, DWORD code, const State& before);
+    std::pair<LONG64, LONG64> ContinueGateThroughLedger(const State& before, std::uintptr_t site);
     State Sample() const;
     void Finish(DWORD exitCode);
     void CleanupFailedRun() noexcept;
@@ -99,6 +104,7 @@ private:
     const bool success_;
     const DWORD epoch_;
     const LONG releaseCount_;
+    const bool ledgerMode_;
     Handle job_;
     Handle process_;
     Handle mainThread_;
@@ -111,6 +117,14 @@ private:
     bool startupNative_ = false;
     bool startupWow_ = false;
     DEBUG_EVENT event_{};
+    struct ThreadObservation {
+        Handle thread;
+        bool exitSeen = false;
+    };
+    std::map<DWORD, ThreadObservation> observedThreads_;
+    std::optional<LedgerBridge> ledger_;
+    LedgerBridge::Serial eventSerial_ = 0;
+    unsigned gateContinues_ = 0;
     LONG64 receiveQpc_ = 0;
     std::uintptr_t image_ = 0;
     std::uintptr_t state_ = 0;
@@ -148,6 +162,7 @@ void Session::Start(const std::wstring& path) {
     startup.lpAttributeList = attributes.list;
     PROCESS_INFORMATION created{};
     std::wstring command = L"\"" + path + L"\" --child " + (success_ ? L"success " : L"error ") + std::to_wstring(epoch_);
+    if (ledgerMode_) { command += L" --ledger-scope"; }
     Win(CreateProcessW(path.c_str(), command.data(), nullptr, nullptr, FALSE,
         DEBUG_ONLY_THIS_PROCESS | CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT | BELOW_NORMAL_PRIORITY_CLASS,
         nullptr, nullptr, &startup.StartupInfo, &created) != FALSE, "CreatePrivateFixtureUnderDebugger");
@@ -177,6 +192,7 @@ void Session::Start(const std::wstring& path) {
 bool Session::Receive(DWORD wait) {
     if (!WaitForDebugEvent(&event_, wait)) { return false; }
     pending_ = true;
+    ++eventSerial_;
     // hFile 由调试器关闭。事件中的进程和线程句柄由 Windows 在相应退出事件继续后关闭。
     HANDLE file = nullptr;
     if (event_.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) { file = event_.u.CreateProcessInfo.hFile; }
@@ -222,6 +238,21 @@ void Session::Bind(const EXCEPTION_RECORD& record) {
     const auto initial = Read<State>(address);
     Require(initial.workerTid == workerTid_ && initial.heartbeat > 0 && initial.hit.sequence == 0 && initial.originalCalls == 0,
         "initial_state_and_running_worker_match_native_create_thread_event");
+    const auto retiredTid = static_cast<DWORD>(args[RetiredTidArg]);
+    if (ledgerMode_) {
+        const auto retired = observedThreads_.find(retiredTid);
+        const auto worker = observedThreads_.find(workerTid_);
+        Require(retiredTid && retiredTid != tid_ && retiredTid != workerTid_ && retired != observedThreads_.end() &&
+            retired->second.exitSeen && WaitForSingleObject(retired->second.thread.Get(), 0) == WAIT_OBJECT_0,
+            "frozen_return_member_verified_exited_via_native_event_and_retained_thread");
+        Require(worker != observedThreads_.end() && !worker->second.exitSeen &&
+            WaitForSingleObject(worker->second.thread.Get(), 0) == WAIT_TIMEOUT,
+            "incidental_worker_matches_live_retained_thread");
+        ledger_.emplace(pid_, tid_, workerTid_, retiredTid);
+        std::printf("LEDGER_SCOPE pid=%lu retiredTid=%lu nativeExitEvent=1 handleSignaled=1\n", pid_, retiredTid);
+    } else {
+        Require(retiredTid == 0, "baseline_child_did_not_create_retired_ledger_member");
+    }
     state_ = address;
     std::printf("ROUTE pid=%lu originTid=%lu workerTid=%lu image=0x%llx state=0x%llx enter=0x%llx return=0x%llx foreign=0x%llx\n",
         pid_, tid_, workerTid_, image_, state_, enter_, return_, foreign_);
@@ -271,15 +302,63 @@ void Session::Hold(const char* stage, std::uintptr_t site, DWORD code, const Sta
     Require(after.heartbeat == before.heartbeat && after.originalCalls == before.originalCalls &&
         after.callerReached == before.callerReached && after.hit.sequence == before.hit.sequence,
         "paused_worker_and_call_boundary_stay_unchanged_until_continue");
-    const LONG64 releaseQpc = Qpc();
-    Require(before.hit.publishedQpc > 0 && before.hit.publishedQpc <= receiveQpc_ && receiveQpc_ < releaseQpc,
+    std::pair<LONG64, LONG64> continued{};
+    if (ledger_) {
+        continued = ContinueGateThroughLedger(before, site);
+    } else {
+        continued.first = Qpc();
+        Win(Continue(DBG_CONTINUE), "ReleaseExactPendingGate");
+        continued.second = Qpc();
+    }
+    Require(before.hit.publishedQpc > 0 && before.hit.publishedQpc <= receiveQpc_ && receiveQpc_ < continued.first,
         "published_received_release_qpc_order");
-    Win(Continue(DBG_CONTINUE), "ReleaseExactPendingGate");
     std::printf("STOP pid=%lu phase=%s tid=%lu code=0x%08lx site=0x%llx pc=0x%llx sequence=%ld originalCalls=%lu "
         "callerReached=%lu result=%lu lastError=%lu heartbeat=%ld/%ld publishedQpc=%lld receiveQpc=%lld "
         "continueBeginQpc=%lld continueReturnedQpc=%lld\n", pid_, stage, tid_, code, site, site + 1, before.hit.sequence,
         before.originalCalls, before.callerReached, before.hit.result, before.hit.lastError, before.heartbeat, after.heartbeat,
-        before.hit.publishedQpc, receiveQpc_, releaseQpc, Qpc());
+        before.hit.publishedQpc, receiveQpc_, continued.first, continued.second);
+}
+
+std::pair<LONG64, LONG64> Session::ContinueGateThroughLedger(const State& before, std::uintptr_t site) {
+    const bool returning = before.hit.phase == Phase::Return;
+    auto attempt = ledger_->AdoptAndBegin(event_, eventSerial_, returning);
+    Require(pending_ && ledger_->MatchAttempt(attempt, event_, eventSerial_), "ledger_release_matches_current_native_event");
+    if (!success_ && !returning) {
+        // 同一自有事件交给不拥有它的 helper 线程，核验 Windows 拒绝后再由真实 owner 继续。
+        const DWORD childPid = event_.dwProcessId;
+        const DWORD originTid = event_.dwThreadId;
+        DWORD nativeError = 0;
+        DWORD helperTid = 0;
+        BOOL accepted = FALSE;
+        std::thread rejectedCaller([&] {
+            helperTid = GetCurrentThreadId();
+            accepted = ContinueDebugEvent(childPid, originTid, DBG_CONTINUE);
+            if (!accepted) { nativeError = GetLastError(); }
+        });
+        rejectedCaller.join();
+        Require(helperTid != GetCurrentThreadId() && !accepted && nativeError != ERROR_SUCCESS,
+            "windows_rejected_the_nonowner_continue_helper_has_joined");
+        const auto after = Sample();
+        Require(pending_ && ledger_->MatchAttempt(attempt, event_, eventSerial_) && StoppedPc() == site + 1 &&
+            after.heartbeat == before.heartbeat && after.originalCalls == before.originalCalls &&
+            after.callerReached == before.callerReached && after.hit.sequence == before.hit.sequence,
+            "exact_gate_and_incidental_worker_still_held_after_failed_native_continue");
+        attempt = ledger_->RecordFailureAndRetry(attempt, nativeError);
+        Require(ledger_->MatchAttempt(attempt, event_, eventSerial_), "explicit_retry_matches_same_pending_gate");
+    }
+    // 保持记录先于副作用。若实际 owner 的 Continue 也失败，记录未知责任并走夹具失败清理。
+    const LONG64 begin = Qpc();
+    if (!Continue(DBG_CONTINUE)) {
+        const DWORD nativeError = GetLastError();
+        ledger_->RecordOwnerFailure(attempt, nativeError);
+        SetLastError(nativeError);
+        Win(false, "ReleaseOwnedGateFromLedger");
+    }
+    const LONG64 returned = Qpc();
+    ++gateContinues_;
+    ledger_->RecordContinue(attempt, returning, success_);
+    std::printf("LEDGER_NATIVE_CONTINUE pid=%lu event=%llu ownerTid=%lu count=%u\n", pid_, eventSerial_, GetCurrentThreadId(), gateContinues_);
+    return {begin, returned};
 }
 
 void Session::HandleGate(const EXCEPTION_DEBUG_INFO& info) {
@@ -364,6 +443,15 @@ void Session::Finish(DWORD exitCode) {
     DWORD native = STILL_ACTIVE;
     Win(GetExitCodeProcess(process_.Get(), &native) != FALSE, "ReadNativeExitCode");
     Require(wait == WAIT_OBJECT_0 && native == exitCode, "exit_event_continued_process_signaled_and_codes_match");
+    if (ledger_) {
+        ledger_->Finish(event_, eventSerial_);
+        Require(gateContinues_ == 2 && !ledger_->HasResponsibility(), "exact_two_owned_gate_continues_and_zero_residual_ledger_responsibilities");
+    }
+    for (auto& [id, seen] : observedThreads_) {
+        (void)id;
+        Require(seen.thread.Reset(), "retained_debug_thread_handle_closed");
+    }
+    observedThreads_.clear();
     const bool closed = mainThread_.Reset() & process_.Reset() & job_.Reset();
     Require(closed, "own_process_thread_and_job_handles_closed");
     std::printf("CLEANUP childPid=%lu exitEvent=%lu nativeExit=%lu signaled=1 forced=0 ownedHandles=0\n", pid_, exitCode, native);
@@ -381,6 +469,7 @@ void Session::Run(const std::wstring& path) {
         }
         receiveQpc_ = Qpc();
         Require(event_.dwProcessId == pid_, "native_event_pid_matches_retained_child");
+        if (ledger_) { ledger_->ObserveNextEvent(event_, eventSerial_); }
         if (event_.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
             HandleException();
             continue;
@@ -393,9 +482,22 @@ void Session::Run(const std::wstring& path) {
         case CREATE_THREAD_DEBUG_EVENT:
             // WOW64 启动阶段可能产生辅助线程，只有最后握手回报的线程才是心跳见证。
             if (!state_) { workerTid_ = event_.dwThreadId; workerExited_ = false; }
+            if (ledgerMode_ && !state_) {
+                const auto [entry, inserted] = observedThreads_.try_emplace(event_.dwThreadId);
+                Require(inserted, "fixture_thread_id_not_reused_during_route_setup");
+                const auto thread = event_.u.CreateThread.hThread;
+                HANDLE duplicate = nullptr;
+                Require(GetThreadId(thread) == event_.dwThreadId && GetProcessIdOfThread(thread) == pid_, "native_thread_identity_in_retained_child");
+                Win(DuplicateHandle(GetCurrentProcess(), thread, GetCurrentProcess(), &duplicate, SYNCHRONIZE, FALSE, 0) != FALSE,
+                    "retain_fixture_thread_for_lifetime_readback");
+                entry->second.thread.Reset(duplicate);
+            }
             break;
         case EXIT_THREAD_DEBUG_EVENT:
             if (event_.dwThreadId == workerTid_) { workerExited_ = true; }
+            if (const auto thread = observedThreads_.find(event_.dwThreadId); thread != observedThreads_.end()) {
+                thread->second.exitSeen = true;
+            }
             break;
         case EXIT_PROCESS_DEBUG_EVENT:
             Finish(event_.u.ExitProcess.dwExitCode);
@@ -425,7 +527,7 @@ void Session::CleanupFailedRun() noexcept {
 
 }  // namespace
 
-int RunOwner() {
+int RunOwner(bool ledgerMode) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     try {
         wchar_t module[32768]{};
@@ -440,10 +542,10 @@ int RunOwner() {
         DWORD epoch = (GetCurrentProcessId() & 0x00ffffffUL) * 16 + 2;
         for (bool wow : {false, true}) {
             for (bool success : {true, false}) {
-                Session(wow, success, epoch++).Run(wow ? sibling : owner);
+                Session(wow, success, epoch++, ledgerMode).Run(wow ? sibling : owner);
             }
         }
-        std::printf("RESULT=PASS sessions=4 assertions=%d\n", checks);
+        std::printf("RESULT=PASS sessions=4 assertions=%d mode=%s\n", checks, ledgerMode ? "ledger" : "baseline");
         return 0;
     } catch (const std::exception& e) {
         std::printf("RESULT=FAIL assertions=%d error=%s\n", checks, e.what());

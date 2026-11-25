@@ -47,12 +47,17 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
+      <AdditionalDependencies Condition="'$(Platform)'=='x64'">bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="FixtureChild.cpp" />
     <ClCompile Include="DebugOwner.cpp"><ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild></ClCompile>
+    <ClCompile Include="LedgerBridge.cpp"><ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp"><ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild></ClCompile>
     <ClInclude Include="Fixture.h" />
+    <ClInclude Include="LedgerBridge.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.h" />
     <MASM Include="GatesX64.asm"><ExcludedFromBuild Condition="'$(Platform)'!='x64'">true</ExcludedFromBuild></MASM>
     <MASM Include="GatesX86.asm"><ExcludedFromBuild Condition="'$(Platform)'!='Win32'">true</ExcludedFromBuild></MASM>
     <None Include="Invoke-Validation.ps1" />

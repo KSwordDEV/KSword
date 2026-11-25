@@ -412,8 +412,10 @@ GroupState StopLedger::ProjectGroup(const Group& group) {
         unresolved = unresolved || (state != MemberState::Held && state != MemberState::Exited);
     }
     if (held && !unresolved) { return GroupState::HeldComplete; }
-    if (!group.membershipSealed && !allExited) { return GroupState::GroupBuilding; }
     const bool originHeld = group.native->phase && !group.originExited;
+    // 所有冻结成员已退出且原始命中线程仍持有时，只有范围外 origin 能满足该条件。
+    if (allExited && originHeld) { return GroupState::OriginHeld; }
+    if (!group.membershipSealed && !allExited) { return GroupState::GroupBuilding; }
     return unresolved && (held || originHeld) ? GroupState::HeldPartial : GroupState::UnprojectableNativeHold;
 }
 
@@ -425,10 +427,13 @@ std::optional<StopGroupSnapshot> StopLedger::Query(std::string_view groupId) con
         group->frozen.membershipRevision, group->frozen.membershipSha256, ProjectGroup(*group), std::nullopt, {},
         group->incidentalQuality, {}, group->closed};
     if (group->native && group->native->phase) {
-        OriginHold hold = OriginHold::Unknown;
+        OriginHold hold = OriginHold::Held;
         if (group->originExited) { hold = OriginHold::Exited; }
         else if (group->eventState == EventState::Released) { hold = OriginHold::Released; }
-        else if (EventConfirmedHeld(group->eventState)) { hold = OriginHold::Held; }
+        else if (group->eventState == EventState::ReleasePending) { hold = OriginHold::ReleasePending; }
+        else if (group->eventState == EventState::Retryable || group->eventState == EventState::Indeterminate) {
+            hold = OriginHold::RecoveryRequired;
+        }
         snapshot.origin = OriginSnapshot{group->native->eventThread.threadId, *group->native->phase, hold};
     }
     snapshot.members.reserve(group->members.size());

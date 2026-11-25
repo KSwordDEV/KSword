@@ -7,7 +7,11 @@
   <ItemGroup>
     <ClCompile Include="FixtureChild.cpp"><Filter>Sources</Filter></ClCompile>
     <ClCompile Include="DebugOwner.cpp"><Filter>Sources</Filter></ClCompile>
+    <ClCompile Include="LedgerBridge.cpp"><Filter>Sources</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp"><Filter>Sources</Filter></ClCompile>
     <ClInclude Include="Fixture.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="LedgerBridge.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.h"><Filter>Headers</Filter></ClInclude>
     <MASM Include="GatesX64.asm"><Filter>Sources</Filter></MASM>
     <MASM Include="GatesX86.asm"><Filter>Sources</Filter></MASM>
     <None Include="Invoke-Validation.ps1" />
