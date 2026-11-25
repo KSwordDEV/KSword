@@ -50,7 +50,11 @@ namespace
 // 附带终止原因及失败段，区分没有证据、未读取和读取失败。
 void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis)
 {
-    if (analysis.end == SegmentEnd::PreviewLimit)
+    if (analysis.legacyUnpublished)
+    {
+        document.note(QStringLiteral("旧 API 跟随归档没有持久提交标记。"));
+    }
+    else if (analysis.end == SegmentEnd::PreviewLimit)
     {
         document.note(QStringLiteral("已达到自动分析的读取上限。打开采样归档可查看其余记录。"));
     }
@@ -88,6 +92,7 @@ ArchivedSampleAnalysis ReadArchivedSampleAnalysis(const SampleRequest& request, 
     ArchivedSampleAnalysis analysis; // 仅保存分类、段水位及少量锚点。
     analysis.end = snapshot.end;
     analysis.failedSegment = snapshot.failedOrdinal;
+    analysis.legacyUnpublished = snapshot.checkpoint == SegmentCheckpoint::ApiLegacyUnpublished;
     // 只接受已有尾记、检查点或正常扫描完的同一采样，拒绝未经发布的部分单段。
     analysis.verified = snapshot.projectId == request.projectId && snapshot.sampleId == request.sample.id &&
         (snapshot.end == SegmentEnd::Complete || snapshot.lastVerifiedOrdinal != 0);
@@ -108,7 +113,7 @@ ArchivedSampleAnalysis ReadArchivedSampleAnalysis(const SampleRequest& request, 
         {
             continue;
         }
-        // 分类取自实际原包，只有通过导入尾记的窗口才会包含此字段。
+        // 分类取自经导入尾记或发布检查点核验的实际原包。
         const auto& clue = *row.archivedApi;
         const auto index = CategoryIndex(clue.family); // 查找已有预置支持的类别。
         if (index)

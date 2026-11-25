@@ -8,10 +8,11 @@ namespace Ksword::ActionAnalyze::Detection {
 // 页及扫描容量由读取适配器统一限制，避免读段后才裁剪图输入。
 inline constexpr std::size_t kArchivedGraphMaxRows = 4096;
 inline constexpr std::size_t kArchivedGraphDefaultRows = 100;
+inline constexpr std::uint64_t kArchivedGraphMaxApiSegments = 128; // 与 CLI 历史查询的链核验预算一致。
 
-enum class ArchivedGraphSource { ImportedApi, CommittedEtw };
+enum class ArchivedGraphSource { ImportedApi, CommittedEtw, CommittedApiFollow };
 
-// 游标使用本段的 raw 记录序号。这两种归档的有效观察序号为正数，首次读取传 0。
+// 游标使用本段的 raw 记录序号，有效观察序号为正数，首次读取传 0。
 // 恢复页时可传上次回执的散列复核同一前缀。
 struct ArchivedGraphRequest {
     std::string_view sampleId; // 目录中的规范采样 UUID。
@@ -35,6 +36,11 @@ struct ArchivedGraphRecord {
     std::string_view apiCategory; // 原包核对后的业务分类 memory 或 thread。视图指向静态文本，ETW 为空。
 };
 
+struct ArchivedApiGraphCheckpoint {
+    std::uint64_t previousSourceSequence; // 本段之前最后提交的源行号。
+    std::uint64_t lastSourceSequence; // 本段提交后最后提交的源行号，包含未分类包。
+};
+
 struct ArchivedGraphPage {
     ArchivedGraphSource source = ArchivedGraphSource::ImportedApi; // 实际通过核验的归档类型。
     EvidenceGraph graph; // 同一采样中本页的证据观察及关系。
@@ -46,9 +52,11 @@ struct ArchivedGraphPage {
     std::uint64_t observationCount = 0; // 整个已核验段中的来源观察总数。
     std::optional<std::uint64_t> nextAfterSequence; // 仍有下一页时为本页最后一条坐标。
     std::optional<bool> etwFinalSegment; // ETW 检查点是否报告本段为终段。
+    std::optional<bool> apiFinalSegment; // 已验证的 API 跟随检查点是否报告本段为终段。
+    std::optional<ArchivedApiGraphCheckpoint> apiCheckpoint; // 本次已从首段连续验证的 API 水位。
 };
 
-// 从显式指定的已登记项目和 raw 段读取一页。只接纳完整 API 导入段或双流已提交的 ETW 段。
+// 从已登记的 raw 段读取一页。支持完整 API 导入、已提交的 API 跟随和已提交的 ETW。
 // 适配期间只读取档案。失败不替换 out，成功时 records 与 graph.observations 等长。
 [[nodiscard]] ProjectResult ReadArchivedEvidenceGraph(const ProjectDocument& project,
     const ArchivedGraphRequest& request, ArchivedGraphPage& out);

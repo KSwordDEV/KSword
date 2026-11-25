@@ -1,6 +1,7 @@
 #include "StoredEvidence.h"
 
 #include "../../Core/Win32Lean.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
 #include "../../../shared/evidence/EvidenceJson.h"
 
@@ -178,10 +179,29 @@ std::wstring HexPreview(Bytes bytes) {
     return result;
 }
 
+// 旧导入和被动检查点使用相同的类别、来源坐标和原包预览。
+void SetApiCluePreview(EvidenceRecord& row, const ArchivedApiMonitorClue& clue, Bytes bytes) {
+    row.apiClue = clue.clue->api;
+    row.apiFamily.assign(clue.clue->family.begin(), clue.clue->family.end());
+    row.headerPid = clue.packet.pid;
+    row.headerTid = clue.packet.tid;
+    row.preview = L"源归档行号：" + std::to_wstring(clue.sourceSequence) + L"\r\nFILETIME：" +
+        std::to_wstring(clue.packet.timestamp100ns) + L"\r\n目标身份、实际写入范围、执行和归因未知。\r\n" +
+        HexPreview(bytes);
+}
+
+// 普通原始行保留有界 JSON 与原包预览，不附加分类或关系。
+std::wstring RawPreview(Bytes metadata, Bytes inlineData) {
+    std::wstring preview = L"原始记录元数据（归档 JSON）\r\n";
+    AppendJsonPreview(metadata, preview);
+    preview += L"\r\n\r\n内联原始字节（" + std::to_wstring(inlineData.size()) + L" 字节）\r\n" + HexPreview(inlineData);
+    return preview;
+}
+
 // 解码一个已通过封装检查的记录，并按需要构造独立预览。
 std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream,
     const Archive::SegmentIdentity& identity, bool& apiImport, ApiMonitorClueReadback& api,
-    bool& showRow, bool& continuousEtwPlan) {
+    bool& showRow, SegmentEvidence& out, bool stopAtApiFollowPlan) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
         if (apiImport) return "raw.apiImportRecord";
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
@@ -191,34 +211,32 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
         if (payload.size() < 4) return "raw.length";
         const auto jsonBytes = static_cast<std::size_t>(Little(payload, 0, 4));
         if (jsonBytes > payload.size() - 4) return "raw.length";
-        std::wstring json;
         JsonValue metadata; // 识别 API、ETW 和网络记录的原始元数据。
         const auto jsonData = payload.subspan(4, jsonBytes); // 已验证的归档 JSON 子范围。
         if (!ReadJsonObject(jsonData, nullptr, nullptr, rawStream ? &metadata : nullptr)) return "raw.json";
         const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
-        apiImport = apiImport || (rawStream && row.sequence == 1 && IsApiMonitorClueImport(metadata));
-        if (rawStream && row.sequence == 1) {
+        if (rawStream && (row.sequence == 1 || stopAtApiFollowPlan)) {
             const auto* kind = metadata.find("kind"); // 区别新采集计划和旧的独立 raw 文件。
-            const auto* duration = metadata.find("durationMs"); // 零表示无预设时限。
             std::string name; // 元数据中的计划类型。
-            std::uint64_t milliseconds = 0; // 只接受非负整数型时长。
-            continuousEtwPlan = kind && kind->tryGetString(name) && name == "etw-capture-plan-v1" &&
-                duration && duration->type() == JsonType::UInt && duration->tryGetU64(milliseconds) && milliseconds == 0;
+            if (kind) kind->tryGetString(name);
+            if (stopAtApiFollowPlan && name == Ksword::ActionAnalyze::kApiFollowPlanKind) {
+                out.apiFollowRequiresCheckpoint = metadata.find("checkpointRequired") != nullptr;
+                return {}; // 只识别段首跟随计划，直接退出，不投影此块或后续块。
+            }
+            if (row.sequence == 1) {
+                apiImport = apiImport || IsApiMonitorClueImport(metadata);
+                const auto* duration = metadata.find("durationMs"); // 零表示无预设时限。
+                std::uint64_t milliseconds = 0; // 只接受非负整数型时长。
+                out.continuousEtwPlan = name == "etw-capture-plan-v1" && duration && duration->type() == JsonType::UInt &&
+                    duration->tryGetU64(milliseconds) && milliseconds == 0;
+            }
         }
         if (apiImport) {
             std::optional<ArchivedApiMonitorClue> clue; // 尾记只更新回读状态，省略 UI 行。
             const std::string_view original(reinterpret_cast<const char*>(inlineData.data()), inlineData.size());
             if (row.sequence != api.clues + 1 || !api.Accept(metadata, original, clue)) return "raw.apiImportRecord";
             showRow = show && clue.has_value();
-            if (showRow) {
-                row.apiClue = clue->clue->api;
-                row.apiFamily.assign(clue->clue->family.begin(), clue->clue->family.end());
-                row.headerPid = clue->packet.pid;
-                row.headerTid = clue->packet.tid;
-                row.preview = L"源归档行号：" + std::to_wstring(clue->sourceSequence) + L"\r\nFILETIME：" +
-                    std::to_wstring(clue->packet.timestamp100ns) + L"\r\n目标身份、实际写入范围、执行和归因未知。\r\n" +
-                    HexPreview(inlineData);
-            }
+            if (showRow) SetApiCluePreview(row, *clue, inlineData);
             return {};
         }
         if (rawStream) {
@@ -248,11 +266,7 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
                 row.receiveQpc = row.etw->receiveQpc;
             }
         }
-        if (show) {
-            AppendJsonPreview(jsonData, json); // 保留普通原始行的原文拼写和有界字节显示。
-            row.preview = L"原始记录元数据（归档 JSON）\r\n" + json +
-                L"\r\n\r\n内联原始字节（" + std::to_wstring(inlineData.size()) + L" 字节）\r\n" + HexPreview(inlineData);
-        }
+        if (show) row.preview = RawPreview(jsonData, inlineData);
         return {};
     }
 
@@ -300,7 +314,8 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
 
 // 从只读输入流投影行。项目已提交段可要求最近窗口，诊断用独立段保留早期行。
 SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, const SegmentIdentity* expected,
-    bool keepLatest) {
+    StoredReadMode mode) {
+    const bool keepLatest = mode == StoredReadMode::KeepLatest;
     SegmentEvidence out;
     out.fileBytes = size;
     const auto fail = [&](std::string_view diagnostic, std::uint64_t offset) {
@@ -414,8 +429,10 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             const bool show = firstDecodeError.empty() && decodeError.empty() &&
                 (keepLatest || apiImport || out.rows.size() + rows.size() < kEvidenceRows);
             bool showRow = show; // API 导入尾记不进入结果列表。
-            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, archiveIdentity, apiImport, api, showRow,
-                out.continuousEtwPlan);
+            const bool legacyFirstRecord = mode == StoredReadMode::LegacyProject && !previousBlock && index == 0;
+            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, archiveIdentity, apiImport, api, showRow, out,
+                legacyFirstRecord);
+            if (out.apiFollowRequiresCheckpoint.has_value()) return out;
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
                 if (row.flags & 1) ++opaqueRequired;
@@ -478,6 +495,27 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
     return out;
 }
 
+EvidenceRecord PreviewCommittedApiRecord(const Archive::BlockInfo& block, const Archive::DecodedRecord& record,
+    const Archive::RawRecordV1& raw, std::uint64_t segmentOrdinal) {
+    EvidenceRecord row; // 原始坐标来自正在验证的块和记录头。
+    row.segmentOrdinal = segmentOrdinal;
+    row.offset = record.recordOffset;
+    row.blockOrdinal = block.ordinal;
+    row.sequence = record.recordSequence;
+    row.type = record.recordType;
+    row.schemaVersion = record.recordSchemaVersion;
+    row.flags = record.flags;
+    row.payloadBytes = raw.inlineRawOffsetInPayload + raw.inlineRawBytes;
+    const Bytes inlineData(reinterpret_cast<const std::uint8_t*>(raw.inlineRawData.data()), raw.inlineRawData.size());
+    if (const auto clue = Ksword::ActionAnalyze::ReadCommittedApiClue(raw)) {
+        SetApiCluePreview(row, *clue, inlineData);
+    } else {
+        const Bytes metadata(reinterpret_cast<const std::uint8_t*>(raw.metadataJson.data()), raw.metadataJson.size());
+        row.preview = RawPreview(metadata, inlineData);
+    }
+    return row;
+}
+
 SegmentEvidence OpenStoredEvidence(const std::wstring& path) {
     struct File {
         HANDLE handle;
@@ -495,7 +533,7 @@ SegmentEvidence OpenStoredEvidence(const std::wstring& path) {
 
 // 单段和项目回放复用投影。项目端点只在实际文件包含整个范围时才可用。
 SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
-    const SegmentIdentity* expected, bool keepLatest) {
+    const SegmentIdentity* expected, StoredReadMode mode) {
     SegmentEvidence error; // 无法取得文件范围时的只读回执。
     LARGE_INTEGER size{}; // 本次句柄的物理长度。
     if (::GetFileType(file) != FILE_TYPE_DISK) {
@@ -526,7 +564,7 @@ SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t>
         const auto count = static_cast<DWORD>(buffer.size()); // 已受段和块格式限额约束。
         if (!::ReadFile(file, buffer.data(), count, &received, nullptr)) return ::GetLastError();
         return received == count ? DWORD{0} : DWORD{ERROR_HANDLE_EOF};
-    }, expected, keepLatest);
+    }, expected, mode);
     result.fileBytes = physicalBytes;
     BY_HANDLE_FILE_INFORMATION identity{}; // 详情显示的本地卷、文件和修改身份。
     if (::GetFileInformationByHandle(file, &identity)) {

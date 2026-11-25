@@ -26,9 +26,27 @@ constexpr FunctionSpec Functions[] = {
     {"Text.StartsWith", FieldOp::StartsWith, true},
     {"Text.EndsWith", FieldOp::EndsWith, true},
     {"Text.Equals", FieldOp::Equal, true},
+    {"isKnown", FieldOp::IsKnown, false},
     {"isNull", FieldOp::IsNull, false},
     {"isComplete", FieldOp::IsComplete, false},
 };
+
+// 状态名与归档质量目录一致。只解释有限关键字，保留大小写。
+std::optional<Quality> QualityByName(std::string_view name)
+{
+    constexpr std::pair<std::string_view, Quality> names[] = {
+        {"known", Quality::Known}, {"null", Quality::Null}, {"notCollected", Quality::NotCollected},
+        {"unsupported", Quality::Unsupported}, {"accessDenied", Quality::AccessDenied},
+        {"readFailed", Quality::ReadFailed}, {"truncated", Quality::Truncated},
+        {"decodeFailed", Quality::DecodeFailed}, {"redacted", Quality::Redacted},
+    }; // 仅接受协议中明确登记的状态。
+    for (const auto& [word, quality] : names) {
+        if (name == word) {
+            return quality;
+        }
+    }
+    return std::nullopt;
+}
 
 // 所有标识符按固定 ASCII 规则解释，不受系统区域设置影响。
 bool IdentifierStart(char ch)
@@ -252,6 +270,11 @@ private:
             return Fail(ExpressionError::ExpectedPredicate, range);
         }
         if (Take("(")) {
+            if (name == "quality") {
+                return allowComparison
+                    ? QualityComparison()
+                    : Fail(ExpressionError::ExpectedQualityComparison, range);
+            }
             return Call(name, range);
         }
         const auto op = allowComparison ? Comparison() : std::nullopt; // 裸字段必须是 Bool。
@@ -276,6 +299,50 @@ private:
         return std::nullopt;
     }
 
+    // 白名单调用的唯一字段参数，关键字不能当作证据字段。
+    bool FieldArgument(TokenRange& field)
+    {
+        if (!Path(field, ExpressionError::InvalidFieldPath)) {
+            return false;
+        }
+        const auto id = TextAt(field); // 目录绑定按原文大小写。
+        if (id == "true" || id == "false" || id == "null") {
+            return Fail(ExpressionError::InvalidFieldPath, field);
+        }
+        return true;
+    }
+
+    // quality(field) 只能作为有限枚举的相等比较，不生成可执行函数。
+    bool QualityComparison()
+    {
+        TokenRange field{}; // 目录或阶段失败时定位字段参数。
+        if (!FieldArgument(field)) {
+            return false;
+        }
+        if (!Take(")")) {
+            return Fail(ExpressionError::ExpectedCloseParen, Here());
+        }
+        SkipSpace();
+        const auto operatorSite = Here(); // 缺失或不受支持的比较符位置。
+        const auto op = Comparison(); // 只接受 == 或 !=，不赋予状态排序语义。
+        if (op != FieldOp::Equal && op != FieldOp::NotEqual) {
+            return Fail(ExpressionError::ExpectedQualityComparison,
+                op ? TokenRange{operatorSite.begin, position_} : operatorSite);
+        }
+        SkipSpace();
+        const auto stateStart = position_; // 未登记的状态定位到完整字面量。
+        std::string state; // 复用普通和逐字字符串的解码规则。
+        if (!ReadString(state)) {
+            return false;
+        }
+        const auto quality = QualityByName(state); // 准备时绑定规范的状态枚举。
+        if (!quality) {
+            return Fail(ExpressionError::InvalidQuality, {stateStart, position_});
+        }
+        const auto qualityOp = *op == FieldOp::Equal ? FieldOp::QualityEqual : FieldOp::QualityNotEqual; // AST 中的质量比较。
+        return Emit(FieldTest{qualityOp, std::string(TextAt(field)), *quality}, field);
+    }
+
     // 调用句法只生成字段测试节点，不存在动态成员分派或用户方法。
     bool Call(std::string_view name, TokenRange site)
     {
@@ -284,12 +351,8 @@ private:
                 continue;
             }
             TokenRange field{}; // 第一个参数为字段路径。
-            if (!Path(field, ExpressionError::InvalidFieldPath)) {
+            if (!FieldArgument(field)) {
                 return false;
-            }
-            const auto id = TextAt(field); // 字段路径保持大小写。
-            if (id == "true" || id == "false" || id == "null") {
-                return Fail(ExpressionError::InvalidFieldPath, field);
             }
             Literal literal; // 质量检查无第二参数，文本检查需要字符串。
             if (function.takesText) {
@@ -305,7 +368,7 @@ private:
             if (!Take(")")) {
                 return Fail(ExpressionError::ExpectedCloseParen, Here());
             }
-            return Emit(FieldTest{function.op, std::string(id), std::move(literal)}, field);
+            return Emit(FieldTest{function.op, std::string(TextAt(field)), std::move(literal)}, field);
         }
         return Fail(ExpressionError::UnsupportedCall, site);
     }
@@ -529,6 +592,8 @@ std::string_view ExpressionErrorId(ExpressionError error) noexcept
     case ExpressionError::NestingLimit: return "expression-nesting-limit";
     case ExpressionError::NodeLimit: return "expression-node-limit";
     case ExpressionError::PreparationFailed: return "expression-preparation-failed";
+    case ExpressionError::ExpectedQualityComparison: return "expression-expected-quality-comparison";
+    case ExpressionError::InvalidQuality: return "expression-invalid-quality";
     }
     return "expression-invalid";
 }

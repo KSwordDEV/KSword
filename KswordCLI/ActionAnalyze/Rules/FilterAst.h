@@ -39,13 +39,13 @@ struct FieldSample {
     friend bool operator==(const FieldSample&, const FieldSample&) = default;
 };
 
-// 字段比较只允许显式常量。null 单独表示，保留布尔和 u64 的位宽。
+// 字段比较只允许显式常量。null 与采集质量单独表示，保留布尔和 u64 的位宽。
 enum class FieldOp {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
-    Contains, StartsWith, EndsWith, IsNull, IsComplete
+    Contains, StartsWith, EndsWith, IsNull, IsComplete, IsKnown, QualityEqual, QualityNotEqual
 };
 
-using Literal = std::variant<std::monostate, bool, std::uint64_t, std::string>;
+using Literal = std::variant<std::monostate, bool, std::uint64_t, std::string, Quality>;
 struct FieldTest { FieldOp op; std::string field; Literal literal; };
 struct Not { std::size_t child; };
 enum class Logic { And, Or };

@@ -28,13 +28,16 @@ struct ProjectReplayCatalog {
 };
 
 enum class CheckpointState { NotChecked, NotPublished, Pending, Partial, Verified, PreviewLimited };
+enum class ReplayCheckpointKind { None, Etw, PassiveApi };
 enum class ProjectReplayMode { Explicit, SelectionPreview };
 
 struct ReplayCheckpoint {
     CheckpointState state = CheckpointState::NotChecked; // 区分独立读取、等待、部分与终态。
-    std::uint64_t lastVerifiedOrdinal = 0; // 已核对双流的连续段上界。
+    std::uint64_t lastVerifiedOrdinal = 0; // 已核对的连续段上界。
     std::uint64_t pendingOrdinal = 0; // 缺失或失败的下一段。
     std::uint64_t recordsEnd = 0; // 最近核验段的 records 文件端点。
+    ReplayCheckpointKind kind = ReplayCheckpointKind::None;
+    std::uint64_t rawEnd = 0; // 最近核验段的 raw 文件端点。
 };
 
 struct ProjectReplayEvidence {

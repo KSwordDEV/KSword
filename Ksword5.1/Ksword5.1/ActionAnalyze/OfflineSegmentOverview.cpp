@@ -1012,7 +1012,7 @@ void OfflineSegmentOverview::updateText()
     m_apiSource->setText(QStringLiteral("API"));
     m_etwSource->setText(QStringLiteral("ETW"));
     const auto sourceUnavailable = sourceText(QStringLiteral("独立归档段缺少已验证的 API／ETW 来源绑定。")); // 来源条件不可用的原因。
-    const bool archivedApi = m_snapshot && m_snapshot->hasArchivedApi; // 导入尾记验证成功时才允许 API 筛选。
+    const bool archivedApi = m_snapshot && m_snapshot->hasArchivedApi; // 归档来源验证成功时才允许 API 筛选。
     m_apiSource->setEnabled(archivedApi);
     m_apiSource->setToolTip(archivedApi ? sourceText(QStringLiteral("只显示归档 API 线索。")) : sourceUnavailable);
     const bool archivedEtw = m_snapshot && m_snapshot->hasArchivedEtw; // 来源字段通过正文检查。
@@ -1102,6 +1102,10 @@ void OfflineSegmentOverview::updateText()
             status = m_latestEnd == SegmentEnd::Complete ? sourceText(QStringLiteral("已验证 Qt 原始归档和终止记录。"))
                 : sourceText(QStringLiteral("已验证 Qt 原始归档前缀。"));
         }
+        else if (m_snapshot->checkpoint == SegmentCheckpoint::ApiRawVerified)
+        {
+            status = sourceText(QStringLiteral("已验证 API 跟随归档检查点。"));
+        }
         if (status.isEmpty() || m_latestEnd != SegmentEnd::Complete)
         {
             if (!status.isEmpty())
@@ -1120,7 +1124,9 @@ void OfflineSegmentOverview::updateText()
     }
     else
     {
-        status = sourceText(QStringLiteral("%1 · %2")).arg(m_lastPath, EndText(m_latestEnd));
+        const auto endText = m_latestLegacyApi ? sourceText(QStringLiteral("旧 API 跟随归档没有持久提交标记。"))
+            : EndText(m_latestEnd); // 项目路径中的旧 API 跟随档只显示未发布回执。
+        status = sourceText(QStringLiteral("%1 · %2")).arg(m_lastPath, endText);
         role = m_latestEnd == SegmentEnd::Canceled ? StatusRole::Idle : StatusRole::Error;
         if (m_snapshot)
         {
@@ -1182,7 +1188,12 @@ void OfflineSegmentOverview::updateText()
         {
             counts += u' ' + objectFilterSummary();
         }
-        if (archivedApi)
+        if (m_snapshot->apiFollowSourceRows)
+        {
+            counts += u' ' + sourceText(QStringLiteral("已核验 %1 条源归档记录。覆盖范围未知。"))
+                .arg(*m_snapshot->apiFollowSourceRows);
+        }
+        else if (archivedApi)
         {
             counts += u' ' + sourceText(QStringLiteral("已核验 %1 条归档 API 线索。覆盖范围未知。")).arg(m_snapshot->verifiedRows);
         }

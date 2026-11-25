@@ -228,6 +228,9 @@ void GraphBuilder::Add(const GraphEventInput& input)
             }
         }
     } else if (BindLocation(result, input.contextEvidence)) {
+        if (result.evidence->raw) {
+            result.archiveContext = input.archiveContext;
+        }
         for (const auto gap : event.gaps) {
             AddGap(result, gap);
         }

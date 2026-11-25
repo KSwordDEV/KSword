@@ -45,6 +45,10 @@ Light 的「监控 → ActionAnalyze」新增「只看 ETW」复选框，单独�
 - Qt 正式窗口在采样 `dbed4f1f-893c-466a-ab4c-51a3555c3b85` 选择第一条线索，进入总览后核对 `raw/1 #1`、源行 `2`。五条线索的 64 字节预览、独立筛选、坏尾恢复和选择保留通过。浅色窗口退出 0，配置恢复，固定目录已清理。Qt 产物 SHA-256 为 `cb78935a504b45cc07f5e08a6d995606361172d799bd4d04d9e974ca2b89dd51`，构建日志为 `.codex-build-logs/ksword-build-check-20261125-071036.raw.log`。
 - 同一 Qt 产物在深色主题下复验全部操作，采样 `fef5d4c4-a3b2-4e1b-b40f-303362051992`。窗口退出 0，配置恢复，固定目录已清理。窗口自动化核对了操作与实际数据，颜色对比、DPI 和背景模式待验。
 - 同一个合成采样 `82a181e8-f3f3-473d-b524-ef801b0c7219` 在 Qt 和 Light 的正式窗口逐条核对。Light 键盘选类别并定位原包，已应用的筛选隐藏记录时详情仍能回读。清除筛选恢复表格选中，首段预览转正式回放后保留同一锚点。Light SHA-256 为 `f511a5874d53a3a48b044843879ad23497257592f9e299ba4b5e11095bb7c43c`，日志为 `.codex-build-logs/action-analyze-light-chosen-clue.log`。两窗口退出 0，配置恢复，夹具清理完成。
+- 三端共用 API 跟随采样 `d94d14b2-6ad9-4465-95ce-fe0b671b3a90`。CLI 确认 8796 字节截止、四段 SHA-256 与六个原包，重开无需源文件。正式 Qt 和 Light 各在缺第 2 段标记、截断第 3 段和修复后显示 2、4、6 条 API 记录。两端定位到 `raw/3 #9`、源行 `6`，按窗口偏移核对磁盘序号。窗口退出 0，配置恢复，固定夹具清理完成。Qt SHA-256 为 `083bd3508c9ef2fa6ffe79dd77ffd4d35e3c933c66c0956cf50a64d050cae31b`，Light 为 `43b329886d7c5b234972a18425dfa56fc1caa697dfde588d38355bba7bc95205`，CLI 为 `dff9892270f67cfc29a019cf21ee78bf1fe845fbd61375355f705ad73790b5fe`。日志 `.codex-build-logs/action-analyze-three-client-api-checkpoint.log`。
+- 正式 Qt 在「总览 → 打开归档段」读回合成网络档，核对 IPv4 出站、IPv6 入站、实际 300 字节与窗口预览 256 字节。完整、物理截断和 CRC 损坏分别显示 9、7、7 行。两种坏档的核验前缀均为 5922 字节。窗口退出 0，配置恢复，固定夹具清理完成。日志 `.codex-build-logs/action-analyze-qt-network-archive.log`。
+- 正式 CLI 的图视图回读跟随采样 `fdc90ef9-1828-447e-bf3b-62c7cbc57ad6`，使用同一 SHA-256 续页，候选坐标为 `raw/3 #8` 和 `raw/3 #9`。缺第 2 段标记时第 3 段返回 `project-data-not-found`。终段返回已核验空页。回归同时覆盖缺已发布 raw、错误散列和坏尾。固定目录已清理。CLI SHA-256 为 `f1c206ff2ead98c4e6394778eb927cfc926448fd6760dd6e47e954f2f8376699`，日志 `.codex-build-logs/action-analyze-cli-verified-graph-test.log`。
+- 最新产物复跑三端同一采样 `61d0b194-7cb1-4ead-b84d-b08cafbfa56e`，Qt、Light 均再次通过 2／4／6 行及 `raw/3 #9` 定位。Qt SHA-256 为 `1fdb0e556422f7f6105efecd7435c17ec64581a7321ff43ac4c675449ad5b459`。两窗口退出 `0`，配置恢复，固定夹具清理完成。日志 `.codex-build-logs/action-analyze-three-client-api-final-graph.log`。
 
 从仓库根目录使用统一 Release 产物，逐条运行以下回归。脚本使用独立非输入桌面。
 
@@ -53,6 +57,8 @@ python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analy
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/archive_api_preview.py
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/archive_api_preview.py --dark
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --api
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_api_follow_preview.py
+python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/archive_network_preview.py
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/archive_etw_preview.py --cross-client
 python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/light/live_project_preview.py
 ```

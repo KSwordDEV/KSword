@@ -118,8 +118,8 @@
       "required": ["operation", "apiFamily", "apiCategory", "headerPid", "headerTid", "actorInstance", "targetInstance", "threadInstance", "execution", "finding", "gaps", "sourceId", "sourceEpoch", "sourceGroup", "sourceSequence", "eventOrdinal", "raw"],
       "properties": {
         "operation": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "apiFamily": { "description": "Stable clue family recomputed from the API import packet." },
-        "apiCategory": { "description": "API Monitor business category checked against the imported packet." },
+        "apiFamily": { "description": "Stable clue family recomputed from the archived API packet." },
+        "apiCategory": { "description": "API Monitor business category checked against the archived packet." },
         "headerPid": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "type": "null" }] },
         "headerTid": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "type": "null" }] },
         "actorInstance": { "type": "null" },
@@ -155,7 +155,7 @@
         "stream": { "const": "raw" },
         "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "descriptionHash": { "$ref": "#/$defs/hash" },
-        "archiveSource": { "enum": ["api-import", "etw-checkpoint"] },
+        "archiveSource": { "enum": ["api-import", "api-follow-checkpoint", "etw-checkpoint"] },
         "sourceCoverage": { "const": "unknown" },
         "machineId": { "type": "null" },
         "bootId": { "type": "null" },
@@ -172,6 +172,14 @@
         "finalSegment": { "type": ["boolean", "null"] },
         "observationCount": { "$ref": "value.schema.json#/$defs/u64" },
         "nextAfterSequence": { "$ref": "#/$defs/nullableU64" },
+        "tree": {
+          "type": "object", "additionalProperties": false,
+          "required": ["unresolvedCandidates", "contextObservations"],
+          "properties": {
+            "unresolvedCandidates": { "$ref": "#/$defs/graphTreeSequences" },
+            "contextObservations": { "$ref": "#/$defs/graphTreeSequences" }
+          }
+        },
         "nodes": { "const": [] },
         "relations": { "const": [] },
         "observations": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/graphObservation" } }
@@ -181,10 +189,16 @@
         "finalSegment": { "type": "boolean" },
         "observations": { "items": { "properties": { "apiFamily": { "type": "null" } } } }
       } },
-      "else": { "properties": {
-        "finalSegment": { "type": "null" },
-        "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } }
-      } }
+      "else": {
+        "properties": { "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } } },
+        "if": { "properties": { "archiveSource": { "const": "api-follow-checkpoint" } } },
+        "then": { "properties": { "finalSegment": { "type": "boolean" } } },
+        "else": { "properties": { "finalSegment": { "type": "null" } } }
+      }
+    },
+    "graphTreeSequences": {
+      "type": "array", "maxItems": 100, "uniqueItems": true,
+      "items": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
     },
     "error": {
       "oneOf": [

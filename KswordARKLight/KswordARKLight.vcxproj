@@ -121,6 +121,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
@@ -347,6 +348,7 @@
     <ClInclude Include="Features\ActionAnalyze\EvidenceTimeline.h" />
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="Features\ActionAnalyze\NetworkReplayPresentation.h" />
     <ClInclude Include="Features\ActionAnalyze\LiveCapture.h" />
     <ClInclude Include="Features\ActionAnalyze\NativeLiveSession.h" />

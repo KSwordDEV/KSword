@@ -29,6 +29,9 @@
 #include <QTextDocument>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <array>
+
 namespace ks::action_analyze
 {
 namespace
@@ -62,13 +65,35 @@ namespace
         rule::ApiPresetReport report; // 已分析的单段最近窗口与线索证据。
     };
 
+    struct ArchivePresetCategory
+    {
+        std::string_view ruleId; // 规则引擎回执中的细分预置 ID。
+        bool memoryOperation; // 两组汇总的归属：内存操作或线程控制。
+    };
+
+    constexpr std::array kArchivePresetCategories{ // 顺序与下方五类计数文案一致。
+        ArchivePresetCategory{"ksword.api.memory-write-observed.v1", true},
+        ArchivePresetCategory{"ksword.api.section-map-observed.v1", true},
+        ArchivePresetCategory{"ksword.api.thread-create-observed.v1", false},
+        ArchivePresetCategory{"ksword.api.thread-context-observed.v1", false},
+        ArchivePresetCategory{"ksword.api.apc-queue-observed.v1", false},
+    };
+
+    // 从已命中的细分规则定位报告槽位。目录外的 ID 不能归入现有两组。
+    std::size_t ArchivePresetCategoryIndex(std::string_view ruleId)
+    {
+        const auto category = std::find_if(kArchivePresetCategories.begin(), kArchivePresetCategories.end(),
+            [ruleId](const ArchivePresetCategory& entry) { return entry.ruleId == ruleId; }); // 末尾表示未登记。
+        return static_cast<std::size_t>(category - kArchivePresetCategories.begin());
+    }
+
     // 将严格解析器或规则引擎返回的原始 UTF-8 数据转换为纯文本。
     QString DisplayUtf8(std::string_view bytes)
     {
         return QString::fromUtf8(bytes.data(), static_cast<qsizetype>(bytes.size()));
     }
 
-    // 工作线程从选中的段读取已验证 API Monitor 导入内容，然后运行两条独立预置。
+    // 工作线程从选中的段读取已验证 API Monitor 观测，一次运行得到细分结果。
     ArchivePresetCheck CheckArchivePresets(const Request& request, const ks::ui::AsyncOperationToken& token)
     {
         const auto segment = ReadOfflineSegment(request.path, [&token] { return token.isCanceled(); }); // 本次冻结输入。
@@ -114,11 +139,18 @@ namespace
                 {api.constData(), static_cast<std::size_t>(api.size())},
                 {family.constData(), static_cast<std::size_t>(family.size())}});
         }
-        result.report = rule::AnalyzeArchivedApiPresets(observations, segment.verifiedRows);
+        result.report = rule::AnalyzeArchivedApiPresets(observations, segment.verifiedRows, rule::ApiPresetProfile::ByCategory);
         if (result.report.error != rule::ApiPresetError::None)
         {
             result.error = result.report.error == rule::ApiPresetError::InvalidPreset
                 ? QStringLiteral("archive-preset-invalid") : QStringLiteral("archive-projection-invalid");
+        }
+        else if (std::any_of(result.report.matches.begin(), result.report.matches.end(), [](const rule::ApiPresetMatch& hit)
+        {
+            return ArchivePresetCategoryIndex(hit.ruleId) == kArchivePresetCategories.size();
+        }))
+        {
+            result.error = QStringLiteral("archive-preset-invalid"); // 保留上次成功报告，避免把未知类别计入汇总。
         }
         return result;
     }
@@ -126,18 +158,39 @@ namespace
     // 结果身份和实际扫描范围随代码编辑器回执保留，方便复制并返回原归档核对。
     QString FormatArchivePresets(const ArchivePresetCheck& result)
     {
+        std::array<qulonglong, kArchivePresetCategories.size()> categoryCounts{}; // 同次回放的五类条数。
+        qulonglong memoryCount = 0; // 内存操作大类的合计，其余有效分类归入线程控制。
+        QStringList evidenceLines; // 按原始顺序保留一份证据行。
+        for (const auto& hit : result.report.matches)
+        {
+            const auto index = ArchivePresetCategoryIndex(hit.ruleId); // 后台发布前已验证类别。
+            const bool memory = kArchivePresetCategories[index].memoryOperation; // 此条证据的汇总归属。
+            ++categoryCounts[index];
+            if (memory)
+            {
+                ++memoryCount;
+            }
+
+            const std::string_view groupId = memory // 保留旧汇总预置 ID，便于搜索历史回执。
+                ? "ksword.api.memory-operation-observed.v1" : "ksword.api.thread-control-observed.v1";
+            const auto ruleIds = DisplayUtf8(groupId) + QStringLiteral(" · ") + DisplayUtf8(hit.ruleId); // 同一观测的两层分类。
+            evidenceLines << sourceText(QStringLiteral("段内序号 %1 · 源行 %2 · %3 · %4"))
+                .arg(qulonglong(hit.rawSequence)).arg(qulonglong(hit.sourceSequence))
+                .arg(DisplayUtf8(hit.api), ruleIds);
+        }
+
         QStringList lines; // 完整回执文本。
         lines << sourceText(QStringLiteral("项目 %1 · 采样 %2")).arg(result.projectId, result.sampleId);
         lines << sourceText(QStringLiteral("已分析最近 %1 条，共验证 %2 条归档线索。命中 %3 条。"))
             .arg(qulonglong(result.report.analyzedRows)).arg(qulonglong(result.report.importedRows))
             .arg(qulonglong(result.report.matches.size()));
+        lines << sourceText(QStringLiteral("汇总：内存操作 %1 条 · 线程控制 %2 条"))
+            .arg(memoryCount).arg(qulonglong(result.report.matches.size()) - memoryCount);
+        const auto& [writes, maps, creates, contexts, apcs] = categoryCounts; // 按摘要顺序展开五个计数槽位。
+        lines << sourceText(QStringLiteral("细分：内存写入 %1 条 · 节映射 %2 条 · 线程创建 %3 条 · 线程上下文修改 %4 条 · APC 入队 %5 条"))
+            .arg(writes).arg(maps).arg(creates).arg(contexts).arg(apcs);
         lines << sourceText(QStringLiteral("以下为 API 观测。目标身份、调用效果和采集覆盖未知。"));
-        for (const auto& hit : result.report.matches)
-        {
-            lines << sourceText(QStringLiteral("段内序号 %1 · 源行 %2 · %3 · %4"))
-                .arg(qulonglong(hit.rawSequence)).arg(qulonglong(hit.sourceSequence))
-                .arg(DisplayUtf8(hit.api), DisplayUtf8(hit.ruleId));
-        }
+        lines.append(evidenceLines);
         return lines.join(QLatin1Char('\n'));
     }
 
@@ -539,7 +592,7 @@ namespace
         }
         if (!busy)
         {
-            m_archivePresets->setToolTip(sourceText(QStringLiteral("选择已导入的 API Monitor 数据段，查看两组 API 观测及其源行。")));
+            m_archivePresets->setToolTip(sourceText(QStringLiteral("选择已导入的 API Monitor 数据段，查看两组汇总、五类观测及其源行。")));
         }
         const auto busyText = m_operation == Operation::ArchivePresets ? sourceText(QStringLiteral("正在分析归档预置…"))
             : sourceText(QStringLiteral("正在处理规则草稿…")); // 明确草稿与归档各自的在途状态。

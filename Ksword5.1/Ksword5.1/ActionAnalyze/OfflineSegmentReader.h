@@ -102,7 +102,7 @@ namespace ks::action_analyze
     };
 
     // 双流检查点与 Qt 整个 raw 文件有各自的核验边界，采样终态以 SegmentEnd 为准。
-    enum class SegmentCheckpoint { NotRequested, Unpublished, Verified, Pending, QtRawVerified };
+    enum class SegmentCheckpoint { NotRequested, Unpublished, Verified, Pending, QtRawVerified, ApiRawVerified, ApiLegacyUnpublished };
 
     struct SegmentSnapshot
     {
@@ -120,7 +120,8 @@ namespace ks::action_analyze
         bool live = false; // 同一总览中的实时投影，与磁盘归档独立。
         quint64 liveRevision = 0; // 本次实时来源累计接纳的记录数，滚动淘汰后仍递增。
         bool hasArchivedEtw = false; // 当前行窗口中至少有一条可识别的归档 ETW 记录。
-        bool hasArchivedApi = false; // 已通过来源导入尾记及 Stored 封装校验。
+        bool hasArchivedApi = false; // 已通过导入尾记或 API 跟随检查点的分类记录。
+        std::optional<quint64> apiFollowSourceRows; // API 跟随已提交的源文件行数，包含未分类原包。
         quint64 lastVerifiedOrdinal = 0; // 项目回放的连续提交水位。
         quint64 verifiedRows = 0; // 项目已验证的累计行数，含被最近窗口移出的行。
         quint64 failedOrdinal = 0; // 本次无法验证的段号，零表示无坏段。

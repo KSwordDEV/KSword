@@ -6,13 +6,43 @@
 #include <compare>
 #include <cstddef>
 #include <span>
+#include <string_view>
 
 namespace Ksword::ActionAnalyze::Detection {
+
+enum class GraphApiClue { MemoryWrite, ThreadCreate, ApcQueue, ThreadContext, SectionMap };
+
+// 输入为共用归档分类器已验证的 family，包括五类 API 线索。
+constexpr std::optional<GraphApiClue> GraphApiClueFromFamily(std::string_view family) noexcept
+{
+    if (family == "memory-write") {
+        return GraphApiClue::MemoryWrite;
+    }
+    if (family == "thread-create") {
+        return GraphApiClue::ThreadCreate;
+    }
+    if (family == "apc-queue") {
+        return GraphApiClue::ApcQueue;
+    }
+    if (family == "thread-context") {
+        return GraphApiClue::ThreadContext;
+    }
+    if (family == "section-map") {
+        return GraphApiClue::SectionMap;
+    }
+    return std::nullopt;
+}
+
+struct GraphArchiveContext {
+    std::optional<std::uint32_t> headerPid, headerTid; // 来源报头，仅供显示。
+    std::optional<GraphApiClue> apiClue;                // ETW 上下文为空。
+};
 
 struct GraphEventInput {
     EventProjection event;                       // 来源适配器输出的类型化事实与缺口。
     // 只有上下文或解码失败时，用单独的定位锚点回读来源。
     std::optional<EvidenceRef> contextEvidence;
+    std::optional<GraphArchiveContext> archiveContext = std::nullopt;
 };
 
 struct GraphSysmonInput {
@@ -68,6 +98,7 @@ struct GraphObservation {
     std::optional<GraphSysmonRecord> sysmon;        // Sysmon 记录元数据。
     std::optional<Finding> finding;               // 经事实闸门核验的原生结论。
     std::vector<Issue> gaps;                      // 本条证据的缺口和校验状态。
+    std::optional<GraphArchiveContext> archiveContext = std::nullopt;
 };
 
 struct GraphEdge {

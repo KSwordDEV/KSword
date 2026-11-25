@@ -121,6 +121,7 @@
         "sessionIdentity": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "durationMs": { "$ref": "#/$defs/plan/properties/durationMs" },
         "identity": { "const": "archive-consistency-only" },
+        "checkpointRequired": { "const": true },
         "file": {
           "type": "object", "additionalProperties": false,
           "required": ["volumeSerial", "fileId", "initialVisibleBytes"],
@@ -154,7 +155,33 @@
             "api": { "type": "string" }, "family": { "type": "string" },
             "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }, "rawVerified": { "type": "boolean" }
           }
-        }
+        },
+        "diagnosis": { "$ref": "#/$defs/apiArchiveSourceDiagnosis" }
+      }
+    },
+    "apiArchiveSourceDiagnosis": {
+      "description": "仅用于实时回执。源行号指向文件中已核验的历史声明。",
+      "type": "object", "additionalProperties": false,
+      "required": ["input", "prefixIdentity", "producerConnection", "sessionReadySequence", "captureNotice", "captureNoticeSequence", "partialNoticeSequence", "agentLoss"],
+      "$defs": {
+        "sequence": { "oneOf": [{ "type": "null" }, { "$ref": "value.schema.json#/$defs/nonzeroU64" }] }
+      },
+      "properties": {
+        "input": {
+          "enum": ["unopened", "awaiting-first-read", "reading", "idle-at-tail", "waiting-for-line-end", "stopped-before-cutoff", "cutoff", "cutoff-partial-line", "sealed", "unconfirmed-end", "truncated-tail", "writer-failed", "receipt-mismatch", "source-changed", "identity-mismatch", "invalid-record", "device-disconnected", "read-failed", "unknown"]
+        },
+        "prefixIdentity": { "enum": ["unverified", "prefix-consistent"] },
+        "producerConnection": { "const": "unknown" },
+        "sessionReadySequence": {
+          "description": "最近一次历史握手声明的源行号。",
+          "$ref": "#/$defs/apiArchiveSourceDiagnosis/$defs/sequence"
+        },
+        "captureNotice": {
+          "enum": [null, "HooksInstalled", "HooksPaused", "HooksResumed", "HooksRemoved", "HooksPauseFailed", "HooksResumeFailed", "InstallHooksFailed", "InstallHooksCancelled"]
+        },
+        "captureNoticeSequence": { "$ref": "#/$defs/apiArchiveSourceDiagnosis/$defs/sequence" },
+        "partialNoticeSequence": { "$ref": "#/$defs/apiArchiveSourceDiagnosis/$defs/sequence" },
+        "agentLoss": { "enum": ["unknown", "zero-reported", "loss-reported"] }
       }
     },
     "apiArchiveReport": {
@@ -162,7 +189,7 @@
       "required": ["status", "segmentOrdinal", "recordedRows", "pendingRows", "queueDropped", "unconfirmedRows", "lastSequence", "flushedBytes", "error", "win32Error"],
       "properties": {
         "status": { "enum": ["pending", "raw-verified", "failed"] },
-        "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "segmentOrdinal": { "$ref": "#/$defs/u64" },
         "recordedRows": { "$ref": "#/$defs/u64" }, "pendingRows": { "$ref": "#/$defs/u64" },
         "queueDropped": { "const": "0" }, "unconfirmedRows": { "$ref": "#/$defs/u64" },
         "lastSequence": { "$ref": "#/$defs/nullableU64" }, "flushedBytes": { "$ref": "#/$defs/nullableU64" },
@@ -206,6 +233,7 @@
     },
     "archivedCapture": {
       "oneOf": [
+        { "$ref": "#/$defs/archivedApiFollow" },
         {
           "type": "object", "additionalProperties": false, "required": ["status"],
           "properties": { "status": { "enum": ["missing", "unavailable", "limit-exceeded", "unrecognized", "invalid"] } }
@@ -238,6 +266,54 @@
               "properties": {
                 "stopReason": { "type": "string", "minLength": 1, "maxLength": 64 },
                 "nativeSessionStopped": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "archivedApiFollow": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "status", "requestedOrdinal", "failedOrdinal", "lastVerifiedOrdinal", "lastSourceSequence"],
+          "properties": {
+            "kind": { "const": "api-archive-follow" },
+            "status": { "enum": ["legacy-unpublished", "pending", "missing", "unavailable", "limit-exceeded", "invalid"] },
+            "requestedOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "failedOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "lastVerifiedOrdinal": { "$ref": "#/$defs/u64" },
+            "lastSourceSequence": { "$ref": "#/$defs/u64" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "status", "checkpoint", "segmentOrdinal", "checkedBytes", "blockOrdinal", "planRawSequence", "lastSequence", "sha256", "previousSourceSequence", "lastSourceSequence", "finalSegment", "sourceCoverage", "terminal"],
+          "if": { "properties": { "finalSegment": { "const": true } } },
+          "then": { "properties": { "terminal": { "type": "object" } } },
+          "else": { "properties": { "terminal": { "type": "null" } } },
+          "properties": {
+            "kind": { "const": "api-archive-follow" },
+            "status": { "const": "readback-verified" },
+            "checkpoint": { "const": "verified" },
+            "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "checkedBytes": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "blockOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "planRawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "lastSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "previousSourceSequence": { "$ref": "#/$defs/u64" },
+            "lastSourceSequence": { "$ref": "#/$defs/u64" },
+            "finalSegment": { "type": "boolean" },
+            "sourceCoverage": { "const": "unknown" },
+            "terminal": {
+              "type": ["object", "null"], "additionalProperties": false,
+              "required": ["stopReason", "sourceState", "sourceCutoffReached", "partialLineBytes"],
+              "properties": {
+                "stopReason": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "sourceState": { "$ref": "#/$defs/apiArchiveSource/properties/state" },
+                "sourceCutoffReached": { "type": "boolean" },
+                "partialLineBytes": { "$ref": "#/$defs/u64" }
               }
             }
           }

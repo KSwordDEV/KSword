@@ -4,6 +4,7 @@
 #include "Controller.h"
 #include "../Archive/SegmentInspection.h"
 #include "../Detection/ArchivedEvidenceGraph.h"
+#include "../Detection/EvidenceRelationTree.h"
 #include "../Project/ProjectStorage.h"
 
 #include <algorithm>
@@ -29,7 +30,8 @@ constexpr ProjectCommand kMethods[] = {
     {M::Save, "project.save", "project save", "TITLE [NOTES] | settings EXPECTED_REVISION QUOTED_JSON",
         "Save the project settings against its current revision.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
-    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]", "Read a sample and its frozen project settings.", false},
+    {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]",
+        "Read frozen settings and optionally verify an ETW or passive API archive segment.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
     {M::InspectArchive, "archive.inspect", "archive inspect",
         "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET | graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]]",
@@ -277,17 +279,31 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
     for (std::size_t index = 0; index < page.records.size(); ++index) {
         rows.push_back(GraphObservationJson(page.graph.observations[index], page.records[index]));
     }
+    const auto tree = Detection::ProjectEvidenceRelationTree(page.graph); // 本页只含候选和上下文观察。
+    JsonArray candidates;
+    for (const auto& candidate : tree.unresolvedCandidates) {
+        candidates.push_back(Number(page.records[candidate.observation].recordSequence));
+    }
+    JsonArray context;
+    for (const auto index : tree.contextObservations) {
+        context.push_back(Number(page.records[index].recordSequence));
+    }
 
-    const bool etw = page.source == Detection::ArchivedGraphSource::CommittedEtw; // 来源已由归档内容判断。
+    const bool etw = page.source == Detection::ArchivedGraphSource::CommittedEtw; // ETW 段通过双流核验。
+    const bool apiFollow = page.source == Detection::ArchivedGraphSource::CommittedApiFollow; // 跟随段通过连续 raw 检查点核验。
+    const auto finalSegment = etw ? page.etwFinalSegment : page.apiFinalSegment; // 旧导入没有连续段终态。
     auto result = Object({{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
         {"sampleId", Text(page.graph.scope.sampleId)}, {"generation", Number(document.Info()->generation)},
         {"stream", Text("raw")}, {"ordinal", Number(page.segmentOrdinal)}, {"descriptionHash", Text(page.descriptionHash)},
-        {"archiveSource", Text(etw ? "etw-checkpoint" : "api-import")}, {"sourceCoverage", Text("unknown")},
+        {"archiveSource", Text(etw ? "etw-checkpoint" : apiFollow ? "api-follow-checkpoint" : "api-import")},
+        {"sourceCoverage", Text("unknown")},
         {"machineId", V::makeNull()}, {"bootId", V::makeNull()},
         {"prefix", Object({{"sha256", Text(page.sha256)}, {"endOffset", Number(page.end.byteOffset)},
             {"lastBlockOrdinal", Number(page.end.blockOrdinal)}, {"lastSequence", Number(page.end.lastSequence)}})},
-        {"finalSegment", page.etwFinalSegment ? V::makeBool(*page.etwFinalSegment) : V::makeNull()},
+        {"finalSegment", finalSegment ? V::makeBool(*finalSegment) : V::makeNull()},
         {"observationCount", Number(page.observationCount)}, {"nextAfterSequence", OptionalNumber(page.nextAfterSequence)},
+        {"tree", Object({{"unresolvedCandidates", V::makeArray(std::move(candidates))},
+            {"contextObservations", V::makeArray(std::move(context))}})},
         {"nodes", V::makeArray({})}, {"relations", V::makeArray({})}, {"observations", V::makeArray(std::move(rows))}});
     if (WriteJson(result).size() > kResultBytes) {
         return {{}, {}, {"response-too-large", "Archive graph page exceeds the response budget", {}, 6}};

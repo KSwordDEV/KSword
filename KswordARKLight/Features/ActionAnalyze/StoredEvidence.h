@@ -11,6 +11,11 @@
 #include <string>
 #include <vector>
 
+namespace ks::cli::action_analyze::archive {
+struct BlockInfo;
+struct RawRecordV1;
+}
+
 namespace Ksword::Features::ActionAnalyze {
 
 struct SegmentIdentity {
@@ -62,8 +67,9 @@ struct SegmentEvidence {
     std::size_t records = 0;
     std::size_t opaqueOptionalRecords = 0;
     std::size_t opaqueRequiredRecords = 0;
-    std::uint64_t apiClues = 0; // 仅完整通过导入尾记时提供总数。
+    std::uint64_t apiClues = 0; // 已验导入尾记或已提交连续前缀内的线索总数。
     bool continuousEtwPlan = false; // 首条记录声明持续采集，项目回放须等待检查点。
+    std::optional<bool> apiFollowRequiresCheckpoint; // 只在识别首条 API 跟随计划时有值。
     std::string diagnostic;
     std::uint32_t systemError = 0;
     std::wstring fileIdentity;
@@ -72,17 +78,23 @@ struct SegmentEvidence {
 
 inline constexpr std::size_t kEvidenceRows = 4096;
 inline constexpr std::uint64_t kEvidenceScanBytes = 64ULL * 1024 * 1024;
+enum class StoredReadMode { Default, KeepLatest, LegacyProject }; // 项目旧档回退遇到 API 跟随计划时停止投影。
 
 // The caller supplies one immutable byte extent and an exact sequential reader.
 // Return a nonzero native error if the span cannot be filled.
 using ReadExact = std::function<std::uint32_t(std::span<std::uint8_t>)>;
 SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read,
-    const SegmentIdentity* expected = nullptr, bool keepLatest = false);
+    const SegmentIdentity* expected = nullptr, StoredReadMode mode = StoredReadMode::Default);
 
 SegmentEvidence OpenStoredEvidence(const std::wstring& path);
 
 // 读取调用方持有的同步只读句柄。可选端点限定本次投影，fileBytes 仍表示物理长度。
 SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
-    const SegmentIdentity* expected = nullptr, bool keepLatest = false);
+    const SegmentIdentity* expected = nullptr, StoredReadMode mode = StoredReadMode::Default);
+
+// 在共享 API 检查点回调内构造暂存行。整段成功后才能发布。
+EvidenceRecord PreviewCommittedApiRecord(const ks::cli::action_analyze::archive::BlockInfo& block,
+    const ks::cli::action_analyze::archive::DecodedRecord& record,
+    const ks::cli::action_analyze::archive::RawRecordV1& raw, std::uint64_t segmentOrdinal);
 
 } // namespace Ksword::Features::ActionAnalyze

@@ -271,7 +271,7 @@ R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项�
 | `project.close` | `projectId` | `project close` | `projectId`、`closed:true` |
 | `sample.create` | `projectId`、`expectedRevisionId`、`title` | `sample create TITLE` | 采样详情 |
 | `sample.list` | `projectId`，可选 `generation`、`start`、`limit` | `sample list [START GENERATION [LIMIT]]` | `projectId`、`generation`、`start`、`sampleCount`、`nextStart`、`samples` |
-| `sample.query` | `projectId`、`sampleId`，可选布尔值 `includeCapture` | `sample status SAMPLE_ID [capture]` | 采样详情，可按需回读 ETW 采集摘要 |
+| `sample.query` | `projectId`、`sampleId`，可选布尔值 `includeCapture`，启用时可选 `captureOrdinal` | `sample status SAMPLE_ID [capture [ORDINAL]]` | 采样详情，可按需核验 ETW 或被动 API 跟随归档 |
 
 `settings` 包含 `title` 和 `notes`。标题为 1–1024 个 UTF-8 字节。备注最多 64 KiB，可以为空，允许制表符和 LF。项目、修订及采样身份使用规范小写 UUID。`project.save` 与 `sample.create` 在写入前核对项目身份和已保存修订。身份不符返回 `project-id-mismatch`，修订过期返回 `stale-revision`。只读打开后写入返回 `project-read-only`。关闭当前项目、重新打开后使用新请求 ID 查询新快照。
 
@@ -289,6 +289,8 @@ project save settings 20000000-0000-4000-8000-000000000001 "{""title"":""调查�
 
 `sample status SAMPLE_ID capture` 或 `sample.query` 的 `"includeCapture": true` 会从同一采样的首个 Stored 原始段读取 `captureArchive`。`readback-verified` 提供校验字节范围、观察条数、目标与来源摘要，以及归档中的停止原因和原生清退标志。段须通过项目、采样与配置身份、记录顺序、校验和、来源一致性及结束计数检查。读取上限为 4 MiB。`missing` 表示段未生成或找不到，`unavailable` 表示文件不可读，`limit-exceeded` 表示段超过限额，`unrecognized` 表示首条记录使用其它格式，`invalid` 表示内容或身份核对失败。采样顶层 `status` 保留创建描述。历史查询只读归档，当前活会话用 `session.query` 查询。重试读取使用新的请求 ID。
 
+被动 API 跟随档的 `captureArchive.kind` 为 `api-archive-follow`。查询指定段时从首段开始连续核验，每次最多 128 段，每段最多 512 KiB。成功返回本段的 Stored 坐标、SHA-256、源行范围和本端终段回执。源行范围的下界 `previousSourceSequence` 为排他端点，`lastSourceSequence` 为包含端点，两者相等表示本段没有原包。`pending` 表示所需检查点尚未找到，`invalid` 表示标记或已提交端点内的内容核验失败，两种情况都携带最后连续核验的段号。无提交标记的旧跟随档报告 `legacy-unpublished`。`archive.inspect` 仍可检查原始段的封装及标记端点以外的字节。历史查询直接读项目归档，源覆盖保持 `unknown`。[API 跟随检查点](../schemas/action_analyze/api-archive-checkpoint.schema.json)
+
 历史采样有终态检查点时，`captureArchive.checkpoint=verified` 表示两个流的 SHA-256 及精确前缀端点已复核。端点之后的尾部留给恢复流程。检查点或引用缺失时，已有检查点的采样会返回 `captureArchive.status=invalid` 及 `checkpoint=invalid`。旧项目和未发布检查点的采样仍可读取完整原始段，回执省略 `checkpoint` 字段。
 
 #### 归档段封装检查
@@ -303,7 +305,7 @@ project save settings 20000000-0000-4000-8000-000000000001 "{""title"":""调查�
 
 打开项目后，用 `archive inspect SAMPLE_ID raw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]` 读取指定段的一页证据。JSONL 使用 `archive.inspect`，参数为 `projectId`、`sampleId`、`stream:"raw"`、`ordinal` 和 `view:"graph"`。`limit` 是可选整数，范围 1–100，默认 100。`afterSequence` 默认 `"0"`。翻页时保留同一采样与段号，将 `nextAfterSequence` 和 `prefix.sha256` 分别传为 `afterSequence` 和 `expectedSha256`，并使用新的请求 ID。`nextAfterSequence:null` 表示本段没有剩余观察。前缀散列变化返回 `stale-revision`。图视图的读取端点由归档校验确定。
 
-当前支持通过段尾计数校验的 API 导入段和通过双流检查点校验的 ETW 段。`prefix` 标明本页对应的已核验字节端点、末块、末序号和 SHA-256。每条 `observations[]` 保留来源标识、代次、原生序号及 `raw` 坐标。`recordOffset` 和 `inlineOffset` 分别指向记录头与内联数据。`headerPid` 和 `headerTid` 是来源报头中的提示字段。实例、执行和 `finding` 为 `null`，`nodes` 与 `relations` 为空，`sourceCoverage` 为 `unknown`。`observationCount` 统计本段核验范围内的全部来源观察。损坏或缺失证据返回请求错误。[方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
+支持通过段尾计数校验的 API 导入段、通过连续检查点校验的被动 API 跟随段，以及通过双流检查点校验的 ETW 段。被动跟随读取从第 1 段校验至请求段，最多 128 段。`archiveSource` 为 `api-follow-checkpoint` 时，`finalSegment` 标记当前段是否为终段。`prefix` 标明已核验字节端点、末块、末序号和 SHA-256。每条 `observations[]` 保留来源标识、代次、原生序号及 `raw` 坐标。`recordOffset` 和 `inlineOffset` 分别指向记录头与内联数据。`tree.unresolvedCandidates` 与 `tree.contextObservations` 保存本页候选和上下文各自的 `raw.recordSequence`。`headerPid` 和 `headerTid` 是来源报头提示。实例、执行和 `finding` 为 `null`，`nodes` 与 `relations` 为空，`sourceCoverage` 为 `unknown`。`observationCount` 统计本段核验范围内的全部来源观察。损坏或缺失证据返回请求错误。[方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
 
 ### `log`
 

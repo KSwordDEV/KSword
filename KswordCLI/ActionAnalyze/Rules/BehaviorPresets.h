@@ -22,6 +22,7 @@ struct ApiPresetMatch {
 };
 
 enum class ApiPresetError { None, InvalidInput, InvalidPreset };
+enum class ApiPresetProfile { Grouped, ByCategory }; // 兼容汇总或细分到五类单事件线索。
 
 struct ApiPresetReport {
     ApiPresetError error = ApiPresetError::None;
@@ -30,9 +31,9 @@ struct ApiPresetReport {
     std::vector<ApiPresetMatch> matches;
 };
 
-// 仅归类单条已归档观测。两组预置分别对应内存操作 API 与线程控制 API。
-// 按原始输入顺序返回证据，保留明确的窗口计数，坏输入不会发布部分命中。
+// 仅归类单条已归档观测。默认按内存操作和线程控制汇总，也可按线索类别细分。
+// 每条线索保留原始输入顺序及两套序号，坏输入不会发布部分命中。
 ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation> rows,
-    std::uint64_t importedRows);
+    std::uint64_t importedRows, ApiPresetProfile profile = ApiPresetProfile::Grouped);
 
 } // namespace Ksword::ActionAnalyze::Rules

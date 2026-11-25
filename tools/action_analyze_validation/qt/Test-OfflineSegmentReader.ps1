@@ -45,6 +45,7 @@ $sources = @(
     'KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectLock.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp',

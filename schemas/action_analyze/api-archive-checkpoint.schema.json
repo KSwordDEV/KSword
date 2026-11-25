@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/api-archive-checkpoint.schema.json",
+  "title": "Passive API archive raw checkpoint v1",
+  "$comment": "Publish after successful raw flush, close and same-handle prefix readback. The filename generation is the raw ordinal. The runtime checks project and sample identity, prefix digest and endpoint, the previous raw digest, both sequence domains, the frozen plan and terminal counts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "generation", "projectId", "sampleId", "descriptionHash", "raw", "previousRawSha256", "planRawSequence", "previousSourceSequence", "lastSourceSequence", "finalSegment"],
+  "if": { "properties": { "generation": { "const": "1" } } },
+  "then": { "properties": { "previousRawSha256": { "type": "null" }, "planRawSequence": { "const": "1" }, "previousSourceSequence": { "const": "0" } } },
+  "else": { "properties": { "previousRawSha256": { "$ref": "#/$defs/hash" } } },
+  "properties": {
+    "kind": { "const": "api-archive-checkpoint-v1" },
+    "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+    "projectId": { "$ref": "live-etw-session.schema.json#/$defs/uuid" },
+    "sampleId": { "$ref": "live-etw-session.schema.json#/$defs/uuid" },
+    "descriptionHash": { "$ref": "#/$defs/hash" },
+    "raw": { "$ref": "#/$defs/prefix" },
+    "previousRawSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/hash" }] },
+    "planRawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+    "previousSourceSequence": { "$ref": "value.schema.json#/$defs/u64" },
+    "lastSourceSequence": { "$ref": "value.schema.json#/$defs/u64" },
+    "finalSegment": { "type": "boolean" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])" },
+    "prefix": {
+      "type": "object", "additionalProperties": false,
+      "required": ["block", "endOffset", "lastSequence", "sha256"],
+      "properties": {
+        "block": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "endOffset": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "lastSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "sha256": { "$ref": "#/$defs/hash" }
+      }
+    }
+  }
+}

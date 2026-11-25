@@ -115,6 +115,7 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
 {
     m_reading = false;
     m_latestEnd = result.end;
+    m_latestLegacyApi = result.checkpoint == SegmentCheckpoint::ApiLegacyUnpublished;
     m_latestOffset = result.failureOffset;
     m_latestVerifiedOrdinal = result.lastVerifiedOrdinal;
     m_latestFailedOrdinal = result.failedOrdinal;

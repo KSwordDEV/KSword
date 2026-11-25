@@ -55,9 +55,13 @@ The fixture has its own `main` and is compiled by the command above. CLI registr
 
 Qt 入口为「监控 → 行为分析 → 行为规则」。草稿的 `step.predicate` 与 `anchor.predicate` 接受表达式字符串，旧布尔和字段测试对象仍可用。「校验规则」检查完整树，「回放合成事件」将它交给同一三值解释器。错误显示 JSON 路径及解码后谓词内的 UTF-8 字节坐标。
 
-`predicate-expr-v1` 支持 `!`、`&&`、`||`、括号、布尔字段、`字段 比较符 字面量`、`isNull`、`isComplete` 和 `Text.Contains/StartsWith/EndsWith/Equals`。数值是带 `u64` 后缀的十进制或 `0x` 十六进制。普通和逐字字符串按 UTF-8 保存。否定字段比较写为 `!(field == 42u64)`。显式目录绑定允许调用端检查阶段和类型。后续语法扩展需新增语义版本及测试向量。
+`predicate-expr-v1` 支持 `!`、`&&`、`||`、括号、布尔字段、`字段 比较符 字面量`、`isNull`、`isComplete` 和 `Text.Contains/StartsWith/EndsWith/Equals`。数值是带 `u64` 后缀的十进制或 `0x` 十六进制。普通和逐字字符串按 UTF-8 保存。否定字段比较写为 `!(field == 42u64)`。显式目录绑定允许调用端检查阶段和类型。
+
+`predicate-expr-v2` 支持 `isKnown(field)` 与 `quality(field) == "truncated"`、`quality(field) != "redacted"` 等状态比较。`isKnown` 只匹配 `known`，已知空值使用 `isNull`，未投影字段报告 `notCollected`。普通值比较继续按三值逻辑求值。定位未登记状态时使用表达式内的 UTF-8 字节范围。
 
 「运行归档预置」读取显式选择的 API Monitor 导入 `raw/1` `.ksaseg`，验证 Stored 正文、原包分类与导入尾记，分析最近 4,096 条线索。`ksword.api.memory-operation-observed.v1` 汇集内存写入和节映射 API，`ksword.api.thread-control-observed.v1` 汇集线程创建、线程上下文和 APC API。回执含项目、采样、段内序号、原始行号和导出名。目标身份、调用效果及源覆盖保持未知。损坏、尾记缺失、其它来源和配额失败保留上次结果及当前草稿。
+
+`AnalyzeArchivedApiPresets` 的可选 `ApiPresetProfile::ByCategory` 在规则层提供上述五个类别各自的预置 ID，沿用原始坐标和窗口上限。桌面入口仍使用默认的两组汇总。
 
 ### 独立夹具
 
@@ -100,7 +104,11 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 exit $LASTEXITCODE
 ```
 
-2026-11-25 使用 BelowNormal 和 MSVC 14.44 HostX64 运行，得到 `ActionAnalyze rule expression: 113 checks, 0 failures`。夹具写入和只读重开两个真实 Stored 文件，验证原包与两种序号。缺尾记的文件通过 Stored 封装验证，归档语义门禁拒绝将其交给预置。夹具 EXE 的 SHA-256 为 `455D717B9515F3A6471899DD01998B0A6A7B4CF30231297175CC2DA9994A108B`。已核对进程退出和 Git 跟踪状态，清理本次中间文件、两个段及 EXE。规则页通过 HostX64 `/Zs` 源码检查以及语言包和主题门禁。正式 Qt 构建和真实窗口验收独立进行。
+2026-11-25 使用 BelowNormal 和 MSVC 14.44 HostX64 运行 v1 基线，得到 `ActionAnalyze rule expression: 113 checks, 0 failures`。夹具写入和只读重开两个真实 Stored 文件，验证原包与两种序号。缺尾记的文件通过 Stored 封装验证，归档语义门禁拒绝将其交给预置。夹具 EXE 的 SHA-256 为 `455D717B9515F3A6471899DD01998B0A6A7B4CF30231297175CC2DA9994A108B`。已核对进程退出和 Git 跟踪状态，清理本次中间文件、两个段及 EXE。规则页通过 HostX64 `/Zs` 源码检查以及语言包和主题门禁。正式 Qt 构建和真实窗口验收独立进行。
+
+本次给上述执行命令追加 `--offline-evidence-only`，在同一 HostX64 工具链下通过 **58 项局部断言**，包括质量条件、窗口 Replay、五类预置及 Stored 段原始坐标。范围限于规则和归档验证。夹具 EXE 的 SHA-256 为 `5A0555C002E192CEC5586F7B2A142E5FB4CB82013F9B0457262933DA2A19F5F9`，固定中间文件、测试段和夹具 EXE 已清理。
+
+2026-11-25 正式 Qt 在独立桌面通过「监控 → 行为分析 → 行为规则」验收。`运行归档预置` 对采样 `9c95b560-781d-486f-9d6a-d585f6ac559a` 显示两组汇总、五类各一条和五个原始坐标，截断重试与未保存草稿保留通过。入口沿用 `ParameterWorkspace` 和 `CodeEditorWidget`。窗口退出 `0`，配置恢复，固定夹具删除。HostX64 构建日志为 `.codex-build-logs/ksword-build-check-20261125-074133.raw.log`，Qt SHA-256 为 `1fdb0e556422f7f6105efecd7435c17ec64581a7321ff43ac4c675449ad5b459`。复跑命令为 `python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/rules_preview.py`。本次窗口使用浅色主题，窄窗、高 DPI、背景模式和深色视觉验收仍待覆盖。
 
 ### 协调登记与验收
 

@@ -1,4 +1,5 @@
 #include "../ProjectReplay.h"
+#include "../../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectRawEvidence.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 
@@ -115,6 +117,165 @@ void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& 
             Failure(Project::ProjectError::IoError, "fixtureApiAppend");
     }}, raw);
     Check(written && raw.flushed.has_value(), "write fixture API import");
+}
+
+// 使用生产写入器和检查点发布器生成固定的离线原包，无实际 API 操作。
+void WriteFollowSegment(Project::ProjectDocument& project, const Project::SampleInfo& sample,
+    std::uint64_t ordinal, const Project::ProjectApiCheckpoint* previous, bool terminal, bool legacy,
+    Project::ProjectApiCheckpoint* published) {
+    using namespace Ksword::Evidence;
+    namespace Monitor = ks::winapi_monitor;
+    Project::SampleRecord checked;
+    Check(static_cast<bool>(project.ReadSample(sample.sampleId, checked)), "read frozen API follow sample");
+    JsonObject planFields{{"kind", Text(Project::kApiFollowPlanKind)}, {"identity", Text("archive-consistency-only")},
+        {"projectId", Text(project.Info()->projectId)}, {"revisionId", Text(sample.revisionId)}, {"snapshotId", Text(sample.snapshotId)},
+        {"revisionHash", Text(checked.revisionHash)}, {"configSemanticHash", Text(checked.configSemanticHash)},
+        {"sourceEpoch", Text(kSourceEpoch)}, {"session", Object({{"id", Text(sample.sampleId)}, {"epoch", Text(kSourceEpoch)}})},
+        {"file", Object({{"fileId", Text("123456789abc4def8123456789abcdef")}, {"volumeSerial", Number(9)}, {"initialVisibleBytes", Number(0)}})},
+        {"durationMs", JsonValue::makeUInt(0)}, {"readerPid", JsonValue::makeUInt(100)},
+        {"readerCreation100ns", Number(101)}, {"sessionIdentity", Number(1)}};
+    if (!legacy) planFields.emplace_back("checkpointRequired", JsonValue::makeBool(true));
+    const auto plan = WriteJson(Object(std::move(planFields)));
+
+    Monitor::ApiMonitorEventPacket packet{};
+    packet.size = sizeof(packet);
+    packet.version = Monitor::kProtocolVersion;
+    packet.eventKind = static_cast<std::uint32_t>(Monitor::EventKind::ApiCall);
+    packet.category = static_cast<std::uint32_t>(Monitor::EventCategory::Memory);
+    packet.pid = 100;
+    packet.tid = 200;
+    packet.sessionIdentity = 1;
+    wcscpy_s(packet.moduleName, L"kernelbase.dll");
+    wcscpy_s(packet.apiName, L"WriteProcessMemory");
+    const std::string_view bytes(reinterpret_cast<const char*>(&packet), sizeof(packet));
+    auto unclassified = packet;
+    wcscpy_s(unclassified.apiName, L"ReadProcessMemory");
+    const std::string_view unclassifiedBytes(reinterpret_cast<const char*>(&unclassified), sizeof(unclassified));
+    const auto previousSource = previous ? previous->lastSourceSequence : 0;
+    const std::size_t count = terminal ? 2 : 256;
+    std::vector<std::string> packetMetadata;
+    packetMetadata.reserve(count);
+    std::vector<Archive::RawEvidenceInput> input{{plan, {}}};
+    for (std::size_t index = 0; index < count; ++index) {
+        packetMetadata.push_back(WriteJson(Object({{"kind", Text(Project::kApiFollowPacketKind)},
+            {"sourceSequence", Number(previousSource + index + 1)}, {"readerCreation100ns", Number(101)}})));
+        input.push_back({packetMetadata.back(), terminal && index == 1 ? unclassifiedBytes : bytes});
+    }
+    const auto end = WriteJson(Object({{"kind", Text(Project::kApiFollowEndKind)}, {"stopReason", Text("fixture")},
+        {"source", Object({{"kind", Text("passive-api-archive")}, {"identity", Text("archive-consistency-only")},
+            {"coverage", Text("unknown")}, {"writerReceipt", JsonValue::makeNull()},
+            {"readerPid", JsonValue::makeUInt(100)}, {"readerCreation100ns", Number(101)}, {"sessionIdentity", Number(1)},
+            {"validatedRows", Number(previousSource + count)}, {"state", Text("cutoff")},
+            {"cutoffReached", JsonValue::makeBool(true)}, {"partialLineBytes", Number(0)}})}}));
+    if (terminal) input.push_back({end, {}});
+
+    Archive::RawEvidenceReceipt raw;
+    const auto written = project.WriteRawEvidenceSegment({project.Info()->projectId, sample.sampleId, ordinal,
+        previous ? previous->rawEnd.lastSequence : 0, [&](auto& writer) {
+            return writer.Append(input).result.status == Archive::SegmentWriteStatus::Ok ? Project::ProjectResult{} :
+                Failure(Project::ProjectError::IoError, "fixtureFollowAppend");
+        }}, raw);
+    Check(written && raw.flushed.has_value(), "write fixture API follow segment");
+    if (published) {
+        Check(static_cast<bool>(Project::PublishApiCheckpoint(project, sample.sampleId, ordinal, raw, input, previous, *published)),
+            "publish fixture API follow checkpoint");
+    }
+}
+
+void VerifyApiFollowReplay(Project::ProjectDocument& writer, const fs::path& root, const std::wstring& manifest) {
+    Project::SampleInfo sample, legacy, pending;
+    Check(writer.Open(manifest, Project::ProjectAccess::ReadWrite) && writer.CreateSample("API follow", sample) &&
+        writer.CreateSample("old API follow", legacy) && writer.CreateSample("pending API follow", pending), "register API follow fixtures");
+    const auto projectId = writer.Info()->projectId;
+    WriteFollowSegment(writer, legacy, 1, nullptr, true, true, nullptr);
+    WriteFollowSegment(writer, pending, 1, nullptr, true, false, nullptr);
+    Project::ProjectApiCheckpoint committed;
+    for (std::uint64_t ordinal = 1; ordinal <= 17; ++ordinal) {
+        WriteFollowSegment(writer, sample, ordinal, committed.ordinal ? &committed : nullptr, ordinal == 17, false, &committed);
+    }
+    writer.Close();
+
+    const Light::ProjectReplayRequest request{manifest, projectId, sample.sampleId, sample.descriptionHash};
+    const Light::ProjectReplayRequest legacyRequest{manifest, projectId, legacy.sampleId, legacy.descriptionHash};
+    const Light::ProjectReplayRequest pendingRequest{manifest, projectId, pending.sampleId, pending.descriptionHash};
+    for (const auto mode : {Light::ProjectReplayMode::Explicit, Light::ProjectReplayMode::SelectionPreview}) {
+        const auto legacyResult = Light::ReadProjectReplay(legacyRequest, mode);
+        Check(legacyResult.checkpoint.kind == Light::ReplayCheckpointKind::PassiveApi &&
+            legacyResult.checkpoint.state == Light::CheckpointState::NotPublished && !legacyResult.raw.identity &&
+            legacyResult.raw.rows.empty(), "legacy API follow has no published records");
+        const auto pendingResult = Light::ReadProjectReplay(pendingRequest, mode);
+        Check(pendingResult.checkpoint.kind == Light::ReplayCheckpointKind::PassiveApi &&
+            pendingResult.checkpoint.state == Light::CheckpointState::Pending && pendingResult.checkpoint.pendingOrdinal == 1 &&
+            !pendingResult.raw.identity && pendingResult.raw.rows.empty(), "unpublished API first segment stays hidden");
+    }
+
+    const auto preview = Light::ReadProjectReplay(request, Light::ProjectReplayMode::SelectionPreview);
+    Check(preview.checkpoint.kind == Light::ReplayCheckpointKind::PassiveApi && preview.checkpoint.state == Light::CheckpointState::PreviewLimited &&
+        preview.checkpoint.lastVerifiedOrdinal == 1 && preview.raw.rows.size() == 257 && preview.raw.apiClues == 256,
+        "API selection preview stops at the first checkpoint");
+    const auto& clue = preview.raw.rows[1];
+    Check(clue.segmentOrdinal == 1 && clue.blockOrdinal == 1 && clue.sequence == 2 && clue.offset > Archive::kSegmentHeaderBytes &&
+        clue.apiFamily == L"memory-write" && clue.headerPid == std::uint32_t{100} && clue.headerTid == std::uint32_t{200} &&
+        !clue.eventOrdinal && !clue.targetObjectId && clue.preview.find(L"源归档行号：1\r\n") != std::wstring::npos,
+        "API packet uses verified segment coordinates and source line");
+
+    const auto base = root / L"samples" / WideAscii(sample.sampleId);
+    const auto checkLegacyGate = [&](const Project::SampleInfo& fixture, bool requiresCheckpoint) {
+        const auto path = root / L"samples" / WideAscii(fixture.sampleId) / L"raw" / kSegment;
+        Storage::Handle file(::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        Check(file.get() != INVALID_HANDLE_VALUE, "open fixture at the legacy project fallback boundary");
+        const Light::SegmentIdentity expected{projectId, fixture.sampleId, static_cast<std::uint32_t>(Archive::StreamKind::Raw), 1};
+        const auto gated = Light::ReadOpenStoredEvidence(file.get(), std::nullopt, &expected, Light::StoredReadMode::LegacyProject);
+        Check(gated.apiFollowRequiresCheckpoint == requiresCheckpoint && gated.rows.empty() && gated.blocks == 0 &&
+            gated.framedBytes == Archive::kSegmentHeaderBytes, "legacy fallback stops at an API follow plan before projecting its block");
+    };
+    checkLegacyGate(legacy, false);
+    checkLegacyGate(pending, true);
+    const auto first = ReadBytes(base / L"raw" / kSegment);
+    constexpr auto sequenceOffset = 16; // Stored v1 记录头内的归档序号字段。
+    Check(clue.offset + sequenceOffset + 8 <= first.size() &&
+        first.compare(static_cast<std::size_t>(clue.offset) + sequenceOffset, 8, "\x02\0\0\0\0\0\0\0", 8) == 0,
+        "API record offset resolves directly to the archived sequence");
+    const auto terminalPath = base / L"raw" / L"00000000000000000017.ksaseg";
+    const auto terminal = ReadBytes(terminalPath);
+    WriteBytes(terminalPath, terminal + "unpublished tail");
+    const auto full = Light::ReadProjectReplay(request);
+    Check(full.checkpoint.state == Light::CheckpointState::Verified && full.checkpoint.lastVerifiedOrdinal == 17 &&
+        full.checkpoint.recordsEnd == 0 && full.checkpoint.rawEnd == committed.rawEnd.byteOffset &&
+        full.raw.decodedPrefixBytes == committed.rawEnd.byteOffset && full.raw.fileBytes > full.raw.decodedPrefixBytes &&
+        full.raw.apiClues == 4097 && full.raw.rows.size() == Light::kEvidenceRows &&
+        full.raw.rows.front().sequence == committed.rawEnd.lastSequence - Light::kEvidenceRows + 1 &&
+        full.raw.rows.back().segmentOrdinal == 17 && full.raw.rows.back().sequence == committed.rawEnd.lastSequence,
+        "API explicit replay keeps recent window and excludes appended tail");
+    const auto& unclassified = full.raw.rows[full.raw.rows.size() - 2];
+    Check(unclassified.segmentOrdinal == 17 && unclassified.sequence == committed.rawEnd.lastSequence - 1 &&
+        unclassified.apiFamily.empty() && unclassified.apiClue.empty() &&
+        unclassified.preview.find(L"内联原始字节（1000 字节）") != std::wstring::npos,
+        "verified unclassified packet stays in the raw replay");
+    Check(ReadBytes(terminalPath) == terminal + "unpublished tail", "API replay leaves authorized raw bytes untouched");
+
+    const auto markerPath = base / L"checkpoints" / L"00000000000000000017.json";
+    const auto marker = ReadBytes(markerPath);
+    auto changed = marker;
+    const auto hash = changed.find(committed.rawSha256);
+    Check(hash != std::string::npos, "terminal marker has raw hash");
+    changed.replace(hash, 64, std::string(64, '0'));
+    WriteBytes(markerPath, changed);
+    const auto rejected = Light::ReadProjectReplay(request);
+    Check(rejected.checkpoint.state == Light::CheckpointState::Partial && rejected.checkpoint.lastVerifiedOrdinal == 16 &&
+        rejected.checkpoint.pendingOrdinal == 17 && rejected.raw.rows.size() == Light::kEvidenceRows &&
+        rejected.raw.rows.back().segmentOrdinal == 16 && rejected.raw.apiClues == 4096,
+        "changed digest discards rows staged by the visitor before digest verification");
+    Check(fs::remove(markerPath), "remove fixture terminal API marker");
+    const auto wait = Light::ReadProjectReplay(request);
+    Check(wait.checkpoint.state == Light::CheckpointState::Pending && wait.checkpoint.pendingOrdinal == 17 &&
+        wait.raw.rows.size() == Light::kEvidenceRows && wait.raw.rows.back().segmentOrdinal == 16,
+        "missing marker keeps only preceding API segments");
+    WriteBytes(markerPath, marker);
+    WriteBytes(terminalPath, terminal.substr(0, terminal.size() - 1));
+    Check(Light::ReadProjectReplay(request).checkpoint.lastVerifiedOrdinal == 16, "truncated API raw keeps previous checkpoint");
+    WriteBytes(terminalPath, terminal);
+    Check(Light::ReadProjectReplay(request).checkpoint.state == Light::CheckpointState::Verified, "restored API terminal replays");
 }
 
 // 在不会覆盖已有输出的固定项目目录，验证 Light 同一生产入口的成功与失败情形。
@@ -265,6 +426,7 @@ void Run(const fs::path& folder) {
     const auto brokenApi = Light::ReadProjectReplay(apiRequest, previewMode);
     Check(brokenApi.raw.rows.empty() && brokenApi.raw.apiClues == 0 && !brokenApi.raw.diagnostic.empty(),
         "incomplete API import does not publish classifications");
+    VerifyApiFollowReplay(writer, root, manifest);
 }
 
 } // namespace
@@ -283,5 +445,5 @@ void VerifyProjectReplay(const std::filesystem::path& testOutput) {
         throw;
     }
     Check(fs::remove_all(folder) > 0 && !fs::exists(folder), "clean fixture output");
-    std::cout << "PASS Light project replay: creation, preview bounds, API families, checked streams, identity and retry\n";
+    std::cout << "PASS Light project replay: creation, preview bounds, API families and follow checkpoints, checked streams, identity and retry\n";
 }

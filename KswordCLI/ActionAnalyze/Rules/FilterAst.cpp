@@ -82,15 +82,20 @@ bool IsNullLiteral(const Literal& literal)
 
 PrepareError CheckTest(const FieldTest& test, FieldType type)
 {
-    // 只接受与目录类型一致的字面量，质量测试无需字面量。
+    // 只接受与目录类型一致的字面量，质量比较使用独立枚举。
     const bool numeric = std::holds_alternative<std::uint64_t>(test.literal);
     const bool boolean = std::holds_alternative<bool>(test.literal);
     const bool text = std::holds_alternative<std::string>(test.literal);
     bool compatible = false;
     switch (test.op) {
-    case FieldOp::IsNull: case FieldOp::IsComplete:
+    case FieldOp::IsNull: case FieldOp::IsComplete: case FieldOp::IsKnown:
         compatible = IsNullLiteral(test.literal);
         break;
+    case FieldOp::QualityEqual: case FieldOp::QualityNotEqual: {
+        const auto* quality = std::get_if<Quality>(&test.literal); // 结构化谓词也须通过闭集检查。
+        compatible = quality && *quality >= Quality::Known && *quality <= Quality::Redacted;
+        break;
+    }
     case FieldOp::Equal: case FieldOp::NotEqual:
         compatible = IsNullLiteral(test.literal) || (numeric && type == FieldType::U64) ||
                      (boolean && type == FieldType::Bool) || (text && type == FieldType::Text);
@@ -230,6 +235,13 @@ private:
         // 质量和 null 测试只读取投影元数据，不扫描原值。
         const bool known = field.quality == Quality::Known;
         const bool isNull = field.quality == Quality::Null;
+        if (test.op == FieldOp::IsKnown) {
+            return AsTruth(known);
+        }
+        if (test.op == FieldOp::QualityEqual || test.op == FieldOp::QualityNotEqual) {
+            const bool sameQuality = field.quality == std::get<Quality>(test.literal); // 仅比较采集标记。
+            return AsTruth(test.op == FieldOp::QualityEqual ? sameQuality : !sameQuality);
+        }
         if (test.op == FieldOp::IsNull) {
             return AsTruth(isNull);
         }

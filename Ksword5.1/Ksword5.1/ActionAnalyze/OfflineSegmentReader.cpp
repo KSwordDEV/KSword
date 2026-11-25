@@ -3,6 +3,7 @@
 
 #include "../../../KswordCLI/ActionAnalyze/Archive/SegmentBodies.h"
 #include "../../../KswordCLI/ActionAnalyze/Archive/NetworkEvidenceArchive.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectRawEvidence.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
@@ -340,7 +341,18 @@ SegmentSnapshot ReadStandalone(const QString& path, const CancelCheck& isCancele
                 if (!stop && checkedIdentity.stream == archive::StreamKind::Raw && (apiImport || record.recordSequence == 1))
                 {
                     const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 已解封的 raw 元数据。
-                    const auto metadata = raw ? Ksword::Evidence::ParseJson(raw->metadataJson) : Ksword::Evidence::JsonParseResult{};
+                    const auto metadata = raw ? Ksword::Evidence::ParseJson(raw->metadataJson) : Ksword::Evidence::JsonParseResult{}; // 首条记录的归档格式声明。
+                    // 只读探测与回退打开之间可能出现首段。跟随档必须通过检查点入口发布。
+                    const auto* kind = metadata.ok() ? metadata.value.find("kind") : nullptr; // 首记录的格式类别。
+                    std::string format; // 仅用于核对跟随计划类型。
+                    if (expected && record.recordSequence == 1 && kind && kind->tryGetString(format) &&
+                        format == project::kApiFollowPlanKind)
+                    {
+                        stop = SegmentEnd::IncompleteSample;
+                        snapshot.checkpoint = metadata.value.find(project::kApiFollowCheckpointField) ? SegmentCheckpoint::Pending
+                            : SegmentCheckpoint::ApiLegacyUnpublished;
+                        return false;
+                    }
                     apiImport = apiImport || (raw && metadata.ok() && Ksword::Evidence::IsApiMonitorClueImport(metadata.value));
                     if (apiImport)
                     {
@@ -502,7 +514,7 @@ SegmentSnapshot ReadQtRawReplay(const QString& path, const CancelCheck& isCancel
                     }
                     // Stored 块内无填充，下一记录或块端点即当前记录的边界。
                     const auto& record = records.at(index); // 共享读取器已验证封装类型与序号。
-                    const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset;
+                    const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset; // 本记录端点。
                     SegmentRow row; // 先验证 Qt 语义，再填入不可变归档坐标。
                     QtLiveTerminal candidate; // 只有终止类型会提供统计。
                     const auto kind = ProjectQtLiveMetadata(std::get<archive::RawRecordV1>(record.body), row, candidate);
@@ -633,6 +645,76 @@ bool ReadCommittedSegment(const project::ProjectDocument& document, const std::s
     return true;
 }
 
+// 从首段开始核对被动 API 标记。同一文件句柄上的投影只在整段和散列均通过后才发布。
+SegmentSnapshot ReadApiFollowReplay(const QString& path, const CancelCheck& isCanceled, const SampleRequest& expected,
+    const project::ProjectDocument& document, const std::string& sampleId, quint64 maxSegments)
+{
+    SegmentSnapshot snapshot; // 采样身份和已核验水位随首个成功的段一起发布。
+    snapshot.path = path;
+    snapshot.checkpoint = SegmentCheckpoint::Pending;
+    std::deque<SegmentRow> rows; // 跨段保留近期原始行，保持正常总览的窗口上限。
+    project::ProjectApiCheckpoint checkpoint; // 上一次连续验证的检查点。
+    for (quint64 ordinal = 1; ordinal && !isCanceled(); ++ordinal)
+    {
+        if (maxSegments && ordinal > maxSegments)
+        {
+            snapshot.end = SegmentEnd::PreviewLimit;
+            break;
+        }
+        std::deque<SegmentRow> page; // 本段尚未通过水位核验的临时投影。
+        const auto read = project::ReadApiCheckpoint(document, sampleId, ordinal, ordinal > 1 ? &checkpoint : nullptr,
+            checkpoint, [&](const archive::SegmentIdentity& identity, const archive::BlockInfo& block,
+                const std::vector<archive::DecodedRecord>& records) {
+                for (std::size_t index = 0; index < records.size(); ++index)
+                {
+                    if (isCanceled())
+                    {
+                        return false;
+                    }
+                    const auto& record = records.at(index); // 共享验证器保证本记录是有效 RawRecord。
+                    const auto end = index + 1 < records.size() ? records.at(index + 1).recordOffset : block.endOffset;
+                    const auto& raw = std::get<archive::RawRecordV1>(record.body); // 仅在回调期间借用。
+                    const auto clue = project::ReadCommittedApiClue(raw); // 只把已知线索投影为 API 行。
+                    page.push_back(clue ? ProjectApiClue(*clue, identity, record, end) : ProjectRecord(identity, record, end));
+                }
+                return true;
+            });
+        if (!read)
+        {
+            snapshot.end = read.error == project::ProjectError::NotFound ? SegmentEnd::IncompleteSample : SegmentEnd::InvalidCheckpoint;
+            snapshot.failedOrdinal = read.error == project::ProjectError::NotFound ? 0 : ordinal;
+            break;
+        }
+
+        // 累计水位包含未分类包与计划，API 筛选只作用于当前窗口里的已知线索。
+        MergePage(rows, page);
+        snapshot.checkpoint = SegmentCheckpoint::ApiRawVerified;
+        snapshot.lastVerifiedOrdinal = ordinal;
+        snapshot.verifiedRows = checkpoint.rawEnd.lastSequence;
+        snapshot.apiFollowSourceRows = checkpoint.lastSourceSequence;
+        snapshot.fileBytes = checkpoint.rawFileBytes;
+        snapshot.prefixBytes = checkpoint.rawEnd.byteOffset;
+        if (checkpoint.finalSegment)
+        {
+            snapshot.end = SegmentEnd::Complete;
+            break;
+        }
+    }
+    if (isCanceled())
+    {
+        snapshot = {};
+        snapshot.path = path;
+        snapshot.end = SegmentEnd::Canceled;
+    }
+    else if (snapshot.lastVerifiedOrdinal)
+    {
+        FinishProjectReplay(expected, rows, snapshot);
+        snapshot.hasArchivedApi = std::any_of(snapshot.rows.cbegin(), snapshot.rows.cend(),
+            [](const SegmentRow& row) { return row.archivedApi.has_value(); });
+    }
+    return snapshot;
+}
+
 // 绑定同一个已登记采样，按序验证发布的双流。缺标记不等于终止，不扫描未提交的后续 raw 文件。
 SegmentSnapshot ReadProjectReplay(const QString& path, const CancelCheck& isCanceled, const SampleRequest& expected,
     quint64 maxSegments)
@@ -656,6 +738,26 @@ SegmentSnapshot ReadProjectReplay(const QString& path, const CancelCheck& isCanc
         sample.info.descriptionHash != expected.sample.descriptionHash.toStdString())
     {
         snapshot.end = SegmentEnd::WrongSample;
+        return snapshot;
+    }
+
+    // 先确认被动 API 格式，阻止旧跟随档进入普通首段回退。
+    project::ApiFollowArchiveKind apiKind; // 只用于分派读取器，探测不授予水位。
+    const auto apiProbe = project::ProbeApiFollowArchive(document, sampleId, apiKind);
+    if (!apiProbe)
+    {
+        snapshot.end = SegmentEnd::InvalidCheckpoint;
+        snapshot.failedOrdinal = 1;
+        return snapshot;
+    }
+    if (apiKind == project::ApiFollowArchiveKind::Checkpointed)
+    {
+        return ReadApiFollowReplay(path, isCanceled, expected, document, sampleId, maxSegments);
+    }
+    if (apiKind == project::ApiFollowArchiveKind::Legacy)
+    {
+        snapshot.end = SegmentEnd::IncompleteSample;
+        snapshot.checkpoint = SegmentCheckpoint::ApiLegacyUnpublished;
         return snapshot;
     }
 

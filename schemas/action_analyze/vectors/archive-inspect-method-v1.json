@@ -103,7 +103,9 @@
     { "id": "etw-null-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true },
       "row": { "operation": "etw-observation-v1", "apiFamily": null, "apiCategory": null, "sourceId": "etw:fixture",
         "sourceEpoch": "etw-fixture", "sourceGroup": "etw:fixture", "sourceSequence": null, "gaps": ["etw-context-only"] }, "valid": true },
-    { "id": "etw-cannot-claim-api-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true }, "valid": false }
+    { "id": "etw-cannot-claim-api-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true }, "valid": false },
+    { "id": "api-follow-verified-running-segment", "set": { "archiveSource": "api-follow-checkpoint", "finalSegment": false }, "valid": true },
+    { "id": "api-follow-terminal-state-required", "set": { "archiveSource": "api-follow-checkpoint" }, "valid": false }
   ],
   "errors": [
     { "errorId": "archive-stream-unavailable", "source": "win32", "code": 3, "valid": true },

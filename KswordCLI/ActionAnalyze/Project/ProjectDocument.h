@@ -170,6 +170,7 @@ public:
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 
 private:
+    friend struct ProjectApiCheckpointAccess; // 供独立 API 检查点实现借用已固定的项目目录。
     const ProjectStorage::Directory* RootForRead() const noexcept;
     struct State;
     std::unique_ptr<State> state_;

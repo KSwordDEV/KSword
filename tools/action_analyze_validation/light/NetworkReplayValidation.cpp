@@ -2,6 +2,7 @@
 #include "../../../KswordARKLight/Features/ActionAnalyze/StoredEvidence.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -99,6 +100,22 @@ std::vector<std::uint8_t> ReadBytes(const fs::path& path, std::size_t& checks) {
     return {std::istreambuf_iterator<char>(file), {}};
 }
 
+// 仅在窗口脚本显式启用时，向标准输出交付已校验字节和故障夹具所需的两个坐标。
+void EmitWindowFixture(const std::vector<std::uint8_t>& bytes, std::uint64_t firstEnd, std::uint64_t largeOffset) {
+    wchar_t flag[2]{}; // 独立子进程中只接受精确值 1。
+    std::size_t length = 0; // CRT 返回含终止符的长度。
+    if (_wgetenv_s(&length, flag, std::size(flag), L"KSWORD_ACTION_ANALYZE_EMIT_NETWORK_FIXTURE") != 0 ||
+        length != std::size(flag) || flag[0] != L'1') {
+        return;
+    }
+    constexpr char hex[] = "0123456789abcdef"; // 逐字节编码，避免二进制 stdout 换行转换。
+    std::cout << "NETWORK_FIXTURE=" << firstEnd << ' ' << largeOffset << ' ';
+    for (const auto byte : bytes) { // 完整段由现有生产写入器生成。
+        std::cout << hex[byte >> 4] << hex[byte & 15];
+    }
+    std::cout << '\n';
+}
+
 // 文件逻辑投影及详情都使用正式 Light 实现，坏尾用例从内存提供受控副本。
 void Verify(const fs::path& path, std::uint64_t firstEnd, std::size_t& checks) {
     const auto before = ReadBytes(path, checks); // 重读前的原归档。
@@ -165,6 +182,7 @@ void Verify(const fs::path& path, std::uint64_t firstEnd, std::size_t& checks) {
     Check(partial.diagnostic == "block.storedCrc" && partial.decodedPrefixBytes == firstEnd &&
         partial.rows.size() == 7 && partial.rows.at(1).network && partial.rows.at(1).network->bytes == captured.bytes,
         "bad body CRC leaves only the prior whole block", checks);
+    EmitWindowFixture(before, firstEnd, *limited.inlineFileOffset);
 }
 
 } // namespace

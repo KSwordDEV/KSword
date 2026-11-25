@@ -10,7 +10,7 @@ from live_preview import dispatch, open_overview, unique, until
 SCRATCH = RELEASE / "action-analyze-qt-rules-validation"  # 规则验证独占的固定目录。
 VALIDATE = "校验规则"  # 检查草稿结构与谓词，不运行回放。
 REPLAY = "回放合成事件"  # 运行当前草稿输入的合成事件。
-PRESETS = "运行归档预置"  # 对显式选择的离线段执行两组预置。
+PRESETS = "运行归档预置"  # 回放显式选择的离线段，显示两组汇总和五类观测。
 STALE = "当前草稿已变化，以下为上次检查的结果。"  # 回执仍属于早先冻结的检查。
 ARCHIVE_ERROR = "归档预置失败："  # 错误独立于最近成功回执。
 
@@ -168,21 +168,27 @@ def verify_diagnostics(page, modern):
 
 
 def verify_presets(page, manifest, segment, rows, draft_path, draft_bytes, modern):
-    """核对两个预置、坏尾后的原样保留与恢复，同时核对规则草稿身份。"""
-    families = {  # 两组逐条预期分类，与 CLI 对同一真实段的原始坐标一起核验。
+    """核对两组汇总、五类细分和坐标，以及坏尾与草稿编辑后的回执保留。"""
+    families = {  # 每条回执须保留汇总 ID、对应细分 ID 及 CLI 回读的原始坐标。
         "memory-write": "memory-operation", "section-map": "memory-operation",
         "apc-queue": "thread-control", "thread-create": "thread-control", "thread-context": "thread-control",
     }
+    assert sorted(row["family"] for row in rows) == sorted(families), rows  # 夹具包含五个不同类别各一条。
     project_id = json.loads(manifest.read_bytes())["projectId"]
     sample_id = segment.parents[1].name  # 复用 CLI 实际导入采样 ID。
     expected = [
         f"项目 {project_id} · 采样 {sample_id}",
         "已分析最近 5 条，共验证 5 条归档线索。命中 5 条。",
+        "汇总：内存操作 2 条 · 线程控制 3 条",
+        "细分：内存写入 1 条 · 节映射 1 条 · 线程创建 1 条 · 线程上下文修改 1 条 · APC 入队 1 条",
         "以下为 API 观测。目标身份、调用效果和采集覆盖未知。",
     ]
     for row in rows:
-        rule_id = f"ksword.api.{families[row['family']]}-observed.v1"
-        expected.append(f"段内序号 {row['rawSequence']} · 源行 {row['sourceSequence']} · {row['api']} · {rule_id}")
+        group_id = f"ksword.api.{families[row['family']]}-observed.v1"  # 原有汇总 ID。
+        category_id = f"ksword.api.{row['family']}-observed.v1"  # 当前观测的细分预置 ID。
+        expected.append(
+            f"段内序号 {row['rawSequence']} · 源行 {row['sourceSequence']} · {row['api']} · {group_id} · {category_id}"
+        )
 
     # 好档来源来自真实 Stored 段。负控只截断独立副本，原段用于恢复重试。
     clean = segment.read_bytes()
@@ -223,7 +229,8 @@ def verify_presets(page, manifest, segment, rows, draft_path, draft_bytes, moder
     draft_origin = page.label(f"{REPLAY} · ")
     assert Path(draft_origin.splitlines()[1]) == draft_path and STALE not in draft_origin, draft_origin
     assert draft_path.read_bytes() == draft_bytes
-    print(f"QT_RULE_PRESETS=PASS GROUPS=2 ROWS=5 BAD_TAIL={code} RETRY=True ARCHIVE_DRAFT_INDEPENDENT=True", flush=True)
+    print(f"QT_RULE_PRESETS=PASS GROUPS=2 CATEGORIES=5 ROWS=5 BAD_TAIL={code} RETRY=True ARCHIVE_DRAFT_INDEPENDENT=True",
+          flush=True)
 
 
 def main():

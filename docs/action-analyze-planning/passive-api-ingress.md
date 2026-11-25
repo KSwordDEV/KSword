@@ -36,7 +36,7 @@
 
 1. 本端到期、显式停止、输入结束或传输失联时，在已打开的源句柄上冻结一次可见字节终点。CLI 首片以最多 4 次额外尾读及约 250 ms 的协作排空预算为初值，每轮前检查时间。同步 I/O 在途时报告实际耗时。保存已完成的行，半行只记录长度，超过截止边界的新增字节留在源文件。若预算未读到边界，列出已验证字节和待验范围。停止跟随使用独立 `cutoff`，当时无可信写入者回执则源终态未知。
 2. 只有同源真实写入所有者交付成功刷盘、关闭且带最终 `written()` 的回执，读端才排斥新写入并验证最终连续行数及完整换行。已关闭而没有成功计数为 `UnconfirmedEnd`，写入失败关档为 `WriterFailed`，半行或计数矛盾为截断或回执冲突。CLI 首片的 `writerReceipt` 为 `null`，`coverage` 为 `unknown`。本端完整地保存并回读所选前缀时 `capture` 为 `stopped`。遇到坏行、半行、未排完或归档失败时为 `partial`。
-3. 先登记冻结采样，再由现有单写者写入 Stored raw 段。首片使用 `api-archive-follow-plan-v1`、`api-archive-packet-v1` 和 `api-archive-follow-end-v1` 保留每个 1,000 字节包、源文件 ID、行号和本端回读状态。分段写完、刷盘并逐包回读核验后更新进程内回执。旧 `api-monitor-clue-import-end-v1` 是关档导入专用格式，ETW 检查点也是独立契约。首片可用通用 `archive.inspect` 检查段的封装。三端语义级回读前，须冻结 API 的 `raw`／`records` 依赖与检查点，并把缺检查点或未验尾部呈现为未发布。[项目方法契约](../../schemas/action_analyze/method-contract-v1.md)
+3. 先登记冻结采样，再由现有单写者写入 Stored raw 段。`api-archive-follow-plan-v1`、`api-archive-packet-v1` 和 `api-archive-follow-end-v1` 保留每个 1,000 字节包、源文件 ID、行号和本端回读状态。新段计划声明 `checkpointRequired`。逐包回读和 SHA-256 都通过后，CLI 发布同段号的 raw 检查点，再推进进程内水位。当前原包及回执内联，只有 raw 依赖。旧 `api-monitor-clue-import-end-v1` 是关档导入专用格式，ETW 保留其双流检查点。普通 `archive.inspect` 继续用于检查段的封装。[API 跟随检查点](../../schemas/action_analyze/api-archive-checkpoint.schema.json)
 4. 读者固定 `projectId/sampleId/configRevision`、源绑定和提交水位，从首段逐个验证身份、端点、CRC／散列、序号连续性及全部依赖。后段失败留住此前已核验前缀。原位重读使用上次提交的选择，权限失败或异源文件保持现有记录和选中证据。源仍可重读时可显式创建新的被动采样，原样本的截止、缺口及证据保留。
 5. 先做 CLI 准入、实时查询、截止与原包分段回执。再完成共享格式与 CLI、Qt、Light 的同样本重开；最后给 Qt 的现有时间线、Compact 结果表和共享字段详情接实时投影，Light 在现有虚拟列表／原生详情旁接本端活所有者。所有端显示来源、范围、末次采样和是否已提交。筛选、切页和选中行只改变视图。背景任务登记回读真实所有者状态，界面从结果快照按代次提交。 [桌面总览](../ActionAnalyze总览交互与验收.md) · [运行时控制](../运行时控制开发规范.md)
 
@@ -51,4 +51,4 @@
 
 正式 HostX64 CLI 已通过自有合成归档的活跟随验收。后台在 stdin 空闲时提交三批，共六个原包。停止时发布第四段和截止回执。源文件继续追加后，项目的六个已保存原包及水位保持不变。脚本独立解码 Stored 并逐字节核对原包，同时确认采样冻结到扩展项目修订。CLI 正常退出，固定测试目录清理完成。复跑使用 `python -B tools/action_analyze_validation/cli/passive_api_session.py`。
 
-真实生产来源、跟随档的语义级重开、持续负载和桌面入口仍待验收。
+正式 CLI 的 `sample.query` 与 `archive.inspect` 已通过跟随档回归。使用新请求 ID 可核对段端点与摘要，按页取得候选原始坐标，以及在缺中段检查点时拒绝跨段。三端已用同一个四段合成采样通过项目重开，核对缺标记与坏段保留的连续前缀。实测使用独立桌面。CLI 的活回执同时增加 `source.diagnosis`，区分文件读取状态、已核验的历史生产方声明及已上报的丢失。当前生产方连接和整体覆盖均为 `unknown`。真实生产来源的活跟随、持续负载和桌面活采集仍待验收。 [三端回执](../../tools/action_analyze_validation/qt/ETW-Readback.md#项目工作台与三端同采样)

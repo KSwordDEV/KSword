@@ -151,6 +151,81 @@ void TestRejection()
         invalid.location.line == 2 && invalid.location.byteColumn == 2, "phase diagnostic location");
 }
 
+// 验证质量标记条件、普通比较的 Unknown 和受限解释器的诊断。
+void TestQualityConditions()
+{
+    using enum rule::Truth;
+    const auto states = R"(quality(arg.text) == "truncated" || quality(arg.text) == "redacted")"sv;
+    constexpr rule::FieldSample truncated[] = {{"arg.text", rule::Quality::Truncated, "prefix"sv}};
+    constexpr rule::FieldSample redacted[] = {{"arg.text", rule::Quality::Redacted, {}}};
+    constexpr rule::FieldSample nullText[] = {{"arg.text", rule::Quality::Null, {}}};
+    constexpr rule::FieldSample emptyText[] = {{"arg.text", rule::Quality::Known, ""sv}};
+    Truth(states, True, truncated);
+    Truth(states, True, redacted);
+    Truth(states, False);
+    Truth(R"(quality(arg.text) == "notCollected" && !isKnown(arg.text))", True);
+    Truth(R"(quality(arg.text) != "known" && isNull(arg.text) && isComplete(arg.text))", True, nullText);
+    Truth("isKnown(arg.text)", False, nullText);
+    Truth(R"(isKnown(arg.text) && arg.text == "")", True, emptyText);
+    Truth(R"(quality(arg.text) == "redacted" && !(arg.text == "anything"))", Unknown, redacted);
+    Truth(R"(quality(arg.text) == "truncated" && !Text.Contains(arg.text, "absent"))", Unknown, truncated);
+
+    using enum rule::ExpressionError;
+    Reject("quality(arg.text)", ExpectedQualityComparison);
+    Reject(R"(quality(arg.text) < "known")", ExpectedQualityComparison);
+    Reject(R"(!quality(arg.text) == "known")", ExpectedQualityComparison);
+    Reject(R"(quality(arg.text) == "NotCollected")", InvalidQuality);
+    Reject(R"(quality(arg.text) == arg.text)", ExpectedLiteral);
+    Reject(R"(true || quality(result.ok) == "known")", PreparationFailed, rule::PrepareError::FieldNotInPhase);
+    Reject(R"(true || quality(newField) == "known")", PreparationFailed, rule::PrepareError::UnknownField);
+    Reject(R"(System.IO.File.ReadAllText(arg.text))", UnsupportedCall);
+
+    // 非法状态的位置按 UTF-8 字节计算，并覆盖该状态的整个字面量。
+    const auto source = "Text.Equals(arg.text, \"汉\") || quality(arg.text) == \"坏值\""sv;
+    const auto invalid = rule::PreparePredicateExpression(source, Entry, Catalog);
+    const auto invalidState = "\"坏值\""sv;
+    Check(invalid.error == InvalidQuality && invalid.location.offset == source.find(invalidState) &&
+        invalid.location.length == invalidState.size() && invalid.location.line == 1 &&
+        invalid.location.byteColumn == invalid.location.offset + 1, "invalid quality UTF-8 location");
+
+    // 质量条件仍使用统一字段检查和计费。耗尽不能产生确定命中。
+    const auto prepared = rule::PreparePredicateExpression(states, Entry, Catalog);
+    const auto limited = rule::EvaluatePredicate(prepared.predicate, Entry, truncated, 1);
+    Check(limited.truth == Unknown && limited.fault == rule::EvaluationFault::Budget && limited.workUsed <= 1,
+        "quality evaluation budget");
+    constexpr rule::FieldSample malformed[] = {{"arg.text", rule::Quality::Redacted, "unexpected bytes"sv}};
+    const auto shape = rule::EvaluatePredicate(prepared.predicate, Entry, malformed);
+    Check(shape.truth == Unknown && shape.fault == rule::EvaluationFault::InvalidInput, "quality field shape validation");
+}
+
+// 走生产离线 Replay。使用已获前缀作为正证据，缺值标记只作为明确选择的锚点。
+void TestQualityReplay()
+{
+    const auto step = rule::PreparePredicateExpression(
+        R"(quality(arg.text) == "truncated" && Text.StartsWith(arg.text, "prefix"))", Entry, Catalog);
+    const auto anchor = rule::PreparePredicateExpression(R"(quality(arg.text) == "notCollected")", Entry, Catalog);
+    Check(step.error == rule::ExpressionError::None && anchor.error == rule::ExpressionError::None,
+        "quality replay predicates prepared");
+    constexpr rule::FieldSample truncated[] = {{"arg.text", rule::Quality::Truncated, "prefix partial"sv}};
+    constexpr rule::FieldSample complete[] = {{"arg.text", rule::Quality::Known, "prefix complete"sv}};
+    const rule::ReplayEvent events[] = {
+        {"sample", 1, "source", "epoch", 11, "thread", rule::EventTime{"clock", 10}, "test", Entry, truncated},
+        {"sample", 2, "source", "epoch", 12, "thread", rule::EventTime{"clock", 20}, "test", Entry, complete},
+        {"sample", 3, "source", "epoch", 13, "thread", rule::EventTime{"clock", 30}, "test", Entry, {}},
+    }; // 第一条可进入证据列表，第二条只满足前缀条件，第三条是锚点。
+    const rule::ReplaySnapshot snapshot{"run", {"sample", "source", "epoch", "thread", "clock"}, 3, {}, true};
+    const rule::ReplayRule request{rule::ReplayKind::CountAtLeast, {"test", &step.predicate},
+        {"test", &anchor.predicate}, 30, 1}; // 无覆盖凭证，确定证据只可支持下界。
+    const auto replay = rule::Replay(snapshot, request, events);
+    Check(replay.error == rule::ReplayError::None && replay.windows.size() == 1, "quality replay anchor selection");
+    if (replay.windows.size() == 1) {
+        const auto& window = replay.windows.front(); // 保留可核对的原事件坐标与覆盖缺口。
+        Check(window.truth == rule::Truth::True && window.anchorOrdinal == 3 &&
+            window.stepOrdinals == std::vector<std::uint64_t>{1} &&
+            rule::HasIssue(window.issues, rule::ReplayIssue::Coverage), "quality replay evidence and incomplete coverage");
+    }
+}
+
 // 走真实 Qt 页使用的纯 C++ 草稿检查入口，并比较旧版草稿与新版表达式的结果。
 void TestDraft()
 {
@@ -228,6 +303,24 @@ void TestPresets()
     broken[1].family = "unknown-family";
     const auto unknown = rule::AnalyzeArchivedApiPresets(broken, 11); // 未登记分类显示为输入失败。
     Check(unknown.error == rule::ApiPresetError::InvalidInput && unknown.matches.empty(), "preset unknown family");
+
+    // 新的细分预置保留相同顺序和证据坐标，每条记录仍只匹配一次。
+    const auto detailed = rule::AnalyzeArchivedApiPresets(rows, 14, rule::ApiPresetProfile::ByCategory);
+    constexpr std::string_view ids[] = {
+        "ksword.api.memory-write-observed.v1", "ksword.api.section-map-observed.v1",
+        "ksword.api.thread-create-observed.v1", "ksword.api.thread-context-observed.v1",
+        "ksword.api.apc-queue-observed.v1",
+    };
+    Check(detailed.error == rule::ApiPresetError::None && detailed.importedRows == 14 &&
+        detailed.analyzedRows == 5 && detailed.matches.size() == std::size(rows), "category preset bounded window");
+    for (std::size_t i = 0; i < detailed.matches.size() && i < std::size(rows); ++i) {
+        const auto& hit = detailed.matches[i]; // 细分类别回执的同一条原始观测。
+        Check(hit.ruleId == ids[i] && hit.rawSequence == rows[i].rawSequence &&
+            hit.sourceSequence == rows[i].sourceSequence && hit.api == rows[i].api, "category preset evidence identity");
+    }
+    const auto detailedInvalid = rule::AnalyzeArchivedApiPresets(broken, 11, rule::ApiPresetProfile::ByCategory);
+    Check(detailedInvalid.error == rule::ApiPresetError::InvalidInput && detailedInvalid.matches.empty(),
+        "category preset invalid projection discards prior hits");
 }
 
 // 用生产 Stored 读写器和原包校验器重开实际文件，再把已验证观测交给预置规则。
@@ -295,6 +388,11 @@ void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
         Check(result.error == rule::ApiPresetError::None && result.matches.size() == 1 &&
             result.matches.front().rawSequence == 1 && result.matches.front().sourceSequence == 7 &&
             result.matches.front().api == "WriteProcessMemory", "Stored preset evidence receipt");
+        const auto detailed = rule::AnalyzeArchivedApiPresets(observed, readback.clues, rule::ApiPresetProfile::ByCategory);
+        Check(detailed.error == rule::ApiPresetError::None && detailed.matches.size() == 1 &&
+            detailed.matches.front().ruleId == "ksword.api.memory-write-observed.v1" &&
+            detailed.matches.front().rawSequence == 1 && detailed.matches.front().sourceSequence == 7,
+            "Stored category preset evidence receipt");
     }
 }
 } // namespace
@@ -302,13 +400,18 @@ void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
 // 运行无窗口夹具。失败向命令行返回非零。
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc != 2) {
-        std::cerr << "Expected the dedicated fixture IntDir.\n";
+    const bool evidenceOnly = argc == 3 && std::wstring_view(argv[2]) == L"--offline-evidence-only";
+    if (argc != 2 && !evidenceOnly) {
+        std::cerr << "Expected the dedicated fixture IntDir and optional --offline-evidence-only.\n";
         return 2;
     }
-    TestEvaluation();
-    TestRejection();
-    TestDraft();
+    if (!evidenceOnly) {
+        TestEvaluation();
+        TestRejection();
+        TestDraft();
+    }
+    TestQualityConditions();
+    TestQualityReplay();
     TestPresets();
     TestStoredPreset(argv[1], true);
     TestStoredPreset(argv[1], false);

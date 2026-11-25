@@ -26,6 +26,7 @@ namespace ks::action_analyze
     {
         SegmentEnd end = SegmentEnd::Unavailable; // 原读侧报告的终止原因。
         bool verified = false; // 存在可发布的已核验窗口，空窗口也可为真。
+        bool legacyUnpublished = false; // 旧 API 跟随档没有持久提交标记。
         quint64 archiveRows = 0; // 扫描器确认的记录数，可能含封装元数据。
         quint64 lastSegment = 0; // 连续核验到的段号。
         quint64 failedSegment = 0; // 已识别的失败段号。

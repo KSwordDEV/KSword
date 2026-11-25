@@ -8,6 +8,7 @@
 #include "../Project/ProjectEtwCheckpoint.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
+#include "../../../shared/evidence/PassiveApiSourceDiagnosis.h"
 #include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
 
 #include <algorithm>
@@ -573,7 +574,8 @@ Reply LiveSession::OpenApiArchive(const Request& request, ProjectDocument& proje
     auto next = std::make_unique<State>(); // 所有资格检查通过后才发布的会话。
     next->api = std::make_unique<PassiveApiCapture>();
     if (const auto result = next->api->Open(path, {identity, static_cast<std::uint32_t>(pid), creation}); !result) {
-        return Reject("source-unavailable", result.detail, 5, result.nativeError);
+        const auto reason = Ksword::Evidence::PassiveApiOpenFailureName(result.nativeError); // 静态错误名，原生码继续用于定位。
+        return Reject(reason.data(), result.detail, 5, result.nativeError);
     }
     if (const auto result = NewId(next->epoch); !result) {
         return Reject("session-create-failed", result.detail, 3, result.nativeError);
@@ -587,12 +589,12 @@ Reply LiveSession::OpenApiArchive(const Request& request, ProjectDocument& proje
     // 活会话与项目 raw 包共用一份身份。输入路径只在准入过程中使用。
     next->projectId = std::move(projectId);
     next->durationMs = static_cast<unsigned>(duration);
-    next->apiPlan = Object({{"kind", Text("api-archive-follow-plan-v1")}, {"projectId", Text(next->projectId)},
+    next->apiPlan = Object({{"kind", Text(kApiFollowPlanKind)}, {"projectId", Text(next->projectId)},
         {"session", next->Identity()}, {"revisionId", Text(next->sample.revisionId)}, {"snapshotId", Text(next->sample.snapshotId)},
         {"revisionHash", Text(next->revisionHash)}, {"configSemanticHash", Text(next->configSemanticHash)},
         {"sourceEpoch", Text(next->epoch)}, {"file", next->api->FileIdentity()}, {"readerPid", V::makeUInt(pid)},
         {"readerCreation100ns", Number(creation)}, {"sessionIdentity", Number(identity)}, {"durationMs", V::makeUInt(duration)},
-        {"identity", Text("archive-consistency-only")}});
+        {"identity", Text("archive-consistency-only")}, {"checkpointRequired", V::makeBool(true)}});
     next->api->SetPlan(next->apiPlan);
     next->deadline = Clock::now() + std::chrono::milliseconds(duration);
     state_ = std::move(next);

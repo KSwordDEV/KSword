@@ -1,17 +1,20 @@
 #include "ProjectReplay.h"
 
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 
-#include <filesystem>
 #include <deque>
+#include <filesystem>
 #include <iterator>
+#include <utility>
 
 namespace Ksword::Features::ActionAnalyze {
 namespace {
 
 namespace Project = Ksword::ActionAnalyze;
 namespace Storage = Project::ProjectStorage;
+namespace Archive = ks::cli::action_analyze::archive;
 constexpr wchar_t kManifestName[] = L"project.ksaproj"; // 正式项目清单的固定名称。
 constexpr std::uint64_t kSelectionRawBytes = 16ULL * 1024 * 1024;
 
@@ -37,6 +40,82 @@ ProjectReplayEvidence ReplayFailure(const Project::ProjectResult& result) {
     return evidence;
 }
 
+void AppendRecentRows(std::deque<EvidenceRecord>& recent, std::vector<EvidenceRecord>& segmentRows) {
+    for (auto& row : segmentRows) {
+        if (recent.size() == kEvidenceRows) recent.pop_front();
+        recent.push_back(std::move(row));
+    }
+}
+
+ProjectReplayEvidence ApiCheckpointUnavailable(bool legacy) {
+    ProjectReplayEvidence result;
+    result.checkpoint.kind = ReplayCheckpointKind::PassiveApi;
+    result.checkpoint.state = legacy ? CheckpointState::NotPublished : CheckpointState::Pending;
+    if (!legacy) result.checkpoint.pendingOrdinal = 1;
+    result.raw.diagnostic = legacy ? "apiCheckpointLegacyUnpublished" : "checkpointPending";
+    return result;
+}
+
+// 同一只读句柄内核验整个提交段，仅在校验成功后发布回调暂存的记录。
+ProjectReplayEvidence ReadApiProjectReplay(const Project::ProjectDocument& project, const ProjectReplayRequest& request,
+    ProjectReplayMode mode) {
+    ProjectReplayEvidence result;
+    result.checkpoint.kind = ReplayCheckpointKind::PassiveApi;
+    std::deque<EvidenceRecord> recent;
+    Project::ProjectApiCheckpoint committed;
+
+    for (std::uint64_t ordinal = 1; ordinal != 0; ++ordinal) {
+        SegmentEvidence staged; // 本段核验失败时随迭代丢弃，保留已发布前缀。
+        const auto status = Project::ReadApiCheckpoint(project, request.sampleId, ordinal,
+            committed.ordinal ? &committed : nullptr, committed,
+            [&](const Archive::SegmentIdentity& identity, const Archive::BlockInfo& block,
+                const std::vector<Archive::DecodedRecord>& records) {
+                ++staged.blocks;
+                staged.records += records.size();
+                for (const auto& record : records) {
+                    const auto* raw = std::get_if<Archive::RawRecordV1>(&record.body);
+                    if (!raw) return false;
+                    auto row = PreviewCommittedApiRecord(block, record, *raw, identity.ordinal);
+                    if (!row.apiClue.empty()) ++staged.apiClues;
+                    staged.rows.push_back(std::move(row));
+                }
+                return true;
+            });
+
+        if (!status) {
+            result.checkpoint.state = status.error == Project::ProjectError::NotFound ? CheckpointState::Pending : CheckpointState::Partial;
+            result.checkpoint.pendingOrdinal = ordinal;
+            result.raw.diagnostic = ReplayDiagnostic(status);
+            result.raw.systemError = status.nativeError;
+            break;
+        }
+
+        // 快照身份锚定采样，记录仍保留各自段号。线索总数覆盖所有已验证段。
+        staged.identity = SegmentIdentity{request.projectId, request.sampleId, static_cast<std::uint32_t>(Archive::StreamKind::Raw), 1};
+        staged.fileBytes = committed.rawFileBytes;
+        staged.framedBytes = staged.decodedPrefixBytes = committed.rawEnd.byteOffset;
+        staged.lastBlockOrdinal = committed.rawEnd.blockOrdinal;
+        staged.lastSequence = committed.rawEnd.lastSequence;
+        staged.apiClues += result.raw.apiClues;
+        AppendRecentRows(recent, staged.rows);
+        result.raw = std::move(staged);
+        result.checkpoint.lastVerifiedOrdinal = ordinal;
+        result.checkpoint.rawEnd = committed.rawEnd.byteOffset;
+
+        if (committed.finalSegment) {
+            result.checkpoint.state = CheckpointState::Verified;
+            break;
+        }
+        if (mode == ProjectReplayMode::SelectionPreview) {
+            result.checkpoint.state = CheckpointState::PreviewLimited;
+            break;
+        }
+    }
+
+    result.raw.rows.assign(std::make_move_iterator(recent.begin()), std::make_move_iterator(recent.end()));
+    return result;
+}
+
 // 通过固定目录句柄读取指定段。已发布段从同一文件句柄复核散列、身份和端点。
 SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const ProjectReplayRequest& request,
     std::uint64_t ordinal, const Project::ProjectEtwCheckpoint* checkpoint, ProjectReplayMode mode) {
@@ -59,7 +138,7 @@ SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const Projec
                 return limited;
             }
         }
-        return ReadOpenStoredEvidence(file.get(), std::nullopt, &expected);
+        return ReadOpenStoredEvidence(file.get(), std::nullopt, &expected, StoredReadMode::LegacyProject);
     }
 
     const auto& end = checkpoint->raw.end; // 检查点限定的完整块水位。
@@ -70,7 +149,7 @@ SegmentEvidence ReadRawSegment(const Storage::Directory& directory, const Projec
     if (hash != checkpoint->raw.sha256) {
         return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayRawHash")).raw;
     }
-    auto segment = ReadOpenStoredEvidence(file.get(), end.byteOffset, &expected, true); // 本段最近行及真实解析端点。
+    auto segment = ReadOpenStoredEvidence(file.get(), end.byteOffset, &expected, StoredReadMode::KeepLatest);
     if (segment.diagnostic.empty() && (segment.decodedPrefixBytes != end.byteOffset ||
         segment.lastBlockOrdinal != end.blockOrdinal || segment.lastSequence != end.lastSequence)) {
         segment.diagnostic = "replayRawProjection";
@@ -83,6 +162,10 @@ ProjectReplayEvidence ReadBeforeFirstCheckpoint(const Storage::Directory& direct
     ProjectReplayMode mode) {
     ProjectReplayEvidence result; // 在项目回退与等待中只提交允许展示的内容。
     result.raw = ReadRawSegment(directory, request, 1, nullptr, mode);
+    if (result.raw.apiFollowRequiresCheckpoint.has_value()) {
+        // 探测可能失败或看不到稍后出现的首段；回退句柄遇到跟随计划时不扫描剩余记录。
+        return ApiCheckpointUnavailable(!*result.raw.apiFollowRequiresCheckpoint);
+    }
     if (result.raw.continuousEtwPlan) {
         result.raw = {};
         result.raw.diagnostic = "checkpointPending";
@@ -171,6 +254,13 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, Pro
         return ReplayFailure(Storage::Failure(Project::ProjectError::Corrupt, "replayDescriptionHash"));
     }
 
+    Project::ApiFollowArchiveKind api = Project::ApiFollowArchiveKind::Other;
+    const auto probe = Project::ProbeApiFollowArchive(project, sample.info.sampleId, api);
+    if (probe) {
+        if (api == Project::ApiFollowArchiveKind::Checkpointed) return ReadApiProjectReplay(project, request, mode);
+        if (api == Project::ApiFollowArchiveKind::Legacy) return ApiCheckpointUnavailable(true);
+    }
+
     // 生成目录名只用已验证 UUID，打开路径和文件身份交由共享存储层核对。
     const auto sampleName = Storage::WideAscii(sample.info.sampleId); // 固定目录分量。
     Storage::Directory rawDirectory; // 目录链在本次散列和投影期间保持固定。
@@ -183,6 +273,7 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, Pro
         Project::ProjectEtwCheckpoint checkpoint; // 本段已经双流校验的范围。
         auto status = project.ReadEtwCheckpoint(request.sampleId, checkpoint, ordinal);
         if (status.error == Project::ProjectError::NotFound && ordinal == 1) {
+            // 格式探测不授予发布资格。首标记确实缺失时，旧档可从固定句柄继续诊断读取。
             return ReadBeforeFirstCheckpoint(rawDirectory, request, mode);
         }
 
@@ -201,16 +292,13 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, Pro
         }
 
         // 本段完整通过核验，可以更新最近窗口并推进检查点。
-        for (auto& row : segment.rows) {
-            if (rows.size() == kEvidenceRows) {
-                rows.pop_front();
-            }
-            rows.push_back(std::move(row));
-        }
+        AppendRecentRows(rows, segment.rows);
         lastSequence = checkpoint.raw.end.lastSequence;
         result.raw = std::move(segment);
         result.checkpoint.lastVerifiedOrdinal = ordinal;
         result.checkpoint.recordsEnd = checkpoint.records.end.byteOffset;
+        result.checkpoint.kind = ReplayCheckpointKind::Etw;
+        result.checkpoint.rawEnd = checkpoint.raw.end.byteOffset;
         if (checkpoint.finalSegment) {
             result.checkpoint.state = CheckpointState::Verified;
             break;

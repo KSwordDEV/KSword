@@ -212,6 +212,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -620,6 +621,7 @@
       <Filter>Features\ActionAnalyze</Filter>
     </ClInclude>
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\NetworkReplayPresentation.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\LiveCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\NativeLiveSession.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

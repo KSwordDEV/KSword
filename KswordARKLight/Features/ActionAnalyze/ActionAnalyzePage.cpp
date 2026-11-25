@@ -402,10 +402,12 @@ void UpdateDetails(Page& page) {
             L"\r\n流编号：" + std::to_wstring(identity.streamKind);
         // 多段采样的文件标识属于最新段，不用它描述选中的历史行。
         if (snapshot.checkpoint.lastVerifiedOrdinal <= 1) {
-            text += L"    段号：" + std::to_wstring(identity.ordinal) +
-                L"    段创建 FILETIME：" + std::to_wstring(evidence.createdUtc100ns) +
-                L"\r\n文件身份（卷序列 / 文件索引 / 修改 FILETIME）：" +
-                (evidence.fileIdentity.empty() ? L"不可用" : evidence.fileIdentity);
+            text += L"    段号：" + std::to_wstring(identity.ordinal);
+            if (snapshot.checkpoint.kind != ReplayCheckpointKind::PassiveApi) {
+                text += L"    段创建 FILETIME：" + std::to_wstring(evidence.createdUtc100ns) +
+                    L"\r\n文件身份（卷序列 / 文件索引 / 修改 FILETIME）：" +
+                    (evidence.fileIdentity.empty() ? L"不可用" : evidence.fileIdentity);
+            }
         }
         text += L"\r\n\r\n";
     }
@@ -683,6 +685,12 @@ std::wstring Diagnostic(const SegmentEvidence& result) {
     return text;
 }
 
+std::wstring ApiRawCheckpointExtent(const ReplayCheckpoint& checkpoint) {
+    return L"raw/" + std::to_wstring(checkpoint.lastVerifiedOrdinal) + L" " + std::to_wstring(checkpoint.rawEnd) + L" B";
+}
+
+constexpr auto kLegacyApiFollowStatus = L"旧版被动 API 跟随归档未发布检查点，无可回放的记录。";
+
 void ResetSamplePreview(Page& page) {
     page.previewRequest.reset();
     page.previewSelection.reset();
@@ -798,8 +806,17 @@ void PresentCatalog(Page& page, ProjectReplayCatalog catalog, bool created = fal
 
 // 发布一份成功的加载结果。同一归档重读按记录序号保留原选择。
 void PublishSnapshot(Page& page, Snapshot loaded) {
+    const bool passiveApi = loaded.checkpoint.kind == ReplayCheckpointKind::PassiveApi;
+    if (passiveApi && loaded.checkpoint.state == CheckpointState::NotPublished) {
+        page.requestStatus = kLegacyApiFollowStatus;
+        if (loaded.sample) page.requestStatus += L" · " + WideAscii(loaded.sample->sampleId);
+        if (DisplayedArchive(page)) page.requestStatus += L"（保留当前归档）";
+        UpdateStatus(page);
+        return;
+    }
     if (!loaded.checkpoint.lastVerifiedOrdinal && loaded.checkpoint.state == CheckpointState::Pending) {
-        page.requestStatus = L"等待第 1 段检查点发布，可重读。";
+        page.requestStatus = passiveApi ? L"等待被动 API 第 1 段检查点发布，可重读。" : L"等待第 1 段检查点发布，可重读。";
+        if (passiveApi && loaded.sample) page.requestStatus += L" · " + WideAscii(loaded.sample->sampleId);
         UpdateStatus(page);
         return;
     }
@@ -836,13 +853,15 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
     const auto& result = page.snapshot->evidence;
     const auto& checkpoint = page.snapshot->checkpoint; // 最新段的检查点和后续归档状态。
     if (checkpoint.state == CheckpointState::Verified) {
-        page.snapshotStatus = L"终态检查点已验证 · records/" + std::to_wstring(checkpoint.lastVerifiedOrdinal) +
+        page.snapshotStatus = passiveApi ? L"被动 API 终态检查点已验证 · " + ApiRawCheckpointExtent(checkpoint) :
+            L"终态检查点已验证 · records/" + std::to_wstring(checkpoint.lastVerifiedOrdinal) +
             L" " + std::to_wstring(checkpoint.recordsEnd) + L" B";
         if (result.fileBytes > result.decodedPrefixBytes) page.snapshotStatus += L" · raw 尾部未纳入";
     } else if (checkpoint.state == CheckpointState::Pending || checkpoint.state == CheckpointState::Partial) {
         page.snapshotStatus = L"已核验至第 " + std::to_wstring(checkpoint.lastVerifiedOrdinal) + L" 段 · 第 " +
             std::to_wstring(checkpoint.pendingOrdinal) +
             (checkpoint.state == CheckpointState::Pending ? L" 段检查点尚未发布" : L" 段核验失败 · " + Diagnostic(result));
+        if (passiveApi) page.snapshotStatus += L" · 被动 API " + ApiRawCheckpointExtent(checkpoint);
     } else if (checkpoint.state == CheckpointState::NotPublished) {
         page.snapshotStatus = L"未发布终态检查点 · 仅查看 raw 段";
         if (!result.diagnostic.empty()) page.snapshotStatus += L" · " + Diagnostic(result);
@@ -869,9 +888,9 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
 void Open(Page& page, std::wstring path, std::optional<ProjectReplayRequest> sample = std::nullopt) {
     if (path.empty() || page.retiring || page.catalogBusy) return;
     // 同一 API 采样的正式回放失败时仍可回看已核验预览与当前详情。
-    if (!sample || !page.samplePreview || page.samplePreview->sample != sample || page.samplePreview->apiFamilies.empty()) {
-        ResetSamplePreview(page);
-    }
+    const bool preserveApiPreview = sample && page.samplePreview && page.samplePreview->sample == sample &&
+        (page.samplePreview->checkpoint.kind == ReplayCheckpointKind::PassiveApi || !page.samplePreview->apiFamilies.empty());
+    if (!preserveApiPreview) ResetSamplePreview(page);
     page.previewRequest = sample;
     page.requestPath = std::move(path);
     page.requestedSample = std::move(sample);
@@ -983,10 +1002,14 @@ void PreviewSelectedSample(Page& page) {
             if (page.retiring || page.previewRequest != request) return;
             auto* preview = !error && loaded ? std::get_if<Snapshot>(&*loaded) : nullptr;
             const auto sample = WideAscii(request.sampleId);
+            const bool passiveApi = preview && preview->checkpoint.kind == ReplayCheckpointKind::PassiveApi;
             if (preview && preview->evidence.diagnostic == "replaySelectionLimit") {
                 page.requestStatus = L"采样 " + sample + L" 的 raw 段超过预览上限，请点击回放。";
+            } else if (passiveApi && preview->checkpoint.state == CheckpointState::NotPublished) {
+                page.requestStatus = std::wstring(kLegacyApiFollowStatus) + L" · " + sample;
             } else if (preview && preview->checkpoint.state == CheckpointState::Pending) {
-                page.requestStatus = L"采样 " + sample + L" 的首段检查点尚未发布，可点击回放重试。";
+                page.requestStatus = L"采样 " + sample + (passiveApi ? L" 的被动 API 首段检查点尚未发布，可点击回放重试。" :
+                    L" 的首段检查点尚未发布，可点击回放重试。");
             } else if (!preview || !preview->evidence.identity ||
                 (!preview->evidence.diagnostic.empty() && preview->evidence.rows.empty())) {
                 page.requestStatus = L"无法预览采样 " + sample + L"，请点击回放重试。";
@@ -1001,6 +1024,7 @@ void PreviewSelectedSample(Page& page) {
                 } else if (preview->checkpoint.state == CheckpointState::Verified) {
                     page.requestStatus += L" · 首段终态检查点已核验";
                 }
+                if (passiveApi) page.requestStatus += L" · 被动 API " + ApiRawCheckpointExtent(preview->checkpoint);
                 if (!preview->evidence.diagnostic.empty()) {
                     page.requestStatus += L" · 部分可读 · " + Diagnostic(preview->evidence);
                 }

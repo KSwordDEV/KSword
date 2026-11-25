@@ -201,7 +201,8 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
     print('LIGHT_CONTINUOUS_ETW_REPLAY=PASS', flush=True)
 
 
-def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None, api_read_only=False):
+def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None, api_read_only=False,
+            check_project_replay=None):
     """用正式窗口打开指定项目段，核对 ETW 原样回放或 API 线索。"""
     require_isolated_desktop()
     # 测试桌面的窗口枚举无法发现其它桌面的实例，共用配置按真实进程检查。
@@ -288,6 +289,10 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
         gui.SendMessage(samples, con.CB_SETCURSEL, selected, 0)
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
         assert gui.IsWindowEnabled(replay)
+        if check_project_replay is not None:
+            # 专用回归接管回放断言，继续复用正式入口、窗口退出和设置恢复。
+            check_project_replay(process, page, records, detail, status, api, replay, retry, item_count)
+            return
         api_navigation = None
         if api_window_total is None:
             can_preview = not api_read_only or segment.stat().st_size <= 16 * 1024 * 1024

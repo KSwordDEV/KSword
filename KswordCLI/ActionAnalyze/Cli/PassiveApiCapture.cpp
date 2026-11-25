@@ -3,6 +3,7 @@
 #include "../Project/ProjectStorage.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace ks::cli::action_analyze {
 namespace {
@@ -150,6 +151,7 @@ void PassiveApiCapture::ReadBatch()
         nextCommit_ = Clock::now() + kCommitInterval;
     }
     for (auto& row : rows) {
+        diagnosis_.Observe(row); // 只读取尾读器已验过的行，包括同批坏行前的有效前缀。
         if (row.clue) {
             latestClue_ = row.clue;
             latestClueSequence_ = row.sourceSequence;
@@ -193,12 +195,12 @@ V PassiveApiCapture::FileIdentity() const
         {"initialVisibleBytes", Number(initialBytes_)}});
 }
 
-V PassiveApiCapture::SourceReport(bool includeLatestClue) const
+JsonObject PassiveApiCapture::SourceReportFields() const
 {
     const auto nullable = [](const std::optional<std::uint64_t>& value) -> V {
         return value ? Number(*value) : V::makeNull();
     }; // 保留未提供的统计及尚未设置的截止边界。
-    JsonObject fields{{"kind", Text("passive-api-archive")}, {"state", Text(TailState(status_.state))},
+    return {{"kind", Text("passive-api-archive")}, {"state", Text(TailState(status_.state))},
         {"readerPid", V::makeUInt(status_.source.readerPid)},
         {"readerCreation100ns", Number(status_.source.readerCreation)},
         {"sessionIdentity", Number(status_.source.sessionIdentity)}, {"identity", Text("archive-consistency-only")},
@@ -208,31 +210,35 @@ V PassiveApiCapture::SourceReport(bool includeLatestClue) const
         {"cutoffReached", V::makeBool(status_.state == PassiveApiTailState::Cutoff)},
         {"partialLineBytes", Number(status_.partialLineBytes)},
         {"writerReceipt", V::makeNull()}, {"coverage", Text("unknown")},
-        {"win32Error", V::makeUInt(status_.win32Error)}}; // 存档和查询共用的原始来源状态。
-    if (includeLatestClue) {
-        V latest = V::makeNull(); // 实时投影的线索可处于待写状态。
-        if (latestClue_) {
-            std::string name; // 线索目录的导出名均为 ASCII。
-            for (const auto character : latestClue_->api) {
-                name.push_back(static_cast<char>(character));
-            }
-            latest = Object({{"api", Text(name)}, {"family", Text(latestClue_->family)},
-                {"sourceSequence", Number(latestClueSequence_)},
-                {"rawVerified", V::makeBool(latestClueSequence_ <= recordedRows_)}});
+        {"win32Error", V::makeUInt(status_.win32Error)}};
+}
+
+V PassiveApiCapture::SourceReport() const
+{
+    auto fields = SourceReportFields(); // 保留实时回执已有的字段及其语义。
+    V latest = V::makeNull(); // 实时投影的线索可处于待写状态。
+    if (latestClue_) {
+        std::string name; // 线索目录的导出名均为 ASCII。
+        for (const auto character : latestClue_->api) {
+            name.push_back(static_cast<char>(character));
         }
-        fields.emplace_back("latestClue", std::move(latest));
+        latest = Object({{"api", Text(name)}, {"family", Text(latestClue_->family)},
+            {"sourceSequence", Number(latestClueSequence_)},
+            {"rawVerified", V::makeBool(latestClueSequence_ <= recordedRows_)}});
     }
+    fields.emplace_back("latestClue", std::move(latest));
+    fields.emplace_back("diagnosis", diagnosis_.Report(status_, ended_));
     return Object(std::move(fields));
 }
 
 V PassiveApiCapture::ArchiveReport() const
 {
-    return Object({{"status", Text(!writeResult_ ? "failed" : boundary_ ? "raw-verified" : "pending")},
-        {"segmentOrdinal", Number(ordinal_)}, {"recordedRows", Number(recordedRows_)},
+    return Object({{"status", Text(!writeResult_ ? "failed" : checkpoint_ ? "raw-verified" : "pending")},
+        {"segmentOrdinal", Number(checkpoint_ ? checkpoint_->ordinal : 0)}, {"recordedRows", Number(recordedRows_)},
         {"pendingRows", Number(pending_.size())}, {"queueDropped", Number(0)},
         {"unconfirmedRows", Number(!writeResult_ ? status_.validatedRows - recordedRows_ : 0)},
-        {"lastSequence", boundary_ ? Number(boundary_->lastSequence) : V::makeNull()},
-        {"flushedBytes", boundary_ ? Number(boundary_->byteOffset) : V::makeNull()},
+        {"lastSequence", checkpoint_ ? Number(checkpoint_->rawEnd.lastSequence) : V::makeNull()},
+        {"flushedBytes", checkpoint_ ? Number(checkpoint_->rawEnd.byteOffset) : V::makeNull()},
         {"error", writeResult_ ? V::makeNull() : Text(writeResult_.detail)},
         {"win32Error", V::makeUInt(writeResult_.nativeError)}});
 }
@@ -255,12 +261,12 @@ bool PassiveApiCapture::Commit(ProjectDocument& project, std::string_view sample
     metadata.reserve(pending_.size() + 2);
     metadata.push_back(Ksword::Evidence::WriteJson(plan_));
     for (const auto& row : pending_) {
-        metadata.push_back(Ksword::Evidence::WriteJson(Object({{"kind", Text("api-archive-packet-v1")},
+        metadata.push_back(Ksword::Evidence::WriteJson(Object({{"kind", Text(kApiFollowPacketKind)},
             {"sourceSequence", Number(row.sourceSequence)}, {"readerCreation100ns", Number(row.readerCreation)}})));
     }
     if (reason) {
-        metadata.push_back(Ksword::Evidence::WriteJson(Object({{"kind", Text("api-archive-follow-end-v1")},
-            {"stopReason", Text(*reason)}, {"source", SourceReport(false)}})));
+        metadata.push_back(Ksword::Evidence::WriteJson(Object({{"kind", Text(kApiFollowEndKind)},
+            {"stopReason", Text(*reason)}, {"source", Object(SourceReportFields())}})));
     }
     std::vector<archive::RawEvidenceInput> inputs; // 借用本轮元数据及原包至写入和回读结束。
     inputs.reserve(metadata.size());
@@ -273,8 +279,12 @@ bool PassiveApiCapture::Commit(ProjectDocument& project, std::string_view sample
     }
 
     const auto& projectId = project.Info()->projectId; // 活会话持有并验证的同一项目写租约。
-    const auto nextOrdinal = ordinal_ + 1; // 只写已核验前缀后面的新段。
-    const auto previous = boundary_ ? boundary_->lastSequence : 0; // 前段实际封装序号。
+    const auto nextOrdinal = checkpoint_ ? checkpoint_->ordinal + 1 : 1; // 只写已发布前缀后的新段。
+    const auto previous = checkpoint_ ? checkpoint_->rawEnd.lastSequence : 0; // 前段实际封装序号。
+    if (!nextOrdinal) {
+        writeResult_ = Failure(ProjectError::LimitExceeded, "apiArchiveOrdinal");
+        return false;
+    }
     archive::RawEvidenceReceipt receipt; // 本次实际写出、关闭和刷盘结果。
     writeResult_ = project.WriteRawEvidenceSegment({projectId, sampleId, nextOrdinal, previous,
         [&inputs](archive::RawEvidenceArchive& writer) -> ProjectResult {
@@ -287,35 +297,20 @@ bool PassiveApiCapture::Commit(ProjectDocument& project, std::string_view sample
     if (!writeResult_) {
         return false;
     }
-    if (!receipt.flushed) {
+    if (!receipt.flushed || receipt.result.status != archive::SegmentWriteStatus::Ok) {
         writeResult_ = Failure(ProjectError::Corrupt, "apiArchiveRawFlush");
         return false;
     }
 
-    // 在同一项目读回实际段内容，核对顺序、元数据与原始字节。
-    std::size_t checkedRows = 0;
-    archive::RawEvidenceScanResult checked; // 实际验证过的 Stored 字节端点。
-    writeResult_ = project.ReadRawEvidenceSegment({projectId, sampleId, nextOrdinal, receipt.flushed->byteOffset,
-        previous, [&](const auto&, const auto&, const auto& records) {
-            for (const auto& record : records) {
-                const auto& raw = std::get<archive::RawRecordV1>(record.body); // 当前读取到的完整正文。
-                if (checkedRows >= inputs.size() || raw.metadataJson != inputs[checkedRows].metadataJson ||
-                    raw.inlineRawData != inputs[checkedRows].inlineRawData) {
-                    return false;
-                }
-                ++checkedRows;
-            }
-            return true;
-        }}, checked);
-    if (writeResult_ && (!checked.VerifiedBoundary(*receipt.flushed) || checkedRows != inputs.size())) {
-        writeResult_ = Failure(ProjectError::Corrupt, "apiArchiveRawReadback");
-    }
+    // 同句柄逐包回读并核对散列，发布成功后才推进实时回执。
+    ProjectApiCheckpoint committed; // 当前段的候选水位，失败时保留上次结果。
+    writeResult_ = PublishApiCheckpoint(project, sampleId, nextOrdinal, receipt, inputs,
+        checkpoint_ ? &*checkpoint_ : nullptr, committed);
     if (!writeResult_) {
         return false;
     }
-    ordinal_ = nextOrdinal;
-    boundary_ = *receipt.flushed;
-    recordedRows_ += pending_.size();
+    recordedRows_ = committed.lastSourceSequence;
+    checkpoint_ = std::move(committed);
     pending_.clear();
     return true;
 }

@@ -48,6 +48,7 @@
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
+    <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
@@ -60,6 +61,7 @@
     <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\StoredEvidence.h" />
     <ClInclude Include="..\ProjectReplay.h" />
+    <ClInclude Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="..\NetworkReplayPresentation.h" />
     <ClInclude Include="..\..\..\..\shared\evidence\ArchivedEtwObservation.h" />
   </ItemGroup>
