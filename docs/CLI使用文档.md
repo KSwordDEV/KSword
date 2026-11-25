@@ -14,7 +14,7 @@ KswordCLI.exe <family> help
 KswordCLI.exe <family> <subcommand> --help
 ```
 
-维护要求：每新增、删除或调整一个 `KswordCLI` 命令、别名或参数，必须同步更新 `KswordCLI.cpp` 内置 help 元数据和本文档。
+维护要求：每新增、删除或调整一个 `KswordCLI` 命令、别名或参数，必须同步更新该命令注册处的内置 help 元数据和本文档。`analyze` 的入口在命令注册表中登记，REPL 帮助与会话能力列表使用同一组方法定义。
 
 顶层 `help` 只展示命令族和简介；业务层只展示直接子节点；具体叶子帮助展示完整参数、输出和限制。已有叶子同时增加子命令时，父级仅展示旧调用入口和直接子节点，不展开叶子的长篇字段说明。
 原来的 `help <family> <subcommand>`、`<family> help`、`<command> --help`、`-h`、`/?` 继续有效，新增任意深度路径，例如：
@@ -147,12 +147,52 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `network` | Network rules, endpoints, WFP/NDIS evidence, and R3 fallbacks. |
 | `keyboard` | Keyboard hotkey and hook inventory. |
 | `mutation` | Prepare, commit, rollback, and audit bounded mutation transactions. |
+| `analyze` | 查询 ActionAnalyze 离线控制器能力，或启动可连续收发请求的会话。 |
 | `capability` | Unified driver feature capability query. |
 | `wsl` | WSL silo and Linux PID/TID diagnostics. |
 | `ddma` | 磁盘 DMA 能力探测、拒绝路径自检与物理内存读取。读取过程会临时写入指定暂存扇区。 |
 | `r0` | 复用桌面端的 R0 取证查询、证据读取与剪贴板规则控制。 |
 
 ## 具体命令语法
+
+### `analyze`
+
+| 命令 | 语法 | 用途 |
+| --- | --- | --- |
+| `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline]` | 查询离线控制器的实际方法和限制。`--json` 输出一个普通 CLI 结果，`data` 为能力对象。 |
+| `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline]` | 在同一个 CLI 进程内连续收发请求。省略选项时使用 `--input repl --output text`。 |
+
+入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。当前范围是协议协商、能力查询和关闭。项目存储、归档、规则执行、请求取消、实时采集及目标控制均未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
+
+#### 人工会话
+
+运行 `KswordCLI.exe analyze session` 后输入 `help` 查看命令，也可用 `help capabilities` 查询单项帮助。`hello` 查看协议版本，`capabilities` 查看当前能力和限制，`quit` 关闭控制器。REPL 支持用双引号引用参数和用两个相邻的双引号表示引号内的字面双引号。背斜杠按原字面保留。命令由本端派发器解析，输入只用于该会话的命令。
+
+#### JSONL 会话
+
+以 `KswordCLI.exe analyze session --input jsonl --output jsonl` 启动，使用管道或文件作为 stdin、stdout 的字节流。启动选项允许的组合是 `repl/text` 和 `jsonl/jsonl`。`session` 的输出选项为 `--output`，`--json` 适用于一次性的 `capabilities`。长程客户端应保持 stdin 可写并持续读取 stdout。启动参数失败的诊断来自 stderr，会话内错误通过 stdout 的协议记录返回。
+
+每条请求是一个对象，包含整数 `schemaVersion:1`、`requestId`、`method` 和对象 `params`。下列三行可依次发送给同一进程。协商是可选步骤，`acceptVersions` 接收 1–16 个正的 uint32 整数，含 `1` 即可协商成功。其余两个方法的 `params` 必须为空对象。
+
+```jsonl
+{"schemaVersion":1,"requestId":"q1","method":"controller.hello","params":{"acceptVersions":[1]}}
+{"schemaVersion":1,"requestId":"q2","method":"controller.capabilities","params":{}}
+{"schemaVersion":1,"requestId":"q3","method":"controller.shutdown","params":{}}
+```
+
+- 输入使用无 BOM 的严格 UTF-8，每行以 LF 或 CRLF 终止。正文上限为 1 MiB，容器最多 32 层（根容器计第 1 层），对象最多 128 键，数组最多 4096 项，JSON 值最多 65,536 个。`requestId` 和 `method` 各最多 128 个 UTF-8 字节且不能为空，禁止 ASCII 控制字符。重复键、浮点、溢出整数、非法 UTF-8 及未知字段会拒绝。超长行或 EOF 前的非空残帧会结束输入协议。
+- 第一条 stdout 记录为 `hello`，其中包含能力。每条记录都有相同的 `controllerId` 和递增的十进制字符串 `streamSequence`。具有有效 ID 的已解码请求返回 `response`，该阶段使用 `phase:"completed"`。无法解码有效 ID 时返回 `protocolError`，其中 `requestId` 为 `null`，另有 `inputSequence` 和可用的字节偏移。成功关闭时 `summary` 为最后一条记录。每条输出正文最大 256 KiB，输出队列包含最多 16 条记录（含正在写入的记录），最早待写记录达到 5 秒上限时终止交付。
+- 本进程缓存最多 4096 条成功查询。相同 `requestId`、方法和等值参数重放原结果，对象键顺序不影响等值判断。复用已登记 ID 进行另一请求时，返回 `request-id-conflict`。失败请求不占账本。账本满后允许重放已有结果，用新的 ID 调用 `controller.shutdown` 即可结束会话。账本随该进程退出而销毁。
+- `quit`／`controller.shutdown` 和正常 EOF 触发收尾。Ctrl-Break 请求有序关闭，Ctrl-C 在当前无前台任务的会话中保持会话可用。调用方以最终 `summary` 确认收尾。stdout 断开或停止读取时可能收不到该记录。
+
+| 会话退出码 | 条件 |
+| --- | --- |
+| `0` | 主动关闭或正常 EOF，最终 `summary` 已写出。 |
+| `1` | 启动用法错误，或输入协议因超长行、EOF 残帧而终止。 |
+| `3` | 流 I/O、输出交付或内部执行失败。 |
+| `6` | Ctrl-Break 请求有序关闭，最终 `summary` 已写出。 |
+
+单次请求的失败由记录中的 `error.errorId` 表达。会话退出码只表示最终会话结果。完整字段见 [A0.2 离线 CLI 协议](../schemas/action_analyze/method-contract-v1.md)。
 
 ### `log`
 

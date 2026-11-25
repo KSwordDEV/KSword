@@ -180,13 +180,25 @@
     <ClInclude Include="..\shared\driver\KswordArkManagedNetworkIoctl.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CommandRegistry.cpp" />
+    <ClCompile Include="CommandRegistry.cpp">
+      <PreprocessorDefinitions>KSWORD_CLI_ENABLE_ACTION_ANALYZE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="R3NetworkConnections.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp" />
     <ClInclude Include="CommandRegistry.h" />
     <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
     <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ActionAnalyze\Cli\Commands.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\Controller.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\Transport.cpp" />
+    <ClInclude Include="ActionAnalyze\Cli\Commands.h" />
+    <ClInclude Include="ActionAnalyze\Cli\Controller.h" />
+    <ClInclude Include="ActionAnalyze\Cli\Protocol.h" />
+    <ClInclude Include="ActionAnalyze\Cli\Transport.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

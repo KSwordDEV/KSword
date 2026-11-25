@@ -66,6 +66,8 @@ struct Command {
     bool supportsR0 = false;
     bool supportsR3 = true;
     std::wstring defaultBackend = L"r3";
+    // 流式命令独占输出，退出后不得追加单文档 Result。
+    std::function<int(const Args&)> runStreaming = {};
 };
 void addCommand(Command command);
 void addFamily(const std::wstring& name, const std::wstring& summary);

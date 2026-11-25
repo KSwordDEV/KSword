@@ -16,6 +16,12 @@
     <Filter Include="源文件\ArkDriverClient">
       <UniqueIdentifier>{AAAC28A5-0BFE-4F8B-9CB1-48F4793B36CB}</UniqueIdentifier>
     </Filter>
+    <Filter Include="源文件\ActionAnalyze CLI">
+      <UniqueIdentifier>{30C468D1-4C1D-4DD6-8741-C1B737B60C4F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="头文件\ActionAnalyze CLI">
+      <UniqueIdentifier>{B0D051DF-2E09-4C04-B993-BDC081C36A2D}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="KswordCLI.cpp">
@@ -71,6 +77,16 @@
     <ClInclude Include="CommandRegistry.h" />
     <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
     <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ActionAnalyze\Cli\Commands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\Controller.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\Transport.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClInclude Include="ActionAnalyze\Cli\Commands.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\Controller.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\Protocol.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\Transport.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3NetworkPing.cpp" />

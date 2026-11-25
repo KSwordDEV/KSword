@@ -1,4 +1,7 @@
 #include "CommandRegistry.h"
+#ifdef KSWORD_CLI_ENABLE_ACTION_ANALYZE
+#include "ActionAnalyze/Cli/Commands.h"
+#endif
 #include <algorithm>
 #include <cwctype>
 #include <cmath>
@@ -15,13 +18,21 @@ namespace {
 std::string narrowOption(const std::wstring& value) { std::string out; for (const auto ch : value) out += ch <= 127 ? static_cast<char>(ch) : '?'; return out; }
 std::vector<Command> entries;
 std::map<std::wstring, std::wstring> families;
+void ensureBuiltInCommands() {
+#ifdef KSWORD_CLI_ENABLE_ACTION_ANALYZE
+    // 正式 CLI 明确启用分析模块；独立链接 registry 的旧夹具无需依赖该模块。
+    static const bool initialized = [] { action_analyze::RegisterCommands(); return true; }();
+    (void)initialized;
+#endif
+}
 std::vector<std::wstring> tokens(const std::wstring& path) {
     std::wistringstream input(path); std::vector<std::wstring> result;
     for (std::wstring value; input >> value;) result.push_back(value);
     return result;
 }
 std::set<std::wstring> options(const Command& command) {
-    std::set<std::wstring> result{L"--json", L"--backend"};
+    std::set<std::wstring> result{L"--backend"};
+    if (!command.runStreaming) result.insert(L"--json");
     const auto& text = command.syntax;
     for (std::size_t at = 0; (at = text.find(L"--", at)) != std::wstring::npos;) {
         auto end = at + 2;
@@ -111,12 +122,12 @@ std::uint32_t Args::u32(const std::wstring& key, std::uint32_t fallback) const {
 void addFamily(const std::wstring& name, const std::wstring& summary) { families.emplace(name, summary); }
 void addCommand(Command command) {
     for (auto& existing : entries) if (existing.path == command.path) {
-        if (!existing.run && !command.supportsR0) { command.legacyDefault = true; command.legacySyntax = existing.syntax; command.legacyOptions = existing.options; }
+        if (!existing.run && !existing.runStreaming && !command.supportsR0) { command.legacyDefault = true; command.legacySyntax = existing.syntax; command.legacyOptions = existing.options; }
         existing = std::move(command); return;
     }
     entries.push_back(std::move(command));
 }
-const std::vector<Command>& commands() { return entries; }
+const std::vector<Command>& commands() { ensureBuiltInCommands(); return entries; }
 std::wstring commandPath(int argc, wchar_t* argv[], int first) {
     std::wstring path;
     for (int i = first; i < argc; ++i) {
@@ -127,6 +138,7 @@ std::wstring commandPath(int argc, wchar_t* argv[], int first) {
     return path;
 }
 bool printHelp(const std::wstring& path) {
+    ensureBuiltInCommands();
     if (path.empty()) {
         std::wcout << L"KswordCLI CLI\nusage: KswordCLI.exe <family> [subcommands] [--named-options]\n"
                    << L"Help: help [path] | <path> help | <path> --help | -h | /?\nFamilies:\n";
@@ -153,7 +165,7 @@ bool printHelp(const std::wstring& path) {
         std::wcout << L"Commands:\n";
         for (const auto& [name, summary] : children) {
             std::wcout << L"  KswordCLI.exe " << path << L" " << name << L"  " << summary << L"\n";
-            for (const auto& entry : entries) if (entry.path == path + L" " + name && (!entry.run || entry.legacyDefault) &&
+            for (const auto& entry : entries) if (entry.path == path + L" " + name && ((!entry.run && !entry.runStreaming) || entry.legacyDefault) &&
                 (entry.options.find(L"Required:") != std::wstring::npos || entry.options.find(L"必填") != std::wstring::npos))
                 std::wcout << L"    " << entry.options << L"\n";
         }
@@ -161,9 +173,10 @@ bool printHelp(const std::wstring& path) {
     return true;
 }
 std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
+    ensureBuiltInCommands();
     const Command* found = nullptr; std::size_t count = 0;
     for (const auto& entry : entries) {
-        if (!entry.run) continue;
+        if (!entry.run && !entry.runStreaming) continue;
         const auto words = tokens(entry.path);
         if (static_cast<std::size_t>(argc - 1) < words.size()) continue;
         bool match = true;
@@ -203,12 +216,14 @@ std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
         }
         const auto backend = args.get(L"--backend", found->defaultBackend);
         if ((backend == L"r0" && !found->supportsR0) || (backend == L"r3" && !found->supportsR3) ||
-            (backend != L"r0" && backend != L"r3"))
+            (backend != L"r0" && backend != L"r3" && !(backend == L"offline" && found->defaultBackend == L"offline")))
             throw std::invalid_argument("unsupported backend for this command");
+        if (found->runStreaming) return found->runStreaming(args);
         return emit(*found, args, found->run(args));
     } catch (const std::invalid_argument& e) {
         const std::string message = e.what(); const std::wstring wide(message.begin(), message.end());
         std::wcerr << L"error: " << wide << L"\nusage: " << found->syntax << L"\n";
+        if (found->runStreaming) return 1;
         return emit(*found, args, {1, Json::object({}), {wide}});
     }
 }
