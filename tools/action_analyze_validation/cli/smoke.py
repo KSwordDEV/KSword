@@ -157,7 +157,7 @@ def smoke_commands(caps):
         (('analyze', 'session', '--unknown-smoke'), b'unknown option --unknown-smoke'),
         (('analyze', 'session', '--json'), b'unknown option --json'),
         (('analyze', 'session', '--input', 'jsonl', '--output', 'text'), b'supported combinations'),
-        (('analyze', 'session', '--backend', 'r3'), b'unsupported backend'),
+        (('analyze', 'session', '--backend', 'r0'), b'unsupported backend'),
     ]:
         stdout, stderr = invoke(args, code=1)
         require(stdout, b'', args)

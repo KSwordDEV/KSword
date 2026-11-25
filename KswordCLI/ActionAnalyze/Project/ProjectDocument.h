@@ -10,11 +10,15 @@
 namespace ks::cli::action_analyze::archive {
 enum class StreamKind : std::uint32_t;
 struct SegmentInspection;
+struct RawEvidenceReceipt;
+struct RawEvidenceScanResult;
 }
 
 namespace Ksword::ActionAnalyze {
 
 namespace ProjectStorage { struct Directory; }
+struct ProjectRawEvidenceWrite;
+struct ProjectRawEvidenceRead;
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
@@ -103,6 +107,11 @@ public:
     ProjectResult InspectSegment(std::string_view projectId, std::string_view sampleId,
         ks::cli::action_analyze::archive::StreamKind stream, std::uint64_t ordinal,
         std::optional<std::uint64_t> endOffset, ks::cli::action_analyze::archive::SegmentInspection& out) const;
+    // 归档工作线程持有项目和目录租约。段级回执独立于旧采样登记文档。
+    ProjectResult WriteRawEvidenceSegment(const ProjectRawEvidenceWrite& request,
+        ks::cli::action_analyze::archive::RawEvidenceReceipt& out);
+    ProjectResult ReadRawEvidenceSegment(const ProjectRawEvidenceRead& request,
+        ks::cli::action_analyze::archive::RawEvidenceScanResult& out) const;
     // 显式扫描未纳入当前目录的样本目录名，返回尚待核验的孤立候选 ID。
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 

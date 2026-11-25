@@ -81,23 +81,29 @@
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\Transport.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="ActionAnalyze\Cli\Commands.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\MemoryWatch.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\LiveSession.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Controller.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\Transport.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup Label="ActionAnalyze Archive">
+    <ClCompile Include="ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Archive\SegmentBodies.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Archive\SegmentFormat.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Archive\SegmentInspection.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Archive\SegmentReader.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Archive\SegmentWriter.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="ActionAnalyze\Archive\SegmentFormat.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Archive\RawEvidenceArchive.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Archive\SegmentBodies.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Archive\SegmentInspection.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Archive\SegmentReader.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
@@ -113,10 +119,12 @@
     <ClCompile Include="ActionAnalyze\Project\ProjectArchive.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectLock.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ProjectRawEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
@@ -461,9 +469,13 @@
   <ItemGroup>
     <ClCompile Include="R3MonitorEtw.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\PassiveEtwSource.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\PassiveEtwSource.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
   </ItemGroup>

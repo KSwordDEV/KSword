@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/live-etw-session.schema.json",
+  "title": "ActionAnalyze v1 passive ETW session methods",
+  "$ref": "#/$defs/request",
+  "$defs": {
+    "uuid": { "$ref": "request.schema.json#/$defs/projectUuid" },
+    "u64": { "$ref": "value.schema.json#/$defs/u64" },
+    "nullableU64": { "type": ["string", "null"], "if": { "type": "string" }, "then": { "$ref": "#/$defs/u64" } },
+    "nativeCode": { "type": ["integer", "null"], "minimum": 0, "maximum": 4294967295 },
+    "session": {
+      "type": "object", "additionalProperties": false, "required": ["id", "epoch"],
+      "properties": { "id": { "$ref": "#/$defs/uuid" }, "epoch": { "$ref": "#/$defs/uuid" } }
+    },
+    "openParams": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "title", "pid", "creationFileTime", "providerId", "durationMs"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/uuid" },
+        "title": { "$ref": "request.schema.json#/$defs/projectTitle" },
+        "pid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "creationFileTime": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "providerId": { "$ref": "#/$defs/uuid" },
+        "durationMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
+      }
+    },
+    "request": {
+      "$ref": "request.schema.json#/$defs/liveEnvelope",
+      "properties": { "method": { "enum": ["session.open", "session.query", "session.stop", "session.close"] } },
+      "allOf": [
+        {
+          "if": { "properties": { "method": { "const": "session.open" } } },
+          "then": {
+            "required": ["expected"],
+            "properties": {
+              "session": false,
+              "params": { "$ref": "#/$defs/openParams" },
+              "expected": {
+                "type": "object", "additionalProperties": false, "required": ["revisionId"],
+                "properties": { "revisionId": { "$ref": "#/$defs/uuid" } }
+              }
+            }
+          },
+          "else": {
+            "required": ["session"],
+            "properties": {
+              "session": { "$ref": "request.schema.json#/$defs/liveSessionIdentity" },
+              "params": { "$ref": "request.schema.json#/$defs/empty" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "method": { "const": "session.query" } } },
+          "then": { "properties": { "expected": false } }
+        },
+        {
+          "if": { "properties": { "method": { "enum": ["session.stop", "session.close"] } } },
+          "then": {
+            "required": ["expected"],
+            "properties": {
+              "expected": {
+                "type": "object", "additionalProperties": false, "required": ["stateRevision"],
+                "properties": { "stateRevision": { "$ref": "#/$defs/u64" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["session", "projectId", "sampleId", "stateRevision", "capture", "stopReason", "plan", "source", "archive"],
+      "properties": {
+        "session": { "$ref": "#/$defs/session" },
+        "projectId": { "$ref": "#/$defs/uuid" },
+        "sampleId": { "$ref": "#/$defs/uuid" },
+        "stateRevision": { "enum": ["1", "2", "3"] },
+        "capture": { "enum": ["active", "cleanup-pending", "stopped", "partial"] },
+        "stopReason": { "type": ["string", "null"] },
+        "plan": { "$ref": "#/$defs/plan" },
+        "source": { "$ref": "#/$defs/source" },
+        "archive": { "$ref": "#/$defs/archive" }
+      }
+    },
+    "closeReceipt": {
+      "type": "object", "additionalProperties": false, "required": ["session", "sampleId", "stateRevision", "closed"],
+      "properties": {
+        "session": { "$ref": "#/$defs/session" }, "sampleId": { "$ref": "#/$defs/uuid" },
+        "stateRevision": { "const": "4" }, "closed": { "const": true }
+      }
+    },
+    "archive": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "segmentOrdinal", "flushedBytes", "lastSequence", "error", "win32Error"],
+      "properties": {
+        "status": { "enum": ["pending", "raw-verified", "failed"] }, "segmentOrdinal": { "const": "1" },
+        "flushedBytes": { "$ref": "#/$defs/nullableU64" }, "lastSequence": { "$ref": "#/$defs/nullableU64" },
+        "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "#/$defs/nativeCode" }
+      }
+    },
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "backend", "session", "sourceEpoch", "revisionId", "snapshotId", "revisionHash", "configSemanticHash", "providerId", "headerPid", "processCreationFileTime", "durationMs", "headerRole", "sourceClock", "receiveClock", "maxRecords", "maxPayloadBytes"],
+      "properties": {
+        "kind": { "const": "etw-capture-plan-v1" }, "backend": { "const": "r3" },
+        "session": { "$ref": "#/$defs/session" }, "sourceEpoch": { "anyOf": [{ "const": "" }, { "$ref": "#/$defs/uuid" }] },
+        "revisionId": { "$ref": "#/$defs/uuid" }, "snapshotId": { "$ref": "#/$defs/uuid" },
+        "revisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "configSemanticHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "providerId": { "$ref": "#/$defs/uuid" }, "headerPid": { "$ref": "#/$defs/openParams/properties/pid" },
+        "processCreationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
+        "durationMs": { "$ref": "#/$defs/openParams/properties/durationMs" },
+        "headerRole": { "const": "record-context" }, "sourceClock": { "const": "filetime-100ns" },
+        "receiveClock": { "const": "local-qpc" }, "maxRecords": { "const": 512 }, "maxPayloadBytes": { "const": 4096 }
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "sourceEpoch", "inputWin32Error", "startWin32Error", "enableWin32Error", "openWin32Error", "processAttempted", "processWin32Error", "closeWin32Error", "firstStopWin32Error", "lastStopWin32Error", "stopAttempts", "nativeSessionStopped", "callbackFailed", "eventsLost", "logBuffersLost", "realTimeBuffersLost", "providerEvents", "headerFiltered", "enqueued", "queued", "queueDropped", "payloadTruncated", "malformedPayload"],
+      "properties": {
+        "state": { "enum": ["idle", "starting", "running", "stopping", "stopped", "access-denied", "provider-unavailable", "failed", "cleanup-pending"] },
+        "sourceEpoch": { "$ref": "#/$defs/plan/properties/sourceEpoch" },
+        "inputWin32Error": { "$ref": "value.schema.json#/$defs/u32" },
+        "startWin32Error": { "$ref": "#/$defs/nativeCode" }, "enableWin32Error": { "$ref": "#/$defs/nativeCode" },
+        "processAttempted": { "type": "boolean" },
+        "openWin32Error": { "$ref": "#/$defs/nativeCode" }, "processWin32Error": { "$ref": "#/$defs/nativeCode" },
+        "closeWin32Error": { "$ref": "#/$defs/nativeCode" }, "firstStopWin32Error": { "$ref": "#/$defs/nativeCode" },
+        "lastStopWin32Error": { "$ref": "#/$defs/nativeCode" }, "stopAttempts": { "$ref": "#/$defs/u64" },
+        "nativeSessionStopped": { "type": "boolean" }, "callbackFailed": { "type": "boolean" },
+        "eventsLost": { "$ref": "#/$defs/nativeCode" }, "logBuffersLost": { "$ref": "#/$defs/nativeCode" },
+        "realTimeBuffersLost": { "$ref": "#/$defs/nativeCode" }, "providerEvents": { "$ref": "#/$defs/u64" },
+        "headerFiltered": { "$ref": "#/$defs/u64" }, "enqueued": { "$ref": "#/$defs/u64" }, "queued": { "$ref": "#/$defs/u64" },
+        "queueDropped": { "$ref": "#/$defs/u64" }, "payloadTruncated": { "$ref": "#/$defs/u64" },
+        "malformedPayload": { "$ref": "#/$defs/u64" }
+      }
+    }
+  }
+}

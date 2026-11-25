@@ -7,6 +7,8 @@
 
 namespace ks::cli::action_analyze::archive {
 
+inline constexpr std::size_t kRawRecordV1PrefixBytes = 4;
+
 struct RawRecordV1 {
     std::string_view metadataJson;
     std::uint32_t inlineRawOffsetInPayload = 0;
@@ -54,6 +56,10 @@ struct BodyFailure {
     std::uint16_t recordType = 0;
     std::uint64_t recordOffset = 0;
 };
+
+// 仅编码已冻结的 RawRecord v1 封装。调用方定义元数据字段的语义，失败时不改动输出。
+BodyIssue EncodeRawRecordV1(std::string_view metadataJson, std::string_view inlineRawData,
+                          std::vector<std::uint8_t>& out);
 
 // monostate 表示没有适用的正文解码器。Json 字符串视图借用块缓冲区。
 using RecordBody = std::variant<std::monostate, RawRecordV1, CanonicalEventV1>;

@@ -237,7 +237,7 @@ Fault Transport::Start(bool jsonl) {
 
 bool Transport::Interactive() const { return state_->consoleIn && state_->consoleOut; }
 
-Input Transport::Next() {
+Input Transport::Next(bool wakeForTick) {
     auto& state = *state_;
     std::unique_lock lock(state.mutex);
     for (;;) {
@@ -249,7 +249,8 @@ Input Transport::Next() {
             state.changed.notify_all();
             return item;
         }
-        state.changed.wait_for(lock, std::chrono::milliseconds(50));
+        if (state.changed.wait_for(lock, std::chrono::milliseconds(50)) == std::cv_status::timeout && wakeForTick)
+            return {InputKind::Tick, {}, {}};
     }
 }
 

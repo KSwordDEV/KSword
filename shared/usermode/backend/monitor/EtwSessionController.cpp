@@ -89,6 +89,11 @@ void EtwSessionController::setRawEventCallback(RawEventCallback callback) {
     rawEventCallback_ = std::move(callback);
 }
 
+void EtwSessionController::setNativeRecordCallback(NativeRecordCallback callback) {
+    const std::lock_guard<std::mutex> lock(mutex_); // 回调槽位与消费线程共享。
+    nativeRecordCallback_ = std::move(callback);
+}
+
 void EtwSessionController::setStatusCallback(StatusCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
     statusCallback_ = std::move(callback);
@@ -232,6 +237,28 @@ void EtwSessionController::handleEventRecord(EVENT_RECORD* record) {
         return;
     }
 
+    // 原生订阅无需构造本地化时间、字符串和摘要。旧回调照常取得格式化行。
+    EventCallback callback; // 旧行的消费入口。
+    RawEventCallback rawCallback; // 同时消费原生记录及旧行的入口。
+    NativeRecordCallback nativeCallback; // 只接收原生记录的入口。
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        callback = eventCallback_;
+        rawCallback = rawEventCallback_;
+        nativeCallback = nativeRecordCallback_;
+    }
+    if (nativeCallback) {
+        try {
+            nativeCallback(*record);
+        } catch (...) {
+            const std::lock_guard<std::mutex> lock(mutex_);
+            evidence_.callbackFailed = true;
+        }
+    }
+    if (!callback && !rawCallback) {
+        return;
+    }
+
     EtwEvent eventRow{};
     eventRow.timestamp = static_cast<std::uint64_t>(header.TimeStamp.QuadPart);
     eventRow.timeText = FileTimeToLocalText(header.TimeStamp);
@@ -246,13 +273,6 @@ void EtwSessionController::handleEventRecord(EVENT_RECORD* record) {
     eventRow.keyword = header.EventDescriptor.Keyword;
     eventRow.summary = BuildEventSummary(*record);
 
-    EventCallback callback;
-    RawEventCallback rawCallback;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        callback = eventCallback_;
-        rawCallback = rawEventCallback_;
-    }
     if (callback) {
         try {callback(eventRow);}catch (...) {std::lock_guard<std::mutex> lock(mutex_);evidence_.callbackFailed = true;}
     }

@@ -193,23 +193,29 @@
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\LiveSession.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Controller.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ProjectCommands.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Protocol.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\Transport.cpp" />
     <ClInclude Include="ActionAnalyze\Cli\Commands.h" />
     <ClInclude Include="ActionAnalyze\Cli\MemoryWatch.h" />
+    <ClInclude Include="ActionAnalyze\Cli\LiveSession.h" />
     <ClInclude Include="ActionAnalyze\Cli\Controller.h" />
     <ClInclude Include="ActionAnalyze\Cli\ProjectCommands.h" />
     <ClInclude Include="ActionAnalyze\Cli\Protocol.h" />
     <ClInclude Include="ActionAnalyze\Cli\Transport.h" />
   </ItemGroup>
   <ItemGroup Label="ActionAnalyze Archive">
+    <ClCompile Include="ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
+    <ClCompile Include="ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="ActionAnalyze\Archive\SegmentFormat.cpp" />
     <ClCompile Include="ActionAnalyze\Archive\SegmentInspection.cpp" />
     <ClCompile Include="ActionAnalyze\Archive\SegmentReader.cpp" />
     <ClCompile Include="ActionAnalyze\Archive\SegmentWriter.cpp" />
     <ClInclude Include="ActionAnalyze\Archive\SegmentFormat.h" />
+    <ClInclude Include="ActionAnalyze\Archive\RawEvidenceArchive.h" />
+    <ClInclude Include="ActionAnalyze\Archive\SegmentBodies.h" />
     <ClInclude Include="ActionAnalyze\Archive\SegmentInspection.h" />
     <ClInclude Include="ActionAnalyze\Archive\SegmentReader.h" />
     <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h" />
@@ -225,10 +231,12 @@
     <ClCompile Include="ActionAnalyze\Project\ProjectArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />
     <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectLock.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectRawEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h" />
     <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h" />
   </ItemGroup>
@@ -576,9 +584,13 @@
   <ItemGroup>
     <ClCompile Include="R3MonitorEtw.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\PassiveEtwSource.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\PassiveEtwSource.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
   </ItemGroup>

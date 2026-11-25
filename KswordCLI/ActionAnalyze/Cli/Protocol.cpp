@@ -99,7 +99,7 @@ JsonValue Sorted(const JsonValue& value) {
 }
 } // namespace
 
-Decoded DecodeJsonLine(std::string_view line) {
+Decoded DecodeJsonLine(std::string_view line, RequestProfile profile) {
     if (const auto fault = TextFault(line)) return {{}, fault};
     if (const auto fault = LexicalFault(line)) return {{}, fault};
     JsonLimits limits;
@@ -122,8 +122,10 @@ Decoded DecodeJsonLine(std::string_view line) {
     };
     if (const auto fault = ShapeFault(parsed.value)) { decoded.error = fault; return decoded; }
     for (const auto& [key, unused] : *fields) {
-        if (key != "schemaVersion" && key != "requestId" && key != "method" && key != "params")
-            return fail("unknown-field", "Unexpected request field for this offline controller");
+        if (key == "schemaVersion" || key == "requestId" || key == "method" || key == "params") continue;
+        if (profile == RequestProfile::Live && (key == "session" || key == "expected")) continue;
+        return fail("unknown-field", profile == RequestProfile::Offline
+            ? "Unexpected request field for this offline controller" : "Unexpected request field for this live controller");
     }
     const auto* version = parsed.value.find("schemaVersion");
     std::uint64_t number = 0;
@@ -136,6 +138,21 @@ Decoded DecodeJsonLine(std::string_view line) {
     const auto* params = parsed.value.find("params");
     if (!params || !params->asObject()) return fail("invalid-params", "params must be an object");
     decoded.request.params = *params;
+    if (const auto* session = parsed.value.find("session")) {
+        RequestSession identity;
+        const auto* sessionId = session->find("id");
+        const auto* epoch = session->find("epoch");
+        if (!session->asObject() || session->asObject()->size() != 2 ||
+            !sessionId || !sessionId->tryGetString(identity.id) || !ValidId(identity.id) ||
+            !epoch || !epoch->tryGetString(identity.epoch) || !ValidId(identity.epoch)) {
+            return fail("invalid-session", "session requires exactly id and epoch as bounded strings");
+        }
+        decoded.request.session = std::move(identity);
+    }
+    if (const auto* expected = parsed.value.find("expected")) {
+        if (!expected->asObject()) return fail("invalid-expected", "expected must be an object when present");
+        decoded.request.expected = *expected;
+    }
     return decoded;
 }
 
@@ -179,7 +196,7 @@ JsonValue FaultJson(const Fault& error) {
     if (!error) return V::makeNull();
     return V::makeObject({{"errorId", V::makeString(error.id)}, {"message", V::makeString(error.message)},
         {"source", V::makeString(error.source)}, {"code", V::makeUInt(error.nativeCode ? error.nativeCode : error.code)},
-        {"retryability", V::makeString("none")}, {"stage", V::makeString("offline")},
+        {"retryability", V::makeString("none")}, {"stage", V::makeString(error.stage)},
         {"byteOffset", error.offset ? V::makeUInt(*error.offset) : V::makeNull()}});
 }
 

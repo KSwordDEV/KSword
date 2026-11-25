@@ -2,6 +2,7 @@
 
 #include "Protocol.h"
 #include "ProjectCommands.h"
+#include "LiveSession.h"
 
 #include <map>
 
@@ -15,14 +16,19 @@ struct Reply {
     bool observed = false;
 };
 
-// 两种输入共用同一个离线项目和方法派发器。
+// 两种输入共用项目和派发器。实时方法仅在明确选择 R3 时登记。
 class Controller {
 public:
-    static JsonValue Capabilities();
-    static std::string CapabilitiesText();
-    static std::string Help(std::string_view command = {});
+    explicit Controller(bool live = false) : live_(live) {}
+    static JsonValue Capabilities(bool live = false);
+    static std::string CapabilitiesText(bool live = false);
+    static std::string Help(std::string_view command = {}, bool live = false);
     Reply Dispatch(Request request, bool repl);
-    void CloseProject() noexcept { project_.Close(); }
+    bool NeedsTick() const noexcept { return session_.NeedsTick(); }
+    void Tick() { session_.Tick(project_.Document()); }
+    JsonValue Finish(std::string_view reason);
+    bool CleanupPending() const noexcept { return session_.CleanupPending(); }
+    bool Incomplete() const noexcept { return session_.Incomplete(); }
 
 private:
     struct Cached {
@@ -35,6 +41,8 @@ private:
     std::map<std::string, Cached> replies_;
     std::size_t replayBytes_ = 0;
     ProjectCommands project_;
+    LiveSession session_;
+    bool live_;
 };
 
 } // namespace ks::cli::action_analyze

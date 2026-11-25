@@ -16,6 +16,27 @@
         "params": { "type": "object", "maxProperties": 128 }
       }
     },
+    "liveEnvelope": {
+      "$comment": "Use only when a live profile is explicitly selected. The selected method defines which fields are required and the closed expected and params shapes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "requestId", "method", "params"],
+      "properties": {
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "requestId": { "$ref": "#/$defs/token" },
+        "method": { "$ref": "#/$defs/token" },
+        "session": { "$ref": "#/$defs/liveSessionIdentity" },
+        "expected": { "type": "object", "maxProperties": 128 },
+        "params": { "type": "object", "maxProperties": 128 }
+      }
+    },
+    "liveSessionIdentity": {
+      "type": "object", "additionalProperties": false, "required": ["id", "epoch"],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "epoch": { "$ref": "#/$defs/token" }
+      }
+    },
     "token": {
       "$comment": "The lexical pass also checks the encoded length in UTF-8 bytes.",
       "type": "string",

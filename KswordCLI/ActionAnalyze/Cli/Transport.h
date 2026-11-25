@@ -9,7 +9,7 @@ namespace ks::cli::action_analyze {
 inline constexpr std::size_t kPendingFrames = 16;
 inline constexpr unsigned kOutputTimeoutMs = 5000;
 
-enum class InputKind { Line, Eof, Fatal, Break, OutputLost };
+enum class InputKind { Line, Eof, Fatal, Break, OutputLost, Tick };
 
 struct Input {
     InputKind kind;
@@ -26,7 +26,7 @@ public:
 
     Fault Start(bool jsonl);
     bool Interactive() const;
-    Input Next();
+    Input Next(bool wakeForTick = false);
     bool Send(std::string frame);
     bool Finish();
 

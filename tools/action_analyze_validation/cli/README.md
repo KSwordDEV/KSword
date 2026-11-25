@@ -8,9 +8,18 @@ py -3.12 -B schemas/action_analyze/check_base_v1.py
 py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile shell
 py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile project-v1
 py -3.12 -B tools/action_analyze_validation/cli/smoke.py --profile archive-v1
+py -3.12 -B tools/action_analyze_validation/cli/live_etw.py
 py -3.12 -B tools/action_analyze_validation/cli/project_v1.py
 py -3.12 -B tools/action_analyze_validation/cli/archive_v1.py
 ```
+
+## Passive ETW session receipt
+
+The HostX64 Release build passed with zero warnings and errors. The CLI executable in `Ksword5.1/x64/Release` has SHA-256 `68A8A1A9CFD670058E0DD3BC0AE1C2A5504C177A086E05DECF383F986FF8F079`. The owned file producer emitted six write and six verified read events. The JSONL test matched all 12 descriptors and eight-byte payloads and reopened the 8,881-byte Stored segment. Its 14 records include the plan and terminal coverage. Windows and the local queue reported zero lost records on that sample.
+
+The test checked duplicate open, stop and close requests, rejected a changed request identity and a stale revision, and rejected a creation-time mismatch before adding a project sample. It exercised the duration limit, immediate EOF and the REPL lifecycle. Immediate EOF returned `ProcessTrace=87`, a verified raw segment, exit code `6` and `clean=true`. The REPL stop arrived before `ProcessTrace` and reported partial coverage. All owned processes exited and the fixed test project was removed.
+
+The offline CLI passed its 16 request and 22 wire vectors and replay-ledger checks. The Stored raw archive passed 45 native checks, and the submitted schema passed 10 request vectors and four Release receipts. Local evidence is in `.codex-build-logs/action-analyze-cli-passive-live-final-build.log`, `.codex-build-logs/action-analyze-cli-passive-live-final-test.log` and `.codex-build-logs/action-analyze-cli-passive-live-offline-regression.log`.
 
 `smoke.py` defaults to `--profile auto`. An explicit profile checks the advertised flags, exact method names and count against the selected profile. The `shell`, `project-v1`, and `archive-v1` profiles have 3, 11, and 12 methods respectively. All profiles exercise the controller methods, JSONL framing and shutdown, redirected REPL, help, option rejection, and the legacy R3 file metadata query against the checked-in request schema. The two profiles with project support account for the entry reserved for project close. A baseline `unsupported-method` vector applies only when the executable omits that method from capabilities. [A0.2 method contract](../../../schemas/action_analyze/method-contract-v1.md)
 

@@ -10,19 +10,6 @@ namespace {
 namespace Archive = ks::cli::action_analyze::archive;
 using ProjectStorage::Failure;
 
-Archive::ArchiveUuid UuidBytes(std::string_view checkedUuid) {
-    const auto digit = [](char c) { return c <= '9' ? c - '0' : c - 'a' + 10; };
-    Archive::ArchiveUuid bytes{};
-    std::size_t offset = 0;
-    // 输入已由项目文档校验。按文本顺序取字节，保持与段头的 UUID 一致。
-    for (auto& byte : bytes) {
-        if (checkedUuid[offset] == '-') ++offset;
-        byte = static_cast<std::uint8_t>((digit(checkedUuid[offset]) << 4) | digit(checkedUuid[offset + 1]));
-        offset += 2;
-    }
-    return bytes;
-}
-
 ProjectResult LabelMissingPath(ProjectResult result, const char* detail) {
     if (result.error == ProjectError::NotFound) result.detail = detail;
     return result;
@@ -50,8 +37,8 @@ ProjectResult ProjectDocument::InspectSegment(std::string_view projectId, std::s
 
     SampleRecord sample;
     if (auto result = ReadSample(sampleId, sample); !result) return result;
-    identity.project = UuidBytes(info->projectId);
-    identity.sample = UuidBytes(sample.info.sampleId);
+    identity.project = ProjectStorage::UuidBytes(info->projectId);
+    identity.sample = ProjectStorage::UuidBytes(sample.info.sampleId);
 
     // 保持目录与文件句柄到扫描结束。共享模式约束当前文件，允许并行只读。
     ProjectStorage::Directory directory;

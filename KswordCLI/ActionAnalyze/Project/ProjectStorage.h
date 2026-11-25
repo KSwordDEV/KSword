@@ -9,6 +9,7 @@
 #include <Windows.h>
 
 #include <initializer_list>
+#include <array>
 
 namespace Ksword::ActionAnalyze::ProjectStorage {
 
@@ -56,6 +57,8 @@ ProjectResult Publish(const Directory& root, Parts dirs, std::wstring_view file,
                       const JsonValue& doc, bool replace, std::string* hash = nullptr);
 
 bool IsUuid(std::string_view str);
+// 仅接收已通过 IsUuid 校验的文本，按 A0 定义的顺序返回段头 UUID 字节。
+std::array<std::uint8_t, 16> UuidBytes(std::string_view checkedUuid);
 bool IsHash(std::string_view str);
 bool IsText(std::string_view str, std::size_t maxBytes, bool multiline = false);
 std::wstring WideAscii(std::string_view str);

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstring>
 #include <iterator>
 #include <windows.h>
 
@@ -14,7 +15,7 @@ namespace {
 namespace evidence = Ksword::Evidence;
 constexpr std::uint16_t kRawRecord = 3;
 constexpr std::uint16_t kCanonicalEvent = 4;
-constexpr std::uint32_t kRawPrefixBytes = 4;
+constexpr auto kRawPrefixBytes = static_cast<std::uint32_t>(kRawRecordV1PrefixBytes);
 constexpr std::uint32_t kEventCoreBytes = 128;
 constexpr std::uint32_t kEventValidityMask = 2047;
 constexpr std::size_t kMaxJsonBytes = 4u * 1024u * 1024u;
@@ -194,6 +195,30 @@ BodyIssue Decode(const RecordView& record, RecordBody& body)
 }
 
 } // namespace
+
+BodyIssue EncodeRawRecordV1(std::string_view metadataJson, std::string_view inlineRawData,
+                          std::vector<std::uint8_t>& out)
+{
+    // 检查两段长度后才分配。封装和解码共享 JSON 校验规则。
+    constexpr auto maxBody = kMaxDecodedBlockBytes - kRecordHeaderBytes - kRawPrefixBytes;
+    if (metadataJson.size() > maxBody || inlineRawData.size() > maxBody - metadataJson.size()) {
+        return BodyIssue::Length;
+    }
+    if (const auto issue = CheckJson(metadataJson); issue != BodyIssue::None) {
+        return issue;
+    }
+
+    // 保留输入的 UTF-8 和原始二进制字节，包括原始证据中的 NUL。
+    std::vector<std::uint8_t> payload(kRawPrefixBytes + metadataJson.size() + inlineRawData.size());
+    wire::Put(payload.data(), 0, static_cast<std::uint32_t>(metadataJson.size()));
+    auto* const metadata = payload.data() + kRawPrefixBytes;
+    std::memcpy(metadata, metadataJson.data(), metadataJson.size());
+    if (!inlineRawData.empty()) {
+        std::memcpy(metadata + metadataJson.size(), inlineRawData.data(), inlineRawData.size());
+    }
+    out.swap(payload);
+    return BodyIssue::None;
+}
 
 SegmentBodyScanResult ScanOpenSegmentBodies(void* fileHandle, const SegmentIdentity& expectedIdentity,
                                             std::optional<std::uint64_t> endOffset, const SegmentBodyVisitor& visitor)

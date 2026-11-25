@@ -147,7 +147,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `network` | Network rules, endpoints, WFP/NDIS evidence, and R3 fallbacks. |
 | `keyboard` | Keyboard hotkey and hook inventory. |
 | `mutation` | Prepare, commit, rollback, and audit bounded mutation transactions. |
-| `analyze` | 查询或启动 ActionAnalyze 离线控制器，也可对显式指定的进程内存范围做 R3 只读采样。 |
+| `analyze` | 管理 ActionAnalyze 项目，进行限时 R3 ETW 采集或只读内存采样。 |
 | `capability` | Unified driver feature capability query. |
 | `wsl` | WSL silo and Linux PID/TID diagnostics. |
 | `ddma` | 磁盘 DMA 能力探测、拒绝路径自检与物理内存读取。读取过程会临时写入指定暂存扇区。 |
@@ -159,11 +159,11 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 | 命令 | 语法 | 用途 |
 | --- | --- | --- |
-| `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline]` | 查询离线控制器的实际方法和限制。`--json` 输出一个普通 CLI 结果，`data` 为能力对象。 |
-| `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline]` | 在同一个 CLI 进程内连续收发请求。省略选项时使用 `--input repl --output text`。 |
+| `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline\|r3]` | 查询所选控制器的方法和限制。`--json` 的 `data` 字段为能力对象。 |
+| `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline\|r3]` | 在同一个 CLI 进程内连续收发请求。默认使用 `--input repl --output text --backend offline`。 |
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
 
-入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。`capabilities` 和 `session` 使用 `offline` 后端。会话支持协议协商、项目读写、离线采样描述和 Stored 归档段检查。采样创建时保存所用配置的独立快照，状态为 `not-collected`。离线控制器的实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。
+入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供限时被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 
@@ -186,6 +186,23 @@ quit
 ```
 
 `project open PATH [read-only|read-write]` 接受项目目录或其中的 `project.ksaproj`，默认只读。写入已有项目时明确指定 `read-write`。当前会话只持有一个项目，打开另一个项目前先执行 `project close`。REPL 的项目身份和写入预期修订取自当前已打开的项目。需要按页查看时，使用 `sample list START GENERATION [LIMIT]` 并传回上页的 `nextStart` 与 `generation`。
+
+#### R3 被动 ETW 会话
+
+运行 `KswordCLI.exe analyze session --backend r3`，创建项目或按 `read-write` 打开已有项目。用 `process detail basic query --pid PID --json` 核对目标进程的创建 FILETIME。采集范围为一个明确指定的 ETW Provider 和该进程的 ETW 记录头 PID。记录头字段表示记录上下文，实际操作对象和线程实例需另有证据。
+
+| REPL | JSONL 方法 | 参数和前提 |
+| --- | --- | --- |
+| `open PID CREATION_FILETIME PROVIDER_UUID DURATION_MS TITLE` | `session.open` | `params` 含 `projectId`、`pid`、`creationFileTime`、`providerId`、`durationMs`、`title`。顶层填写 `expected.revisionId`，省略 `session`。 |
+| `status` | `session.query` | 传入 `open` 返回的顶层 `session`（`id`、`epoch`），`params:{}`。用新请求 ID 查询最新状态。 |
+| `stop` | `session.stop` | 传入顶层 `session`、`expected.stateRevision` 和 `params:{}`。停止 ETW，写入并读回核对原始段。 |
+| `close` | `session.close` | 传入终态的顶层 `session`、`expected.stateRevision` 和 `params:{}`。释放会话，之后可开启新采样或关闭项目。 |
+
+`pid` 与 `durationMs` 是 JSON 整数。持续时间为 1,000–120,000 毫秒。`creationFileTime` 和 `stateRevision` 是十进制字符串，Provider 使用不带花括号的规范小写 UUID。`session.open` 冻结本次项目修订并创建新样本。对 stop 和 close 的比较依据是上次报告的 `stateRevision`。机器会话按方法、参数、会话身份和 `expected` 去重。普通请求占满账本后，有效的停止、会话关闭和项目关闭可用预留额度。`controller.shutdown` 可用新请求 ID 直接发起收尾。
+
+`source.state=running` 表示消费线程已开始处理。终态分别报告来源状态、Windows 原生错误、系统丢失和本地队列丢失。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
+
+`archive.status=raw-verified` 表示 `raw` 流第 `1` 段已刷盘且回读校验通过。该段包含采集计划、原始观测和覆盖回执。项目的旧版采样描述保存的是采样创建时的配置快照，`not-collected` 是创建描述中的值。采集结果以停止回执及原始段为准。重开项目后用 `archive inspect SAMPLE_ID raw 1` 核对该段。规范事件、跨流检查点及规则执行尚待接入。本节的结构请求与回执字段见 [被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json)。
 
 #### JSONL 会话
 

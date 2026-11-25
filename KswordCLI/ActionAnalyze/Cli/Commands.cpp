@@ -38,7 +38,7 @@ std::string ControllerId() {
 // 一个会话独占标准输出。只有成功排队的完整记录才会让序号前进。
 class Session {
 public:
-    explicit Session(bool jsonl) : jsonl_(jsonl), id_(ControllerId()) {}
+    Session(bool jsonl, bool live) : jsonl_(jsonl), live_(live), id_(ControllerId()), controller_(live) {}
 
     int Run() {
         if (const auto error = transport_.Start(jsonl_)) {
@@ -46,11 +46,10 @@ public:
             return error.code;
         }
         try {
-            if (!Emit("hello", {{"capabilities", Controller::Capabilities()}}, "ActionAnalyze (offline). Type help for commands."))
+            if (!Emit("hello", {{"capabilities", Controller::Capabilities(live_)}}, live_ ?
+                "ActionAnalyze (R3 passive ETW). Type help for commands." : "ActionAnalyze (offline). Type help for commands."))
                 return 3;
-            const auto exitCode = Loop();
-            controller_.CloseProject();
-            return exitCode;
+            return Loop();
         } catch (const std::exception&) {
             return Complete("internal-error", 3, {"internal-error", "Controller failed", std::nullopt, 3});
         }
@@ -77,32 +76,47 @@ private:
     }
 
     int Complete(const char* reason, int code, const Fault& error = {}) {
-        controller_.CloseProject();
+        auto report = controller_.Finish(reason);
+        const auto* archive = report.find("archive");
+        auto archiveReport = archive ? *archive : V::makeNull();
+        const bool pending = controller_.CleanupPending();
+        if (!code && controller_.Incomplete()) code = 6;
         const bool queued = Emit("summary", {{"reason", V::makeString(reason)}, {"exitCode", V::makeUInt(code)},
-            {"clean", V::makeBool(true)}, {"liveSession", V::makeNull()}, {"archive", V::makeNull()},
-            {"unresolvedResponsibilities", V::makeArray({})}, {"error", FaultJson(error)}},
-            std::string("Session closed: ") + reason);
+            {"clean", V::makeBool(!pending)}, {"liveSession", report}, {"archive", std::move(archiveReport)},
+            {"unresolvedResponsibilities", V::makeArray(pending ? JsonArray{V::makeString("etw-cleanup")} : JsonArray{})},
+            {"error", FaultJson(error)}}, std::string("Session closed: ") + reason +
+                (report.asObject() ? "\n" + Ksword::Evidence::WriteJson(report) : ""));
         return queued && transport_.Finish() ? code : 3;
     }
 
+    int OutputLost() {
+        controller_.Finish("output-lost");
+        return 3;
+    }
+
     int Loop() {
+        bool prompt = true;
         for (;;) {
-            if (!jsonl_ && transport_.Interactive() && !transport_.Send("action> ")) return 3;
-            auto input = transport_.Next();
+            if (prompt && !jsonl_ && transport_.Interactive() && !transport_.Send("action> ")) return OutputLost();
+            auto input = transport_.Next(controller_.NeedsTick());
+            prompt = input.kind != InputKind::Tick;
             switch (input.kind) {
             case InputKind::Eof: return Complete("eof", 0);
             case InputKind::Break: return Complete("ctrl-break", 6);
-            case InputKind::OutputLost: return 3;
+            case InputKind::OutputLost: return OutputLost();
+            case InputKind::Tick: controller_.Tick(); continue;
             case InputKind::Fatal:
                 ++inputSequence_;
-                if (!Issue(input.fault)) return 3;
+                if (!Issue(input.fault)) return OutputLost();
                 return Complete(input.fault.code == 1 ? "protocol-failed" : "input-failed", input.fault.code, input.fault);
             case InputKind::Line: break;
             }
+            controller_.Tick();
             ++inputSequence_;
-            auto decoded = jsonl_ ? DecodeJsonLine(input.line) : DecodeReplLine(input.line);
+            auto decoded = jsonl_ ? DecodeJsonLine(input.line, live_ ? RequestProfile::Live : RequestProfile::Offline)
+                                  : DecodeReplLine(input.line);
             if (decoded.error && decoded.request.id.empty()) {
-                if (!Issue(decoded.error)) return 3;
+                if (!Issue(decoded.error)) return OutputLost();
                 continue;
             }
             if (!jsonl_ && decoded.request.method.empty()) continue;
@@ -113,12 +127,13 @@ private:
                 {"phase", V::makeString("completed")}, {"effectPhase", V::makeString(reply.shutdown || reply.observed ? "observed" : "not-applicable")},
                 {"result", reply.result}, {"error", FaultJson(reply.error)}},
                 reply.error ? std::string("error: ") + reply.error.message : reply.text);
-            if (!sent) return 3;
+            if (!sent) return OutputLost();
             if (reply.shutdown) return Complete("shutdown", 0);
         }
     }
 
     bool jsonl_;
+    bool live_;
     std::string id_;
     std::uint64_t sequence_ = 0;
     std::uint64_t inputSequence_ = 0;
@@ -132,36 +147,37 @@ int RunSession(const Args& args) {
     const bool jsonl = input == L"jsonl" && output == L"jsonl";
     if (!jsonl && (input != L"repl" || output != L"text"))
         throw std::invalid_argument("supported combinations are repl/text and jsonl/jsonl");
-    return Session(jsonl).Run();
+    return Session(jsonl, args.get(L"--backend", L"offline") == L"r3").Run();
 }
 } // namespace
 
 void RegisterCommands() {
-    addFamily(L"analyze", L"ActionAnalyze offline controller and bounded R3 memory observation.");
+    addFamily(L"analyze", L"ActionAnalyze projects, passive R3 ETW and bounded memory observation.");
     RegisterMemoryWatch();
     Command capabilities;
     capabilities.path = L"analyze capabilities";
-    capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline]";
-    capabilities.summary = L"Report the methods and limits of the offline controller.";
-    capabilities.options = L"Optional: --json, --backend offline.";
+    capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline|r3]";
+    capabilities.summary = L"Report the methods and limits of the selected controller.";
+    capabilities.options = L"Optional: --json, --backend offline|r3. Defaults to offline.";
     capabilities.notes = L"Queries the CLI implementation. Does not open a project or start capture.";
-    capabilities.run = [](const Args&) -> Result {
-        const auto data = Controller::Capabilities();
+    capabilities.run = [](const Args& args) -> Result {
+        const bool live = args.get(L"--backend", L"offline") == L"r3";
+        const auto data = Controller::Capabilities(live);
         return {0, Json{Wide(Ksword::Evidence::WriteJson(data)),
-            Wide(Controller::CapabilitiesText())}, {}};
+            Wide(Controller::CapabilitiesText(live))}, {}};
     };
-    capabilities.supportsR3 = false;
+    capabilities.supportsR3 = true;
     capabilities.defaultBackend = L"offline";
     addCommand(std::move(capabilities));
 
     Command session;
     session.path = L"analyze session";
-    session.syntax = L"KswordCLI.exe analyze session [--input repl|jsonl --output text|jsonl] [--backend offline]";
-    session.summary = L"Keep one offline controller alive to receive multiple requests.";
-    session.options = L"Default: --input repl --output text. For machine use: --input jsonl --output jsonl with UTF-8 byte streams. Only --backend offline is supported.";
+    session.syntax = L"KswordCLI.exe analyze session [--input repl|jsonl --output text|jsonl] [--backend offline|r3]";
+    session.summary = L"Keep one project controller alive. Select r3 for bounded passive ETW capture.";
+    session.options = L"Default: --input repl --output text --backend offline. JSONL requires UTF-8 byte streams.";
     session.notes = L"JSONL requires LF or CRLF. Use help in the REPL and quit to close. EOF also closes the controller.";
     session.runStreaming = RunSession;
-    session.supportsR3 = false;
+    session.supportsR3 = true;
     session.defaultBackend = L"offline";
     addCommand(std::move(session));
 }

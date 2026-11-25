@@ -28,6 +28,7 @@ public:
     Reply DispatchRepl(ProjectMethod method, const JsonArray& args);
     bool CanClose(const JsonValue& params) const;
     void Close() noexcept { document_.Close(); }
+    Ksword::ActionAnalyze::ProjectDocument& Document() noexcept { return document_; }
 
 private:
     Ksword::ActionAnalyze::ProjectDocument document_;

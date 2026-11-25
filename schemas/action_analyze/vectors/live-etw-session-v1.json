@@ -1,0 +1,47 @@
+{
+  "valid": [
+    {
+      "schemaVersion": 1, "requestId": "begin", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "自有样本", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "durationMs": 1000 }
+    },
+    {
+      "schemaVersion": 1, "requestId": "read", "method": "session.query",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" }, "params": {}
+    },
+    {
+      "schemaVersion": 1, "requestId": "stop", "method": "session.stop",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" },
+      "expected": { "stateRevision": "1" }, "params": {}
+    },
+    {
+      "schemaVersion": 1, "requestId": "close", "method": "session.close",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" },
+      "expected": { "stateRevision": "3" }, "params": {}
+    }
+  ],
+  "invalid": [
+    { "schemaVersion": 1, "requestId": "missing-identity", "method": "session.query", "params": {} },
+    { "schemaVersion": 1, "requestId": "unknown", "method": "control.pause", "params": {} },
+    {
+      "schemaVersion": 1, "requestId": "numeric-revision", "method": "session.stop",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" },
+      "expected": { "stateRevision": 1 }, "params": {}
+    },
+    {
+      "schemaVersion": 1, "requestId": "query-with-precondition", "method": "session.query",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" },
+      "expected": { "stateRevision": "1" }, "params": {}
+    },
+    {
+      "schemaVersion": 1, "requestId": "unexpected-body", "method": "session.close",
+      "session": { "id": "00000000-0000-0000-0000-000000000003", "epoch": "00000000-0000-0000-0000-000000000004" },
+      "expected": { "stateRevision": "3" }, "params": { "force": true }
+    },
+    {
+      "schemaVersion": 1, "requestId": "oversized-duration", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "Sample", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "durationMs": 120001 }
+    }
+  ]
+}

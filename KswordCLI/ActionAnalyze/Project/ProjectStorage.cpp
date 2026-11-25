@@ -169,6 +169,19 @@ ProjectResult RenameDocument(const Handle& source, const std::wstring& target, b
 
 } // namespace
 
+std::array<std::uint8_t, 16> UuidBytes(std::string_view checkedUuid) {
+    const auto digit = [](char c) { return c <= '9' ? c - '0' : c - 'a' + 10; };
+    std::array<std::uint8_t, 16> bytes{};
+    std::size_t offset = 0;
+    // 输入已由项目文档校验。按文本顺序取字节，保持与段头的 UUID 一致。
+    for (auto& byte : bytes) {
+        if (checkedUuid[offset] == '-') ++offset;
+        byte = static_cast<std::uint8_t>((digit(checkedUuid[offset]) << 4) | digit(checkedUuid[offset + 1]));
+        offset += 2;
+    }
+    return bytes;
+}
+
 Handle::Handle(Handle&& other) noexcept : value_(other.value_) { other.value_ = INVALID_HANDLE_VALUE; }
 
 Handle& Handle::operator=(Handle&& other) noexcept {

@@ -2,6 +2,8 @@
 
 这里是 ActionAnalyze 机器契约的唯一目录。当前内容包括停止组查询投影草案、基础类型与 Stored v1 子集，以及 A0.2 离线 CLI 契约。工程阶段记录见[工程推进记录](../../.claude/memory/ksword-action-analyze-engineering.md)。
 
+显式选择 `--backend r3` 时，CLI 还接受 `session.open/query/stop/close`。四个方法的请求和回执见[被动 ETW 会话 schema](live-etw-session.schema.json)及[请求向量](vectors/live-etw-session-v1.json)。原有离线方法继续使用各自的 A0.2 schema。
+
 ## 停止组只读投影草案
 
 | 文件 | 范围 |

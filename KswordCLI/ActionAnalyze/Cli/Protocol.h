@@ -27,13 +27,23 @@ struct Fault {
     int code = 1;
     const char* source = "cli";
     unsigned nativeCode = 0;
+    const char* stage = "offline";
     explicit operator bool() const { return id != nullptr; }
+};
+
+enum class RequestProfile { Offline, Live };
+
+struct RequestSession {
+    std::string id;
+    std::string epoch;
 };
 
 struct Request {
     std::string id;
     std::string method;
     JsonValue params;
+    std::optional<RequestSession> session = std::nullopt;
+    std::optional<JsonValue> expected = std::nullopt;
 };
 
 struct Decoded {
@@ -42,7 +52,7 @@ struct Decoded {
 };
 
 // offsets 均为零基 UTF-8 字节偏移。framing 不属于 JSON 解码器。
-Decoded DecodeJsonLine(std::string_view line);
+Decoded DecodeJsonLine(std::string_view line, RequestProfile profile = RequestProfile::Offline);
 Decoded DecodeReplLine(std::string_view line);
 JsonValue FaultJson(const Fault& error);
 std::string CanonicalParams(const JsonValue& value);
