@@ -60,7 +60,7 @@
   "resolvedLink": {
     "segment": { "projectId": "11111111-1111-4111-8111-111111111111", "sampleId": "22222222-2222-4222-8222-222222222222", "ordinal": "1" },
     "event": { "eventOrdinal": "0", "primaryRawRecordSequence": "5", "sourceId": "kernel-network", "sourceEpoch": "44444444-4444-4444-8444-444444444444", "processObjectId": "1" },
-    "checkpoint": { "generation": "3", "coversRaw": true, "coversEvent": true },
+    "checkpoint": { "generation": "3", "coversRaw": true, "coversEvent": true, "coversDependencies": true },
     "destination": { "address": "c6336402", "port": "443" }
   },
   "linkCases": [
@@ -70,7 +70,11 @@
     { "id": "raw-record-offset-is-not-an-archive-sequence", "set": { "rawRecordSequence": "0" }, "valid": false },
     { "id": "generation-without-dependency-closure", "set": { "checkpointGeneration": "4" }, "valid": false },
     { "id": "checkpoint-must-cover-both-streams", "set": {}, "checkpoint": { "coversRaw": false }, "valid": false },
+    { "id": "covered-streams-with-uncommitted-source-dictionary", "set": {}, "checkpoint": { "coversDependencies": false }, "valid": false },
+    { "id": "uncommitted-dictionary-link-remains-recovered", "set": { "checkpointGeneration": null }, "checkpoint": { "coversDependencies": false }, "valid": true },
     { "id": "foreign-source-epoch", "set": {}, "raw": { "sourceEpoch": "55555555-5555-4555-8555-555555555555" }, "valid": false },
+    { "id": "unresolved-process-cannot-publish-outbound-address", "set": {}, "raw": { "processObjectId": null }, "valid": false },
+    { "id": "destination-address-must-match-source", "set": {}, "destination": { "address": "c6336403" }, "valid": false },
     { "id": "inbound-cannot-confirm-outbound-address", "set": {}, "raw": { "direction": "1" }, "valid": false }
   ]
 }

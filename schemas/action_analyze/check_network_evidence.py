@@ -16,7 +16,7 @@ QUEUE_BYTES = 4 * 1024 * 1024  # 排队的二进制尾部总字节上限。
 
 def raw_valid(validator, metadata, tail, metadata_bytes):
     """接收元数据、尾部和帧声明的元数据长度，返回结构及长度约束是否成立。"""
-    encoded = json.dumps(metadata, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(metadata, separators=(",", ":")).encode("utf-8")  # 紧凑编码的最小测试正文。
     if not len(encoded) <= metadata_bytes <= METADATA_LIMIT or not validator.is_valid(metadata):
         return False
     if metadata["record"] == "loss":
@@ -32,9 +32,9 @@ def raw_valid(validator, metadata, tail, metadata_bytes):
     for key in ("sourcePort", "destinationPort", "eventId"):
         if metadata[key] is not None and int(metadata[key]) > 65_535:
             return False
-    original = None if metadata["originalLength"] is None else int(metadata["originalLength"])
-    producer = int(metadata["producerCapturedLength"])
-    captured = int(metadata["capturedLength"])
+    original = None if metadata["originalLength"] is None else int(metadata["originalLength"])  # 可缺的捕获层原长。
+    producer = int(metadata["producerCapturedLength"])  # 来源实际移交的长度。
+    captured = int(metadata["capturedLength"])  # 写入后可读的原始尾部长度。
     if int(metadata["payloadPid"]) > (1 << 32) - 1 or captured != len(tail):
         return False
     if captured != min(producer, INLINE_LIMIT):
@@ -78,7 +78,8 @@ def link_valid(validator, link, resolved, raw):
         return False
     generation = link["checkpointGeneration"]  # null 代表尚无持久检查点证明。
     return generation is None or (generation == checkpoint["generation"]
-                                  and checkpoint["coversRaw"] and checkpoint["coversEvent"])
+                                  and checkpoint["coversRaw"] and checkpoint["coversEvent"]
+                                  and checkpoint["coversDependencies"])
 
 
 def admission(case):
