@@ -1,6 +1,7 @@
 """Verify CLI project replay in the official Light window with pywin32."""
 
 import ctypes
+from ctypes import wintypes
 import hashlib
 import json
 from pathlib import Path
@@ -24,6 +25,17 @@ WORKSPACE = r'Software\KSwordDEV\KswordARKLight\Workspace'
 SEND = ctypes.WinDLL('user32').SendMessageW
 SEND.argtypes = (ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p)
 SEND.restype = ctypes.c_ssize_t
+GET_GUI_INFO = ctypes.WinDLL('user32', use_last_error=True).GetGUIThreadInfo
+
+
+class GuiThreadInfo(ctypes.Structure):
+    _fields_ = [('size', wintypes.DWORD), ('flags', wintypes.DWORD), ('active', wintypes.HWND),
+                ('focus', wintypes.HWND), ('capture', wintypes.HWND), ('menu', wintypes.HWND),
+                ('move_size', wintypes.HWND), ('caret', wintypes.HWND), ('caret_rect', wintypes.RECT)]
+
+
+GET_GUI_INFO.argtypes = (wintypes.DWORD, ctypes.POINTER(GuiThreadInfo))
+GET_GUI_INFO.restype = wintypes.BOOL
 
 
 def windows(parent=None):
@@ -78,6 +90,70 @@ def restore_state(original):
     assert workspace_state() == original
 
 
+def verify_api_navigation(segment, page, records, detail, status, api, filter_edit, rows):
+    """经真实 Tab、方向键和 Enter 定位当前窗口中每个类别的最新原始行。"""
+    family, locate = control(page, 58323), control(page, 58324)
+    assert gui.IsWindowVisible(family) and gui.IsWindowVisible(locate) and not gui.IsWindowEnabled(locate)
+    latest = {row['family']: (index, row) for index, row in enumerate(rows)}
+    assert gui.SendMessage(family, con.CB_GETCOUNT, 0, 0) == len(latest) + 1
+
+    def focus():
+        info = GuiThreadInfo(size=ctypes.sizeof(GuiThreadInfo))
+        thread, _ = win32process.GetWindowThreadProcessId(page)
+        if not GET_GUI_INFO(thread, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return info.focus
+
+    def selected():
+        return gui.SendMessage(records, 0x100C, -1, 0x0002)  # LVM_GETNEXTITEM / LVNI_SELECTED
+
+    def filter_text(query):
+        value = ctypes.create_unicode_buffer(query)
+        SEND(filter_edit, con.WM_SETTEXT, 0, ctypes.addressof(value))
+
+    names = sorted(latest)
+    assert gui.SendMessage(family, con.CB_GETCURSEL, 0, 0) == 0
+    gui.SendMessage(api, con.WM_KEYDOWN, con.VK_TAB, 0)
+    assert focus() == family
+    with segment.open('rb') as raw:
+        for choice, name in enumerate(names, 1):
+            index, row = latest[name]
+            before = text(detail)
+            gui.SendMessage(family, con.WM_KEYDOWN, con.VK_DOWN, 0)
+            assert gui.SendMessage(family, con.CB_GETCURSEL, 0, 0) == choice
+            assert gui.IsWindowEnabled(locate) and text(detail) == before  # 改分类只是草稿。
+            gui.SendMessage(family, con.WM_KEYDOWN, con.VK_TAB, 0)
+            assert focus() == locate
+            gui.SendMessage(locate, con.WM_KEYDOWN, con.VK_RETURN, 0)
+            current = text(detail)
+            for value in (segment.parents[1].name, row['api'], f"（{row['family']}）", f"归档记录序号：{row['rawSequence']} ",
+                          f"源归档行号：{row['sourceSequence']}\r\n", '所属段号：1 ', '文件字节偏移：'):
+                assert value in current, current
+            # 用详情给出的文件偏移只读对账，避免只验证两个投影视图的文字相同。
+            offset = int(current.split('文件字节偏移：', 1)[1].split('\r\n', 1)[0])
+            raw.seek(offset + 16)  # Stored v1 记录头内的归档序号偏移。
+            assert int.from_bytes(raw.read(8), 'little') == int(row['rawSequence'])
+            assert selected() == index and focus() == locate
+
+    # 筛选隐藏全部记录时仍能定位另一分类的证据，筛选和列表结果继续保留。
+    filter_text('分类定位回归：无匹配')
+    assert selected() == -1 and '已选记录被筛掉' in text(status)
+    if len(names) > 1:
+        choice -= 1
+        index, row = latest[names[choice - 1]]
+        gui.SendMessage(api, con.WM_KEYDOWN, con.VK_TAB, 0)
+        gui.SendMessage(family, con.WM_KEYDOWN, con.VK_UP, 0)
+        assert text(detail) == current
+        gui.SendMessage(family, con.WM_KEYDOWN, con.VK_TAB, 0)
+    gui.SendMessage(locate, con.WM_KEYDOWN, con.VK_RETURN, 0)
+    current = text(detail)
+    assert f"归档记录序号：{row['rawSequence']} " in current and selected() == -1
+    assert text(filter_edit) == '分类定位回归：无匹配' and '已选记录被筛掉' in text(status)
+    filter_text('')
+    assert text(detail) == current and selected() == index
+    return row, choice
+
+
 def verify_continuous(binary, segment, segments, records, detail, status, etw, retry, item_count, verified):
     """通过正式界面测试连续段、未发布检查点、损坏与恢复。"""
     sample = segment.parents[1]  # 由 CLI 验收拥有并负责清理。
@@ -125,7 +201,7 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
     print('LIGHT_CONTINUOUS_ETW_REPLAY=PASS', flush=True)
 
 
-def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None):
+def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None, api_read_only=False):
     """用正式窗口打开指定项目段，核对 ETW 原样回放或 API 线索。"""
     require_isolated_desktop()
     # 测试桌面的窗口枚举无法发现其它桌面的实例，共用配置按真实进程检查。
@@ -212,15 +288,21 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
         gui.SendMessage(samples, con.CB_SETCURSEL, selected, 0)
         gui.SendMessage(page, con.WM_COMMAND, 58310 | (con.CBN_SELCHANGE << 16), samples)
         assert gui.IsWindowEnabled(replay)
+        api_navigation = None
         if api_window_total is None:
-            preview_status = wait_for('automatic sample preview', lambda: text(status)
-                                      if f'快速预览 · {sample_id}' in text(status) else '')
-            assert item_count() > 0 and sample_id in text(detail), preview_status
-            if api_rows is not None:
-                assert 'API 导入尾记已核验' in preview_status and item_count() == len(api_rows)
-            if etw_segments is not None:
-                assert '已核验首段' in preview_status and item_count() == int(etw_segments[0]['lastSequence'])
-            print(f'LIGHT_AUTOMATIC_SAMPLE_PREVIEW=PASS SAMPLE={sample_id} ROWS={item_count()}', flush=True)
+            can_preview = not api_read_only or segment.stat().st_size <= 16 * 1024 * 1024
+            if not can_preview:
+                wait_for('archive above automatic preview limit', lambda: 'raw 段超过预览上限' in text(status))
+            else:
+                preview_status = wait_for('automatic sample preview', lambda: text(status)
+                                          if f'快速预览 · {sample_id}' in text(status) else '')
+                assert item_count() > 0 and sample_id in text(detail), preview_status
+                if api_rows is not None:
+                    assert 'API 导入尾记已核验' in preview_status and item_count() == len(api_rows)
+                    api_navigation = verify_api_navigation(segment, page, records, detail, status, api, filter_edit, api_rows)
+                if etw_segments is not None:
+                    assert '已核验首段' in preview_status and item_count() == int(etw_segments[0]['lastSequence'])
+                print(f'LIGHT_AUTOMATIC_SAMPLE_PREVIEW=PASS SAMPLE={sample_id} ROWS={item_count()}', flush=True)
         memory_before = win32process.GetProcessMemoryInfo(int(process._handle))  # 正式窗口待打开状态。
         started = time.perf_counter()  # 从点击回放起计算实际可见行等待时间。
         gui.SendMessage(replay, con.BM_CLICK, 0, 0)
@@ -242,8 +324,24 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
 
         if api_rows is not None:
             # API 导入用收尾记录确认完整性，项目入口仍显示 raw 段状态。
-            wait_for('verified API archive loaded', lambda: item_count() == len(api_rows) and '正在读取' not in text(status))
+            wait_for('verified API archive loaded', lambda: item_count() == len(api_rows) and '当前归档' in text(status)
+                     and '正在读取' not in text(status) and '读取失败' not in text(status))
             assert gui.IsWindowEnabled(api) and not gui.IsWindowEnabled(etw)
+            if api_navigation:
+                row, family_index = api_navigation
+                assert f"归档记录序号：{row['rawSequence']} " in text(detail)
+                assert f"源归档行号：{row['sourceSequence']}\r\n" in text(detail)
+                assert gui.SendMessage(control(page, 58323), con.CB_GETCURSEL, 0, 0) == family_index
+            else:
+                verify_api_navigation(segment, page, records, detail, status, api, filter_edit, api_rows)
+            gui.SetWindowPos(main, 0, 0, 0, 800, 650, con.SWP_NOZORDER | con.SWP_NOACTIVATE | con.SWP_NOMOVE)
+            page_box = gui.GetWindowRect(page)
+            for hwnd in (control(page, 58323), control(page, 58324)):
+                left, top, right, bottom = gui.GetWindowRect(hwnd)
+                assert page_box[0] <= left < right <= page_box[2] and page_box[1] <= top < bottom <= page_box[3]
+            print(f'LIGHT_API_EVIDENCE_NAVIGATION=PASS SAMPLE={sample_id}', flush=True)
+            if api_read_only:
+                return  # 用户提供的原始归档只读回放，不参加夹具故障注入。
             gui.SendMessage(records, con.WM_KEYDOWN, con.VK_HOME, 0)
             for index, row in enumerate(api_rows):
                 # ListView 原生方向键推进选择，不直接修改模型或跨进程写入内存。
@@ -287,6 +385,7 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
 
         wait_for('verified project checkpoint', verified)
         assert item_count() == 14 and not gui.IsWindowEnabled(api)
+        assert all(not gui.IsWindowVisible(control(page, identifier)) for identifier in (58323, 58324))
 
         gui.SendMessage(etw, con.BM_CLICK, 0, 0)
         assert item_count() == 12

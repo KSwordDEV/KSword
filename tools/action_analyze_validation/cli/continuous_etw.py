@@ -1,7 +1,11 @@
-"""Verify command-free segment commits for an owned provider on the Release CLI."""
+"""Verify command-free ETW commits, optionally with a paced long run on the Release CLI."""
 
+import argparse
 from contextlib import ExitStack, contextmanager
+import ctypes as ct
+from ctypes import wintypes as win
 import hashlib
+from itertools import repeat
 import json
 import os
 from pathlib import Path
@@ -11,13 +15,17 @@ import struct
 import subprocess
 import sys
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import live_etw
 from live_etw import CLI, PAYLOAD, PROVIDER, RELEASE, REPO, Child, call, controller, decode_raw, sample
 
 
 SCRATCH = RELEASE / 'ActionAnalyzeContinuousEtwValidation'
+LONG_SCRATCH = RELEASE / 'ActionAnalyzeContinuousEtwLongValidation'
 QUERY_COUNT = 4100
+WAVE_PERIOD_SECONDS = 2
+NATIVE_LOSS_COUNTERS = ('eventsLost', 'logBuffersLost', 'realTimeBuffersLost')
 
 
 def regular_identity(path):
@@ -26,28 +34,68 @@ def regular_identity(path):
     return info.st_dev, info.st_ino
 
 
-def check_scratch():
+def check_scratch(path):
     assert RELEASE.resolve(strict=True) == RELEASE
-    tracked = subprocess.run(['git', 'ls-files', '-z', '--', SCRATCH.relative_to(REPO).as_posix()],
+    tracked = subprocess.run(['git', 'ls-files', '-z', '--', path.relative_to(REPO).as_posix()],
                              cwd=REPO, check=True, capture_output=True, timeout=10)
-    assert not tracked.stdout, SCRATCH
+    assert not tracked.stdout, path
 
 
 @contextmanager
-def owned_scratch():
-    check_scratch()
-    SCRATCH.mkdir(exist_ok=False)
-    identity = regular_identity(SCRATCH)
+def owned_scratch(path):
+    check_scratch(path)
+    path.mkdir(exist_ok=False)
+    identity = regular_identity(path)
     try:
-        yield SCRATCH
+        yield path
     finally:
-        check_scratch()
-        assert SCRATCH.resolve(strict=True) == SCRATCH and regular_identity(SCRATCH) == identity
-        for path in SCRATCH.rglob('*'):
-            regular_identity(path)
-        rmtree(SCRATCH)
-        assert not os.path.lexists(SCRATCH)
+        check_scratch(path)
+        assert path.resolve(strict=True) == path and regular_identity(path) == identity
+        for entry in path.rglob('*'):
+            regular_identity(entry)
+        rmtree(path)
+        assert not os.path.lexists(path)
         print('TEST_PROJECT_REMOVED=True', flush=True)
+
+
+@contextmanager
+def process_metrics(pid):
+    class MemoryCounters(ct.Structure):
+        _fields_ = [('cb', win.DWORD), ('pageFaultCount', win.DWORD)] + [
+            (name, ct.c_size_t) for name in ('peakWorkingSet', 'workingSet', 'quotaPeakPagedPool',
+            'quotaPagedPool', 'quotaPeakNonPagedPool', 'quotaNonPagedPool', 'pagefileUsage',
+            'peakPagefileUsage', 'privateUsage')]
+
+    kernel = ct.WinDLL('kernel32', use_last_error=True)
+    open_process = kernel.OpenProcess
+    open_process.argtypes = [win.DWORD, win.BOOL, win.DWORD]
+    open_process.restype = win.HANDLE
+    close_handle = kernel.CloseHandle
+    close_handle.argtypes = [win.HANDLE]
+    get_times = kernel.GetProcessTimes
+    get_times.argtypes = [win.HANDLE] + [ct.POINTER(win.FILETIME)] * 4
+    get_memory = kernel.K32GetProcessMemoryInfo
+    get_memory.argtypes = [win.HANDLE, ct.POINTER(MemoryCounters), win.DWORD]
+    handle = open_process(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise ct.WinError(ct.get_last_error())
+
+    def read():
+        times = [win.FILETIME() for _ in range(4)]
+        memory = MemoryCounters(cb=ct.sizeof(MemoryCounters))
+        if not get_times(handle, *(ct.byref(value) for value in times)):
+            raise ct.WinError(ct.get_last_error())
+        if not get_memory(handle, ct.byref(memory), memory.cb):
+            raise ct.WinError(ct.get_last_error())
+        return {'cpu100ns': sum((value.dwHighDateTime << 32) | value.dwLowDateTime for value in times[2:]),
+                'workingSetBytes': memory.workingSet, 'lifetimePeakWorkingSetBytes': memory.peakWorkingSet,
+                'privateCommitBytes': memory.privateUsage}
+
+    try:
+        yield read
+    finally:
+        if not close_handle(handle):
+            raise ct.WinError(ct.get_last_error())
 
 
 def cleanup_child(child, *, producer=False):
@@ -170,11 +218,43 @@ def verify_missing_sysmon(cli, opened, target_guid):
     print(json.dumps({'findingsBeforeRemainingWaves': report}), flush=True)
 
 
-def run(expect_missing_sysmon=False, inspect_gui=None):
+def verify_long_archive(reader, identity, opened, sample_path, segments, emitted):
+    cumulative = max_queued = raw_bytes = coverage_bytes = live_stats_known = 0
+    for segment in segments:
+        cumulative += int(segment['observationCount'])
+        source = segment['terminal']['source']
+        queued = int(source['queued'])
+        assert int(source['enqueued']) == cumulative + queued, segment
+        assert int(source['providerEvents']) == int(source['enqueued']), segment
+        for key in ('headerFiltered', 'queueDropped', 'payloadTruncated', 'malformedPayload'):
+            assert int(source[key]) == 0, segment
+        assert not source['callbackFailed'] and not source['tailDeliveryUnconfirmed'], segment
+        native_losses = tuple(source[key] for key in NATIVE_LOSS_COUNTERS)
+        if segment['finalSegment'] or any(value is not None for value in native_losses):
+            assert native_losses == (0, 0, 0), segment
+            live_stats_known += not segment['finalSegment']
+        max_queued = max(max_queued, queued)
+        raw_bytes += int(segment['checkedBytes'])
+        name = f"{int(segment['segmentOrdinal']):020d}.ksaseg"
+        coverage_bytes += (sample_path / 'records' / name).stat().st_size
+        readback(reader, identity, segment, opened['plan'])
+    assert cumulative == emitted and int(segments[-1]['lastSequence']) == emitted + 2 * len(segments)
+    assert len(list((sample_path / 'checkpoints').glob('*.json'))) == len(segments)
+    return {'segmentsReadBack': len(segments), 'rawBytes': raw_bytes, 'coverageBytes': coverage_bytes,
+            'liveSegmentsWithNativeLossStatistics': live_stats_known, 'maxQueuedAfterSegmentDrain': max_queued}
+
+
+def run(expect_missing_sysmon=False, inspect_gui=None, *, long_seconds=None):
     """采集并回读自有 ETW 样本。可在测试目录清理前交给正式桌面入口复验。"""
+    assert long_seconds is None or (long_seconds > 0 and not expect_missing_sysmon)
+    long_run = long_seconds is not None
     digest = hashlib.sha256(CLI.read_bytes()).hexdigest()
-    with owned_scratch() as scratch, ExitStack() as children:
-        producer = Child([sys.executable, '-B', __file__, '--producer', scratch / 'owned.sample'])
+    with owned_scratch(LONG_SCRATCH if long_run else SCRATCH) as scratch, ExitStack() as children:
+        provider = uuid4() if long_run else PROVIDER  # Keep concurrent desktop fixtures on their own source.
+        producer_args = [sys.executable, '-B', __file__, '--producer', scratch / 'owned.sample']
+        if long_run:
+            producer_args.append(str(provider))
+        producer = Child(producer_args)
         children.callback(cleanup_child, producer, producer=True)
         target = producer.next()
         cli = controller('r3')
@@ -183,7 +263,7 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
         created = call(cli, 'create', 'project.create', {'path': str(project),
                        'settings': {'title': 'Continuous owned ETW', 'notes': ''}})
         identity = {'projectId': created['projectId']}
-        options = dict(identity, **target, title='Owned file I/O', providerId=str(PROVIDER))
+        options = dict(identity, **target, title='Owned file I/O', providerId=str(provider))
         if expect_missing_sysmon:
             # A fresh selector exercises subscription reporting without requiring a Sysmon event.
             options['sysmonTargetGuid'] = str(uuid4())
@@ -192,24 +272,61 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
         assert opened['archive']['recordedObservations'] == '0' and opened['stopReason'] is None, opened
         assert opened['plan']['headerPid'] == target['pid'], opened
         assert opened['plan']['processCreationFileTime'] == target['creationFileTime'], opened
-        assert opened['plan']['providerId'] == str(PROVIDER), opened
+        assert opened['plan']['providerId'] == str(provider), opened
         sample_path = project / 'samples' / opened['sampleId']
 
-        # The first two waves commit without any CLI commands. Each producer write below goes
-        # to the producer's own pipe. Each wave starts after the preceding commit.
+        # Each wave commits before the next. All writes go to the producer's own pipe.
         segments = []
         emitted = committed = 0
-        for wave, count in enumerate((6, 6, 50, 50, 50, 50, 50, 50), 1):
+        if long_run:
+            metrics = children.enter_context(process_metrics(cli.process.pid))
+            start_metrics = metrics()
+            started = time.monotonic()
+            deadline = started + long_seconds
+            wave_count = 0
+            print(json.dumps({'longStart': {'requestedSeconds': long_seconds, 'cliSha256': digest,
+                  'cliPid': cli.process.pid, 'producerPid': target['pid'], 'providerId': str(provider),
+                  'writer': start_metrics}}), flush=True)
+        counts = repeat(100) if long_run else (6, 6, 50, 50, 50, 50, 50, 50)
+        for wave, count in enumerate(counts, 1):
+            if long_run:
+                wave_start = time.monotonic()
+                if wave_count and wave_start >= deadline:
+                    break
             producer.send(f'write {count}')
             assert producer.next() == {'operations': 2 * count}
+            if long_run:
+                acknowledged = time.monotonic()
             emitted += 2 * count
             committed = wait_commits(cli, sample_path, opened, segments, emitted, committed)
+            if long_run:
+                committed_at = time.monotonic()
+                wave_count = wave
+                print(json.dumps({'longWave': wave, 'committedObservations': committed,
+                                  'publishedSegments': len(segments), 'observedAtSeconds': round(committed_at - started, 3),
+                                  'producerAckMs': round((acknowledged - wave_start) * 1000, 2),
+                                  'checkpointObservedMs': round((committed_at - wave_start) * 1000, 2),
+                                  'writer': metrics()}), flush=True)
+                time.sleep(max(0, min(wave_start + WAVE_PERIOD_SECONDS, deadline) - time.monotonic()))
             if wave <= 2:
                 print(json.dumps({'commandFreeWave': wave, 'committedObservations': committed,
                                   'publishedSegments': len(segments)}), flush=True)
             if wave == 2 and expect_missing_sysmon:
                 verify_missing_sysmon(cli, opened, options['sysmonTargetGuid'])
-        assert len(segments) >= 2 and committed > 512
+        if long_run:
+            end_metrics = metrics()
+            elapsed = time.monotonic() - started
+            cpu_seconds = (end_metrics['cpu100ns'] - start_metrics['cpu100ns']) / 10_000_000
+            assert elapsed >= long_seconds and cpu_seconds >= 0
+            long_report = {'requestedSeconds': long_seconds, 'measuredSeconds': round(elapsed, 3),
+                           'waves': wave_count, 'wavePeriodSeconds': WAVE_PERIOD_SECONDS,
+                           'observationsPerSecond': round(emitted / elapsed, 2),
+                           'writerCpuSeconds': round(cpu_seconds, 6),
+                           'writerMeanCpuPercentOfOneCore': round(100 * cpu_seconds / elapsed, 3),
+                           'writerAtStart': start_metrics, 'writerAtEnd': end_metrics}
+            print(json.dumps({'longCapture': long_report}), flush=True)
+        else:
+            assert len(segments) >= 2 and committed > 512
         initial = call(cli, 'first-status', 'session.query', {}, session=opened['session'])
         assert initial['capture'] == 'active' and initial['stopReason'] is None, initial
         assert initial['source']['state'] == 'running' and initial['source']['enqueued'] == str(emitted), initial
@@ -219,18 +336,20 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
         assert archive['lastSequence'] == segments[-1]['lastSequence'], initial
         assert archive['flushedBytes'] == segments[-1]['checkedBytes'], initial
 
-        for index in range(1, QUERY_COUNT + 1):
-            current = call(cli, f'status-{index}', 'session.query', {}, session=opened['session'])
-            assert current['capture'] == 'active' and current['stopReason'] is None, (index, current)
-            assert current['session'] == opened['session'] and current['sampleId'] == opened['sampleId'], (index, current)
-        assert current['archive'] == archive, current
-        print(json.dumps({'uniqueStatusReplies': QUERY_COUNT + 1, 'liveArchive': current['archive']}), flush=True)
+        current = initial
+        if not long_run:
+            for index in range(1, QUERY_COUNT + 1):
+                current = call(cli, f'status-{index}', 'session.query', {}, session=opened['session'])
+                assert current['capture'] == 'active' and current['stopReason'] is None, (index, current)
+                assert current['session'] == opened['session'] and current['sampleId'] == opened['sampleId'], (index, current)
+            assert current['archive'] == archive, current
+            print(json.dumps({'uniqueStatusReplies': QUERY_COUNT + 1, 'liveArchive': current['archive']}), flush=True)
 
         stopped = call(cli, 'stop', 'session.stop', {}, session=opened['session'],
                        expected={'stateRevision': current['stateRevision']})
         assert stopped['capture'] == 'stopped' and stopped['stopReason'] == 'requested', stopped
         assert stopped['source']['nativeSessionStopped'] and stopped['source']['enqueued'] == str(emitted), stopped
-        for key in ('eventsLost', 'logBuffersLost', 'realTimeBuffersLost', 'queueDropped', 'queued'):
+        for key in (*NATIVE_LOSS_COUNTERS, 'queueDropped', 'queued'):
             assert int(stopped['source'][key]) == 0, stopped
         final_ordinal = len(segments) + 1
         final = verify_segment(sample_path, final_ordinal, int(segments[-1]['lastSequence']), committed, opened, final=True)
@@ -249,8 +368,15 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
         reopened = call(reader, 'reopen', 'project.open', {'path': str(project)})
         assert reopened['projectId'] == opened['projectId'] and reopened['sampleCount'] == '1', reopened
         sample_identity = dict(identity, sampleId=opened['sampleId'])
-        second = readback(reader, sample_identity, segments[1], opened['plan'])
-        final_capture = readback(reader, sample_identity, final, opened['plan'])
+        if long_run:
+            offline_start = time.monotonic()
+            archive_report = verify_long_archive(reader, sample_identity, opened, sample_path, segments + [final], emitted)
+            archive_report['offlineReadbackSeconds'] = round(time.monotonic() - offline_start, 3)
+            print(json.dumps({'longArchive': archive_report}), flush=True)
+            readbacks = {'longArchiveReadback': archive_report}
+        else:
+            readbacks = {'secondSegmentReadback': readback(reader, sample_identity, segments[1], opened['plan']),
+                         'finalSegmentReadback': readback(reader, sample_identity, final, opened['plan'])}
         reader_exit = shutdown(reader)
         producer.send('exit')
         producer_exit = producer.process.wait(timeout=10)
@@ -258,7 +384,7 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
         assert hashlib.sha256(CLI.read_bytes()).hexdigest() == digest
         print(json.dumps({'cliSha256': digest, 'sampleId': opened['sampleId'], 'pid': target['pid'],
                           'observations': emitted, 'preStopSegments': segments, 'finalSegment': final,
-                          'secondSegmentReadback': second, 'finalSegmentReadback': final_capture, 'stop': stopped,
+                           **readbacks, 'stop': stopped,
                            'exitCodes': {'writer': writer_exit, 'reader': reader_exit, 'producer': producer_exit}}), flush=True)
         if inspect_gui:
             inspect_gui(sample_path / 'raw/00000000000000000001.ksaseg',
@@ -267,10 +393,16 @@ def run(expect_missing_sysmon=False, inspect_gui=None):
 
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--producer']:
+        if len(sys.argv) == 4:
+            live_etw.PROVIDER = UUID(sys.argv[3])
         sample(Path(sys.argv[2]), batched=True)
-    elif sys.argv[1:] == ['--expect-missing-sysmon']:
-        run(expect_missing_sysmon=True)
-    elif not sys.argv[1:]:
-        run()
     else:
-        raise SystemExit('Usage: continuous_etw.py [--expect-missing-sysmon]')
+        parser = argparse.ArgumentParser(description=__doc__)
+        mode = parser.add_mutually_exclusive_group()
+        mode.add_argument('--expect-missing-sysmon', action='store_true')
+        mode.add_argument('--long-seconds', type=int, metavar='SECONDS',
+                          help='capture for at least SECONDS with paced 200-event waves and process counters')
+        args = parser.parse_args()
+        if args.long_seconds is not None and args.long_seconds < 1:
+            parser.error('--long-seconds must be positive')
+        run(args.expect_missing_sysmon, long_seconds=args.long_seconds)

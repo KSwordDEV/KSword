@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <iterator>
 #include <map>
 #include <string_view>
 #include <variant>
@@ -32,17 +33,25 @@ constexpr UINT kLiveDisplayIntervalMs = 400;
 enum ControlId {
     kOpen = 58301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly,
     kSampleChoice, kReplaySample, kCancelChoice, kApiOnly, kNetworkOnly,
-    kSwitchView, kLivePid, kLiveProvider, kReservedLiveArchive, kLiveStart, kLiveStop, kLiveFollow, kCreateProject
+    kSwitchView, kLivePid, kLiveProvider, kReservedLiveArchive, kLiveStart, kLiveStop, kLiveFollow, kCreateProject,
+    kEvidenceFamily, kLocateEvidence
 };
-static_assert(kCreateProject <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
+static_assert(kLocateEvidence <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
+
+struct ApiFamilyGroup {
+    std::size_t count = 0;
+    std::size_t latest = 0; // 只在拥有此分组的不可变快照中解释行索引。
+};
+
+using ApiFamilyGroups = std::map<std::wstring, ApiFamilyGroup>;
 
 struct Snapshot {
     std::wstring path; // 已打开的段或项目清单路径。
     std::optional<ProjectReplayRequest> sample; // 项目回放选择；独立段保持为空。
     SegmentEvidence evidence; // raw 段或独立证据段的本地值快照。
     ReplayCheckpoint checkpoint; // 本次项目重读核对的段范围。
-    bool hasApi = false; // 窗口中存在已核验的 API 线索。
+    ApiFamilyGroups apiFamilies; // 已通过 API 导入尾记核验且处在当前预览窗口内的记录。
     bool hasNetwork = false; // 窗口中存在已核验的网络流。
     std::wstring classification; // 当前回放窗口的 API 分类与证据覆盖。
     std::shared_ptr<const std::vector<Ui::VirtualListRow>> presentation; // 后台生成的虚拟表行。
@@ -71,6 +80,9 @@ struct Page {
     HWND etwOnly = nullptr;
     HWND apiOnly = nullptr; // 只影响表和瀑布的来源筛选。
     HWND networkOnly = nullptr; // 限定网络流，和其他已选来源取并集。
+    HWND evidenceFamilyLabel = nullptr;
+    HWND evidenceFamily = nullptr;
+    HWND locateEvidence = nullptr;
     HWND actions = nullptr;
     HWND capability = nullptr;
     HWND projection = nullptr;
@@ -97,6 +109,9 @@ struct Page {
     std::wstring displayedDetails;
     std::optional<std::size_t> selected;
     std::optional<std::size_t> historySelection, previewSelection, liveSelection;
+    std::optional<SegmentIdentity> evidenceFamilyScope;
+    std::wstring evidenceFamilyPath;
+    std::wstring evidenceFamilyChoice; // 分类草稿用稳定类别值保存，不用控件下标。
     std::wstring historyFilter, liveFilter;
     bool historyEtwOnly = false, liveEtwOnly = false;
     bool liveView = false;
@@ -112,6 +127,11 @@ struct Page {
 
 const Snapshot* DisplayedArchive(const Page& page) {
     return page.samplePreview ? page.samplePreview.get() : page.snapshot.get();
+}
+
+const Snapshot* ClassifiedArchive(const Page& page) {
+    const auto* archive = page.liveView ? nullptr : DisplayedArchive(page);
+    return archive && !archive->apiFamilies.empty() ? archive : nullptr;
 }
 
 constexpr wchar_t kRelationshipCoverage[] = L"证据关系 · 当前回放未核验进程／线程关系及执行链。";
@@ -163,14 +183,14 @@ std::wstring ApiFamilyLabel(std::wstring_view family) {
     return std::wstring(family);
 }
 
-std::wstring ClassificationSummary(const std::map<std::wstring, std::size_t>& families, std::uint64_t verifiedApiClues) {
+std::wstring ClassificationSummary(const ApiFamilyGroups& families, std::uint64_t verifiedApiClues) {
     if (families.empty()) return L"敏感 API 分类：此预览窗口无已核验线索。";
     std::wstring summary = L"敏感 API 分类（当前预览窗口）：";
     std::size_t shown = 0;
-    for (const auto& [family, count] : families) {
+    for (const auto& [family, group] : families) {
         if (shown) summary += L" / ";
-        summary += ApiFamilyLabel(family) + L" " + std::to_wstring(count);
-        shown += count;
+        summary += ApiFamilyLabel(family) + L" " + std::to_wstring(group.count);
+        shown += group.count;
     }
     if (verifiedApiClues > shown) summary += L" · 导入段共 " + std::to_wstring(verifiedApiClues) + L" 条已核验线索";
     return summary;
@@ -193,10 +213,12 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
     // 保持单段与项目回放的行结构一致，现有筛选、时间线及详情共享它。
     auto rows = std::make_shared<std::vector<Ui::VirtualListRow>>(); // 表格的后台值数据。
     rows->reserve(snapshot.evidence.rows.size());
-    std::map<std::wstring, std::size_t> families;
     for (const auto& record : snapshot.evidence.rows) {
-        snapshot.hasApi |= !record.apiClue.empty();
-        if (!record.apiFamily.empty()) ++families[record.apiFamily];
+        if (snapshot.evidence.apiClues && !record.apiClue.empty() && !record.apiFamily.empty()) {
+            auto& group = snapshot.apiFamilies[record.apiFamily];
+            ++group.count;
+            group.latest = rows->size(); // API raw 行按已核验的归档序号递增。
+        }
         snapshot.hasNetwork |= record.network.has_value();
         Ui::VirtualListRow row; // 项目已验证的记录序号在整次采样内唯一。
         row.stableKey = std::to_wstring(record.sequence);
@@ -209,7 +231,7 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
             std::to_wstring(record.sequence) };
         rows->push_back(std::move(row));
     }
-    snapshot.classification = ClassificationSummary(families, snapshot.evidence.apiClues);
+    snapshot.classification = ClassificationSummary(snapshot.apiFamilies, snapshot.evidence.apiClues);
     snapshot.presentation = std::move(rows);
     return snapshot;
 }
@@ -247,7 +269,9 @@ void Layout(Page& page) {
     const int sourceWidth = Scale(88); // 三个来源开关保持同宽，对齐为一组。
     const int sourcesWidth = page.liveView ? sourceWidth : sourceWidth * 3 + gap * 2;
     const bool wrapSources = mainRight - mainX < sourcesWidth + gap + Scale(125);
-    const int resultTop = top + (wrapSources ? 2 : 1) * (height + gap);
+    const bool showEvidenceNavigation = ClassifiedArchive(page) != nullptr;
+    const int evidenceTop = top + (wrapSources ? 2 : 1) * controlStep;
+    const int resultTop = evidenceTop + (showEvidenceNavigation ? controlStep : 0);
     const int bottom = (std::max)(resultTop + Scale(24), static_cast<int>(area.bottom) - inset - Scale(62));
     const int available = bottom - resultTop;
     const int detailHeight = available / 3;
@@ -307,9 +331,19 @@ void Layout(Page& page) {
     move(page.apiOnly, sourceX, sourceY, sourceWidth, height);
     move(page.etwOnly, page.liveView ? sourceX : sourceX + sourceWidth + gap, sourceY, sourceWidth, height);
     move(page.networkOnly, sourceX + (sourceWidth + gap) * 2, sourceY, sourceWidth, height);
+    const int tableWidth = mainRight - mainX;
+    if (showEvidenceNavigation) {
+        // 宽窗跟随表格左边界，窄窗沿用来源工具行的全宽布局。
+        const int evidenceX = tableWidth >= Scale(315) ? mainX : inset;
+        const int labelWidth = Scale(77), locateWidth = Scale(125);
+        const int comboX = evidenceX + labelWidth;
+        const int comboWidth = (std::clamp)(mainRight - comboX - locateWidth - gap, 1, Scale(265));
+        move(page.evidenceFamilyLabel, evidenceX, evidenceTop + Scale(4), labelWidth, height - Scale(4));
+        move(page.evidenceFamily, comboX, evidenceTop, comboWidth, height * 7);
+        move(page.locateEvidence, comboX + comboWidth + gap, evidenceTop, locateWidth, height);
+    }
     move(page.timeline.hwnd(), inset, resultTop, timelineWidth, graphTop - resultTop - gap);
     move(page.list.hwnd(), mainX, resultTop, mainRight - mainX, graphTop - resultTop - gap);
-    const int tableWidth = mainRight - mainX;
     const int profile = tableWidth >= Scale(630) ? 2 : tableWidth >= Scale(390) ? 1 : 0;
     if (page.columnProfile != profile && page.list.hwnd()) {
         page.columnProfile = profile;
@@ -500,6 +534,88 @@ void SetListSelection(Page& page, std::size_t record, bool reveal) {
     if (reveal) ListView_EnsureVisible(page.list.hwnd(), position, FALSE);
 }
 
+void SetLiveFollow(Page& page, bool enabled);
+
+void SelectRecord(Page& page, std::size_t index) {
+    if (page.selected == index) return;
+    page.selected = index;
+    if (page.liveView) page.liveSelection = index;
+    else if (page.samplePreview) page.previewSelection = index;
+    else page.historySelection = index;
+    if (page.liveView && page.followLive && page.liveStatus.active) SetLiveFollow(page, false);
+    page.timeline.select(index, true);
+    UpdateDetails(page);
+    UpdateStatus(page);
+}
+
+void SetEvidenceFamilyChoice(Page& page) {
+    page.evidenceFamilyChoice.clear();
+    const auto* archive = ClassifiedArchive(page);
+    const auto index = ::SendMessageW(page.evidenceFamily, CB_GETCURSEL, 0, 0);
+    if (archive && index > 0 && static_cast<std::size_t>(index) <= archive->apiFamilies.size()) {
+        page.evidenceFamilyChoice = std::next(archive->apiFamilies.begin(), index - 1)->first;
+    }
+    if (page.evidenceFamilyChoice.empty() && ::GetFocus() == page.locateEvidence) ::SetFocus(page.evidenceFamily);
+    ::EnableWindow(page.locateEvidence, !page.evidenceFamilyChoice.empty());
+}
+
+void RefreshEvidenceNavigation(Page& page) {
+    const auto* archive = ClassifiedArchive(page);
+    const auto scope = archive ? archive->evidence.identity : std::nullopt;
+    const auto path = archive ? std::wstring_view(archive->path) : std::wstring_view{};
+    if (!page.liveView && (page.evidenceFamilyScope != scope || page.evidenceFamilyPath != path)) {
+        page.evidenceFamilyScope = scope;
+        page.evidenceFamilyPath = path;
+        page.evidenceFamilyChoice.clear();
+    }
+    if (!archive && (::GetFocus() == page.evidenceFamily || ::GetFocus() == page.locateEvidence)) {
+        ::SetFocus(page.filter);
+    }
+    const bool wasVisible = (::GetWindowLongPtrW(page.evidenceFamily, GWL_STYLE) & WS_VISIBLE) != 0;
+    if (wasVisible != (archive != nullptr)) {
+        Layout(page);
+        for (HWND control : {page.evidenceFamilyLabel, page.evidenceFamily, page.locateEvidence}) {
+            ::ShowWindow(control, archive ? SW_SHOW : SW_HIDE);
+        }
+    }
+    if (!archive) {
+        ::EnableWindow(page.locateEvidence, FALSE);
+        return;
+    }
+
+    ::SendMessageW(page.evidenceFamily, CB_RESETCONTENT, 0, 0);
+    bool populated = ::SendMessageW(page.evidenceFamily, CB_ADDSTRING, 0,
+        reinterpret_cast<LPARAM>(L"选择 API 分类")) == 0;
+    LRESULT selected = 0;
+    for (const auto& [family, group] : archive->apiFamilies) {
+        if (!populated) break;
+        const auto label = ApiFamilyLabel(family) + L"（" + std::to_wstring(group.count) + L"）";
+        const auto index = ::SendMessageW(page.evidenceFamily, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        populated = index > 0;
+        if (populated && page.evidenceFamilyChoice == family) selected = index;
+    }
+    if (!populated) {
+        ::SendMessageW(page.evidenceFamily, CB_RESETCONTENT, 0, 0);
+        if (::GetFocus() == page.evidenceFamily || ::GetFocus() == page.locateEvidence) ::SetFocus(page.filter);
+    }
+    ::EnableWindow(page.evidenceFamily, populated);
+    ::SendMessageW(page.evidenceFamily, CB_SETCURSEL, selected, 0);
+    SetEvidenceFamilyChoice(page);
+}
+
+void LocateEvidence(Page& page) {
+    if (page.retiring) return;
+    const auto* archive = ClassifiedArchive(page);
+    if (!archive) return;
+    const auto family = archive->apiFamilies.find(page.evidenceFamilyChoice);
+    if (family == archive->apiFamilies.end()) return;
+    const auto index = family->second.latest;
+    // 最新原始行与分类取自同一只读快照。筛选隐藏该行时沿用现有的详情和状态提示。
+    ListView_SetItemState(page.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    SelectRecord(page, index);
+    SetListSelection(page, index, true);
+}
+
 void ApplyFilter(Page& page) {
     wchar_t query[257]{};
     ::GetWindowTextW(page.filter, query, static_cast<int>(std::size(query)));
@@ -508,7 +624,7 @@ void ApplyFilter(Page& page) {
         const auto& records = evidence->rows;
         const auto* archive = page.liveView ? nullptr : DisplayedArchive(page);
         const bool etwOnly = page.timeline.hasEtw() && Checked(page.etwOnly);
-        const bool apiOnly = archive && archive->hasApi && Checked(page.apiOnly);
+        const bool apiOnly = archive && !archive->apiFamilies.empty() && Checked(page.apiOnly);
         const bool networkOnly = archive && archive->hasNetwork && Checked(page.networkOnly);
         std::erase_if(visible, [&](std::size_t i) {
             const auto& row = records[i]; // 来源开关取并集，再与文字和类别相交。
@@ -541,8 +657,9 @@ void PresentResults(Page& page, bool refreshLive = false) {
     };
     enableSource(page.categories, categories);
     enableSource(page.etwOnly, etw);
-    enableSource(page.apiOnly, archive && archive->hasApi);
+    enableSource(page.apiOnly, ClassifiedArchive(page) != nullptr);
     enableSource(page.networkOnly, archive && archive->hasNetwork);
+    if (!refreshLive) RefreshEvidenceNavigation(page);
     page.applyingProjection = true;
     ListView_SetItemState(page.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     if (page.liveView && page.liveProjection) {
@@ -598,7 +715,7 @@ void ClearChoices(Page& page) {
 void ShowReadFailure(Page& page, const std::wstring& detail) {
     page.requestStatus = L"读取失败：" + detail + L" · " + page.requestPath;
     if (page.requestedSample) page.requestStatus += L" · " + WideAscii(page.requestedSample->sampleId);
-    if (page.snapshot) page.requestStatus += L"（保留当前归档）";
+    if (DisplayedArchive(page)) page.requestStatus += L"（保留当前归档）";
     UpdateStatus(page);
 }
 
@@ -690,18 +807,27 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
         ShowReadFailure(page, Diagnostic(loaded.evidence));
         return;
     }
-    const auto* selected = page.snapshot && page.historySelection && *page.historySelection < page.snapshot->evidence.rows.size()
-        ? &page.snapshot->evidence.rows[*page.historySelection] : nullptr;
+    const bool commitsPreview = page.samplePreview && page.samplePreview->sample == loaded.sample;
+    const bool restorePreviewSelection = commitsPreview && page.previewSelection.has_value();
+    const auto* previousSelectionSnapshot = restorePreviewSelection ? page.samplePreview.get() : page.snapshot.get();
+    const auto index = restorePreviewSelection ? page.previewSelection : page.historySelection;
     std::optional<std::size_t> selection; // 同一证据中的新行索引。
-    if (selected && page.snapshot->path == loaded.path && page.snapshot->sample == loaded.sample &&
-        page.snapshot->evidence.identity == loaded.evidence.identity) {
+    if (previousSelectionSnapshot && index && *index < previousSelectionSnapshot->evidence.rows.size() &&
+        previousSelectionSnapshot->path == loaded.path && previousSelectionSnapshot->sample == loaded.sample &&
+        previousSelectionSnapshot->evidence.identity == loaded.evidence.identity) {
+        // 项目、采样、流身份一致后，使用真正所属段与归档序号找回原始记录。
+        const auto& selected = previousSelectionSnapshot->evidence.rows[*index];
         const auto& rows = loaded.evidence.rows; // 新完成的证据快照。
-        const auto found = std::find_if(rows.begin(), rows.end(), [selected](const auto& row) {
-            return row.segmentOrdinal == selected->segmentOrdinal && row.sequence == selected->sequence;
+        const auto found = std::find_if(rows.begin(), rows.end(), [&selected](const auto& row) {
+            if (row.segmentOrdinal != selected.segmentOrdinal || row.sequence != selected.sequence) return false;
+            return selected.apiFamily.empty() || (row.offset == selected.offset && row.blockOrdinal == selected.blockOrdinal &&
+                row.apiFamily == selected.apiFamily && row.apiClue == selected.apiClue && row.preview == selected.preview);
         });
         if (found != rows.end()) selection = static_cast<std::size_t>(found - rows.begin());
     }
 
+    auto previousPreview = commitsPreview ? std::exchange(page.samplePreview, {}) : std::shared_ptr<const Snapshot>{};
+    if (previousPreview) page.previewSelection.reset();
     auto next = std::make_shared<const Snapshot>(std::move(loaded)); // 将发布的数据固化为共享值。
     auto previous = std::exchange(page.snapshot, std::move(next)); // 旧大快照交给后台释放。
     page.historySelection = selection;
@@ -730,17 +856,22 @@ void PublishSnapshot(Page& page, Snapshot loaded) {
     if (!page.liveView) {
         page.selected = page.historySelection;
         PresentResults(page);
-        if (!selection && page.list.rowCount()) ListView_EnsureVisible(page.list.hwnd(), 0, FALSE);
+        if (selection) SetListSelection(page, *selection, true);
+        else if (page.list.rowCount()) ListView_EnsureVisible(page.list.hwnd(), 0, FALSE);
     } else {
         UpdateStatus(page);
     }
     if (previous) Ui::RetireBackgroundValue(previous);
+    if (previousPreview) Ui::RetireBackgroundValue(previousPreview);
 }
 
 // 在原异步任务提交冻结的文件或样本请求。新请求代次取代在途旧回执。
 void Open(Page& page, std::wstring path, std::optional<ProjectReplayRequest> sample = std::nullopt) {
     if (path.empty() || page.retiring || page.catalogBusy) return;
-    ResetSamplePreview(page);
+    // 同一 API 采样的正式回放失败时仍可回看已核验预览与当前详情。
+    if (!sample || !page.samplePreview || page.samplePreview->sample != sample || page.samplePreview->apiFamilies.empty()) {
+        ResetSamplePreview(page);
+    }
     page.previewRequest = sample;
     page.requestPath = std::move(path);
     page.requestedSample = std::move(sample);
@@ -1096,11 +1227,12 @@ void PaintGraph(Page& page, HDC dc) {
 }
 
 LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
+    auto& page = *reinterpret_cast<Page*>(data);
     if (msg == WM_KEYDOWN && wp == VK_TAB) {
-        auto& page = *reinterpret_cast<Page*>(data);
         const std::array order{ page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
             page.livePid, page.liveProvider, page.liveStart, page.liveStop, page.liveFollow,
             page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
+            page.evidenceFamily, page.locateEvidence,
             page.timeline.hwnd(), page.list.hwnd(), page.details, page.status };
         const auto found = std::find(order.begin(), order.end(), hwnd);
         const auto size = static_cast<int>(order.size());
@@ -1112,6 +1244,14 @@ LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UIN
             if (::IsWindowEnabled(next) && ::IsWindowVisible(next)) { ::SetFocus(next); break; }
         }
         return 0;
+    }
+    if (hwnd == page.locateEvidence && wp == VK_RETURN) {
+        // 页面不是对话框，为此原生按钮补齐 Enter。空格仍由按钮自身处理。
+        if (msg == WM_KEYDOWN) {
+            if (!(lp & (1LL << 30)) && ::IsWindowEnabled(hwnd)) LocateEvidence(page);
+            return 0;
+        }
+        if (msg == WM_CHAR) return 0;
     }
     if (msg == WM_CHAR && wp == L'\t') return 0;
     return ::DefSubclassProc(hwnd, msg, wp, lp);
@@ -1138,9 +1278,19 @@ bool CreateControls(Page& page) {
         0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiOnly)), ::GetModuleHandleW(nullptr), nullptr);
     page.networkOnly = ::CreateWindowExW(0, L"BUTTON", L"只看网络", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNetworkOnly)), ::GetModuleHandleW(nullptr), nullptr);
+    page.evidenceFamilyLabel = Ui::CreateText(page.hwnd, 0, L"证据分类", 0, 0, 0, 0);
+    page.evidenceFamily = ::CreateWindowExW(0, WC_COMBOBOXW, L"",
+        WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
+        0, 0, 0, 0, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEvidenceFamily)),
+        ::GetModuleHandleW(nullptr), nullptr);
+    page.locateEvidence = Ui::CreateButton(page.hwnd, kLocateEvidence, L"定位原始记录", 0, 0, 0, 0);
     if (!page.switchView || !page.livePid || !page.liveProvider || !page.liveStart || !page.liveStop || !page.liveFollow ||
         !page.createProject || !page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel ||
-        !page.filter || !page.etwOnly || !page.apiOnly || !page.networkOnly) return false;
+        !page.filter || !page.etwOnly || !page.apiOnly || !page.networkOnly || !page.evidenceFamilyLabel ||
+        !page.evidenceFamily || !page.locateEvidence) return false;
+    ::ShowWindow(page.evidenceFamilyLabel, SW_HIDE);
+    ::ShowWindow(page.locateEvidence, SW_HIDE);
+    ::EnableWindow(page.locateEvidence, FALSE);
     for (const auto control : {page.livePid, page.liveProvider, page.liveStart, page.liveStop, page.liveFollow}) {
         ::ShowWindow(control, SW_HIDE);
     }
@@ -1192,6 +1342,8 @@ bool CreateControls(Page& page) {
     AddButtonTip(page.tooltip, page.hwnd, page.apiOnly, L"显示归档 API 线索。可与其他来源同时选择。");
     AddButtonTip(page.tooltip, page.hwnd, page.etwOnly, L"显示 ETW 观察。回放时可与其他来源同时选择。");
     AddButtonTip(page.tooltip, page.hwnd, page.networkOnly, L"显示已核验的归档网络流。可与其他来源同时选择。");
+    AddButtonTip(page.tooltip, page.hwnd, page.evidenceFamily, L"选择当前预览窗口中已核验的 API 证据分类");
+    AddButtonTip(page.tooltip, page.hwnd, page.locateEvidence, L"查看所选分类中最新一条原始记录。筛选隐藏该行时仍显示详情。");
     AddButtonTip(page.tooltip, page.hwnd, page.switchView, L"在当前工程中开始新一轮被动扫描，或返回工程目录");
     AddButtonTip(page.tooltip, page.hwnd, page.livePid, L"输入自有进程的十进制 PID");
     AddButtonTip(page.tooltip, page.hwnd, page.liveProvider, L"输入 ETW 提供程序 GUID 以观察指定进程并将记录归档");
@@ -1200,6 +1352,7 @@ bool CreateControls(Page& page) {
     for (HWND child : {page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
         page.livePid, page.liveProvider, page.liveStart, page.liveStop, page.liveFollow,
         page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
+        page.evidenceFamily, page.locateEvidence,
         page.timeline.hwnd(), page.list.hwnd(), page.details, page.status}) {
         if (!::SetWindowSubclass(child, NavigateControls, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     }
@@ -1288,6 +1441,10 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         if (LOWORD(wp) == kSampleChoice && (HIWORD(wp) == CBN_SELCHANGE || HIWORD(wp) == CBN_CLOSEUP)) {
             PreviewSelectedSample(*page);
         }
+        if (LOWORD(wp) == kEvidenceFamily && (HIWORD(wp) == CBN_SELCHANGE || HIWORD(wp) == CBN_CLOSEUP)) {
+            SetEvidenceFamilyChoice(*page);
+        }
+        if (LOWORD(wp) == kLocateEvidence && HIWORD(wp) == BN_CLICKED) LocateEvidence(*page);
         if (LOWORD(wp) == kReplaySample && HIWORD(wp) == BN_CLICKED) ReplaySelectedSample(*page);
         if (LOWORD(wp) == kCancelChoice && HIWORD(wp) == BN_CLICKED && !page->catalogBusy) {
             ::SendMessageW(page->sampleChoice, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
@@ -1311,16 +1468,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             if ((item.uChanged & LVIF_STATE) && (item.uNewState & LVIS_SELECTED) && item.iItem >= 0 &&
                 static_cast<std::size_t>(item.iItem) < page->list.visibleIndexes().size()) {
                 const auto index = page->list.visibleIndexes()[static_cast<std::size_t>(item.iItem)];
-                if (page->selected != index) {
-                    page->selected = index;
-                    if (page->liveView) page->liveSelection = index;
-                    else if (page->samplePreview) page->previewSelection = index;
-                    else page->historySelection = index;
-                    if (page->liveView && page->followLive && page->liveStatus.active) SetLiveFollow(*page, false);
-                    page->timeline.select(index, true);
-                    UpdateDetails(*page);
-                    UpdateStatus(*page);
-                }
+                SelectRecord(*page, index);
             }
         }
         break;
