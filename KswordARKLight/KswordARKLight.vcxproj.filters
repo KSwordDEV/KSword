@@ -203,6 +203,19 @@
     <ClCompile Include="Features\ActionAnalyze\ActionAnalyzePage.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\EvidenceTimeline.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\StoredEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\ProjectReplay.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\shared\evidence\EvidenceJson.cpp"><Filter>Shared Evidence</Filter></ClCompile>
     <ClCompile Include="..\shared\evidence\LosslessValue.cpp"><Filter>Shared Evidence</Filter></ClCompile>
     <ClCompile Include="Features\Monitor\CallbackMonitorView.cpp"><Filter>Features\Monitor</Filter></ClCompile>
@@ -602,6 +615,7 @@
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h">
       <Filter>Features\ActionAnalyze</Filter>
     </ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h"><Filter>Shared Evidence</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\EvidenceJson.h">
       <Filter>Shared Evidence</Filter>

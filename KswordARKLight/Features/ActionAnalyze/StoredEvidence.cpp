@@ -353,6 +353,8 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
         if (firstDecodeError.empty()) {
             if (decodeError.empty()) {
                 out.decodedPrefixBytes = out.framedBytes;
+                out.lastBlockOrdinal = blockOrdinal;
+                out.lastSequence = sequence;
                 out.rows.insert(out.rows.end(), std::make_move_iterator(rows.begin()), std::make_move_iterator(rows.end()));
             } else {
                 firstDecodeError = decodeError;
@@ -382,32 +384,52 @@ SegmentEvidence OpenStoredEvidence(const std::wstring& path) {
         ~File() { if (handle != INVALID_HANDLE_VALUE) ::CloseHandle(handle); }
     } file{ ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_FLAG_SEQUENTIAL_SCAN, nullptr) };
-    SegmentEvidence error;
     if (file.handle == INVALID_HANDLE_VALUE) {
+        SegmentEvidence error; // 单段入口的原生打开错误。
         error.systemError = ::GetLastError();
         error.diagnostic = "file.open";
         return error;
     }
-    LARGE_INTEGER size{};
-    if (::GetFileType(file.handle) != FILE_TYPE_DISK) {
+    return ReadOpenStoredEvidence(file.handle, std::nullopt);
+}
+
+// 单段和项目回放复用投影。项目端点只在实际文件包含整个范围时才可用。
+SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
+    const SegmentIdentity* expected) {
+    SegmentEvidence error; // 无法取得文件范围时的只读回执。
+    LARGE_INTEGER size{}; // 本次句柄的物理长度。
+    if (::GetFileType(file) != FILE_TYPE_DISK) {
         error.diagnostic = "file.notDisk";
         return error;
     }
-    if (!::GetFileSizeEx(file.handle, &size)) {
+    if (!::GetFileSizeEx(file, &size)) {
         error.systemError = ::GetLastError();
         error.diagnostic = "file.size";
         return error;
     }
-    // Denying writers during this short-lived read keeps offsets tied to the
-    // selected bytes. A busy live segment can be retried after its writer closes.
-    auto result = ReadStoredEvidence(static_cast<std::uint64_t>(size.QuadPart), [&](std::span<std::uint8_t> buffer) {
-        DWORD received = 0;
-        const auto count = static_cast<DWORD>(buffer.size());
-        if (!::ReadFile(file.handle, buffer.data(), count, &received, nullptr)) return ::GetLastError();
+    const auto physicalBytes = static_cast<std::uint64_t>(size.QuadPart); // 包括未提交尾部。
+    if (endOffset && *endOffset > physicalBytes) {
+        error.fileBytes = physicalBytes;
+        error.failureOffset = physicalBytes;
+        error.diagnostic = "truncated";
+        return error;
+    }
+
+    // 散列复核移动过游标，投影从同一文件的段头重新读取。
+    if (!::SetFilePointerEx(file, LARGE_INTEGER{}, nullptr, FILE_BEGIN)) {
+        error.systemError = ::GetLastError();
+        error.diagnostic = "file.seek";
+        return error;
+    }
+    auto result = ReadStoredEvidence(endOffset.value_or(physicalBytes), [&](std::span<std::uint8_t> buffer) {
+        DWORD received = 0; // 此次 Win32 实读字节数。
+        const auto count = static_cast<DWORD>(buffer.size()); // 已受段和块格式限额约束。
+        if (!::ReadFile(file, buffer.data(), count, &received, nullptr)) return ::GetLastError();
         return received == count ? DWORD{0} : DWORD{ERROR_HANDLE_EOF};
-    });
-    BY_HANDLE_FILE_INFORMATION identity{};
-    if (::GetFileInformationByHandle(file.handle, &identity)) {
+    }, expected);
+    result.fileBytes = physicalBytes;
+    BY_HANDLE_FILE_INFORMATION identity{}; // 详情显示的本地卷、文件和修改身份。
+    if (::GetFileInformationByHandle(file, &identity)) {
         const auto combine = [](DWORD high, DWORD low) { return (static_cast<std::uint64_t>(high) << 32) | low; };
         result.fileIdentity = std::to_wstring(identity.dwVolumeSerialNumber) + L" / " +
             std::to_wstring(combine(identity.nFileIndexHigh, identity.nFileIndexLow)) + L" / " +

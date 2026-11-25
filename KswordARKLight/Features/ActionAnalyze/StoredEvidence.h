@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../Core/Win32Lean.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 
 #include <cstdint>
@@ -49,6 +50,8 @@ struct SegmentEvidence {
     std::uint64_t fileBytes = 0;
     std::uint64_t framedBytes = 0;
     std::uint64_t decodedPrefixBytes = 0;
+    std::optional<std::uint64_t> lastBlockOrdinal; // 最后一个完整解码块的序号。
+    std::optional<std::uint64_t> lastSequence; // 最后一个完整解码块的末记录序号。
     std::uint64_t failureOffset = 0;
     std::size_t blocks = 0;
     std::size_t records = 0;
@@ -70,5 +73,9 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read,
     const SegmentIdentity* expected = nullptr);
 
 SegmentEvidence OpenStoredEvidence(const std::wstring& path);
+
+// 读取调用方持有的同步只读句柄。可选端点限定本次投影，fileBytes 仍表示物理长度。
+SegmentEvidence ReadOpenStoredEvidence(HANDLE file, std::optional<std::uint64_t> endOffset,
+    const SegmentIdentity* expected = nullptr);
 
 } // namespace Ksword::Features::ActionAnalyze

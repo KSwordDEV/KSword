@@ -108,6 +108,21 @@
     <ClCompile Include="Features\ActionAnalyze\StoredEvidence.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\ProjectReplay.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp" />
     <ClCompile Include="..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditFormatting.cpp" />
@@ -325,6 +340,7 @@
     <ClInclude Include="Features\ActionAnalyze\ActionAnalyzePage.h" />
     <ClInclude Include="Features\ActionAnalyze\EvidenceTimeline.h" />
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
+    <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h" />
     <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h" />
     <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
     <ClInclude Include="..\shared\evidence\LosslessValue.h" />

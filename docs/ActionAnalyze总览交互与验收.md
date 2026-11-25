@@ -122,3 +122,11 @@ Win32 沿 `FeatureRegistry.cpp` 的「监控」入口，经 `MonitorFeature.cpp`
 2026-11-24，本机 Windows `19045.7846` 的会话 `1` 处于断开状态。验收进程使用中完整性令牌，`OpenInputDesktop` 返回 Win32 错误 `5`。确认没有既有 Light 进程后，在 `WinSta0` 新建独立桌面，启动正式 `Ksword5.1/x64/Release/KswordARKLight.exe`，SHA-256 为 `4BC8F3837AF24423AA4D6EA586453C5AB560D63F4DAD5F37AAA038B27E1A5022`。PID `12416` 在 18 秒内没有创建任何可枚举的自有窗口。诊断复跑的 PID `16268` 输出 `IsRunningAsAdmin: 0 ms` 和 `calling ShellExecuteExW(runas)`，此后 15 秒内未出现提权调用返回或创建主窗口的跟踪，也未枚举到该 PID 的窗口。当前 Windows 策略要求在安全桌面确认管理员提权。两个进程均用各自的启动句柄结束，并确认退出，未经过 `WM_CLOSE`。
 
 两次启动前后，工作区 `State` 值逐字节相同，`KswordARK` 服务查询均返回 `1060`，正式签名驱动的 SHA-256 相同。独立桌面已释放，Light 无残留进程，未生成夹具文件。产品 GUI 验收阻塞在启动提权阶段。上表的导航、归档打开、状态、筛选和焦点保留、缩放与绘制均待实际窗口验证。构建和原生回归结果仍见上一节。本机文本日志存于 `.codex-build-logs/action-analyze-light-gui-private-desktop.log` 与 `.codex-build-logs/action-analyze-light-gui-startup-trace.log`。
+
+### Light 项目检查点与三端同样本回读
+
+「监控 → ActionAnalyze → 打开归档」可打开 `project.ksaproj`。在现有主列表工作台选择已登记采样后，点击「回放采样」提交。目录选择与证据结果独立。读取器通过共享 `ProjectDocument` 核对冻结描述和被动 ETW 双流检查点，再对实际投影的 raw 句柄复核相同散列。重新读取沿用冻结请求。独立段仍可在同一入口打开。
+
+正式 Light 的 HostX64 Release 构建为 0 警告、0 错误，复用的签名驱动镜像散列一致。`Ksword5.1/x64/Release/KswordARKLight.exe` 的 SHA-256 为 `326F92DCDA5D22B100EA45050C4651EA46F5E60E863A8221A62272EBA21D2402`。原生夹具通过 35 项 Stored 向量、2 项 Win32 文件用例以及双流端点、坏尾、依赖缺失、散列、身份和重读用例。固定测试目录内的合成项目已清理。
+
+同一份 CLI 自有样本 `674a1a10-4f59-45cb-b930-9f56e485c571` 通过正式 CLI 重开、Light 生产读取器回放和正式 Qt 窗口回放。Light 核对 14 行与提交端点，12 条 ETW 载荷逐字节一致。Qt 验证筛选、选中详情、检查点失败与恢复。测试项目已删除，Qt 配置已恢复。Light 产品窗口仍待完成启动提权后的验证。构建和三端回读日志为 `.codex-build-logs/action-analyze-light-project-checkpoint.log`、`.codex-build-logs/action-analyze-light-cli-project-build.log` 和 `.codex-build-logs/action-analyze-three-reader-project.log`。

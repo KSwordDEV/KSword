@@ -1,4 +1,5 @@
 #include "../StoredEvidence.h"
+#include "../ProjectReplay.h"
 #include "../../../../shared/evidence/EvidenceJson.h"
 
 #include <algorithm>
@@ -9,6 +10,9 @@
 #include <iterator>
 #include <stdexcept>
 #include <string_view>
+
+// 使用工程固定测试目录创建、验证并清理只含合成被动 ETW 记录的项目。
+void VerifyProjectReplay(const std::filesystem::path& testOutput);
 
 namespace {
 
@@ -148,6 +152,26 @@ void VerifyLiveCliReadback(const std::wstring& path) {
         Check(row.preview.find(expected) != std::wstring::npos, "ETW byte preview matches owned payload");
     }
     std::cout << "PASS Light CLI ETW readback: 12 events and exact bytes\n";
+
+    // 从同一正式项目的目录进入，核对 Light 项目回放提交的端点和每行投影。
+    const std::filesystem::path segment(path); // raw/1 在正式项目中的路径。
+    const auto manifest = segment.parent_path().parent_path().parent_path().parent_path() / L"project.ksaproj";
+    const auto catalog = ReadProjectReplayCatalog(manifest.wstring()); // 从已提交目录选择采样。
+    Check(catalog.diagnostic.empty(), "CLI project catalog opened");
+    const auto selected = std::find_if(catalog.choices.begin(), catalog.choices.end(),
+        [&](const auto& choice) { return choice.request.sampleId == result.identity->sampleId; }); // 同一采样的冻结请求。
+    Check(selected != catalog.choices.end(), "CLI sample present in Light project catalog");
+    const auto replay = ReadProjectReplay(selected->request); // 使用生产项目回放入口。
+    Check(replay.checkpoint == CheckpointState::Verified && replay.recordsEnd > 0 && replay.raw.diagnostic.empty() &&
+        replay.raw.identity == result.identity && replay.raw.decodedPrefixBytes == result.decodedPrefixBytes &&
+        replay.raw.rows.size() == result.rows.size(), "verified CLI checkpoint in Light");
+    for (std::size_t index = 0; index < result.rows.size(); ++index) {
+        const auto& row = replay.raw.rows.at(index); // 项目回放的记录和字节预览。
+        const auto& standalone = result.rows.at(index); // 同一记录的独立段投影。
+        Check(row.sequence == standalone.sequence && row.preview == standalone.preview &&
+            row.etw.has_value() == standalone.etw.has_value(), "Light project projection matches standalone ETW row");
+    }
+    std::cout << "PASS Light CLI project checkpoint: matching identity, boundary and 14 rows\n";
 }
 
 } // namespace
@@ -156,6 +180,10 @@ int wmain(int argc, wchar_t** argv) {
     try {
         if (argc == 3 && std::wstring_view(argv[1]) == L"--etw-file") {
             VerifyLiveCliReadback(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--project-fixture") {
+            VerifyProjectReplay(argv[2]);
             return 0;
         }
         Check(argc == 2, "pass schemas/action_analyze/vectors/stored-v1.json");
