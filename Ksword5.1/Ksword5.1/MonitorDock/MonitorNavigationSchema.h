@@ -14,7 +14,7 @@ namespace ks::monitor
         const char* translationKey; const char* icon; const char* search;
         bool defaultCurrent;
     };
-    // 行为追踪根和子页的稳定 ID 同时供真实页签、冷目录与外部导航使用。
+    // 行为分析及其子页的稳定 ID 同时供真实页签、冷目录与外部导航使用。
     inline constexpr char ActionAnalyzeRootId[] = "monitor.action_analyze";
     inline constexpr char ActionAnalyzeOverviewId[] = "monitor.action_analyze.overview";
     inline constexpr char ActionAnalyzeSamplesId[] = "monitor.action_analyze.samples";
@@ -28,7 +28,8 @@ namespace ks::monitor
         {"wmi", "", L"WMI", "monitor.tab.wmi", "", "subscription|provider", false},
         {"etw", "", L"ETW监控", "monitor.tab.etw", "", "event|trace|provider", false},
         {"ark-risk", "", L"ARK 风险中心", "monitor.tab.ark_risk_center", ":/Icon/process_critical.svg", "risk|ark-risk-center", false},
-        {ActionAnalyzeRootId, "", L"行为追踪", "monitor.tab.action_analyze", ":/Icon/process_details.svg", "actionanalyze|behavior|behaviour|offline", false},
+        {ActionAnalyzeRootId, "", L"行为分析", "monitor.tab.action_analyze", ":/Icon/process_details.svg",
+            "actionanalyze|behavior|behaviour|analysis|trace|offline", false},
         {ActionAnalyzeOverviewId, ActionAnalyzeRootId, L"总览", "monitor.tab.action_analyze.overview", "", "overview|events|evidence", true},
         {ActionAnalyzeSamplesId, ActionAnalyzeRootId, L"项目与采样", "monitor.tab.action_analyze.samples", "", "project|sample|archive", false}
     }};
