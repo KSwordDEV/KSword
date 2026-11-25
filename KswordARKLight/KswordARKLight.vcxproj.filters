@@ -22,6 +22,12 @@
     <Filter Include="Features">
       <UniqueIdentifier>{ACE49968-076C-57A9-8A61-55B4D58B6C5C}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Features\ActionAnalyze">
+      <UniqueIdentifier>{D0087943-7F48-4703-BAD3-D67F1CD517D8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shared Evidence">
+      <UniqueIdentifier>{0AC50177-31D3-4E7D-B3C8-52541028BEBA}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Features\AuditCommon">
       <UniqueIdentifier>{AB13C5E8-85C4-4E4C-92A4-2D95D2E8AA31}</UniqueIdentifier>
     </Filter>
@@ -116,288 +122,105 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="App\Main.cpp">
-      <Filter>App</Filter>
-    </ClCompile>
-    <ClCompile Include="App\MainWindow.cpp">
-      <Filter>App</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\DriverLease.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\DriverService.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\EntityRef.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\PathUtils.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\Privilege.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Core\WorkspaceConfig.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="Docking\DockManager.cpp">
-      <Filter>Docking</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\AuditCommon\AuditFormatting.cpp">
-      <Filter>Features\AuditCommon</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\AuditCommon\AuditStatus.cpp">
-      <Filter>Features\AuditCommon</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\AuditCommon\AuditSummaryPanel.cpp">
-      <Filter>Features\AuditCommon</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\AuditCommon\AuditTable.cpp">
-      <Filter>Features\AuditCommon</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverActions.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverDebugOutputView.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverEnumerator.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverFeature.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverModel.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverObjectView.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverOverviewView.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\FeatureRegistry.cpp">
-      <Filter>Features</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\File\FileActions.cpp">
-      <Filter>Features\File</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\File\FileFeature.cpp">
-      <Filter>Features\File</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\File\FileSystemEnumerator.cpp">
-      <Filter>Features\File</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\File\FileView.cpp">
-      <Filter>Features\File</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Hardware\HardwareFeature.cpp">
-      <Filter>Features\Hardware</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Hardware\HardwareHwidDispatchView.cpp">
-      <Filter>Features\Hardware</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Hardware\HardwareModel.cpp">
-      <Filter>Features\Hardware</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Hardware\HardwareView.cpp">
-      <Filter>Features\Hardware</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Handle\HandleClient.cpp">
-      <Filter>Features\Handle</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Handle\HandleFeature.cpp">
-      <Filter>Features\Handle</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Handle\HandlePage.cpp">
-      <Filter>Features\Handle</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelAtomTableFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelBaseNamedObjectsFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelCallbackEnumerationFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\CallbackEnumeration.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelCallbackEventReceiver.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelCallbackInterceptFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelCatalog.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelCommunicationEndpointFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelDeviceDriverObjectsFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelDriverStatusFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelDynDataFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelDynDataProfiles.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelFacade.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelIatEatHookFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelInlineHookFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelNamedPipeFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelNativeQueries.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelNtQueryLegacyFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelObjectDirectoryRecursiveFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelObjectNamespaceFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelObjectTypeMatrixFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelPage.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelPageLayout.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelProjectionBuilderCore.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelProjectionBuilderDiagnostics.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelProjectionBuilderEvidence.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelProjectionBuilderHooks.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelProjectionBuilderNamespace.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelR0ExtendedFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelShadowSsdtFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelSsdtFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelSymbolicLinkFeature.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelValueSupport.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\DriverMemoryClient.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\DriverMemoryModel.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\DriverMemoryView.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\MemoryFeature.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\MemorySnapshot.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\MemoryInspection.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Memory\MemoryWritePlan.cpp">
-      <Filter>Features\Memory</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Misc\MiscFeature.cpp">
-      <Filter>Features\Misc</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Misc\MiscAuditCollectors.cpp">
-      <Filter>Features\Misc</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Monitor\EtwFilterDialog.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Monitor\EtwMonitorView.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Monitor\MonitorFeature.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Monitor\CallbackMonitorView.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Network\NetworkFeature.cpp">
-      <Filter>Features\Network</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Network\NetworkModel.cpp">
-      <Filter>Features\Network</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Network\NetworkView.cpp">
-      <Filter>Features\Network</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Process\ProcessActions.cpp">
-      <Filter>Features\Process</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Process\ProcessColumns.cpp">
-      <Filter>Features\Process</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Process\ProcessFeature.cpp">
-      <Filter>Features\Process</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Process\ProcessModel.cpp">
-      <Filter>Features\Process</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Process\ProcessView.cpp">
-      <Filter>Features\Process</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Registry\RegistryActions.cpp">
-      <Filter>Features\Registry</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Registry\RegistryFeature.cpp">
-      <Filter>Features\Registry</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Registry\RegistrySearchView.cpp">
-      <Filter>Features\Registry</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Registry\RegistryView.cpp">
-      <Filter>Features\Registry</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\ProcessDetail\ProcessDetailCollector.cpp">
-      <Filter>Features\ProcessDetail</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\ProcessDetail\ProcessDetailFeature.cpp">
-      <Filter>Features\ProcessDetail</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.cpp">
-      <Filter>Features\ProcessDetail</Filter>
-    </ClCompile>
+    <ClCompile Include="App\Main.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="App\MainWindow.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="Core\DriverLease.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Core\DriverService.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Core\EntityRef.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Core\PathUtils.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Core\Privilege.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Core\WorkspaceConfig.cpp"><Filter>Core</Filter></ClCompile>
+    <ClCompile Include="Docking\DockManager.cpp"><Filter>Docking</Filter></ClCompile>
+    <ClCompile Include="Features\AuditCommon\AuditFormatting.cpp"><Filter>Features\AuditCommon</Filter></ClCompile>
+    <ClCompile Include="Features\AuditCommon\AuditStatus.cpp"><Filter>Features\AuditCommon</Filter></ClCompile>
+    <ClCompile Include="Features\AuditCommon\AuditSummaryPanel.cpp"><Filter>Features\AuditCommon</Filter></ClCompile>
+    <ClCompile Include="Features\AuditCommon\AuditTable.cpp"><Filter>Features\AuditCommon</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverActions.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverDebugOutputView.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverEnumerator.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverFeature.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverModel.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverObjectView.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverOverviewView.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\FeatureRegistry.cpp"><Filter>Features</Filter></ClCompile>
+    <ClCompile Include="Features\File\FileActions.cpp"><Filter>Features\File</Filter></ClCompile>
+    <ClCompile Include="Features\File\FileFeature.cpp"><Filter>Features\File</Filter></ClCompile>
+    <ClCompile Include="Features\File\FileSystemEnumerator.cpp"><Filter>Features\File</Filter></ClCompile>
+    <ClCompile Include="Features\File\FileView.cpp"><Filter>Features\File</Filter></ClCompile>
+    <ClCompile Include="Features\Hardware\HardwareFeature.cpp"><Filter>Features\Hardware</Filter></ClCompile>
+    <ClCompile Include="Features\Hardware\HardwareHwidDispatchView.cpp"><Filter>Features\Hardware</Filter></ClCompile>
+    <ClCompile Include="Features\Hardware\HardwareModel.cpp"><Filter>Features\Hardware</Filter></ClCompile>
+    <ClCompile Include="Features\Hardware\HardwareView.cpp"><Filter>Features\Hardware</Filter></ClCompile>
+    <ClCompile Include="Features\Handle\HandleClient.cpp"><Filter>Features\Handle</Filter></ClCompile>
+    <ClCompile Include="Features\Handle\HandleFeature.cpp"><Filter>Features\Handle</Filter></ClCompile>
+    <ClCompile Include="Features\Handle\HandlePage.cpp"><Filter>Features\Handle</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelAtomTableFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelBaseNamedObjectsFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelCallbackEnumerationFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\CallbackEnumeration.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelCallbackEventReceiver.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelCallbackInterceptFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelCatalog.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelCommunicationEndpointFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelDeviceDriverObjectsFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelDriverStatusFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelDynDataFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelDynDataProfiles.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelFacade.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelIatEatHookFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelInlineHookFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelNamedPipeFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelNativeQueries.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelNtQueryLegacyFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelObjectDirectoryRecursiveFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelObjectNamespaceFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelObjectTypeMatrixFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelPage.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelPageLayout.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelProjectionBuilderCore.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelProjectionBuilderDiagnostics.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelProjectionBuilderEvidence.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelProjectionBuilderHooks.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelProjectionBuilderNamespace.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelR0ExtendedFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelShadowSsdtFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelSsdtFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelSymbolicLinkFeature.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Kernel\KernelValueSupport.cpp"><Filter>Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\DriverMemoryClient.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\DriverMemoryModel.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\DriverMemoryView.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\MemoryFeature.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\MemorySnapshot.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\MemoryInspection.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Memory\MemoryWritePlan.cpp"><Filter>Features\Memory</Filter></ClCompile>
+    <ClCompile Include="Features\Misc\MiscFeature.cpp"><Filter>Features\Misc</Filter></ClCompile>
+    <ClCompile Include="Features\Misc\MiscAuditCollectors.cpp"><Filter>Features\Misc</Filter></ClCompile>
+    <ClCompile Include="Features\Monitor\EtwFilterDialog.cpp"><Filter>Features\Monitor</Filter></ClCompile>
+    <ClCompile Include="Features\Monitor\EtwMonitorView.cpp"><Filter>Features\Monitor</Filter></ClCompile>
+    <ClCompile Include="Features\Monitor\MonitorFeature.cpp"><Filter>Features\Monitor</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\ActionAnalyzePage.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\EvidenceTimeline.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\StoredEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp"><Filter>Shared Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp"><Filter>Shared Evidence</Filter></ClCompile>
+    <ClCompile Include="Features\Monitor\CallbackMonitorView.cpp"><Filter>Features\Monitor</Filter></ClCompile>
+    <ClCompile Include="Features\Network\NetworkFeature.cpp"><Filter>Features\Network</Filter></ClCompile>
+    <ClCompile Include="Features\Network\NetworkModel.cpp"><Filter>Features\Network</Filter></ClCompile>
+    <ClCompile Include="Features\Network\NetworkView.cpp"><Filter>Features\Network</Filter></ClCompile>
+    <ClCompile Include="Features\Process\ProcessActions.cpp"><Filter>Features\Process</Filter></ClCompile>
+    <ClCompile Include="Features\Process\ProcessColumns.cpp"><Filter>Features\Process</Filter></ClCompile>
+    <ClCompile Include="Features\Process\ProcessFeature.cpp"><Filter>Features\Process</Filter></ClCompile>
+    <ClCompile Include="Features\Process\ProcessModel.cpp"><Filter>Features\Process</Filter></ClCompile>
+    <ClCompile Include="Features\Process\ProcessView.cpp"><Filter>Features\Process</Filter></ClCompile>
+    <ClCompile Include="Features\Registry\RegistryActions.cpp"><Filter>Features\Registry</Filter></ClCompile>
+    <ClCompile Include="Features\Registry\RegistryFeature.cpp"><Filter>Features\Registry</Filter></ClCompile>
+    <ClCompile Include="Features\Registry\RegistrySearchView.cpp"><Filter>Features\Registry</Filter></ClCompile>
+    <ClCompile Include="Features\Registry\RegistryView.cpp"><Filter>Features\Registry</Filter></ClCompile>
+    <ClCompile Include="Features\ProcessDetail\ProcessDetailCollector.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
+    <ClCompile Include="Features\ProcessDetail\ProcessDetailFeature.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
+    <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.Action.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.DetailPlugin.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.EvidencePeb.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
@@ -405,321 +228,111 @@
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.Module.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.Thread.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.Token.cpp"><Filter>Features\ProcessDetail</Filter></ClCompile>
-    <ClCompile Include="Features\Driver\DriverUnloadedView.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Driver\DriverThreadView.cpp">
-      <Filter>Features\Driver</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\HardwareStats\BusDeviceView.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\HardwareStats\DeviceTopologyEnumerator.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\HardwareStats\PerformanceView.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\HardwareStats\UsbTopologyView.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\ContextMenuView.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\EventLogView.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\FileHolderView.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\SysToolsFeature.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\SysTools\SystemTimeView.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsCaptureView.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsClipboardView.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsCommon.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsHierarchyView.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsHotkeyView.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsConnectionView.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsDiagnostics.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsDiagnosticView.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsEnumerator.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsFirewallView.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsModel.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Privilege\PrivilegeFeature.cpp">
-      <Filter>Features\Privilege</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Privilege\PrivilegeModel.cpp">
-      <Filter>Features\Privilege</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Privilege\PrivilegeView.cpp">
-      <Filter>Features\Privilege</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Service\ServiceFeature.cpp">
-      <Filter>Features\Service</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Service\ServiceModel.cpp">
-      <Filter>Features\Service</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Service\ServiceView.cpp">
-      <Filter>Features\Service</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupFeature.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupModel.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupLightEnumerator.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupLightActions.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupView.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Window\WindowFeature.cpp">
-      <Filter>Features\Window</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Window\WindowModel.cpp">
-      <Filter>Features\Window</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Window\Win32kTimerEvidenceModel.cpp">
-      <Filter>Features\Window</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Window\WindowView.cpp">
-      <Filter>Features\Window</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\Controls.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\EntityNavigation.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\EvidenceSession.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\EvidenceSessionView.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\ExportUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\FilterBar.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\IconUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\ListViewUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\LoadingOverlay.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\MenuUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\NumericSortKey.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TableCompareActions.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TableCompareRowSource.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TableCompareResultWindow.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TableSnapshotCompare.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TextFindSupport.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\PlaceholderPage.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\SplitterUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TabUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\Theme.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\Dpi.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\LazyTreeView.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\TreeViewUtil.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\VirtualListView.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="Ui\WorkspaceHost.cpp">
-      <Filter>Ui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAlpc.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBlind.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDispatch.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHvm.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverImage.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernelBaseline.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverNetworkTraffic.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPiDdb.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPower.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverStorageForensics.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSystemTime.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverVirtualization.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallbackMonitor.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverFileIrp.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBugcheck.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapabilities.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapability.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverClient.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAudit.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDynData.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkRuntimeDynData.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDebugOutput.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverError.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverFile.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHwid.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHandle.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverIoctlRegistry.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernel.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKeyboard.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMemory.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverProcess.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverModule.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverRegistry.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSection.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp">
-      <Filter>ksword\file</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp">
-      <Filter>ksword\process</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp">
-      <Filter>ksword\network</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp">
-      <Filter>ksword\string</Filter>
-    </ClCompile>
+    <ClCompile Include="Features\Driver\DriverUnloadedView.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\Driver\DriverThreadView.cpp"><Filter>Features\Driver</Filter></ClCompile>
+    <ClCompile Include="Features\HardwareStats\BusDeviceView.cpp"><Filter>Features\HardwareStats</Filter></ClCompile>
+    <ClCompile Include="Features\HardwareStats\DeviceTopologyEnumerator.cpp"><Filter>Features\HardwareStats</Filter></ClCompile>
+    <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp"><Filter>Features\HardwareStats</Filter></ClCompile>
+    <ClCompile Include="Features\HardwareStats\PerformanceView.cpp"><Filter>Features\HardwareStats</Filter></ClCompile>
+    <ClCompile Include="Features\HardwareStats\UsbTopologyView.cpp"><Filter>Features\HardwareStats</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\ContextMenuView.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\EventLogView.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\FileHolderView.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\SysToolsFeature.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\SysTools\SystemTimeView.cpp"><Filter>Features\SysTools</Filter></ClCompile>
+    <ClCompile Include="Features\WindowTools\WindowToolsCaptureView.cpp"><Filter>Features\WindowTools</Filter></ClCompile>
+    <ClCompile Include="Features\WindowTools\WindowToolsClipboardView.cpp"><Filter>Features\WindowTools</Filter></ClCompile>
+    <ClCompile Include="Features\WindowTools\WindowToolsCommon.cpp"><Filter>Features\WindowTools</Filter></ClCompile>
+    <ClCompile Include="Features\WindowTools\WindowToolsHierarchyView.cpp"><Filter>Features\WindowTools</Filter></ClCompile>
+    <ClCompile Include="Features\WindowTools\WindowToolsHotkeyView.cpp"><Filter>Features\WindowTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsConnectionView.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsDiagnostics.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsDiagnosticView.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsEnumerator.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsFirewallView.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\NetTools\NetToolsModel.cpp"><Filter>Features\NetTools</Filter></ClCompile>
+    <ClCompile Include="Features\Privilege\PrivilegeFeature.cpp"><Filter>Features\Privilege</Filter></ClCompile>
+    <ClCompile Include="Features\Privilege\PrivilegeModel.cpp"><Filter>Features\Privilege</Filter></ClCompile>
+    <ClCompile Include="Features\Privilege\PrivilegeView.cpp"><Filter>Features\Privilege</Filter></ClCompile>
+    <ClCompile Include="Features\Service\ServiceFeature.cpp"><Filter>Features\Service</Filter></ClCompile>
+    <ClCompile Include="Features\Service\ServiceModel.cpp"><Filter>Features\Service</Filter></ClCompile>
+    <ClCompile Include="Features\Service\ServiceView.cpp"><Filter>Features\Service</Filter></ClCompile>
+    <ClCompile Include="Features\Startup\StartupFeature.cpp"><Filter>Features\Startup</Filter></ClCompile>
+    <ClCompile Include="Features\Startup\StartupModel.cpp"><Filter>Features\Startup</Filter></ClCompile>
+    <ClCompile Include="Features\Startup\StartupLightEnumerator.cpp"><Filter>Features\Startup</Filter></ClCompile>
+    <ClCompile Include="Features\Startup\StartupLightActions.cpp"><Filter>Features\Startup</Filter></ClCompile>
+    <ClCompile Include="Features\Startup\StartupView.cpp"><Filter>Features\Startup</Filter></ClCompile>
+    <ClCompile Include="Features\Window\WindowFeature.cpp"><Filter>Features\Window</Filter></ClCompile>
+    <ClCompile Include="Features\Window\WindowModel.cpp"><Filter>Features\Window</Filter></ClCompile>
+    <ClCompile Include="Features\Window\Win32kTimerEvidenceModel.cpp"><Filter>Features\Window</Filter></ClCompile>
+    <ClCompile Include="Features\Window\WindowView.cpp"><Filter>Features\Window</Filter></ClCompile>
+    <ClCompile Include="Ui\Controls.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\EntityNavigation.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\EvidenceSession.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\EvidenceSessionView.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\ExportUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\FilterBar.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\IconUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\ListViewUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\LoadingOverlay.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\MenuUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\NumericSortKey.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TableCompareActions.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TableCompareRowSource.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TableCompareResultWindow.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TableSnapshotCompare.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TextFindSupport.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\PlaceholderPage.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\SplitterUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TabUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\Theme.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\Dpi.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\LazyTreeView.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\TreeViewUtil.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\VirtualListView.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="Ui\WorkspaceHost.cpp"><Filter>Ui</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAlpc.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBlind.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDispatch.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHvm.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverImage.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernelBaseline.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverNetworkTraffic.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPiDdb.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverPower.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverStorageForensics.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSystemTime.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverVirtualization.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallbackMonitor.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverFileIrp.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBugcheck.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapabilities.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapability.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverClient.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAudit.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDynData.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkRuntimeDynData.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDebugOutput.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverError.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverFile.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHwid.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHandle.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverIoctlRegistry.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKernel.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverKeyboard.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMemory.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverProcess.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverModule.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverRegistry.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSection.cpp"><Filter>ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp"><Filter>ksword\file</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp"><Filter>ksword\process</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp"><Filter>ksword\network</Filter></ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp"><Filter>ksword\string</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="App\MainWindow.h">
@@ -979,6 +592,21 @@
     </ClInclude>
     <ClInclude Include="Features\Monitor\MonitorFeature.h">
       <Filter>Features\Monitor</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\ActionAnalyzePage.h">
+      <Filter>Features\ActionAnalyze</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\EvidenceTimeline.h">
+      <Filter>Features\ActionAnalyze</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h">
+      <Filter>Features\ActionAnalyze</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h">
+      <Filter>Shared Evidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\evidence\LosslessValue.h">
+      <Filter>Shared Evidence</Filter>
     </ClInclude>
     <ClInclude Include="Features\Monitor\CallbackMonitorView.h">
       <Filter>Features\Monitor</Filter>
@@ -1431,9 +1059,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\network\Connections.h">
@@ -1441,9 +1067,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\network\Diagnostics.h">
@@ -1456,19 +1080,13 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\Dns.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\Dns.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\network\Firewall.h">
@@ -1476,9 +1094,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\Firewall.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\Firewall.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\network\EndpointAudit.h">
@@ -1486,9 +1102,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\Win32.h">
@@ -1501,9 +1115,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h">
@@ -1511,9 +1123,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h">
@@ -1521,9 +1131,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\registry\RegistryModel.h">
@@ -1531,9 +1139,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\registry\RegistryModel.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryModel.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\registry\RegistrySupport.h">
@@ -1546,9 +1152,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h">
@@ -1556,19 +1160,13 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\Common.h">
@@ -1576,9 +1174,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\Common.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\startup\StartupTypes.h">
@@ -1597,21 +1193,13 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
-    <ClCompile Include="..\shared\usermode\ServiceDeleteAccess.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
+    <ClCompile Include="..\shared\usermode\ServiceDeleteAccess.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
     <ClInclude Include="..\shared\usermode\ServiceDeleteAccess.h">
       <Filter>Shared R3 Backend</Filter>
     </ClInclude>
-    <ClCompile Include="..\shared\usermode\backend\startup\StartupHidden.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
-    <ClCompile Include="..\shared\usermode\backend\startup\StartupText.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupHidden.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupText.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h">
@@ -1619,9 +1207,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h">
@@ -1629,9 +1215,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.h">
@@ -1639,9 +1223,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h">
@@ -1649,9 +1231,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h">
@@ -1659,9 +1239,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\Directory.h">
@@ -1674,9 +1252,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\FileOperations.h">
@@ -1684,9 +1260,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\FileOperations.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\FileOperations.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\Ownership.h">
@@ -1694,9 +1268,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\Ownership.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\Ownership.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\FileAnalysis.h">
@@ -1704,9 +1276,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\FileAnalysis.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\FileAnalysis.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\file\PeSnapshot.h">
@@ -1714,9 +1284,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\file\PeSnapshot.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\file\PeSnapshot.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\NtApi.h">
@@ -1724,9 +1292,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h">
@@ -1734,9 +1300,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessFields.h">
@@ -1749,9 +1313,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessExtraQueries.h">
@@ -1759,9 +1321,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessEnrichment.h">
@@ -1769,9 +1329,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessTelemetry.h">
@@ -1779,9 +1337,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessCounters.h">
@@ -1789,9 +1345,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessControls.h">
@@ -1799,9 +1353,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessControls.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessControls.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailTypes.h">
@@ -1814,9 +1366,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessBasicInfo.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessBasicInfo.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfo.h">
@@ -1829,9 +1379,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessThreads.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessThreads.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\DetailActionTypes.h">
@@ -1849,9 +1397,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ThreadActions.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ThreadActions.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessModulesSupport.h">
@@ -1859,9 +1405,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessModules.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessModules.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ModuleActionSupport.h">
@@ -1874,9 +1418,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ModuleActions.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ModuleActions.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessToken.h">
@@ -1884,9 +1426,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessToken.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessToken.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessTokenSwitches.h">
@@ -1894,9 +1434,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessTokenSwitches.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTokenSwitches.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessPeb.h">
@@ -1904,9 +1442,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessPeb.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessPeb.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\process\ProcessHotkeys.h">
@@ -1914,9 +1450,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\process\ProcessHotkeys.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessHotkeys.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\driver\DriverTypes.h">
@@ -1929,9 +1463,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\driver\DriverFormatting.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverFormatting.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\driver\DriverQueries.h">
@@ -1939,9 +1471,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\driver\DriverQueries.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverQueries.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareTypes.h">
@@ -1954,9 +1484,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareFormatting.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareFormatting.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareEnumerator.h">
@@ -1964,9 +1492,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h">
@@ -1974,9 +1500,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSampler.h">
@@ -1989,14 +1513,10 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\UsbTopology.h">
@@ -2004,9 +1524,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp">
-      <Filter>Shared R3 Backend</Filter>
-    </ClCompile>
+    <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp"><Filter>Shared R3 Backend</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\hardware\BusTopology.h">

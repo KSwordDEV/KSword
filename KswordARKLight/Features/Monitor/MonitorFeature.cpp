@@ -2,6 +2,7 @@
 
 #include "EtwMonitorView.h"
 #include "CallbackMonitorView.h"
+#include "../ActionAnalyze/ActionAnalyzePage.h"
 #include "../../Ui/WorkspaceHost.h"
 
 #include <vector>
@@ -14,6 +15,8 @@ HWND CreateMonitorFeaturePage(HWND parent, const RECT& bounds) {
         [](HWND host, const RECT& pageBounds) { return CreateEtwMonitorPage(host, pageBounds); } });
     tabs.push_back({ 2, L"内核回调监控", L"R0 回调事件、状态和独立读取游标。",
         [](HWND host, const RECT& pageBounds) { return CreateCallbackMonitorPage(host, pageBounds); } });
+    tabs.push_back({ 3, L"ActionAnalyze", L"只读查看 ActionAnalyze 归档段、事件与证据引用。",
+        Ksword::Features::ActionAnalyze::CreateActionAnalyzePage });
     Ksword::Ui::WorkspaceOptions options{};
     options.tabControlId = 68100;
     options.initialTabId = 1;

@@ -29,7 +29,7 @@ std::vector<Ksword::Ui::ModuleDescriptor> GetModuleDescriptors() {
         { 40005, L"内核", L"保留 SSDT、Shadow SSDT、Hook、对象命名空间、回调等内核功能入口。", [](HWND parent, const RECT& bounds) -> HWND {
             return Kernel::CreateKernelFeaturePage(parent, 40005, bounds);
         } },
-        { 40006, L"监控", L"ETW 监控主页面，筛选器通过弹窗配置。", Monitor::CreateMonitorFeaturePage },
+        { 40006, L"监控", L"ETW 事件、内核回调监控与 ActionAnalyze 离线归档。", Monitor::CreateMonitorFeaturePage },
         { 40007, L"硬件", L"设备、CPU/HWID 审计、性能监控、磁盘活动、USB 拓扑与系统总线。", Hardware::CreateHardwareFeaturePage },
         { 40008, L"窗口", L"窗口管理、剪贴板查看、捕获保护、层级诊断与全局热键占用探测。", Window::CreateWindowFeaturePage },
         { 40009, L"启动项", L"启动项管理。", Startup::CreateStartupFeaturePage },

@@ -1,0 +1,404 @@
+#include "StoredEvidence.h"
+
+#include "../../Core/Win32Lean.h"
+#include "../../../shared/evidence/EvidenceJson.h"
+
+#include <algorithm>
+#include <array>
+#include <iterator>
+#include <string_view>
+
+namespace Ksword::Features::ActionAnalyze {
+namespace {
+
+using Bytes = std::span<const std::uint8_t>;
+using namespace Ksword::Evidence;
+
+constexpr std::size_t kSegmentHeaderBytes = 96;
+constexpr std::size_t kBlockHeaderBytes = 80;
+constexpr std::size_t kRecordHeaderBytes = 32;
+constexpr std::size_t kEventCoreBytes = 128;
+constexpr std::size_t kJsonPreviewBytes = 4096;
+constexpr std::size_t kHexPreviewBytes = 128;
+
+std::uint64_t Little(Bytes bytes, std::size_t offset, unsigned width) {
+    std::uint64_t value = 0;
+    for (unsigned index = 0; index < width; ++index) {
+        value |= static_cast<std::uint64_t>(bytes[offset + index]) << (8 * index);
+    }
+    return value;
+}
+
+bool StartsWith(Bytes bytes, std::string_view text) {
+    return std::equal(text.begin(), text.end(), bytes.begin());
+}
+
+std::uint32_t Crc32c(Bytes bytes) {
+    static constexpr auto table = [] {
+        std::array<std::uint32_t, 256> values{};
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            auto value = static_cast<std::uint32_t>(index);
+            for (unsigned bit = 0; bit < 8; ++bit) {
+                value = (value >> 1) ^ ((value & 1) ? 0x82F63B78U : 0U);
+            }
+            values[index] = value;
+        }
+        return values;
+    }();
+    std::uint32_t crc = 0xffffffffU;
+    for (const auto byte : bytes) crc = table[(crc ^ byte) & 0xffU] ^ (crc >> 8);
+    return crc ^ 0xffffffffU;
+}
+
+std::string Uuid(Bytes bytes) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string out;
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+        if (index == 4 || index == 6 || index == 8 || index == 10) out += '-';
+        out += digits[bytes[index] >> 4];
+        out += digits[bytes[index] & 0xf];
+    }
+    return out;
+}
+
+bool SupportedJsonValues(const JsonValue& value, unsigned containerDepth) {
+    if (const auto* object = value.asObject()) {
+        return containerDepth < 32 && std::all_of(object->begin(), object->end(),
+            [=](const auto& item) { return SupportedJsonValues(item.second, containerDepth + 1); });
+    }
+    if (const auto* array = value.asArray()) {
+        return containerDepth < 32 && std::all_of(array->begin(), array->end(),
+            [=](const auto& item) { return SupportedJsonValues(item, containerDepth + 1); });
+    }
+    if (value.type() == JsonType::UInt) {
+        std::uint64_t number = 0;
+        return value.tryGetU64(number) && number <= UINT32_MAX;
+    }
+    if (value.type() == JsonType::Int) {
+        std::int64_t number = 0;
+        return value.tryGetI64(number) && number >= INT32_MIN;
+    }
+    return true;
+}
+
+bool HasLeadingZero(std::string_view text) {
+    bool inString = false;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const auto current = text[index];
+        if (current == '"') inString = !inString;
+        else if (inString && current == '\\' && index + 1 < text.size()) ++index;
+        else if (!inString && current == '0' && index + 1 < text.size() &&
+            text[index + 1] >= '0' && text[index + 1] <= '9' &&
+            (index == 0 || text[index - 1] < '0' || text[index - 1] > '9')) return true;
+    }
+    return false;
+}
+
+bool ReadJsonObject(Bytes bytes, std::wstring* preview, EvidenceRecord* event = nullptr) {
+    constexpr unsigned kMaxJson = 4 * 1024 * 1024;
+    if (bytes.empty() || bytes.size() > kMaxJson) return false;
+    const auto* data = reinterpret_cast<const char*>(bytes.data());
+    int length = static_cast<int>(bytes.size());
+    if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, nullptr, 0) == 0) return false;
+    JsonLimits limits;
+    limits.maxTotalBytes = kMaxJson;
+    limits.maxDepth = 32;
+    limits.maxStringBytes = 65536;
+    const std::string_view input(data, bytes.size());
+    if (input.starts_with("\xef\xbb\xbf") || HasLeadingZero(input)) return false;
+    const auto parsed = ParseJson(input, limits);
+    if (!parsed.ok() || !parsed.value.asObject() || !SupportedJsonValues(parsed.value, 0)) return false;
+    if (event) {
+        const auto headerId = [&](std::string_view key) -> std::optional<std::uint32_t> {
+            const auto* field = parsed.value.find(key);
+            if (!field) return {};
+            const auto* type = field->find("type");
+            const auto* state = field->find("state");
+            const auto* value = field->find("value");
+            std::string typeName, stateName;
+            std::uint64_t number = 0;
+            if (type && type->tryGetString(typeName) && typeName == "u32" &&
+                state && state->tryGetString(stateName) && stateName == "known" &&
+                value && (value->type() == JsonType::UInt || value->type() == JsonType::Int) &&
+                value->tryGetU64(number) && number <= UINT32_MAX) return static_cast<std::uint32_t>(number);
+            return {};
+        };
+        event->headerPid = headerId("source.headerPid");
+        event->headerTid = headerId("source.headerTid");
+    }
+    if (!preview) return true;
+
+    // Cut on a UTF-8 scalar boundary and keep the original spelling of the bytes.
+    if (bytes.size() > kJsonPreviewBytes) {
+        auto end = kJsonPreviewBytes;
+        while ((bytes[end] & 0xc0) == 0x80) --end;
+        length = static_cast<int>(end);
+    }
+    const int units = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, nullptr, 0);
+    std::wstring text(static_cast<std::size_t>(units), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, length, text.data(), units);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == L'\n' && (i == 0 || text[i - 1] != L'\r')) *preview += L'\r';
+        *preview += text[i];
+    }
+    if (static_cast<std::size_t>(length) < bytes.size()) *preview += L"\r\n[JSON 预览截断]";
+    return true;
+}
+
+std::wstring HexPreview(Bytes bytes) {
+    static constexpr wchar_t digits[] = L"0123456789abcdef";
+    const auto count = (std::min)(bytes.size(), kHexPreviewBytes);
+    std::wstring result;
+    for (const auto byte : bytes.first(count)) {
+        if (!result.empty()) result += L' ';
+        result += digits[byte >> 4];
+        result += digits[byte & 0xf];
+    }
+    if (count == 0) result = L"（空）";
+    if (count < bytes.size()) result += L" … [字节预览截断]";
+    return result;
+}
+
+std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show) {
+    if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
+        if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
+        return {};
+    }
+    if (row.type == 3) {
+        if (payload.size() < 4) return "raw.length";
+        const auto jsonBytes = static_cast<std::size_t>(Little(payload, 0, 4));
+        if (jsonBytes > payload.size() - 4) return "raw.length";
+        std::wstring json;
+        if (!ReadJsonObject(payload.subspan(4, jsonBytes), show ? &json : nullptr)) return "raw.json";
+        if (show) row.preview = L"原始记录元数据（归档 JSON）\r\n" + json +
+            L"\r\n\r\n内联原始字节（" + std::to_wstring(payload.size() - 4 - jsonBytes) + L" 字节）\r\n" +
+            HexPreview(payload.subspan(4 + jsonBytes));
+        return {};
+    }
+
+    if (payload.size() < kEventCoreBytes || Little(payload, 124, 4) != payload.size() - kEventCoreBytes) {
+        return "event.length";
+    }
+    const auto bits = Little(payload, 120, 4);
+    if (bits & ~2047ULL) return "event.validityBits";
+    const auto source = Little(payload, 16, 8);
+    const auto epoch = Little(payload, 24, 8);
+    if (source == 0 || epoch == 0) return "event.requiredId";
+    constexpr std::array<std::size_t, 11> offsets{ 8, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104 };
+    constexpr std::array<const wchar_t*, 11> labels{ L"主原始记录序号", L"生产者序号", L"来源原始时间戳",
+        L"接收 QPC", L"执行者进程对象 ID", L"目标进程对象 ID", L"观察线程对象 ID", L"操作字典 ID",
+        L"采集修订字典 ID", L"生效修订字典 ID", L"覆盖字典 ID" };
+    for (std::size_t index = 0; index < offsets.size(); ++index) {
+        const auto value = Little(payload, offsets[index], 8);
+        const bool present = (bits & (1ULL << index)) != 0;
+        if ((!present && value != 0) || (present && index >= 4 && value == 0)) return "event.validityValue";
+        if (show) row.preview += std::wstring(labels[index]) + L" = " +
+            (present ? std::to_wstring(value) : L"无有效值") + L"\r\n";
+    }
+    std::wstring json;
+    if (!ReadJsonObject(payload.subspan(kEventCoreBytes), show ? &json : nullptr, show ? &row : nullptr)) return "event.json";
+    row.eventOrdinal = Little(payload, 0, 8);
+    row.sourceDictionaryId = source;
+    row.epochDictionaryId = epoch;
+    if (bits & (1 << 0)) row.rawSequence = Little(payload, 8, 8);
+    if (bits & (1 << 3)) row.receiveQpc = Little(payload, 48, 8);
+    if (bits & (1 << 4)) row.actorObjectId = Little(payload, 56, 8);
+    if (bits & (1 << 5)) row.targetObjectId = Little(payload, 64, 8);
+    if (bits & (1 << 6)) row.threadObjectId = Little(payload, 72, 8);
+    row.eventKind = static_cast<std::uint32_t>(Little(payload, 112, 4));
+    row.category = static_cast<std::uint16_t>(Little(payload, 116, 2));
+    if (show) row.preview += L"事件种类编号 = " + std::to_wstring(Little(payload, 112, 4)) +
+        L"\r\n类别编号 = " + std::to_wstring(Little(payload, 116, 2)) +
+        L"\r\n阶段编号 = " + std::to_wstring(Little(payload, 118, 1)) +
+        L"\r\n时钟域编号 = " + std::to_wstring(Little(payload, 119, 1)) +
+        L"\r\n\r\n事件字段（归档 JSON）\r\n" + json;
+    return {};
+}
+
+} // namespace
+
+SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, const SegmentIdentity* expected) {
+    SegmentEvidence out;
+    out.fileBytes = size;
+    const auto fail = [&](std::string_view diagnostic, std::uint64_t offset) {
+        out.diagnostic = diagnostic;
+        out.failureOffset = offset;
+    };
+    const auto readAt = [&](std::span<std::uint8_t> bytes, std::uint64_t offset) {
+        out.systemError = read(bytes);
+        if (out.systemError) fail("file.read", offset);
+        return out.systemError == 0;
+    };
+    if (size < kSegmentHeaderBytes) fail("truncated", 0);
+    else if (size > 1024ULL * 1024 * 1024) fail("segment.size", 0);
+    if (!out.diagnostic.empty()) return out;
+
+    std::array<std::uint8_t, kSegmentHeaderBytes> segment{};
+    if (!readAt(segment, 0)) return out;
+    const Bytes header(segment);
+    if (!StartsWith(header, std::string_view("KSAASEG\0", 8))) fail("segment.magic", 0);
+    else if (Little(header, 92, 4) != Crc32c(header.first(92))) fail("segment.headerCrc", 92);
+    else if (Little(header, 8, 2) != 1) fail("segment.major", 8);
+    else if (Little(header, 10, 2) != 0) fail("segment.minor", 10);
+    else if (Little(header, 12, 4) != kSegmentHeaderBytes) fail("segment.headerBytes", 12);
+    else if (Little(header, 16, 4) != 0) fail("segment.requiredFlags", 16);
+    else if (std::any_of(header.begin() + 72, header.begin() + 92, [](auto b) { return b != 0; })) {
+        fail("segment.reserved", 72);
+    }
+    if (!out.diagnostic.empty()) return out;
+
+    const SegmentIdentity identity{ Uuid(header.subspan(32, 16)), Uuid(header.subspan(48, 16)),
+        static_cast<std::uint32_t>(Little(header, 20, 4)), Little(header, 24, 8) };
+    if (identity.streamKind < 1 || identity.streamKind > 4 || identity.ordinal == 0 ||
+        (expected && identity != *expected)) {
+        fail("segment.identity", 20);
+        return out;
+    }
+    out.identity = identity;
+    out.createdUtc100ns = Little(header, 64, 8);
+    out.framedBytes = out.decodedPrefixBytes = kSegmentHeaderBytes;
+    std::optional<std::uint64_t> previousBlock, previousSequence;
+    std::string_view firstDecodeError;
+    std::uint64_t firstDecodeErrorOffset = 0;
+
+    while (out.framedBytes < size) {
+        const auto start = out.framedBytes;
+        if (size - start < kBlockHeaderBytes) { fail("truncated", start); break; }
+        if (start + kBlockHeaderBytes > kEvidenceScanBytes) { fail("view.scanLimit", start); break; }
+        std::array<std::uint8_t, kBlockHeaderBytes> block{};
+        if (!readAt(block, start)) break;
+        const auto count = Little(block, 12, 4);
+        const auto blockOrdinal = Little(block, 16, 8);
+        const auto stored = Little(block, 44, 4);
+        const auto decoded = Little(block, 40, 4);
+        const auto flags = Little(block, 10, 2);
+        if (!StartsWith(block, "AAB1")) fail("block.magic", start);
+        else if (Little(block, 76, 4) != Crc32c(Bytes(block).first(76))) fail("block.headerCrc", start + 76);
+        else if (Little(block, 4, 2) != kBlockHeaderBytes || Little(block, 6, 2) != 1) fail("block.layout", start + 4);
+        else if (Little(block, 8, 2) != 0) fail("block.codec", start + 8);
+        else if ((flags & ~1ULL) || Little(block, 72, 4)) fail("block.flags", start + 10);
+        else if (count < 1 || count > 32768) fail("block.recordCount", start + 12);
+        else if (previousBlock && blockOrdinal <= *previousBlock) fail("block.ordinal", start + 16);
+        else if (decoded > 8388608 || stored > 9437184 || stored != decoded) fail("block.length", start + 40);
+        else if ((flags & 1) && Little(block, 48, 8) > Little(block, 56, 8)) fail("block.qpcRange", start + 48);
+        const auto bodyOffset = start + kBlockHeaderBytes;
+        if (!out.diagnostic.empty()) break;
+        if (stored > size - bodyOffset) { fail("truncated", bodyOffset); break; }
+        if (bodyOffset + stored > kEvidenceScanBytes) { fail("view.scanLimit", start); break; }
+
+        std::vector<std::uint8_t> body(static_cast<std::size_t>(stored));
+        if (!body.empty() && !readAt(body, bodyOffset)) break;
+        const auto crc = Crc32c(body);
+        if (crc != Little(block, 68, 4)) { fail("block.storedCrc", bodyOffset); break; }
+        if (crc != Little(block, 64, 4)) { fail("block.decodedCrc", bodyOffset); break; }
+
+        std::size_t position = 0, opaqueRequired = 0, opaqueOptional = 0;
+        std::vector<EvidenceRecord> rows;
+        auto sequence = previousSequence;
+        std::string_view decodeError;
+        std::uint64_t decodeOffset = 0;
+        for (std::uint64_t index = 0; index < count; ++index) {
+            const auto recordOffset = bodyOffset + position;
+            if (body.size() - position < kRecordHeaderBytes) { fail("record.length", recordOffset); break; }
+            const auto record = Bytes(body).subspan(position, kRecordHeaderBytes);
+            EvidenceRecord row;
+            row.offset = recordOffset;
+            row.blockOrdinal = blockOrdinal;
+            row.type = static_cast<std::uint16_t>(Little(record, 4, 2));
+            row.schemaVersion = static_cast<std::uint16_t>(Little(record, 6, 2));
+            row.flags = static_cast<std::uint32_t>(Little(record, 8, 4));
+            row.payloadBytes = static_cast<std::uint32_t>(Little(record, 12, 4));
+            row.sequence = Little(record, 16, 8);
+            const auto total = Little(record, 0, 4);
+            if (Little(record, 28, 4) != Crc32c(record.first(28))) fail("record.headerCrc", recordOffset + 28);
+            else if (total != kRecordHeaderBytes + static_cast<std::uint64_t>(row.payloadBytes) ||
+                total > body.size() - position) fail("record.length", recordOffset);
+            else if (row.flags & ~1U) fail("record.flags", recordOffset + 8);
+            else if ((sequence && row.sequence <= *sequence) || (index == 0 && row.sequence != Little(block, 24, 8)) ||
+                (index + 1 == count && row.sequence != Little(block, 32, 8))) fail("record.sequence", recordOffset + 16);
+            if (!out.diagnostic.empty()) break;
+            const auto payload = Bytes(body).subspan(position + kRecordHeaderBytes, row.payloadBytes);
+            if (Little(record, 24, 4) != Crc32c(payload)) { fail("record.payloadCrc", recordOffset + 32); break; }
+
+            const bool show = firstDecodeError.empty() && decodeError.empty() && out.rows.size() + rows.size() < kEvidenceRows;
+            const auto error = DecodeRecord(payload, row, show);
+            if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
+            if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
+                if (row.flags & 1) ++opaqueRequired;
+                else ++opaqueOptional;
+            }
+            if (show && error.empty()) rows.push_back(std::move(row));
+            sequence = Little(record, 16, 8);
+            position += static_cast<std::size_t>(total);
+        }
+        if (!out.diagnostic.empty()) break;
+        if (position != body.size()) { fail("block.trailingBytes", bodyOffset + position); break; }
+
+        out.framedBytes = bodyOffset + stored;
+        if (firstDecodeError.empty()) {
+            if (decodeError.empty()) {
+                out.decodedPrefixBytes = out.framedBytes;
+                out.rows.insert(out.rows.end(), std::make_move_iterator(rows.begin()), std::make_move_iterator(rows.end()));
+            } else {
+                firstDecodeError = decodeError;
+                firstDecodeErrorOffset = decodeOffset;
+            }
+        }
+        ++out.blocks;
+        out.records += static_cast<std::size_t>(count);
+        out.opaqueOptionalRecords += opaqueOptional;
+        out.opaqueRequiredRecords += opaqueRequired;
+        previousBlock = blockOrdinal;
+        previousSequence = sequence;
+    }
+
+    // Keep the first payload failure even when later framing has its own failure.
+    if (!firstDecodeError.empty()) {
+        if (out.diagnostic.empty()) fail(firstDecodeError, firstDecodeErrorOffset);
+        else out.diagnostic = std::string(firstDecodeError) + " @ " + std::to_string(firstDecodeErrorOffset) +
+            " / " + out.diagnostic;
+    }
+    return out;
+}
+
+SegmentEvidence OpenStoredEvidence(const std::wstring& path) {
+    struct File {
+        HANDLE handle;
+        ~File() { if (handle != INVALID_HANDLE_VALUE) ::CloseHandle(handle); }
+    } file{ ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_FLAG_SEQUENTIAL_SCAN, nullptr) };
+    SegmentEvidence error;
+    if (file.handle == INVALID_HANDLE_VALUE) {
+        error.systemError = ::GetLastError();
+        error.diagnostic = "file.open";
+        return error;
+    }
+    LARGE_INTEGER size{};
+    if (::GetFileType(file.handle) != FILE_TYPE_DISK) {
+        error.diagnostic = "file.notDisk";
+        return error;
+    }
+    if (!::GetFileSizeEx(file.handle, &size)) {
+        error.systemError = ::GetLastError();
+        error.diagnostic = "file.size";
+        return error;
+    }
+    // Denying writers during this short-lived read keeps offsets tied to the
+    // selected bytes. A busy live segment can be retried after its writer closes.
+    auto result = ReadStoredEvidence(static_cast<std::uint64_t>(size.QuadPart), [&](std::span<std::uint8_t> buffer) {
+        DWORD received = 0;
+        const auto count = static_cast<DWORD>(buffer.size());
+        if (!::ReadFile(file.handle, buffer.data(), count, &received, nullptr)) return ::GetLastError();
+        return received == count ? DWORD{0} : DWORD{ERROR_HANDLE_EOF};
+    });
+    BY_HANDLE_FILE_INFORMATION identity{};
+    if (::GetFileInformationByHandle(file.handle, &identity)) {
+        const auto combine = [](DWORD high, DWORD low) { return (static_cast<std::uint64_t>(high) << 32) | low; };
+        result.fileIdentity = std::to_wstring(identity.dwVolumeSerialNumber) + L" / " +
+            std::to_wstring(combine(identity.nFileIndexHigh, identity.nFileIndexLow)) + L" / " +
+            std::to_wstring(combine(identity.ftLastWriteTime.dwHighDateTime, identity.ftLastWriteTime.dwLowDateTime));
+    }
+    return result;
+}
+
+} // namespace Ksword::Features::ActionAnalyze

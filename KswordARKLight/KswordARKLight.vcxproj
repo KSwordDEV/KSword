@@ -99,6 +99,17 @@
     <ClCompile Include="Core\Privilege.cpp" />
     <ClCompile Include="Core\WorkspaceConfig.cpp" />
     <ClCompile Include="Docking\DockManager.cpp" />
+    <ClCompile Include="Features\ActionAnalyze\ActionAnalyzePage.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\EvidenceTimeline.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\StoredEvidence.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp" />
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditFormatting.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditStatus.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditSummaryPanel.cpp" />
@@ -311,6 +322,11 @@
     <ClInclude Include="Core\Privilege.h" />
     <ClInclude Include="Core\Win32Lean.h" />
     <ClInclude Include="Core\WorkspaceConfig.h" />
+    <ClInclude Include="Features\ActionAnalyze\ActionAnalyzePage.h" />
+    <ClInclude Include="Features\ActionAnalyze\EvidenceTimeline.h" />
+    <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
+    <ClInclude Include="..\shared\evidence\LosslessValue.h" />
     <ClInclude Include="Docking\DockManager.h" />
     <ClInclude Include="Features\AuditCommon\AuditCommon.h" />
     <ClInclude Include="Features\AuditCommon\AuditFormatting.h" />
