@@ -122,7 +122,7 @@ ProjectResult VerifyRecords(const Directory& root, const Archive::SegmentIdentit
         return Failure(ProjectError::Corrupt, "checkpointRecordsPrefix");
     }
     std::string hash;
-    if (const auto result = HashArchivePrefix(file, prefix.end.byteOffset, hash); !result) return result;
+    if (const auto result = HashArchivePrefix(file.get(), prefix.end.byteOffset, hash); !result) return result;
     if (!prefix.sha256.empty() && hash != prefix.sha256) return Failure(ProjectError::Corrupt, "checkpointRecordsHash");
     prefix.sha256 = std::move(hash);
     return {};
@@ -177,13 +177,16 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
     return {};
 }
 
+// 从项目快照读取采样描述与终态标记，只有标记缺失时返回 NotFound。
 ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out) const {
     out = {};
-    const auto* root = RootForRead();
+    const auto* root = RootForRead(); // 当前项目持有的目录句柄。
     if (!root) return Failure(ProjectError::NotOpen, "project");
-    SampleRecord sample;
-    if (const auto result = ReadSample(sampleId, sample); !result) return result;
-    JsonValue document;
+    SampleRecord sample; // 已登记采样及其冻结描述。
+    if (const auto result = ReadSample(sampleId, sample); !result) {
+        return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointSampleMissing") : result;
+    }
+    JsonValue document; // 本次读取的检查点标记。
     if (const auto result = Read(*root, {L"samples", WideAscii(sample.info.sampleId), L"checkpoints"},
             kCheckpointFile, {}, document); !result) return result;
     ProjectEtwCheckpoint checked;

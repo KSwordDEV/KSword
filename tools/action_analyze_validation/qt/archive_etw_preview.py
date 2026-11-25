@@ -107,21 +107,57 @@ def preview(segment, first_event):
         def status_has(text):
             return any(n["visible"] and text in n["name"] for n in nodes())
 
+        assert status_has("已验证项目检查点。")
         try:
             segment.write_bytes(other.read_bytes())
             dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
-            until(lambda: status_has("归档文件与所选项目或采样不匹配。"), bool)
+            until(lambda: status_has("无法验证项目检查点或其引用的归档数据。"), bool)
             assert status_has("仍显示上次提交的结果。")
             assert read(table)["rows"] == full["rows"] and selected_fields() == fields
         finally:
             segment.write_bytes(original_archive)
         dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
-        until(lambda: status_has("归档已读至文件末尾。"), bool)
+        until(lambda: status_has("已验证项目检查点。"), bool)
         assert read(table)["rows"] == full["rows"] and selected_fields() == fields
+
+        # 标记存在时，两个流的尾部都不参与回放。标记缺失时，明确呈现旧档回退。
+        records = segment.parents[1] / "records" / segment.name
+        marker = segment.parents[1] / "checkpoints/00000000000000000001.json"
+        records_bytes = records.read_bytes()  # 已发布的 Coverage 段。
+        marker_bytes = marker.read_bytes()  # 用于恢复本次夹具的原始标记。
+        prefix_text = f"已校验前缀 {len(original_archive)} / {len(original_archive) + 4} 字节。"
+        try:
+            segment.write_bytes(original_archive + b"tail")
+            records.write_bytes(records_bytes + b"tail")
+            dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
+            until(lambda: status_has(prefix_text), bool)
+            assert status_has("已验证项目检查点。")
+            assert read(table)["rows"] == full["rows"] and selected_fields() == fields
+        finally:
+            segment.write_bytes(original_archive)
+            records.write_bytes(records_bytes)
+        try:
+            records.unlink()
+            dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
+            until(lambda: status_has("无法验证项目检查点或其引用的归档数据。"), bool)
+            assert status_has("仍显示上次提交的结果。")
+            assert read(table)["rows"] == full["rows"] and selected_fields() == fields
+        finally:
+            records.write_bytes(records_bytes)
+        try:
+            marker.unlink()
+            dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
+            until(lambda: status_has("该归档没有已发布的检查点。"), bool)
+            assert read(table)["rows"] == full["rows"] and selected_fields() == fields
+        finally:
+            marker.write_bytes(marker_bytes)
+        dispatch(client, "action", object_id=retry["id"], action="press", confirmed=True)
+        until(lambda: status_has("已验证项目检查点。"), bool)
         print(json.dumps({"qtSha256": hashlib.sha256(executable.read_bytes()).hexdigest(), "rows": len(restored["rows"]),
                           "filtered": len(filtered["rows"]), "detail": fields}, ensure_ascii=False), flush=True)
         print("QT_ETW_REPLAY=PASS", flush=True)
         print("QT_WRONG_SAMPLE_RETRY=PASS", flush=True)
+        print("QT_CHECKPOINT_TAIL_AND_LEGACY=PASS", flush=True)
     finally:
         try:
             if gui:

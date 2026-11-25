@@ -27,3 +27,11 @@ Light 的「监控 → ActionAnalyze」新增「只看 ETW」复选框，单独�
 正式主程序 HostX64 Release 构建、双语审计和主题门禁通过。`Ksword5.1/x64/Release/Ksword5.1.exe` 的 SHA-256 为 `E9AE806F29994C332D0D992ADD0B78D2E8ACE7BF87F51B3A2EA504B4B9C39047`。在同一产物上复验目录直达、`14 → 12 → 14` 行筛选、错采样保留详情和恢复后重读。实时活动分析读回同一 PID 的两个区间，首条为 1000 毫秒、CPU 218.750 毫秒、读写各 3,670,016 字节。无效 PID 保留前次结果，启用权限受限的 Kernel-File 后仍能继续进程活动采样并报告来源失败。窗口与目标退出 `0`，测试项目和样本文件已删除，外观配置已逐字节恢复。
 
 构建与实测日志为 `.codex-build-logs/ksword-build-check-20261125-021117.raw.log`、`.codex-build-logs/action-analyze-qt-project-bound-final.log` 及 `.codex-build-logs/action-analyze-qt-live-integrated.log`。实际窗口验证覆盖浅色主题与右侧详情布局。键盘全路径、窄窗、DPI、深色、背景模式、完整列与导出操作、框选和恢复实时继续按桌面矩阵验收。项目直达当前读取首个 Stored 原始段，跨流检查点仍由 CLI 校验。
+
+## Qt 项目检查点
+
+「监控 → 行为分析 → 项目与采样 → 打开采样归档」继续通过总览的共享工作台、Compact 结果表及结构化详情显示结果。读取器复用 CLI 的只读项目校验，核对冻结的采样描述散列、`raw/1` 和 `records/1` 的提交水位及散列。实际投影从本次打开的句柄复核原始前缀，再读取水位以内的记录。缺少标记的旧档会显示未发布检查点，独立段仍走原预览入口。
+
+正式 Qt 与 CLI 的 HostX64 Release 构建均退出 `0`。产物分别为 `Ksword5.1/x64/Release/Ksword5.1.exe` 和 `KswordCLI.exe`。Qt 的 SHA-256 为 `53739C55F616F3E9CE0FDFBAF3B567E6EA31A2BA7895DF6D37D43A743C8BF4BF`，CLI 为 `BE9EC3FA0F35289D84EF2C7A4058CBA727D346001CCCC3DED50165BE78389D98`。双语审计通过 31,643 条文本，主题门禁通过。QtCore 通过 17 项 Stored 回归，并用正式 CLI 的自有样本核对 12 条记录、载荷及冻结描述负控。
+
+正式窗口显示 14 条原始记录，ETW 筛选显示其中 12 条。两条流末尾追加未提交的字节后，重读仍保持原表与选中详情。替换成另一采样的原始段或删除 Coverage 段时，窗口报告检查点失败并保留原结果。移走标记时显示旧档回退，恢复标记后再次显示检查点已验证。窗口退出 `0`，外观配置已恢复，测试项目已删除。日志 `.codex-build-logs/action-analyze-qt-checkpoint-gui.log`，构建日志 `.codex-build-logs/ksword-build-check-20261125-022100.raw.log`。本轮使用浅色主题和右侧详情布局，其余桌面矩阵继续验收。

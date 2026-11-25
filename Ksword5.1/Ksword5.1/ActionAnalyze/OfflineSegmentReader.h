@@ -82,8 +82,12 @@ namespace ks::action_analyze
         Unsupported,    // 版本、编码或必需正文不受支持。
         PreviewLimit,   // 达到预览扫描配额。
         Canceled,       // 调用方取消，结果不可发布。
-        WrongSample     // 文件超出绑定项目或段头身份不匹配。
+        WrongSample,    // 文件超出绑定项目或段头身份不匹配。
+        InvalidCheckpoint // 项目终态标记或所引用的证据无法验证。
     };
+
+    // 项目入口明确区分旧档和已验证的终态。独立段没有项目检查点回执。
+    enum class SegmentCheckpoint { NotRequested, Unpublished, Verified };
 
     struct SegmentSnapshot
     {
@@ -96,6 +100,7 @@ namespace ks::action_analyze
         quint64 prefixBytes = 0; // 已通过本预览支持检查的记录端点。
         quint64 failureOffset = 0; // 首个停止位置，单位字节。
         SegmentEnd end = SegmentEnd::Unavailable; // 扫描结束原因。
+        SegmentCheckpoint checkpoint = SegmentCheckpoint::NotRequested; // 检查点读取结果。
         QList<SegmentRow> rows; // 正文可理解的行和明确标记的可选不透明记录。
         bool live = false; // 同一总览中的未归档实时来源。
         bool hasArchivedEtw = false; // 预览前缀中至少有一条可识别的 ETW 记录。
@@ -105,7 +110,7 @@ namespace ks::action_analyze
     QString SampleRawSegmentPath(const SampleRequest& sample);
 
     // 工作线程按路径只读扫描 Stored 段，返回配额内的不可变证据投影。
-    // 可选目录请求将读取限定在该项目采样的首个原始段。
+    // 可选目录请求校验冻结的项目、采样描述和终态检查点，再读取对应原始段。
     SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCanceled,
         const SampleRequest* expected = nullptr);
 }

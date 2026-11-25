@@ -2,6 +2,8 @@
 
 #include "../../../KswordCLI/ActionAnalyze/Archive/SegmentBodies.h"
 #include "../../../KswordCLI/ActionAnalyze/Archive/NetworkEvidenceArchive.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 #include "../../../shared/evidence/EvidenceJson.h"
 
@@ -16,6 +18,7 @@ namespace ks::action_analyze
 namespace
 {
     namespace archive = ks::cli::action_analyze::archive;
+    namespace project = Ksword::ActionAnalyze;
     constexpr std::uint64_t kPreviewBytes = 64ull * 1024 * 1024; // 扫描的文件前缀上限。
     constexpr qsizetype kPreviewRows = 4096; // 一次提交到 UI 的记录上限。
     constexpr std::size_t kNetworkPreviewBytes = 256; // 每条已验证网络记录保留此前缀。
@@ -164,6 +167,40 @@ namespace
         }
         return SegmentEnd::Unavailable;
     }
+
+    // 从目录重开冻结采样。成功时在 snapshot 标记状态，在 checkpoint 保留已核对双流的端点和散列。
+    bool CheckProjectCheckpoint(const SampleRequest& expected, SegmentSnapshot& snapshot,
+        project::ProjectEtwCheckpoint& checkpoint)
+    {
+        project::ProjectDocument document; // 本次读取专用的只读项目快照与目录句柄。
+        if (!document.Open(expected.manifestPath.toStdWString(), project::ProjectAccess::ReadOnly))
+        {
+            return false;
+        }
+        const auto sampleId = expected.sample.id.toStdString(); // 目录请求中的规范 UUID。
+        project::SampleRecord sample; // 已登记并回读的冻结采样描述。
+        if (document.Info()->projectId != expected.projectId.toStdString() ||
+            !document.ReadSample(sampleId, sample) || sample.info.descriptionHash != expected.sample.descriptionHash.toStdString())
+        {
+            snapshot.end = SegmentEnd::WrongSample;
+            return false;
+        }
+
+        // 已发布标记所引用的任何依赖都必须有效。只有缺少标记的旧档可以按文件边界读取。
+        const auto verified = document.ReadEtwCheckpoint(sampleId, checkpoint); // 共用 CLI 的完整双流校验。
+        if (verified)
+        {
+            snapshot.checkpoint = SegmentCheckpoint::Verified;
+            return true;
+        }
+        if (verified.error == project::ProjectError::NotFound)
+        {
+            snapshot.checkpoint = SegmentCheckpoint::Unpublished;
+            return true;
+        }
+        snapshot.end = SegmentEnd::InvalidCheckpoint;
+        return false;
+    }
 }
 
 // 只接受项目目录生成的绝对本地清单路径和规范采样 ID。
@@ -185,6 +222,7 @@ QString SampleRawSegmentPath(const SampleRequest& sample)
 SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCanceled, const SampleRequest* expected)
 {
     SegmentSnapshot snapshot; // 只有通过实际检查的数据才发布。
+    project::ProjectEtwCheckpoint checkpoint; // 项目终态规定的字节边界和散列。
     snapshot.path = path;
     if (isCanceled())
     {
@@ -200,18 +238,41 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
             snapshot.end = SegmentEnd::WrongSample;
             return snapshot;
         }
+        if (!CheckProjectCheckpoint(*expected, snapshot, checkpoint))
+        {
+            return snapshot;
+        }
+        if (isCanceled())
+        {
+            snapshot.end = SegmentEnd::Canceled;
+            return snapshot;
+        }
     }
     const auto nativePath = QDir::toNativeSeparators(path).toStdWString(); // Win32 打开路径。
     const SegmentFile file{CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+    const bool committed = snapshot.checkpoint == SegmentCheckpoint::Verified; // 后续投影必须来自该已提交前缀。
     if (file.handle == INVALID_HANDLE_VALUE || GetFileType(file.handle) != FILE_TYPE_DISK)
     {
+        snapshot.end = committed ? SegmentEnd::InvalidCheckpoint : SegmentEnd::Unavailable;
         return snapshot;
     }
     if (expected && !MatchesProjectPath(file.handle, path))
     {
         snapshot.end = SegmentEnd::WrongSample;
         return snapshot;
+    }
+
+    // 从本次投影所持的只读句柄回读相同散列，避免校验后换文件仍被标为已提交。
+    if (committed)
+    {
+        std::string hash; // 本句柄下已提交前缀的 SHA-256。
+        if (!project::ProjectStorage::HashArchivePrefix(file.handle, checkpoint.raw.end.byteOffset, hash) ||
+            hash != checkpoint.raw.sha256)
+        {
+            snapshot.end = SegmentEnd::InvalidCheckpoint;
+            return snapshot;
+        }
     }
 
     // 首次只验证段头，冻结同一文件、大小和真实段身份。
@@ -239,7 +300,8 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
     snapshot.prefixBytes = archive::kSegmentHeaderBytes;
 
     // 记录回调只接受经过共享扫描器验证的块和已理解的必需正文。
-    const auto boundary = (std::min)(header.fileBytes, kPreviewBytes); // 实际字节读取上限。
+    const auto boundary = committed ? checkpoint.raw.end.byteOffset
+        : (std::min)(header.fileBytes, kPreviewBytes); // 实际字节读取上限。
     std::optional<SegmentEnd> stop; // Qt 预览提前停止的原因。
     const auto body = archive::ScanOpenSegmentBodies(file.handle, identity, boundary,
         [&](const archive::SegmentIdentity& checkedIdentity, const archive::BlockInfo& block,
@@ -310,11 +372,22 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
     }
     else
     {
-        snapshot.end = ScanEnd(body.framing, boundary);
+        snapshot.end = committed && body.framing.status == archive::SegmentScanStatus::FramingComplete
+            ? SegmentEnd::Complete : ScanEnd(body.framing, boundary);
         snapshot.failureOffset = body.framing.error.offset;
         if (snapshot.end == SegmentEnd::PreviewLimit && !snapshot.failureOffset)
         {
             snapshot.failureOffset = snapshot.prefixBytes;
+        }
+    }
+    // 项目终态只发布完整的已提交投影。跳过水位后的尾部，取消时同样丢弃暂存行。
+    if (committed && (snapshot.end != SegmentEnd::Complete || snapshot.prefixBytes != boundary))
+    {
+        snapshot.rows.clear();
+        snapshot.hasArchivedEtw = false;
+        if (snapshot.end != SegmentEnd::Canceled)
+        {
+            snapshot.end = SegmentEnd::InvalidCheckpoint;
         }
     }
     return snapshot;

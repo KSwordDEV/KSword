@@ -446,6 +446,13 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
@@ -984,6 +991,13 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.h" />
     <ClInclude Include="WindowDock\WindowImmutableTableSupport.h" />
     <ClInclude Include="MonitorDock\EtwArchiveMetadata.h" />
     <ClInclude Include="RegistryDock\OfflineHiveSession.h" />

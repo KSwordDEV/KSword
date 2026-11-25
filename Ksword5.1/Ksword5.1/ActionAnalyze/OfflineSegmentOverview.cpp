@@ -132,6 +132,8 @@ namespace
             return sourceText(QStringLiteral("无法读取归档文件。"));
         case SegmentEnd::WrongSample:
             return sourceText(QStringLiteral("归档文件与所选项目或采样不匹配。"));
+        case SegmentEnd::InvalidCheckpoint:
+            return sourceText(QStringLiteral("无法验证项目检查点或其引用的归档数据。"));
         }
         return {};
     }
@@ -1038,8 +1040,15 @@ void OfflineSegmentOverview::updateText()
     }
     else if (m_latestPublished)
     {
-        status = EndText(m_latestEnd) + u' ' + sourceText(QStringLiteral("已校验前缀 %1 / %2 字节。"))
+        // 终态水位可能早于物理文件末尾，状态分别报告检查点和实际预览范围。
+        const bool verified = m_snapshot->checkpoint == SegmentCheckpoint::Verified; // 原始流与记录流均已复核。
+        status = verified ? sourceText(QStringLiteral("已验证项目检查点。")) : EndText(m_latestEnd);
+        status += u' ' + sourceText(QStringLiteral("已校验前缀 %1 / %2 字节。"))
             .arg(m_snapshot->prefixBytes).arg(m_snapshot->fileBytes);
+        if (m_snapshot->checkpoint == SegmentCheckpoint::Unpublished)
+        {
+            status += u' ' + sourceText(QStringLiteral("该归档没有已发布的检查点。"));
+        }
         role = m_latestEnd == SegmentEnd::Complete ? StatusRole::Success : StatusRole::Warning;
     }
     else

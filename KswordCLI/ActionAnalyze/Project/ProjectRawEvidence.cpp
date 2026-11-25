@@ -149,7 +149,7 @@ ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRe
     out = Archive::ScanOpenRawEvidence(file.get(), identity, request.endOffset,
         request.previousSequence, request.visitor);
     if (prefixHash && out.checked && out.VerifiedBoundary(*out.checked)) {
-        return ProjectStorage::HashArchivePrefix(file, out.checked->byteOffset, *prefixHash);
+        return ProjectStorage::HashArchivePrefix(file.get(), out.checked->byteOffset, *prefixHash);
     }
     return {};
 }

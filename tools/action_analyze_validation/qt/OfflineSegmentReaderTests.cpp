@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QString>
+#include <algorithm>
 #include <cstdio>
 #include <string_view>
 
@@ -92,11 +93,20 @@ namespace
         {
             return false;
         }
-        selected.manifestPath = projectRoot.filePath(QStringLiteral("project.ksaproj"));
-        selected.projectId = standalone.projectId;
-        selected.sample.id = standalone.sampleId;
+        // 与项目页一样，从项目目录取得已登记采样的冻结描述散列。
+        const auto catalog = ks::action_analyze::ReadProjectCatalog(
+            projectRoot.filePath(QStringLiteral("project.ksaproj")), canceled);
+        const auto sample = std::find_if(catalog.samples.cbegin(), catalog.samples.cend(),
+            [&standalone](const auto& entry) { return entry.id == standalone.sampleId; }); // 同一采样的目录行。
+        if (!Check(catalog.problem.status == ks::action_analyze::ReadStatus::Ready && sample != catalog.samples.cend(),
+            "CLI sample registered in project catalog"))
+        {
+            return false;
+        }
+        selected = {catalog.manifestPath, catalog.id, *sample};
         const auto snapshot = ReadOfflineSegment(path, canceled, &selected); // 以目录约束再次读取。
-        if (!Check(snapshot.end == SegmentEnd::Complete && snapshot.hasArchivedEtw && snapshot.rows.size() == 14,
+        if (!Check(snapshot.end == SegmentEnd::Complete && snapshot.hasArchivedEtw && snapshot.rows.size() == 14 &&
+            snapshot.checkpoint == ks::action_analyze::SegmentCheckpoint::Verified,
             "complete CLI segment with plan, twelve events and terminal coverage"))
         {
             return false;
@@ -114,6 +124,10 @@ namespace
         const auto misplaced = ReadOfflineSegment(path, canceled, &wrongRoot);
         passed &= Check(misplaced.end == SegmentEnd::WrongSample && misplaced.rows.isEmpty(),
             "matching segment UUIDs cannot override a different project path");
+        auto staleSample = selected; // 保持项目、路径和 UUID 相同，只修改冻结散列。
+        staleSample.sample.descriptionHash = QString(64, u'0');
+        const auto stale = ReadOfflineSegment(path, canceled, &staleSample); // 目录行已与真实描述不符。
+        passed &= Check(stale.end == SegmentEnd::WrongSample && stale.rows.isEmpty(), "stale sample description hash");
         for (qsizetype index = 0; index < 12; ++index)
         {
             const auto& row = snapshot.rows.at(index + 1); // 记录 1 为计划。

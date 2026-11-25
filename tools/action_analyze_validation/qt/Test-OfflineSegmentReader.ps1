@@ -31,6 +31,7 @@ $names = @('valid-header-alone', 'event-segment-with-known-zeroes', 'truncated-s
 $sources = @(
     (Join-Path $PSScriptRoot 'OfflineSegmentReaderTests.cpp'),
     'Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentReader.cpp',
+    'Ksword5.1\Ksword5.1\ActionAnalyze\OfflineProjectReader.cpp',
     # Qt 读取器用归档投影核对可识别的网络 RawRecord，链接同一组依赖。
     'KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp',
@@ -38,6 +39,14 @@ $sources = @(
     'KswordCLI\ActionAnalyze\Archive\SegmentReader.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp',
     'KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp',
+    # 采用正式项目重开和双流校验入口。
+    'KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectLock.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp',
+    'KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp',
+    'KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp',
     'shared\evidence\EvidenceJson.cpp', 'shared\evidence\LosslessValue.cpp'
 ) | ForEach-Object {
     if ([IO.Path]::IsPathRooted($_)) { [IO.Path]::GetFullPath($_) } else { Join-Path $repo $_ }

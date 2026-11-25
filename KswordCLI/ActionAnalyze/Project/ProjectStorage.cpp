@@ -169,18 +169,19 @@ ProjectResult RenameDocument(const Handle& source, const std::wstring& target, b
 
 } // namespace
 
-ProjectResult HashArchivePrefix(const Handle& file, std::uint64_t byteCount, std::string& hash) {
+// 调用方保留同步读句柄的所有权，并在散列期间禁止修改该文件。
+ProjectResult HashArchivePrefix(HANDLE file, std::uint64_t byteCount, std::string& hash) {
     hash.clear();
     if (!byteCount || byteCount > kMaxDocumentBytes) {
         return Failure(ProjectError::LimitExceeded, "archivePrefixSize");
     }
-    LARGE_INTEGER begin{};
-    if (!SetFilePointerEx(file.get(), begin, nullptr, FILE_BEGIN)) {
+    LARGE_INTEGER begin{}; // 从固定前缀的起点读取。
+    if (!SetFilePointerEx(file, begin, nullptr, FILE_BEGIN)) {
         return WinFailure("archivePrefixSeek", GetLastError());
     }
-    std::string bytes(static_cast<std::size_t>(byteCount), '\0');
-    DWORD got = 0;
-    if (!ReadFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &got, nullptr)) {
+    std::string bytes(static_cast<std::size_t>(byteCount), '\0'); // 配额内的待读字节。
+    DWORD got = 0; // 本次实际读取的字节数。
+    if (!ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &got, nullptr)) {
         return WinFailure("archivePrefixRead", GetLastError());
     }
     if (got != byteCount) return Failure(ProjectError::Corrupt, "shortArchivePrefix");

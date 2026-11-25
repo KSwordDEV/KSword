@@ -929,6 +929,13 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -2875,6 +2882,13 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentWriter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.h"><Filter>Header Files</Filter></ClInclude>
     <QtMoc Include="MonitorDock\MonitorDock.h">
       <Filter>Header Files</Filter>
     </QtMoc>
