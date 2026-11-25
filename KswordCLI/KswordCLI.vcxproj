@@ -209,6 +209,12 @@
     <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h" />
     <ClInclude Include="ActionAnalyze\Archive\SegmentWriter.h" />
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Rules">
+    <ClCompile Include="ActionAnalyze\Rules\AnalysisRun.cpp" />
+    <ClCompile Include="ActionAnalyze\Rules\FilterAst.cpp" />
+    <ClInclude Include="ActionAnalyze\Rules\AnalysisRun.h" />
+    <ClInclude Include="ActionAnalyze\Rules\FilterAst.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

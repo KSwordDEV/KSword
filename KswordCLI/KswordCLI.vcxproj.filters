@@ -97,6 +97,12 @@
     <ClInclude Include="ActionAnalyze\Archive\SegmentWire.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Archive\SegmentWriter.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Rules">
+    <ClCompile Include="ActionAnalyze\Rules\AnalysisRun.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Rules\FilterAst.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClInclude Include="ActionAnalyze\Rules\AnalysisRun.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Rules\FilterAst.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3NetworkPing.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />
