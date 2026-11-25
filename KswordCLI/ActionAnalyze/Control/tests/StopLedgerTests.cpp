@@ -241,6 +241,87 @@ void FailedContinueRetainsItsEvent() {
     Check(ledger.CanRetireLedger());
 }
 
+void RollingGroupsAndReplayWatermark() {
+    StopLedger ledger(owner);
+    const ReleaseReceipt success{ReleaseResult::Continued, std::nullopt};
+    ReleaseRequest first;
+    ReleaseAttempt firstAttempt;
+    for (unsigned sequence = 1; sequence <= 160; ++sequence) {
+        const auto groupId = Id(1000 + sequence);
+        const auto stopId = Id(2000 + sequence);
+        const NativeEventKey native{owner.backendInstanceId, sequence};
+        auto frozen = Freeze({origin}, groupId);
+        frozen.membershipRevision = sequence;
+        Check(ledger.Freeze(frozen, HistoryRetention::Rolling) == R::Applied);
+        if (sequence > kStopHistoryGroups) {
+            Check(!ledger.Query(Id(1000 + sequence - kStopHistoryGroups)));
+            Check(ledger.Query(Id(1001 + sequence - kStopHistoryGroups))->historical);
+        }
+        if (sequence == 160) {
+            Check(ledger.AdoptNativeStop(groupId, {first.event, origin, first.stopId, StopPhase::CallEnter}) == R::IdentityMismatch);
+        }
+        Check(ledger.AdoptNativeStop(groupId, {native, origin, stopId, StopPhase::CallEnter}) == R::Applied);
+        const ReleaseRequest request{owner, groupId, stopId, native, "continue/" + std::to_string(sequence),
+            ledger.Query(groupId)->stateRevision};
+        if (sequence == 160) {
+            const auto held = ledger.Query(groupId).value();
+            Check(!ledger.QueryRelease(first.requestId) && !ledger.QueryRelease("continue/159", groupId));
+            Check(ledger.BeginRelease(first).result == R::ReplayExpired);
+            auto reused = request;
+            reused.requestId = first.requestId;
+            Check(ledger.BeginRelease(reused).result == R::ReplayExpired);
+            reused.requestId = "continue/159";
+            Check(ledger.BeginRelease(reused).result == R::Conflict);
+            reused.requestId = "legacy-opaque-id";
+            Check(ledger.BeginRelease(reused).result == R::InvalidEvidence);
+            Check(ledger.RecordReleaseReceipt(firstAttempt, success) == R::IdentityMismatch);
+            Check(ledger.UnresolvedNativeResponsibility()->event == native);
+            AssertSameProjection(ledger, held);
+        }
+        const auto attempt = ledger.BeginRelease(request).effect.value();
+        if (sequence == 1) { first = request; firstAttempt = attempt; }
+        Check(ledger.RecordReleaseReceipt(attempt, success) == R::Applied);
+    }
+    auto replayedGroup = Freeze({origin}, first.groupId);
+    replayedGroup.membershipRevision = 1;
+    Check(ledger.Freeze(replayedGroup, HistoryRetention::Rolling) == R::Historical);
+    Check(ledger.Freeze(replayedGroup) == R::InvalidTransition);
+    Check(ledger.QueryRelease("continue/160")->receipt == success && ledger.CanRetireLedger());
+}
+
+void RollingRetryKeepsUnresolvedResponsibility() {
+    StopLedger ledger(owner);
+    Check(ledger.Freeze(Freeze({origin}), HistoryRetention::Rolling) == R::Applied);
+    Check(ledger.AdoptNativeStop(group, Hit()) == R::Applied);
+    Check(SequencedReleaseId("continue/18446744073709551615").has_value());
+    for (const auto id : {"continue/", "continue/0", "continue/01", "continue/+1", "continue/-1", "continue/1 ",
+             "continue/18446744073709551616", "unsequenced"}) {
+        Check(!SequencedReleaseId(id) && ledger.BeginRelease(Request(ledger, id)).result == R::InvalidEvidence);
+    }
+    const ReleaseReceipt retryable{ReleaseResult::StillPending, 5};
+    ReleaseAttempt first;
+    for (unsigned i = 1; i <= 75; ++i) {
+        const auto command = Request(ledger, "continue/" + std::to_string(i));
+        const auto attempt = ledger.BeginRelease(command).effect.value();
+        if (i == 1) { first = attempt; }
+        Check(ledger.BeginRelease(command).result == R::Duplicate && ledger.QueryRelease(command.requestId) &&
+            !ledger.QueryRelease(command.requestId)->receipt);
+        Check(ledger.RecordReleaseReceipt(attempt, retryable) == R::Applied);
+    }
+    Check(!ledger.QueryRelease(first.request.requestId) && ledger.BeginRelease(first.request).result == R::ReplayExpired);
+    Check(ledger.RecordReleaseReceipt(first, retryable) == R::IdentityMismatch);
+    Check(ledger.QueryRelease("continue/75")->receipt == retryable);
+    const auto cleanup = ledger.BeginRelease(Request(ledger, "owner-cleanup"), true).effect.value();
+    const ReleaseReceipt unknown{ReleaseResult::Indeterminate, 6};
+    Check(ledger.RecordReleaseReceipt(cleanup, unknown) == R::Applied);
+    Check(ledger.BeginRelease(Request(ledger, "continue/76")).result == R::ReadbackRequired);
+    Check(ledger.Freeze(Freeze({origin}, Id(90)), HistoryRetention::Rolling) == R::InvalidTransition);
+    Check(!ledger.CanRetireLedger() && ledger.UnresolvedNativeResponsibility()->event == event &&
+        ledger.QueryRelease("owner-cleanup")->receipt == unknown);
+    Check(ledger.RecordReleaseReadback(cleanup, {ReleaseResult::Continued, std::nullopt}) == R::Applied);
+    Check(ledger.CanRetireLedger());
+}
+
 } // namespace
 
 int main() {
@@ -250,5 +331,7 @@ int main() {
     UnknownPhaseAndLostReceipt();
     NoNativeHold();
     FailedContinueRetainsItsEvent();
-    std::printf("RESULT=PASS scenarios=6 checks=%u\n", checks);
+    RollingGroupsAndReplayWatermark();
+    RollingRetryKeepsUnresolvedResponsibility();
+    std::printf("RESULT=PASS scenarios=8 checks=%u\n", checks);
 }

@@ -53,6 +53,7 @@
 
 ## CLI 接入与待验项
 
+- 2026-11-25 正式 HostX64 CLI `b05abcd310b28515036802d70c5ab8cbbf7b74815ec35f63c7f70b1d8f74e37a` 复验自有 AMD64 子进程 131 次停点、130 次继续、128 条继续回执窗口和正常脱离。持续内存流通过 70 轮及精确 4 字节差异、四类输入收尾、stdout 断开和背压超时，以及退出后的计数对账。日志位于 `.codex-build-logs/action-analyze-cli-product-breakpoint-current.log` 和 `.codex-build-logs/action-analyze-cli-product-memory-current.log`。夹具已清理。全局停止组和故障恢复仍待验。
 旧 `KswordCLI/KswordCLI.cpp` 已有 8398 行。ActionAnalyze 沿用它现有的委派入口，经 `KswordCLI/CommandRegistry.cpp` 接入，新增逻辑按职责拆分。上述 smoke 已覆盖实际帮助、旧入口查询及异常参数处理。其余回归按工单记录实际结果。
 
 Qt 和 Win32 总览作者开工前均须读 `design-taste-frontend`。Qt 首版离线项目与采样通过正式 Release 构建，Win32 离线读取单个 Stored 段。实际窗口和旧入口回归另行验收。[当前离线切片](../../docs/ActionAnalyze总览交互与验收.md#当前离线切片)

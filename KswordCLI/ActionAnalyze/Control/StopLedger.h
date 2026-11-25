@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <optional>
 #include <string>
@@ -116,8 +117,13 @@ struct ReleaseReceipt {
 
 enum class LedgerResult {
     Applied, Duplicate, InvalidEvidence, MissingGroup, IdentityMismatch, Conflict, Capacity,
-    StaleRevision, InvalidTransition, Historical, ReadbackRequired
+    StaleRevision, InvalidTransition, Historical, ReadbackRequired, ReplayExpired
 };
+
+enum class HistoryRetention { Fixed, Rolling };
+inline constexpr std::size_t kStopHistoryGroups = 64;
+inline constexpr std::string_view kSequencedReleasePrefix = "continue/";
+[[nodiscard]] std::optional<std::uint64_t> SequencedReleaseId(std::string_view requestId);
 
 struct ReleaseDecision {
     LedgerResult result;
@@ -149,7 +155,8 @@ public:
     StopLedger(const StopLedger&) = delete;
     StopLedger& operator=(const StopLedger&) = delete;
 
-    [[nodiscard]] LedgerResult Freeze(FrozenStopGroup group);
+    // 首个组决定整个账本的保留策略。滚动只淘汰终态，并要求 membershipRevision 严格递增。
+    [[nodiscard]] LedgerResult Freeze(FrozenStopGroup group, HistoryRetention retention = HistoryRetention::Fixed);
     [[nodiscard]] LedgerResult AdoptNativeStop(std::string_view groupId, const NativeStop& evidence);
     [[nodiscard]] LedgerResult ObserveMember(std::string_view groupId, const ThreadIdentity& thread,
         MemberEvidence evidence, std::optional<NativeEventKey> event = std::nullopt);
@@ -161,7 +168,8 @@ public:
     // 由 owner 确认该组从未有原生事件或路由已排空。仅关闭成员证据收集不能证明这一点。
     [[nodiscard]] LedgerResult ConfirmNoNativeEvent(std::string_view groupId);
 
-    [[nodiscard]] ReleaseDecision BeginRelease(const ReleaseRequest& request);
+    // 滚动组的普通释放使用单调 ID。仅内部清理操作不占用该序列。
+    [[nodiscard]] ReleaseDecision BeginRelease(const ReleaseRequest& request, bool ownerCleanup = false);
     [[nodiscard]] LedgerResult RecordReleaseReceipt(const ReleaseAttempt& attempt, ReleaseReceipt receipt);
     // 只准提交独立的已继续或仍持有证明。证明仍持有前须确认旧尝试已退出执行路径。
     [[nodiscard]] LedgerResult RecordReleaseReadback(const ReleaseAttempt& attempt, ReleaseReceipt proof);
@@ -170,7 +178,7 @@ public:
         std::string_view exitedProcessInstanceId);
 
     [[nodiscard]] std::optional<StopGroupSnapshot> Query(std::string_view groupId) const;
-    [[nodiscard]] std::optional<ReleaseRecord> QueryRelease(std::string_view requestId) const;
+    [[nodiscard]] std::optional<ReleaseRecord> QueryRelease(std::string_view requestId, std::string_view groupId = {}) const;
     [[nodiscard]] std::optional<EventResponsibility> UnresolvedNativeResponsibility() const;
     [[nodiscard]] bool CanRetireLedger() const noexcept;
 
@@ -194,7 +202,7 @@ private:
         IncidentalQuality incidentalQuality = IncidentalQuality::NotCollected;
         std::vector<ThreadIdentity> incidental;
         std::optional<std::string> lastRequestId;
-        std::size_t releaseAttempts = 0;
+        std::deque<std::string> releaseRequests;
     };
 
     struct Command {
@@ -206,6 +214,7 @@ private:
     const Group* Find(std::string_view groupId) const;
     static MemberState ProjectMember(const Group& group, const Member& member);
     static GroupState ProjectGroup(const Group& group);
+    bool EvictClosedGroup();
     void CloseIfResolved(Group& group);
     void ApplyReceipt(Group& group, ReleaseResult result);
     LedgerResult RecordRelease(const ReleaseAttempt& attempt, ReleaseReceipt receipt, bool readback);
@@ -214,7 +223,10 @@ private:
     std::map<std::string, Group, std::less<>> groups_;
     std::map<std::string, Command, std::less<>> commands_;
     Group* active_ = nullptr;
+    std::optional<HistoryRetention> retention_;
     std::uint64_t lastNativeSerial_ = 0;
+    std::uint64_t lastRollingMembershipRevision_ = 0;
+    std::uint64_t releaseSequenceHighWater_ = 0;
 };
 
 } // namespace ks::cli::action_analyze::control

@@ -9,6 +9,7 @@
 #include <charconv>
 #include <cstdio>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <stdexcept>
 
@@ -16,6 +17,7 @@ namespace ks::cli::action_analyze {
 namespace {
 namespace native = control;
 using V = JsonValue;
+constexpr std::size_t kReleaseReplayEntries = 128;
 
 // 这条 CLI 入口只接绝对 DOS 路径和普通 EXE，不接受命令行或 shell 语法。
 bool AbsoluteImage(std::wstring_view path)
@@ -26,6 +28,7 @@ bool AbsoluteImage(std::wstring_view path)
 
 V Text(std::string_view text) { return V::makeString(std::string(text)); }
 V Count(std::uint64_t value) { return Text(std::to_string(value)); }
+std::string ReleaseId(std::uint64_t sequence) { return std::string(native::kSequencedReleasePrefix) + std::to_string(sequence); }
 
 // 64 位地址不经 JSON Number 传递。
 V Address(std::uint64_t value)
@@ -132,7 +135,10 @@ public:
         request.target.processCreationTime = (static_cast<std::uint64_t>(start.dwHighDateTime) << 32) | start.dwLowDateTime;
         const auto accepted = owner_.ArmBreakpoint(request);
         if (!Emit("hello", {}, V::makeObject({{"targetPid", V::makeUInt(request.target.pid)},
-                {"targetCreationFileTime", Count(request.target.processCreationTime)}, {"control", Report(accepted)}}))) {
+                {"targetCreationFileTime", Count(request.target.processCreationTime)}, {"control", Report(accepted)},
+                {"continueProtocol", jsonl_ ? V::makeObject({{"firstRequestId", Text(ReleaseId(1))},
+                    {"requestIdFormat", Text("continue/<next positive uint64 decimal>")},
+                    {"replayEntries", Count(kReleaseReplayEntries)}}) : V::makeNull()}}))) {
             return End("output-lost", 3);
         }
         if (!accepted.breakpoint || accepted.status == native::NativeControlStatus::Rejected) return End("arm-rejected", 3);
@@ -194,10 +200,15 @@ private:
         return sent && transport_.Finish() ? code : 3;
     }
 
-    int Invalid(const Request& request, const char* id, const char* message)
+    static V ControlError(const char* id, const char* message)
     {
         const Fault fault{id, message, std::nullopt, 1, "cli", 0, "breakpoint-control"};
-        return Emit("error", request.id, FaultJson(fault)) ? 0 : 3;
+        return FaultJson(fault);
+    }
+
+    int Invalid(const Request& request, const char* id, const char* message)
+    {
+        return Emit("error", request.id, ControlError(id, message)) ? 0 : 3;
     }
 
     int Dispatch(const Request& request)
@@ -206,14 +217,17 @@ private:
         const auto* fields = request.params.asObject();
         const bool empty = jsonl_ ? fields && fields->empty() : args && args->empty();
         const auto method = std::string_view(request.method);
+        const bool isContinue = method == "continue" || method == "control.continue";
         if (request.session && (request.session->id != identity_.sessionId || request.session->epoch != identity_.epoch))
             return Invalid(request, "wrong-session", "Session identity mismatch");
+        if (jsonl_ && !isContinue && request.id.starts_with(native::kSequencedReleasePrefix))
+            return Invalid(request, "reserved-request-id", "The continue/ request ID namespace is reserved for continue");
         if ((method == "quit" || method == "controller.shutdown") && empty && !request.expected) return 1;
         if ((method == "status" || method == "control.query") && empty && !request.expected)
             return Emit("response", request.id, Report(owner_.Query())) ? 0 : 3;
         if (method == "help" && !jsonl_ && empty)
             return Emit("response", {}, Text("status | continue STOP_ID STATE_REVISION | quit")) ? 0 : 3;
-        if (method != "continue" && method != "control.continue")
+        if (!isContinue)
             return Invalid(request, "unsupported-method", "Use control.query, control.continue or controller.shutdown");
 
         std::string stop, revision;
@@ -233,31 +247,50 @@ private:
             revision != std::to_string(expectedRevision) || parsed.ec != std::errc{})
             return Invalid(request, "invalid-continue", "Invalid stopId or canonical revision");
 
-        // 同 ID 重放原继续回执。状态查询永远回读当前所有者，旧停点不能作用到新命中。
+        // 请求序号的水位不随回执窗口滚动。窗口之外的 ID 永远不能成为新副作用。
+        std::uint64_t releaseSequence = 0;
         if (jsonl_) {
-            if (const auto cached = releases_.find(request.id); cached != releases_.end()) {
+            const auto number = native::SequencedReleaseId(request.id);
+            if (!number) return Invalid(request, "invalid-continue-request-id", "Continue requestId must be continue/<positive uint64 decimal>");
+            releaseSequence = *number;
+            if (const auto cached = releases_.find(releaseSequence); cached != releases_.end()) {
                 if (cached->second.stop != stop || cached->second.revision != expectedRevision)
                     return Invalid(request, "request-id-conflict", "Request ID already identifies another release");
-                return Emit("response", request.id, cached->second.response) ? 0 : 3;
+                return Emit(cached->second.type, request.id, cached->second.response) ? 0 : 3;
             }
-            if (releases_.size() == 128) return Invalid(request, "request-ledger-full", "Close the controller to retire the binding");
+            if (releaseSequence <= releaseSequenceHighWater_)
+                return Invalid(request, "release-replay-expired", "Original continue receipt is outside the retained window; no release was attempted");
+            if (releaseSequence - releaseSequenceHighWater_ != 1)
+                return Invalid(request, "invalid-continue-sequence", "Continue requires the next consecutive request ID, starting at continue/1");
         }
+
         const auto current = owner_.Query();
-        if (!current.group || !current.responsibility || current.group->stateRevision != expectedRevision ||
-            current.responsibility->stopId != stop) return Invalid(request, "stale-stop", "Query the active stop before continuing");
-        std::string id = request.id;
-        if (!jsonl_ && !Ksword::ActionAnalyze::ProjectStorage::NewId(id))
-            return Invalid(request, "identity-failed", "Could not allocate an operation ID");
-        const auto receipt = owner_.Continue({identity_, current.group->groupId, stop,
-            current.responsibility->event, id, expectedRevision});
-        auto report = Report(receipt);
-        if (jsonl_) releases_.emplace(id, SavedRelease{stop, expectedRevision, report});
-        return Emit("response", request.id, std::move(report)) ? 0 : 3;
+        const bool live = current.group && current.responsibility && current.group->stateRevision == expectedRevision &&
+            current.responsibility->stopId == stop;
+        if (!jsonl_) {
+            if (!live) return Invalid(request, "stale-stop", "Query the active stop before continuing");
+            if (releaseSequenceHighWater_ == std::numeric_limits<std::uint64_t>::max())
+                return Invalid(request, "continue-sequence-exhausted", "Continue IDs are exhausted");
+            releaseSequence = ++releaseSequenceHighWater_;
+        }
+
+        const auto type = live ? "response" : "error";
+        auto report = live ? Report(owner_.Continue({identity_, current.group->groupId, stop,
+            current.responsibility->event, ReleaseId(releaseSequence), expectedRevision})) :
+            ControlError("stale-stop", "Query the active stop before continuing");
+        if (jsonl_) {
+            // 对通过形状和序号校验的请求，连 stale-stop 也消费 ID，防止重放日后执行。
+            releaseSequenceHighWater_ = releaseSequence;
+            releases_.emplace(releaseSequence, SavedRelease{std::move(stop), expectedRevision, type, report});
+            if (releases_.size() > kReleaseReplayEntries) releases_.erase(releases_.begin());
+        }
+        return Emit(type, request.id, std::move(report)) ? 0 : 3;
     }
 
     struct SavedRelease {
         std::string stop;
         std::uint64_t revision;
+        const char* type;
         V response;
     };
     bool jsonl_;
@@ -265,7 +298,8 @@ private:
     native::NativeDebugOwner owner_;
     Transport transport_;
     std::uint64_t sequence_ = 0;
-    std::map<std::string, SavedRelease> releases_;
+    std::uint64_t releaseSequenceHighWater_ = 0;
+    std::map<std::uint64_t, SavedRelease> releases_;
 };
 
 int Run(const Args& args)
@@ -311,7 +345,7 @@ void RegisterBreakpointCommand()
     command.syntax = L"KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME | --rva RVA) --confirm --disposition resume-detach [--input repl|jsonl]";
     command.summary = L"Arm one process-wide execution breakpoint in an explicitly authorized AMD64 child process.";
     command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA.";
-    command.notes = L"Commands: status, continue STOP_ID STATE_REVISION, quit. Output is structured in either input mode. Exit cleanup resumes/detaches; early execution before arm is not covered.";
+    command.notes = L"REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs are continue/1, continue/2, etc.; expired receipts cannot be replayed. Exit cleanup resumes/detaches; early execution before arm is not covered.";
     command.runStreaming = Run;
     addCommand(std::move(command));
 }

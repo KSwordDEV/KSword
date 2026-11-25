@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -27,7 +28,6 @@
 namespace ks::cli::action_analyze::control {
 namespace {
 
-constexpr std::size_t kMaxGroups = 64;
 constexpr std::size_t kMaxMembers = 1024;
 constexpr DWORD kWaitMs = 10;
 constexpr DWORD kAttachDeadlineMs = 5000;
@@ -86,6 +86,20 @@ std::string NewId() {
     for (std::size_t i = 1; i <= 36; ++i) {
         const auto digit = text[i];
         id.push_back(static_cast<char>(digit >= L'A' && digit <= L'F' ? digit - L'A' + L'a' : digit));
+    }
+    return id;
+}
+
+// 以本次后端身份为命名空间；同一会话内即使历史已滚动也不复用组或停点 ID。
+std::string BreakpointId(std::string_view backend, std::uint64_t revision, bool stop) {
+    constexpr std::string_view hex = "0123456789abcdef";
+    std::string id(backend);
+    id[14] = '8';
+    id[16] = hex[hex.find(id[16]) ^ static_cast<std::size_t>(stop)];
+    id[19] = hex[8 | (hex.find(id[19]) & 3)];
+    for (const auto i : {35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 22, 21, 20, 17}) {
+        id[i] = hex[hex.find(id[i]) ^ static_cast<std::size_t>(revision & 15)];
+        revision >>= 4;
     }
     return id;
 }
@@ -353,6 +367,8 @@ private:
     const OwnerIdentity owner_;
     StopLedger ledger_;
     std::map<std::string, PauseRecord, std::less<>> pauses_;
+    std::deque<PauseRecord> breakpointStops_;
+    std::uint64_t breakpointMembershipRevision_ = 0;
     PauseRecord* latest_ = nullptr;
     PauseRecord* firstBound_ = nullptr;
     Handle process_;
@@ -435,7 +451,7 @@ NativeControlResult NativeDebugOwner::Impl::Pause(const NativePauseRequest& requ
     if (breakpoint_ || closing_ || attached_ || event_ || !ledger_.CanRetireLedger()) {
         return Reject({"native-owner-unavailable", ERROR_BUSY}, LedgerResult::InvalidTransition);
     }
-    if (pauses_.size() == kMaxGroups) { return Reject({"stop-group-history-capacity", ERROR_BUFFER_OVERFLOW}, LedgerResult::Capacity); }
+    if (pauses_.size() == kStopHistoryGroups) { return Reject({"stop-group-history-capacity", ERROR_BUFFER_OVERFLOW}, LedgerResult::Capacity); }
 
     if (firstBound_ && (firstBound_->request.pid != request.pid ||
         firstBound_->request.processCreationTime != request.processCreationTime)) {
@@ -568,15 +584,30 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
 
 NativeControlResult NativeDebugOwner::Impl::Query(std::string_view groupId, std::string_view releaseRequestId) const {
     if (!groupId.empty()) {
-        for (const auto& [id, record] : pauses_) {
-            if (record.groupId != groupId) { continue; }
+        const auto report = [&](const PauseRecord& record) {
             auto result = Snapshot(&record);
-            if (!releaseRequestId.empty() && (!result.releaseRequestId || *result.releaseRequestId != releaseRequestId)) {
-                return Reject({"release-request-not-found", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence, &record);
+            if (!releaseRequestId.empty()) {
+                result.release = ledger_.QueryRelease(releaseRequestId, groupId);
+                if (!result.release) {
+                    return Reject({"release-request-not-found", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence, &record);
+                }
+                result.releaseRequestId = releaseRequestId;
             }
             return result;
+        };
+        if (latest_ && latest_->groupId == groupId) { return report(*latest_); }
+        for (const auto& record : breakpointStops_) {
+            if (record.groupId == groupId) { return report(record); }
         }
-        return Reject({"stop-group-not-found", ERROR_NOT_FOUND}, LedgerResult::MissingGroup);
+        for (const auto& [id, record] : pauses_) {
+            if (record.groupId == groupId) { return report(record); }
+        }
+        auto result = Snapshot(nullptr);
+        result.status = NativeControlStatus::Rejected;
+        result.stage = "stop-group-not-found";
+        result.win32Error = ERROR_NOT_FOUND;
+        result.ledgerResult = LedgerResult::MissingGroup;
+        return result;
     }
     if (!releaseRequestId.empty()) {
         return Reject({"release-query-requires-group", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
@@ -802,16 +833,18 @@ NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
 
 NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
     const auto& bp = *breakpoint_;
-    PauseRecord record{bp.request.target, NewId(), NewId(), latest_->processInstanceId};
+    if (breakpointMembershipRevision_ == std::numeric_limits<std::uint64_t>::max()) {
+        return {"breakpoint-stop-identity-exhausted", ERROR_ARITHMETIC_OVERFLOW};
+    }
+    const auto revision = breakpointMembershipRevision_ + 1;
+    PauseRecord record{bp.request.target, BreakpointId(owner_.backendInstanceId, revision, false),
+        BreakpointId(owner_.backendInstanceId, revision, true), firstBound_->processInstanceId};
     record.timing = firstBound_->timing;
     record.timing.eventObservedQpc = ReadQpc();
     record.hit = NativeBreakpointHit{bp.request.target.requestId, bp.binding.address};
-    if (record.groupId.empty() || record.stopId.empty() || pauses_.size() >= kMaxGroups) {
-        return {"breakpoint-stop-history-capacity", ERROR_BUFFER_OVERFLOW};
-    }
     std::vector<FrozenThread> frozen;
     if (const auto error = CaptureThreads(record.request.pid, record.processInstanceId, threadIds_, frozen); error) { return error; }
-    FrozenStopGroup group{record.groupId, static_cast<std::uint64_t>(pauses_.size()), {}, {}};
+    FrozenStopGroup group{record.groupId, revision, {}, {}};
     ThreadIdentity origin;
     ThreadIds newIds;
     for (const auto& thread : frozen) {
@@ -825,12 +858,14 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
     }
     group.membershipSha256 = MembershipHash(group.requested);
     if (origin.threadId.empty() || group.membershipSha256.empty()) { return {"verify-breakpoint-stop-members", ERROR_INVALID_DATA}; }
-    auto inserted = pauses_.emplace(std::string(kClosePrefix) + record.groupId, std::move(record)).first;
-    if (ledger_.Freeze(std::move(group)) != LedgerResult::Applied) {
-        pauses_.erase(inserted);
+    breakpointStops_.push_back(std::move(record));
+    if (ledger_.Freeze(std::move(group), HistoryRetention::Rolling) != LedgerResult::Applied) {
+        breakpointStops_.pop_back();
         return {"freeze-breakpoint-stop-group", ERROR_INVALID_DATA};
     }
-    latest_ = &inserted->second;
+    breakpointMembershipRevision_ = revision;
+    latest_ = &breakpointStops_.back();
+    if (breakpointStops_.size() > kStopHistoryGroups) { breakpointStops_.pop_front(); }
     const NativeEventKey key{owner_.backendInstanceId, eventSerial_};
     if (ledger_.AdoptNativeStop(latest_->groupId, {key, origin, latest_->stopId,
         StopPhase::ExecutionEnterAttempt}) != LedgerResult::Applied) {
@@ -1083,7 +1118,7 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
     if (recover && !old) {
         return Reject({"recover-requires-original-release-request", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence);
     }
-    const auto decision = ledger_.BeginRelease(request);
+    const auto decision = ledger_.BeginRelease(request, internal);
     if (decision.result == LedgerResult::Duplicate) {
         auto result = Query(request.groupId);
         result.ledgerResult = decision.result;
@@ -1102,6 +1137,9 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
         return result;
     }
     if (!decision.effect) {
+        if (decision.result == LedgerResult::ReplayExpired) {
+            return Reject({"release-replay-expired", ERROR_NOT_FOUND}, decision.result);
+        }
         if (decision.result == LedgerResult::ReadbackRequired) {
             auto result = Query(request.groupId);
             result.ledgerResult = decision.result;
@@ -1125,9 +1163,6 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
         }
     } else {
         if (isBreakpoint) {
-            if (!breakpoint_->retire && pauses_.size() >= kMaxGroups) {
-                RetireBreakpoint({"breakpoint-stop-history-capacity", ERROR_BUFFER_OVERFLOW});
-            }
             if (const auto error = PrepareBreakpointResume(); error) {
                 // 尚未调用 ContinueDebugEvent；确切事件仍在本线程，允许用新修订重试。
                 (void)ledger_.RecordReleaseReceipt(attempt, {ReleaseResult::StillPending, error.code});

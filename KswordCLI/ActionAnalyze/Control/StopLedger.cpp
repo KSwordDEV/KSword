@@ -1,13 +1,13 @@
 #include "StopLedger.h"
 
 #include <algorithm>
+#include <charconv>
 #include <stdexcept>
 #include <utility>
 
 namespace ks::cli::action_analyze::control {
 namespace {
 
-constexpr std::size_t kMaxGroups = 64;
 constexpr std::size_t kMaxThreads = 1024;
 constexpr std::size_t kMaxReleaseAttemptsPerGroup = 64;
 constexpr std::size_t kMaxRequestIdBytes = 128;
@@ -67,6 +67,16 @@ bool ValidReceipt(const ReleaseReceipt& receipt) {
 
 } // namespace
 
+std::optional<std::uint64_t> SequencedReleaseId(std::string_view requestId) {
+    if (!requestId.starts_with(kSequencedReleasePrefix)) { return std::nullopt; }
+    requestId.remove_prefix(kSequencedReleasePrefix.size());
+    if (requestId.empty() || requestId.front() < '1' || requestId.front() > '9') { return std::nullopt; }
+    std::uint64_t sequence = 0;
+    const auto end = requestId.data() + requestId.size();
+    const auto parsed = std::from_chars(requestId.data(), end, sequence);
+    return parsed.ptr == end && parsed.ec == std::errc{} ? std::optional(sequence) : std::nullopt;
+}
+
 StopLedger::StopLedger(OwnerIdentity owner) : owner_(std::move(owner)) {
     if (!IsId(owner_.sampleId) || !IsId(owner_.sessionId) || !IsId(owner_.epoch) || !IsId(owner_.backendInstanceId)) {
         throw std::invalid_argument("ActionAnalyze control requires canonical owner identity");
@@ -83,26 +93,44 @@ const StopLedger::Group* StopLedger::Find(std::string_view groupId) const {
     return it == groups_.end() ? nullptr : &it->second;
 }
 
-LedgerResult StopLedger::Freeze(FrozenStopGroup group) {
+LedgerResult StopLedger::Freeze(FrozenStopGroup group, HistoryRetention retention) {
     if (!IsId(group.groupId) || group.membershipSha256.size() != 64 ||
         !std::all_of(group.membershipSha256.begin(), group.membershipSha256.end(), HexDigit) || group.requested.empty()) {
         return LedgerResult::InvalidEvidence;
     }
     if (group.requested.size() > kMaxThreads) { return LedgerResult::Capacity; }
     if (!NormalizeThreads(group.requested)) { return LedgerResult::InvalidEvidence; }
+    if (retention_ && *retention_ != retention) { return LedgerResult::InvalidTransition; }
     if (const auto* prior = Find(group.groupId)) {
         return prior->frozen == group ? LedgerResult::Duplicate : LedgerResult::Conflict;
     }
     if (active_) { return LedgerResult::InvalidTransition; }
-    if (groups_.size() == kMaxGroups) { return LedgerResult::Capacity; }
+    const bool rolling = retention == HistoryRetention::Rolling;
+    if (rolling && group.membershipRevision <= lastRollingMembershipRevision_) { return LedgerResult::Historical; }
 
     Group entry;
     entry.members.reserve(group.requested.size());
     for (const auto& thread : group.requested) { entry.members.push_back({thread}); }
     auto key = group.groupId;
     entry.frozen = std::move(group);
+    if (groups_.size() == kStopHistoryGroups && (!rolling || !EvictClosedGroup())) { return LedgerResult::Capacity; }
     active_ = &groups_.emplace(std::move(key), std::move(entry)).first->second;
+    retention_ = retention;
+    if (rolling) { lastRollingMembershipRevision_ = active_->frozen.membershipRevision; }
     return LedgerResult::Applied;
+}
+
+bool StopLedger::EvictClosedGroup() {
+    auto oldest = groups_.end();
+    for (auto it = groups_.begin(); it != groups_.end(); ++it) {
+        const auto& group = it->second;
+        if (group.closed && (oldest == groups_.end() ||
+            group.frozen.membershipRevision < oldest->second.frozen.membershipRevision)) { oldest = it; }
+    }
+    if (oldest == groups_.end()) { return false; }
+    for (const auto& id : oldest->second.releaseRequests) { commands_.erase(id); }
+    groups_.erase(oldest);
+    return true;
 }
 
 LedgerResult StopLedger::AdoptNativeStop(std::string_view groupId, const NativeStop& evidence) {
@@ -260,7 +288,7 @@ LedgerResult StopLedger::ConfirmNoNativeEvent(std::string_view groupId) {
     return LedgerResult::Applied;
 }
 
-ReleaseDecision StopLedger::BeginRelease(const ReleaseRequest& request) {
+ReleaseDecision StopLedger::BeginRelease(const ReleaseRequest& request, bool ownerCleanup) {
     if (request.owner != owner_ || request.event.backendInstanceId != owner_.backendInstanceId) {
         return {LedgerResult::IdentityMismatch};
     }
@@ -269,7 +297,13 @@ ReleaseDecision StopLedger::BeginRelease(const ReleaseRequest& request) {
         return {prior->second.attempt.request == request ? LedgerResult::Duplicate : LedgerResult::Conflict};
     }
     auto* group = Find(request.groupId);
+    const bool rolling = retention_ == HistoryRetention::Rolling;
+    const auto sequence = rolling && !ownerCleanup ? SequencedReleaseId(request.requestId) : std::nullopt;
+    if (sequence && *sequence <= releaseSequenceHighWater_) {
+        return {LedgerResult::ReplayExpired};
+    }
     if (!group) { return {LedgerResult::MissingGroup}; }
+    if (rolling && !ownerCleanup && !sequence) { return {LedgerResult::InvalidEvidence}; }
     if (group->closed) { return {LedgerResult::Historical}; }
     if (!group->native || group->native->event != request.event || group->native->stopId != request.stopId) {
         return {LedgerResult::IdentityMismatch};
@@ -279,14 +313,22 @@ ReleaseDecision StopLedger::BeginRelease(const ReleaseRequest& request) {
         return {LedgerResult::ReadbackRequired};
     }
     if (!EventConfirmedHeld(group->eventState)) { return {LedgerResult::InvalidTransition}; }
-    if (group->releaseAttempts == kMaxReleaseAttemptsPerGroup) { return {LedgerResult::Capacity}; }
+    if (group->releaseRequests.size() == kMaxReleaseAttemptsPerGroup && !rolling) {
+        return {LedgerResult::Capacity};
+    }
 
     ReleaseAttempt attempt{request, group->revision + 1};
     std::string requestId = request.requestId;
     commands_.emplace(requestId, Command{attempt, {attempt.issuedRevision, std::nullopt, std::nullopt}});
+    group->releaseRequests.push_back(requestId);
+    if (group->releaseRequests.size() > kMaxReleaseAttemptsPerGroup) {
+        // 加入新尝试时，所有旧尝试均已确认不再执行。未决或不明尝试在上面被阻断。
+        commands_.erase(group->releaseRequests.front());
+        group->releaseRequests.pop_front();
+    }
+    if (sequence) { releaseSequenceHighWater_ = *sequence; }
     group->lastRequestId = std::move(requestId);
     group->eventState = EventState::ReleasePending;
-    ++group->releaseAttempts;
     ++group->revision;
     return {LedgerResult::Applied, std::move(attempt)};
 }
@@ -446,9 +488,10 @@ std::optional<StopGroupSnapshot> StopLedger::Query(std::string_view groupId) con
     return snapshot;
 }
 
-std::optional<ReleaseRecord> StopLedger::QueryRelease(std::string_view requestId) const {
+std::optional<ReleaseRecord> StopLedger::QueryRelease(std::string_view requestId, std::string_view groupId) const {
     const auto command = commands_.find(requestId);
-    return command == commands_.end() ? std::nullopt : std::optional(command->second.record);
+    return command == commands_.end() || (!groupId.empty() && command->second.attempt.request.groupId != groupId)
+        ? std::nullopt : std::optional(command->second.record);
 }
 
 std::optional<EventResponsibility> StopLedger::UnresolvedNativeResponsibility() const {

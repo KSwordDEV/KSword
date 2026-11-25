@@ -65,8 +65,9 @@ bool ValidPlan(const Plan& plan) noexcept
     return ValidLabel(plan.sampleId) && ValidLabel(plan.trackingEpoch) && ValidLabel(plan.target.machineId) &&
         ValidLabel(plan.target.bootId) && ValidLabel(plan.target.processInstanceId) && plan.target.pid &&
         plan.target.creationFileTime100ns && plan.range.base && plan.range.length &&
-        plan.range.length <= kAddressMax - plan.range.base && plan.rounds >= 2 &&
-        plan.rounds <= kMaxSampleRounds && plan.intervalMs >= 10 && plan.intervalMs <= 1000;
+        plan.range.length <= kAddressMax - plan.range.base &&
+        (!plan.rounds || (*plan.rounds >= 2 && *plan.rounds <= kMaxSampleRounds)) &&
+        plan.intervalMs >= 10 && plan.intervalMs <= 1000;
 }
 
 Issue ConfirmLive(HANDLE process) noexcept
@@ -195,8 +196,8 @@ struct PageHistory {
     std::uint64_t base = 0;
     Range sampled;
     std::optional<Mapping> mapping;
-    std::uint32_t mappingSequence = 0;
-    std::uint32_t contentSequence = 0;
+    std::uint64_t mappingSequence = 0;
+    std::uint64_t contentSequence = 0;
     bool sawMapping = false;
     std::vector<std::uint8_t> bytes;
     std::optional<ContentSample> before;
@@ -241,7 +242,7 @@ struct PageHistory {
     }
 
     void AcceptContent(PageObservation& row, const std::vector<std::uint8_t>& current, const Sha256& hash,
-        std::uint32_t ordinal)
+        std::uint64_t ordinal)
     {
         ContentOrigin origin = ContentOrigin::Baseline;
         row.previousContent = latest;
@@ -270,14 +271,14 @@ public:
     ~Impl() { ReleaseNative(); }
 
     Status Begin(HANDLE selectedProcess, const Plan& plan);
-    PollResult Poll(const std::atomic_bool* cancel);
+    PollResult Poll(const std::atomic_bool* cancel, PollMode mode);
     ExecutionLink CorrelateExecution(const ExecutionObservation& observation) const;
     void Finish(State state, Issue issue = {}) noexcept;
 
     Status status;
 
 private:
-    PageObservation SamplePage(PageHistory& page, std::uint32_t ordinal);
+    PageObservation SamplePage(PageHistory& page, std::uint64_t ordinal);
     bool CheckProcess() noexcept;
     void ReleaseNative() noexcept;
 
@@ -355,7 +356,7 @@ Status PassiveDirtyMemory::Impl::Begin(HANDLE selectedProcess, const Plan& plan)
     return status;
 }
 
-PageObservation PassiveDirtyMemory::Impl::SamplePage(PageHistory& page, std::uint32_t ordinal)
+PageObservation PassiveDirtyMemory::Impl::SamplePage(PageHistory& page, std::uint64_t ordinal)
 {
     PageObservation row;
     row.pageBase = page.base;
@@ -429,12 +430,13 @@ PageObservation PassiveDirtyMemory::Impl::SamplePage(PageHistory& page, std::uin
     return row;
 }
 
-PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel)
+PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel, PollMode mode)
 {
     if (status.state != State::Active) return {status, std::nullopt};
     const auto isCanceled = [cancel] { return cancel && cancel->load(std::memory_order_relaxed); };
     if (isCanceled()) Finish(State::Canceled);
     if (status.state != State::Active || !CheckProcess()) return {status, std::nullopt};
+    if (mode == PollMode::StatusOnly) return {status, std::nullopt};
     const auto begin = NowQpc();
     if (!begin) {
         Finish(State::Failed, Error(Stage::Clock, ERROR_GEN_FAILURE));
@@ -464,7 +466,7 @@ PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel)
     } else {
         if (status.state == State::Active && CheckProcess()) {
             if (isCanceled()) Finish(State::Canceled);
-            else if (status.attemptedRounds == plan_.rounds) Finish(State::Completed);
+            else if (plan_.rounds && status.attemptedRounds == *plan_.rounds) Finish(State::Completed);
             else status.nextDueQpc = *round.endQpc + intervalTicks_;
         }
     }
@@ -548,9 +550,9 @@ Status PassiveDirtyMemory::Query() const noexcept
     return impl_->status;
 }
 
-PollResult PassiveDirtyMemory::Poll(const std::atomic_bool* cancel)
+PollResult PassiveDirtyMemory::Poll(const std::atomic_bool* cancel, PollMode mode)
 {
-    return impl_->Poll(cancel);
+    return impl_->Poll(cancel, mode);
 }
 
 Status PassiveDirtyMemory::Stop() noexcept

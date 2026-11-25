@@ -1,10 +1,15 @@
 #include "DirtyMemoryCommand.h"
+#include "Transport.h"
 
 #include "../Memory/PassiveDirtyMemory.h"
 #include "../Project/ProjectStorage.h"
 #include "../../R3ProcessShared.h"
 
 #include <algorithm>
+#include <condition_variable>
+#include <iostream>
+#include <mutex>
+#include <thread>
 
 namespace ks::cli::action_analyze {
 namespace {
@@ -12,6 +17,12 @@ namespace mem = memory;
 
 // 命令只导出字段和摘要，不输出远程进程字节。对旧 memory watch 保持独立。
 constexpr std::uint32_t kCommandByteLimit = 65536;
+
+Json CounterJson(std::uint64_t value, bool continuous)
+{
+    // 有限命令保留原 JSON 数字类型；持续流的 64 位序号和计数不丢精度。
+    return continuous ? Json::count(value) : Json::number(static_cast<std::uint32_t>(value));
+}
 
 const wchar_t* StateName(mem::State state)
 {
@@ -75,6 +86,16 @@ Json IssueJson(const mem::Issue& issue)
         {L"ntStatus", issue.ntStatus ? Json::signedNumber(*issue.ntStatus) : Json{}}});
 }
 
+Json InputIssueJson(const Fault& issue)
+{
+    if (!issue) return {};
+    const auto widen = [](std::string_view text) { return std::wstring(text.begin(), text.end()); };
+    return Json::object({{L"errorId", Json::string(widen(issue.id))}, {L"message", Json::string(widen(issue.message))},
+        {L"source", Json::string(widen(issue.source))},
+        {L"code", Json::number(issue.nativeCode ? issue.nativeCode : static_cast<unsigned>(issue.code))},
+        {L"byteOffset", issue.offset ? Json::count(*issue.offset) : Json{}}});
+}
+
 Json RangeJson(const mem::Range& range)
 {
     return Json::object({{L"base", Json::hex(range.base)}, {L"length", Json::count(range.length)}});
@@ -95,7 +116,7 @@ Json MappingJson(const std::optional<mem::Mapping>& mapping)
 }
 
 // 版本只覆盖本页实际成功读取的子范围，哈希不用于证明执行时内容。
-Json ContentJson(const std::optional<mem::ContentSample>& content)
+Json ContentJson(const std::optional<mem::ContentSample>& content, bool continuous)
 {
     if (!content) return {};
     constexpr wchar_t digits[] = L"0123456789abcdef";
@@ -107,8 +128,8 @@ Json ContentJson(const std::optional<mem::ContentSample>& content)
     }
     const auto origin = content->origin == mem::ContentOrigin::Changed ? L"changed" :
         content->origin == mem::ContentOrigin::Unchanged ? L"unchanged" : L"baseline";
-    return Json::object({{L"round", Json::number(content->roundOrdinal)},
-        {L"version", Json::number(content->version)}, {L"origin", Json::string(origin)},
+    return Json::object({{L"round", CounterJson(content->roundOrdinal, continuous)},
+        {L"version", CounterJson(content->version, continuous)}, {L"origin", Json::string(origin)},
         {L"readQpc", WindowJson(content->readQpc)}, {L"sha256", Json::string(sha)}});
 }
 
@@ -122,12 +143,12 @@ Json DifferenceJson(const std::optional<mem::Difference>& difference)
         {L"omittedRangeCount", Json::count(difference->rangeCount - ranges.size())}});
 }
 
-Json PageJson(const mem::PageObservation& page)
+Json PageJson(const mem::PageObservation& page, bool continuous)
 {
     const auto& change = page.changes; // 属性变化与字节差异独立。
     return Json::object({{L"pageBase", Json::hex(page.pageBase)}, {L"range", RangeJson(page.sampledRange)},
         {L"status", Json::string(PageStatusName(page.status))},
-        {L"mappingGeneration", page.mappingGeneration ? Json::number(*page.mappingGeneration) : Json{}},
+        {L"mappingGeneration", page.mappingGeneration ? CounterJson(*page.mappingGeneration, continuous) : Json{}},
         {L"changes", Json::object({{L"firstMappingObservation", Json::boolean(change.firstMappingObservation)},
             {L"mappingContinuityReset", Json::boolean(change.mappingContinuityReset)},
             {L"newlyCommitted", Json::boolean(change.newlyCommitted)},
@@ -139,7 +160,7 @@ Json PageJson(const mem::PageObservation& page)
         {L"issue", IssueJson(page.issue)}, {L"additionalIssue", page.additionalIssue ? IssueJson(*page.additionalIssue) : Json{}},
         {L"readQpc", page.readQpc ? WindowJson(*page.readQpc) : Json{}},
         {L"returnedBytes", page.returnedBytes ? Json::count(*page.returnedBytes) : Json{}},
-        {L"previousContent", ContentJson(page.previousContent)}, {L"content", ContentJson(page.content)},
+        {L"previousContent", ContentJson(page.previousContent, continuous)}, {L"content", ContentJson(page.content, continuous)},
         {L"difference", DifferenceJson(page.difference)}});
 }
 
@@ -147,51 +168,71 @@ Json RoundJson(const mem::Round& round)
 {
     std::vector<Json> pages; // 每轮不丢弃失败页，也不因此清空先前结果。
     pages.reserve(round.pages.size());
-    for (const auto& page : round.pages) pages.push_back(PageJson(page));
-    return Json::object({{L"ordinal", Json::number(round.ordinal)},
+    const bool continuous = !round.effectivePlan.rounds;
+    for (const auto& page : round.pages) pages.push_back(PageJson(page, continuous));
+    return Json::object({{L"ordinal", CounterJson(round.ordinal, continuous)},
         {L"beginQpc", Json::count(round.beginQpc)},
         {L"endQpc", round.endQpc ? Json::count(*round.endQpc) : Json{}},
         {L"allPagesVisited", Json::boolean(round.allPagesVisited)}, {L"pages", Json::array(pages)}});
 }
 
-// 不接受任意外部执行记录。此入口输出的执行覆盖始终为未采集。
-Result Run(const Args& args)
+mem::Plan ReadPlan(const Args& args, bool continuous)
 {
     if (!args.has(L"--confirm")) throw std::invalid_argument("--confirm is required for an explicitly authorized process");
     mem::Plan plan;
     plan.target.pid = args.u32(L"--pid");
     plan.target.creationFileTime100ns = args.integer(L"--creation-time");
     plan.range = {args.integer(L"--address"), args.u32(L"--size")};
-    plan.rounds = args.u32(L"--samples", 20);
+    if (continuous) plan.rounds.reset();
+    else plan.rounds = args.u32(L"--samples", 20);
     plan.intervalMs = args.u32(L"--interval-ms", 100);
     if (!plan.target.pid || !plan.target.creationFileTime100ns || !plan.range.base ||
         !plan.range.length || plan.range.length > kCommandByteLimit || plan.range.base > UINT64_MAX - plan.range.length ||
-        plan.rounds < 2 || plan.rounds > mem::kMaxSampleRounds || plan.intervalMs < 10 || plan.intervalMs > 1000) {
+        (plan.rounds && (*plan.rounds < 2 || *plan.rounds > mem::kMaxSampleRounds)) ||
+        plan.intervalMs < 10 || plan.intervalMs > 1000) {
         throw std::invalid_argument("invalid process identity, address, size, sample count or interval");
     }
+    return plan;
+}
 
+bool AssignTrackingIdentity(mem::Plan& plan)
+{
     // 本命令无项目：用单次调用的 UUID 隔离身份域，不把占位值当跨采样机器或启动标识。
     if (!Ksword::ActionAnalyze::ProjectStorage::NewId(plan.sampleId) ||
-        !Ksword::ActionAnalyze::ProjectStorage::NewId(plan.trackingEpoch)) {
-        return {3, Json::object({}), {L"Could not allocate a tracking identity."}};
-    }
+        !Ksword::ActionAnalyze::ProjectStorage::NewId(plan.trackingEpoch)) return false;
     plan.target.machineId = plan.sampleId;
     plan.target.bootId = plan.sampleId;
     plan.target.processInstanceId = std::to_string(plan.target.pid) + ":" + std::to_string(plan.target.creationFileTime100ns);
     plan.authorizedOwnedProcess = true;
+    return true;
+}
+
+mem::Status Begin(mem::PassiveDirtyMemory& tracker, const process::Lease& target, const mem::Plan& plan)
+{
+    if (!target.error && target.matches) return tracker.Begin(target.handle.get(), plan);
+    mem::Status status;
+    status.state = mem::State::Rejected;
+    status.issue = {target.error ? mem::Stage::ProcessCreation : mem::Stage::ProcessMismatch,
+        target.error ? target.error : ERROR_INVALID_PARAMETER};
+    return status;
+}
+
+// 不接受任意外部执行记录。两个入口的执行覆盖始终为未采集。
+Result Run(const Args& args)
+{
+    auto plan = ReadPlan(args, false);
+    if (!AssignTrackingIdentity(plan)) return {3, Json::object({}), {L"Could not allocate a tracking identity."}};
 
     const process::Lease target(args, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE);
+    mem::PassiveDirtyMemory tracker;
     mem::Status status;
     std::vector<Json> rounds;
     if (target.error || !target.matches) {
-        status.state = mem::State::Rejected;
-        status.issue = {target.error ? mem::Stage::ProcessCreation : mem::Stage::ProcessMismatch,
-            target.error ? target.error : ERROR_INVALID_PARAMETER};
+        status = Begin(tracker, target, plan);
     } else {
-        mem::PassiveDirtyMemory tracker; // 单命令线程拥有本次追踪与节奏。
         const Cancellation cancellation;
-        status = tracker.Begin(target.handle.get(), plan);
-        rounds.reserve(plan.rounds);
+        status = Begin(tracker, target, plan);
+        rounds.reserve(*plan.rounds);
         while (status.state == mem::State::Active) {
             auto result = tracker.Poll(cancellation.token.get());
             status = result.status;
@@ -210,17 +251,187 @@ Result Run(const Args& args)
         Json::object({{L"captureId", Json::string(sampleId)}, {L"trackingEpoch", Json::string(epoch)},
             {L"pid", Json::number(plan.target.pid)}, {L"creationFileTime", Json::count(plan.target.creationFileTime100ns)},
             {L"observedCreationFileTime", target.creationTime ? Json::count(target.creationTime) : Json{}},
-            {L"range", RangeJson(plan.range)}, {L"requestedRounds", Json::number(plan.rounds)},
+            {L"range", RangeJson(plan.range)}, {L"requestedRounds", Json::number(*plan.rounds)},
             {L"intervalMs", Json::number(plan.intervalMs)}, {L"complete", Json::boolean(complete)},
             {L"state", Json::string(StateName(status.state))}, {L"issue", IssueJson(status.issue)},
             {L"pageSize", status.pageSize ? Json::number(status.pageSize) : Json{}},
             {L"pointerWidth", status.pointerWidth ? Json::number(status.pointerWidth) : Json{}},
-            {L"plannedPages", Json::number(status.plannedPages)}, {L"attemptedRounds", Json::number(status.attemptedRounds)},
-            {L"fullRounds", Json::number(status.fullRounds)}, {L"sampledPages", Json::number(status.sampledPages)},
-            {L"unavailablePages", Json::number(status.unavailablePages)},
+            {L"plannedPages", Json::number(status.plannedPages)}, {L"attemptedRounds", CounterJson(status.attemptedRounds, false)},
+            {L"fullRounds", CounterJson(status.fullRounds, false)}, {L"sampledPages", CounterJson(status.sampledPages, false)},
+            {L"unavailablePages", CounterJson(status.unavailablePages, false)},
             {L"qpcFrequency", status.qpcFrequency ? Json::count(status.qpcFrequency) : Json{}},
             {L"executionCoverage", Json::string(L"not-collected")}, {L"writeAttribution", Json::string(L"unknown")},
             {L"rounds", Json::array(rounds)}}), {L"Changes between reads and remaps with identical attributes can be missed."}};
+}
+
+// 独占 Transport，最多提交一帧。只让后台等待该帧写完；控制线程始终能处理 stdin。
+class FrameDelivery {
+public:
+    enum class State { Ready, Pending, Lost };
+
+    explicit FrameDelivery(Transport& transport) : transport_(transport),
+        worker_([this](std::stop_token stop) { Drain(stop); }) {}
+
+    State Query()
+    {
+        std::lock_guard lock(mutex_);
+        return state_;
+    }
+
+    bool Wait()
+    {
+        std::unique_lock lock(mutex_);
+        changed_.wait(lock, [this] { return state_ != State::Pending; });
+        return state_ == State::Ready;
+    }
+
+    bool Send(std::string frame)
+    {
+        std::lock_guard lock(mutex_);
+        if (state_ != State::Ready || !transport_.Send(std::move(frame))) return false;
+        state_ = State::Pending;
+        changed_.notify_all();
+        return true;
+    }
+
+private:
+    void Drain(std::stop_token stop)
+    {
+        std::unique_lock lock(mutex_);
+        while (changed_.wait(lock, stop, [this] { return state_ == State::Pending; })) {
+            lock.unlock();
+            const bool delivered = transport_.Finish();
+            lock.lock();
+            state_ = delivered ? State::Ready : State::Lost;
+            changed_.notify_all();
+        }
+    }
+
+    Transport& transport_;
+    std::mutex mutex_;
+    std::condition_variable_any changed_;
+    State state_ = State::Ready;
+    std::jthread worker_;
+};
+
+class DirtyMemoryStream {
+public:
+    DirtyMemoryStream(FrameDelivery& delivery, const mem::Plan& plan, bool jsonl)
+        : delivery_(delivery), jsonl_(jsonl), captureId_(plan.sampleId.begin(), plan.sampleId.end()),
+        trackingEpoch_(plan.trackingEpoch.begin(), plan.trackingEpoch.end()) {}
+
+    bool Emit(const wchar_t* kind, const Json& data)
+    {
+        const auto record = Json::object({{L"schemaVersion", Json::number(1)},
+            {L"type", Json::string(kind)}, {L"captureId", Json::string(captureId_)},
+            {L"trackingEpoch", Json::string(trackingEpoch_)}, {L"data", data}});
+        const auto& wide = jsonl_ ? record.text : record.display;
+        if (wide.size() > kOutputBytes) return false;
+        const auto length = static_cast<int>(wide.size());
+        const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), length, nullptr, 0, nullptr, nullptr);
+        if (bytes <= 0 || static_cast<std::size_t>(bytes) > kOutputBytes) return false;
+        std::string frame(static_cast<std::size_t>(bytes), '\0');
+        if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), length, frame.data(), bytes, nullptr, nullptr)) return false;
+        frame.push_back('\n');
+        return delivery_.Send(std::move(frame));
+    }
+
+private:
+    FrameDelivery& delivery_;
+    bool jsonl_;
+    std::wstring captureId_;
+    std::wstring trackingEpoch_;
+};
+
+int RunStream(const Args& args)
+{
+    const auto output = args.get(L"--output", L"text");
+    if (output != L"text" && output != L"jsonl") throw std::invalid_argument("--output must be text or jsonl");
+    const bool jsonl = output == L"jsonl";
+    auto plan = ReadPlan(args, true);
+    if (!AssignTrackingIdentity(plan)) {
+        std::wcerr << L"error: Could not allocate a tracking identity.\n";
+        return 3;
+    }
+    Transport transport;
+    if (const auto fault = transport.Start(jsonl)) {
+        const std::string_view message(fault.message);
+        std::wcerr << L"error: " << std::wstring(message.begin(), message.end()) << L'\n';
+        return fault.code;
+    }
+    const Cancellation cancellation; // 在 Transport 之后登记，Ctrl-C / Break 请求取消本次采样。
+    FrameDelivery delivery(transport);
+    DirtyMemoryStream stream(delivery, plan, jsonl);
+    mem::PassiveDirtyMemory tracker;
+    const auto outputUnavailable = [&tracker] {
+        (void)tracker.Stop();
+        std::wcerr << L"error: memory-stream-output-unavailable\n";
+        return 3;
+    };
+    mem::Status status;
+    std::uint64_t observedCreationTime = 0;
+    {
+        const process::Lease target(args, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE);
+        observedCreationTime = target.creationTime;
+        status = Begin(tracker, target, plan);
+    }
+    if (!stream.Emit(L"start", Json::object({{L"backend", Json::string(L"r3")},
+        {L"pid", Json::number(plan.target.pid)}, {L"creationFileTime", Json::count(plan.target.creationFileTime100ns)},
+        {L"observedCreationFileTime", observedCreationTime ? Json::count(observedCreationTime) : Json{}},
+        {L"range", RangeJson(plan.range)}, {L"intervalMs", Json::number(plan.intervalMs)},
+        {L"state", Json::string(StateName(status.state))}, {L"issue", IssueJson(status.issue)},
+        {L"pageSize", status.pageSize ? Json::number(status.pageSize) : Json{}},
+        {L"pointerWidth", status.pointerWidth ? Json::number(status.pointerWidth) : Json{}},
+        {L"plannedPages", Json::number(status.plannedPages)},
+        {L"qpcFrequency", status.qpcFrequency ? Json::count(status.qpcFrequency) : Json{}},
+        {L"executionCoverage", Json::string(L"not-collected")}, {L"writeAttribution", Json::string(L"unknown")},
+        {L"control", Json::string(L"Send stop followed by LF to end sampling.")}}))) return outputUnavailable();
+
+    const wchar_t* reason = nullptr;
+    Fault inputIssue;
+    int code = 0;
+    while (status.state == mem::State::Active) {
+        const auto input = transport.Next(true);
+        if (input.kind == InputKind::OutputLost) return outputUnavailable();
+        if (input.kind == InputKind::Eof || (input.kind == InputKind::Line && input.line == "stop")) {
+            reason = input.kind == InputKind::Eof ? L"eof" : L"stop";
+        } else if (input.kind == InputKind::Fatal || (input.kind == InputKind::Line && !input.line.empty())) {
+            reason = input.kind == InputKind::Fatal ? L"input-failed" : L"invalid-command";
+            inputIssue = input.kind == InputKind::Fatal ? input.fault : Fault{"invalid-command", "Expected a stop line"};
+            code = inputIssue.code;
+        } else if (input.kind == InputKind::Break) {
+            cancellation.token->store(true, std::memory_order_relaxed);
+        }
+        if (reason) {
+            // 在处理输入时已有的退出或取消优先于正常 stop/EOF；本次检查不读取页面。
+            status = tracker.Poll(cancellation.token.get(), mem::PollMode::StatusOnly).status;
+            if (status.state == mem::State::Active) status = tracker.Stop();
+            break;
+        }
+
+        const auto outputState = delivery.Query();
+        if (outputState == FrameDelivery::State::Lost) return outputUnavailable();
+        auto result = tracker.Poll(cancellation.token.get(), outputState == FrameDelivery::State::Ready
+            ? mem::PollMode::SampleWhenDue : mem::PollMode::StatusOnly);
+        status = result.status;
+        if (result.round && !stream.Emit(L"round", RoundJson(*result.round))) return outputUnavailable();
+    }
+
+    if (!reason || (!inputIssue && status.state != mem::State::Stopped)) reason = StateName(status.state);
+    if (!code) {
+        if (status.state == mem::State::Canceled || status.unavailablePages || status.fullRounds < status.attemptedRounds) code = 6;
+        else if (status.state != mem::State::Stopped) code = status.attemptedRounds ? 6 : 3;
+    }
+    // 原生采样已终止，最后才等待输出排空。管道失联时不保证该回执送达。
+    if (!delivery.Wait() || !stream.Emit(L"summary", Json::object({{L"reason", Json::string(reason)},
+        {L"state", Json::string(StateName(status.state))}, {L"issue", IssueJson(status.issue)},
+        {L"inputIssue", InputIssueJson(inputIssue)},
+        {L"exitCode", Json::number(static_cast<std::uint32_t>(code))},
+        {L"attemptedRounds", Json::count(status.attemptedRounds)}, {L"fullRounds", Json::count(status.fullRounds)},
+        {L"sampledPages", Json::count(status.sampledPages)}, {L"unavailablePages", Json::count(status.unavailablePages)},
+        {L"coverageNote", Json::string(L"Changes between reads and remaps with identical attributes can be missed. Slow output can delay reads.")}})) ||
+        !delivery.Wait()) return outputUnavailable();
+    return code;
 }
 } // namespace
 
@@ -231,6 +442,15 @@ void RegisterDirtyMemoryCommand()
         L"Track sampled per-page content and mapping changes in an explicitly authorized process.",
         L"Required: --pid, --creation-time, --address, --size (1..65536), --confirm. Optional: --samples (2..64, default 20), --interval-ms (10..1000, default 100), --backend r3, --json.",
         L"Read-only, same user and session. Returns page state, SHA-256, change ranges and coverage gaps. Does not collect execution or attribute writes. No project is modified.", Run});
+
+    Command stream;
+    stream.path = L"analyze memory stream";
+    stream.syntax = L"KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--output text|jsonl] [--backend r3]";
+    stream.summary = L"Continuously sample an explicitly authorized owned process, until stopped.";
+    stream.options = L"Size: 1..65536 bytes. Interval: 10..1000 ms minimum delay, default 100; stream checks on a roughly 50 ms tick. Default output: text.";
+    stream.notes = L"Send a plain stop line on stdin. EOF stops; Ctrl-C/Break cancels. For JSONL output, redirect both stdin and stdout and read continuously. No sample count, execution evidence, write attribution, or target changes.";
+    stream.runStreaming = RunStream;
+    addCommand(std::move(stream));
 }
 
 } // namespace ks::cli::action_analyze

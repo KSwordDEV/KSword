@@ -113,7 +113,8 @@ public:
     NativeDebugOwner& operator=(const NativeDebugOwner&) = delete;
 
     [[nodiscard]] NativeControlResult Pause(const NativePauseRequest& request);
-    // 仅接受一个持续绑定。Query 确认接纳、武装或命中；Continue 不脱离；Close 清退整个绑定。
+    // 仅接受一个持续绑定。命中历史滚动保留，Continue 采用递增的 continue/<序号> ID。
+    // Query 确认接纳、武装或命中；Continue 不脱离；Close 清退整个绑定。
     [[nodiscard]] NativeControlResult ArmBreakpoint(const NativeBreakpointRequest& request);
     [[nodiscard]] NativeControlResult Query(std::string_view groupId = {}, std::string_view releaseRequestId = {});
     [[nodiscard]] NativeControlResult Continue(const ReleaseRequest& request);

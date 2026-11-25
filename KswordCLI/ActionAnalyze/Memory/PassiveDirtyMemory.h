@@ -36,7 +36,7 @@ struct Plan {
     std::string trackingEpoch; // 重新打开必须由控制者分配新代次。
     ProcessInstance target;
     Range range;
-    std::uint32_t rounds = 20;
+    std::optional<std::uint32_t> rounds = 20; // 有值为有限采样；nullopt 持续至停止、取消、目标退出或失败。
     std::uint32_t intervalMs = 100;
     bool authorizedOwnedProcess = false; // 调用方根据显式选择和授权给出，不由 PID 或 SID 推断所有权。
 };
@@ -82,8 +82,8 @@ enum class ContentOrigin { Baseline, Unchanged, Changed };
 using Sha256 = std::array<std::uint8_t, 32>;
 
 struct ContentSample {
-    std::uint32_t roundOrdinal = 0;
-    std::uint32_t version = 0; // 在本页及本次 trackingEpoch 内递增；未知间隔后产生新基线。
+    std::uint64_t roundOrdinal = 0;
+    std::uint64_t version = 0; // 在本页及本次 trackingEpoch 内递增；未知间隔后产生新基线。
     QpcWindow readQpc;
     Sha256 sha256{}; // 仅所选页内子范围的完整样本，不代表整个区域或执行时字节。
     ContentOrigin origin = ContentOrigin::Baseline;
@@ -105,7 +105,7 @@ struct PageObservation {
     PageStatus status = PageStatus::QueryFailed;
     std::optional<Mapping> before;
     std::optional<Mapping> after;
-    std::optional<std::uint32_t> mappingGeneration; // 仅可见属性的观测代次，不保证识别同属性重建。
+    std::optional<std::uint64_t> mappingGeneration; // 仅可见属性的观测代次，不保证识别同属性重建。
     Changes changes;
     Issue issue;
     std::optional<Issue> additionalIssue; // 保留读取失败与读后验证失败同时发生的事实。
@@ -118,7 +118,7 @@ struct PageObservation {
 
 struct Round {
     Plan effectivePlan; // 将结果与启动时冻结的样本、目标实例及范围绑定。
-    std::uint32_t ordinal = 0;
+    std::uint64_t ordinal = 0;
     std::uint64_t beginQpc = 0;
     std::optional<std::uint64_t> endQpc;
     std::vector<PageObservation> pages; // 包含各页观测结果，失败页不会丢掉其余已完成结果。
@@ -133,10 +133,10 @@ struct Status {
     std::uint32_t pointerWidth = 0;
     std::uint32_t pageSize = 0;
     std::uint32_t plannedPages = 0;
-    std::uint32_t attemptedRounds = 0;
-    std::uint32_t fullRounds = 0; // 每个范围均得到页观测（不代表全部内容读取成功）。
-    std::uint32_t sampledPages = 0; // 跨轮累计，包含完整字节样本的页观测数。
-    std::uint32_t unavailablePages = 0;
+    std::uint64_t attemptedRounds = 0;
+    std::uint64_t fullRounds = 0; // 每个范围均得到页观测（不代表全部内容读取成功）。
+    std::uint64_t sampledPages = 0; // 跨轮累计，包含完整字节样本的页观测数。
+    std::uint64_t unavailablePages = 0;
     std::uint64_t qpcFrequency = 0;
     std::optional<std::uint64_t> nextDueQpc;
 };
@@ -145,6 +145,8 @@ struct PollResult {
     Status status;
     std::optional<Round> round; // 尚未到期或没有执行本轮时为空。
 };
+
+enum class PollMode { SampleWhenDue, StatusOnly };
 
 // 仅供内部、独立的可信证据适配器提供。供方须先验证原事件、进程实例、线程生存期和实际执行，
 // 不得由公共请求反序列化后直接调用。这里的检查是关联检查，不能把上游声明验证成原生事实。
@@ -175,7 +177,7 @@ struct ExecutionLink {
     std::string trackingEpoch;
     std::uint64_t pageBase = 0;
     Range sampledRange;
-    std::optional<std::uint32_t> mappingGeneration;
+    std::optional<std::uint64_t> mappingGeneration;
     std::optional<ContentSample> before;
     std::optional<ContentSample> after;
     std::optional<ExecutionObservation> evidence; // 两次同代完整采样之间，独立证据确认该 IP 被执行。
@@ -183,7 +185,9 @@ struct ExecutionLink {
 
 // 单所有者串行调用，不开后台线程，不等待轮次间隔。每个对象只接受一次 Begin。
 // Begin 临时借用已选进程的读句柄，独立持有最小权限副本；不会按 PID 重新打开。
-// Poll 只处理一轮；调用者负责在工作通道调度，取消在原生调用之间合作生效。
+// Poll 最多处理一轮，不积存历史轮次；调用者负责调度及输出预算。StatusOnly 仅推进取消/退出，
+// 不读取页面、不改采样时钟；输出恢复后 SampleWhenDue 执行一次新观测，不补采过去的轮次。
+// 取消在页采样之间合作生效，不打断正在执行的原生调用。Stop 必须由同一所有者调用。
 // 终态释放句柄和比较用字节，保留每页最新的可比相邻观测对以供迟到证据关联。
 class PassiveDirtyMemory final {
 public:
@@ -194,7 +198,7 @@ public:
 
     [[nodiscard]] Status Begin(HANDLE selectedProcess, const Plan& plan);
     [[nodiscard]] Status Query() const noexcept;
-    [[nodiscard]] PollResult Poll(const std::atomic_bool* cancel = nullptr);
+    [[nodiscard]] PollResult Poll(const std::atomic_bool* cancel = nullptr, PollMode mode = PollMode::SampleWhenDue);
     [[nodiscard]] Status Stop() noexcept;
     [[nodiscard]] ExecutionLink CorrelateExecution(const ExecutionObservation& observation) const;
 
