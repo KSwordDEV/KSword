@@ -215,6 +215,16 @@
     <ClInclude Include="ActionAnalyze\Rules\AnalysisRun.h" />
     <ClInclude Include="ActionAnalyze\Rules\FilterAst.h" />
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Project">
+    <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectLock.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h" />
+    <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

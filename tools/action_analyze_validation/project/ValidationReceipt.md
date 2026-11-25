@@ -1,0 +1,48 @@
+# 离线项目验证回执
+
+HostX64 Release，MSVC `14.44.35207`，`/W4 /WX`。原生夹具 71 项通过，Python 文件与语义校验通过。此次夹具包含一个未提交的第 5 代，最终可达链为 `6 → 4 → 3 → 2 → 1`。能力为 `cli-offline-project-v1`。
+
+## 已校验夹具文件 SHA-256
+
+```text
+4bae65740c787b0d825837bb934533480dc15996f1afdc176feb5dff191ba573  project.ksaproj
+4ba35886c5e0f02d60be861f65717f0eb0b01f9ed55f7269bcb4b063e56a812e  journal/previous.ksaproj
+21f20e8fb6ae7cec396d42b3714871ba23bb69c476fb235a297e1cf90d778b8d  journal/6.json
+fc0a0f96bec267e21817e113c8374f82d87e0ac20c9bdd0fd7de7a232b5f8787  revisions/ddf36aaa-a3fe-472f-a3e1-307790896c6d.json
+e4d8d593a10dfa8a8174afe656ae5bccd8795550a2bc8628a98761a2a6fc1a26  journal/4.json
+26cfcf46e7e8a0289cf28ac796cd41d7dd64ffceee7dba6ec6ab7e81605c11e4  revisions/a5b39607-be65-4d34-a12c-c81b36ed8cad.json
+95e2c673c21cca1ed5018dde10c1175ff16855a270fc11e2e16e49f8e3797a00  journal/3.json
+72a3743dc89ce0646d2a0b1f9e3c3e3060c5090a710bca1fe789adbdc3f359fc  journal/2.json
+5bc8838d52330e239d0a4140908354610c398696f9e25d979488c51b778c1538  revisions/c53e7743-ffa3-4432-9906-045e40afac90.json
+e6ff00b77c92db8c1797a2e8e210fba2c756b9d48d10ef219bce3d9777355bca  journal/1.json
+e14ff010e2cf81063366a1f1503c239f570d2c340747a9b20b5bbfcf957acaac  catalog/4/manifest.json
+df94b1a4287c05c15aed683b14adcdfb275c26ead1bce995568a1253255eb3f4  catalog/4/1.json
+661b5bf0c35f6765646ad6363dc540b9cb86fff4d619bd829b49e96442d5b83d  samples/3eda1d14-f825-49f2-badc-829588ef6470/sample.json
+a67d234170c3261d66bf70e54e68e66f674c71225b1e9d068e05793432596656  samples/3eda1d14-f825-49f2-badc-829588ef6470/snapshots/4413b79e-2d42-4808-91fc-8f93eda2e29b.json
+df0e4696d6e5f4f224da3844fa321b44b7249dd0a1b98d84e2a581df3f6e5166  samples/502e37a2-c624-40a5-b9a1-81e70bc9237b/sample.json
+66a9f9f6722118ff4fbfd713ec248b283f5d375a93dfdf0f6f057d3d67e6ed34  samples/502e37a2-c624-40a5-b9a1-81e70bc9237b/snapshots/031a9a49-fe50-4a97-a4a1-c13bdb780414.json
+```
+
+## 接入源码 SHA-256
+
+路径相对 `KswordCLI/ActionAnalyze/Project/`。
+
+```text
+913cbbac396c3f7ff094ff2efc9a356f51a9828dd66e815e2de1376a73832c61  ProjectDocument.cpp
+cf4d9d4cfbc6e29bfdd2260dca5d248dab753d061f7d49705a2864e5b4d27b5d  ProjectDocument.h
+464823d45933418436d6482767eeeeb4bfe61a7d26f91264b70ef1a0f217e6d8  ProjectLock.cpp
+88e1fcdf6847883edf9df8a4ea78135286498f7f0e8e089bc33294609789eb50  ProjectLock.h
+ed95cd5ef36c748f8bac1dc0b398deb53e6e7e3ef8938adb6202e988d2406944  ProjectStorage.cpp
+877dfef4f76aaee52a07cb08f9ecd311ce44747b68da710c8a403776354f1130  ProjectStorage.h
+840fc22440ef102f19c4bbd3acda2a8f3eab4fe6ef56c1c71c6f9bbda95c8d64  SampleCatalog.cpp
+bf808bbe1ccd23767f26fcefafde3dba82b09294b83df8993cb725f194400763  SampleCatalog.h
+```
+
+## 独立验证产物 SHA-256
+
+路径相对 `Ksword5.1/x64/Release/`。
+
+```text
+9327f3c18b983c70c999d19e631ee78e9e5b3a6e23cafcf47dba9557b93900b8  ActionAnalyzeProjectValidation.exe
+3245445b1d2dafd53c37ec56ea859e759a28a7f23599bb97002ee0c3988fb886  ActionAnalyzeProjectValidation.pdb
+```

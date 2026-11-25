@@ -103,6 +103,16 @@
     <ClInclude Include="ActionAnalyze\Rules\AnalysisRun.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Rules\FilterAst.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>
+  <ItemGroup Label="ActionAnalyze Project">
+    <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ProjectLock.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="R3NetworkPing.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />
