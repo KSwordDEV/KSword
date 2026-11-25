@@ -201,6 +201,7 @@ def read_repl(child):
 def verify_empty_stop(receipt, segment, reason):
     """核对没有生产记录时的停止及回读，保留原生启动竞态的实际回执。"""
     assert receipt['stopReason'] == reason and receipt['archive']['status'] == 'raw-verified', receipt
+    assert receipt['archive']['checkpoint'] == {'status': 'verified', 'error': None}, receipt
     source = receipt['source']
     assert source['nativeSessionStopped'] and source['enqueued'] == '0', receipt
     if not source['processAttempted'] or source['processWin32Error'] not in (0, 1223):
@@ -210,6 +211,47 @@ def verify_empty_stop(receipt, segment, reason):
     assert rows[0] == (receipt['plan'], b''), rows[0]
     assert rows[-1] == ({'kind': 'etw-capture-end-v1', 'stopReason': reason, 'source': source}, b''), rows[-1]
     assert segment.stat().st_size == int(receipt['archive']['flushedBytes']), receipt
+
+
+def verify_checkpoint(reader, query, capture, segment):
+    """核对跨流前缀、坏尾，以及未发布或损坏的提交。"""
+    sample = segment.parents[1]
+    marker = sample / 'checkpoints' / '00000000000000000001.json'
+    records = sample / 'records' / segment.name
+    checkpoint = json.loads(marker.read_bytes())
+    assert checkpoint['kind'] == 'etw-terminal-checkpoint-v1' and checkpoint['sampleId'] == query['sampleId']
+    assert checkpoint['projectId'] == query['projectId'] and checkpoint['generation'] == '1'
+    sample_doc = sample / 'sample.json'
+    assert checkpoint['descriptionHash'] == hashlib.sha256(sample_doc.read_bytes()).hexdigest()
+    for name, path in (('raw', segment), ('records', records)):
+        prefix = path.read_bytes()
+        assert checkpoint[name]['endOffset'] == str(len(prefix))
+        assert checkpoint[name]['sha256'] == hashlib.sha256(prefix).hexdigest()
+
+    expected_failure = {'status': 'invalid', 'checkpoint': 'invalid'}
+
+    def alter(path, edited, request_id, expected):
+        saved = path.read_bytes()
+        try:
+            if edited is None:
+                path.unlink()
+            else:
+                path.write_bytes(edited(saved))
+            actual = call(reader, request_id, 'sample.query', query)['captureArchive']
+            assert actual == expected, actual
+        finally:
+            path.write_bytes(saved)
+
+    # 这几种只读错误不改变冻结配置。完整 checkpoint 始终只验证已公布前缀。
+    alter(segment, lambda bytes_: bytes_ + b'torn tail', 'checkpoint-raw-tail', capture)
+    alter(records, lambda bytes_: bytes_ + b'torn tail', 'checkpoint-records-tail', capture)
+    alter(records, None, 'checkpoint-missing-records', expected_failure)
+    alter(records, lambda bytes_: bytes_[:-1], 'checkpoint-short-records', expected_failure)
+    alter(marker, lambda _: json.dumps(dict(checkpoint, sampleId=query['projectId'])).encode(),
+          'checkpoint-wrong-sample', expected_failure)
+    alter(marker, lambda _: json.dumps(dict(checkpoint, raw=dict(checkpoint['raw'], sha256='0' * 64))).encode(),
+          'checkpoint-wrong-raw-hash', expected_failure)
+    alter(marker, None, 'checkpoint-not-published', {key: value for key, value in capture.items() if key != 'checkpoint'})
 
 
 def run(readback=(), inspect_gui=None, validate=None):
@@ -263,6 +305,7 @@ def run(readback=(), inspect_gui=None, validate=None):
         stop_fields = dict(owner, expected={'stateRevision': current['stateRevision']})
         stopped = call(cli, 'stop', 'session.stop', {}, **stop_fields)
         assert stopped['capture'] == 'stopped' and stopped['archive']['status'] == 'raw-verified', stopped
+        assert stopped['archive']['checkpoint'] == {'status': 'verified', 'error': None}, stopped
         assert stopped['source']['nativeSessionStopped'] and stopped['source']['queueDropped'] == '0', stopped
         assert call(cli, 'stop', 'session.stop', {}, **stop_fields) == stopped
         close_fields = dict(owner, expected={'stateRevision': stopped['stateRevision']})
@@ -308,6 +351,7 @@ def run(readback=(), inspect_gui=None, validate=None):
         capture = call(reader, 'sample-capture', 'sample.query', dict(selected, includeCapture=True))['captureArchive']
         assert capture == {
             'status': 'readback-verified', 'segmentOrdinal': '1', 'checkedBytes': stopped['archive']['flushedBytes'],
+            'checkpoint': 'verified',
             'observationCount': '12', 'plan': {key: plan[key] for key in
                                               ('providerId', 'sourceEpoch', 'headerPid', 'processCreationFileTime')},
             'terminal': {'stopReason': terminal['stopReason'], 'nativeSessionStopped': True},
@@ -321,10 +365,11 @@ def run(readback=(), inspect_gui=None, validate=None):
         try:
             segment.write_bytes(original_bytes[:-1])
             damaged = call(reader, 'sample-capture-short', 'sample.query', dict(selected, includeCapture=True))
-            assert damaged['captureArchive'] == {'status': 'invalid'}, damaged
+            assert damaged['captureArchive'] == {'status': 'invalid', 'checkpoint': 'invalid'}, damaged
             assert damaged['frozenSettings'] == descriptor['frozenSettings'], damaged
         finally:
             segment.write_bytes(original_bytes)
+        verify_checkpoint(reader, dict(selected, includeCapture=True), capture, segment)
 
         events = [(row, data) for row, data in rows[1:-1] if row['descriptor']['id'] in {1, 2}]
         assert len(events) == 12, events

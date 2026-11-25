@@ -12,6 +12,8 @@ enum class StreamKind : std::uint32_t;
 struct SegmentInspection;
 struct RawEvidenceReceipt;
 struct RawEvidenceScanResult;
+struct RawEvidenceBoundary;
+struct EtwCoverageV1;
 }
 
 namespace Ksword::ActionAnalyze {
@@ -19,6 +21,7 @@ namespace Ksword::ActionAnalyze {
 namespace ProjectStorage { struct Directory; }
 struct ProjectRawEvidenceWrite;
 struct ProjectRawEvidenceRead;
+struct ProjectEtwCheckpoint;
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
@@ -111,7 +114,11 @@ public:
     ProjectResult WriteRawEvidenceSegment(const ProjectRawEvidenceWrite& request,
         ks::cli::action_analyze::archive::RawEvidenceReceipt& out);
     ProjectResult ReadRawEvidenceSegment(const ProjectRawEvidenceRead& request,
-        ks::cli::action_analyze::archive::RawEvidenceScanResult& out) const;
+        ks::cli::action_analyze::archive::RawEvidenceScanResult& out, std::string* prefixHash = nullptr) const;
+    ProjectResult PublishEtwCheckpoint(std::string_view sampleId,
+        const ks::cli::action_analyze::archive::RawEvidenceBoundary& rawEnd,
+        const ks::cli::action_analyze::archive::EtwCoverageV1& coverage, ProjectEtwCheckpoint& out);
+    ProjectResult ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out) const;
     // 显式扫描未纳入当前目录的样本目录名，返回尚待核验的孤立候选 ID。
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 

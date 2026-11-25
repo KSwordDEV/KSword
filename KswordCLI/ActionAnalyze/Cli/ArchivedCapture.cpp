@@ -1,5 +1,6 @@
 #include "ArchivedCapture.h"
 
+#include "../Project/ProjectEtwCheckpoint.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
@@ -13,9 +14,11 @@ constexpr std::uint64_t kCaptureFileLimit = 4u << 20; // 覆盖此版本单个�
 constexpr std::uint64_t kObservationLimit = 512; // 采集器每轮最多留存的观察数。
 
 // 单独报告读取状态。缺失、格式不适用、损坏和限额均可与冻结设置同时返回。
-V Status(const char* status)
+V Status(const char* status, const char* checkpoint = nullptr)
 {
-    return Object({{"status", Text(status)}});
+    JsonObject fields{{"status", Text(status)}};
+    if (checkpoint) fields.emplace_back("checkpoint", Text(checkpoint));
+    return Object(std::move(fields));
 }
 
 struct Capture {
@@ -63,10 +66,16 @@ JsonValue ReadArchivedCapture(const Ksword::ActionAnalyze::ProjectDocument& proj
                               const Ksword::ActionAnalyze::SampleRecord& sample)
 {
     using namespace Ksword::ActionAnalyze;
+    ProjectEtwCheckpoint checkpoint;
+    const auto checkpointStatus = project.ReadEtwCheckpoint(sample.info.sampleId, checkpoint);
+    if (!checkpointStatus && checkpointStatus.error != ProjectError::NotFound) {
+        return Status("invalid", "invalid");
+    }
     Capture capture; // 同一次扫描内核对计划、观察和结束记录。
     bool recognized = false; // 首条记录是否声明此版本 ETW 计划。
     archive::RawEvidenceScanResult scan; // 段身份、CRC、序号和完整端点回执。
-    const ProjectRawEvidenceRead request{project.Info()->projectId, sample.info.sampleId, 1, {}, 0,
+    const auto endOffset = checkpointStatus ? std::optional(checkpoint.raw.end.byteOffset) : std::nullopt;
+    const ProjectRawEvidenceRead request{project.Info()->projectId, sample.info.sampleId, 1, endOffset, 0,
         [&](const archive::SegmentIdentity&, const archive::BlockInfo&, const std::vector<archive::DecodedRecord>& records) {
             for (const auto& record : records) {
                 // Raw 扫描已确认正文类型，解析视图仅在本块回调中使用。
@@ -99,7 +108,9 @@ JsonValue ReadArchivedCapture(const Ksword::ActionAnalyze::ProjectDocument& proj
             return true;
         }, kCaptureFileLimit};
 
-    const auto result = project.ReadRawEvidenceSegment(request, scan); // 固定路径及同句柄只读扫描。
+    std::string rawHash;
+    const auto result = project.ReadRawEvidenceSegment(request, scan, checkpointStatus ? &rawHash : nullptr);
+    if (checkpointStatus && (!result || rawHash != checkpoint.raw.sha256)) return Status("invalid", "invalid");
     if (!result) {
         switch (result.error) {
         case ProjectError::NotFound: return Status("missing");
@@ -115,11 +126,13 @@ JsonValue ReadArchivedCapture(const Ksword::ActionAnalyze::ProjectDocument& proj
     }
 
     // 只报告本次读到的完整段及归档声明，历史采样不会恢复任何会话状态。
-    return Object({{"status", Text("readback-verified")}, {"segmentOrdinal", Number(1)},
+    JsonObject fields{{"status", Text("readback-verified")}, {"segmentOrdinal", Number(1)},
         {"checkedBytes", Number(scan.checked->byteOffset)}, {"observationCount", Number(capture.observations)},
         {"plan", Object({{"providerId", Text(capture.providerId)}, {"sourceEpoch", Text(capture.sourceEpoch)},
             {"headerPid", V::makeUInt(capture.headerPid)}, {"processCreationFileTime", Number(capture.creationTime)}})},
-        {"terminal", Object({{"stopReason", Text(capture.reason)}, {"nativeSessionStopped", V::makeBool(capture.nativeStopped)}})}});
+        {"terminal", Object({{"stopReason", Text(capture.reason)}, {"nativeSessionStopped", V::makeBool(capture.nativeStopped)}})}};
+    if (checkpointStatus) fields.emplace_back("checkpoint", Text("verified"));
+    return Object(std::move(fields));
 }
 
 } // namespace ks::cli::action_analyze

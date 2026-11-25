@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/etw-coverage-v1.schema.json",
+  "title": "ActionAnalyze Stored v1 passive ETW coverage body",
+  "description": "A capture coverage summary for one passive ETW provider and source epoch. This record carries raw references and reported losses. The checkpoint reader validates the references against the committed raw segment in the same project and sample.",
+  "$comment": "The body is a strict UTF-8 JSON object of at most 1024 bytes without a BOM. Apply the u64 numeric bound and require endRawSequence > planRawSequence and observationCount = endRawSequence - planRawSequence - 1. The two endpoints identify the raw plan and terminal records. Observations occupy the exclusive interval between them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "providerId", "sourceEpoch", "rawSegmentOrdinal", "planRawSequence", "endRawSequence",
+    "observationCount", "eventsLost", "logBuffersLost", "realTimeBuffersLost", "queueDropped",
+    "payloadTruncated", "malformedPayload"
+  ],
+  "properties": {
+    "kind": { "const": "etw-coverage-v1" },
+    "providerId": { "$ref": "#/$defs/nonzeroUuid" },
+    "sourceEpoch": { "$ref": "#/$defs/nonzeroUuid" },
+    "rawSegmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+    "planRawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+    "endRawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+    "observationCount": { "$ref": "value.schema.json#/$defs/u64" },
+    "eventsLost": { "$ref": "#/$defs/nullableNativeCount" },
+    "logBuffersLost": { "$ref": "#/$defs/nullableNativeCount" },
+    "realTimeBuffersLost": { "$ref": "#/$defs/nullableNativeCount" },
+    "queueDropped": { "$ref": "value.schema.json#/$defs/u64" },
+    "payloadTruncated": { "$ref": "value.schema.json#/$defs/u64" },
+    "malformedPayload": { "$ref": "value.schema.json#/$defs/u64" }
+  },
+  "if": { "properties": { "eventsLost": { "type": "null" } } },
+  "then": { "properties": { "logBuffersLost": { "type": "null" }, "realTimeBuffersLost": { "type": "null" } } },
+  "else": {
+    "properties": {
+      "logBuffersLost": { "$ref": "value.schema.json#/$defs/u32" },
+      "realTimeBuffersLost": { "$ref": "value.schema.json#/$defs/u32" }
+    }
+  },
+  "$defs": {
+    "nonzeroUuid": {
+      "$ref": "value.schema.json#/$defs/uuid",
+      "not": { "const": "00000000-0000-0000-0000-000000000000" }
+    },
+    "nullableNativeCount": {
+      "description": "A null value indicates unavailable STOP statistics. Zero is a known count.",
+      "anyOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "type": "null" }]
+    }
+  }
+}

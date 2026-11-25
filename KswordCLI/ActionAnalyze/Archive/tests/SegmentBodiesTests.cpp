@@ -2,6 +2,7 @@
 #include "../SegmentWriter.h"
 
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <windows.h>
@@ -208,6 +209,160 @@ void TestSynthetic(const std::filesystem::path& path)
     std::cout << "PASS " << std::size(jsonCases) + 4 << " bounded body cases with prefix checks\n";
 }
 
+void TestEtwCoverage(const std::filesystem::path& path)
+{
+    constexpr std::string_view golden =
+        R"({"kind":"etw-coverage-v1","providerId":"12345678-9abc-4def-8123-456789abcdef",)"
+        R"("sourceEpoch":"fedcba98-7654-4321-a234-56789abcdef0","rawSegmentOrdinal":"1",)"
+        R"("planRawSequence":"1","endRawSequence":"2","observationCount":"0","eventsLost":null,)"
+        R"("logBuffersLost":null,"realTimeBuffersLost":null,"queueDropped":"0",)"
+        R"("payloadTruncated":"0","malformedPayload":"0"})";
+    const archive::EtwCoverageV1 zero{"12345678-9abc-4def-8123-456789abcdef",
+        "fedcba98-7654-4321-a234-56789abcdef0", 1, 1, 2, 0, {}, {}, {}, 0, 0, 0};
+    const auto payloadText = [](const std::vector<std::uint8_t>& bytes) {
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    };
+    std::vector<std::uint8_t> payload;
+    Check(archive::EncodeEtwCoverageV1(zero, payload) == BodyIssue::None && payloadText(payload) == golden,
+          "ETW Coverage v1 golden payload");
+    const auto goldenPayload = payload;
+    auto decoded = zero;
+    decoded.endRawSequence = 9;
+    Check(archive::DecodeEtwCoverageV1(golden, decoded) == BodyIssue::None &&
+          decoded.endRawSequence == 2 && !decoded.eventsLost && !decoded.logBuffersLost && !decoded.realTimeBuffersLost,
+          "zero observations and unknown STOP counters");
+
+    // 上界用例验证序号差值无溢出，系统已知零不与 null 混同。
+    auto known = zero;
+    known.rawSegmentOrdinal = UINT64_MAX;
+    known.planRawSequence = UINT64_MAX - 2;
+    known.endRawSequence = UINT64_MAX;
+    known.observationCount = 1;
+    known.eventsLost = 0;
+    known.logBuffersLost = UINT32_MAX;
+    known.realTimeBuffersLost = 3;
+    known.queueDropped = UINT64_MAX;
+    known.payloadTruncated = 5;
+    known.malformedPayload = 7;
+    Check(archive::EncodeEtwCoverageV1(known, payload) == BodyIssue::None &&
+          archive::DecodeEtwCoverageV1(payloadText(payload), decoded) == BodyIssue::None &&
+          decoded.providerId == known.providerId && decoded.sourceEpoch == known.sourceEpoch &&
+          decoded.rawSegmentOrdinal == known.rawSegmentOrdinal && decoded.planRawSequence == known.planRawSequence &&
+          decoded.endRawSequence == known.endRawSequence && decoded.observationCount == known.observationCount &&
+          decoded.eventsLost == known.eventsLost && decoded.logBuffersLost == known.logBuffersLost &&
+          decoded.realTimeBuffersLost == known.realTimeBuffersLost && decoded.queueDropped == known.queueDropped &&
+          decoded.payloadTruncated == known.payloadTruncated && decoded.malformedPayload == known.malformedPayload,
+          "lossless ETW coverage round trip");
+    auto invalid = known;
+    invalid.realTimeBuffersLost.reset();
+    const auto before = payload;
+    Check(archive::EncodeEtwCoverageV1(invalid, payload) == BodyIssue::CoverageFields && payload == before,
+          "encoder preserves output on invalid known counters");
+    invalid = zero;
+    invalid.endRawSequence = invalid.planRawSequence;
+    Check(archive::EncodeEtwCoverageV1(invalid, payload) == BodyIssue::CoverageFields && payload == before,
+          "encoder rejects an empty endpoint interval");
+
+    const auto replace = [&](std::string_view find, std::string_view value) {
+        std::string text(golden);
+        const auto offset = text.find(find);
+        Check(offset != text.npos, "missing golden substitution token");
+        text.replace(offset, find.size(), value);
+        return text;
+    };
+    const std::pair<std::string, BodyIssue> cases[] = {
+        {replace(R"("kind":"etw-coverage-v1")", R"("kind":"other-coverage-v1")"), BodyIssue::UnsupportedKind},
+        {replace(R"("kind":"etw-coverage-v1",)", ""), BodyIssue::UnsupportedKind},
+        {replace(R"("providerId":)", R"("extra":null,"providerId":)"), BodyIssue::CoverageFields},
+        {replace(R"(,"malformedPayload":"0")", ""), BodyIssue::CoverageFields},
+        {replace(R"("queueDropped":"0")", R"("queueDropped":"18446744073709551616")"), BodyIssue::CoverageFields},
+        {replace(R"("queueDropped":"0")", R"("queueDropped":"00")"), BodyIssue::CoverageFields},
+        {replace(R"("payloadTruncated":"0")", R"("payloadTruncated":0)"), BodyIssue::CoverageFields},
+        {replace(R"("rawSegmentOrdinal":"1")", R"("rawSegmentOrdinal":"0")"), BodyIssue::CoverageFields},
+        {replace(R"("planRawSequence":"1")", R"("planRawSequence":"3")"), BodyIssue::CoverageFields},
+        {replace(R"("observationCount":"0")", R"("observationCount":"1")"), BodyIssue::CoverageFields},
+        {replace(R"("eventsLost":null)", R"("eventsLost":0)"), BodyIssue::CoverageFields},
+        {replace(R"("eventsLost":null)", R"("eventsLost":"0")"), BodyIssue::CoverageFields},
+        {replace(R"("eventsLost":null)", R"("eventsLost":4294967296)"), BodyIssue::Json},
+        {replace(R"("eventsLost":null,"logBuffersLost":null,"realTimeBuffersLost":null)",
+                 R"("eventsLost":-0,"logBuffersLost":0,"realTimeBuffersLost":0)"), BodyIssue::None},
+        {replace("12345678-9abc-4def-8123-456789abcdef", "12345678-9Abc-4def-8123-456789abcdef"), BodyIssue::CoverageFields},
+        {replace("fedcba98-7654-4321-a234-56789abcdef0", "00000000-0000-0000-0000-000000000000"), BodyIssue::CoverageFields},
+        {replace(R"("queueDropped":"0")", R"("queueDropped":"0","\u0071ueueDropped":"0")"), BodyIssue::Json},
+        {replace("12345678-9abc-4def-8123-456789abcdef", "\xc0\x80"), BodyIssue::Json},
+        {replace("fedcba98-7654-4321-a234-56789abcdef0", R"(\uD800)"), BodyIssue::Json},
+        {"\xef\xbb\xbf" + std::string(golden), BodyIssue::Json},
+        {std::string(golden) + "Unexpected tail", BodyIssue::Json},
+        {std::string(golden) + std::string(archive::kMaxEtwCoverageV1Bytes - golden.size(), ' '), BodyIssue::None},
+        {std::string(golden) + std::string(archive::kMaxEtwCoverageV1Bytes - golden.size() + 1, ' '), BodyIssue::Length},
+    };
+    for (const auto& [json, issue] : cases) {
+        decoded.observationCount = UINT64_MAX;
+        Check(archive::DecodeEtwCoverageV1(json, decoded) == issue, "ETW coverage strict payload case");
+        Check(decoded.observationCount == (issue == BodyIssue::None ? 0 : UINT64_MAX),
+              "ETW coverage decoder assignment boundary");
+    }
+
+    const auto scan = [&](std::string_view json, std::uint32_t flags,
+                          archive::StreamKind stream, BodyIssue issue, bool expectTyped) {
+        auto identity = kIdentity;
+        identity.stream = stream;
+        archive::SegmentWriter writer(path, {identity, 0});
+        const auto record = [](std::string_view body, std::uint32_t recordFlags, std::uint64_t seq) {
+            return archive::StoredRecord{archive::kCoverageRecordType, 1, recordFlags, seq,
+                std::vector<std::uint8_t>(body.begin(), body.end())};
+        };
+        const archive::StoredRecord first{archive::kCoverageRecordType, 1, archive::kRequiredRecord, 1, goldenPayload};
+        Check(writer.AppendBlock({first}).status == archive::SegmentWriteStatus::Ok,
+              "append baseline coverage block");
+        const auto firstEnd = writer.WrittenBytes();
+        Check(writer.AppendBlock({record(json, flags, 2)}).status == archive::SegmentWriteStatus::Ok,
+              "append tested coverage block");
+        const auto fullEnd = writer.WrittenBytes();
+        Check(writer.Flush().status == archive::SegmentWriteStatus::Ok &&
+              writer.Close().status == archive::SegmentWriteStatus::Ok, "finish coverage blocks");
+        {
+            const File file(path);
+            std::uint64_t visited = 0;
+            const auto result = archive::ScanOpenSegmentBodies(file.handle, identity, std::nullopt,
+                [&](const auto&, const auto&, const auto& records) {
+                    Check(records.size() == 1 && records.front().recordSequence == ++visited, "coverage block order");
+                    const auto* coverage = std::get_if<archive::EtwCoverageV1>(&records.front().body);
+                    const bool typed = visited == 1 ? stream == archive::StreamKind::Records : expectTyped;
+                    Check((coverage != nullptr) == typed, "coverage body dispatch");
+                    if (coverage) {
+                        Check(coverage->providerId == zero.providerId && coverage->endRawSequence == zero.endRawSequence,
+                              "projected coverage data");
+                    }
+                    return true;
+                });
+            const bool ok = issue == BodyIssue::None;
+            Check(result.framing.status == SegmentScanStatus::FramingComplete && result.framing.framedBytes == fullEnd &&
+                  !result.framing.interpretedBytes && result.bodyFailure.issue == issue && visited == (ok ? 2u : 1u) &&
+                  result.bodyCheckedBytes == (ok ? fullEnd : firstEnd), "coverage checked prefix versus framing");
+            if (!ok) {
+                Check(result.bodyFailure.recordType == archive::kCoverageRecordType &&
+                      result.bodyFailure.recordOffset == firstEnd + archive::kBlockHeaderBytes, "coverage failure location");
+            }
+            const unsigned baselineOpaque = stream == archive::StreamKind::Records ? 0u : 1u;
+            const bool opaque = ok && !expectTyped;
+            Check(result.opaqueRequiredRecords == baselineOpaque + (opaque && flags != 0 ? 1u : 0u) &&
+                  result.opaqueOptionalRecords == (opaque && flags == 0 ? 1u : 0u), "opaque coverage record counts");
+        }
+        Check(DeleteFileW(path.c_str()) != 0, "clean coverage test segment");
+    };
+    const auto stream = archive::StreamKind::Records;
+    const auto required = archive::kRequiredRecord;
+    scan(golden, required, stream, BodyIssue::None, true);
+    scan(golden, 0, stream, BodyIssue::CoverageFlags, false);
+    scan(golden, required, archive::StreamKind::Raw, BodyIssue::None, false);
+    scan(R"({"kind":"etw-coverage-v2"})", required, stream, BodyIssue::None, false);
+    scan(R"({"kind":"other-coverage-v1"})" + std::string(1024, ' '), 0, stream, BodyIssue::None, false);
+    scan(R"({"kind":"etw-coverage-v1"})", required, stream, BodyIssue::CoverageFields, false);
+    scan(std::string(golden) + std::string(1024, ' '), required, stream, BodyIssue::Length, false);
+    std::cout << "PASS ETW coverage golden payload, " << std::size(cases) << " strict cases and 7 Stored scan cases\n";
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -217,7 +372,9 @@ int main(int argc, char** argv)
             TestVector(argv[2], argv[3]);
         } else {
             Check(argc == 2, "pass a fixed scratch directory");
-            TestSynthetic(std::filesystem::path(argv[1]) / "body-synthetic.ksaseg");
+            const auto path = std::filesystem::path(argv[1]) / "body-synthetic.ksaseg";
+            TestSynthetic(path);
+            TestEtwCoverage(path);
         }
         return 0;
     } catch (const std::exception& error) {

@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cstring>
 #include <iterator>
+#include <utility>
 #include <windows.h>
 
 namespace ks::cli::action_analyze::archive {
@@ -21,6 +22,7 @@ constexpr std::uint32_t kEventValidityMask = 2047;
 constexpr std::size_t kMaxJsonBytes = 4u * 1024u * 1024u;
 constexpr std::size_t kMaxJsonDepth = 32;
 constexpr std::size_t kMaxJsonStringBytes = 64u * 1024u;
+constexpr char kEtwCoverageKind[] = "etw-coverage-v1";
 
 bool IsDigit(char ch) noexcept
 {
@@ -72,23 +74,30 @@ bool ValidJsonTokens(std::string_view json) noexcept
     return true;
 }
 
-BodyIssue CheckJson(std::string_view json)
+BodyIssue CheckJson(std::string_view json, evidence::JsonValue* out = nullptr,
+                    std::size_t maxBytes = kMaxJsonBytes)
 {
-    if (json.empty() || json.size() > kMaxJsonBytes || json.substr(0, 3) == "\xef\xbb\xbf" ||
+    if (json.empty() || json.size() > maxBytes || json.substr(0, 3) == "\xef\xbb\xbf" ||
         MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, json.data(), static_cast<int>(json.size()), nullptr, 0) == 0 ||
         !ValidJsonTokens(json)) {
         return BodyIssue::Json;
     }
     evidence::JsonLimits limits;
-    limits.maxTotalBytes = kMaxJsonBytes;
+    limits.maxTotalBytes = maxBytes;
     limits.maxDepth = kMaxJsonDepth;
     limits.maxStringBytes = kMaxJsonStringBytes;
     limits.maxTotalNodes = std::min(limits.maxTotalNodes, limits.maxEstimatedNodeBytes / sizeof(evidence::JsonValue));
-    const auto parsed = evidence::ParseJson(json, limits);
+    auto parsed = evidence::ParseJson(json, limits);
     if (parsed.status == evidence::JsonParseStatus::NodeLimit) {
         return BodyIssue::JsonBudget;
     }
-    return parsed.ok() && parsed.value.asObject() ? BodyIssue::None : BodyIssue::Json;
+    if (!parsed.ok() || !parsed.value.asObject()) {
+        return BodyIssue::Json;
+    }
+    if (out) {
+        *out = std::move(parsed.value);
+    }
+    return BodyIssue::None;
 }
 
 std::string_view JsonView(const std::uint8_t* data, std::size_t size) noexcept
@@ -181,7 +190,105 @@ BodyIssue DecodeEvent(const RecordView& record, RecordBody& body)
     return BodyIssue::None;
 }
 
-BodyIssue Decode(const RecordView& record, RecordBody& body)
+bool IsSourceUuid(std::string_view text) noexcept
+{
+    if (text.size() != 36 || text == "00000000-0000-0000-0000-000000000000") {
+        return false;
+    }
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        const bool separator = i == 8 || i == 13 || i == 18 || i == 23;
+        if (separator ? ch != '-' : (!IsDigit(ch) && (ch < 'a' || ch > 'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidEtwCoverage(const EtwCoverageV1& coverage) noexcept
+{
+    return IsSourceUuid(coverage.providerId) && IsSourceUuid(coverage.sourceEpoch) &&
+        coverage.rawSegmentOrdinal != 0 && coverage.planRawSequence != 0 &&
+        coverage.endRawSequence > coverage.planRawSequence &&
+        coverage.observationCount == coverage.endRawSequence - coverage.planRawSequence - 1 &&
+        coverage.eventsLost.has_value() == coverage.logBuffersLost.has_value() &&
+        coverage.eventsLost.has_value() == coverage.realTimeBuffersLost.has_value();
+}
+
+bool ReadText(const evidence::JsonValue& object, const char* key, std::string& out)
+{
+    const auto* value = object.find(key);
+    return value && value->tryGetString(out);
+}
+
+bool ReadDecimal(const evidence::JsonValue& object, const char* key, std::uint64_t& out)
+{
+    std::string digits;
+    if (!ReadText(object, key, digits) || digits.empty() || digits.size() > 20 ||
+        (digits.size() > 1 && digits.front() == '0') || !IsDigit(digits.front())) {
+        return false;
+    }
+    const auto end = digits.data() + digits.size();
+    const auto parsed = std::from_chars(digits.data(), end, out);
+    return parsed.ec == std::errc{} && parsed.ptr == end;
+}
+
+bool ReadNativeCount(const evidence::JsonValue& object, const char* key, std::optional<std::uint32_t>& out)
+{
+    const auto* value = object.find(key);
+    if (!value) {
+        return false;
+    }
+    if (value->isNull()) {
+        out.reset();
+        return true;
+    }
+    std::uint64_t number = 0;
+    if (value->type() == evidence::JsonType::String || !value->tryGetU64(number) || number > UINT32_MAX) {
+        return false;
+    }
+    out = static_cast<std::uint32_t>(number);
+    return true;
+}
+
+BodyIssue DecodeEtwCoverage(std::string_view json, std::size_t parseLimit, EtwCoverageV1& out)
+{
+    evidence::JsonValue object;
+    if (const auto issue = CheckJson(json, &object, parseLimit); issue != BodyIssue::None) {
+        return issue;
+    }
+
+    std::string kind;
+    if (!ReadText(object, "kind", kind) || kind != kEtwCoverageKind) {
+        return BodyIssue::UnsupportedKind;
+    }
+    if (json.size() > kMaxEtwCoverageV1Bytes) {
+        return BodyIssue::Length;
+    }
+
+    // 已拒绝重复键。核对成员数量和全部必填字段即可排除附加字段。
+    EtwCoverageV1 coverage;
+    if (object.asObject()->size() != 13 ||
+        !ReadText(object, "providerId", coverage.providerId) ||
+        !ReadText(object, "sourceEpoch", coverage.sourceEpoch) ||
+        !ReadDecimal(object, "rawSegmentOrdinal", coverage.rawSegmentOrdinal) ||
+        !ReadDecimal(object, "planRawSequence", coverage.planRawSequence) ||
+        !ReadDecimal(object, "endRawSequence", coverage.endRawSequence) ||
+        !ReadDecimal(object, "observationCount", coverage.observationCount) ||
+        !ReadNativeCount(object, "eventsLost", coverage.eventsLost) ||
+        !ReadNativeCount(object, "logBuffersLost", coverage.logBuffersLost) ||
+        !ReadNativeCount(object, "realTimeBuffersLost", coverage.realTimeBuffersLost) ||
+        !ReadDecimal(object, "queueDropped", coverage.queueDropped) ||
+        !ReadDecimal(object, "payloadTruncated", coverage.payloadTruncated) ||
+        !ReadDecimal(object, "malformedPayload", coverage.malformedPayload) ||
+        !ValidEtwCoverage(coverage)) {
+        return BodyIssue::CoverageFields;
+    }
+    out = std::move(coverage);
+    return BodyIssue::None;
+}
+
+BodyIssue Decode(const RecordView& record, StreamKind stream, RecordBody& body)
 {
     if (record.schemaVersion == 1) {
         if (record.type == kRawRecord) {
@@ -189,6 +296,21 @@ BodyIssue Decode(const RecordView& record, RecordBody& body)
         }
         if (record.type == kCanonicalEvent) {
             return DecodeEvent(record, body);
+        }
+        if (record.type == kCoverageRecordType && stream == StreamKind::Records) {
+            EtwCoverageV1 coverage;
+            // 用 A0 JSON 上限识别 kind。确认 ETW 后才应用其专用字节上限。
+            const auto issue = DecodeEtwCoverage(JsonView(record.payload, record.payloadBytes), kMaxJsonBytes, coverage);
+            if (issue == BodyIssue::UnsupportedKind) {
+                return BodyIssue::None;
+            }
+            if (issue != BodyIssue::None) {
+                return issue;
+            }
+            if ((record.flags & kRequiredRecord) == 0) {
+                return BodyIssue::CoverageFlags;
+            }
+            body = std::move(coverage);
         }
     }
     return BodyIssue::None;
@@ -220,6 +342,47 @@ BodyIssue EncodeRawRecordV1(std::string_view metadataJson, std::string_view inli
     return BodyIssue::None;
 }
 
+BodyIssue EncodeEtwCoverageV1(const EtwCoverageV1& coverage, std::vector<std::uint8_t>& out)
+{
+    if (!ValidEtwCoverage(coverage)) {
+        return BodyIssue::CoverageFields;
+    }
+
+    using V = evidence::JsonValue;
+    const auto decimal = [](std::uint64_t value) { return V::makeU64Text(value, evidence::U64Format::Decimal); };
+    const auto nativeCount = [](std::optional<std::uint32_t> value) {
+        return value ? V::makeUInt(*value) : V::makeNull();
+    };
+    const auto json = evidence::WriteJson(V::makeObject({
+        {"kind", V::makeString(kEtwCoverageKind)},
+        {"providerId", V::makeString(coverage.providerId)},
+        {"sourceEpoch", V::makeString(coverage.sourceEpoch)},
+        {"rawSegmentOrdinal", decimal(coverage.rawSegmentOrdinal)},
+        {"planRawSequence", decimal(coverage.planRawSequence)},
+        {"endRawSequence", decimal(coverage.endRawSequence)},
+        {"observationCount", decimal(coverage.observationCount)},
+        {"eventsLost", nativeCount(coverage.eventsLost)},
+        {"logBuffersLost", nativeCount(coverage.logBuffersLost)},
+        {"realTimeBuffersLost", nativeCount(coverage.realTimeBuffersLost)},
+        {"queueDropped", decimal(coverage.queueDropped)},
+        {"payloadTruncated", decimal(coverage.payloadTruncated)},
+        {"malformedPayload", decimal(coverage.malformedPayload)},
+    }));
+    if (json.size() > kMaxEtwCoverageV1Bytes) {
+        return BodyIssue::Length;
+    }
+    out.assign(json.begin(), json.end());
+    return BodyIssue::None;
+}
+
+BodyIssue DecodeEtwCoverageV1(std::string_view json, EtwCoverageV1& out)
+{
+    if (json.size() > kMaxEtwCoverageV1Bytes) {
+        return BodyIssue::Length;
+    }
+    return DecodeEtwCoverage(json, kMaxEtwCoverageV1Bytes, out);
+}
+
 SegmentBodyScanResult ScanOpenSegmentBodies(void* fileHandle, const SegmentIdentity& expectedIdentity,
                                             std::optional<std::uint64_t> endOffset, const SegmentBodyVisitor& visitor)
 {
@@ -238,7 +401,7 @@ SegmentBodyScanResult ScanOpenSegmentBodies(void* fileHandle, const SegmentIdent
         for (const auto& record : records) {
             const bool isRequired = (record.flags & kRequiredRecord) != 0;
             RecordBody body;
-            if (const auto issue = Decode(record, body); issue != BodyIssue::None) {
+            if (const auto issue = Decode(record, expectedIdentity.stream, body); issue != BodyIssue::None) {
                 result.bodyFailure = {issue, record.type, record.offset};
                 return true;
             }

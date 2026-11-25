@@ -104,9 +104,11 @@ ProjectResult ProjectDocument::WriteRawEvidenceSegment(const ProjectRawEvidenceW
 }
 
 ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRead& request,
-                                                      Archive::RawEvidenceScanResult& out) const
+                                                       Archive::RawEvidenceScanResult& out,
+                                                       std::string* prefixHash) const
 {
     out = {};
+    if (prefixHash) prefixHash->clear();
     const auto* root = RootForRead();
     if (!root) {
         return Failure(ProjectError::NotOpen, "project");
@@ -129,7 +131,8 @@ ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRe
         return status;
     }
     ProjectStorage::Handle file;
-    const DWORD share = request.endOffset ? FILE_SHARE_READ | FILE_SHARE_WRITE : FILE_SHARE_READ;
+    // 校验散列时从同一禁止写入及删除的句柄扫描与散列前缀。
+    const DWORD share = request.endOffset && !prefixHash ? FILE_SHARE_READ | FILE_SHARE_WRITE : FILE_SHARE_READ;
     if (const auto status = ProjectStorage::OpenFile(rawDirectory, name.fileName, GENERIC_READ,
             share, OPEN_EXISTING, file); !status) {
         return status;
@@ -139,12 +142,15 @@ ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRe
         if (!GetFileSizeEx(file.get(), &fileSize)) {
             return ProjectStorage::WinFailure("archiveFileSize", GetLastError());
         }
-        if (static_cast<std::uint64_t>(fileSize.QuadPart) > *request.maxFileBytes) {
+        if (request.endOffset.value_or(static_cast<std::uint64_t>(fileSize.QuadPart)) > *request.maxFileBytes) {
             return Failure(ProjectError::LimitExceeded, "archiveFileSize");
         }
     }
     out = Archive::ScanOpenRawEvidence(file.get(), identity, request.endOffset,
         request.previousSequence, request.visitor);
+    if (prefixHash && out.checked && out.VerifiedBoundary(*out.checked)) {
+        return ProjectStorage::HashArchivePrefix(file, out.checked->byteOffset, *prefixHash);
+    }
     return {};
 }
 

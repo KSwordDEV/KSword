@@ -1,6 +1,7 @@
 #include "LiveSession.h"
 
 #include "Controller.h"
+#include "../Project/ProjectEtwCheckpoint.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
 #include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
@@ -25,7 +26,7 @@ constexpr LiveCommand kCommands[] = {
     {LiveMethod::Open, "session.open", "open", "PID CREATION_FILETIME PROVIDER_UUID DURATION_MS TITLE",
         "Start one bounded passive ETW sample in the writable project."},
     {LiveMethod::Query, "session.query", "status", "", "Read the current sample, native source status and archive receipt."},
-    {LiveMethod::Stop, "session.stop", "stop", "", "Stop the source and write and verify the Stored raw segment."},
+    {LiveMethod::Stop, "session.stop", "stop", "", "Stop the source, verify the Stored raw segment and publish its coverage checkpoint."},
     {LiveMethod::Close, "session.close", "close", "", "Release a finalized sample. Stop it first if it is still active."},
 };
 
@@ -136,6 +137,7 @@ struct LiveSession::State {
     PassiveEtwStatus terminal;
     archive::RawEvidenceReceipt raw;
     ProjectResult archiveResult;
+    ProjectResult checkpointResult;
     bool cleanupPending = false;
     bool finalized = false;
     bool verified = false;
@@ -156,7 +158,7 @@ struct LiveSession::State {
     }
 
     bool Partial() const noexcept {
-        return cleanupPending || (finalized && (!verified || terminal.state != PassiveEtwState::Stopped ||
+        return cleanupPending || (finalized && (!verified || !checkpointResult || terminal.state != PassiveEtwState::Stopped ||
             !terminal.native.statisticsKnown || !terminal.native.processAttempted ||
             terminal.native.eventsLost || terminal.native.logBuffersLost ||
             terminal.native.realTimeBuffersLost || terminal.queueDropped || terminal.payloadTruncated ||
@@ -175,7 +177,11 @@ struct LiveSession::State {
                 {"flushedBytes", raw.flushed ? Number(raw.flushed->byteOffset) : V::makeNull()},
                 {"lastSequence", raw.flushed ? Number(raw.flushed->lastSequence) : V::makeNull()},
                 {"error", archiveResult ? V::makeNull() : Text(archiveResult.detail)},
-                {"win32Error", archiveResult.nativeError ? V::makeUInt(archiveResult.nativeError) : V::makeNull()}})}});
+                 {"win32Error", archiveResult.nativeError ? V::makeUInt(archiveResult.nativeError) : V::makeNull()},
+                 {"checkpoint", Object({
+                     {"status", Text(!finalized ? "pending" : !verified ? "raw-unavailable" :
+                         checkpointResult ? "verified" : "failed")},
+                     {"error", checkpointResult ? V::makeNull() : Text(checkpointResult.detail)}})}})}});
     }
 
     ProjectResult Append(archive::RawEvidenceArchive& writer) {
@@ -219,6 +225,18 @@ struct LiveSession::State {
         }
         if (archiveResult && !verified) archiveResult = Failure(ProjectError::Corrupt, "archiveRawVerification");
         terminal = source.status();
+        if (verified) {
+            const auto statistic = [known = terminal.native.statisticsKnown](ULONG value) -> std::optional<std::uint32_t> {
+                if (!known) return std::nullopt;
+                return static_cast<std::uint32_t>(value);
+            };
+            const archive::EtwCoverageV1 coverage{providerId, terminal.sourceEpoch, 1, 1, raw.flushed->lastSequence,
+                enqueued, statistic(terminal.native.eventsLost), statistic(terminal.native.logBuffersLost),
+                statistic(terminal.native.realTimeBuffersLost), terminal.queueDropped, terminal.payloadTruncated,
+                terminal.malformedPayload};
+            ProjectEtwCheckpoint checkpoint;
+            checkpointResult = project.PublishEtwCheckpoint(sample.sampleId, *raw.flushed, coverage, checkpoint);
+        }
         target.reset();
         finalized = true;
     }

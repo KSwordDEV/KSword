@@ -122,6 +122,16 @@
       { "name": "inlineRawBytes", "type": "bytes", "lengthRef": "remainingPayloadBytes" }
     ]
   },
+  "etwCoverageV1": {
+    "type": 14,
+    "recordSchemaVersion": 1,
+    "requiredRecordFlags": 1,
+    "streamKind": 2,
+    "bodyEncoding": "strictUtf8JsonObject",
+    "maximumPayloadBytes": 1024,
+    "payloadDiscriminator": { "kind": "etw-coverage-v1" },
+    "payloadSchema": "etw-coverage-v1.schema.json"
+  },
   "canonicalEventCoreV1": {
     "type": 4,
     "recordSchemaVersion": 1,

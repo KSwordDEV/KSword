@@ -122,11 +122,13 @@
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectLock.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectRawEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
   </ItemGroup>

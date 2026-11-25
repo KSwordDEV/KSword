@@ -55,6 +55,8 @@ ProjectResult Read(const Directory& root, Parts dirs, std::wstring_view file,
                    std::string_view expectedHash, JsonValue& out, std::string* checkedHash = nullptr);
 ProjectResult Publish(const Directory& root, Parts dirs, std::wstring_view file,
                       const JsonValue& doc, bool replace, std::string* hash = nullptr);
+// 在只读固定句柄上核对有限前缀，调用者仍负责检查封装与身份。
+ProjectResult HashArchivePrefix(const Handle& file, std::uint64_t byteCount, std::string& hash);
 
 bool IsUuid(std::string_view str);
 // 仅接收已通过 IsUuid 校验的文本，按 A0 定义的顺序返回段头 UUID 字节。

@@ -169,6 +169,24 @@ ProjectResult RenameDocument(const Handle& source, const std::wstring& target, b
 
 } // namespace
 
+ProjectResult HashArchivePrefix(const Handle& file, std::uint64_t byteCount, std::string& hash) {
+    hash.clear();
+    if (!byteCount || byteCount > kMaxDocumentBytes) {
+        return Failure(ProjectError::LimitExceeded, "archivePrefixSize");
+    }
+    LARGE_INTEGER begin{};
+    if (!SetFilePointerEx(file.get(), begin, nullptr, FILE_BEGIN)) {
+        return WinFailure("archivePrefixSeek", GetLastError());
+    }
+    std::string bytes(static_cast<std::size_t>(byteCount), '\0');
+    DWORD got = 0;
+    if (!ReadFile(file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &got, nullptr)) {
+        return WinFailure("archivePrefixRead", GetLastError());
+    }
+    if (got != byteCount) return Failure(ProjectError::Corrupt, "shortArchivePrefix");
+    return Sha256(bytes, hash);
+}
+
 std::array<std::uint8_t, 16> UuidBytes(std::string_view checkedUuid) {
     const auto digit = [](char c) { return c <= '9' ? c - '0' : c - 'a' + 10; };
     std::array<std::uint8_t, 16> bytes{};

@@ -2,12 +2,15 @@
 
 #include "SegmentReader.h"
 
+#include <string>
 #include <string_view>
 #include <variant>
 
 namespace ks::cli::action_analyze::archive {
 
 inline constexpr std::size_t kRawRecordV1PrefixBytes = 4;
+inline constexpr std::uint16_t kCoverageRecordType = 14;
+inline constexpr std::size_t kMaxEtwCoverageV1Bytes = 1024;
 
 struct RawRecordV1 {
     std::string_view metadataJson;
@@ -41,6 +44,23 @@ struct CanonicalEventV1 {
     std::string_view fieldJson;
 };
 
+// 被动 ETW 终态的采集覆盖。序号引用同一项目、同一采样中的一个 raw 段。
+struct EtwCoverageV1 {
+    std::string providerId;
+    std::string sourceEpoch;
+    std::uint64_t rawSegmentOrdinal = 0;
+    std::uint64_t planRawSequence = 0;
+    std::uint64_t endRawSequence = 0;
+    std::uint64_t observationCount = 0;
+    // STOP 统计不可用时三项均为空。0 表示系统已报告无对应丢失。
+    std::optional<std::uint32_t> eventsLost;
+    std::optional<std::uint32_t> logBuffersLost;
+    std::optional<std::uint32_t> realTimeBuffersLost;
+    std::uint64_t queueDropped = 0;
+    std::uint64_t payloadTruncated = 0;
+    std::uint64_t malformedPayload = 0;
+};
+
 enum class BodyIssue {
     None,
     Length,
@@ -49,6 +69,9 @@ enum class BodyIssue {
     RequiredRef,
     ValidityBits,
     ValidityValue,
+    UnsupportedKind,
+    CoverageFields,
+    CoverageFlags,
 };
 
 struct BodyFailure {
@@ -61,8 +84,14 @@ struct BodyFailure {
 BodyIssue EncodeRawRecordV1(std::string_view metadataJson, std::string_view inlineRawData,
                           std::vector<std::uint8_t>& out);
 
-// monostate 表示没有适用的正文解码器。Json 字符串视图借用块缓冲区。
-using RecordBody = std::variant<std::monostate, RawRecordV1, CanonicalEventV1>;
+// 正文为 etw-coverage-v1 JSON。记录头用 type 14、schemaVersion 1、kRequiredRecord，写入 records 流。
+// 失败时不改动输出。直接解码遇到其它 kind 返回 UnsupportedKind。
+// 解码检查正文与范围算术，raw 引用须由上层核对。
+BodyIssue EncodeEtwCoverageV1(const EtwCoverageV1& coverage, std::vector<std::uint8_t>& out);
+BodyIssue DecodeEtwCoverageV1(std::string_view json, EtwCoverageV1& out);
+
+// monostate 表示没有适用的正文解码器。RawRecord 和 CanonicalEvent 的 JSON 视图借用块缓冲区。
+using RecordBody = std::variant<std::monostate, RawRecordV1, CanonicalEventV1, EtwCoverageV1>;
 
 struct DecodedRecord {
     std::uint64_t recordSequence = 0;

@@ -202,7 +202,7 @@ quit
 
 `source.state=running` 表示消费线程已开始处理。终态分别报告来源状态、Windows 原生错误、系统丢失和本地队列丢失。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
-`archive.status=raw-verified` 表示 `raw` 流第 `1` 段已刷盘且回读校验通过。该段包含采集计划、原始观测和覆盖回执。项目的旧版采样描述保存的是采样创建时的配置快照，`not-collected` 是创建描述中的值。采集结果以停止回执及原始段为准。重开项目后用 `archive inspect SAMPLE_ID raw 1` 核对该段。规范事件、跨流检查点及规则执行尚待接入。本节的结构请求与回执字段见 [被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json)。
+`archive.status=raw-verified` 表示 `raw` 流第 `1` 段已刷盘且回读校验通过。该段包含采集计划、原始观测和覆盖回执。`archive.checkpoint.status=verified` 表示 `records` 流第 `1` 段的终态覆盖记录及其原始引用已经核对，并且已发布两个流的提交端点。采样创建时的配置快照仍可通过 `sample status` 查看，其中 `not-collected` 表示创建描述的初始状态。采集结果由停止回执及归档记录给出。重开项目后用 `archive inspect SAMPLE_ID raw 1` 核对封装。规范事件及规则执行仍待接入。[被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json) · [终态检查点 schema](../schemas/action_analyze/etw-terminal-checkpoint.schema.json)
 
 #### JSONL 会话
 
@@ -250,6 +250,8 @@ quit
 `sample.list` 默认从 `"0"` 开始，`limit` 为 1–256 的 JSON 整数，默认 256。显式 `start` 需要指定 `generation`，两者均使用规范十进制字符串。超出输出帧预算时返回放得下的完整行，`nextStart` 等于本页起点加实际返回行数。到末尾时 `nextStart` 为 `null`。代次不符返回 `stale-generation`，从新快照第一页重新查询即可。
 
 `sample status SAMPLE_ID capture` 或 `sample.query` 的 `"includeCapture": true` 会从同一采样的首个 Stored 原始段读取 `captureArchive`。`readback-verified` 提供校验字节范围、观察条数、目标与来源摘要，以及归档中的停止原因和原生清退标志。段须通过项目、采样与配置身份、记录顺序、校验和、来源一致性及结束计数检查。读取上限为 4 MiB。`missing` 表示段未生成或找不到，`unavailable` 表示文件不可读，`limit-exceeded` 表示段超过限额，`unrecognized` 表示首条记录使用其它格式，`invalid` 表示内容或身份核对失败。采样顶层 `status` 保留创建描述。历史查询只读归档，当前活会话用 `session.query` 查询。重试读取使用新的请求 ID。
+
+历史采样有终态检查点时，`captureArchive.checkpoint=verified` 表示两个流的 SHA-256 及精确前缀端点已复核。端点之后的尾部留给恢复流程。检查点或引用缺失时，已有检查点的采样会返回 `captureArchive.status=invalid` 及 `checkpoint=invalid`。旧项目和未发布检查点的采样仍可读取完整原始段，回执省略 `checkpoint` 字段。
 
 #### 归档段封装检查
 

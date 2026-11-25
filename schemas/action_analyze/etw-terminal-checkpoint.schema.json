@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/etw-terminal-checkpoint.schema.json",
+  "title": "Terminal passive ETW Stored checkpoint v1",
+  "$comment": "Published only after readback of both Stored prefixes. The required Coverage record in records/1 identifies the raw dependency. Readers verify both prefix hashes, all endpoints and the dependency against the frozen sample.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "generation", "projectId", "sampleId", "descriptionHash", "raw", "records"],
+  "properties": {
+    "kind": { "const": "etw-terminal-checkpoint-v1" },
+    "generation": { "const": "1" },
+    "projectId": { "$ref": "live-etw-session.schema.json#/$defs/uuid" },
+    "sampleId": { "$ref": "live-etw-session.schema.json#/$defs/uuid" },
+    "descriptionHash": { "$ref": "#/$defs/hash" },
+    "raw": { "$ref": "#/$defs/prefix" },
+    "records": { "$ref": "#/$defs/prefix", "properties": { "block": { "const": "1" }, "lastSequence": { "const": "1" } } }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])" },
+    "prefix": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ordinal", "block", "endOffset", "lastSequence", "sha256"],
+      "properties": {
+        "ordinal": { "const": "1" },
+        "block": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "endOffset": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "lastSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "sha256": { "$ref": "#/$defs/hash" }
+      }
+    }
+  }
+}

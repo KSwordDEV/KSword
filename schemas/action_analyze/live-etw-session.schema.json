@@ -95,7 +95,14 @@
       "properties": {
         "status": { "enum": ["pending", "raw-verified", "failed"] }, "segmentOrdinal": { "const": "1" },
         "flushedBytes": { "$ref": "#/$defs/nullableU64" }, "lastSequence": { "$ref": "#/$defs/nullableU64" },
-        "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "#/$defs/nativeCode" }
+        "error": { "type": ["string", "null"] }, "win32Error": { "$ref": "#/$defs/nativeCode" },
+        "checkpoint": {
+          "type": "object", "additionalProperties": false, "required": ["status", "error"],
+          "properties": {
+            "status": { "enum": ["pending", "raw-unavailable", "verified", "failed"] },
+            "error": { "type": ["string", "null"] }
+          }
+        }
       }
     },
     "archivedCapture": {
@@ -105,10 +112,15 @@
           "properties": { "status": { "enum": ["missing", "unavailable", "limit-exceeded", "unrecognized", "invalid"] } }
         },
         {
+          "type": "object", "additionalProperties": false, "required": ["status", "checkpoint"],
+          "properties": { "status": { "const": "invalid" }, "checkpoint": { "const": "invalid" } }
+        },
+        {
           "type": "object", "additionalProperties": false,
           "required": ["status", "segmentOrdinal", "checkedBytes", "observationCount", "plan", "terminal"],
           "properties": {
             "status": { "const": "readback-verified" },
+            "checkpoint": { "const": "verified" },
             "segmentOrdinal": { "const": "1" },
             "checkedBytes": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
             "observationCount": { "$ref": "#/$defs/u64" },
