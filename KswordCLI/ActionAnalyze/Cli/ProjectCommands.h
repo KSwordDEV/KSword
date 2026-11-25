@@ -9,7 +9,7 @@ namespace ks::cli::action_analyze {
 
 struct Reply;
 
-enum class ProjectMethod { Open, Query, Close, Create, Save, ListSamples, QuerySample, CreateSample };
+enum class ProjectMethod { Open, Query, Close, Create, Save, ListSamples, QuerySample, CreateSample, InspectArchive };
 
 struct ProjectCommand {
     ProjectMethod method;

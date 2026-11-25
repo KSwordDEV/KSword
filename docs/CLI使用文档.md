@@ -162,7 +162,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze capabilities` | `KswordCLI.exe analyze capabilities [--json] [--backend offline]` | 查询离线控制器的实际方法和限制。`--json` 输出一个普通 CLI 结果，`data` 为能力对象。 |
 | `analyze session` | `KswordCLI.exe analyze session [--input REPL_OR_JSONL] [--output TEXT_OR_JSONL] [--backend offline]` | 在同一个 CLI 进程内连续收发请求。省略选项时使用 `--input repl --output text`。 |
 
-入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。会话支持协议协商、项目读写和离线采样描述。采样创建时保存所用配置的独立快照，状态为 `not-collected`。归档查询、规则执行、请求取消、实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
+入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个入口的后端均为 `offline`。会话支持协议协商、项目读写、离线采样描述和 Stored 归档段封装检查。采样创建时保存所用配置的独立快照，状态为 `not-collected`。事件内容查询、规则执行、请求取消、实时采集及目标控制未开放。调用方进程监视状态为 `not-monitored`。使用该命令族无需加载驱动或部署 Agent。
 
 #### 人工会话
 
@@ -228,6 +228,14 @@ quit
 项目信息包含 `projectId`、`createdUtc`、`settings`、`revisionId`、`revisionHash`、`configSemanticHash`、`generation`、`sampleCount`、`access`、`recoveredPrevious`、`primaryFailure`。列表中的采样行包含 `sampleId`、`title`、`createdUtc`、`revisionId`、`snapshotId`、`descriptionHash`、`status`。采样详情在采样行基础上还返回 `projectId`、`generation`、`frozenSettings`、`revisionHash`、`configSemanticHash`。`createdUtc` 为 FILETIME 纪元的 100ns 值。时间、计数和代次使用规范十进制字符串。
 
 `sample.list` 默认从 `"0"` 开始，`limit` 为 1–256 的 JSON 整数，默认 256。显式 `start` 需要指定 `generation`，两者均使用规范十进制字符串。超出输出帧预算时返回放得下的完整行，`nextStart` 等于本页起点加实际返回行数。到末尾时 `nextStart` 为 `null`。代次不符返回 `stale-generation`，从新快照第一页重新查询即可。
+
+#### 归档段封装检查
+
+`archive inspect SAMPLE_ID STREAM ORDINAL [END_OFFSET]` 检查当前打开项目中的一段 Stored 归档。会话内可用 `help archive inspect`。JSONL 方法 `archive.inspect` 接收当前的 `projectId`、该项目已经登记并验证的 `sampleId`、`stream`、`ordinal`，以及可选的 `endOffset`。`stream` 只能为 `raw`、`records` 或 `control`。`ordinal` 是大于零的规范十进制 `u64` 字符串。`endOffset` 是 `"0"` 至 `"1073741824"` 的规范十进制字符串，指定段内检查范围的排他字节端点。省略时按开始检查时观测到的文件大小扫描，仍受 1 GiB 段大小限制。项目解析器只用采样、流和段号定位文件。
+
+结果包含 `projectId`、`sampleId`、`generation`、`stream`、`ordinal`、`createdUtc100ns` 和 `framingStatus`。`framingCoverage` 提供 `requestedEndOffset`、`fileBytes`、`scanLimitBytes`、`framedBytes`、`blockCount`、`lastBlockOrdinal`、`lastSequence`。时间、偏移和计数以规范十进制字符串返回，无法确认的可选值为 `null`。`requiredRecordCount`、`unsupportedOptionalRecords` 和 `unsupportedRequiredRecords` 只统计已通过封装校验的块。`interpretedBytes` 与 `durableBytes` 均为 `null`，分别表示尚无记录正文解释和归档持久化水位证据。
+
+`framing-complete` 表示本次检查范围通过封装校验。`truncated`、`corrupt`、`unsupported` 和 `io-error` 仍返回读到的检查结果和已验证前缀。`framingError` 为 `null` 或包含稳定的 `reason`、十进制字符串 `offset`、整数或 `null` 的 `win32Error`。例如 `identity` 指段头身份与所选段不符，`end-of-file` 指检查端点超出文件大小或可读范围未覆盖完整封装，`codec` 指当前扫描器不支持的编码。无效参数（包括流名）返回 `invalid-params`，当前项目中找不到采样返回 `project-data-not-found`，缺少所选流目录或段文件分别返回 `archive-stream-unavailable` 和 `archive-segment-unavailable`。JSONL 以相同请求 ID 和参数重放已保存的检查结果，请求错误可重试。使用新的 ID 检查当前归档字节。
 
 ### `log`
 

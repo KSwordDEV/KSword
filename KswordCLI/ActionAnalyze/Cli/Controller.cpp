@@ -80,7 +80,7 @@ JsonValue Controller::Capabilities() {
         for (const auto& method : kMethods) AppendMethod(methods, method.name, method.repl, method.help);
         for (const auto& method : ProjectCommands::Catalog()) AppendMethod(methods, method.name, method.repl, method.summary);
         return V::makeObject({{"backend", V::makeString("offline")}, {"projectStorage", V::makeBool(true)},
-            {"archives", V::makeBool(false)}, {"nativeCapture", V::makeBool(false)},
+            {"archives", V::makeBool(true)}, {"nativeCapture", V::makeBool(false)},
             {"callerProcessMonitoring", V::makeString("not-monitored")},
             {"schemaVersions", V::makeArray({V::makeUInt(kSchemaVersion)})},
             {"methods", V::makeArray(std::move(methods))},
@@ -96,7 +96,7 @@ JsonValue Controller::Capabilities() {
 
 std::string Controller::CapabilitiesText() {
     std::string text = "Offline controller, protocol " + std::to_string(kSchemaVersion) +
-        ". Project storage and offline sample descriptors are available.\n";
+        ". Project storage, offline sample descriptors and Stored segment framing inspection are available.\n";
     text += "Limits per line and frame: " + std::to_string(kInputBytes) + " input bytes, " +
         std::to_string(kOutputBytes) + " output bytes.\n";
     text += "Replay ledger: " + std::to_string(kReplayEntries) + " entries or " + std::to_string(kReplayBytes) + " bytes. Output queue: " +
@@ -142,7 +142,7 @@ Reply Controller::Dispatch(Request request, bool repl) {
             if (text.empty()) return Reject("unsupported-method", "Unknown command. Use help.", 5);
             return {{}, std::move(text), {}, false};
         }
-        if ((request.method == "project" || request.method == "sample") && !args->empty()) {
+        if ((request.method == "project" || request.method == "sample" || request.method == "archive") && !args->empty()) {
             std::string verb;
             if (args->front().tryGetString(verb)) {
                 if (const auto* project = FindProject(request.method + " " + verb, true))

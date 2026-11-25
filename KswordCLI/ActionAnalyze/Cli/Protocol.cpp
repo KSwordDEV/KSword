@@ -144,7 +144,7 @@ Decoded DecodeReplLine(std::string_view line) {
     std::vector<std::string> words;
     for (std::size_t i = 0; i < line.size();) {
         if (ReplSpace(line[i])) { ++i; continue; }
-        if (words.size() == 5) return {{}, {"invalid-repl", "Too many command arguments", i}};
+        if (words.size() == 6) return {{}, {"invalid-repl", "Too many command arguments", i}};
         std::string word;
         if (line[i] == '"') {
             const std::size_t start = i++;

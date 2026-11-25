@@ -1,10 +1,12 @@
 #include "ProjectCommands.h"
 
 #include "Controller.h"
+#include "../Archive/SegmentInspection.h"
 #include "../Project/ProjectStorage.h"
 
 #include <algorithm>
 #include <charconv>
+#include <stdexcept>
 
 namespace ks::cli::action_analyze {
 namespace {
@@ -23,6 +25,8 @@ constexpr ProjectCommand kMethods[] = {
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
     {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID", "Read a sample and its frozen project settings.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
+    {M::InspectArchive, "archive.inspect", "archive inspect", "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]",
+        "Inspect Stored segment framing in the open project. End offset is an optional byte boundary.", false},
 };
 
 Reply Invalid(const char* message) {
@@ -37,7 +41,12 @@ Fault StorageFault(const ProjectResult& result) {
     case ProjectError::InvalidArgument: id = "invalid-params"; code = 1; break;
     case ProjectError::AlreadyOpen: id = "project-already-open"; code = 1; break;
     case ProjectError::NotOpen: id = "project-not-open"; code = 1; break;
-    case ProjectError::NotFound: id = "project-data-not-found"; code = 5; break;
+    case ProjectError::NotFound:
+        id = "project-data-not-found";
+        if (std::string_view(result.detail) == "archiveStreamUnavailable") id = "archive-stream-unavailable";
+        if (std::string_view(result.detail) == "archiveSegmentUnavailable") id = "archive-segment-unavailable";
+        code = 5;
+        break;
     case ProjectError::AlreadyExists: id = "project-already-exists"; code = 1; break;
     case ProjectError::ReadOnly: id = "project-read-only"; code = 1; break;
     case ProjectError::WriterBusy: id = "project-writer-busy"; break;
@@ -106,6 +115,87 @@ V PageJson(const ProjectInfo& info, std::uint64_t start, JsonArray rows) {
 }
 
 Reply Success(V result, bool effect = false) { return {std::move(result), {}, {}, false, effect}; }
+
+std::optional<archive::StreamKind> ArchiveStream(std::string_view name) {
+    if (name == "raw") return archive::StreamKind::Raw;
+    if (name == "records") return archive::StreamKind::Records;
+    if (name == "control") return archive::StreamKind::Control;
+    return std::nullopt;
+}
+
+const char* FramingStatus(archive::SegmentScanStatus status) {
+    using S = archive::SegmentScanStatus;
+    switch (status) {
+    case S::FramingComplete: return "framing-complete";
+    case S::Truncated: return "truncated";
+    case S::Corrupt: return "corrupt";
+    case S::Unsupported: return "unsupported";
+    case S::IoError: return "io-error";
+    case S::Stopped: break; // 此检查没有可中断扫描的访问器。
+    }
+    throw std::logic_error("Unexpected archive inspection status");
+}
+
+const char* FramingReason(archive::SegmentIssue issue) {
+    using I = archive::SegmentIssue;
+    switch (issue) {
+    case I::Magic: return "magic";
+    case I::HeaderCrc: return "header-crc";
+    case I::Version: return "version";
+    case I::HeaderLength: return "header-length";
+    case I::Flags: return "flags";
+    case I::Reserved: return "reserved";
+    case I::Stream: return "stream";
+    case I::Identity: return "identity";
+    case I::Ordinal: return "ordinal";
+    case I::BlockLength: return "block-length";
+    case I::RecordCount: return "record-count";
+    case I::Sequence: return "sequence";
+    case I::QpcRange: return "qpc-range";
+    case I::Codec: return "codec";
+    case I::StoredCrc: return "stored-crc";
+    case I::DecodedCrc: return "decoded-crc";
+    case I::RecordLength: return "record-length";
+    case I::RecordPayloadCrc: return "record-payload-crc";
+    case I::SegmentLimit: return "segment-limit";
+    case I::EndOfFile: return "end-of-file";
+    case I::FileSize: return "file-size";
+    case I::FileRead: return "file-read";
+    case I::None:
+    case I::RecordSchema:
+    case I::FileOpen:
+    case I::FileWrite:
+    case I::FileFlush:
+    case I::FileClose: break;
+    }
+    throw std::logic_error("Unexpected archive inspection reason");
+}
+
+V OptionalNumber(std::optional<std::uint64_t> value) {
+    return value ? Number(*value) : V::makeNull();
+}
+
+// 将读取失败与扫描质量分开。坏尾或未知格式仍可报告已经验证的封装前缀。
+V ArchiveJson(const ProjectInfo& project, std::string_view sampleId, std::string_view stream,
+              const archive::SegmentInspection& inspected) {
+    const auto& coverage = inspected.framingCoverage;
+    const auto& error = inspected.error;
+    auto framingError = error.issue == archive::SegmentIssue::None ? V::makeNull() : Object({
+        {"reason", Text(FramingReason(error.issue))}, {"offset", Number(error.offset)},
+        {"win32Error", error.win32Error ? V::makeUInt(error.win32Error) : V::makeNull()}});
+    return Object({{"projectId", Text(project.projectId)}, {"sampleId", Text(sampleId)},
+        {"generation", Number(project.generation)}, {"stream", Text(stream)},
+        {"ordinal", Number(inspected.expectedIdentity.ordinal)}, {"createdUtc100ns", OptionalNumber(inspected.createdUtc100ns)},
+        {"framingStatus", Text(FramingStatus(inspected.framingStatus))}, {"framingError", std::move(framingError)},
+        {"framingCoverage", Object({{"requestedEndOffset", OptionalNumber(coverage.requestedEndOffset)},
+            {"fileBytes", OptionalNumber(coverage.fileBytes)}, {"scanLimitBytes", OptionalNumber(coverage.scanLimitBytes)},
+            {"framedBytes", Number(coverage.framedBytes)}, {"blockCount", Number(coverage.blockCount)},
+            {"lastBlockOrdinal", OptionalNumber(coverage.lastBlockOrdinal)}, {"lastSequence", OptionalNumber(coverage.lastSequence)}})},
+        {"requiredRecordCount", Number(inspected.requiredRecordCount)},
+        {"unsupportedOptionalRecords", Number(inspected.unsupportedOptionalRecords)},
+        {"unsupportedRequiredRecords", Number(inspected.unsupportedRequiredRecords)},
+        {"interpretedBytes", V::makeNull()}, {"durableBytes", V::makeNull()}});
+}
 } // namespace
 
 std::span<const ProjectCommand> ProjectCommands::Catalog() noexcept { return kMethods; }
@@ -194,6 +284,24 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         return result ? Success(SampleResult(*info, sample.info, sample.frozenSettings, sample.revisionHash, sample.configSemanticHash))
                       : FromError(result);
     }
+    case M::InspectArchive: {
+        std::string sampleId, stream;
+        std::uint64_t ordinal = 0, end = 0;
+        const bool hasEnd = params.find("endOffset") != nullptr;
+        if (!KnownKeys(params, {"projectId", "sampleId", "stream", "ordinal", "endOffset"}) ||
+            !GetUuid(params, "sampleId", sampleId) || !GetString(params, "stream", stream) ||
+            !GetNumber(params, "ordinal", ordinal) || ordinal == 0 ||
+            (hasEnd && (!GetNumber(params, "endOffset", end) || end > archive::kMaxSegmentBytes))) {
+            return Invalid("Expected sampleId, stream, a positive ordinal and optional endOffset in 0..1073741824");
+        }
+        const auto streamKind = ArchiveStream(stream);
+        if (!streamKind) return Invalid("stream must be raw, records or control");
+        if (const auto error = checkProject()) return {{}, {}, error};
+        archive::SegmentInspection inspected;
+        const auto result = document_.InspectSegment(projectId, sampleId, *streamKind, ordinal,
+            hasEnd ? std::optional(end) : std::nullopt, inspected);
+        return result ? Success(ArchiveJson(*info, sampleId, stream, inspected)) : FromError(result);
+    }
     case M::ListSamples: {
         std::uint64_t start = 0, generation = 0, limit = kProjectCatalogPageSize;
         const auto* count = params.find("limit");
@@ -264,6 +372,14 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
     case M::QuerySample:
         if (words.size() != 1) return Invalid("Usage: sample status SAMPLE_ID");
         fields.emplace_back("sampleId", Text(words[0]));
+        break;
+    case M::InspectArchive:
+        if (words.size() < 3 || words.size() > 4)
+            return Invalid("Usage: archive inspect SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]");
+        fields.emplace_back("sampleId", Text(words[0]));
+        fields.emplace_back("stream", Text(words[1]));
+        fields.emplace_back("ordinal", Text(words[2]));
+        if (words.size() == 4) fields.emplace_back("endOffset", Text(words[3]));
         break;
     case M::CreateSample:
         if (words.size() != 1) return Invalid("Usage: sample create TITLE");
