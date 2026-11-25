@@ -53,4 +53,4 @@ Light 独立验证器使用仓库的 Stored v1 字节向量。本次正式 Relea
 
 ## A0.2 离线 CLI 子集
 
-方法契约说明离线 shell、已接通的项目及采样方法和输入输出边界。`14509b8aa` 的 62 项基础向量及 47 项项目方法向量通过。从仓库根目录运行 `python -B schemas/action_analyze/vectors/validate-request.py` 校验请求和消息向量。项目归档解析器 `a302d03cc` 的产品归档查询方法待接线。[方法契约](method-contract-v1.md) · [请求契约检查器](vectors/validate-request.py) · [正式 CLI 验证回执](../../tools/action_analyze_validation/cli/README.md#unified-project-v1-build-and-test-receipt)
+方法契约覆盖离线 shell、项目及采样方法和 `archive.inspect`。从仓库根目录运行 `python -B schemas/action_analyze/vectors/validate-request.py` 可校验 62 项基础、47 项项目及 37 项归档检查向量，三组均已通过。正式 CLI 已在已登记的采样上验证归档封装检查。[方法契约](method-contract-v1.md) · [请求契约检查器](vectors/validate-request.py) · [正式 CLI 归档验证回执](../../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt)

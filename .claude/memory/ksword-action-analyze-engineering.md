@@ -6,6 +6,8 @@
 - 新增或重构文件每文件上限 2000 行，沿用仓库建议的 1000 行组织目标。按职责拆 `.h`／`.cpp`，驱动用适用 `.h`／`.c`，禁止 `.inc` 堆叠。重构逐项登记受影响的旧功能与入口、行为、端／架构、复测判据、实际结果和待测范围。优先单独提交可验证的结构改动。
 - R3 是正式后端，必须在 KSword 驱动未加载或不可访问时独立完成受支持用户态全流程。采样显式选择后端，活采样禁止静默切换。更换时原所有者先完成恢复并确认脱离，之后新建采样与会话代次，旧停点令牌和恢复责任留在原后端。
 - 已确认同步下断使用命中线程直接进入已登记原生停点、目标外所有者接管。首个双架构夹具用自有合作目标验证调试所有权、进入／返回阶段和原调用语义。
+- 用户指定 Qt 的唯一挂载点为「监控 → 行为分析」。总览、项目与采样、后续规则和断点等均是该工作台的子页。MonitorDock 管理根宿主，实际页签、全局搜索和 Taskbar 共用 `monitor.action_analyze` 导航树。
+- 新增桌面工作包覆盖显示筛选、底部进程与线程右键和 Dump 导出、随采样自动归档网络流量元数据、出站 IP 和实际通信字节。网络写入沿用采样内 `raw`、`records`、BlobStore 和检查点。采样身份贯穿筛选、菜单与归档。[桌面交互计划](../../docs/ActionAnalyze总览交互与验收.md#显示筛选对象菜单与网络证据实施计划)
 - 停止调试后的目标处置，以及单步时是否扩大依赖线程放行范围，仍由调用方显式决定。发现影响持久格式、恢复语义、采集范围或无驱动承诺的歧义时，先在依赖方之间对齐。产品需求变更写回共享基线并通知全部受影响 owner。
 
 首批分工已启动，状态为开发进行中。A0 类型与 Stored 契约、CLI 离线外壳、Stored 归档与恢复、CLI 项目生命周期、离线规则回放、R3 停点夹具、被动环境入口目录、既有上游目录按行数拆分，各自独立编辑，统一审查提交。CLI `.vcxproj`／`.filters`、入口接线与内置帮助、文档同步在接口交付后统一分配，并串行运行共用构建工程。
@@ -38,7 +40,8 @@
 | `923e36acc` | 保留 origin 的停止快照契约，96 项离线停止向量通过。 | 已推送 `origin/ActionAnalyze` |
 | `59046a957` | 自有合作目标的原生停点与责任账本夹具。集成 495 项、基线 415 项、独立账本 124 项通过，范围限于各自夹具。 | 已推送 `origin/ActionAnalyze` |
 | `345472b89` | Stored 格式分类与截断覆盖。469 项截断检查、35 项 A0 封装向量通过。 | 已推送 `origin/ActionAnalyze` |
-| `a302d03cc` | 已提交采样的项目归档段解析器。28 项原生检查及 71 项项目生命周期夹具检查通过。产品归档查询方法待接线。 | 已提交 `ActionAnalyze` |
+| `a302d03cc` | 已提交采样的项目归档段解析器。28 项原生检查及 71 项项目生命周期夹具检查通过。 | 已推送 `origin/ActionAnalyze` |
+| `a7f117606` | 正式 CLI 接通 `archive.inspect`。HostX64 Release 构建、12 方法的传输回归、项目及归档验收通过，测试目录已清理。[归档回执](../../tools/action_analyze_validation/cli/README.md#archive-v1-build-and-test-receipt) | 已提交 `ActionAnalyze` |
 
 `221cda4ba` 的构建日志为 `.codex-build-logs/action-analyze-cli-project-20261124-224716.log`。受测正式产物 `Ksword5.1/x64/Release/KswordCLI.exe` 的 SHA-256 为 `54569FA5788D53160D1A6B2D37744A839E0B2A5D525E50BA834ECB9B0752710B`。`42c5977e6` 回执记录 `project-v1` smoke 通过 16 项请求、22 项传输向量及回执缓存条数和字节上限检查。[正式 CLI 验证回执](../../tools/action_analyze_validation/cli/README.md#unified-project-v1-build-and-test-receipt)
 
@@ -48,7 +51,7 @@
 
 旧 `KswordCLI/KswordCLI.cpp` 已有 8398 行。ActionAnalyze 沿用它现有的委派入口，经 `KswordCLI/CommandRegistry.cpp` 接入，新增逻辑按职责拆分。上述 smoke 已覆盖实际帮助、旧入口查询及异常参数处理。其余回归按工单记录实际结果。
 
-Qt 和 Win32 总览作者开工前均须读 `design-taste-frontend`。Qt 离线读取项目目录和冻结采样配置，Win32 离线读取单个 Stored 段。Qt 构建进行中，实际窗口和旧入口回归另行验收。[当前离线切片](../../docs/ActionAnalyze总览交互与验收.md#当前离线切片)
+Qt 和 Win32 总览作者开工前均须读 `design-taste-frontend`。Qt 首版离线项目与采样通过正式 Release 构建，Win32 离线读取单个 Stored 段。实际窗口和旧入口回归另行验收。[当前离线切片](../../docs/ActionAnalyze总览交互与验收.md#当前离线切片)
 
 Light 与独立 Stored 验证器的正式 Release 构建均以 BelowNormal 优先级使用 HostX64 工具链，两项构建均为 0 警告、0 错误。验证器通过 35 项 Stored 向量和 2 项 Win32 文件用例。正式产物为 `Ksword5.1/x64/Release/KswordARKLight.exe` 和 `Ksword5.1/x64/Release/KswordARKLightStoredEvidenceValidation.exe`。签名驱动镜像的 SHA-256 构建前后一致。[Light 构建与验证回执](../../docs/ActionAnalyze总览交互与验收.md#light-构建与验证回执)
 
