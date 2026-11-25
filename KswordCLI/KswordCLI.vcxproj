@@ -192,6 +192,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\DirtyMemoryCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\BreakpointCommand.cpp" />
@@ -222,6 +223,8 @@
     <ClInclude Include="ActionAnalyze\Detection\SysmonThreadSource.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h" />
+    <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h" />
+    <ClInclude Include="..\shared\evidence\ApiMonitorClue.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionSurveyProjection.h" />
     <ClInclude Include="..\shared\evidence\ObjectIdentity.h" />
     <ClInclude Include="ActionAnalyze\Memory\PassiveDirtyMemory.h" />

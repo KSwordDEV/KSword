@@ -8106,6 +8106,7 @@
     "归档版本、编码或必需记录不受支持。": "Unsupported archive version, codec, or required record.",
     "归档记录": "Archive Record",
     "归档记录详情": "Archive Record Details",
+    "clueFamily": "clueFamily",
     "归档项目 ID 匹配；尚未选择采样。": "The archive project ID matches. Choose a sample to compare its ID.",
     "归档项目和采样 ID 均匹配。": "The archive project and sample IDs both match.",
     "所选记录当前不在显示范围内。": "The current filters hide the selected record.",

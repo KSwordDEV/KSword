@@ -342,6 +342,7 @@
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h" />
     <ClInclude Include="..\shared\evidence\ArchivedEtwObservation.h" />
+    <ClInclude Include="..\shared\evidence\ApiMonitorClue.h" />
     <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
     <ClInclude Include="..\shared\evidence\LosslessValue.h" />
     <ClInclude Include="Docking\DockManager.h" />

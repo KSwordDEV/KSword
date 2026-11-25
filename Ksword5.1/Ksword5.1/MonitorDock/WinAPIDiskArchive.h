@@ -1,5 +1,6 @@
 #pragma once
 #include "WinApiMonitorProtocol.h"
+#include "../../../shared/evidence/ApiMonitorClue.h"
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -54,6 +55,11 @@ public:
             object.insert(QStringLiteral("module"), bounded(packet.moduleName, ks::winapi_monitor::kMaxModuleNameChars));
             object.insert(QStringLiteral("api"), bounded(packet.apiName, ks::winapi_monitor::kMaxApiNameChars));
             object.insert(QStringLiteral("detail"), bounded(packet.detailText, ks::winapi_monitor::kMaxDetailChars));
+            // 在界面队列之前标记相关线索，保留同一行的原包供独立回放重新分类。
+            if (const auto* clue = Ksword::Evidence::ClassifyApiMonitorClue(packet)) {
+                object.insert(QLatin1String("clueFamily"), QString::fromLatin1(clue->family.data(),
+                    static_cast<qsizetype>(clue->family.size())));
+            }
             object.insert(QStringLiteral("packetBase64"), QString::fromLatin1(QByteArray(
                 reinterpret_cast<const char*>(&packet), sizeof(packet)).toBase64()));
             m_buffer += QJsonDocument(object).toJson(QJsonDocument::Compact); m_buffer += '\n';

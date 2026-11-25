@@ -4361,6 +4361,7 @@
     <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiMonitorClue.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\evidence\ArchivedEtwObservation.h">
       <Filter>Header Files</Filter>
     </ClInclude>

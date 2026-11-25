@@ -88,6 +88,7 @@ template<typename T>
 std::wstring Number(std::optional<T> value) { return value ? std::to_wstring(*value) : L"—"; }
 
 std::wstring RecordName(const EvidenceRecord& row) {
+    if (!row.apiClue.empty()) return row.apiClue; // 显示通过尾记校验的 API 导出名。
     // ETW 源描述符独立于 CanonicalEvent 种类，沿用原记录序号定位。
     if (row.etw) {
         return L"ETW 事件 " + std::to_wstring(row.etw->eventId) + L" / v" + std::to_wstring(row.etw->version);
@@ -122,7 +123,8 @@ LoadResult Load(const std::wstring& path, const std::optional<ProjectReplayReque
         row.stableKey = std::to_wstring(record.sequence);
         row.itemData = static_cast<LPARAM>(rows->size());
         row.cells = { Number(record.receiveQpc), Number(record.headerPid), Number(record.headerTid), L"—",
-            RecordName(record), record.etw ? WideAscii(record.etw->providerId) : Number(record.sourceDictionaryId),
+            RecordName(record), !record.apiFamily.empty() ? record.apiFamily :
+                record.etw ? WideAscii(record.etw->providerId) : Number(record.sourceDictionaryId),
             std::to_wstring(record.sequence) };
         rows->push_back(std::move(row));
     }

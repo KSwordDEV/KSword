@@ -165,8 +165,14 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，保留失败页和前次有效结果。 |
 | `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl]` | 在该 CLI 启动的自有 AMD64 子进程内，对现有及新建线程布置一个执行断点。 |
 | `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
+| `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
+| `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
 
 入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供限时被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
+
+`api-evidence import` 接受主程序「监控 → WinAPI」生成的 `events.jsonl`，输入上限 32 MiB。导入从 `packetBase64` 重新判定五类线索：内存写、线程创建、APC 排队、线程上下文和节映射。原始行号与 Stored 记录序号分别保存。文件完整、线索非空时创建新采样。源文件损坏退出 `4`，项目或写入错误退出 `3`，输入没有匹配项时返回 `no-clues`。`replay` 仅在完整段和导入收尾记录均通过校验后输出结果。把 `nextAfter` 传给下一次的 `--after`。每页默认 25 条，上限 100 条。`--packet 1` 返回完整原包的十六进制。源覆盖、目标进程身份、实际写入范围、执行与归因保持未知。
+
+导入后的采样可在 Light「监控 → ActionAnalyze」中打开。CLI 的 `--packet 1` 可取回完整包。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 

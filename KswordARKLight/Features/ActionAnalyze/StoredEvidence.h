@@ -41,6 +41,8 @@ struct EvidenceRecord {
     std::uint16_t category = 0;
     std::uint32_t eventKind = 0;
     std::optional<Ksword::Evidence::ArchivedEtwObservation> etw; // 归档声明的 ETW 记录上下文。
+    std::wstring apiClue; // 已核验的归档 API 导出名，非空表示线索行。
+    std::wstring apiFamily; // 共用分类器返回的线索类别。
     std::wstring preview;
 };
 
@@ -57,6 +59,7 @@ struct SegmentEvidence {
     std::size_t records = 0;
     std::size_t opaqueOptionalRecords = 0;
     std::size_t opaqueRequiredRecords = 0;
+    std::uint64_t apiClues = 0; // 仅完整通过导入尾记时提供总数。
     std::string diagnostic;
     std::uint32_t systemError = 0;
     std::wstring fileIdentity;

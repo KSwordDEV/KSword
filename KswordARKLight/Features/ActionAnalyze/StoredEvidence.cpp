@@ -1,10 +1,12 @@
 #include "StoredEvidence.h"
 
 #include "../../Core/Win32Lean.h"
+#include "../../../shared/evidence/ApiMonitorClue.h"
 #include "../../../shared/evidence/EvidenceJson.h"
 
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <iterator>
 #include <string_view>
 
@@ -164,8 +166,10 @@ std::wstring HexPreview(Bytes bytes) {
 }
 
 // 解码一个已通过封装检查的记录，并按需要构造独立预览。
-std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream) {
+std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream,
+    bool& apiImport, ApiMonitorClueReadback& api, bool& showRow) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
+        if (apiImport) return "raw.apiImportRecord";
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
         return {};
     }
@@ -174,10 +178,27 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
         const auto jsonBytes = static_cast<std::size_t>(Little(payload, 0, 4));
         if (jsonBytes > payload.size() - 4) return "raw.length";
         std::wstring json;
-        JsonValue metadata; // 仅在发布 raw 流中的行时解释来源字段。
+        JsonValue metadata; // 只解释可见原始行，API 导入则校验整段。
         if (!ReadJsonObject(payload.subspan(4, jsonBytes), show ? &json : nullptr, nullptr,
-            show && rawStream ? &metadata : nullptr)) return "raw.json";
+            rawStream && (show || apiImport || row.sequence == 1) ? &metadata : nullptr)) return "raw.json";
         const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
+        apiImport = apiImport || (rawStream && row.sequence == 1 && IsApiMonitorClueImport(metadata));
+        if (apiImport) {
+            std::optional<ArchivedApiMonitorClue> clue; // 尾记只更新回读状态，省略 UI 行。
+            const std::string_view original(reinterpret_cast<const char*>(inlineData.data()), inlineData.size());
+            if (row.sequence != api.clues + 1 || !api.Accept(metadata, original, clue)) return "raw.apiImportRecord";
+            showRow = show && clue.has_value();
+            if (showRow) {
+                row.apiClue = clue->clue->api;
+                row.apiFamily.assign(clue->clue->family.begin(), clue->clue->family.end());
+                row.headerPid = clue->packet.pid;
+                row.headerTid = clue->packet.tid;
+                row.preview = L"源归档行号：" + std::to_wstring(clue->sourceSequence) + L"\r\nFILETIME：" +
+                    std::to_wstring(clue->packet.timestamp100ns) + L"\r\n目标身份、实际写入范围、执行和归因未知。\r\n" +
+                    HexPreview(inlineData);
+            }
+            return {};
+        }
         if (show && rawStream) {
             row.etw = ReadArchivedEtwObservation(metadata, inlineData.size());
             if (row.etw) {
@@ -191,6 +212,7 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
         return {};
     }
 
+    if (apiImport) return "raw.apiImportRecord";
     if (payload.size() < kEventCoreBytes || Little(payload, 124, 4) != payload.size() - kEventCoreBytes) {
         return "event.length";
     }
@@ -275,6 +297,9 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
     std::optional<std::uint64_t> previousBlock, previousSequence;
     std::string_view firstDecodeError;
     std::uint64_t firstDecodeErrorOffset = 0;
+    bool apiImport = false; // 由首条原始记录明确声明的 API 导入格式。
+    ApiMonitorClueReadback api; // 共享尾记和来源序号校验状态。
+    std::deque<EvidenceRecord> apiWindow; // 与 Qt 保持相同的最近记录窗口，校验完成前不交付。
 
     while (out.framedBytes < size) {
         const auto start = out.framedBytes;
@@ -335,14 +360,25 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             const auto payload = Bytes(body).subspan(position + kRecordHeaderBytes, row.payloadBytes);
             if (Little(record, 24, 4) != Crc32c(payload)) { fail("record.payloadCrc", recordOffset + 32); break; }
 
-            const bool show = firstDecodeError.empty() && decodeError.empty() && out.rows.size() + rows.size() < kEvidenceRows;
-            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1);
+            const bool show = firstDecodeError.empty() && decodeError.empty() &&
+                (apiImport || out.rows.size() + rows.size() < kEvidenceRows); // 通用段保留旧的前缀预览。
+            bool showRow = show; // API 导入尾记不进入结果列表。
+            const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, apiImport, api, showRow);
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
                 if (row.flags & 1) ++opaqueRequired;
                 else ++opaqueOptional;
             }
-            if (show && error.empty()) rows.push_back(std::move(row));
+            if (showRow && error.empty()) {
+                if (apiImport) {
+                    if (apiWindow.size() == kEvidenceRows) {
+                        apiWindow.pop_front();
+                    }
+                    apiWindow.push_back(std::move(row));
+                } else {
+                    rows.push_back(std::move(row));
+                }
+            }
             sequence = Little(record, 16, 8);
             position += static_cast<std::size_t>(total);
         }
@@ -374,6 +410,16 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
         if (out.diagnostic.empty()) fail(firstDecodeError, firstDecodeErrorOffset);
         else out.diagnostic = std::string(firstDecodeError) + " @ " + std::to_string(firstDecodeErrorOffset) +
             " / " + out.diagnostic;
+    }
+    if (apiImport) {
+        // 文件前缀可用于诊断，线索详情只在导入收尾及文件都有效时发布。
+        if (out.diagnostic.empty() && !api.ended) fail("raw.apiImportEnd", out.decodedPrefixBytes);
+        if (out.diagnostic.empty()) {
+            out.apiClues = api.clues;
+            out.rows.assign(std::make_move_iterator(apiWindow.begin()), std::make_move_iterator(apiWindow.end()));
+        } else {
+            out.rows.clear();
+        }
     }
     return out;
 }

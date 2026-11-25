@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include "ApiMonitorEvidenceCommand.h"
 #include "BreakpointCommand.h"
 #include "DirtyMemoryCommand.h"
 #include "MemoryWatch.h"
@@ -160,6 +161,7 @@ void RegisterCommands() {
     RegisterDirtyMemoryCommand();
     RegisterBreakpointCommand();
     RegisterSysmonThreadCommand();
+    RegisterApiMonitorEvidenceCommands();
     Command capabilities;
     capabilities.path = L"analyze capabilities";
     capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline|r3]";

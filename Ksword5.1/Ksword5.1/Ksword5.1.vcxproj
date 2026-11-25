@@ -1609,6 +1609,7 @@
     <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h" />
     <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h" />
     <ClInclude Include="..\..\shared\evidence\ArchivedEtwObservation.h" />
+    <ClInclude Include="..\..\shared\evidence\ApiMonitorClue.h" />
     <ClInclude Include="..\..\shared\evidence\EvidenceJson.h" />
     <ClInclude Include="..\..\shared\evidence\LiveNavigation.h" />
     <ClInclude Include="..\..\shared\evidence\LosslessValue.h" />

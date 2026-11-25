@@ -80,6 +80,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\DirtyMemoryCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\BreakpointCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -110,6 +111,8 @@
     <ClInclude Include="ActionAnalyze\Detection\SysmonThreadSource.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiMonitorClue.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionSurveyProjection.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ObjectIdentity.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Memory\PassiveDirtyMemory.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
