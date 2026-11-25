@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/identity.schema.json",
+  "title": "ActionAnalyze v1 process and thread observations",
+  "oneOf": [{ "$ref": "#/$defs/process" }, { "$ref": "#/$defs/thread" }],
+  "$defs": {
+    "eventId": {
+      "type": "object", "additionalProperties": false, "required": ["sampleId", "eventOrdinal"],
+      "properties": {
+        "sampleId": { "$ref": "value.schema.json#/$defs/uuid" },
+        "eventOrdinal": { "$ref": "value.schema.json#/$defs/u64" }
+      }
+    },
+    "objectRef": {
+      "type": "object", "additionalProperties": false, "required": ["sampleId", "objectId"],
+      "properties": {
+        "sampleId": { "$ref": "value.schema.json#/$defs/uuid" },
+        "objectId": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+      }
+    },
+    "nonEmptyText": { "type": "string", "minLength": 1 },
+    "identityStrength": { "enum": ["strong", "weak", "unknown"] },
+    "sourceBasis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceId", "sourceEpoch", "verification", "receiveClockId", "firstReceiveQpc", "lastReceiveQpc"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/nonEmptyText" },
+        "sourceEpoch": { "$ref": "value.schema.json#/$defs/uuid" },
+        "verification": { "enum": ["verified", "unverified"] },
+        "receiveClockId": { "$ref": "#/$defs/nonEmptyText" },
+        "firstReceiveQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "lastReceiveQpc": { "$ref": "value.schema.json#/$defs/u64" }
+      }
+    },
+    "process": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "ref", "strength", "basis"],
+      "properties": {
+        "kind": { "const": "process" },
+        "ref": { "$ref": "#/$defs/objectRef" },
+        "strength": { "$ref": "#/$defs/identityStrength" },
+        "basis": { "$ref": "#/$defs/sourceBasis" },
+        "machineId": { "$ref": "#/$defs/nonEmptyText" },
+        "bootId": { "$ref": "#/$defs/nonEmptyText" },
+        "pid": { "$ref": "value.schema.json#/$defs/u32" },
+        "createTime100ns": { "$ref": "value.schema.json#/$defs/u64" }
+      },
+      "if": { "properties": { "strength": { "const": "strong" } } },
+      "then": {
+        "required": ["machineId", "bootId", "pid", "createTime100ns"],
+        "properties": { "basis": { "properties": { "verification": { "const": "verified" } } } }
+      }
+    },
+    "thread": {
+      "$comment": "A strong thread also needs a resolved strong owner process. Where present, owner is in the same sample as ref.",
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "ref", "strength", "basis"],
+      "properties": {
+        "kind": { "const": "thread" },
+        "ref": { "$ref": "#/$defs/objectRef" },
+        "strength": { "$ref": "#/$defs/identityStrength" },
+        "basis": { "$ref": "#/$defs/sourceBasis" },
+        "owner": { "$ref": "#/$defs/objectRef" },
+        "tid": { "$ref": "value.schema.json#/$defs/u32" },
+        "createTime100ns": { "$ref": "value.schema.json#/$defs/u64" }
+      },
+      "if": { "properties": { "strength": { "const": "strong" } } },
+      "then": {
+        "required": ["owner", "tid", "createTime100ns"],
+        "properties": { "basis": { "properties": { "verification": { "const": "verified" } } } }
+      }
+    },
+    "roles": {
+      "type": "object", "additionalProperties": false, "required": ["sampleId"],
+      "properties": {
+        "sampleId": { "$ref": "value.schema.json#/$defs/uuid" },
+        "headerPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "headerTid": { "$ref": "value.schema.json#/$defs/u32" },
+        "actorProcess": { "$ref": "#/$defs/objectRef" },
+        "actorThread": { "$ref": "#/$defs/objectRef" },
+        "targetProcess": { "$ref": "#/$defs/objectRef" },
+        "targetThread": { "$ref": "#/$defs/objectRef" },
+        "observedOnThread": { "$ref": "#/$defs/objectRef" }
+      }
+    },
+    "rawClock": {
+      "type": "object", "additionalProperties": false,
+      "required": ["domain", "value", "clockId", "bootId"],
+      "properties": {
+        "domain": { "enum": ["qpc", "filetime100ns"] },
+        "value": { "$ref": "value.schema.json#/$defs/u64" },
+        "clockId": { "$ref": "#/$defs/nonEmptyText" },
+        "bootId": { "$ref": "#/$defs/nonEmptyText" },
+        "frequencyHz": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+      },
+      "if": { "properties": { "domain": { "const": "qpc" } } },
+      "then": { "required": ["frequencyHz"] },
+      "else": { "not": { "required": ["frequencyHz"] } }
+    },
+    "revisionRef": {
+      "type": "object", "additionalProperties": false, "required": ["revisionId", "hash"],
+      "properties": {
+        "revisionId": { "$ref": "value.schema.json#/$defs/uuid" },
+        "hash": { "$ref": "value.schema.json#/$defs/sha256" }
+      }
+    }
+  }
+}

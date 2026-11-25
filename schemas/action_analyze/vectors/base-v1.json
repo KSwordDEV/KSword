@@ -1,0 +1,83 @@
+{
+  "version": { "major": 1, "minor": 0 },
+  "values": [
+    { "id": "known-zero", "def": "fieldValue", "value": { "type": "u64", "state": "known", "value": "0" }, "valid": true },
+    { "id": "u64-maximum", "def": "u64", "value": "18446744073709551615", "valid": true },
+    { "id": "u64-overflow", "def": "u64", "value": "18446744073709551616", "valid": false },
+    { "id": "u64-leading-zero", "def": "u64", "value": "00", "valid": false },
+    { "id": "u64-newline", "def": "u64", "value": "1\n", "valid": false },
+    { "id": "u64-json-number", "def": "u64", "value": 42, "valid": false },
+    { "id": "i64-minimum", "def": "i64", "value": "-9223372036854775808", "valid": true },
+    { "id": "i64-maximum", "def": "i64", "value": "9223372036854775807", "valid": true },
+    { "id": "i64-underflow", "def": "i64", "value": "-9223372036854775809", "valid": false },
+    { "id": "i64-overflow", "def": "i64", "value": "9223372036854775808", "valid": false },
+    { "id": "i64-negative-zero-string", "def": "i64", "value": "-0", "valid": false },
+    { "id": "pid-overflow", "def": "u32", "value": 4294967296, "valid": false },
+    { "id": "zero-pid-attribute", "def": "u32", "value": 0, "valid": true },
+    { "id": "32-bit-address", "def": "address", "value": { "pointerWidth": 32, "address": "0x00000000ffffffff" }, "valid": true },
+    { "id": "32-bit-bad-upper-half", "def": "address", "value": { "pointerWidth": 32, "address": "0x0000000100000000" }, "valid": false },
+    { "id": "64-bit-address", "def": "address", "value": { "pointerWidth": 64, "address": "0xffffffffffffffff" }, "valid": true },
+    { "id": "64-bit-address-uppercase", "def": "address", "value": { "pointerWidth": 64, "address": "0xfffffffffffffffF" }, "valid": false },
+    { "id": "32-bit-last-byte", "def": "range", "value": { "pointerWidth": 32, "base": "0x00000000ffffffff", "length": "1" }, "valid": true },
+    { "id": "32-bit-range-overflow", "def": "range", "value": { "pointerWidth": 32, "base": "0x00000000ffffffff", "length": "2" }, "valid": false },
+    { "id": "64-bit-range-overflow", "def": "range", "value": { "pointerWidth": 64, "base": "0xffffffffffffffff", "length": "1" }, "valid": false },
+    { "id": "zero-length-range", "def": "range", "value": { "pointerWidth": 64, "base": "0xffffffffffffffff", "length": "0" }, "valid": true },
+    { "id": "known-empty-string", "def": "fieldValue", "value": { "type": "text", "state": "known", "value": "" }, "valid": true },
+    { "id": "known-empty-array", "def": "fieldValue", "value": { "type": "array", "itemType": "u64", "state": "known", "value": [] }, "valid": true },
+    { "id": "array-item-overflow", "def": "fieldValue", "value": { "type": "array", "itemType": "u64", "state": "known", "value": ["18446744073709551616"] }, "valid": false },
+    { "id": "explicit-null", "def": "fieldValue", "value": { "type": "text", "state": "null" }, "valid": true },
+    { "id": "missing-is-not-null", "def": "fieldValue", "value": { "type": "text", "state": "notCollected" }, "valid": true },
+    { "id": "known-requires-value", "def": "fieldValue", "value": { "type": "text", "state": "known" }, "valid": false },
+    { "id": "null-carries-no-value", "def": "fieldValue", "value": { "type": "u32", "state": "null", "value": 0 }, "valid": false },
+    { "id": "redacted-carries-no-value", "def": "fieldValue", "value": { "type": "text", "state": "redacted", "value": "x" }, "valid": false },
+    { "id": "truncated-prefix", "def": "fieldValue", "value": { "type": "text", "state": "truncated", "value": "a", "capturedLength": "1", "originalLength": "2" }, "valid": true },
+    { "id": "truncated-inconsistent-lengths", "def": "fieldValue", "value": { "type": "text", "state": "truncated", "capturedLength": "2", "originalLength": "2" }, "valid": false },
+    { "id": "nan-bits", "def": "fieldValue", "value": { "type": "f32Bits", "state": "known", "value": "0x7fc00001" }, "valid": true },
+    { "id": "closed-field-envelope", "def": "fieldValue", "value": { "type": "text", "state": "known", "value": "x", "unregistered": true }, "valid": false }
+  ],
+  "json": [
+    { "id": "utf8-and-order", "input": "{\"𐀀\":-0,\"z\":\"\\n\\u0000\\/\\\"\\\\\",\"é\":\"e\\u0301\",\"a\":[2,1],\"豈\":0}", "canonicalHex": "7b2261223a5b322c315d2c227a223a225c75303030615c75303030302f5c225c5c222c22c3a9223a2265cc81222c22efa480223a302c22f0908080223a307d", "semanticSha256": { "aa-base-fixture-v1": "49c7492c303d9a163d02c2a33249c56d37105ba8bed91ab55f5e827455563393", "query-v1": "12bc1a6e2cbbf43ced6a5760a538c6e4b1139fa65f97dff8e8495f3defb2d55d" } },
+    { "id": "escaped-duplicate-key", "input": "{\"a\":0,\"\\u0061\":1}", "error": "duplicateKey" },
+    { "id": "invalid-utf8", "inputHex": "7b2278223a22c0af227d", "error": "utf8" },
+    { "id": "surrogate-as-utf8", "inputHex": "7b2278223a22eda080227d", "error": "utf8" },
+    { "id": "escaped-lone-surrogate", "input": "{\"x\":\"\\ud800\"}", "error": "utf8" },
+    { "id": "bom", "inputHex": "efbbbf7b7d", "error": "bom" },
+    { "id": "exponent", "input": "{\"x\":1e0}", "error": "number" },
+    { "id": "fraction", "input": "{\"x\":1.0}", "error": "number" },
+    { "id": "number-overflow", "input": "{\"x\":4294967296}", "error": "number" },
+    { "id": "leading-zero-number", "input": "{\"x\":01}", "error": "syntax" },
+    { "id": "trailing-bytes", "input": "{}{}", "error": "syntax" }
+  ],
+  "identity": {
+    "sampleId": "fedcba98-7654-4321-a234-56789abcdef0",
+    "basis": { "sourceId": "test-source", "sourceEpoch": "d55b5f45-8f35-4cea-83c4-c74c188daae2", "verification": "verified", "receiveClockId": "receive", "firstReceiveQpc": "0", "lastReceiveQpc": "17" },
+    "observations": {
+      "oldProcess": { "objectId": "1", "kind": "process", "strength": "strong", "machineId": "machine-a", "bootId": "boot-a", "pid": 112, "createTime100ns": "0" },
+      "newProcess": { "objectId": "2", "kind": "process", "strength": "strong", "machineId": "machine-a", "bootId": "boot-a", "pid": 112, "createTime100ns": "900000" },
+      "weakProcess": { "objectId": "3", "kind": "process", "strength": "weak", "machineId": "machine-a", "bootId": "boot-a", "pid": 112 },
+      "oldThread": { "objectId": "4", "kind": "thread", "strength": "strong", "ownerId": "1", "tid": 987, "createTime100ns": "10" },
+      "newThread": { "objectId": "5", "kind": "thread", "strength": "strong", "ownerId": "1", "tid": 987, "createTime100ns": "11" },
+      "differentOwner": { "objectId": "6", "kind": "thread", "strength": "strong", "ownerId": "2", "tid": 987, "createTime100ns": "10" },
+      "weakOwner": { "objectId": "7", "kind": "thread", "strength": "strong", "ownerId": "3", "tid": 987, "createTime100ns": "10", "valid": false },
+      "missingCreation": { "objectId": "8", "kind": "process", "strength": "strong", "machineId": "machine-a", "bootId": "boot-a", "pid": 112, "valid": false }
+    },
+    "matchCases": [
+      { "id": "pid-reuse", "pair": ["oldProcess", "newProcess"], "expected": "distinct" },
+      { "id": "pid-only-candidate", "pair": ["oldProcess", "weakProcess"], "expected": "candidate" },
+      { "id": "confirmed-lifetime", "pair": ["oldProcess", "oldProcess"], "expected": "confirmed" },
+      { "id": "tid-reuse", "pair": ["oldThread", "newThread"], "expected": "distinct" },
+      { "id": "tid-owner-reuse", "pair": ["oldThread", "differentOwner"], "expected": "distinct" }
+    ],
+    "referenceCases": [
+      { "id": "known-zero-event-ordinal", "def": "eventId", "withSample": true, "value": { "eventOrdinal": "0" }, "valid": true },
+      { "id": "zero-object-id", "def": "objectRef", "withSample": true, "value": { "objectId": "0" }, "valid": false },
+      { "id": "header-pid-without-actor", "def": "roles", "withSample": true, "value": { "headerPid": 112, "headerTid": 987 }, "valid": true },
+      { "id": "role-process-cannot-resolve-thread", "def": "roles", "withSample": true, "value": { "targetProcess": { "sampleId": "fedcba98-7654-4321-a234-56789abcdef0", "objectId": "4" } }, "valid": false },
+      { "id": "role-external-sample", "def": "roles", "withSample": true, "value": { "actorProcess": { "sampleId": "12345678-9abc-4def-8123-456789abcdef", "objectId": "1" } }, "valid": false },
+      { "id": "qpc-zero", "def": "rawClock", "value": { "domain": "qpc", "value": "0", "clockId": "receive", "bootId": "boot-a", "frequencyHz": "10000000" }, "valid": true },
+      { "id": "qpc-without-frequency", "def": "rawClock", "value": { "domain": "qpc", "value": "0", "clockId": "receive", "bootId": "boot-a" }, "valid": false },
+      { "id": "qpc-with-zero-frequency", "def": "rawClock", "value": { "domain": "qpc", "value": "0", "clockId": "receive", "bootId": "boot-a", "frequencyHz": "0" }, "valid": false },
+      { "id": "filetime-known-zero", "def": "rawClock", "value": { "domain": "filetime100ns", "value": "0", "clockId": "wall", "bootId": "boot-a" }, "valid": true }
+    ]
+  }
+}

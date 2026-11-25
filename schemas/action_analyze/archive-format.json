@@ -1,0 +1,154 @@
+{
+  "format": "KSAASEG",
+  "version": { "major": 1, "minor": 0 },
+  "scope": "A0 Stored framing subset",
+  "byteOrder": "little-endian",
+  "uuidByteOrder": {
+    "encoding": "canonical-text-hex-pairs-left-to-right",
+    "bytes": 16,
+    "canonicalText": "12345678-9abc-4def-8123-456789abcdef",
+    "expectedHex": "123456789abc4def8123456789abcdef",
+    "invalidWindowsGuidMemoryHexForThisText": "78563412bc9aef4d8123456789abcdef"
+  },
+  "paddingBytes": 0,
+  "crc": {
+    "algorithm": "CRC-32C",
+    "reflectedPolynomialHex": "82f63b78",
+    "initHex": "ffffffff",
+    "xorOutHex": "ffffffff",
+    "reflectInput": true,
+    "reflectOutput": true,
+    "checkAscii": "123456789",
+    "checkHex": "e3069283"
+  },
+  "limits": {
+    "segmentBytes": 1073741824,
+    "blockDecodedBytes": 8388608,
+    "blockStoredBytes": 9437184,
+    "minBlockRecordCount": 1,
+    "maxBlockRecordCount": 32768,
+    "jsonBytes": 4194304,
+    "jsonDepth": 32,
+    "jsonStringUtf8Bytes": 65536
+  },
+  "streamKinds": { "raw": 1, "records": 2, "control": 3, "analysis": 4 },
+  "codecIds": { "Stored": 0, "zstd": 1 },
+  "subsetCodecs": [0],
+  "minimumSegmentOrdinal": 1,
+  "segmentOrdinalFilenameDecimalDigits": 20,
+  "blockAndRecordOrdinals": "strictlyIncreasingWithinSegment",
+  "recordTypeIds": {
+    "SourceDescriptor": 1,
+    "ClockCalibration": 2,
+    "RawRecord": 3,
+    "CanonicalEvent": 4,
+    "ObjectObservation": 5,
+    "IdentityResolution": 6,
+    "MappingObservation": 7,
+    "RegionVersion": 8,
+    "Relation": 9,
+    "Behavior": 10,
+    "Gap": 11,
+    "Suppression": 12,
+    "Enrichment": 13,
+    "Coverage": 14,
+    "ConfigChange": 15,
+    "ControlFact": 16,
+    "EvidenceRef": 17,
+    "AnalysisDescriptor": 18,
+    "AnalysisDelta": 19,
+    "DecodeFailure": 20,
+    "StreamStatus": 21,
+    "DictionaryEntry": 22
+  },
+  "segmentHeader": {
+    "bytes": 96,
+    "fields": [
+      { "name": "magic", "offset": 0, "type": "bytes", "bytes": 8, "constHex": "4b53414153454700" },
+      { "name": "major", "offset": 8, "type": "u16", "const": 1 },
+      { "name": "minor", "offset": 10, "type": "u16", "const": 0 },
+      { "name": "headerBytes", "offset": 12, "type": "u32", "const": 96 },
+      { "name": "requiredFlags", "offset": 16, "type": "u32", "allowedMask": 0 },
+      { "name": "streamKind", "offset": 20, "type": "u32", "enumRef": "streamKinds" },
+      { "name": "segmentOrdinal", "offset": 24, "type": "u64", "min": 1 },
+      { "name": "projectUUID", "offset": 32, "type": "uuid" },
+      { "name": "sampleUUID", "offset": 48, "type": "uuid" },
+      { "name": "createdUtc100ns", "offset": 64, "type": "u64", "unit": "filetime100ns" },
+      { "name": "reserved", "offset": 72, "type": "bytes", "bytes": 20, "allZero": true },
+      { "name": "headerCRC32C", "offset": 92, "type": "u32", "crcOverHeaderBytes": { "offset": 0, "bytes": 92 } }
+    ]
+  },
+  "blockHeader": {
+    "bytes": 80,
+    "fields": [
+      { "name": "magic", "offset": 0, "type": "bytes", "bytes": 4, "constHex": "41414231" },
+      { "name": "headerBytes", "offset": 4, "type": "u16", "const": 80 },
+      { "name": "blockVersion", "offset": 6, "type": "u16", "const": 1 },
+      { "name": "codec", "offset": 8, "type": "u16", "enumRef": "codecIds" },
+      { "name": "flags", "offset": 10, "type": "u16", "allowedMask": 1, "definedBits": { "0": "receiveQpcRangeValid" } },
+      { "name": "recordCount", "offset": 12, "type": "u32", "min": 1, "max": 32768 },
+      { "name": "blockOrdinal", "offset": 16, "type": "u64" },
+      { "name": "firstRecordSequence", "offset": 24, "type": "u64" },
+      { "name": "lastRecordSequence", "offset": 32, "type": "u64" },
+      { "name": "decodedBytes", "offset": 40, "type": "u32", "max": 8388608 },
+      { "name": "storedBytes", "offset": 44, "type": "u32", "max": 9437184 },
+      { "name": "minReceiveQpc", "offset": 48, "type": "u64", "unit": "qpcTicks" },
+      { "name": "maxReceiveQpc", "offset": 56, "type": "u64", "unit": "qpcTicks" },
+      { "name": "decodedCRC32C", "offset": 64, "type": "u32", "crcOver": "entireDecodedBlockBody" },
+      { "name": "storedCRC32C", "offset": 68, "type": "u32", "crcOver": "entireStoredBlockBody" },
+      { "name": "reserved", "offset": 72, "type": "u32", "const": 0 },
+      { "name": "headerCRC32C", "offset": 76, "type": "u32", "crcOverHeaderBytes": { "offset": 0, "bytes": 76 } }
+    ]
+  },
+  "recordHeader": {
+    "bytes": 32,
+    "fields": [
+      { "name": "totalBytes", "offset": 0, "type": "u32", "min": 32 },
+      { "name": "recordType", "offset": 4, "type": "u16", "enumRef": "recordTypeIds" },
+      { "name": "recordSchemaVersion", "offset": 6, "type": "u16" },
+      { "name": "flags", "offset": 8, "type": "u32", "allowedMask": 1, "definedBits": { "0": "understandingRequired" } },
+      { "name": "payloadBytes", "offset": 12, "type": "u32" },
+      { "name": "recordSequence", "offset": 16, "type": "u64" },
+      { "name": "payloadCRC32C", "offset": 24, "type": "u32", "crcOver": "entireRecordPayload" },
+      { "name": "headerCRC32C", "offset": 28, "type": "u32", "crcOverHeaderBytes": { "offset": 0, "bytes": 28 } }
+    ]
+  },
+  "rawRecordV1": {
+    "type": 3,
+    "recordSchemaVersion": 1,
+    "fields": [
+      { "name": "metadataJsonBytes", "offset": 0, "type": "u32" },
+      { "name": "metadata", "offset": 4, "type": "strictUtf8JsonObject", "lengthRef": "metadataJsonBytes" },
+      { "name": "inlineRawBytes", "type": "bytes", "lengthRef": "remainingPayloadBytes" }
+    ]
+  },
+  "canonicalEventCoreV1": {
+    "type": 4,
+    "recordSchemaVersion": 1,
+    "bytes": 128,
+    "fields": [
+      { "name": "eventOrdinal", "offset": 0, "type": "u64" },
+      { "name": "primaryRawRecordSequence", "offset": 8, "type": "u64", "validityBit": 0 },
+      { "name": "sourceInstanceDictionaryId", "offset": 16, "type": "u64", "min": 1 },
+      { "name": "sourceEpochDictionaryId", "offset": 24, "type": "u64", "min": 1 },
+      { "name": "producerSequence", "offset": 32, "type": "u64", "validityBit": 1 },
+      { "name": "sourceTimestamp", "offset": 40, "type": "u64", "validityBit": 2 },
+      { "name": "receiveQpc", "offset": 48, "type": "u64", "validityBit": 3 },
+      { "name": "actorProcessObjectId", "offset": 56, "type": "u64", "validityBit": 4, "minWhenValid": 1 },
+      { "name": "targetProcessObjectId", "offset": 64, "type": "u64", "validityBit": 5, "minWhenValid": 1 },
+      { "name": "observedThreadObjectId", "offset": 72, "type": "u64", "validityBit": 6, "minWhenValid": 1 },
+      { "name": "operationDictionaryId", "offset": 80, "type": "u64", "validityBit": 7, "minWhenValid": 1 },
+      { "name": "captureRevisionDictionaryId", "offset": 88, "type": "u64", "validityBit": 8, "minWhenValid": 1 },
+      { "name": "effectiveRevisionDictionaryId", "offset": 96, "type": "u64", "validityBit": 9, "minWhenValid": 1 },
+      { "name": "coverageDictionaryId", "offset": 104, "type": "u64", "validityBit": 10, "minWhenValid": 1 },
+      { "name": "eventKind", "offset": 112, "type": "u32", "opaqueEnum": true },
+      { "name": "category", "offset": 116, "type": "u16", "opaqueEnum": true },
+      { "name": "phase", "offset": 118, "type": "u8", "opaqueEnum": true },
+      { "name": "clockDomain", "offset": 119, "type": "u8", "opaqueEnum": true },
+      { "name": "validityBits", "offset": 120, "type": "u32", "allowedMask": 2047 },
+      { "name": "fieldJsonBytes", "offset": 124, "type": "u32" }
+    ],
+    "trailer": { "offset": 128, "type": "strictUtf8JsonObject", "lengthRef": "fieldJsonBytes" },
+    "clearValidityBitValue": 0
+  }
+}

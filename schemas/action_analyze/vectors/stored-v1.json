@@ -1,0 +1,121 @@
+{
+  "formatVersion": { "major": 1, "minor": 0 },
+  "provenance": "Literal test bytes assembled from storage §§4.1–4.4 with an independent MSB-first Castagnoli implementation (0x1edc6f41 and explicit reflection). No product writer or validation code generated these expected bytes.",
+  "expectedIdentity": {
+    "projectUUID": "12345678-9abc-4def-8123-456789abcdef",
+    "sampleUUID": "fedcba98-7654-4321-a234-56789abcdef0",
+    "segmentOrdinal": "1"
+  },
+  "expectedCreatedUtc100ns": "81985529216486895",
+  "crcCheck": { "inputHex": "313233343536373839", "integerHex": "e3069283", "littleEndianHex": "839206e3" },
+  "fixtures": {
+    "rawSegment": {
+      "streamKind": 1, "bytes": 218, "sha256": "887aa2302e9e057be37aca21b9716aa8afd79c3dcf605b398b18b7d5a5ceaad5",
+      "hex": [
+        "4b53414153454700010000006000000000000000010000000100000000000000",
+        "123456789abc4def8123456789abcdeffedcba9876544321a23456789abcdef0",
+        "efcdab896745230100000000000000000000000000000000000000005cd605b0",
+        "4141423150000100000001000100000001000000000000000000000000000000",
+        "00000000000000002a0000002a00000000000000000000000302010000000000",
+        "a61bb1f6a61bb1f6000000007abfe1942a00000003000100010000000a000000",
+        "00000000000000003cdc0763cea5f056020000007b7d00ff804b"
+      ],
+      "expectedBlocks": [{ "ordinal": "1", "firstSequence": "0", "lastSequence": "0", "minReceiveQpc": "0", "maxReceiveQpc": "66051", "endOffset": 218 }],
+      "expectedPayload": { "recordType": 3, "recordSchemaVersion": 1, "flags": 1, "metadataJson": {}, "inlineRawHex": "00ff804b" }
+    },
+    "eventSegment": {
+      "streamKind": 2, "bytes": 338, "sha256": "2dfffacad4232ada60d117aee4237cc47d26aa68e264ff495499a293a2b08cd8",
+      "hex": [
+        "4b53414153454700010000006000000000000000020000000100000000000000",
+        "123456789abc4def8123456789abcdeffedcba9876544321a23456789abcdef0",
+        "efcdab89674523010000000000000000000000000000000000000000e60171fa",
+        "4141423150000100000001000100000005000000000000001d00000000000000",
+        "1d00000000000000a2000000a200000000000000000000000302010000000000",
+        "cdc078e7cdc078e7000000001ea21edca2000000040001000100000082000000",
+        "1d00000000000000999dffc9ff0b0d5800000000000000000000000000000000",
+        "08070605040302011032547698badcfe00000000000000001716151413121110",
+        "2827262524232221383736353433323100000000000000004847464544434241",
+        "5857565554535251686766656463626178777675747372718887868584838281",
+        "4433221166557788df070000020000007b7d"
+      ],
+      "expectedBlocks": [{ "ordinal": "5", "firstSequence": "29", "lastSequence": "29", "minReceiveQpc": "0", "maxReceiveQpc": "66051", "endOffset": 338 }],
+      "expectedPayload": {
+        "recordType": 4, "recordSchemaVersion": 1, "flags": 1,
+        "core": {
+          "eventOrdinal": "0", "primaryRawRecordSequence": "0", "sourceInstanceDictionaryId": "72623859790382856",
+          "sourceEpochDictionaryId": "18364758544493064720", "producerSequence": "0", "sourceTimestamp": "1157726452361532951",
+          "receiveQpc": "2387509390608836392", "actorProcessObjectId": "3544952156018063160", "targetProcessObjectId": null,
+          "observedThreadObjectId": "4702394921427289928", "operationDictionaryId": "5859837686836516696",
+          "captureRevisionDictionaryId": "7017280452245743464", "effectiveRevisionDictionaryId": "8174723217654970232",
+          "coverageDictionaryId": "9332165983064197000", "eventKind": 287454020, "category": 21862, "phase": 119, "clockDomain": 136,
+          "validityBits": 2015, "fieldJsonBytes": 2
+        },
+        "fieldJson": {}
+      }
+    },
+    "rawBlock2": {
+      "bytes": 122, "sha256": "343d5651e38eb100bea75639fc379cdd1c19bb23660d70debbf07637dce42d87",
+      "hex": [
+        "4141423150000100000001000100000002000000000000000300000000000000",
+        "03000000000000002a0000002a00000000000000000000000302010000000000",
+        "a61bb1f6a61bb1f600000000d95481432a00000003000100010000000a000000",
+        "03000000000000003cdc07639ed96205020000007b7d00ff804b"
+      ]
+    },
+    "unknownOptionalBlock": {
+      "bytes": 112, "sha256": "0ccd0f5caec2e5543d43d49d88e0f273582e8e01a22e03c0fc673505d863dda2",
+      "hex": [
+        "4141423150000100000001000100000000000000000000000000000000000000",
+        "0000000000000000200000002000000000000000000000000302010000000000",
+        "c74b6748c74b6748000000008e0536a320000000ffff01000000000000000000",
+        "0000000000000000000000009f1fd2fd"
+      ]
+    },
+    "unknownRequiredBlock": {
+      "bytes": 112, "sha256": "d74e3acb574a70ea1e1dadb1f9d13f9917d54df9a329386d071866076bea48df",
+      "hex": [
+        "4141423150000100000001000100000000000000000000000000000000000000",
+        "0000000000000000200000002000000000000000000000000302010000000000",
+        "c74b6748c74b6748000000008e0536a320000000ffff01000100000000000000",
+        "00000000000000000000000022e891ca"
+      ]
+    }
+  },
+  "cases": [
+    { "id": "raw-segment", "base": "rawSegment", "prefixBytes": 218, "blocks": 1, "status": "complete" },
+    { "id": "event-segment-with-known-zeroes", "base": "eventSegment", "prefixBytes": 338, "blocks": 1, "status": "complete" },
+    { "id": "two-blocks-sequence-gap", "base": "rawSegment", "append": "rawBlock2", "prefixBytes": 340, "blocks": 2, "status": "complete" },
+    { "id": "truncated-segment-header", "base": "rawSegment", "truncate": 95, "prefixBytes": 0, "blocks": 0, "status": "truncated" },
+    { "id": "valid-header-alone", "base": "rawSegment", "truncate": 96, "prefixBytes": 96, "blocks": 0, "status": "complete" },
+    { "id": "truncated-second-block-header", "base": "rawSegment", "append": "rawBlock2", "truncate": 297, "prefixBytes": 218, "blocks": 1, "status": "truncated" },
+    { "id": "truncated-second-block-payload", "base": "rawSegment", "append": "rawBlock2", "truncate": 339, "prefixBytes": 218, "blocks": 1, "status": "truncated" },
+    { "id": "segment-header-crc", "base": "rawSegment", "patch": [[64, "00"]], "prefixBytes": 0, "blocks": 0, "status": "segment.headerCrc" },
+    { "id": "windows-guid-memory-order-with-valid-header-crc", "base": "rawSegment", "patch": [[32, "78563412bc9aef4d8123456789abcdef"], [92, "a92ed260"]], "prefixBytes": 0, "blocks": 0, "status": "segment.identity" },
+    { "id": "bad-block-header-crc", "base": "rawSegment", "patch": [[144, "01"]], "prefixBytes": 96, "blocks": 0, "status": "block.headerCrc" },
+    { "id": "future-segment-major", "base": "rawSegment", "patch": [[8, "0200"], [92, "99b8c294"]], "prefixBytes": 0, "blocks": 0, "status": "segment.major" },
+    { "id": "unknown-segment-required-flags", "base": "rawSegment", "patch": [[16, "0100"], [92, "64e88ddd"]], "prefixBytes": 0, "blocks": 0, "status": "segment.requiredFlags" },
+    { "id": "bad-second-stored-crc", "base": "rawSegment", "append": "rawBlock2", "patch": [[339, "00"]], "prefixBytes": 218, "blocks": 1, "status": "block.storedCrc" },
+    { "id": "bad-decoded-crc-valid-stored-crc", "base": "rawSegment", "patch": [[160, "00"], [172, "6437d8c8"]], "prefixBytes": 96, "blocks": 0, "status": "block.decodedCrc" },
+    { "id": "bad-record-payload-crc-valid-block-crcs", "base": "rawSegment", "patch": [[208, "03"], [160, "0360e73d"], [164, "0360e73d"], [172, "e5539dc7"]], "prefixBytes": 96, "blocks": 0, "status": "record.payloadCrc" },
+    { "id": "bad-record-header-crc-valid-block-crcs", "base": "rawSegment", "patch": [[204, "00"], [160, "fe617c77"], [164, "fe617c77"], [172, "7e8e292e"]], "prefixBytes": 96, "blocks": 0, "status": "record.headerCrc" },
+    { "id": "record-length-overflows-body", "base": "rawSegment", "patch": [[176, "ffffffff"], [204, "00db3716"]], "prefixBytes": 96, "blocks": 0, "status": "record.length" },
+    { "id": "bytes-left-after-record-count", "base": "rawSegment", "appendHex": "58", "patch": [[136, "2b0000002b000000"], [160, "18329d0d"], [164, "18329d0d"], [172, "37b4bba3"]], "prefixBytes": 96, "blocks": 0, "status": "block.trailingBytes" },
+    { "id": "no-magic-resync-after-bad-block", "base": "rawSegment", "append": "rawBlock2", "patch": [[217, "00"]], "prefixBytes": 96, "blocks": 0, "status": "block.storedCrc" },
+    { "id": "optional-unknown-record", "base": "rawSegment", "take": 96, "append": "unknownOptionalBlock", "prefixBytes": 208, "blocks": 1, "status": "complete", "opaqueOptional": 1 },
+    { "id": "required-unknown-record", "base": "rawSegment", "take": 96, "append": "unknownRequiredBlock", "prefixBytes": 208, "blocks": 1, "status": "raw-only" },
+    { "id": "unavailable-zstd", "base": "rawSegment", "patch": [[104, "0100"], [172, "1a3f43fd"], [112, "0000000000000000"]], "prefixBytes": 96, "blocks": 0, "status": "block.codec" },
+    { "id": "decoded-length-limit", "base": "rawSegment", "patch": [[112, "0000000000000000"], [136, "01008000"], [172, "bd9392e4"]], "prefixBytes": 96, "blocks": 0, "status": "block.length" },
+    { "id": "stored-length-limit", "base": "rawSegment", "patch": [[140, "01009000"], [172, "b2dfcc30"]], "prefixBytes": 96, "blocks": 0, "status": "block.length" },
+    { "id": "stored-decoded-length-mismatch", "base": "rawSegment", "patch": [[112, "0000000000000000"], [136, "29000000"], [172, "e5d70fb5"]], "prefixBytes": 96, "blocks": 0, "status": "block.length" },
+    { "id": "record-count-zero", "base": "rawSegment", "patch": [[108, "00000000"], [112, "0000000000000000"], [172, "23f45495"]], "prefixBytes": 96, "blocks": 0, "status": "block.recordCount" },
+    { "id": "record-count-oversize", "base": "rawSegment", "patch": [[108, "01800000"], [112, "0000000000000000"], [172, "f21e22e7"]], "prefixBytes": 96, "blocks": 0, "status": "block.recordCount" },
+    { "id": "first-last-disagree-with-record-sequence", "base": "rawSegment", "patch": [[112, "000000000000000001000000000000000100000000000000"], [172, "b4cb6525"]], "prefixBytes": 96, "blocks": 0, "status": "record.sequence" },
+    { "id": "reversed-valid-qpc-range", "base": "rawSegment", "patch": [[144, "0402010000000000"], [172, "07dfbc86"]], "prefixBytes": 96, "blocks": 0, "status": "block.qpcRange" },
+    { "id": "qpc-range-ignored-when-invalid", "base": "rawSegment", "patch": [[106, "0000"], [144, "0402010000000000"], [172, "d90fda1c"]], "prefixBytes": 218, "blocks": 1, "status": "complete" },
+    { "id": "raw-metadata-is-not-object", "base": "rawSegment", "patch": [[112, "0000000000000000"], [160, "7cb8ed687cb8ed68"], [172, "e7472576"], [200, "e67f5bfdb95860a2"], [212, "5b5d"]], "framedBytes": 218, "prefixBytes": 96, "blocks": 0, "status": "raw.json" },
+    { "id": "raw-metadata-length-overflows-body", "base": "rawSegment", "patch": [[208, "ff000000"], [200, "73ebc419"], [204, "a32b4ddd"], [160, "e92c728c"], [164, "e92c728c"], [172, "f07032ce"]], "framedBytes": 218, "prefixBytes": 96, "blocks": 0, "status": "raw.length" },
+    { "id": "event-json-length-disagrees-with-payload", "base": "eventSegment", "patch": [[332, "03000000"], [200, "80f6cf26"], [204, "5a705b93"], [160, "d4ab4808"], [164, "d4ab4808"], [172, "73f57087"]], "framedBytes": 338, "prefixBytes": 96, "blocks": 0, "status": "event.length" },
+    { "id": "unknown-event-validity-bit", "base": "eventSegment", "patch": [[160, "93e88c4193e88c41"], [172, "e68b950b"], [200, "c7b50b6f8c4c217f"], [328, "ff0f0000"]], "framedBytes": 338, "prefixBytes": 96, "blocks": 0, "status": "event.validityBits" },
+    { "id": "value-under-clear-event-validity-bit", "base": "eventSegment", "patch": [[160, "13101e7d13101e7d"], [172, "9c893863"], [200, "474d995385779756"], [272, "0100000000000000"]], "framedBytes": 338, "prefixBytes": 96, "blocks": 0, "status": "event.validityValue" }
+  ]
+}

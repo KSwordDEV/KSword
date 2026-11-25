@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ksword.invalid/schemas/action_analyze/value.schema.json",
+  "title": "ActionAnalyze v1 base FieldValue",
+  "$ref": "#/$defs/fieldValue",
+  "$defs": {
+    "uuid": {
+      "type": "string", "minLength": 36, "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "u64": {
+      "$comment": "Semantic bound 18446744073709551615 is required after lexical validation.",
+      "type": "string", "format": "aa-u64", "pattern": "^(0|[1-9][0-9]{0,19})(?![\\s\\S])"
+    },
+    "nonzeroU64": {
+      "allOf": [{ "$ref": "#/$defs/u64" }, { "not": { "const": "0" } }]
+    },
+    "i64": {
+      "$comment": "Semantic bounds -9223372036854775808 and 9223372036854775807 also apply.",
+      "type": "string", "format": "aa-i64", "pattern": "^(0|-?[1-9][0-9]{0,18})(?![\\s\\S])"
+    },
+    "u32": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "i32": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+    "bool": { "type": "boolean" },
+    "text": { "type": "string" },
+    "pointerWidth": { "enum": [32, 64] },
+    "addressText": { "type": "string", "minLength": 18, "maxLength": 18, "pattern": "^0x[0-9a-f]{16}$" },
+    "address": {
+      "type": "object", "additionalProperties": false, "required": ["address", "pointerWidth"],
+      "properties": {
+        "address": { "$ref": "#/$defs/addressText" }, "pointerWidth": { "$ref": "#/$defs/pointerWidth" }
+      },
+      "if": { "properties": { "pointerWidth": { "const": 32 } } },
+      "then": { "properties": { "address": { "pattern": "^0x00000000" } } }
+    },
+    "range": {
+      "$comment": "Check exclusive-end arithmetic separately.",
+      "type": "object", "additionalProperties": false, "required": ["base", "pointerWidth", "length"],
+      "properties": {
+        "base": { "$ref": "#/$defs/addressText" },
+        "pointerWidth": { "$ref": "#/$defs/pointerWidth" },
+        "length": { "$ref": "#/$defs/u64" }
+      },
+      "if": { "properties": { "pointerWidth": { "const": 32 } } },
+      "then": { "properties": { "base": { "pattern": "^0x00000000" } } }
+    },
+    "f32Bits": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^0x[0-9a-f]{8}$" },
+    "f64Bits": { "$ref": "#/$defs/addressText" },
+    "sha256": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "hex"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "hex": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "bytes": {
+      "$comment": "Encoding labels describe the original bytes. Slice bounds against the resolved blob require semantic validation.",
+      "type": "object", "additionalProperties": false, "required": ["sampleId", "hash", "offset", "length", "encoding"],
+      "properties": {
+        "sampleId": { "$ref": "#/$defs/uuid" },
+        "hash": { "$ref": "#/$defs/sha256" },
+        "offset": { "$ref": "#/$defs/u64" },
+        "length": { "$ref": "#/$defs/u64" },
+        "encoding": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fieldState": { "enum": ["known", "null", "notCollected", "unsupported", "accessDenied", "readFailed", "truncated", "decodeFailed", "redacted"] },
+    "scalarType": { "enum": ["bool", "i32", "u32", "i64", "u64", "text", "uuid", "address", "range", "f32Bits", "f64Bits", "bytes", "sha256"] },
+    "fieldValue": {
+      "$comment": "Apply the $defs named by type or itemType to each value. Shape dispatch is below for scalars. The semantic checker also dispatches array items and applies arithmetic bounds.",
+      "type": "object", "additionalProperties": false, "required": ["state", "type"],
+      "properties": {
+        "state": { "$ref": "#/$defs/fieldState" },
+        "type": { "anyOf": [{ "$ref": "#/$defs/scalarType" }, { "const": "array" }] },
+        "value": {},
+        "itemType": { "$ref": "#/$defs/scalarType" },
+        "reason": { "type": "string", "minLength": 1 },
+        "rawRef": { "$ref": "#/$defs/bytes" },
+        "capturedLength": { "$ref": "#/$defs/u64" },
+        "originalLength": { "$ref": "#/$defs/u64" }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "const": "known" } } }, "then": { "required": ["value"] } },
+        { "if": { "properties": { "state": { "enum": ["known", "truncated"] } } }, "else": { "not": { "required": ["value"] } } },
+        {
+          "if": { "properties": { "type": { "const": "array" } } },
+          "then": { "required": ["itemType"], "properties": { "value": { "type": "array" } } },
+          "else": { "not": { "required": ["itemType"] } }
+        },
+        { "if": { "properties": { "type": { "const": "bool" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/bool" } } } },
+        { "if": { "properties": { "type": { "const": "i32" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/i32" } } } },
+        { "if": { "properties": { "type": { "const": "u32" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/u32" } } } },
+        { "if": { "properties": { "type": { "const": "i64" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/i64" } } } },
+        { "if": { "properties": { "type": { "const": "u64" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/u64" } } } },
+        { "if": { "properties": { "type": { "const": "text" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/text" } } } },
+        { "if": { "properties": { "type": { "const": "uuid" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/uuid" } } } },
+        { "if": { "properties": { "type": { "const": "address" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/address" } } } },
+        { "if": { "properties": { "type": { "const": "range" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/range" } } } },
+        { "if": { "properties": { "type": { "const": "f32Bits" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/f32Bits" } } } },
+        { "if": { "properties": { "type": { "const": "f64Bits" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/f64Bits" } } } },
+        { "if": { "properties": { "type": { "const": "bytes" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/bytes" } } } },
+        { "if": { "properties": { "type": { "const": "sha256" } } }, "then": { "properties": { "value": { "$ref": "#/$defs/sha256" } } } }
+      ]
+    }
+  }
+}

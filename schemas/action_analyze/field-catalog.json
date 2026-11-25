@@ -1,0 +1,37 @@
+{
+  "catalogVersion": { "major": 1, "minor": 0 },
+  "scope": "normalized base projection",
+  "phaseSets": {
+    "all": ["entry", "return", "submit", "complete", "observation"]
+  },
+  "sourceSets": {
+    "archiveEnvelope": { "kind": "archiveEnvelope", "version": 1 },
+    "normalizedSource": { "kind": "normalizedSource", "version": 1 }
+  },
+  "availability": {
+    "envelope": ["known"],
+    "observed": ["known", "notCollected", "unsupported", "accessDenied", "readFailed", "decodeFailed", "redacted"]
+  },
+  "textProfiles": {
+    "none": { "case": "notApplicable", "normalization": "none" },
+    "uuid": { "case": "lowercase", "normalization": "validateOnly" },
+    "decimal": { "case": "notApplicable", "normalization": "canonicalDecimal" },
+    "opaque": { "case": "sensitive", "normalization": "none" },
+    "objectRef": { "case": "lowercaseUUID", "normalization": "validateOnly" }
+  },
+  "fields": [
+    { "fieldId": "event.projectId", "type": "value.schema.json#/$defs/uuid", "unit": "uuid", "phaseSet": "all", "sourceSet": "archiveEnvelope", "availability": "envelope", "maxValueJsonBytes": 38, "textProfile": "uuid" },
+    { "fieldId": "event.sampleId", "type": "value.schema.json#/$defs/uuid", "unit": "uuid", "phaseSet": "all", "sourceSet": "archiveEnvelope", "availability": "envelope", "maxValueJsonBytes": 38, "textProfile": "uuid" },
+    { "fieldId": "event.eventOrdinal", "type": "value.schema.json#/$defs/u64", "unit": "sampleOrdinal", "phaseSet": "all", "sourceSet": "archiveEnvelope", "availability": "envelope", "maxValueJsonBytes": 22, "textProfile": "decimal" },
+    { "fieldId": "source.sequence", "type": "value.schema.json#/$defs/u64", "unit": "sourceOrdinal", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 22, "textProfile": "decimal" },
+    { "fieldId": "source.headerPid", "type": "value.schema.json#/$defs/u32", "unit": "pid", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 10, "textProfile": "none" },
+    { "fieldId": "source.headerTid", "type": "value.schema.json#/$defs/u32", "unit": "tid", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 10, "textProfile": "none" },
+    { "fieldId": "actor.process", "type": "identity.schema.json#/$defs/objectRef", "objectKind": "process", "unit": "sampleObjectRef", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 85, "textProfile": "objectRef" },
+    { "fieldId": "actor.thread", "type": "identity.schema.json#/$defs/objectRef", "objectKind": "thread", "unit": "sampleObjectRef", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 85, "textProfile": "objectRef" },
+    { "fieldId": "target.process", "type": "identity.schema.json#/$defs/objectRef", "objectKind": "process", "unit": "sampleObjectRef", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 85, "textProfile": "objectRef" },
+    { "fieldId": "target.thread", "type": "identity.schema.json#/$defs/objectRef", "objectKind": "thread", "unit": "sampleObjectRef", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 85, "textProfile": "objectRef" },
+    { "fieldId": "event.observedOnThread", "type": "identity.schema.json#/$defs/objectRef", "objectKind": "thread", "unit": "sampleObjectRef", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 85, "textProfile": "objectRef" },
+    { "fieldId": "time.rawClock", "type": "identity.schema.json#/$defs/rawClock", "unit": "domainDependent", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 1048576, "textProfile": "opaque" },
+    { "fieldId": "time.receivedQpc", "type": "value.schema.json#/$defs/u64", "unit": "qpcTicks", "phaseSet": "all", "sourceSet": "normalizedSource", "availability": "observed", "maxValueJsonBytes": 22, "textProfile": "decimal" }
+  ]
+}
