@@ -5,8 +5,10 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -146,6 +148,10 @@ struct PollResult {
     std::optional<Round> round; // 尚未到期或没有执行本轮时为空。
 };
 
+// 只在页内完整读取、前后映射相同且散列成功后调用；字节视图仅在同步回调期间有效。
+// 回调不得重入观察器；由本端显式快照入口复制或归档，不给普通轮询隐式添加内存导出。
+using CapturedPageVisitor = std::function<void(const PageObservation&, std::span<const std::uint8_t>)>;
+
 enum class PollMode { SampleWhenDue, StatusOnly };
 
 // 仅供内部、独立的可信证据适配器提供。供方须先验证原事件、进程实例、线程生存期和实际执行，
@@ -199,6 +205,8 @@ public:
     [[nodiscard]] Status Begin(HANDLE selectedProcess, const Plan& plan);
     [[nodiscard]] Status Query() const noexcept;
     [[nodiscard]] PollResult Poll(const std::atomic_bool* cancel = nullptr, PollMode mode = PollMode::SampleWhenDue);
+    // 与 Poll 使用同一读取路径，额外将本轮成功页的原字节交给显式采样调用者。
+    [[nodiscard]] PollResult PollCapture(const CapturedPageVisitor& visitor, const std::atomic_bool* cancel = nullptr);
     [[nodiscard]] Status Stop() noexcept;
     [[nodiscard]] ExecutionLink CorrelateExecution(const ExecutionObservation& observation) const;
 

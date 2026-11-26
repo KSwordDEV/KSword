@@ -23,8 +23,7 @@ namespace ProjectStorage { struct Directory; }
 struct ProjectRawEvidenceWrite;
 struct ProjectRawEvidenceRead;
 struct ProjectEtwCheckpoint;
-enum class ProjectEvidenceLane { Primary, MixedEtw };
-inline constexpr std::string_view kMixedEtwProviderId = "d4a71ada-81b0-4b15-a173-417f33bc8107";
+enum class ProjectEvidenceLane { Primary, MixedEtw, MemorySnapshots, NativeExecution };
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
@@ -174,6 +173,7 @@ public:
 
 private:
     friend struct ProjectApiCheckpointAccess; // 供独立 API 检查点实现借用已固定的项目目录。
+    friend struct ProjectNetworkEvidenceAccess; // 供网络写入器使用本项目已固定的目录。
     const ProjectStorage::Directory* RootForRead() const noexcept;
     struct State;
     std::unique_ptr<State> state_;

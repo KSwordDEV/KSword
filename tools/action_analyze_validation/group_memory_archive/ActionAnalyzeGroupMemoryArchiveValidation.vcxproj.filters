@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files"><UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier><Extensions>cpp;c;cc;cxx</Extensions></Filter>
+    <Filter Include="Scripts"><UniqueIdentifier>{69A3C7B0-5E3D-4A2E-9F41-6D8B0C1E77A2}</UniqueIdentifier><Extensions>ps1;py</Extensions></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="GroupMemoryArchiveTests.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativePrivateExecutionSite.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativeWriteExecutionTransition.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="$(ControlSource)\NativeWriteExecutionTransition.h"><Filter>Source Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Invoke-GroupMemoryArchiveValidation.ps1"><Filter>Scripts</Filter></None>
+  </ItemGroup>
+</Project>

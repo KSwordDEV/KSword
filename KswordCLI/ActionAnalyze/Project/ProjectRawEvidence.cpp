@@ -36,6 +36,8 @@ ProjectResult ResolveRawEvidence(const ProjectDocument& project, std::string_vie
     }
     name = std::move(*resolvedName);
     if (lane == ProjectEvidenceLane::MixedEtw) name.streamDirectory = L"raw-etw";
+    if (lane == ProjectEvidenceLane::MemorySnapshots) name.streamDirectory = L"raw-memory";
+    if (lane == ProjectEvidenceLane::NativeExecution) name.streamDirectory = L"raw-native";
     return {};
 }
 

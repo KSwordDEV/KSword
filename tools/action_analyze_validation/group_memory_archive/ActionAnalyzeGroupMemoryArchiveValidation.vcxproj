@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{7D4C1E9A-3F62-4B58-9A11-5E2C8F0A6D34}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <TargetName>ActionAnalyzeGroupMemoryArchiveValidation</TargetName>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <LinkIncremental>false</LinkIncremental><VcpkgApplocalDeps>false</VcpkgApplocalDeps><VcpkgEnabled>false</VcpkgEnabled>
+    <Repo>$(MSBuildProjectDirectory)\..\..\..</Repo>
+    <ControlSource>$(Repo)\KswordCLI\ActionAnalyze\Control</ControlSource>
+    <MemorySource>$(Repo)\KswordCLI\ActionAnalyze\Memory</MemorySource>
+    <ProjectSource>$(Repo)\KswordCLI\ActionAnalyze\Project</ProjectSource>
+    <ArchiveSource>$(Repo)\KswordCLI\ActionAnalyze\Archive</ArchiveSource>
+  </PropertyGroup>
+  <Import Project="..\..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 /permissive- %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary><Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader><DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="GroupMemoryArchiveTests.cpp" />
+    <ClCompile Include="$(ControlSource)\OwnedProcessGroup.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeDebugOwner.cpp" />
+    <ClCompile Include="$(ControlSource)\NativePrivateExecutionSite.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeWriteExecutionTransition.cpp" />
+    <ClInclude Include="$(ControlSource)\NativeWriteExecutionTransition.h" />
+    <ClCompile Include="$(ControlSource)\NativeStepRuntime.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeBreakpointImage.cpp" />
+    <ClCompile Include="$(ControlSource)\StopLedger.cpp" />
+    <ClCompile Include="$(ControlSource)\ProcessGroupMemorySnapshot.cpp" />
+    <ClCompile Include="$(MemorySource)\SelectedMemorySnapshot.cpp" />
+    <ClCompile Include="$(MemorySource)\PassiveDirtyMemory.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectMemorySnapshot.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectDocument.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectLock.cpp" />
+    <ClCompile Include="$(ProjectSource)\SampleCatalog.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectRawEvidence.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectStorage.cpp" />
+    <ClCompile Include="$(ArchiveSource)\RawEvidenceArchive.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentBodies.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentFormat.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentInspection.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentReader.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentWriter.cpp" />
+    <ClCompile Include="$(Repo)\shared\evidence\EvidenceJson.cpp" />
+    <ClCompile Include="$(Repo)\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="$(Repo)\shared\usermode\backend\Common.cpp" />
+    <ClCompile Include="$(Repo)\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" />
+    <ClCompile Include="$(Repo)\Ksword5.1\Ksword5.1\ksword\string\string.cpp" />
+    <None Include="Invoke-GroupMemoryArchiveValidation.ps1" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="PrintGroupMemoryArchiveBuildPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="GROUP_MEMORY_ARCHIVE_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="GROUP_MEMORY_ARCHIVE_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="GROUP_MEMORY_ARCHIVE_COMPILER=$(VCToolsInstallDir)bin\HostX64\x64\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64' or !Exists('$(VCToolsInstallDir)bin\HostX64\x64\cl.exe')" Text="HostX64 is required." />
+  </Target>
+</Project>

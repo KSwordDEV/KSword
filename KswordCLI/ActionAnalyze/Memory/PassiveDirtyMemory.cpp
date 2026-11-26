@@ -271,7 +271,7 @@ public:
     ~Impl() { ReleaseNative(); }
 
     Status Begin(HANDLE selectedProcess, const Plan& plan);
-    PollResult Poll(const std::atomic_bool* cancel, PollMode mode);
+    PollResult Poll(const std::atomic_bool* cancel, PollMode mode, const CapturedPageVisitor* visitor = nullptr);
     ExecutionLink CorrelateExecution(const ExecutionObservation& observation) const;
     void Finish(State state, Issue issue = {}) noexcept;
 
@@ -430,7 +430,7 @@ PageObservation PassiveDirtyMemory::Impl::SamplePage(PageHistory& page, std::uin
     return row;
 }
 
-PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel, PollMode mode)
+PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel, PollMode mode, const CapturedPageVisitor* visitor)
 {
     if (status.state != State::Active) return {status, std::nullopt};
     const auto isCanceled = [cancel] { return cancel && cancel->load(std::memory_order_relaxed); };
@@ -453,8 +453,12 @@ PollResult PassiveDirtyMemory::Impl::Poll(const std::atomic_bool* cancel, PollMo
         if (isCanceled()) { Finish(State::Canceled); break; }
         if (!CheckProcess()) break;
         round.pages.push_back(SamplePage(page, round.ordinal));
-        if (round.pages.back().content) ++status.sampledPages;
-        else ++status.unavailablePages;
+        if (round.pages.back().content) {
+            ++status.sampledPages;
+            if (visitor && *visitor) (*visitor)(round.pages.back(), page.bytes);
+        } else {
+            ++status.unavailablePages;
+        }
     }
     round.allPagesVisited = round.pages.size() == pages_.size();
     if (round.allPagesVisited) ++status.fullRounds;
@@ -553,6 +557,11 @@ Status PassiveDirtyMemory::Query() const noexcept
 PollResult PassiveDirtyMemory::Poll(const std::atomic_bool* cancel, PollMode mode)
 {
     return impl_->Poll(cancel, mode);
+}
+
+PollResult PassiveDirtyMemory::PollCapture(const CapturedPageVisitor& visitor, const std::atomic_bool* cancel)
+{
+    return impl_->Poll(cancel, PollMode::SampleWhenDue, &visitor);
 }
 
 Status PassiveDirtyMemory::Stop() noexcept
