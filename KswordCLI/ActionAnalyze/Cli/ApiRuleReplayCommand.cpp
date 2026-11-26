@@ -394,6 +394,8 @@ void RegisterApiRuleReplayCommand()
     catalog.syntax = L"KswordCLI.exe analyze api-rule-catalog [--json]";
     catalog.summary = L"List the API behavior presets from profiles/action_analyze_api_rules.json.";
     catalog.notes = L"Lists rule IDs, predicates, fields, typedFields with types/sources/missing quality, expressionProfile, evidence scope and sourceSha256 of the parsed file bytes. No project or live source is opened.";
+    // 三端使用同一预置表达式准备器；文本比较范围由该采样字段目录决定，不新增采集字段。
+    catalog.notes += L" Profile v3 also accepts == and != between two registered text fields, such as file.path == file.sourcePath. Comparisons are case-sensitive; missing, truncated or failed reads yield Unknown. Two explicit nulls compare equal; null and known empty text differ. Other text operators still take literal patterns. Legacy v1/v2 keep field-to-literal syntax.";
     catalog.defaultBackend = L"offline";
     catalog.supportsR3 = false;
     catalog.run = RunCatalog;

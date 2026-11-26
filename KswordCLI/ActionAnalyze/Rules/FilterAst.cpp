@@ -264,6 +264,10 @@ private:
         if (const auto* test = std::get_if<FieldTest>(&node)) {
             return Test(*test, types_[index]);
         }
+        if (const auto* comparison = std::get_if<TextFieldComparison>(&node))
+        {
+            return CompareTextFields(*comparison); // 同事件字段直接比较，不生成字符串副本或新事件投影。
+        }
         fault_ = EvaluationFault::InvalidInput;
         return Truth::Unknown;
     }
@@ -334,6 +338,75 @@ private:
             fault_ = EvaluationFault::InvalidInput;
         }
         return std::nullopt;
+    }
+
+    // 输入目录ID，返回当前事件中的原文本字段或空；质量未知保持原值，坏形状/UTF-8设置原故障。
+    const FieldSample* TextField(std::string_view id)
+    {
+        constexpr std::size_t MaxLookups = 9; // 与已有字段查找相同的预算上界。
+        if (!fields_.empty() && !Spend(MaxLookups * (1 + MaxKeyBytes)))
+        {
+            return nullptr;
+        }
+        const auto found = std::lower_bound(fields_.begin(), fields_.end(), id,
+            [](const FieldSample& field, std::string_view key) { return field.id < key; }); // 当前事件原字段。
+        if (found == fields_.end() || found->id != id)
+        {
+            return nullptr; // 未投影不等于null或空字符串。
+        }
+        if (!ShapeMatches(*found, FieldType::Text))
+        {
+            fault_ = EvaluationFault::InvalidInput;
+            return nullptr;
+        }
+        const auto* text = std::get_if<std::string_view>(&found->value); // 借用字段正文，比较期间不复制。
+        if (text)
+        {
+            if (text->size() > MaxValueBytes)
+            {
+                fault_ = EvaluationFault::Budget;
+                return nullptr;
+            }
+            if (!Spend(text->size()))
+            {
+                return nullptr;
+            }
+            if (!ValidUtf8(*text))
+            {
+                fault_ = EvaluationFault::InvalidInput;
+                return nullptr;
+            }
+        }
+        return &*found;
+    }
+
+    // 输入已准备的文本比较，按左到右读取双方；输出真/假/未知，显式null与未采集分别处理。
+    Truth CompareTextFields(const TextFieldComparison& comparison)
+    {
+        const auto* left = TextField(comparison.left); // 左字段的原值及采集质量。
+        const auto* right = TextField(comparison.right); // 非短路读取右字段，复用首次故障及预算。
+        if (!left || !right || fault_ != EvaluationFault::None)
+        {
+            return Truth::Unknown;
+        }
+        const bool leftComplete = left->quality == Quality::Known || left->quality == Quality::Null; // 左值是否完整。
+        const bool rightComplete = right->quality == Quality::Known || right->quality == Quality::Null; // 右值是否完整。
+        if (!leftComplete || !rightComplete)
+        {
+            return Truth::Unknown; // 两个截断前缀相同也不能认定完整文本相同。
+        }
+        bool equal = left->quality == right->quality; // 两个显式null相等，null与已知文本不相等。
+        if (left->quality == Quality::Known && right->quality == Quality::Known)
+        {
+            const auto leftText = std::get<std::string_view>(left->value); // 已校验的完整UTF-8左值。
+            const auto rightText = std::get<std::string_view>(right->value); // 已校验的完整UTF-8右值。
+            if (!Spend(std::min(leftText.size(), rightText.size())))
+            {
+                return Truth::Unknown;
+            }
+            equal = leftText == rightText;
+        }
+        return AsTruth(comparison.op == FieldOp::Equal ? equal : !equal);
     }
 
     Truth Test(const FieldTest& test, FieldType type)
@@ -600,6 +673,30 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             }
             if (outputs[comparison->left] != FieldType::U64 || outputs[comparison->right] != FieldType::U64) {
                 return {{}, PrepareError::TypeMismatch, i};
+            }
+        } else if (const auto* comparison = std::get_if<TextFieldComparison>(&node)) {
+            // 文本比较是布尔叶节点；同时核对两字段及当前阶段，不能按运行值临时决定类型。
+            if (comparison->op != FieldOp::Equal && comparison->op != FieldOp::NotEqual)
+            {
+                return {{}, PrepareError::UnsupportedOperator, i};
+            }
+            for (const auto field : {std::string_view(comparison->left), std::string_view(comparison->right)}) // 借用当前需要绑定的字段ID。
+            {
+                if (!ValidKey(field))
+                {
+                    return {{}, PrepareError::UnknownField, i};
+                }
+                const auto binding = bindings.find({field, phase}); // 字段在本次事件阶段的静态类型。
+                if (binding == bindings.end())
+                {
+                    const auto first = bindings.lower_bound({field, Phase::Entry}); // 区分未登记与阶段不可用。
+                    return {{}, first == bindings.end() || first->first.first != field
+                        ? PrepareError::UnknownField : PrepareError::FieldNotInPhase, i};
+                }
+                if (binding->second != FieldType::Text)
+                {
+                    return {{}, PrepareError::TypeMismatch, i};
+                }
             }
         } else if (const auto* test = std::get_if<FieldTest>(&node)) {
             if (!ValidKey(test->field)) {

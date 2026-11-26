@@ -520,7 +520,27 @@ private:
             position_ = saved;
             return Emit(FieldTest{FieldOp::Equal, std::string(name), true}, range); // 读取已登记bool；未知质量仍返回Unknown。
         }
-        const auto op = allowComparison ? Comparison() : std::nullopt; // 旧版本及文本字段仍使用字段对常量语法。
+        const auto op = allowComparison ? Comparison() : std::nullopt; // 旧版本保留字段对常量语法。
+        if (version_ >= 3 && fieldType == FieldType::Text && (op == FieldOp::Equal || op == FieldOp::NotEqual))
+        {
+            SkipSpace();
+            const auto saved = position_; // 探查右侧字段；null/true/false仍回到原字面量类型核对。
+            if (position_ < source_.size() && IdentifierStart(source_[position_]))
+            {
+                TokenRange right{}; // 右字段的完整原文范围，包含点分目录ID。
+                if (!Path(right, ExpressionError::InvalidFieldPath))
+                {
+                    return false;
+                }
+                const auto rightName = TextAt(right); // 不执行名称或函数，仅交准备器绑定字段。
+                if (rightName != "null" && rightName != "true" && rightName != "false")
+                {
+                    return Emit(TextFieldComparison{*op, std::string(name), std::string(rightName)},
+                        {range.begin, right.end});
+                }
+                position_ = saved;
+            }
+        }
         Literal literal = true; // 布尔简写的右侧值。
         if (op && !ReadLiteral(literal)) {
             return false;

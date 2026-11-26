@@ -450,6 +450,7 @@ namespace
             sourceText(QStringLiteral("v3 支持条件 ? 真分支 : 假分支；两分支须同为 bool 或 u64，只求值选中分支，未知条件返回未知。")),
             sourceText(QStringLiteral("v3 的 &、^、| 也支持两个 bool 谓词，按从左到右求值两侧，不短路；bool 与 u64 混合会拒绝。")),
             sourceText(QStringLiteral("v3 支持两个 bool 字段或谓词的 ==、!= 比较；任一未知即返回未知，bool 不支持大小比较。")),
+            sourceText(QStringLiteral("v3 支持文本字段之间的 ==、!=，例如 file.path == file.sourcePath；区分大小写，缺失或截断返回未知，显式 null 与空文本分别处理。")),
             sourceText(QStringLiteral("归档预置字段及类型：%1。它们仅来自同一原包的已核验协议和有效位，不是合成草稿字段；API 请求接受不证明执行或注入成功。"))
                 .arg(archiveFields.join(QStringLiteral(", "))),
             sourceText(QStringLiteral("序列使用显式 sourceSequence。合成事件无法证明真实来源覆盖，缺证据的窗口可判为未知。"))

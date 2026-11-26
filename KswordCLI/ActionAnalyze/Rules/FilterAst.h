@@ -49,6 +49,12 @@ enum class FieldOp {
 
 using Literal = std::variant<std::monostate, bool, std::uint64_t, std::string, Quality>;
 struct FieldTest { FieldOp op; std::string field; Literal literal; };
+// 文本字段之间只接受等值判断；两字段在准备阶段绑定同一事件阶段，不读取其它事件或现场内存。
+struct TextFieldComparison {
+    FieldOp op; // 仅Equal或NotEqual，沿用区分大小写的精确文本语义。
+    std::string left; // 左侧文本字段的目录ID。
+    std::string right; // 右侧文本字段的目录ID。
+};
 struct Not { std::size_t child; };
 enum class Logic { And, Or };
 struct Logical { Logic op; std::size_t left; std::size_t right; };
@@ -72,7 +78,7 @@ struct Conditional {
     std::size_t whenFalse; // 条件已知为假时唯一求值的分支。
 };
 using AstNode = std::variant<bool, Not, Logical, FieldTest, NumericLiteral,
-    NumericField, NumericUnary, NumericBinary, NumericComparison, Conditional, BooleanBinary>;
+    NumericField, NumericUnary, NumericBinary, NumericComparison, Conditional, BooleanBinary, TextFieldComparison>;
 
 // 准备错误定位到节点，运行错误另外附在 Unknown 上。
 enum class PrepareError {

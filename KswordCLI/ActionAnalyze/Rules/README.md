@@ -22,6 +22,8 @@ v3 的 `&`、`^`、`|` 也接受两个 bool 谓词，按 C# 优先级从左到�
 
 v3的 `==`、`!=` 支持两个bool字段或任意bool子树，如 `stop.firstChance == isKnown(stop.thread.rax)`、`(stop.firstChance & isKnown(stop.thread.rip)) != false`。两侧按左到右求值；任一未知即Unknown，包括两个未知值，不把未知当false或彼此相等。bool大小比较及bool/u64混用拒绝；旧 `field == null`／`!= null` 仍是原字段null测试，v1/v2维持字段对显式常量语法。新增源码未构建、未实测。
 
+v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == file.sourcePath`。两字段必须属于当前事件阶段，区分大小写，不归一化路径；文本大小比较、跨类型比较和将文本字段当函数模式均拒绝。双方完整Known时比较原UTF-8值，两个显式Null相等，Null与已知空字符串不等；缺失、截断、拒绝访问及读取失败均为Unknown，同字段未知也不折叠为相等。两侧从左到右读取，沿用原UTF-8、长度及工作预算，坏字段故障不能被布尔短路之外的比较隐藏。Qt草稿、CLI预置及Light回放共用此准备器，不扩大各入口的字段目录；没有文本字段的停点目录仍拒绝该示例。v1/v2与原字段对常量文本比较语义保留。本增量仅源码，未构建或运行。
+
 `profiles/action_analyze_api_rules.json` 保留 `schemaVersion:1`，新增可选 `expressionProfile`；旧文件省略时为 v2。结构见 [API 预置 schema](../../../schemas/action_analyze/api-rule-presets.schema.json)。数据库仍冻结实际读取字节的 SHA-256，修改文件不替换已加载采样的准备结果。
 
 `BehaviorPresetFields.cpp/.h` 是规则专用投影，不建立跨事件候选链。`ReadApiPresetEvidence()` 调用专用协议严格读侧与普通强类型返回读侧；`ProjectApiPresetFields()` 只发布有效位、精确返回或通过严格 formatter 格式核对的字段。全部字段处于归档观察阶段；`evidence.phase == "return"` 只由通过返回核验的协议产生。缺字段为 `NotCollected`，不回填零、不做 raw substring 匹配、不解引用请求指针。API 报告的身份与返回不认证历史生产者，也不授予活控制权。

@@ -46,6 +46,7 @@ struct ExpressionPreparation {
 // 数值叶子为目录中 U64 字段或十进制／0x 十六进制 u64 常量；括号可包任意子表达式。
 // &、^、| 接受同为 u64 或同为 bool 的两侧，bool 路径非短路；混合类型拒绝。
 // v3的==/!=也接受两个bool子树，支持字段间或括号谓词比较；任一未知即Unknown，bool不支持大小比较。
+// v3文本字段可直接使用left.field ==/!= right.field；区分大小写，显式null可比较，其它未知质量返回Unknown。
 // 数值位运算参与比较时加括号：mask & 1u64 != 0u64 必须写为 (mask & 1u64) != 0u64。
 // isKnown 仅匹配 known，quality(field) 可与规范状态名做 == 或 != 比较。
 ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
