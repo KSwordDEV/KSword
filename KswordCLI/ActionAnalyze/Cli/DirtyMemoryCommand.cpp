@@ -477,13 +477,13 @@ void RegisterDirtyMemoryCommand()
         L"KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]",
         L"Track sampled per-page content and mapping changes in an explicitly authorized process.",
         L"Required: --pid, --creation-time, --address, --size (1..65536), --confirm. Optional: --samples (2..64, default 20), --interval-ms (10..1000, default 100), --observe-threads, --backend r3, --json.",
-        L"Read-only, same user and session. Returns page state, SHA-256, change ranges and coverage gaps. --observe-threads adds a separate thread snapshot after rounds that read bytes. Does not collect execution or attribute writes. No project is modified.", Run});
+        L"Read-only, same user and session. Returns page state, SHA-256, change ranges and coverage gaps. --observe-threads adds a separate thread snapshot after rounds with verified page content. Does not collect execution or attribute writes. No project is modified.", Run});
 
     Command stream;
     stream.path = L"analyze memory stream";
     stream.syntax = L"KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text|jsonl] [--backend r3]";
     stream.summary = L"Continuously sample an explicitly authorized owned process, until stopped.";
-    stream.options = L"Size: 1..65536 bytes. Interval: 10..1000 ms minimum delay, default 100; stream checks on a roughly 50 ms tick. Default output: text. Optional --observe-threads adds a separate read-only thread snapshot after rounds that read bytes.";
+    stream.options = L"Size: 1..65536 bytes. Interval: 10..1000 ms minimum delay, default 100; stream checks on a roughly 50 ms tick. Default output: text. Optional --observe-threads adds a separate read-only thread snapshot after rounds with verified page content.";
     stream.notes = L"Send a plain stop line on stdin. EOF stops; Ctrl-C/Break cancels. For JSONL output, redirect both stdin and stdout and read continuously. Status-only checks do not observe threads. No sample count, execution evidence, write attribution, or target changes.";
     stream.runStreaming = RunStream;
     addCommand(std::move(stream));
