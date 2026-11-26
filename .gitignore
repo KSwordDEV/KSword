@@ -16,6 +16,9 @@ build_*.json
 dist/
 .codex-build-logs/
 .codex-tmp/
+# API transfer fixture intermediates and machine-local execution receipt.
+/tools/api_monitor/api_transfer_validation/obj/
+/tools/action_analyze_validation/cli/product_step_receipt.json
 /.tmp/
 package_stage/
 tmp-qmake-mm*/
