@@ -25,6 +25,9 @@ public:
     // 将原worker纯值追加到现有规范文档，搜索/复制/导出仍使用原同一文档。
     static void AppendFields(ks::ui::FieldDocument& document,
         const Ksword::ActionAnalyze::NativeBoundApiResult& result);
+    // 输入在途启动快照，追加本次来源、采样和真实阶段；不把它当成最终采集回执。
+    static void AppendProgress(ks::ui::FieldDocument& document,
+        const Ksword::ActionAnalyze::NativeBoundApiProgress& progress);
 
 private:
     QLineEdit* m_pid = nullptr; // 显式API来源PID草稿，不自动填native目标。

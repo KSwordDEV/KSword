@@ -276,7 +276,13 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                     rejected.admission = {Ksword::ActionAnalyze::ProjectError::InvalidArgument, 0, "lightNativeApiSessionChanged"};
                     apiResult = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiResult>(std::move(rejected));
                 } else {
-                    archive.CaptureApi(*command.api, target, apiCancel); // 原采集排空后才处理关闭命令。
+                    archive.CaptureApi(*command.api, target, apiCancel,
+                        [this](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                            // 与原ReadStatus共用小型值锁；不查询native、不调用GUI、不创建控制线程。
+                            const auto snapshot = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress);
+                            std::lock_guard lock(mutex); // 原采集在锁外执行，因此关闭请求始终可以置位取消。
+                            status.apiStartup = snapshot;
+                        });
                     apiResult = archive.ApiView();
                     result = backend->QueryWithoutCondition(); // 采集期间可能真实命中；回投实际native状态，不ApplyCondition/自动Continue。
                 }
@@ -325,6 +331,7 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                 if (command.dumpMemory) status.memoryDumpDiagnostic = std::move(dumpDiagnostic);
                 if (command.api) {
                     status.api = std::move(apiResult);
+                    status.apiStartup.reset(); // 最终回执接替阶段，不把Ready误显示成完整区间。
                     status.apiDiagnostic = status.api ? L"" : L"本次API采集未返回回执，不能视为完成。";
                 }
                 Publish(std::move(result), backend->ConditionReport(), terminal,
@@ -343,7 +350,11 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                 status.diagnostic = L"后台操作失败，请关闭监视并核对清退回执。";
                 if (command.pauseSession) status.diagnostic = L"主动暂停操作发生异常，未确认新停止；原owner继续承担清退责任，请关闭监视并核对回执。";
                 if (command.dumpMemory) status.memoryDumpDiagnostic = L"本次相机转储发生异常，未改为保存此前内存快照；请核对归档及恢复回执。";
-                if (command.api) status.apiDiagnostic = L"本次API操作发生异常，采集、清退和归档均未获完整确认；此前回执保留。";
+                if (command.api)
+                {
+                    status.apiStartup.reset(); // 异常不延续在途状态，旧最终回执继续保留。
+                    status.apiDiagnostic = L"本次API操作发生异常，采集、清退和归档均未获完整确认；此前回执保留。";
+                }
                 if (command.candidates) status.candidatesDiagnostic = L"本次候选读取发生异常，旧目录及其来源身份保留，未视为空成功。";
             }
             if (closeAttempt) RecordCleanupFailure(std::exchange(closeAttempt, 0));
@@ -592,7 +603,8 @@ bool LightDataWatchSession::CaptureApi(const LightDataWatchSnapshot& confirmedSe
         session_->queued.api = request;
         session_->queued.apiSample = status.memoryProject.sampleId;
         session_->queued.apiTarget = status.nativeTarget;
-        status.apiDiagnostic = L"正在由原worker附加明确API来源并采集有限区间；关闭和其它命令等待本轮结算。";
+        status.apiStartup.reset(); // 新请求尚未完成任何启动阶段，不借用旧Ready快照。
+        status.apiDiagnostic = L"正在附加明确API来源并采集有限区间；关闭可取消采集，排空后处理原会话清退。";
         status.continuing = true;
     }
     session_->changed.notify_all();

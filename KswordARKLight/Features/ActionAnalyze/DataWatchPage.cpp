@@ -802,6 +802,10 @@ void Refresh(Page& page) {
     text += FormatLightNativeExecution(result.execution);
     if (result.api) text += FormatLightNativeSessionApi(*result.api);
     if (!result.apiDiagnostic.empty()) text += L"\r\n" + result.apiDiagnostic;
+    if (result.apiStartup)
+    {
+        text += FormatLightNativeSessionApiProgress(*result.apiStartup); // 复用原刷新与详情正文，不另建timer。
+    }
     if (!page.inputError.empty()) text += L"\r\n" + page.inputError;
     if (text != page.shownText) {
         page.shownText = std::move(text);

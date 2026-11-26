@@ -46,6 +46,18 @@ struct NativeBoundApiResult {
     int ExitCode() const noexcept;
 };
 
+// 原采集线程发布的启动值；身份取自本次请求与原writer，不借用native停止票据。
+struct NativeBoundApiProgress {
+    std::string projectId; // 本次借用的项目身份。
+    std::string sampleId; // 本次写入的原采样身份。
+    NativeBoundApiRequest request; // 本次冻结的API来源和有限区间。
+    NativeBoundApiTarget nativeTarget; // 启动前从原owner读取的不同目标实例。
+    ks::winapi_monitor::CaptureStartupProgress startup; // 原采集器实际完成的最后里程碑。
+};
+
+// 回调在原采集线程同步执行；调用端只复制值，不查询或释放native owner。
+using NativeBoundApiStartup = std::function<void(const NativeBoundApiProgress&)>;
+
 // 纯值准入：供Prepare提前显示错误；writer/sample准入仍在执行时核对。
 // 输入明确来源与原owner目标，返回稳定拒绝原因；不查询进程或变更控制状态。
 NativeBoundApiRejection ValidateNativeBoundApiRequest(const NativeBoundApiRequest& request,
@@ -53,9 +65,10 @@ NativeBoundApiRejection ValidateNativeBoundApiRequest(const NativeBoundApiReques
 
 // 在原native串行worker同步执行，借用document及sampleId，不开lease/sample/writer。
 // nativeTarget必须来自当前原owner查询；cancel只停止API，服务不持有或调用native owner。
+// onStartup在同线程借用本次冻结身份和原阶段，调用者只复制值；不参与Ready或归档判定。
 // 返回纯值完整回执；已有raw/checkpoints由原采集归档链拒绝，禁止覆盖或跳段。
 NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::string_view sampleId,
     const NativeBoundApiRequest& request, const NativeBoundApiTarget& nativeTarget,
-    const std::atomic_bool& cancel);
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup = {});
 
 } // namespace Ksword::ActionAnalyze

@@ -68,6 +68,7 @@ struct LightDataWatchSnapshot {
     std::optional<ks::cli::action_analyze::control::NativeExecutionRangeReceipt> executionRange;
     Ksword::ActionAnalyze::NativeBoundApiTarget nativeTarget; // 原worker最近真实回读的目标，区别于API来源草稿。
     std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> api;
+    std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> apiStartup; // 当前在途API的原启动阶段。
     std::wstring apiDiagnostic;
     std::shared_ptr<const ks::cli::action_analyze::control::NativeControlResult> displayedSession; // 可暂停的原Armed副本；相同绑定轮询保持身份。
     ks::cli::action_analyze::control::NativeStopReason stopReason = ks::cli::action_analyze::control::NativeStopReason::None;

@@ -23,6 +23,27 @@ void AppendStatus(ks::ui::FieldDocument& document, const QString& title, const p
 }
 } // namespace
 
+// 由原字段视图消费同一值快照，搜索、复制、导出包括实际在途来源，不读取参数控件。
+void NativeSessionApiPane::AppendProgress(ks::ui::FieldDocument& document,
+    const project::NativeBoundApiProgress& progress)
+{
+    const auto& startup = progress.startup; // 当前请求原采集线程发布的最后事实。
+    document.section(QStringLiteral("API 附加与采集"));
+    document.field(QStringLiteral("项目 ID"), QString::fromStdString(progress.projectId));
+    document.field(QStringLiteral("采样 ID"), QString::fromStdString(progress.sampleId));
+    document.field(QStringLiteral("API 来源 PID"), QString::number(progress.request.sourcePid));
+    document.field(QStringLiteral("创建 FILETIME"), QString::number(progress.request.sourceCreationFileTime));
+    document.field(QStringLiteral("原调试目标 PID"), QString::number(progress.nativeTarget.pid));
+    document.field(QStringLiteral("最后确认的启动阶段"),
+        QString::fromLatin1(ks::winapi_monitor::CaptureStartupStageName(startup.stage)));
+    // Ready只按原控制器里程碑呈现；安装和模块核验不能代替完整覆盖屏障。
+    document.field(QStringLiteral("启动阶段耗时（毫秒）"), QString::number(startup.elapsedMs));
+    document.field(QStringLiteral("采集已就绪"),
+        YesNo(startup.stage == ks::winapi_monitor::CaptureStartupStage::Ready), true);
+    document.field(QStringLiteral("就绪覆盖修订"), startup.coverageRevision
+        ? QString::number(startup.coverageRevision) : QStringLiteral("—"));
+}
+
 // 输入原文档和worker冻结回执，追加同一规范字段；不创建第二份详情或查询当前草稿。
 void NativeSessionApiPane::AppendFields(ks::ui::FieldDocument& document, const project::NativeBoundApiResult& result)
 {

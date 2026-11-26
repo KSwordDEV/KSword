@@ -46,7 +46,8 @@ namespace ks::action_analyze
         // 原worker传入明确请求和刚从原owner回读的nativeTarget；只写私有document原SampleId。
         // cancel由原session关闭入口置位，只停止API；排空完成后再由原worker关闭native。
         void CaptureApi(const Ksword::ActionAnalyze::NativeBoundApiRequest& request,
-            const Ksword::ActionAnalyze::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel);
+            const Ksword::ActionAnalyze::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel,
+            const Ksword::ActionAnalyze::NativeBoundApiStartup& onStartup = {});
         // 返回最近API纯值快照；空指针表示未请求，GUI不得据此打开归档文件。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> ApiView() const;
         // 原串行worker只读同一document；sample强制取SampleId，不另开writer或读写项目。

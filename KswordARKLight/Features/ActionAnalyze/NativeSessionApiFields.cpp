@@ -69,6 +69,23 @@ std::wstring Wide(std::string_view text)
 }
 } // namespace
 
+// 将在途身份与最后阶段写入原详情文本，保留完整来源，避免把旧最终回执归到新请求。
+std::wstring FormatLightNativeSessionApiProgress(const project::NativeBoundApiProgress& progress)
+{
+    const auto& startup = progress.startup; // 控制器发布的真实值，不依据按钮或包数猜Ready。
+    std::wstring text = L"\r\nAPI 附加与采集"; // 追加到原CodeEditor详情正文，不创建第二份日志。
+    text += L"\r\n项目 ID：" + Wide(progress.projectId);
+    text += L"\r\n采样 ID：" + Wide(progress.sampleId);
+    text += L"\r\nAPI 来源 PID：" + std::to_wstring(progress.request.sourcePid);
+    text += L"\r\n创建 FILETIME：" + std::to_wstring(progress.request.sourceCreationFileTime);
+    text += L"\r\n原调试目标 PID：" + std::to_wstring(progress.nativeTarget.pid);
+    // 阶段ID与CLI一致；Ready之后仍须等完整采集和排空的最终回执。
+    text += L"\r\n最后确认的启动阶段：" + Wide(ks::winapi_monitor::CaptureStartupStageName(startup.stage));
+    text += L"\r\n启动阶段耗时（毫秒）：" + std::to_wstring(startup.elapsedMs);
+    text += L"\r\n就绪覆盖修订：" + (startup.coverageRevision ? std::to_wstring(startup.coverageRevision) : L"—");
+    return text;
+}
+
 bool PrepareLightNativeSessionApi(const std::wstring& pid, const std::wstring& creation,
     const std::wstring& duration, const project::NativeBoundApiTarget& nativeTarget,
     project::NativeBoundApiRequest& out, std::wstring& reason)

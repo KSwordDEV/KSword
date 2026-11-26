@@ -21,4 +21,7 @@ bool CollectLightNativeSessionApi(HWND parent, HWND pid, HWND creation, HWND dur
 // 输入原worker不可变回执，返回原详情文档追加文本；不读取归档文件或当前UI条件。
 std::wstring FormatLightNativeSessionApi(const Ksword::ActionAnalyze::NativeBoundApiResult& result);
 
+// 输入原worker当前在途启动值，返回原详情正文；完整回执继续使用上面的独立格式化入口。
+std::wstring FormatLightNativeSessionApiProgress(const Ksword::ActionAnalyze::NativeBoundApiProgress& progress);
+
 } // namespace Ksword::Features::ActionAnalyze

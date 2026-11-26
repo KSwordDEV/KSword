@@ -204,13 +204,14 @@ namespace ks::action_analyze
 
     // 参数均为点击冻结值；方法只在持原native会话的串行worker内调用。
     void NativeStopMemoryArchive::CaptureApi(const Ksword::ActionAnalyze::NativeBoundApiRequest& request,
-        const Ksword::ActionAnalyze::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel)
+        const Ksword::ActionAnalyze::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel,
+        const Ksword::ActionAnalyze::NativeBoundApiStartup& onStartup)
     {
         // 借用原会话取消值，不创建新线程；采集器继续承担停钩、排空和归档责任。
         if (m_project)
         {
             m_api = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiResult>(
-                Ksword::ActionAnalyze::CaptureNativeBoundApi(*m_project, SampleId(), request, nativeTarget, cancel));
+                Ksword::ActionAnalyze::CaptureNativeBoundApi(*m_project, SampleId(), request, nativeTarget, cancel, onStartup));
             return;
         }
         Ksword::ActionAnalyze::NativeBoundApiResult rejected; // 无项目时保留本次来源和目标，不能另建writer。

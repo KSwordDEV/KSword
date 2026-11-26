@@ -50,7 +50,7 @@ public:
     // 同一worker输入明确来源和刚回读的原native目标；只使用私有原document与SampleId。
     // cancel借用原会话关闭标记，只触发API原清退，不继续或关闭native目标。
     void CaptureApi(const project::NativeBoundApiRequest& request, const project::NativeBoundApiTarget& nativeTarget,
-        const std::atomic_bool& cancel);
+        const std::atomic_bool& cancel, const project::NativeBoundApiStartup& onStartup = {});
     // 无输入，返回最近API请求的不可变完整回执；未请求时为空，不要求UI读取文件。
     std::shared_ptr<const project::NativeBoundApiResult> ApiView() const;
     std::shared_ptr<const process_group_native::ProcessMemorySnapshotResult> Latest() const;

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <charconv>
+#include <iostream>
 
 namespace ks::cli::action_analyze {
 namespace {
@@ -211,27 +212,34 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
 {
     std::uint64_t pid = 0, creation = 0, duration = 0; // 显式来源身份及有限采集时长。
     bool confirmed = false;
+    bool startupProgress = false; // 显式选择才向stderr输出本次启动阶段，stdout仍是原命令响应。
     if (jsonl) {
         const auto* params = request.params.asObject();
         const auto* confirm = request.params.find("confirm");
+        const auto* progress = request.params.find("startupProgress"); // 可选bool，不接受未知第五字段。
         if (!request.session || request.session->id != identity.sessionId || request.session->epoch != identity.epoch ||
-            request.expected || !params || params->size() != 4 ||
+            request.expected || !params || params->size() != (progress ? 5u : 4u) ||
+            (progress && !progress->tryGetBool(startupProgress)) ||
             !UIntField(request.params.find("sourcePid"), pid) ||
             !DecimalField(request.params.find("sourceCreationFileTime"), creation) ||
             !UIntField(request.params.find("durationMs"), duration) || !confirm ||
             !confirm->tryGetBool(confirmed) || !confirmed) {
-            return Invalid("invalid-api-capture", "Require current session and only sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true; omit expected");
+            return Invalid("invalid-api-capture", "Require current session and sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true, optional startupProgress:bool; omit expected");
         }
     } else {
         const auto* args = request.params.asArray();
         std::string pidText, creationText, durationText, confirmText;
-        if (request.expected || !args || args->size() != 4 || !(*args)[0].tryGetString(pidText) ||
+        std::string progressText; // REPL第五参数只接受字面progress，原四参数形式继续兼容。
+        if (request.expected || !args || (args->size() != 4 && args->size() != 5) ||
+            (args->size() == 5 && (!(*args)[4].tryGetString(progressText) || progressText != "progress")) ||
+            !(*args)[0].tryGetString(pidText) ||
             !(*args)[1].tryGetString(creationText) || !(*args)[2].tryGetString(durationText) ||
             !(*args)[3].tryGetString(confirmText) || confirmText != "confirm" ||
             !Decimal(pidText, pid) || !Decimal(creationText, creation) || !Decimal(durationText, duration)) {
-            return Invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm (positive decimal numbers)");
+            return Invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm [progress] (positive decimal numbers)");
         }
         confirmed = true; // REPL字面confirm与JSONL confirm:true具有相同授权语义。
+        startupProgress = args->size() == 5;
     }
     if (pid <= 4 || pid > MAXDWORD || pid == GetCurrentProcessId() || !creation || duration < 1000 || duration > 10000) {
         return Invalid("invalid-api-source", "Select another explicit process instance and durationMs 1000..10000; zero or continuous capture is not supported");
@@ -247,7 +255,20 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
     capture.confirmed = confirmed;
     const project::NativeBoundApiTarget nativeTarget{before.pid, before.processCreationTime, before.attached}; // 活owner纯值。
     const std::atomic_bool cancel{false}; // 有限同步区间，不在回调中接管控制指令或保存执行事件。
-    const auto result = project::CaptureNativeBoundApi(document, sampleId, capture, nativeTarget, cancel); // 原writer调用。
+    project::NativeBoundApiStartup onStartup; // 未订阅时不输出阶段，不改变原JSONL请求响应次序。
+    if (startupProgress)
+    {
+        onStartup = [](const project::NativeBoundApiProgress& progress) {
+            // 每行包括原项目/采样身份；同一控制线程串行输出，不制造stdout响应或控制ACK。
+            const auto value = V::makeObject({{"projectId", Text(progress.projectId)},
+                {"sampleId", Text(progress.sampleId)},
+                {"nativeTarget", V::makeObject({{"pid", V::makeUInt(progress.nativeTarget.pid)},
+                    {"creationFileTime", Count(progress.nativeTarget.creationFileTime)}})},
+                {"startup", project::ApiCaptureStartupJson(progress.startup)}});
+            std::wcerr << project::ProjectStorage::WideAscii(Ksword::Evidence::WriteJson(value)) << L'\n';
+        };
+    }
+    const auto result = project::CaptureNativeBoundApi(document, sampleId, capture, nativeTarget, cancel, onStartup);
     if (result.rejection == project::NativeBoundApiRejection::NativeUnavailable) {
         return Invalid("native-owner-unavailable", "Query an attached native owner before capturing another source process");
     }

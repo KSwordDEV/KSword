@@ -47,7 +47,7 @@ int NativeBoundApiResult::ExitCode() const noexcept
 
 NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::string_view sampleId,
     const NativeBoundApiRequest& request, const NativeBoundApiTarget& nativeTarget,
-    const std::atomic_bool& cancel)
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup)
 {
     NativeBoundApiResult result; // 所有失败路径也保留实际请求和原目标。
     result.request = request;
@@ -91,7 +91,15 @@ NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::strin
     capture.title = "Native session API source";
     capture.revisionId = sample.info.revisionId;
     capture.boundSampleId = result.sampleId;
-    result.receipt = CaptureAttachedApi(document, capture, cancel);
+    CooperativeApiStartup publish; // 没有订阅者时保持原采集路径，不构造额外进度快照。
+    if (onStartup)
+    {
+        publish = [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
+            // 身份与阶段在同一次同步通知中冻结，回调不能把后来草稿贴到旧阶段上。
+            onStartup({result.projectId, result.sampleId, request, nativeTarget, startup});
+        };
+    }
+    result.receipt = CaptureAttachedApi(document, capture, cancel, {}, {}, {}, publish);
     return result;
 }
 

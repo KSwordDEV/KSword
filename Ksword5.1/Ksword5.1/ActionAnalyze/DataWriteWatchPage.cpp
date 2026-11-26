@@ -88,6 +88,8 @@ namespace
         bool retired = false; // 清退先到时，尚未执行的启动请求不得再创建进程。
         std::atomic_bool cleanupStarted = false; // 页面销毁和程序退出只启动同一轮清退。
         std::atomic_bool apiCancel = false; // 关闭请求立即取消在途API，原调试Close仍等同worker返回。
+        // 只存不可变启动值；GUI不用等待持有access锁的采集worker，也不查询原生owner。
+        std::atomic<std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress>> apiStartup;
         std::shared_ptr<ks::ui::AsyncCleanupRegistry::Lease> lease; // 正常退出等待原owner真正clean。
 
         // 新会话先登记退出责任，弱引用回调不形成lease到owner的引用环。
@@ -191,6 +193,7 @@ namespace
         NativeSessionApiPane* m_apiPane = nullptr; // 原采样内的明确API来源实例及有限采集草稿。
         QPushButton* m_captureApi = nullptr; // 固定动作栏发起一次已确认API采集，不新增worker。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> m_apiShown; // 原worker完整纯值结果。
+        std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> m_apiStartupShown; // 当前在途请求的阶段。
         ProcessGroupSessionSnapshot m_memoryShown; // 旧结果不由新地址草稿或后续停点改写。
         NativeExecutionArchiveView m_executionShown; // 执行观测归档结果，独立于raw-memory。
         QPushButton* m_saveExecution = nullptr; // 只对真实可提取执行事件显式保存。
@@ -447,7 +450,20 @@ namespace
             QStringLiteral("monitor.action_analyze.data_write_watch"), sourceText(QStringLiteral("写入停点")),
             sourceText(QStringLiteral("监控")), this, std::move(external),
             sourceText(QStringLiteral("在写入停点页继续或关闭本次会话。")));
-        connect(m_poll, &QTimer::timeout, this, [this] { submit(Action::Query); });
+        connect(m_poll, &QTimer::timeout, this, [this] {
+            // 复用原200ms展示周期，只读取值邮箱；API在途时不派发第二次原生查询。
+            if (m_owner && m_work->isBusy())
+            {
+                const auto startup = m_owner->apiStartup.load(); // 当前owner独有的不可变进度。
+                if (startup != m_apiStartupShown)
+                {
+                    m_apiStartupShown = startup;
+                    refresh();
+                }
+                return;
+            }
+            submit(Action::Query);
+        });
         connect(m_start, &QPushButton::clicked, this, [this] { submit(Action::Start); });
         connect(m_continue, &QPushButton::clicked, this, [this] { submit(Action::Continue); });
         connect(m_pause, &QPushButton::clicked, this, [this] { submit(Action::Pause, m_result); });
@@ -709,6 +725,11 @@ namespace
         const bool openExistingProject = m_memoryPane->OpenExistingProject(); // 显式打开已有项目仍创建本次新采样。
         m_failed = false;
         m_mutating = action != Action::Query;
+        if (action == Action::CaptureApi)
+        {
+            owner->apiStartup.store(nullptr); // 本次请求不沿用前一次启动阶段，原最终回执仍保留。
+            m_apiStartupShown.reset();
+        }
         const auto candidatesSerial = candidates ? candidates->serial : 0; // 任务失败时解除目录该请求等待态。
         const auto accepted = m_work->submitTransaction<Action, WatchResult>(action,
             [owner, path, symbol, width, indirect, execution, privateTarget, imageAttachment, imageRva, definitionId,
@@ -756,7 +777,11 @@ namespace
                     result = owner->session.QueryWithoutCondition(); // API准入不触发原条件的自动Continue或合作Gate。
                     if (api)
                     {
-                        owner->memory.CaptureApi(*api, {result.pid, result.processCreationTime, result.attached}, owner->apiCancel);
+                        owner->memory.CaptureApi(*api, {result.pid, result.processCreationTime, result.attached}, owner->apiCancel,
+                            [owner](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                                // 只发布纯值，不持有页面或回调GUI；关闭取消仍由原worker排空。
+                                owner->apiStartup.store(std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress));
+                            });
                     }
                     result = owner->session.QueryWithoutCondition(); // 有限采集期间可能出现真实命中，回投实际状态而不自动放行。
                     break;
@@ -815,10 +840,14 @@ namespace
                     owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView()};
             }, [this, action](const auto& result, std::uint64_t) {
                 m_mutating = false;
+                m_owner->apiStartup.store(nullptr); // 完整回执接替在途快照，下一次timer不重新显示旧阶段。
+                m_apiStartupShown.reset();
                 apply(result, action);
                 return true;
             }, [this, candidatesSerial](std::exception_ptr) {
                 m_mutating = false;
+                m_owner->apiStartup.store(nullptr); // 异常保留原最终结果，不把旧阶段继续标作在途。
+                m_apiStartupShown.reset();
                 m_failed = true;
                 m_poll->stop();
                 if (candidatesSerial)
@@ -1054,7 +1083,7 @@ namespace
 
         // 状态文本只观察当前控制回执。诊断码从原生返回，不以按钮状态推断。
         const auto state = m_result.status; // 忙时仍保留上次已知停点详情。
-        const auto status = active && held && !m_failed && !recovery && !m_closing &&
+        auto status = active && held && !m_failed && !recovery && !m_closing &&
             m_result.stopReason == native::NativeStopReason::ManualPause
             ? sourceText(QStringLiteral("已主动暂停原执行会话"))
             : active && !m_failed && !recovery && !m_closing && m_result.armedPause &&
@@ -1097,6 +1126,12 @@ namespace
             : state == native::NativeControlStatus::Idle ? sourceText(QStringLiteral("写入监控未开始"))
             : sourceText(QStringLiteral("写入监控已脱离"));
         if (m_status->text() != status)
+        if (m_apiStartupShown)
+        {
+            // 保留原native状态，在同一固定状态栏追加API来源阶段，关闭时仍显示脱离进度。
+            status += QStringLiteral(" · ") + sourceText(QStringLiteral("最后确认的启动阶段：%1"))
+                .arg(QString::fromLatin1(ks::winapi_monitor::CaptureStartupStageName(m_apiStartupShown->startup.stage)));
+        }
         {
             m_status->setText(status);
         }
@@ -1313,6 +1348,10 @@ namespace
             NativeSessionApiPane::AppendFields(document, *m_apiShown); // 搜索、复制和导出使用同一份规范文档。
         }
         if (const auto observed = native::NativeExecutionFromOwnedStop(m_result))
+        if (m_apiStartupShown)
+        {
+            NativeSessionApiPane::AppendProgress(document, *m_apiStartupShown); // 原状态区运行时可回查本次身份。
+        }
         {
             document.section(QStringLiteral("当前执行观测"))
                 .field(QStringLiteral("执行观测类型"), observed->kind == native::NativeExecutionKind::InstructionCompleted
