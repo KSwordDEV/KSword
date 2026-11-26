@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <optional>
 #include <utility>
 
 namespace Ksword::ActionAnalyze::Rules {
@@ -214,7 +215,81 @@ private:
             }
             return Truth::Unknown;
         }
-        return Test(std::get<FieldTest>(node), types_[index]);
+        if (const auto* comparison = std::get_if<NumericComparison>(&node)) {
+            const auto left = Number(comparison->left);
+            const auto right = Number(comparison->right);
+            if (!left || !right) {
+                return Truth::Unknown;
+            }
+            switch (comparison->op) {
+            case FieldOp::Equal: return AsTruth(*left == *right);
+            case FieldOp::NotEqual: return AsTruth(*left != *right);
+            case FieldOp::Less: return AsTruth(*left < *right);
+            case FieldOp::LessEqual: return AsTruth(*left <= *right);
+            case FieldOp::Greater: return AsTruth(*left > *right);
+            case FieldOp::GreaterEqual: return AsTruth(*left >= *right);
+            default: return Truth::Unknown;
+            }
+        }
+        if (const auto* test = std::get_if<FieldTest>(&node)) {
+            return Test(*test, types_[index]);
+        }
+        fault_ = EvaluationFault::InvalidInput;
+        return Truth::Unknown;
+    }
+
+    // 递归读取已验证的数值子树；空 optional 表示未知，不表示数值零。
+    std::optional<std::uint64_t> Number(std::size_t index)
+    {
+        if (!Spend(1)) {
+            return std::nullopt;
+        }
+        const auto& node = nodes_[index]; // 当前实际消费预算的数值节点。
+        if (const auto* literal = std::get_if<NumericLiteral>(&node)) {
+            return literal->value;
+        }
+        if (const auto* reference = std::get_if<NumericField>(&node)) {
+            constexpr std::size_t MaxLookups = 9; // 与旧字段谓词使用相同的查找计费上界。
+            if (!fields_.empty() && !Spend(MaxLookups * (1 + MaxKeyBytes))) {
+                return std::nullopt;
+            }
+            const auto it = std::lower_bound(fields_.begin(), fields_.end(), reference->field,
+                [](const FieldSample& field, std::string_view id) { return field.id < id; });
+            if (it == fields_.end() || it->id != reference->field) {
+                return std::nullopt;
+            }
+            if (!ShapeMatches(*it, FieldType::U64)) {
+                fault_ = EvaluationFault::InvalidInput;
+                return std::nullopt;
+            }
+            // 未知值不参与数值运算，即使另一个操作数为零也不折叠。
+            return it->quality == Quality::Known
+                ? std::optional{std::get<std::uint64_t>(it->value)} : std::nullopt;
+        }
+        if (const auto* unary = std::get_if<NumericUnary>(&node)) {
+            const auto value = Number(unary->child); // 先保留操作数的未知状态。
+            return value ? std::optional{ApplyNumericOperator(unary->op, *value)} : std::nullopt;
+        }
+        if (const auto* binary = std::get_if<NumericBinary>(&node)) {
+            const auto left = Number(binary->left); // 左值先求，稳定保留首次故障。
+            const auto right = Number(binary->right); // 数值操作不使用布尔短路。
+            // 按左到右求值；已知零除数独立于左值是否可用。
+            if (fault_ == EvaluationFault::None && right && *right == 0 &&
+                (binary->op == NumericBinaryOp::Divide || binary->op == NumericBinaryOp::Remainder)) {
+                fault_ = EvaluationFault::DivisionByZero;
+            }
+            if (!left || !right || fault_ != EvaluationFault::None) {
+                return std::nullopt;
+            }
+            std::uint64_t value = 0; // 仅在运算成功后向父节点发布。
+            if (ApplyNumericOperator(binary->op, *left, *right, value)) {
+                return value;
+            }
+        }
+        if (fault_ == EvaluationFault::None) {
+            fault_ = EvaluationFault::InvalidInput;
+        }
+        return std::nullopt;
     }
 
     Truth Test(const FieldTest& test, FieldType type)
@@ -376,6 +451,7 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
     std::array<bool, MaxNodes> hasParent{};
     std::array<std::size_t, MaxNodes> depth{};
     std::vector<FieldType> types(nodes.size(), FieldType::Bool);
+    std::vector<FieldType> outputs(nodes.size(), FieldType::Bool); // 节点输出类型，不混同旧字段原值类型。
     std::size_t literalBytes = 0;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto attach = [&](std::size_t child) {
@@ -391,12 +467,67 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             if (!attach(negation->child)) {
                 return {{}, PrepareError::InvalidTree, i};
             }
+            if (outputs[negation->child] != FieldType::Bool) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
         } else if (const auto* logical = std::get_if<Logical>(&node)) {
             if (logical->op != Logic::And && logical->op != Logic::Or) {
                 return {{}, PrepareError::UnsupportedOperator, i};
             }
             if (!attach(logical->left) || !attach(logical->right)) {
                 return {{}, PrepareError::InvalidTree, i};
+            }
+            if (outputs[logical->left] != FieldType::Bool || outputs[logical->right] != FieldType::Bool) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+        } else if (std::holds_alternative<NumericLiteral>(node)) {
+            outputs[i] = FieldType::U64;
+        } else if (const auto* reference = std::get_if<NumericField>(&node)) {
+            if (!ValidKey(reference->field)) {
+                return {{}, PrepareError::UnknownField, i};
+            }
+            const auto binding = bindings.find({reference->field, phase});
+            if (binding == bindings.end()) {
+                const auto first = bindings.lower_bound({reference->field, Phase::Entry});
+                return {{}, first == bindings.end() || first->first.first != reference->field
+                    ? PrepareError::UnknownField : PrepareError::FieldNotInPhase, i};
+            }
+            if (binding->second != FieldType::U64) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+            outputs[i] = FieldType::U64;
+            types[i] = FieldType::U64;
+        } else if (const auto* unary = std::get_if<NumericUnary>(&node)) {
+            if (!IsValidNumericOperator(unary->op)) {
+                return {{}, PrepareError::UnsupportedOperator, i};
+            }
+            if (!attach(unary->child)) {
+                return {{}, PrepareError::InvalidTree, i};
+            }
+            if (outputs[unary->child] != FieldType::U64) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+            outputs[i] = FieldType::U64;
+        } else if (const auto* binary = std::get_if<NumericBinary>(&node)) {
+            if (!IsValidNumericOperator(binary->op)) {
+                return {{}, PrepareError::UnsupportedOperator, i};
+            }
+            if (!attach(binary->left) || !attach(binary->right)) {
+                return {{}, PrepareError::InvalidTree, i};
+            }
+            if (outputs[binary->left] != FieldType::U64 || outputs[binary->right] != FieldType::U64) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+            outputs[i] = FieldType::U64;
+        } else if (const auto* comparison = std::get_if<NumericComparison>(&node)) {
+            if (comparison->op < FieldOp::Equal || comparison->op > FieldOp::GreaterEqual) {
+                return {{}, PrepareError::UnsupportedOperator, i};
+            }
+            if (!attach(comparison->left) || !attach(comparison->right)) {
+                return {{}, PrepareError::InvalidTree, i};
+            }
+            if (outputs[comparison->left] != FieldType::U64 || outputs[comparison->right] != FieldType::U64) {
+                return {{}, PrepareError::TypeMismatch, i};
             }
         } else if (const auto* test = std::get_if<FieldTest>(&node)) {
             if (!ValidKey(test->field)) {
@@ -431,6 +562,9 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             return {{}, PrepareError::DepthLimit, i};
         }
     }
+    if (outputs.back() != FieldType::Bool) {
+        return {{}, PrepareError::TypeMismatch, nodes.size() - 1};
+    }
     for (std::size_t i = 0; i + 1 < nodes.size(); ++i) {
         if (!hasParent[i]) {
             return {{}, PrepareError::InvalidTree, i};
@@ -452,6 +586,18 @@ Evaluation EvaluatePredicate(const PreparedPredicate& predicate, Phase phase,
     }
     return Evaluator(predicate.nodes_, predicate.types_, fields,
                      std::min(workLimit, MaxPredicateWork)).Run();
+}
+
+// CLI、归档和桌面可共用稳定故障 ID，避免把算术故障误报为坏输入。
+std::string_view EvaluationFaultId(EvaluationFault fault) noexcept
+{
+    switch (fault) {
+    case EvaluationFault::None: return {};
+    case EvaluationFault::InvalidInput: return "invalid-input";
+    case EvaluationFault::Budget: return "budget";
+    case EvaluationFault::DivisionByZero: return "division-by-zero";
+    }
+    return "invalid-input";
 }
 
 } // namespace Ksword::ActionAnalyze::Rules

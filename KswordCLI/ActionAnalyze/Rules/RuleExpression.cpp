@@ -106,10 +106,12 @@ ExpressionLocation Locate(std::string_view source, TokenRange range)
 class Parser {
 public:
     // 调用期间借用输入表达式。解析中生成节点，准备完成后由结果持有 AST。
-    explicit Parser(std::string_view source) : source_(source) {}
+    explicit Parser(std::string_view source, unsigned version = 3) : source_(source), version_(version) {}
 
     ExpressionPreparation Run(Phase phase, std::span<const FieldBinding> catalog)
     {
+        catalog_ = catalog;
+        phase_ = phase;
         if (!Disjunction(0)) {
             return result_;
         }
@@ -123,7 +125,35 @@ public:
         if (checked.error != PrepareError::None) {
             const bool global = checked.error == PrepareError::InvalidPhase ||
                 checked.error == PrepareError::InvalidCatalog; // 两类错误属于调用上下文。
-            Fail(ExpressionError::PreparationFailed, global ? TokenRange{0, 0} : ranges_.at(checked.node));
+            const bool numericType = checked.error == PrepareError::TypeMismatch &&
+                (std::holds_alternative<NumericBinary>(nodes_[checked.node]) ||
+                 std::holds_alternative<NumericUnary>(nodes_[checked.node]) ||
+                 std::holds_alternative<NumericComparison>(nodes_[checked.node]));
+            auto error = numericType ? ExpressionError::ExpectedU64Operands : ExpressionError::PreparationFailed;
+            if (checked.error == PrepareError::NodeLimit) {
+                error = ExpressionError::NodeLimit;
+            }
+            if (checked.error == PrepareError::TypeMismatch && checked.node + 1 == nodes_.size() &&
+                (std::holds_alternative<NumericField>(nodes_[checked.node]) ||
+                 std::holds_alternative<NumericLiteral>(nodes_[checked.node]) ||
+                 ((std::holds_alternative<NumericBinary>(nodes_[checked.node]) ||
+                   std::holds_alternative<NumericUnary>(nodes_[checked.node])) &&
+                  HasNumericOperands(checked.node)))) {
+                error = ExpressionError::ExpectedPredicate;
+            }
+            if (numericType) {
+                const auto* binary = std::get_if<NumericBinary>(&nodes_[checked.node]);
+                if (binary && (binary->op == NumericBinaryOp::BitAnd || binary->op == NumericBinaryOp::BitOr ||
+                    binary->op == NumericBinaryOp::BitXor) &&
+                    (std::holds_alternative<NumericComparison>(nodes_[binary->left]) ||
+                     std::holds_alternative<NumericComparison>(nodes_[binary->right]) ||
+                     std::holds_alternative<FieldTest>(nodes_[binary->left]) ||
+                     std::holds_alternative<FieldTest>(nodes_[binary->right]))) {
+                    error = ExpressionError::BitwiseComparisonPrecedence;
+                }
+            }
+            Fail(error,
+                global ? TokenRange{0, 0} : ranges_.at(checked.node));
             result_.preparationError = checked.error;
         } else {
             result_.predicate = std::move(checked.predicate);
@@ -132,6 +162,22 @@ public:
     }
 
 private:
+    // 只在准备器报告根类型不符时区分裸数值与非法混合运算。
+    bool HasNumericOperands(std::size_t index) const
+    {
+        const auto& node = nodes_[index]; // 子节点已按后序生成，无环或越界引用。
+        if (std::holds_alternative<NumericField>(node) || std::holds_alternative<NumericLiteral>(node)) {
+            return true;
+        }
+        if (const auto* unary = std::get_if<NumericUnary>(&node)) {
+            return HasNumericOperands(unary->child);
+        }
+        if (const auto* binary = std::get_if<NumericBinary>(&node)) {
+            return HasNumericOperands(binary->left) && HasNumericOperands(binary->right);
+        }
+        return false;
+    }
+
     // 保留第一个错误。EOF 使用零长度定位。
     bool Fail(ExpressionError error, TokenRange range)
     {
@@ -172,7 +218,9 @@ private:
     // 每个节点记录诊断来源。使用后序索引把相同表达式直接交给已有解释器。
     bool Emit(AstNode node, TokenRange range)
     {
-        if (nodes_.size() == MaxNodes) {
+        // v3 字段比较归并前最多暂存两个数值叶子；旧版保留原 512 节点拒绝位置。
+        const auto limit = version_ < 3 ? MaxNodes : MaxNodes + 2;
+        if (nodes_.size() == limit) {
             return Fail(ExpressionError::NodeLimit, range);
         }
         nodes_.push_back(std::move(node));
@@ -182,35 +230,107 @@ private:
 
     bool Disjunction(std::size_t nesting)
     {
-        return Binary(nesting, "||", Logic::Or, &Parser::Conjunction);
+        return version_ < 3 ? LegacyBinary(nesting, false) : Expression(nesting, 1);
     }
 
-    bool Conjunction(std::size_t nesting)
+    // v1/v2 保留原先的字段对显式常量句法，不借用 v3 放宽数值或括号准入。
+    bool LegacyBinary(std::size_t nesting, bool conjunction)
     {
-        return Binary(nesting, "&&", Logic::And, &Parser::PredicateOperand);
-    }
-
-    // 同优先级二元连接左结合。循环防止长链消耗解析栈。
-    using ParseOperand = bool (Parser::*)(std::size_t);
-    bool Binary(std::size_t nesting, std::string_view token, Logic op, ParseOperand operand)
-    {
-        if (!(this->*operand)(nesting)) {
+        const auto operand = [&]() { // 原逻辑优先级只有 ||、&&、一元谓词三层。
+            return conjunction ? Unary(nesting, true) : LegacyBinary(nesting, true);
+        };
+        if (!operand()) {
             return false;
         }
+        const std::string_view token = conjunction ? "&&" : "||"; // 同级逻辑连接符。
         while (Take(token)) {
-            const TokenRange range{position_ - token.size(), position_}; // 当前连接符。
-            const auto left = nodes_.size() - 1; // 左子树根。
-            if (!(this->*operand)(nesting) || !Emit(Logical{op, left, nodes_.size() - 1}, range)) {
+            const TokenRange range{position_ - token.size(), position_}; // 保持原定位语义。
+            const auto left = nodes_.size() - 1; // 已解析的左侧根。
+            if (!operand() || !Emit(Logical{conjunction ? Logic::And : Logic::Or,
+                left, nodes_.size() - 1}, range)) {
                 return false;
             }
         }
         return true;
     }
 
-    // 比较绑定于这个级别。非号在 C# 中优先于比较；否定比较必须显式加括号。
-    bool PredicateOperand(std::size_t nesting)
+    struct Operator {
+        std::string_view token; // 源码中的完整操作符。
+        unsigned precedence; // 数字越大绑定越紧。
+        std::variant<Logic, FieldOp, NumericBinaryOp> operation; // 固定 AST 操作，不是动态调用。
+    };
+
+    // 最长符号先匹配，比较高于位运算；所有二元操作均左结合。
+    std::optional<Operator> NextOperator()
     {
-        return Unary(nesting, true);
+        static constexpr Operator operators[] = {
+            {"||", 1, Logic::Or}, {"&&", 2, Logic::And},
+            {"==", 6, FieldOp::Equal}, {"!=", 6, FieldOp::NotEqual},
+            {"<=", 7, FieldOp::LessEqual}, {">=", 7, FieldOp::GreaterEqual},
+            {"<<", 8, NumericBinaryOp::ShiftLeft}, {">>", 8, NumericBinaryOp::ShiftRight},
+            {"|", 3, NumericBinaryOp::BitOr}, {"^", 4, NumericBinaryOp::BitXor},
+            {"&", 5, NumericBinaryOp::BitAnd},
+            {"<", 7, FieldOp::Less}, {">", 7, FieldOp::Greater},
+            {"+", 9, NumericBinaryOp::Add}, {"-", 9, NumericBinaryOp::Subtract},
+            {"*", 10, NumericBinaryOp::Multiply}, {"/", 10, NumericBinaryOp::Divide},
+            {"%", 10, NumericBinaryOp::Remainder},
+        };
+        SkipSpace();
+        for (const auto& op : operators) {
+            if (source_.substr(position_).starts_with(op.token)) {
+                return op;
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool Expression(std::size_t nesting, unsigned minimum)
+    {
+        if (!Unary(nesting, true)) {
+            return false;
+        }
+        for (;;) {
+            SkipSpace();
+            if (source_.substr(position_).starts_with("++") || source_.substr(position_).starts_with("--")) {
+                return Fail(ExpressionError::UnexpectedToken, {position_, position_ + 2});
+            }
+            const auto op = NextOperator(); // 不消费低于当前优先级的操作符。
+            if (!op || op->precedence < minimum) {
+                return true;
+            }
+            const TokenRange range{position_, position_ + op->token.size()}; // 混合类型错误定位操作符。
+            position_ = range.end;
+            const auto left = nodes_.size() - 1; // 已经完成的左子树根。
+            // 优先级递增至多十层，不随同级长链递归。
+            if (!Expression(nesting, op->precedence + 1)) {
+                return false;
+            }
+            const auto right = nodes_.size() - 1; // 更高优先级右子树根。
+            AstNode node; // 根据白名单种类生成的后序节点。
+            if (const auto* logic = std::get_if<Logic>(&op->operation)) {
+                node = Logical{*logic, left, right};
+            } else if (const auto* comparison = std::get_if<FieldOp>(&op->operation)) {
+                // 旧字段对常量形式保留原节点及 null 比较语义；复杂数值树不折叠。
+                const auto* field = std::get_if<NumericField>(&nodes_[left]);
+                const auto* literal = std::get_if<NumericLiteral>(&nodes_[right]);
+                if (field && literal && right == left + 1) {
+                    FieldTest test{*comparison, field->field, literal->value};
+                    const auto fieldRange = ranges_[left];
+                    nodes_.resize(left);
+                    ranges_.resize(left);
+                    if (!Emit(std::move(test), fieldRange)) {
+                        return false;
+                    }
+                    continue;
+                }
+                node = NumericComparison{*comparison, left, right};
+            } else {
+                node = NumericBinary{std::get<NumericBinaryOp>(op->operation), left, right};
+            }
+            if (!Emit(std::move(node), range)) {
+                return false;
+            }
+        }
     }
 
     bool Unary(std::size_t nesting, bool allowComparison)
@@ -220,12 +340,28 @@ private:
         if (nesting > MaxNesting) {
             return Fail(ExpressionError::NestingLimit, site);
         }
+        if (source_.substr(position_).starts_with("++") || source_.substr(position_).starts_with("--")) {
+            return Fail(ExpressionError::UnexpectedToken, {position_, position_ + 2});
+        }
         if (!source_.substr(position_).starts_with("!=") && Take("!")) {
             return Unary(nesting + 1, false) && Emit(Not{nodes_.size() - 1}, site);
+        }
+        if (version_ >= 3 && Take("~")) {
+            return Unary(nesting + 1, false) &&
+                Emit(NumericUnary{NumericUnaryOp::Complement, nodes_.size() - 1}, site);
+        }
+        if (version_ >= 3 && Take("+")) {
+            return Unary(nesting + 1, false) &&
+                Emit(NumericUnary{NumericUnaryOp::Plus, nodes_.size() - 1}, site);
         }
         if (Take("(")) {
             return Disjunction(nesting + 1) &&
                 (Take(")") || Fail(ExpressionError::ExpectedCloseParen, Here()));
+        }
+        if (version_ >= 3 && position_ < source_.size() && Digit(source_[position_])) {
+            Literal value;
+            return ReadNumber(value) && Emit(NumericLiteral{std::get<std::uint64_t>(value)},
+                {site.begin, position_});
         }
         return Atom(allowComparison);
     }
@@ -255,7 +391,7 @@ private:
         }
     }
 
-    // 比较的左侧为字段，右侧为字面量。裸布尔字段用已类型化的等于 true 表示。
+    // 布尔、文本和 null 保留旧字段谓词；u64 进入可组合的数值子树。
     bool Atom(bool allowComparison)
     {
         TokenRange range{}; // 字段或函数名的字节范围。
@@ -271,11 +407,37 @@ private:
         }
         if (Take("(")) {
             if (name == "quality") {
+                if (version_ == 1) {
+                    return Fail(ExpressionError::UnsupportedCall, range);
+                }
                 return allowComparison
                     ? QualityComparison()
                     : Fail(ExpressionError::ExpectedQualityComparison, range);
             }
             return Call(name, range);
+        }
+        std::optional<FieldType> fieldType; // 当前阶段优先，异阶段仅帮助保持准确的绑定诊断。
+        for (const auto& binding : catalog_) {
+            if (binding.id == name) {
+                fieldType = binding.type;
+                if (binding.phase == phase_) {
+                    break;
+                }
+            }
+        }
+        if (version_ >= 3 && fieldType == FieldType::U64) {
+            // 保留旧的字段 == null / != null，不把 null 变为数值零。
+            const auto saved = position_;
+            const auto op = allowComparison ? Comparison() : std::nullopt;
+            SkipSpace();
+            const auto tail = source_.substr(position_);
+            if ((op == FieldOp::Equal || op == FieldOp::NotEqual) && tail.starts_with("null") &&
+                (tail.size() == 4 || (!IdentifierStart(tail[4]) && !Digit(tail[4]) && tail[4] != '.'))) {
+                position_ += 4;
+                return Emit(FieldTest{*op, std::string(name), std::monostate{}}, range);
+            }
+            position_ = saved;
+            return Emit(NumericField{std::string(name)}, range);
         }
         const auto op = allowComparison ? Comparison() : std::nullopt; // 裸字段必须是 Bool。
         Literal literal = true; // 布尔简写的右侧值。
@@ -346,6 +508,9 @@ private:
     // 调用句法只生成字段测试节点，不存在动态成员分派或用户方法。
     bool Call(std::string_view name, TokenRange site)
     {
+        if (version_ == 1 && name == "isKnown") {
+            return Fail(ExpressionError::UnsupportedCall, site);
+        }
         for (const auto& function : Functions) {
             if (name != function.name) {
                 continue;
@@ -387,6 +552,9 @@ private:
     bool HexEscape(unsigned& value, std::size_t digits);
 
     std::string_view source_; // 调用方持有的原始 UTF-8 字节。
+    unsigned version_ = 3; // 显式 profile 决定语法准入，不改变已接受旧表达式的语义。
+    std::span<const FieldBinding> catalog_; // 只用于选择数值句法，最终绑定仍由准备器核对。
+    Phase phase_ = Phase::Observation; // 字段跨阶段存在不同类型时选择当前定义。
     std::size_t position_ = 0; // 下一个未消费字节。
     ExpressionPreparation result_; // 只在解析完成后发布已准备的谓词。
     std::vector<AstNode> nodes_; // 紧凑后序树，根为最后一个节点。
@@ -573,6 +741,25 @@ ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase 
     return Parser(source).Run(phase, catalog);
 }
 
+ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
+    std::span<const FieldBinding> catalog, std::string_view profile)
+{
+    if (!IsSupportedPredicateExpressionProfile(profile)) {
+        ExpressionPreparation result; // 未识别的版本不生成已准备谓词。
+        result.error = ExpressionError::UnsupportedProfile;
+        return result;
+    }
+    if (source.size() > MaxPredicateExpressionBytes) {
+        ExpressionPreparation result; // 旧版同样采用有界输入和原位置诊断。
+        result.error = ExpressionError::TextLimit;
+        result.location = Locate(source, {MaxPredicateExpressionBytes, source.size()});
+        return result;
+    }
+    const unsigned version = profile == "predicate-expr-v1" ? 1u :
+        profile == "predicate-expr-v2" ? 2u : 3u; // 支持判定已拒绝未知版本。
+    return Parser(source, version).Run(phase, catalog);
+}
+
 std::string_view ExpressionErrorId(ExpressionError error) noexcept
 {
     switch (error) {
@@ -594,6 +781,9 @@ std::string_view ExpressionErrorId(ExpressionError error) noexcept
     case ExpressionError::PreparationFailed: return "expression-preparation-failed";
     case ExpressionError::ExpectedQualityComparison: return "expression-expected-quality-comparison";
     case ExpressionError::InvalidQuality: return "expression-invalid-quality";
+    case ExpressionError::ExpectedU64Operands: return "expression-expected-u64-operands";
+    case ExpressionError::BitwiseComparisonPrecedence: return "expression-parenthesize-bitwise-before-comparison";
+    case ExpressionError::UnsupportedProfile: return "expression-unsupported-profile";
     }
     return "expression-invalid";
 }

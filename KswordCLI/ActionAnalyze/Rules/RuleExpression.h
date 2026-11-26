@@ -4,8 +4,13 @@
 
 namespace Ksword::ActionAnalyze::Rules {
 
-// v2 增补采集质量条件，按原语义继续接受 v1 表达式及旧 JSON 谓词。
-inline constexpr std::string_view PredicateExpressionProfile = "predicate-expr-v2";
+// v3 增补有限数值运算，旧表达式与 JSON 字段谓词保持兼容。
+inline constexpr std::string_view PredicateExpressionProfile = "predicate-expr-v3";
+inline constexpr bool IsSupportedPredicateExpressionProfile(std::string_view profile) noexcept
+{
+    return profile == PredicateExpressionProfile || profile == "predicate-expr-v2" ||
+        profile == "predicate-expr-v1";
+}
 inline constexpr std::size_t MaxPredicateExpressionBytes = 8192;
 
 // 表达式原文使用 UTF-8。偏移从 0 开始，行与字节列从 1 开始。
@@ -20,7 +25,8 @@ enum class ExpressionError {
     None, TextLimit, ExpectedPredicate, ExpectedLiteral, ExpectedCloseParen,
     ExpectedComma, UnexpectedToken, InvalidFieldPath, UnsupportedCall,
     InvalidNumber, NumericOverflow, InvalidString, UnsupportedEscape,
-    NestingLimit, NodeLimit, PreparationFailed, ExpectedQualityComparison, InvalidQuality
+    NestingLimit, NodeLimit, PreparationFailed, ExpectedQualityComparison, InvalidQuality,
+    ExpectedU64Operands, BitwiseComparisonPrecedence, UnsupportedProfile
 };
 
 struct ExpressionPreparation {
@@ -31,10 +37,19 @@ struct ExpressionPreparation {
 };
 
 // 解析纯表达式并按调用方明确提供的字段目录及阶段验证。完整消耗输入后才返回谓词。
-// 语法包含 !、&&、||、括号、字段与字面量比较，以及少量白名单文本与质量函数。
+// 数值优先级从高到低为 +/~、*/%、+/-、<< >>、关系、相等、&、^、|、&&、||。
+// u64 加减乘环绕；无符号右移，位移计数取低六位；除零返回 Unknown 和故障码。
+// 不支持一元负号（与 C# ulong 一致）、隐式类型转换、赋值或用户函数。
+// 数值叶子为目录中 U64 字段或十进制／0x 十六进制 u64 常量；括号可包任意子表达式。
+// 位运算只接收 u64：mask & 1u64 != 0u64 必须写为 (mask & 1u64) != 0u64。
 // isKnown 仅匹配 known，quality(field) 可与规范状态名做 == 或 != 比较。
 ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
     std::span<const FieldBinding> catalog);
+
+// 读取归档中的显式语义版本；v1/v2 按原句法准入，不开放 v3 数值运算。
+// v1 也不开放 v2 才引入的 isKnown/quality；未知版本拒绝而不猜测。
+ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
+    std::span<const FieldBinding> catalog, std::string_view profile);
 
 // 返回稳定英文诊断 ID，供外层 JSON 或界面回执引用。
 std::string_view ExpressionErrorId(ExpressionError error) noexcept;

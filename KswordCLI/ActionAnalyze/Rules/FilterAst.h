@@ -1,5 +1,7 @@
 #pragma once
 
+#include "NumericOperations.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -39,7 +41,7 @@ struct FieldSample {
     friend bool operator==(const FieldSample&, const FieldSample&) = default;
 };
 
-// 字段比较只允许显式常量。null 与采集质量单独表示，保留布尔和 u64 的位宽。
+// 原有字段谓词继续支持显式常量；数值表达式使用独立类型化节点。
 enum class FieldOp {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
     Contains, StartsWith, EndsWith, IsNull, IsComplete, IsKnown, QualityEqual, QualityNotEqual
@@ -50,7 +52,13 @@ struct FieldTest { FieldOp op; std::string field; Literal literal; };
 struct Not { std::size_t child; };
 enum class Logic { And, Or };
 struct Logical { Logic op; std::size_t left; std::size_t right; };
-using AstNode = std::variant<bool, Not, Logical, FieldTest>;
+struct NumericComparison {
+    FieldOp op; // 仅允许六种数值比较。
+    std::size_t left; // 左侧 u64 子树的后序索引。
+    std::size_t right; // 右侧 u64 子树的后序索引。
+};
+using AstNode = std::variant<bool, Not, Logical, FieldTest, NumericLiteral,
+    NumericField, NumericUnary, NumericBinary, NumericComparison>;
 
 // 准备错误定位到节点，运行错误另外附在 Unknown 上。
 enum class PrepareError {
@@ -59,7 +67,9 @@ enum class PrepareError {
     LiteralLimit, InvalidUtf8
 };
 
-enum class EvaluationFault { None, InvalidInput, Budget };
+enum class EvaluationFault { None, InvalidInput, Budget, DivisionByZero };
+// 返回稳定诊断 ID；None 对应空串，除零和余零统一为 division-by-zero。
+std::string_view EvaluationFaultId(EvaluationFault fault) noexcept;
 struct Evaluation {
     Truth truth = Truth::Unknown;
     EvaluationFault fault = EvaluationFault::None;
@@ -89,7 +99,7 @@ struct Preparation {
 };
 
 // 只接受已结构化的后序树，根为最后一项。每个节点只属一个父节点。
-// 支持布尔常量、!、&&、||，以及字段与有类型字面量的比较／质量检查。
+// 根必须为布尔谓词；数值子树同样计入节点、深度和唯一父节点限制。
 Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
                              std::span<const AstNode> nodes);
 
