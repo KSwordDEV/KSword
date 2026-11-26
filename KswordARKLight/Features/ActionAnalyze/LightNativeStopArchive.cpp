@@ -236,9 +236,9 @@ std::shared_ptr<const process_group_native::ProcessMemorySnapshotResult> LightNa
 
 // 原串行worker调用；API停止与清退不接触原native owner及事件责任。
 void LightNativeStopArchive::CaptureApi(const project::NativeBoundApiRequest& request,
-    const project::NativeBoundApiTarget& nativeTarget)
+    const project::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel)
 {
-    const std::atomic_bool cancel{false}; // 有限1000..10000ms区间，不创建控制线程。
+    // 原会话关闭可提前结束有限区间，采集器仍负责停钩和排空后返回本worker。
     if (project_)
     {
         api_ = std::make_shared<const project::NativeBoundApiResult>(

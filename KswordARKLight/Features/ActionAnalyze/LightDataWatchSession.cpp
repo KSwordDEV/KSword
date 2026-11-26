@@ -80,6 +80,7 @@ struct LightDataWatchSession::Shared {
     std::uint64_t requestedClose = 0;
     std::uint64_t failedClose = 0;
     bool closeRequested = false;
+    std::atomic_bool apiCancel = false; // 关闭线程只置位，原采集worker在排空后串行关闭native。
     std::weak_ptr<Ui::BackgroundCleanup> retirement; // Registration ownership stays with the registry.
 
     // 线程仅接收本次启动的冻结参数和表达式；完成后发布实际清退结果。
@@ -104,6 +105,7 @@ struct LightDataWatchSession::Shared {
     bool Retire() {
         std::unique_lock lock(mutex);
         if (!status.active) return true;
+        apiCancel.store(true); // 原后台清退入口也取消在途API，不等待有限区间自然结束。
         const auto attempt = ++requestedClose;
         queued.closeAttempt = attempt;
         status.state = LightDataWatchState::Closing;
@@ -274,7 +276,7 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                     rejected.admission = {Ksword::ActionAnalyze::ProjectError::InvalidArgument, 0, "lightNativeApiSessionChanged"};
                     apiResult = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiResult>(std::move(rejected));
                 } else {
-                    archive.CaptureApi(*command.api, target); // 原archive/writer/sample，不调用Continue/Close。
+                    archive.CaptureApi(*command.api, target, apiCancel); // 原采集排空后才处理关闭命令。
                     apiResult = archive.ApiView();
                     result = backend->QueryWithoutCondition(); // 采集期间可能真实命中；回投实际native状态，不ApplyCondition/自动Continue。
                 }
@@ -645,6 +647,7 @@ void LightDataWatchSession::Close() {
         std::lock_guard lock(owner->mutex);
         if (!owner->status.active) return;
         owner->closeRequested = true;
+        owner->apiCancel.store(true); // 不把原native关闭责任交给GUI，只请求采集器尽早清退。
         owner->queued.pauseSession.reset(); // 已派发的暂停及恢复责任仍交原worker的Close结算。
         owner->queued.continueStop.reset();
         owner->queued.stepMode.reset();
@@ -658,7 +661,7 @@ void LightDataWatchSession::Close() {
         owner->queued.saveMemory.reset();
         owner->queued.saveExecution = false;
         owner->queued.dumpMemory = false;
-        owner->queued.api.reset(); // 取消未派发API；在途有限采集仍由同worker完成清退再关闭native。
+        owner->queued.api.reset(); // 未派发请求撤销；在途API用apiCancel进入原排空，再由同worker关闭native。
         owner->status.displayedStop.reset();
         owner->status.displayedSession.reset();
         owner->status.continuing = false;

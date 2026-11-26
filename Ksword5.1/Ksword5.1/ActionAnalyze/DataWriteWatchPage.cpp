@@ -87,6 +87,7 @@ namespace
         NativeStopMemoryArchive memory; // 原worker独占项目写租约，Start前登记sample。
         bool retired = false; // 清退先到时，尚未执行的启动请求不得再创建进程。
         std::atomic_bool cleanupStarted = false; // 页面销毁和程序退出只启动同一轮清退。
+        std::atomic_bool apiCancel = false; // 关闭请求立即取消在途API，原调试Close仍等同worker返回。
         std::shared_ptr<ks::ui::AsyncCleanupRegistry::Lease> lease; // 正常退出等待原owner真正clean。
 
         // 新会话先登记退出责任，弱引用回调不形成lease到owner的引用环。
@@ -110,6 +111,7 @@ namespace
             {
                 return;
             }
+            apiCancel.store(true); // 不等access锁，先让正在持锁采集的原worker开始API排空。
             QThreadPool::globalInstance()->start([owner = shared_from_this()] {
                 std::unique_lock lock(owner->access); // 等待原唯一在途读取/保存/控制回合。
                 owner->retired = true;
@@ -605,6 +607,17 @@ namespace
         // 查询正进行时保留显式动作，以点击时的回执继续，由原生所有者拒绝过期令牌。
         if (m_work->isBusy())
         {
+            if (action == Action::Close)
+            {
+                // 关闭优先于尚未派发动作；只取消API，不抢走在途原生事件或归档租约。
+                m_owner->apiCancel.store(true);
+                m_queuedAction = Action::Close;
+                m_queuedStop.reset();
+                m_queuedMode.reset();
+                m_closing = true;
+                refresh();
+                return;
+            }
             if (action == Action::ReadMemory || action == Action::SaveMemory || action == Action::DumpMemory || action == Action::SaveExecution ||
                 action == Action::FollowExecution || action == Action::AddRange || action == Action::CaptureApi ||
                 action == Action::ReadCandidates)
@@ -743,7 +756,7 @@ namespace
                     result = owner->session.QueryWithoutCondition(); // API准入不触发原条件的自动Continue或合作Gate。
                     if (api)
                     {
-                        owner->memory.CaptureApi(*api, {result.pid, result.processCreationTime, result.attached});
+                        owner->memory.CaptureApi(*api, {result.pid, result.processCreationTime, result.attached}, owner->apiCancel);
                     }
                     result = owner->session.QueryWithoutCondition(); // 有限采集期间可能出现真实命中，回投实际状态而不自动放行。
                     break;
@@ -987,7 +1000,7 @@ namespace
         m_step->setEnabled(m_continue->isEnabled() && m_result.stopReason != native::NativeStopReason::ManualPause);
         const bool stepping = active && m_result.step && m_result.step->state == native::NativeStepState::Running;
         m_cancelStep->setEnabled(stepping && !busy && !m_closing && !m_failed);
-        m_close->setEnabled(active && !busy);
+        m_close->setEnabled(active && !m_closing); // 在途API仍可明确关闭，由原worker串行清退。
         if (m_toolbar)
         {
             DataWatchToolbarState state; // 同一次UI回投生成资格，不额外调用owner.Query。

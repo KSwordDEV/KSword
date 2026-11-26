@@ -34,9 +34,13 @@ int NativeBoundApiResult::CaptureExitCode() const noexcept
 int NativeBoundApiResult::ExitCode() const noexcept
 {
     // 原CLI约定项目/归档/Agent定位失败为3；其余保持原采集码。
-    if (!accepted || !receipt.sampleStatus || !receipt.archiveStatus || !receipt.agentPathAvailable)
+    if (!accepted || !receipt.sampleStatus || !receipt.archiveStatus)
     {
         return 3;
+    }
+    if (!receipt.agentPathAvailable && !receipt.capture.cancelled)
+    {
+        return 3; // 启动前明确取消未解析Agent路径，不能冒充Agent缺失失败。
     }
     return CaptureExitCode();
 }
@@ -69,6 +73,12 @@ NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::strin
     result.receipt.sampleStatus = document.ReadSample(sampleId, sample);
     if (!result.receipt.sampleStatus)
     {
+        return result;
+    }
+    if (cancel.load())
+    {
+        // 关闭请求先到时不装载Agent、不发布配置或创建API流，保留明确取消的原请求回执。
+        result.receipt.capture.cancelled = true;
         return result;
     }
 
