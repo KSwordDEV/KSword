@@ -250,7 +250,8 @@ bool ExecutionGroupArchive::ResolveSitesForSample(std::vector<native::ExecutionG
         }
         std::uint32_t rva = 0; // 仅由本轮sample冻结配置解析，不读取项目后来修订。
         std::optional<std::string> hash; // 冻结的期望映像约束，由原native核验实际文件。
-        status = ResolveSampleImageDefinition(*project_, view_.sampleId, site.definitionId, site.modulePath, rva, &hash);
+        std::optional<BreakpointCondition> condition; // 定义条件与映像约束一起由同一冻结sample读取。
+        status = ResolveSampleImageDefinition(*project_, view_.sampleId, site.definitionId, site.modulePath, rva, &hash, &condition);
         if (!status)
         {
             break;
@@ -263,6 +264,11 @@ bool ExecutionGroupArchive::ResolveSitesForSample(std::vector<native::ExecutionG
         if (hash)
         {
             site.imageSha256 = std::move(hash); // 未手填散列时继承冻结定义，不从磁盘同名文件补值。
+        }
+        status = PrepareSampleImageCondition(condition, site.conditionSource, site.condition);
+        if (!status)
+        {
+            break; // 仍在目录副本中准备，任何失败都不附加本批新成员。
         }
     }
     if (!status)

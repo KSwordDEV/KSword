@@ -4,6 +4,7 @@
 #include "BreakpointRangeProtocol.h"
 #include "BreakpointPauseProtocol.h"
 #include "NativeExecutionJournal.h"
+#include "../Project/SampleImageDefinition.h"
 
 #include "../Control/NativeDebugOwner.h"
 #include "../Control/NativeStopCondition.h"
@@ -1127,11 +1128,24 @@ int Run(const Args& args)
                 definitionId.push_back(static_cast<char>(character));
             }
             std::uint32_t rva = 0; // 由冻结定义解析后才提交原native。
-            if (const auto status = journal->ResolveImageDefinition(definitionId, request.modulePath, rva, request.imageSha256); !status)
+            std::optional<Ksword::ActionAnalyze::BreakpointCondition> frozenCondition; // 与本轮RVA来自同一冻结修订。
+            if (const auto status = journal->ResolveImageDefinition(definitionId, request.modulePath, rva,
+                request.imageSha256, frozenCondition); !status)
             {
                 std::cerr << Ksword::ActionAnalyze::ProjectErrorName(status.error) << ": " << status.detail
                     << " (" << status.nativeError << ")\n";
                 return 3;
+            }
+            if (frozenCondition)
+            {
+                std::wstring source = args.has(L"--condition") ? args.require(L"--condition") : L"";
+                auto predicate = condition ? condition->predicate : rules::PreparedPredicate{}; // 成功才替换实际条件。
+                const auto status = Ksword::ActionAnalyze::PrepareSampleImageCondition(frozenCondition, source, predicate, kConditionPhase);
+                if (!status)
+                {
+                    throw std::invalid_argument(std::string("--definition condition: ") + status.detail);
+                }
+                condition = BreakpointCondition{frozenCondition->source, std::move(predicate)};
             }
             request.rva = rva;
         }
@@ -1168,6 +1182,7 @@ void RegisterBreakpointCommand()
     command.notes = L"Data write watch requires an aligned writable data export or an explicit private address. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. Pair conditions evaluate only a fully held group: any true member holds both; otherwise both auto-continue. REPL: status, continue STOP_ID STATE_REVISION, step into|over-call|out STOP_ID STATE_REVISION THREAD_ID TID CREATION_FILETIME, step-status STEP_REQUEST_ID, step-cancel STEP_REQUEST_ID, quit. Step requires a single-target session and its current frozen originThread; write stops use the actual event thread's current instruction, not the watched data address. JSONL adds control.step, control.step.query and control.step.cancel; independent step/N and continue/N IDs start at 1, with 128 retained receipts. Step modes support known native instructions/frames; unknown instructions or frames are rejected. A new step stop is held without reapplying the breakpoint condition. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
     command.notes += L" over-call uses the original owner's DR1 at a decoded CALL return boundary; for a supported non-CALL instruction it performs one real TF step with destination:null and preserves the requested mode. Only such single-instruction TF completion can produce instruction-completed; a CALL return boundary cannot. Qt, Light and execution groups use the same runtime.";
     command.options += L" Saved definition activation uses --attach-image --module PATH --definition UUID --project PATH, exclusive with --export and --rva. The definition is read from the session sample's frozen settings, not a later project revision. It must be saved, enabled, a nonzero RVA and have a matching module basename. Optional imageSha256 is verified against the actual CREATE_PROCESS/LOAD_DLL event file for the resolved module before DR0 is armed; missing files and mismatches reject activation. control.breakpoint.imageSha256 reports the measured hash. File identity does not authenticate modified runtime image pages. Debug-symbol resolution is not supported. hello.executionArchive.breakpointDefinitionId records the actual source definition. Existing stop tokens are never imported from the project.";
+    command.options += L" A saved condition uses condition:{expressionProfile:predicate-expr-v3,source:TEXT}; it is prepared against native stop fields from the frozen sample before attachment. Omit --condition to inherit it, or supply the identical text; conflicting text rejects activation. Old unconditional definitions preserve explicit --condition behavior.";
     command.notes += L" Active single-target owners support REPL pause PID CREATION_FILETIME and pause-status pause/N. JSONL control.pause requires the current session, no expected, params:{targetPid:UInt,targetCreationFileTime:positive-decimal-string} and consecutive independent pause/N IDs (128 receipts). control.pause.query takes params:{requestId:pause/N} with an ordinary query ID. Acceptance means pending; armedPause.state=held and stopReason=manual-pause identify an actual interruption. Real target hits can preempt the interruption and retain their original identity. Continue uses the current exact stop token; manual pauses do not apply the breakpoint condition, create execution evidence or enable stepping on the interrupt helper. The original owner retains all breakpoint and page recovery responsibilities.";
     command.runStreaming = Run;
     command.options += L" Optional --project opens an existing project with an exclusive writer lease for this entire single-target session; --sample reuses a committed sample, otherwise creates one from the current revision. Startup verifies the complete raw-native chain before launching or attaching. Write sessions support held memory snapshots and same-sample API capture; execution-save requires an actual execution observation.";

@@ -18,6 +18,8 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 模块 RVA 站点可再指定可选 `definitionId`（规范 UUID）。必须同时配置项目；启动时读取本轮新采样冻结配置中的同 ID 启用 RVA 定义，并核对模块文件名及填写的 RVA。定义中的映像 SHA256 自动继承；手填散列与冻结散列冲突时拒绝。全部成员解析成功才开始附加，任一失败不附加任何成员，详情保留 `executionArchive.setupError`，可清退空集合后修改草稿重试。精确导出和私有站点不接受定义 ID；此入口不解析 PDB、不自动枚举全系统实例。
 
+定义的可选 `condition:{"expressionProfile":"predicate-expr-v3","source":"stop.tid != 0u64"}` 同时继承到实际成员条件。站点 `condition` 为空时使用冻结定义原文，非空须完全相同；冲突或准备失败在附加任一新成员前拒绝。运行中追加仍用原sample冻结规则，不读取后来项目修订，也不修改旧成员条件。无条件旧定义继续允许手填条件。三端实际目录显示继承后的原文。
+
 集合的模块站点支持稍后加载的 DLL。首次附加时精确绝对路径尚未出现在目标模块表中，成员沿原 owner 保持 `installing`，`control.breakpoint.waitingForModule=true`、实际地址为 null，不报告 Armed 或产生停止令牌。原 `LOAD_DLL` 事件到达后重用完整路径与 PE 位置解析、可选实际事件文件散列、全部当前线程登记，全部成功才继续加载事件并报告 Armed；随后新线程仍走原登记链。等待期间没有该站点的执行覆盖，也不阻塞目标等待加载；没有后台扫描、超时自动猜测或第二 owner。关闭集合取消等待，目标退出沿原退出清退。坏 PE、错误 RVA／导出、文件散列不符和实际查询失败仍拒绝，不能变成无限等待。首次成功绑定后模块卸载即清退，不自动重绑后来的同名模块。初始与显式追加成员、Qt／Light／CLI共用此行为；旧单目标和合作启动入口默认仍要求已加载模块。本扩展仅源码，构建及真实延迟加载、退出和清退待验。
 
 ## 自动保存执行观察

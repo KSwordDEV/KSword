@@ -78,6 +78,13 @@ struct BreakpointSymbol {
     bool operator==(const BreakpointSymbol&) const = default;
 };
 
+// 可选定义条件使用明确的v3文本；缺省保持旧无条件定义的字节与语义。
+// 存储只保留原UTF-8，激活时由原停点目录准备，不能把离线表达式当已绑定条件。
+struct BreakpointCondition {
+    std::string source; // 非空UTF-8谓词原文，最多8192字节；版本由持久对象的expressionProfile固定为v3。
+    bool operator==(const BreakpointCondition&) const = default;
+};
+
 // 草稿新项以空 ID 和修订 0 提交，已保存项携带当前稳定 ID 和逐项修订。
 struct BreakpointDefinition {
     std::string breakpointDefinitionId;
@@ -85,6 +92,7 @@ struct BreakpointDefinition {
     bool enabled = true;
     BreakpointModule module;
     std::variant<BreakpointRva, BreakpointSymbol> location;
+    std::optional<BreakpointCondition> condition; // 随项目修订及sample冻结；无条件时不序列化新增字段。
     bool operator==(const BreakpointDefinition&) const = default;
 };
 

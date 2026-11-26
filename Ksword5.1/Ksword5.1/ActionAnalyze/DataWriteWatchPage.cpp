@@ -77,6 +77,7 @@ namespace
         NativeExecutionArchiveView execution; // raw-native独立流回执与去重结果。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> api; // 原writer同采样API采集回执。
         std::shared_ptr<const NativeExecutionCandidatesResult> candidates; // 同document只读候选及原请求身份。
+        std::wstring conditionSource; // 原会话实际采用的冻结条件，含项目定义继承值。
     };
 
     // 页面与收尾任务短时共享同一个会话，原生调试事件始终归该会话所有。
@@ -85,6 +86,7 @@ namespace
         std::mutex access; // 关闭页面时仍可能有一个在途工作，必须先等其返回。
         native::OwnedDataWatchSession session; // 只由工作线程调用四个控制入口。
         NativeStopMemoryArchive memory; // 原worker独占项目写租约，Start前登记sample。
+        std::wstring conditionSource; // worker保存实际条件，不读取以后编辑的UI草稿。
         bool retired = false; // 清退先到时，尚未执行的启动请求不得再创建进程。
         std::atomic_bool cleanupStarted = false; // 页面销毁和程序退出只启动同一轮清退。
         std::atomic_bool apiCancel = false; // 关闭请求立即取消在途API，原调试Close仍等同worker返回。
@@ -719,6 +721,7 @@ namespace
         const bool imageAttachment = m_runImageAttachment; // 冻结已有模块附加类型，不读取后台中的selector。
         const auto imageRva = m_runImageRva; // 模块RVA已在点击时解析为32位非零值。
         const auto definitionId = m_runDefinition.toStdString(); // 定义必须属于本轮实际创建sample的冻结配置。
+        const auto conditionSource = m_runCondition.toStdWString(); // 同谓词冻结原文，供定义冲突核对。
         const auto displayedStop = selectedStop ? std::move(*selectedStop) : m_result; // 使用实际点击的令牌。
         const auto mode = selectedMode.value_or(static_cast<native::NativeStepMode>(m_stepMode->currentData().toInt()));
         const auto projectDirectory = m_memoryPane->ProjectDirectory(); // 只在Start前采用，后台不读控件。
@@ -734,7 +737,7 @@ namespace
         const auto accepted = m_work->submitTransaction<Action, WatchResult>(action,
             [owner, path, symbol, width, indirect, execution, privateTarget, imageAttachment, imageRva, definitionId,
                 displayedStop, mode, projectDirectory, openExistingProject,
-                memory = std::move(memory), range, api, candidates, condition = std::move(condition)](Action command) {
+                memory = std::move(memory), range, api, candidates, conditionSource, condition = std::move(condition)](Action command) mutable {
                 std::lock_guard lock(owner->access); // 串行化命令和页面销毁时的关闭。
                 if (owner->retired)
                 {
@@ -744,8 +747,10 @@ namespace
                 switch (command)
                 {
                 case Action::Start:
+                    // 只改worker局部草稿；失败不附加，成功将冻结定义条件传给原会话。
+                    owner->conditionSource = conditionSource;
                     if (owner->memory.PrepareProject(projectDirectory, openExistingProject) &&
-                        owner->memory.ValidateImageDefinition(definitionId, path, imageRva.value_or(0)))
+                        owner->memory.ValidateImageDefinition(definitionId, path, imageRva.value_or(0), owner->conditionSource, condition))
                     {
                         result = imageAttachment
                             ? owner->session.AttachImageExecution(privateTarget.pid, privateTarget.creation, path,
@@ -837,7 +842,7 @@ namespace
                     owner->memory.CloseProject(); // 同串行worker释放，不在GUI回投时析构writer。
                 }
                 return WatchResult{std::move(result), owner->session.ConditionReport(), owner->memory.View(),
-                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView()};
+                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView(), owner->conditionSource};
             }, [this, action](const auto& result, std::uint64_t) {
                 m_mutating = false;
                 m_owner->apiStartup.store(nullptr); // 完整回执接替在途快照，下一次timer不重新显示旧阶段。
@@ -876,6 +881,7 @@ namespace
         const auto& result = receipt.control; // 所有字段均从该命令返回的同一快照取得。
         m_result = result;
         m_conditionReport = receipt.condition;
+        m_runCondition = QString::fromStdWString(receipt.conditionSource); // 本次条件身份与原生回执同轮发布。
         m_memoryShown = receipt.memory; // 后续Query只复制原内存结果，不重新采集或改写来源。
         m_executionShown = receipt.execution;
         m_apiShown = receipt.api; // API附加、清退和归档状态均由共享服务独立提供。

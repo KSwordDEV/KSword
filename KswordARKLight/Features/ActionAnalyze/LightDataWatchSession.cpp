@@ -212,6 +212,7 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
     }
     LightNativeStopArchive archive; // 与原session同一串行worker持有，清退后释放项目租约。
     NativeControlResult currentState; // 保存内存时沿用最近控制快照，不能用默认Idle冒充清退。
+    auto effectiveSource = request.condition; // 原worker保留实际冻结条件，后续Query回执沿用。
     std::uint64_t closeAttempt = 0;
     bool start = true;
     while (backend) {
@@ -228,7 +229,8 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                 }
                 if (!cancelled) {
                     if (archive.Prepare(request.projectDirectory, request.openExistingProject) &&
-                        archive.ValidateImageDefinition(request.definitionId, request.definitionProjectId, request.executable, request.imageRva)) {
+                        archive.ValidateImageDefinition(request.definitionId, request.definitionProjectId, request.executable,
+                            request.imageRva, effectiveSource, condition)) {
                         // 模块附加优先于旧启动分支，沿用本worker、项目采样及唯一原生所有者。
                         result = request.imageExecutionAttachment
                             ? backend->AttachImageExecution(request.targetPid, request.targetCreationFileTime,
@@ -322,6 +324,7 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
             {
                 std::lock_guard lock(mutex); // 读取及保存完成后同回合发布不可变capture。
                 status.memoryProject = archive.ProjectView();
+                status.request.condition = effectiveSource; // 显示实际继承条件，不能将空手填误报为无条件。
                 status.projectId = archive.ProjectId();
                 status.candidates = archive.CandidateView();
                 if (command.candidates) status.candidatesDiagnostic.clear();

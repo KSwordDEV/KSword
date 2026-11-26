@@ -47,7 +47,7 @@ namespace ks::action_analyze
         // 表单/列表动作的最后回执。表单编辑后清理旧回执，避免表示仍已校验。
         enum class Feedback
         {
-            None, InvalidModule, InvalidRva, InvalidSymbol, Duplicate, Limit, PendingEdit, Added, Updated, Removed
+            None, InvalidModule, InvalidRva, InvalidSymbol, InvalidCondition, Duplicate, Limit, PendingEdit, Added, Updated, Removed
         };
 
         // 仅保留定义编辑所需的项目身份及基准，不复制工作台的采样目录。
@@ -103,6 +103,9 @@ namespace ks::action_analyze
         QLineEdit* m_module = nullptr; // 用户输入的模块文件名。
         QComboBox* m_kind = nullptr; // 模块内 RVA / 调试符号选择。
         QLineEdit* m_location = nullptr; // 尚未提交的 RVA 或符号文本。
+        QLineEdit* m_condition = nullptr; // 可选单行v3谓词草稿，提交后与位置共同保存。
+        QLabel* m_conditionLabel = nullptr; // 条件输入的可访问标签。
+        QString m_conditionDiagnostic; // 原准备器诊断ID，失败保留原文供修正。
         QCheckBox* m_enabled = nullptr; // 希望在定义上保存的启用意图。
 
         QPushButton* m_commit = nullptr; // 提交当前表单到内存草稿列表。

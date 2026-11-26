@@ -30,7 +30,7 @@ constexpr ProjectCommand kMethods[] = {
     {M::Close, "project.close", "project close", "", "Release the open project and its lock.", true},
     {M::Create, "project.create", "project create", "PATH TITLE [NOTES]", "Create a project in a new directory and open it for writing.", true},
     {M::Save, "project.save", "project save", "TITLE [NOTES] | settings EXPECTED_REVISION QUOTED_JSON",
-        "Save the project settings against its current revision.", true},
+         "Save the project settings against its current revision. Full settings may include breakpointDefinitions with optional condition:{expressionProfile:predicate-expr-v3,source:TEXT}; omit condition for an unconditional definition.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
     {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]",
          "Read frozen settings and optionally verify ETW and passive API archive segments.", false},

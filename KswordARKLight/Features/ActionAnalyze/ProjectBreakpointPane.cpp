@@ -62,6 +62,10 @@ void Refresh(Pane& pane) {
         text += L"\r\n定义imageSha256：" + std::wstring(row->module.imageSha256->begin(), row->module.imageSha256->end());
     }
     if (row) text += L"\r\n定义ID：" + std::wstring(row->breakpointDefinitionId.begin(), row->breakpointDefinitionId.end());
+    if (row && row->condition)
+    {
+        text += L"\r\n冻结定义条件：" + ks::r3::process::Utf8ToWide(row->condition->source); // 真正Start从本轮sample重读并准备。
+    }
     if (!pane.catalog.projectId.empty()) text += L"\r\n项目：" + std::wstring(pane.catalog.projectId.begin(), pane.catalog.projectId.end());
     ::SetWindowTextW(pane.reason, text.c_str());
 }

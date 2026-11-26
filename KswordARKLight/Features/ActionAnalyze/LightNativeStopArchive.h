@@ -28,7 +28,8 @@ public:
     bool Prepare(const std::wstring& directory, bool openExisting = false);
     // 在本轮真实sample冻结配置核验定义；成功才允许原owner附加，手工无ID时直接通过。
     bool ValidateImageDefinition(std::string_view definitionId, std::string_view definitionProjectId,
-        const std::wstring& modulePath, std::optional<std::uint32_t> draftRva);
+        const std::wstring& modulePath, std::optional<std::uint32_t> draftRva,
+        std::wstring& conditionSource, project::Rules::PreparedPredicate& condition);
     // 同一worker读取本轮sample核验成功后冻结的可选散列；只传给原生映像准入，不在UI计算。
     const std::optional<std::string>& ImageSha256() const;
     // 返回Start实际使用的sample；不得在采集后修改旧Plan来源。

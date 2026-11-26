@@ -593,6 +593,7 @@ void RegisterExecutionGroupCommand()
         L"Optional imageSha256 is exactly 64 lowercase hex characters; the original member owner verifies the actual debug-load event file before arming DR0. Private sites reject this field. "
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
+        L"A referenced frozen definition may supply condition:{expressionProfile:predicate-expr-v3,source:TEXT}. An empty site condition inherits it; a different manual condition rejects the new batch before attach. "
         L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival. "
         L"--hold-peers-on-hit freezes a per-session policy: after a new retained breakpoint, query requests Pause on each eligible running peer once. "

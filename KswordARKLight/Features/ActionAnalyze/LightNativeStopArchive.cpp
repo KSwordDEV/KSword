@@ -43,7 +43,8 @@ const std::string& LightNativeStopArchive::SampleId() const
 }
 
 bool LightNativeStopArchive::ValidateImageDefinition(std::string_view definitionId, std::string_view definitionProjectId,
-    const std::wstring& modulePath, std::optional<std::uint32_t> draftRva)
+    const std::wstring& modulePath, std::optional<std::uint32_t> draftRva,
+    std::wstring& conditionSource, project::Rules::PreparedPredicate& condition)
 {
     imageSha256_.reset(); // 手工定义和核验失败都不得留下此前成功定义的散列。
     if (definitionId.empty()) {
@@ -57,10 +58,15 @@ bool LightNativeStopArchive::ValidateImageDefinition(std::string_view definition
     try {
         std::uint32_t frozenRva = 0; // 仅采用本轮sample的共享解析结果，不以UI旧值代替。
         std::optional<std::string> frozenImageSha256;
+        std::optional<project::BreakpointCondition> frozenCondition; // 条件与RVA都来自相同采样修订。
         view_.projectResult = project::ResolveSampleImageDefinition(*project_, SampleId(), definitionId,
-            modulePath, frozenRva, &frozenImageSha256);
+            modulePath, frozenRva, &frozenImageSha256, &frozenCondition);
         if (view_.projectResult && frozenRva != *draftRva) {
             view_.projectResult = {project::ProjectError::StaleRevision, 0, "lightNativeSampleDefinitionRva"};
+        }
+        if (view_.projectResult)
+        {
+            view_.projectResult = project::PrepareSampleImageCondition(frozenCondition, conditionSource, condition);
         }
         if (view_.projectResult)
         {

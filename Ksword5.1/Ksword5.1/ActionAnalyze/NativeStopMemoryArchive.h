@@ -26,7 +26,8 @@ namespace ks::action_analyze
         // 输入启动前冻结目录与显式打开方式；同一写会话新建sample，失败不得启动目标。
         bool PrepareProject(const std::wstring& directory, bool openExisting = false);
         // 真实启动前核对本次sample的已保存定义，拒绝错误项目或不同RVA，失败不附加目标。
-        bool ValidateImageDefinition(std::string_view definitionId, const std::wstring& modulePath, std::uint32_t rva);
+        bool ValidateImageDefinition(std::string_view definitionId, const std::wstring& modulePath, std::uint32_t rva,
+            std::wstring& conditionSource, Ksword::ActionAnalyze::Rules::PreparedPredicate& condition);
         const std::optional<std::string>& ImageSha256() const { return m_imageSha256; } // 原sample核验后的约束，供同worker原native附加。
         // Start末尾传入该真实sample；空值保留原会话默认采样，不改写任何已采集Plan。
         const std::string& SampleId() const;

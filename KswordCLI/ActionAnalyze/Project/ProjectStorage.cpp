@@ -484,6 +484,10 @@ bool IsDefinitionText(std::string_view text, std::size_t limit) {
 // 校验离线位置和模块标识，适用于草稿和存盘值。
 bool IsDefinitionBody(const BreakpointDefinition& row) {
     const auto& module = row.module;
+    if (row.condition && (row.condition->source.empty() || !IsText(row.condition->source, 8192)))
+    {
+        return false; // 不在存储层绑定原生字段；正式激活前仍须完成类型化条件准备。
+    }
     if (!IsDefinitionText(module.name, 255) || module.name.back() == '.' ||
         module.name.find_first_of("/\\:*?\"<>|") != module.name.npos ||
         (module.imageSha256 && !IsHash(*module.imageSha256))) return false;
@@ -531,9 +535,15 @@ JsonValue DefinitionsJson(const std::vector<BreakpointDefinition>& rows) {
     for (const auto& row : rows) {
         auto module = Object({{"imageSha256", row.module.imageSha256 ? Text(*row.module.imageSha256) : JsonValue::makeNull()},
                               {"name", Text(row.module.name)}});
-        result.push_back(Object({{"breakpointDefinitionId", Text(row.breakpointDefinitionId)},
+        JsonObject fields{{"breakpointDefinitionId", Text(row.breakpointDefinitionId)},
             {"definitionRevision", Number(row.definitionRevision)}, {"enabled", JsonValue::makeBool(row.enabled)},
-            {"location", DefinitionLocationJson(row)}, {"module", std::move(module)}}));
+            {"location", DefinitionLocationJson(row)}, {"module", std::move(module)}}; // 旧无条件形状保持原键顺序。
+        if (row.condition)
+        {
+            fields.insert(fields.begin() + 1, {"condition", Object({{"expressionProfile", Text("predicate-expr-v3")},
+                {"source", Text(row.condition->source)}})}); // 原文及版本按键序进入修订散列。
+        }
+        result.push_back(Object(std::move(fields)));
     }
     return JsonValue::makeArray(std::move(result));
 }
@@ -570,13 +580,29 @@ bool ReadLocation(const JsonValue& doc, BreakpointDefinition& row) {
 
 // 读取单条定义。草稿允许显式的新项标记，已存文件要求已分配的身份。
 bool ReadDefinition(const JsonValue& doc, BreakpointDefinition& row, bool draft) {
-    if (!Fields(doc, {"breakpointDefinitionId", "definitionRevision", "enabled", "module", "location"}) ||
+    const auto* condition = doc.find("condition"); // 缺字段是旧无条件定义；null不等于显式清空原规则。
+    const bool shape = condition
+        ? Fields(doc, {"breakpointDefinitionId", "definitionRevision", "enabled", "module", "location", "condition"})
+        : Fields(doc, {"breakpointDefinitionId", "definitionRevision", "enabled", "module", "location"});
+    if (!shape ||
         !GetString(doc, "breakpointDefinitionId", row.breakpointDefinitionId) ||
         !GetNumber(doc, "definitionRevision", row.definitionRevision) ||
         !doc.find("enabled")->tryGetBool(row.enabled)) return false;
     const bool newDraft = draft && row.breakpointDefinitionId.empty() && row.definitionRevision == 0; // 新项由写入器分配身份。
     if (!newDraft && (!IsUuid(row.breakpointDefinitionId) || row.definitionRevision == 0)) {
         return false;
+    }
+    row.condition.reset(); // 复用输出对象时不能把旧条件带入没有该字段的定义。
+    if (condition)
+    {
+        BreakpointCondition predicate; // 只读明确v3来源，未知profile拒绝而不重标版本。
+        if (!Fields(*condition, {"expressionProfile", "source"}) ||
+            !IsString(*condition, "expressionProfile", "predicate-expr-v3") ||
+            !GetString(*condition, "source", predicate.source))
+        {
+            return false;
+        }
+        row.condition = std::move(predicate);
     }
     const auto& module = *doc.find("module"); // 模块字段在两种配置形状中一致。
     if (!Fields(module, {"name", "imageSha256"}) || !GetString(module, "name", row.module.name)) return false;

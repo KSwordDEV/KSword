@@ -259,6 +259,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 执行集合的模块站点尚未加载时，原成员 owner 可等待首次加载。`control.breakpoint.waitingForModule=true` 与 `installing` 表示尚无该站点执行覆盖；实际 `LOAD_DLL` 到达后完成精确路径、PE 位置、可选事件文件散列及现存线程登记才 Armed。关闭取消等待，已激活模块卸载后清退，不自动重绑；单目标入口默认行为保持。三端共用核心，本扩展源码待验。
 
+保存的断点定义可带 `condition:{"expressionProfile":"predicate-expr-v3","source":"stop.tid != 0u64"}`。通过原 `project.save` 完整settings提交后，单目标 `--definition` 和集合 `definitionId` 从本轮采样冻结配置准备条件；省略手填继承，非空须与冻结原文相同，冲突或无效规则在附加前拒绝。无条件定义省略该字段，旧五字段形状保持。详见[项目断点定义](action-analyze-planning/project-breakpoint-definitions.md)。
+
 活执行集合新增 `members-append execution/N SITES_PATH confirm COLLECTION_ID`／JSONL `control.members.append`。JSONL携带当前session、`params:{sites:PATH,confirm:true}` 与 `expected:{collectionId}`；新文件使用原站点schema，追加后最多16个不同PID，同一采样内保留原成员、停点和writer。新成员附加部分失败逐项保留，不替换已有PID或自动接纳后代；原128条重放流水也覆盖本命令。Qt／Light对应“追加表单目标到本轮集合”，详见上述专项文档。
 
 `analyze execution-group session --hold-peers-on-hit` 在Start冻结“成员命中后暂停其他成员”。新断点经条件处理仍持有时，原查询逐项请求其它运行成员暂停；假条件继续，未知条件保持。主动暂停和步进停止不触发，同一事件只请求一次；所选继续不被同一旧事件撤销。`peerHold` 独立保留触发身份和逐成员暂停回执，当前Held须另读成员状态；不保证同时冻结。Qt／Light复用原执行集合参数页同名开关，默认关闭。源码已接，运行待验。

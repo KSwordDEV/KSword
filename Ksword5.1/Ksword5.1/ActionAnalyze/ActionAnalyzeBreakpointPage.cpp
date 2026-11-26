@@ -1,4 +1,5 @@
 #include "ActionAnalyzeBreakpointPage.h"
+#include "../../../KswordCLI/ActionAnalyze/Control/NativeStopCondition.h"
 
 #include "OfflineProjectReader.h"
 #include "../Internationalization/LanguageManager.h"
@@ -173,6 +174,11 @@ namespace
         {
             details.append(sourceText(QStringLiteral("PDB：%1 · %2"))
                 .arg(QString::fromStdString(symbol->pdb->guid), QString::number(symbol->pdb->age)));
+        }
+        if (definition.condition)
+        {
+            details.append(sourceText(QStringLiteral("断点条件：%1"))
+                .arg(QString::fromStdString(definition.condition->source))); // 完整规则同源用于表格tooltip与编辑身份。
         }
         return details.join(QLatin1Char('\n'));
     }
@@ -375,6 +381,8 @@ void ActionAnalyzeBreakpointPage::createForm()
     m_module = new QLineEdit(m_form);
     m_kind = new QComboBox(m_form);
     m_location = new QLineEdit(m_form);
+    m_condition = new QLineEdit(m_form); // 复用原参数表单和独立输入主题。
+    m_condition->setMaxLength(8192); // 真正上限仍按准备器的UTF-8字节数计算。
     m_enabled = new QCheckBox(m_form);
     m_enabled->setChecked(true);
 
@@ -382,6 +390,8 @@ void ActionAnalyzeBreakpointPage::createForm()
     m_moduleLabel = new QLabel(m_form);
     m_kindLabel = new QLabel(m_form);
     m_locationLabel = new QLabel(m_form);
+    m_conditionLabel = new QLabel(m_form);
+    m_conditionLabel->setBuddy(m_condition);
     m_moduleLabel->setBuddy(m_module);
     m_kindLabel->setBuddy(m_kind);
     m_locationLabel->setBuddy(m_location);
@@ -392,6 +402,7 @@ void ActionAnalyzeBreakpointPage::createForm()
     form->addRow(m_moduleLabel, m_module);
     form->addRow(m_kindLabel, m_kind);
     form->addRow(m_locationLabel, m_location);
+    form->addRow(m_conditionLabel, m_condition);
     form->addRow(m_enabled);
     m_workspace->parameters()->addWidget(m_form);
     ks::ui::StyleParameterSection(m_form);
@@ -410,8 +421,10 @@ void ActionAnalyzeBreakpointPage::createForm()
     // 普通文本不触发应用。Enter 单独提交当前表单，Tab 保留 Qt 原生遍历。
     connect(m_module, &QLineEdit::returnPressed, this, &ActionAnalyzeBreakpointPage::commitForm);
     connect(m_location, &QLineEdit::returnPressed, this, &ActionAnalyzeBreakpointPage::commitForm);
+    connect(m_condition, &QLineEdit::returnPressed, this, &ActionAnalyzeBreakpointPage::commitForm);
     connect(m_module, &QLineEdit::textChanged, this, &ActionAnalyzeBreakpointPage::formChanged);
     connect(m_location, &QLineEdit::textChanged, this, &ActionAnalyzeBreakpointPage::formChanged);
+    connect(m_condition, &QLineEdit::textChanged, this, &ActionAnalyzeBreakpointPage::formChanged);
     connect(m_kind, &QComboBox::currentIndexChanged, this, &ActionAnalyzeBreakpointPage::formChanged);
     connect(m_enabled, &QCheckBox::toggled, this, &ActionAnalyzeBreakpointPage::formChanged);
 }
@@ -737,6 +750,9 @@ void ActionAnalyzeBreakpointPage::retranslate()
 
     // 标签、按钮及定位选项保留原对象和选项索引，避免语言切换打断编辑。
     m_moduleLabel->setText(sourceText(QStringLiteral("模块文件名")));
+    m_conditionLabel->setText(sourceText(QStringLiteral("断点条件（可选）")));
+    m_condition->setPlaceholderText(QStringLiteral("stop.tid != 0u64"));
+    m_condition->setToolTip(sourceText(QStringLiteral("条件随采样冻结，激活时使用原生停点字段；留空为无条件，手填冲突会拒绝附加。")));
     m_module->setPlaceholderText(sourceText(QStringLiteral("输入文件名，例如示例.exe")));
     m_kindLabel->setText(sourceText(QStringLiteral("定位方式")));
     m_enabled->setText(sourceText(QStringLiteral("在草稿中启用")));
@@ -814,6 +830,9 @@ void ActionAnalyzeBreakpointPage::updateControls()
         break;
     case Feedback::Duplicate:
         message = sourceText(QStringLiteral("相同模块和位置的断点草稿已存在。"));
+        break;
+    case Feedback::InvalidCondition:
+        message = sourceText(QStringLiteral("断点条件无效：%1")).arg(m_conditionDiagnostic);
         break;
     case Feedback::Limit:
         message = sourceText(QStringLiteral("每个项目最多保存 %1 条断点定义。"))
@@ -925,15 +944,17 @@ bool ActionAnalyzeBreakpointPage::hasFormChanges() const
     const int kind = m_kind->currentData().toInt(); // 当前草稿的定位方式。
     if (!draft)
     {
-        return !m_module->text().isEmpty() || !m_location->text().isEmpty()
+        return !m_module->text().isEmpty() || !m_location->text().isEmpty() || !m_condition->text().isEmpty()
             || kind != static_cast<int>(LocationKind::Rva) || !m_enabled->isChecked();
     }
     return m_module->text() != QString::fromStdString(draft->module.name) || m_location->text() != LocationText(*draft)
+        || m_condition->text() != (draft->condition ? QString::fromStdString(draft->condition->source) : QString())
         || kind != static_cast<int>(DefinitionKind(*draft)) || m_enabled->isChecked() != draft->enabled;
 }
 
 void ActionAnalyzeBreakpointPage::formChanged()
 {
+    m_conditionDiagnostic.clear(); // 编辑只清除旧诊断，不改列表中已提交的规则。
     m_feedback = Feedback::None;
     updateControls();
 }
@@ -943,11 +964,13 @@ void ActionAnalyzeBreakpointPage::clearForm()
     // 四个控件共同构成一次草稿重置，阻止中间状态触发 UI 刷新。
     const QSignalBlocker moduleBlock(m_module);
     const QSignalBlocker locationBlock(m_location);
+    const QSignalBlocker conditionBlock(m_condition);
     const QSignalBlocker kindBlock(m_kind);
     const QSignalBlocker enabledBlock(m_enabled);
     m_editing = QPersistentModelIndex();
     m_module->clear();
     m_location->clear();
+    m_condition->clear();
     m_kind->setCurrentIndex(0);
     m_enabled->setChecked(true);
     formChanged();
@@ -979,11 +1002,13 @@ void ActionAnalyzeBreakpointPage::editSelection()
     }
     const QSignalBlocker moduleBlock(m_module);
     const QSignalBlocker locationBlock(m_location);
+    const QSignalBlocker conditionBlock(m_condition);
     const QSignalBlocker kindBlock(m_kind);
     const QSignalBlocker enabledBlock(m_enabled);
     m_editing = index;
     m_module->setText(QString::fromStdString(draft->module.name));
     m_location->setText(LocationText(*draft));
+    m_condition->setText(draft->condition ? QString::fromStdString(draft->condition->source) : QString());
     m_kind->setCurrentIndex(m_kind->findData(static_cast<int>(DefinitionKind(*draft))));
     m_enabled->setChecked(draft->enabled);
     formChanged();
@@ -1078,6 +1103,22 @@ void ActionAnalyzeBreakpointPage::commitForm()
         return;
     }
     draft.enabled = m_enabled->isChecked();
+    draft.condition.reset(); // 显式清空表示删除旧条件，不隐式继承。
+    if (!m_condition->text().isEmpty())
+    {
+        const auto source = m_condition->text().toUtf8(); // 保存原UTF-8，不修剪或重写谓词。
+        const auto prepared = ks::cli::action_analyze::control::PrepareNativeStopCondition(
+            std::string_view(source.constData(), static_cast<std::size_t>(source.size())),
+            Ksword::ActionAnalyze::Rules::Phase::Observation, "predicate-expr-v3");
+        if (prepared.error != Ksword::ActionAnalyze::Rules::ExpressionError::None)
+        {
+            const auto diagnostic = Ksword::ActionAnalyze::Rules::ExpressionErrorId(prepared.error); // 静态ID来自原准备器。
+            m_conditionDiagnostic = QString::fromLatin1(diagnostic.data(), static_cast<qsizetype>(diagnostic.size()));
+            reportError(Feedback::InvalidCondition, m_condition);
+            return;
+        }
+        draft.condition = Ksword::ActionAnalyze::BreakpointCondition{source.toStdString()};
+    }
     m_saved = false;
     const QModelIndex submitted = m_drafts->put(editingRow, draft); // 成功后的实际列表行。
     clearForm();

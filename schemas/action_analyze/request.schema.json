@@ -135,7 +135,16 @@
         "definitionRevision": { "$ref": "value.schema.json#/$defs/u64" },
         "enabled": { "type": "boolean" },
         "module": { "$ref": "#/$defs/breakpointModule" },
-        "location": { "$ref": "#/$defs/breakpointLocation" }
+        "location": { "$ref": "#/$defs/breakpointLocation" },
+        "condition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["expressionProfile", "source"],
+          "properties": {
+            "expressionProfile": { "const": "predicate-expr-v3" },
+            "source": { "type": "string", "minLength": 1, "maxLength": 8192,
+              "$comment": "The product enforces 8192 UTF-8 bytes and rejects C0 controls. Activation prepares against native stop fields before attachment." }
+          }
+        }
       }
     },
     "breakpointCommitted": {

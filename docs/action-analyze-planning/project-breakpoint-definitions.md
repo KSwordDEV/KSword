@@ -11,6 +11,11 @@
 | `enabled` | 必需布尔值，表示记录的配置意图。 |
 | `module` | 对象含 `name` 和 `imageSha256`。`name` 是 1–255 UTF-8 字节的模块基础文件名，拒绝 Windows 路径分隔符及保留字符、首尾 ASCII 空格、末尾点和控制字符。`imageSha256` 是精确映像文件的 SHA-256，编码为 64 个小写十六进制字符，缺失时显式写 `null`。 |
 | `location` | 二选一。`{"kind":"module-rva","rva":"4096"}` 中 `rva` 为规范十进制 u32 字符串，允许 `"0"`。`{"kind":"module-symbol","symbol":"Fixture::Entry","pdb":null}` 中 `symbol` 是 1–512 UTF-8 字节的精确符号名，保留大小写及内部空格，拒绝首尾 ASCII 空格及控制字符。`pdb` 为 `null` 或已知的 `{"guid":"<RSDS GUID>","age":"<正 u32>"}`，GUID 格式同项目 UUID。 |
+| `condition` | 可选 `{"expressionProfile":"predicate-expr-v3","source":"stop.tid != 0u64"}`。原文为非空单行严格 UTF-8，最多8192字节，无 C0 控制字符。无条件省略整个字段，不写 null；未知 profile 拒绝。条件变化递增定义修订。 |
+
+条件与位置一起进入原配置散列、修订链及采样冻结快照。无条件旧定义仍输出原五字段形状；新含条件定义需本次新增读取能力，旧读取器会拒绝额外字段，不能指望旧版本忽略规则。Qt断点页沿原ParameterWorkspace表单编辑并调用原生停点准备器检查；CLI沿原完整settings保存。Light沿原项目定义选择器展示并激活，定义编辑能力仍为无。存储层只校验文本和固定profile，不把离线表达式当已绑定规则。
+
+三端单目标模块RVA与执行集合（含运行中追加）在真正附加前，从本轮sample读取条件并用原生停点字段目录准备。保持各原入口的求值阶段：CLI原生单目标为Entry，OwnedDataWatchSession（桌面单目标与三端集合）为Observation；目录字段名与类型相同，不改原求值路径。空手填继承冻结条件，非空必须与冻结原文完全相同；冲突、未知字段或类型/语法错误在附加前拒绝，集合整批新成员均不附加，已有成员及writer保持原状态。没有保存条件的旧定义保留手填规则。Qt/Light实际条件回显来自原worker，不能将继承规则误报为无条件。本扩展源码已接，构建、持久往返、正式CLI条件命中及GUI待验。
 
 文本拒绝 C0、C1、DEL、U+2028 和 U+2029，按严格 UTF-8 写入。模块名可单独保存为候选，符号的 PDB 身份也可留待补全。离线格式校验保留缺失字段的实际含义。文件散列与 PDB 标识均来自输入资料，存储层只验证格式。定义集合按 `breakpointDefinitionId` 的 ASCII 字节排序，ID 不重复。同一定位以模块名 ASCII 不区分大小写、所指定映像散列、定位种类及其值比较，重复项整批拒绝。定义上限为 64 条。
 
