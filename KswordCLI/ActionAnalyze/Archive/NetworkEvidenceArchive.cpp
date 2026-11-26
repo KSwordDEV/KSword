@@ -565,6 +565,72 @@ std::optional<NetworkStoredFlowPreview> PreviewStoredNetworkFlow(const SegmentId
     return preview;
 }
 
+NetworkStoredFlowQueryResult QueryOpenStoredNetworkFlow(void* file, const NetworkStoredFlowLocator& locator,
+    std::optional<std::uint64_t> endOffset, const NetworkEvidenceBinding* verifiedBinding)
+{
+    using Status = NetworkStoredFlowQueryStatus;
+    NetworkStoredFlowQueryResult result;
+    const auto& segment = locator.segment;
+    if (segment.stream != StreamKind::Raw || segment.ordinal == 0 || !HasId(segment.project) || !HasId(segment.sample) ||
+        locator.recordSequence == 0 || locator.recordOffset < kSegmentHeaderBytes + kBlockHeaderBytes ||
+        locator.recordOffset > kMaxSegmentBytes - kRecordHeaderBytes ||
+        (endOffset && (*endOffset < kSegmentHeaderBytes || *endOffset > kMaxSegmentBytes))) {
+        return result;
+    }
+
+    result.status = Status::NotFound;
+    result.framing = ScanOpenSegment(file, {segment, endOffset, std::nullopt},
+        [&](const BlockInfo& block, const std::vector<RecordView>& records) {
+            if ((locator.recordSequence < block.firstSequence || locator.recordSequence > block.lastSequence) &&
+                (locator.recordOffset < block.offset || locator.recordOffset >= block.endOffset)) {
+                return true;
+            }
+            for (const auto& record : records) {
+                const bool sameSequence = record.sequence == locator.recordSequence;
+                const bool sameOffset = record.offset == locator.recordOffset;
+                if (!sameSequence && !sameOffset) continue;
+                if (!sameSequence || !sameOffset) {
+                    result.status = Status::LocatorMismatch;
+                    return false;
+                }
+                auto decoded = ProjectNetworkFlowRecord(segment, record);
+                if (!decoded) {
+                    result.status = Status::InvalidFlow;
+                    return false;
+                }
+                if (verifiedBinding && !Matches(decoded->source, *verifiedBinding)) {
+                    result.status = Status::SourceMismatch;
+                    return false;
+                }
+
+                auto& contents = result.contents.emplace();
+                contents.flow = decoded->flow;
+                contents.source = std::move(decoded->source);
+                if (verifiedBinding) contents.sourceTrust = NetworkSourceTrust::MatchedVerifiedBinding;
+                if (!decoded->inlineBytes.empty()) {
+                    const auto* first = reinterpret_cast<const std::uint8_t*>(decoded->inlineBytes.data());
+                    contents.bytes.assign(first, first + decoded->inlineBytes.size());
+                }
+                result.status = Status::Found;
+                return false;
+            }
+            return true;
+        });
+    if (result.status == Status::NotFound && result.framing.status != SegmentScanStatus::FramingComplete) {
+        result.status = Status::SegmentReadFailed;
+    }
+    return result;
+}
+
+const NetworkEndpointMetadata* NetworkFlowMetadata::PeerEndpoint() const noexcept
+{
+    switch (direction) {
+    case NetworkDirection::Inbound: return &sourceField;
+    case NetworkDirection::Outbound: return &destinationField;
+    default: return nullptr;
+    }
+}
+
 const NetworkEndpointMetadata* NetworkFlowMetadata::OutboundDestination() const noexcept
 {
     if (direction != NetworkDirection::Outbound || !processObjectId || !ValidFlow(*this) ||
@@ -769,7 +835,8 @@ NetworkArchiveRecovery ScanOpenNetworkEvidence(void* file, const NetworkEvidence
         result.checkedBytes = block.endOffset;
         AddLoss(result.loss, loss);
         result.eof = eof;
-        if (visitor && !rows.empty()) visitor(block, rows);
+        // 流记录排在块首，后面至多跟一条丢失记录。终态独占一块。
+        if (visitor && !rows.empty()) visitor(block, rows, {records.data(), rows.size()});
         return true;
     });
     if (result.checkedBytes == 0 && result.framing.header) result.checkedBytes = kSegmentHeaderBytes;

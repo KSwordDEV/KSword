@@ -44,6 +44,7 @@ struct NetworkEndpointMetadata {
     // Network byte order. IPv4 occupies the first four bytes, with a zero suffix.
     std::array<std::uint8_t, 16> address{};
     std::optional<std::uint16_t> port; // Host order. Absence differs from observed zero.
+    bool operator==(const NetworkEndpointMetadata&) const = default;
 };
 
 struct NetworkFlowMetadata {
@@ -60,8 +61,17 @@ struct NetworkFlowMetadata {
     std::optional<std::uint64_t> producerSequence;
     std::optional<std::uint64_t> receiveQpc;
     std::optional<std::uint64_t> observedBytes;
-    struct EtwDescriptor { std::uint16_t eventId; std::uint8_t version; std::uint8_t opcode; };
+    struct EtwDescriptor {
+        std::uint16_t eventId; // 提供程序事件编号。
+        std::uint8_t version; // 事件布局版本。
+        std::uint8_t opcode; // 原始 ETW 操作码。
+        bool operator==(const EtwDescriptor&) const = default;
+    };
     std::optional<EtwDescriptor> etw;
+    bool operator==(const NetworkFlowMetadata&) const = default;
+
+    // 对端按本条记录的方向解释。保留未知或零端口及通配地址的原始观测。
+    const NetworkEndpointMetadata* PeerEndpoint() const noexcept;
 
     // The independent destination view requires an attributable, non-wildcard endpoint.
     const NetworkEndpointMetadata* OutboundDestination() const noexcept;
@@ -224,6 +234,41 @@ struct NetworkStoredFlowPreview {
 std::optional<NetworkStoredFlowPreview> PreviewStoredNetworkFlow(const SegmentIdentity& segment,
     const RecordView& record, const NetworkEvidenceBinding* verifiedBinding = nullptr);
 
+struct NetworkStoredFlowLocator {
+    SegmentIdentity segment; // 包括项目、采样及 Raw 段号。
+    std::uint64_t recordSequence = 0;
+    std::uint64_t recordOffset = 0;
+};
+
+enum class NetworkStoredFlowQueryStatus {
+    Found,
+    InvalidLocator,
+    LocatorMismatch, // 序号和文件内记录起点指向不同位置。
+    NotFound,        // 扫描边界内未找到这条记录。
+    InvalidFlow,    // 定位到的记录不符合网络流正文约定。
+    SourceMismatch,
+    SegmentReadFailed,
+};
+
+struct NetworkStoredFlowContents {
+    NetworkArchivedFlow flow;
+    NetworkEvidenceBinding source;
+    NetworkSourceTrust sourceTrust = NetworkSourceTrust::RecordedDeclaration;
+    std::vector<std::uint8_t> bytes; // 完整归档内联内容，捕获层及原始长度以 flow.capture 为准。
+};
+
+struct NetworkStoredFlowQueryResult {
+    NetworkStoredFlowQueryStatus status = NetworkStoredFlowQueryStatus::InvalidLocator;
+    SegmentScanResult framing; // 找到目标并主动结束时为 Stopped。查询状态以上一字段为准。
+    std::optional<NetworkStoredFlowContents> contents;
+};
+
+// 在调用方独占使用的同一个同步文件句柄上，从段头校验到包含目标的完整 Stored 块。
+// 项目打开方提供已独立验证的检查点边界和可选来源绑定。省略边界时读取打开时的文件大小。
+// 返回值拥有全部保留字节，最多 kNetworkMaxInlineBytes。归档尾部与发布状态由项目读取方核对。
+NetworkStoredFlowQueryResult QueryOpenStoredNetworkFlow(void* file, const NetworkStoredFlowLocator& locator,
+    std::optional<std::uint64_t> endOffset = std::nullopt, const NetworkEvidenceBinding* verifiedBinding = nullptr);
+
 struct NetworkArchiveRecovery {
     SegmentScanResult framing;
     // The last whole block whose network metadata and EOF ordering were verified.
@@ -233,8 +278,9 @@ struct NetworkArchiveRecovery {
     NetworkLoss loss;
 };
 
-// Called after a complete block has been checked. Row storage is borrowed until return.
-using NetworkFlowBlockVisitor = std::function<void(const BlockInfo&, const std::vector<NetworkArchivedFlow>&)>;
+// 完整块通过校验后调用。逐项对应的流与原记录只在回调内有效，末尾的丢失记录不在视图内。
+using NetworkFlowBlockVisitor = std::function<void(const BlockInfo&, const std::vector<NetworkArchivedFlow>&,
+    std::span<const RecordView>)>;
 
 // The project caller supplies a verified, pinned file handle and binding. A scan can
 // recover earlier whole blocks after a truncated suffix. EOF means the adapter did

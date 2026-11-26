@@ -131,7 +131,7 @@ void RoundTrip(const std::filesystem::path& scratch)
     const File file(Segment(scratch, 1));
     std::vector<a::NetworkArchivedFlow> rows;
     const auto read = a::ScanOpenNetworkEvidence(file.handle, scope, 1, std::nullopt,
-        [&](const auto& block, const auto& items) {
+        [&](const auto& block, const auto& items, auto) {
             Check(block.receiveQpc && block.receiveQpc->minimum == 35 && block.receiveQpc->maximum == 38,
                   "readback only includes the real receive QPC range");
             rows.insert(rows.end(), items.begin(), items.end());
@@ -146,6 +146,9 @@ void RoundTrip(const std::filesystem::path& scratch)
         first.observedBytes == 0 && first.producerSequence == 0 && first.etw && first.etw->eventId == 10 &&
         !rows[2].observation.OutboundDestination() && !rows[2].observation.sourceField.port,
         "outbound linkage, observed zeros, missing fields and event descriptor");
+    Check(first.PeerEndpoint() == &first.destinationField &&
+        rows[2].observation.PeerEndpoint() == &rows[2].observation.sourceField,
+        "peer follows observed direction and preserves an unknown inbound peer port");
     auto incomplete = first;
     incomplete.destinationField.port = std::uint16_t{0};
     Check(!incomplete.OutboundDestination(), "a reported zero destination port is evidence without confirmed linkage");
@@ -217,7 +220,17 @@ void RoundTrip(const std::filesystem::path& scratch)
     wrong.clockId = "foreign-clock";
     const auto badSource = a::ScanOpenNetworkEvidence(file.handle, wrong, 1);
     Check(badSource.invalidMetadataOffset && badSource.checkedBytes == a::kSegmentHeaderBytes && !badSource.eof,
-          "wrong clock cannot resolve archived records");
+           "wrong clock cannot resolve archived records");
+
+    const auto& largest = rows.back();
+    const auto exact = a::QueryOpenStoredNetworkFlow(file.handle, {identity, largest.recordSequence, largest.recordOffset},
+        flush.flushedBytes, &scope);
+    Check(exact.status == a::NetworkStoredFlowQueryStatus::Found && exact.contents &&
+        exact.contents->bytes.size() == a::kNetworkMaxInlineBytes &&
+        std::equal(exact.contents->bytes.begin(), exact.contents->bytes.end(), large.begin()) &&
+        exact.contents->flow.capture.state == a::NetworkPayloadState::Truncated &&
+        exact.contents->flow.capture.producerCapturedLength == large.size(),
+        "exact query returns all retained bytes and preserves capture truncation");
 }
 
 void Recovery(const std::filesystem::path& scratch)
@@ -245,11 +258,21 @@ void Recovery(const std::filesystem::path& scratch)
     Check(final.eofFlushed && final.lastWrittenSequence == previous + a::kNetworkQueueCapacity + 3,
         "bounded final drain with loss record and EOF");
     const auto path = Segment(scratch, 2);
+    std::optional<a::NetworkStoredFlowLocator> firstFlow, lastFlow;
     {
         const File file(path);
-        const auto full = a::ScanOpenNetworkEvidence(file.handle, scope, 2);
+        const auto full = a::ScanOpenNetworkEvidence(file.handle, scope, 2, std::nullopt,
+            [&](const auto&, const auto& rows, auto) {
+                if (!firstFlow) firstFlow = a::NetworkStoredFlowLocator{final.segment, rows.front().recordSequence, rows.front().recordOffset};
+                lastFlow = a::NetworkStoredFlowLocator{final.segment, rows.back().recordSequence, rows.back().recordOffset};
+            });
         Check(full.eof == a::NetworkArchiveEnd::SourceFailed && full.loss.queueDropped == 2 &&
             full.loss.sourceLost == 9 && full.loss.sourceLossUnquantified, "clean framing retains unavailable source quality");
+        Check(firstFlow && lastFlow && lastFlow->recordSequence > firstFlow->recordSequence, "query locators come from checked rows");
+        const auto hidden = a::QueryOpenStoredNetworkFlow(file.handle, *lastFlow, first.writtenBytes);
+        Check(hidden.status == a::NetworkStoredFlowQueryStatus::NotFound && !hidden.contents &&
+            hidden.framing.status == SegmentScanStatus::FramingComplete,
+            "explicit commit boundary excludes later whole records from lookup");
         for (const auto cut : {first.writtenBytes + 1, first.writtenBytes + a::kBlockHeaderBytes - 1, second.writtenBytes - 1}) {
             const auto bounded = a::ScanOpenNetworkEvidence(file.handle, scope, 2, cut);
             Check(bounded.framing.status == SegmentScanStatus::Truncated && bounded.checkedBytes == first.writtenBytes &&
@@ -262,7 +285,7 @@ void Recovery(const std::filesystem::path& scratch)
         const File file(path);
         std::size_t read = 0;
         const auto recovered = a::ScanOpenNetworkEvidence(file.handle, scope, 2, std::nullopt,
-            [&](const auto&, const auto& rows) { read += rows.size(); });
+            [&](const auto&, const auto& rows, auto) { read += rows.size(); });
         Check(recovered.framing.status == SegmentScanStatus::Truncated && !recovered.eof &&
             recovered.loss.queueDropped == 2 && recovered.loss.sourceLost == 9 &&
             read == a::kNetworkQueueCapacity + 1, "damaged EOF retains validated flows and known loss");
@@ -272,10 +295,18 @@ void Recovery(const std::filesystem::path& scratch)
     const File cutPayload(path);
     std::size_t readableFlows = 0;
     const auto tail = a::ScanOpenNetworkEvidence(cutPayload.handle, scope, 2, std::nullopt,
-        [&](const auto&, const auto& rows) { readableFlows += rows.size(); });
+        [&](const auto&, const auto& rows, auto) { readableFlows += rows.size(); });
     Check(tail.framing.status == SegmentScanStatus::Truncated && tail.checkedBytes < dataEnd && !tail.eof &&
-        tail.loss.queueDropped == 2 && readableFlows == a::kNetworkQueueCapacity - 1,
-        "a cut inside real inline bytes withholds the whole affected block");
+         tail.loss.queueDropped == 2 && readableFlows == a::kNetworkQueueCapacity - 1,
+         "a cut inside real inline bytes withholds the whole affected block");
+    const auto missing = a::QueryOpenStoredNetworkFlow(cutPayload.handle, *lastFlow);
+    Check(missing.status == a::NetworkStoredFlowQueryStatus::SegmentReadFailed && !missing.contents &&
+        missing.framing.status == SegmentScanStatus::Truncated,
+        "query rejects the locator into an incomplete block");
+    const auto recovered = a::QueryOpenStoredNetworkFlow(cutPayload.handle, *firstFlow);
+    Check(recovered.status == a::NetworkStoredFlowQueryStatus::Found && recovered.contents &&
+        recovered.contents->flow.capture.CommunicationEvidence() == a::NetworkCommunicationEvidence::MetadataOnly,
+        "query recovers an earlier checked flow independently of the later damaged tail");
 }
 
 void Failure(const std::filesystem::path& scratch)
@@ -395,6 +426,7 @@ void StoredPreview(const std::filesystem::path& scratch)
 
     const File file(Segment(scratch, ordinal)); // 整个夹具只读；不启动任何采集源。
     std::vector<a::NetworkStoredFlowPreview> rows; // 模拟跨块回调保留的 Light 可见行。
+    std::optional<a::NetworkStoredFlowLocator> terminal;
     std::string_view expectedTail(reinterpret_cast<const char*>(original.data()), original.size()); // 逐字节比对。
     const auto scanned = a::ScanOpenSegment(file.handle, {finished.segment, std::nullopt, std::nullopt},
         [&](const auto&, const auto& records) {
@@ -402,6 +434,7 @@ void StoredPreview(const std::filesystem::path& scratch)
                 auto row = a::PreviewStoredNetworkFlow(finished.segment, record); // 借用当前块，返回拥有内存的值。
                 if (record.sequence > 6) {
                     Check(!row, "loss and terminal records are not mislabeled as flows");
+                    terminal = a::NetworkStoredFlowLocator{finished.segment, record.sequence, record.offset};
                     continue;
                 }
                 Check(row && row->segmentOrdinal == ordinal && row->flow.recordSequence == record.sequence &&
@@ -461,6 +494,46 @@ void StoredPreview(const std::filesystem::path& scratch)
         ReadFile(file.handle, archived.data(), static_cast<DWORD>(archived.size()), &bytesRead, nullptr) &&
         bytesRead == archived.size() && archived == original,
         "physical byte anchor reopens the complete archived payload");
+
+    using Status = a::NetworkStoredFlowQueryStatus;
+    const a::NetworkStoredFlowLocator locator{finished.segment, captured.flow.recordSequence, captured.flow.recordOffset};
+    const auto found = a::QueryOpenStoredNetworkFlow(file.handle, locator, finished.flushedBytes, &scope);
+    Check(found.status == Status::Found && found.contents && found.framing.status == SegmentScanStatus::Stopped &&
+        found.contents->sourceTrust == a::NetworkSourceTrust::MatchedVerifiedBinding &&
+        found.contents->source.sample == scope.sample && found.contents->bytes.size() == original.size() &&
+        std::equal(found.contents->bytes.begin(), found.contents->bytes.end(), original.begin()),
+        "selected record query owns all bytes past the preview limit with verified identity");
+    for (std::size_t index = 0; index < states.size(); ++index) {
+        const auto& row = rows[index];
+        const auto exact = a::QueryOpenStoredNetworkFlow(file.handle,
+            {finished.segment, row.flow.recordSequence, row.flow.recordOffset});
+        Check(exact.status == Status::Found && exact.contents && exact.contents->bytes.empty() &&
+            exact.contents->flow.capture.CommunicationEvidence() == states[index] &&
+            exact.contents->sourceTrust == a::NetworkSourceTrust::RecordedDeclaration,
+            "selected record query preserves the reason no bytes were retained");
+    }
+    auto wrong = locator;
+    ++wrong.segment.sample[0];
+    const auto crossSample = a::QueryOpenStoredNetworkFlow(file.handle, wrong);
+    Check(crossSample.status == Status::SegmentReadFailed && !crossSample.contents &&
+        crossSample.framing.error.issue == a::SegmentIssue::Identity, "query cannot cross the selected sample");
+    wrong = locator;
+    --wrong.recordSequence;
+    Check(a::QueryOpenStoredNetworkFlow(file.handle, wrong).status == Status::LocatorMismatch,
+        "a valid neighboring sequence cannot be paired with the selected byte offset");
+    wrong = locator;
+    wrong.recordOffset = captured.inlineFileOffset.value_or(0);
+    Check(a::QueryOpenStoredNetworkFlow(file.handle, wrong).status == Status::LocatorMismatch,
+        "inline byte offset is distinct from record start");
+    wrong.recordSequence = 0;
+    Check(a::QueryOpenStoredNetworkFlow(file.handle, wrong).status == Status::InvalidLocator,
+        "zero is not a network record sequence");
+    auto wrongSource = scope;
+    ++wrongSource.sourceEpoch[0];
+    const auto sourceMismatch = a::QueryOpenStoredNetworkFlow(file.handle, locator, std::nullopt, &wrongSource);
+    Check(sourceMismatch.status == Status::SourceMismatch && !sourceMismatch.contents, "wrong source epoch returns no bytes");
+    Check(terminal && a::QueryOpenStoredNetworkFlow(file.handle, *terminal).status == Status::InvalidFlow,
+        "a valid terminal record is not returned as communication contents");
 }
 
 } // namespace
