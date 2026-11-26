@@ -22,6 +22,8 @@
 #include <QPushButton>
 #include <QPointer>
 #include <QSpinBox>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QTabBar>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -150,6 +152,7 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_sourceMode->addTab(QString());
     m_sourceMode->addTab(QString());
     m_sourceMode->addTab(QString());
+    m_sourceMode->addTab(QString()); // 启动EXE是独立来源，不借用已有PID或JSONL草稿。
     ks::ui::InstallSegmentedTabBar(m_sourceMode);
     form->addWidget(m_sourceMode);
     m_sourceHint = new QLabel(source); // 解释当前草稿来源，长文本由参数正文自动换行。
@@ -161,6 +164,9 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_path = new QLineEdit(source);
     m_pathLabel = AddInput(form, m_path, "action_analyze_api_path");
     m_path->setReadOnly(true);
+    m_executable = new QLineEdit(source);
+    m_executableLabel = AddInput(form, m_executable, "action_analyze_api_executable");
+    m_executable->setReadOnly(true);
     m_session = new QLineEdit(source);
     m_sessionLabel = AddInput(form, m_session, "action_analyze_api_session");
     m_pid = new QLineEdit(source);
@@ -176,6 +182,22 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_durationLabel->setBuddy(m_duration);
     form->addWidget(m_durationLabel);
     form->addWidget(m_duration);
+    // 同采样来源沿原ParameterWorkspace自然高度排列，不启动独立网络页或第二writer。
+    m_networkTrafficLabel = new QLabel(source);
+    m_networkTrafficLabel->setWordWrap(true);
+    m_networkTraffic = new QComboBox(source);
+    m_networkTraffic->setObjectName(QStringLiteral("action_analyze_api_network_traffic"));
+    m_networkTraffic->addItem(QString()); // 0：关闭，作为首次默认值。
+    m_networkTraffic->addItem(QString()); // 1：原RawSocket来源。
+    m_networkTraffic->addItem(QString()); // 2：只读既有WFP来源。
+    m_networkTrafficLabel->setBuddy(m_networkTraffic);
+    form->addWidget(m_networkTrafficLabel);
+    form->addWidget(m_networkTraffic);
+    m_autoTransfer = new QCheckBox(source); // 沿用原ParameterWorkspace正文与标准主题，不增加独立布局。
+    auto& language = ks::i18n::LanguageManager::instance(); // 文案随原页面热切换。
+    language.bindText(m_autoTransfer, {}, QStringLiteral("自动接管跨进程私有执行目标"));
+    language.bindToolTip(m_autoTransfer, {}, QStringLiteral("在已覆盖的线程创建、APC和上下文调用前自动解析私有范围并设防；执行命中保存后自动继续，失败单独报告。"));
+    form->addWidget(m_autoTransfer);
     workspace->parameters()->addWidget(source);
     m_sourceGroup = source;
     ks::ui::StyleParameterSection(source);
@@ -183,11 +205,12 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     // 选择器与开始/停止均放在固定动作带；状态与已提交回执保留剩余高度。
     auto* footer = workspace->actions()->parentWidget(); // 动作由共享工具条统一度量。
     m_browse = IconButton(footer, "action_analyze_api_browse", ":/Icon/process_open_folder.svg");
+    m_executableBrowse = IconButton(footer, "action_analyze_api_executable_browse", ":/Icon/process_open_folder.svg");
     m_start = IconButton(footer, "action_analyze_api_start", ":/Icon/process_resume.svg");
     m_stop = IconButton(footer, "action_analyze_api_stop", ":/Icon/process_stop.svg");
     m_archive = IconButton(footer, "action_analyze_api_archive", ":/Icon/process_details.svg");
     ks::ui::ApplyFlatButtonTheme(m_start, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
-    for (auto* button : {m_browse, m_start, m_stop, m_archive}) // 固定动作顺序同采样步骤。
+    for (auto* button : {m_browse, m_executableBrowse, m_start, m_stop, m_archive}) // 固定动作顺序同采样步骤。
     {
         workspace->actions()->addWidget(button);
     }
@@ -226,6 +249,7 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     // 任何编辑只清除参数提示，不改写旧结果或自动开始采样。
     connect(m_preview, &QTimer::timeout, this, &PassiveApiCapturePane::readProgress);
     connect(m_browse, &QPushButton::clicked, this, &PassiveApiCapturePane::chooseFile);
+    connect(m_executableBrowse, &QPushButton::clicked, this, &PassiveApiCapturePane::chooseFile);
     connect(m_start, &QPushButton::clicked, this, &PassiveApiCapturePane::start);
     connect(m_stop, &QPushButton::clicked, this, &PassiveApiCapturePane::stop);
     connect(m_sourceMode, &QTabBar::currentChanged, this, [this]() {
@@ -276,16 +300,22 @@ void PassiveApiCapturePane::setContext(const QString& manifest, const QString& p
 // 文件选择即明确授权读取范围；后端重新校验真实本地文件身份。
 void PassiveApiCapturePane::chooseFile()
 {
-    if (m_busy || m_sourceMode->currentIndex() != 0)
+    const bool launched = m_sourceMode->currentIndex() == 3; // 选择器只替换对应来源的独立草稿。
+    if (m_busy || (m_sourceMode->currentIndex() != 0 && !launched))
     {
         return;
     }
-    const auto path = QFileDialog::getOpenFileName(this, sourceText(QStringLiteral("选择已授权的 API JSONL")),
-        m_path->text(), sourceText(QStringLiteral("API JSONL 文件 (*.jsonl)")), nullptr, QFileDialog::ReadOnly);
+    auto* target = launched ? m_executable : m_path; // 控件只保存选择结果，不启动进程。
+    const auto path = QFileDialog::getOpenFileName(this,
+        sourceText(launched ? QStringLiteral("选择普通 AMD64 EXE") : QStringLiteral("选择已授权的 API JSONL")),
+        target->text(), sourceText(launched ? QStringLiteral("程序 (*.exe)") : QStringLiteral("API JSONL 文件 (*.jsonl)")),
+        nullptr, QFileDialog::ReadOnly);
     if (!path.isEmpty())
     {
-        m_path->setText(path);
-        m_path->setToolTip(path);
+        target->setText(path);
+        target->setToolTip(path);
+        m_invalid = false;
+        updateControls();
     }
 }
 
@@ -300,21 +330,39 @@ void PassiveApiCapturePane::start()
     request.attachmentConfirmed = false; // 确认只属于本次点击，不继承上下文或上一轮值。
     request.cooperative = m_sourceMode->currentIndex() == 1;
     request.explicitAttachment = m_sourceMode->currentIndex() == 2;
-    const bool live = request.cooperative || request.explicitAttachment; // 文件草稿保留在控件内，不混进活采请求。
+    request.launched = m_sourceMode->currentIndex() == 3;
+    request.executable = request.launched ? m_executable->text() : QString();
+    request.entryRva.reset(); // 桌面默认PE入口，不继承上下文或其它来源的隐藏位置。
+    const bool live = request.cooperative || request.explicitAttachment || request.launched; // 保留各来源独立草稿。
     request.path = live ? QString() : m_path->text();
     request.sessionId = live ? 0 : Identity<quint64>(m_session);
-    request.pid = Identity<quint32>(m_pid);
-    request.creationTime = Identity<quint64>(m_creation);
+    request.pid = request.launched ? 0 : Identity<quint32>(m_pid);
+    request.creationTime = request.launched ? 0 : Identity<quint64>(m_creation);
     request.durationMs = live ? static_cast<quint32>(m_duration->value()) * 1000 : 0;
+    request.autoTransfer = live && m_autoTransfer->isChecked(); // 隐藏文件草稿不授予原生控制策略。
+    request.networkTraffic.reset(); // 文件跟随不提交网络策略，控件中的上一份草稿继续保留。
+    if (live)
+    {
+        using Backend = Ksword::ActionAnalyze::NetworkTrafficBackend; // 共用后端枚举，不在UI重复定义来源。
+        if (m_networkTraffic->currentIndex() == 1)
+        {
+            request.networkTraffic = Backend::RawSocket;
+        }
+        else if (m_networkTraffic->currentIndex() == 2)
+        {
+            request.networkTraffic = Backend::ExistingWfp;
+        }
+    }
     // 标题与目标一同冻结；切换语言或编辑下一轮草稿不改变当前后台采样。
     if (live)
     {
-        request.cooperativeTitle = sourceText(request.explicitAttachment ? QStringLiteral("显式 API 附加（PID %1）") :
-            QStringLiteral("合作 Agent（PID %1）")).arg(request.pid);
+        request.cooperativeTitle = request.launched ? sourceText(QStringLiteral("启动 EXE 并采集 API")) :
+            sourceText(request.explicitAttachment ? QStringLiteral("显式 API 附加（PID %1）") :
+                QStringLiteral("合作 Agent（PID %1）")).arg(request.pid);
     }
-    const bool invalidSource = live ? request.pid <= 4 || request.pid == GetCurrentProcessId()
+    const bool invalidSource = request.launched ? request.executable.isEmpty() : live ? request.pid <= 4 || request.pid == GetCurrentProcessId()
         : request.path.isEmpty() || !request.sessionId || !request.pid;
-    if (invalidSource || !request.creationTime)
+    if (invalidSource || (!request.launched && !request.creationTime))
     {
         m_invalid = true;
         updateControls();
@@ -438,7 +486,7 @@ void PassiveApiCapturePane::finish(const PassiveApiCaptureReceipt& receipt, bool
     m_failed = abnormal || (!receipt.sample && !receipt.error.isEmpty());
     m_currentReceipt = receipt; // 未登记采样也保留本次身份、装载和失败事实。
     m_startError = receipt.error == QStringLiteral("attachedApiAdmission")
-        ? sourceText(QStringLiteral("附加需要本次明确确认，且合作、文件与显式附加来源不能混用。")) : receipt.error;
+        ? sourceText(QStringLiteral("已有实例附加需要本次确认；JSONL、合作已装载、显式附加与启动EXE来源不能混用。")) : receipt.error;
     if (receipt.sample)
     {
         m_receipt = receipt;
@@ -465,7 +513,7 @@ QString PassiveApiCapturePane::summary() const
     {
         return {};
     }
-    if (m_owner->request().cooperative || m_owner->request().explicitAttachment)
+    if (m_owner->request().cooperative || m_owner->request().explicitAttachment || m_owner->request().launched)
     {
         // 本轮启动摘要只使用当前快照；旧结果仍由 m_resultOwner 保留自己的身份。
         const auto startup = m_currentReceipt.startup
@@ -555,7 +603,20 @@ void PassiveApiCapturePane::updateControls()
 {
     const bool cooperative = m_sourceMode->currentIndex() == 1; // 只控制草稿和下一次动作。
     const bool attached = m_sourceMode->currentIndex() == 2; // 不从历史回执推断当前参数模式。
-    const bool live = cooperative || attached; // 活采不会使用文件路径和外部 session。
+    const bool launched = m_sourceMode->currentIndex() == 3; // 新建来源不要求手填目标身份。
+    const bool live = cooperative || attached || launched; // 活采不会使用文件路径和外部session。
+    for (auto* field : {static_cast<QWidget*>(m_executableLabel), static_cast<QWidget*>(m_executable),
+        static_cast<QWidget*>(m_executableBrowse)})
+    {
+        field->setVisible(launched);
+    }
+    for (auto* field : {static_cast<QWidget*>(m_pidLabel), static_cast<QWidget*>(m_pid),
+        static_cast<QWidget*>(m_creationLabel), static_cast<QWidget*>(m_creation)})
+    {
+        field->setVisible(!launched); // 原输入保留草稿，实际身份只由worker回执展示。
+    }
+    m_executableBrowse->setEnabled(!m_busy);
+    m_executableBrowse->setToolTip(m_executableBrowse->accessibleName());
     m_sourceMode->setEnabled(!m_busy);
     for (auto* field : {static_cast<QWidget*>(m_pathLabel), static_cast<QWidget*>(m_path),
         static_cast<QWidget*>(m_sessionLabel), static_cast<QWidget*>(m_session), static_cast<QWidget*>(m_browse)})
@@ -565,10 +626,14 @@ void PassiveApiCapturePane::updateControls()
     m_durationLabel->setVisible(live);
     m_duration->setVisible(live);
     m_duration->setEnabled(!m_busy);
-    m_sourceHint->setText(sourceText(attached ? QStringLiteral("附加到明确的 PID 与创建 FILETIME；点击开始后确认装载。文件和外部会话 ID 不参与活采。") :
+    m_autoTransfer->setVisible(live);
+    m_autoTransfer->setEnabled(!m_busy);
+    m_networkTraffic->setEnabled(live && !m_busy); // JSONL保留选择，运行时冻结本轮策略。
+    m_sourceHint->setText(sourceText(launched ? QStringLiteral("选择普通 AMD64 EXE，入口停止后自动附加 Agent；Ready 与覆盖核验通过才恢复主线程。此前 TLS/loader 不在覆盖范围。") :
+        attached ? QStringLiteral("附加到明确的 PID 与创建 FILETIME；点击开始后确认装载。文件和外部会话 ID 不参与活采。") :
         cooperative ? QStringLiteral("只连接目标已主动加载的产品 Agent，不尝试装载。文件和外部会话 ID 不参与活采。") :
         QStringLiteral("只跟随选中的本地 JSONL，使用文件声明的会话 ID；不会连接或装载目标 Agent。")));
-    m_start->setAccessibleName(sourceText(attached ? QStringLiteral("开始显式 API 附加") :
+    m_start->setAccessibleName(sourceText(launched ? QStringLiteral("启动 EXE 并采集 API") : attached ? QStringLiteral("开始显式 API 附加") :
         cooperative ? QStringLiteral("开始合作 API 采样") : QStringLiteral("开始跟随 API JSONL")));
     m_stop->setAccessibleName(sourceText(live ? QStringLiteral("停止 API 活采") : QStringLiteral("停止跟随 API JSONL")));
     m_projectLabel->setText(m_context.projectId.isEmpty()
@@ -593,7 +658,7 @@ void PassiveApiCapturePane::updateControls()
         ? sourceText(QStringLiteral("正在读取归档。")) : sourceText(QStringLiteral("尚无已核验的监控归档段。")));
 
     // 参数错误只影响本次草稿，存量回执继续保持可查看。
-    const auto status = m_invalid ? sourceText(live ? QStringLiteral("请输入授权目标的十进制 PID 和创建 FILETIME。")
+    const auto status = m_invalid ? sourceText(launched ? QStringLiteral("请选择已授权的普通 AMD64 EXE。") : live ? QStringLiteral("请输入授权目标的十进制 PID 和创建 FILETIME。")
         : QStringLiteral("请选择已授权的 API JSONL，并输入非零十进制的来源会话 ID、PID 和创建 FILETIME。"))
         : m_owner ? summary() : sourceText(live ? QStringLiteral("API 活采未开始") : QStringLiteral("尚未开始 API JSONL 跟随"));
     if (m_status->text() != status)
@@ -611,7 +676,7 @@ void PassiveApiCapturePane::renderReceipt()
 {
     ks::ui::FieldDocument document; // 供共享字段视图搜索、复制、导出的唯一正文。
     if (m_owner && m_resultOwner != m_owner &&
-        (m_owner->request().explicitAttachment || m_owner->request().cooperative))
+        (m_owner->request().explicitAttachment || m_owner->request().cooperative || m_owner->request().launched))
     {
         // 新请求无采样时单列本轮事实，下面仍保留旧归档的完整来源与可复制文档。
         const auto& request = m_owner->request(); // 本轮确认过的冻结实例和项目。
@@ -619,13 +684,25 @@ void PassiveApiCapturePane::renderReceipt()
         const auto attachmentFact = [&](bool value) {
             return !value && m_busy ? sourceText(QStringLiteral("等待最终回执")) : yesNo(value);
         }; // 已发布的真值立即显示；尚未完成的事实在运行期间不能冒充已确认的否。
-        document.section(request.explicitAttachment ? QStringLiteral("本次显式 API 附加请求") : QStringLiteral("本次合作 API 采样请求"))
+        const auto actualPid = request.launched ? m_currentReceipt.actualPid : request.pid; // 本轮冻结来源或真实创建PID。
+        const auto actualCreation = request.launched ? m_currentReceipt.actualCreationTime : request.creationTime; // 同实例时间。
+        document.section(request.launched ? QStringLiteral("本次 EXE 启动采集请求") :
+            request.explicitAttachment ? QStringLiteral("本次显式 API 附加请求") : QStringLiteral("本次合作 API 采样请求"))
             .field(QStringLiteral("项目清单"), request.manifest)
-            .field(QStringLiteral("来源 PID"), QString::number(request.pid))
-            .field(QStringLiteral("进程创建 FILETIME"), QString::number(request.creationTime))
+            .field(QStringLiteral("来源 PID"), actualPid ? QString::number(actualPid) : QStringLiteral("—"))
+            .field(QStringLiteral("进程创建 FILETIME"), actualCreation ? QString::number(actualCreation) : QStringLiteral("—"))
             .field(QStringLiteral("采集时限（毫秒，0 为持续）"), QString::number(request.durationMs));
         AppendStartupProgress(document, m_currentReceipt.startup);
-        if (request.explicitAttachment)
+        if (!m_currentReceipt.networkTraffic.isEmpty())
+        {
+            document.field(QStringLiteral("同采样网络回执"), m_currentReceipt.networkTraffic);
+        }
+        if (request.launched)
+        {
+            document.field(QStringLiteral("启动 EXE"), request.executable)
+                .field(QStringLiteral("入口交接回执"), m_currentReceipt.launchProgress);
+        }
+        if (request.explicitAttachment || request.launched)
         {
             document.field(QStringLiteral("附加实例已核验"), attachmentFact(m_currentReceipt.attachmentIdentityVerified))
                 .field(QStringLiteral("已尝试装载 Agent"), attachmentFact(m_currentReceipt.agentLoadAttempted))
@@ -642,18 +719,28 @@ void PassiveApiCapturePane::renderReceipt()
     if (m_resultOwner && m_receipt.sample)
     {
         const auto& request = m_resultOwner->request(); // 不随草稿和当前目录变动。
-        const bool live = request.cooperative || request.explicitAttachment; // 回执使用实际请求，不使用当前选择器。
-        document.section(request.explicitAttachment ? QStringLiteral("显式 API 附加来源") :
+        const bool live = request.cooperative || request.explicitAttachment || request.launched; // 回执使用实际请求。
+        document.section(request.launched ? QStringLiteral("EXE 启动采集来源") : request.explicitAttachment ? QStringLiteral("显式 API 附加来源") :
             request.cooperative ? QStringLiteral("合作 Agent 来源") : QStringLiteral("API JSONL 来源"))
             .field(QStringLiteral("采样 ID"), m_receipt.sample->sample.id)
             .field(QStringLiteral("项目清单"), request.manifest)
-            .field(QStringLiteral("来源 PID"), QString::number(request.pid))
-            .field(QStringLiteral("进程创建 FILETIME"), QString::number(request.creationTime));
+            .field(QStringLiteral("来源 PID"), QString::number(request.launched ? m_receipt.actualPid : request.pid))
+            .field(QStringLiteral("进程创建 FILETIME"), QString::number(request.launched ? m_receipt.actualCreationTime : request.creationTime));
+        if (request.launched)
+        {
+            document.field(QStringLiteral("启动 EXE"), request.executable)
+                .field(QStringLiteral("入口交接回执"), m_receipt.launchProgress);
+        }
         if (live)
         {
             const auto yesNo = [](bool value) { return sourceText(value ? QStringLiteral("是") : QStringLiteral("否")); };
             AppendStartupProgress(document, m_receipt.startup);
-            if (request.explicitAttachment)
+            if (!m_receipt.networkTraffic.isEmpty())
+            {
+                // 同一字段文档承担完整JSON的搜索、复制与导出，不另建过期摘要。
+                document.field(QStringLiteral("同采样网络回执"), m_receipt.networkTraffic);
+            }
+            if (request.explicitAttachment || request.launched)
             {
                 // 身份、装载与模块存在各自呈现；任一项均不能代替 Ready 和当前覆盖核验。
                 const auto attachmentFact = [&](bool value) {
@@ -665,6 +752,10 @@ void PassiveApiCapturePane::renderReceipt()
                     .field(QStringLiteral("Agent 模块已核验"), attachmentFact(m_receipt.agentModuleVerified));
             }
             document.field(QStringLiteral("采集时限（毫秒，0 为持续）"), QString::number(request.durationMs));
+            if (!m_receipt.transferHandoff.isEmpty())
+            {
+                document.field(QStringLiteral("自动接管回执"), m_receipt.transferHandoff); // 单一规范文档供搜索/复制/导出。
+            }
             document.field(QStringLiteral("来源会话 ID"), m_receipt.cooperativeSession ? QString::number(m_receipt.cooperativeSession) : QStringLiteral("—"))
                 .field(QStringLiteral("Agent 已就绪"), yesNo(m_receipt.agentReady))
                 .field(QStringLiteral("就绪覆盖修订"), m_receipt.readyCoverageRevision ? QString::number(m_receipt.readyCoverageRevision) : QStringLiteral("—"))
@@ -755,10 +846,20 @@ void PassiveApiCapturePane::retranslate()
     m_sourceMode->setTabText(0, sourceText(QStringLiteral("JSONL 跟随")));
     m_sourceMode->setTabText(1, sourceText(QStringLiteral("合作已装载")));
     m_sourceMode->setTabText(2, sourceText(QStringLiteral("显式附加")));
+    m_sourceMode->setTabText(3, sourceText(QStringLiteral("启动EXE并采集")));
     m_sourceMode->setTabToolTip(0, m_sourceMode->tabText(0));
     m_sourceMode->setTabToolTip(1, m_sourceMode->tabText(1));
     m_sourceMode->setTabToolTip(2, m_sourceMode->tabText(2));
+    m_sourceMode->setTabToolTip(3, m_sourceMode->tabText(3));
+    m_executableLabel->setText(sourceText(QStringLiteral("启动 EXE")));
+    m_executableBrowse->setAccessibleName(sourceText(QStringLiteral("选择普通 AMD64 EXE")));
     m_durationLabel->setText(sourceText(QStringLiteral("采集时限（秒，0 为持续）")));
+    m_networkTrafficLabel->setText(sourceText(QStringLiteral("网络采集")));
+    m_networkTraffic->setItemText(0, sourceText(QStringLiteral("不采集")));
+    m_networkTraffic->setItemText(1, QStringLiteral("raw-socket")); // 后端稳定来源名，热切换不改变当前选择。
+    m_networkTraffic->setItemText(2, QStringLiteral("existing-wfp"));
+    m_networkTraffic->setAccessibleName(m_networkTrafficLabel->text()); // 辅助技术沿可见标签识别来源选择。
+    m_networkTraffic->setToolTip(sourceText(QStringLiteral("与 API 使用同一采样和写入线程，网络从 Agent Ready 前开始并随采集清退；仅根 PID 线索，不包含后代归属。JSONL 跟随不启用。")));
     m_duration->setSpecialValueText(sourceText(QStringLiteral("持续采集")));
     m_duration->setToolTip(sourceText(QStringLiteral("从 Agent Ready 与覆盖核验通过后计时，最多 120 秒；0 表示持续采集。")));
     m_pathLabel->setText(sourceText(QStringLiteral("本地 API JSONL")));

@@ -12,6 +12,8 @@ class QPushButton;
 class QTabBar;
 class QTimer;
 class QSpinBox;
+class QCheckBox;
+class QComboBox;
 
 namespace ks::ui
 {
@@ -75,11 +77,17 @@ namespace ks::action_analyze
         QLabel* m_sourceHint = nullptr; // 按草稿来源解释文件/session 与活管道的互斥关系。
         QLabel* m_durationLabel = nullptr; // 两种活采时限的可见标签。
         QSpinBox* m_duration = nullptr; // 秒数草稿，零表示持续，有限区间从 Ready 起算。
+        QCheckBox* m_autoTransfer = nullptr; // 启动冻结，文件回放模式不提交。
+        QLabel* m_networkTrafficLabel = nullptr; // 同采样网络来源的可见标签。
+        QComboBox* m_networkTraffic = nullptr; // 网络草稿，JSONL禁用但保留选择，默认不采集。
         QLabel* m_pathLabel = nullptr; // 已授权文件的可见标签。
         QLabel* m_sessionLabel = nullptr; // 来源会话的可见标签。
         QLabel* m_pidLabel = nullptr; // 来源 PID 的可见标签。
         QLabel* m_creationLabel = nullptr; // 来源创建时间的可见标签。
         QLineEdit* m_path = nullptr; // 仅显示用户选中的本地来源。
+        QLabel* m_executableLabel = nullptr; // 第四来源独立EXE标签。
+        QLineEdit* m_executable = nullptr; // 只读EXE路径，切换来源保留草稿。
+        QPushButton* m_executableBrowse = nullptr; // 普通EXE原生选择器，图标及tooltip沿原动作带。
         QLineEdit* m_session = nullptr; // 来源会话 ID 草稿。
         QLineEdit* m_pid = nullptr; // 来源 PID 草稿。
         QLineEdit* m_creation = nullptr; // 来源实例的 FILETIME 草稿。

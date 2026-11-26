@@ -110,7 +110,7 @@ inline std::optional<ApiInjectionFieldsV1> ReadApiInjectionFields(
 
 enum class ApiInjectionOutcome { Unknown, Failed, Succeeded, Partial };
 
-// 对精确的四种 API 核对返回语义。NTSTATUS 的有符号成功判定不与 Win32 BOOL/HANDLE 混用。
+// 对已接入AAIP1的写入和线程创建API核对返回语义；NTSTATUS不与Win32 BOOL/HANDLE混用。
 inline ApiInjectionOutcome ApiInjectionCallOutcome(const ks::winapi_monitor::ApiMonitorEventPacket& packet,
     const ApiInjectionFieldsV1& fields) noexcept
 {
@@ -122,7 +122,8 @@ inline ApiInjectionOutcome ApiInjectionCallOutcome(const ks::winapi_monitor::Api
     const bool write = fields.operation == ApiInjectionOperation::MemoryWrite;
     const bool native = clue->api == L"NtWriteVirtualMemory" || clue->api == L"NtCreateThreadEx";
     if ((write && clue->api != L"WriteProcessMemory" && clue->api != L"NtWriteVirtualMemory") ||
-        (!write && clue->api != L"CreateRemoteThread" && clue->api != L"NtCreateThreadEx")) {
+        (!write && clue->api != L"CreateRemoteThread" && clue->api != L"CreateRemoteThreadEx" &&
+            clue->api != L"NtCreateThreadEx")) {
         return ApiInjectionOutcome::Unknown;
     }
     // 返回字段和独立状态码不一致时保留未知，不根据 API 名称修补原包。

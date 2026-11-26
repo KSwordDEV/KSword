@@ -1542,6 +1542,7 @@ namespace ks::network
             }
 
             m_running.store(true, std::memory_order_relaxed);
+            m_captureReady.store(false, std::memory_order_release);
             m_stopAttempted.store(false);
             m_resumeAtExitSucceeded.store(true);
             try
@@ -1582,6 +1583,13 @@ namespace ks::network
         bool IsRunning() const
         {
             return m_running.load(std::memory_order_relaxed);
+        }
+
+        // IsCaptureReady：只有既有 Raw Socket 已成功打开并完成本机地址准备才返回 true。
+        // 供无 UI 的采集所有者区分线程已创建与真实来源就绪；不表示系统具有完整抓包覆盖。
+        bool IsCaptureReady() const noexcept
+        {
+            return m_captureReady.load(std::memory_order_acquire);
         }
 
         // UpsertRateLimitRule：
@@ -1815,6 +1823,7 @@ namespace ks::network
             detail::ConnectionPidResolver pidResolver;
             detail::ProcessNameResolver processNameResolver;
             std::vector<std::uint8_t> receiveBuffer(65536, 0);
+            m_captureReady.store(true, std::memory_order_release);
 
             // 抓包循环：select 等待 + recv 读取 + 解析 + 回调。
             while (m_running.load(std::memory_order_relaxed))
@@ -2057,6 +2066,7 @@ namespace ks::network
             detail::CloseCaptureSockets(captureSockets);
             ::WSACleanup();
 
+            m_captureReady.store(false, std::memory_order_release);
             m_running.store(false, std::memory_order_relaxed);
             emitStatus("网络监控已停止。");
         }
@@ -2322,6 +2332,7 @@ namespace ks::network
         RateLimitActionCallback m_rateLimitActionCallback; // 限速动作回调。
 
         std::atomic<bool> m_running{ false }; // 抓包线程运行标记。
+        std::atomic<bool> m_captureReady{ false }; // 原生 sockets 与解析上下文实际就绪状态。
         std::thread m_captureThread;          // 后台抓包线程对象。
         std::atomic_bool m_stopAttempted{false};
         std::atomic_bool m_resumeAtExitSucceeded{true};

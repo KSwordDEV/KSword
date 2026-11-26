@@ -78,6 +78,7 @@ namespace
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> api; // 原writer同采样API采集回执。
         std::shared_ptr<const NativeExecutionCandidatesResult> candidates; // 同document只读候选及原请求身份。
         std::wstring conditionSource; // 原会话实际采用的冻结条件，含项目定义继承值。
+        std::optional<native::SuspendedImageLaunchReceipt> launch; // 启动核心实际里程碑，与API进度分开。
     };
 
     // 页面与收尾任务短时共享同一个会话，原生调试事件始终归该会话所有。
@@ -218,6 +219,8 @@ namespace
         bool m_runIndirect = false; // 已执行绑定方式，不由下一轮草稿改写。
         bool m_runExecution = false; // 第三种模式明确选择私有执行，不借零宽度推断模式。
         bool m_runImageAttachment = false; // 已有实例普通模块断点，不启动合作程序。
+        bool m_runSuspendedImage = false; // 普通EXE挂起创建，首次Resume前由原owner武装入口。
+        std::optional<native::SuspendedImageLaunchReceipt> m_launchShown; // 原worker返回的实际启动回执。
         std::optional<std::uint32_t> m_runImageRva; // 非空表示本次模块RVA，空时使用精确PE导出。
         bool m_registered = false; // 共享后台登记是否成功。
         bool m_mutating = false; // 仅显式控制命令在途时禁用动作，状态查询仍允许记录点击。
@@ -289,6 +292,8 @@ namespace
         m_siteKind->addItem(QString(), 5); // 已有进程的整页NX执行关注，沿用同一个owner。
         m_siteKind->addItem(QString(), 6); // 已有进程普通模块的精确PE导出执行关注。
         m_siteKind->addItem(QString(), 7); // 已有进程普通模块的非零RVA执行关注。
+        m_siteKind->addItem(QString(), 8); // 普通EXE无需合作标记，RVA留空默认PE入口。
+        m_siteKind->setCurrentIndex(m_siteKind->findData(8));
         m_siteKindLabel = new QLabel(m_target);
         m_siteKindLabel->setBuddy(m_siteKind);
         form->insertRow(0, m_siteKindLabel, m_siteKind); // 先选对象来源，再填写对应实例或导出。
@@ -499,8 +504,9 @@ namespace
             }
         });
         connect(m_browse, &QPushButton::clicked, this, [this] {
-            const bool imageAttachment = m_siteKind->currentData().toInt() >= 6; // 选择器跟随当前草稿用途。
-            const auto path = QFileDialog::getOpenFileName(this, sourceText(imageAttachment
+            const auto kind = m_siteKind->currentData().toInt(); // 普通启动只选EXE，已有模块可选DLL。
+            const bool imageAttachment = kind == 6 || kind == 7;
+            const auto path = QFileDialog::getOpenFileName(this, sourceText(kind == 8 ? QStringLiteral("选择普通 EXE") : imageAttachment
                 ? QStringLiteral("选择已加载模块") : QStringLiteral("选择合作程序")),
                 m_image->text(), sourceText(imageAttachment
                     ? QStringLiteral("Windows 模块 (*.exe *.dll)") : QStringLiteral("Windows 程序 (*.exe)")));
@@ -683,10 +689,12 @@ namespace
             m_runDefinition = m_definitionDraft; // 只有真正提交的请求才取得定义来源。
             m_runExport = m_export->text().trimmed();
             const auto siteKind = m_siteKind->currentData().toInt(); // 点击时冻结实际模式。
-            m_runImageAttachment = siteKind >= 6; // 原有模式0..5语义保留。
-            m_runImageRva = siteKind == 7 ? ParseImageExecutionRva(m_runExport) : std::nullopt;
+            m_runImageAttachment = siteKind == 6 || siteKind == 7; // 已有实例与普通挂起启动分别冻结。
+            m_runSuspendedImage = siteKind == 8;
+            m_runImageRva = siteKind == 7 || (m_runSuspendedImage && !m_runExport.isEmpty())
+                ? ParseImageExecutionRva(m_runExport) : std::nullopt;
             m_runPrivate = {};
-            if (siteKind >= 3)
+            if (siteKind >= 3 && siteKind <= 7)
             {
                 m_privateFields->Prepare(m_runPrivate, siteKind == 5, !m_runImageAttachment);
                 if (!m_runImageAttachment)
@@ -706,6 +714,7 @@ namespace
             m_executionShown = {};
             m_apiShown.reset(); // 新一轮会话的API回执不沿用上轮采样。
             m_candidatesShown.reset(); // 旧目录仍由Pane保留原归属，不能授予新会话草稿资格。
+            m_launchShown.reset(); // 新请求不能继承上次的首次Resume回执。
         }
         if (action == Action::Close)
         {
@@ -719,6 +728,7 @@ namespace
         const auto execution = m_runExecution; // 不读取后续selector草稿来改变启动类型。
         const auto privateTarget = m_runPrivate; // 仅启动使用冻结实例与地址。
         const bool imageAttachment = m_runImageAttachment; // 冻结已有模块附加类型，不读取后台中的selector。
+        const bool suspendedImage = m_runSuspendedImage; // 通用启动不经过指针导出路径。
         const auto imageRva = m_runImageRva; // 模块RVA已在点击时解析为32位非零值。
         const auto definitionId = m_runDefinition.toStdString(); // 定义必须属于本轮实际创建sample的冻结配置。
         const auto conditionSource = m_runCondition.toStdWString(); // 同谓词冻结原文，供定义冲突核对。
@@ -735,7 +745,7 @@ namespace
         }
         const auto candidatesSerial = candidates ? candidates->serial : 0; // 任务失败时解除目录该请求等待态。
         const auto accepted = m_work->submitTransaction<Action, WatchResult>(action,
-            [owner, path, symbol, width, indirect, execution, privateTarget, imageAttachment, imageRva, definitionId,
+            [owner, path, symbol, width, indirect, execution, privateTarget, imageAttachment, suspendedImage, imageRva, definitionId,
                 displayedStop, mode, projectDirectory, openExistingProject,
                 memory = std::move(memory), range, api, candidates, conditionSource, condition = std::move(condition)](Action command) mutable {
                 std::lock_guard lock(owner->access); // 串行化命令和页面销毁时的关闭。
@@ -752,7 +762,9 @@ namespace
                     if (owner->memory.PrepareProject(projectDirectory, openExistingProject) &&
                         owner->memory.ValidateImageDefinition(definitionId, path, imageRva.value_or(0), owner->conditionSource, condition))
                     {
-                        result = imageAttachment
+                        result = suspendedImage
+                            ? owner->session.StartSuspendedImage(path, imageRva, condition, owner->memory.SampleId())
+                            : imageAttachment
                             ? owner->session.AttachImageExecution(privateTarget.pid, privateTarget.creation, path,
                                 imageRva, imageRva ? std::string{} : symbol, condition, owner->memory.SampleId(), owner->memory.ImageSha256())
                             : privateTarget.pid
@@ -842,7 +854,8 @@ namespace
                     owner->memory.CloseProject(); // 同串行worker释放，不在GUI回投时析构writer。
                 }
                 return WatchResult{std::move(result), owner->session.ConditionReport(), owner->memory.View(),
-                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView(), owner->conditionSource};
+                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView(), owner->conditionSource,
+                    owner->session.LaunchReceipt()};
             }, [this, action](const auto& result, std::uint64_t) {
                 m_mutating = false;
                 m_owner->apiStartup.store(nullptr); // 完整回执接替在途快照，下一次timer不重新显示旧阶段。
@@ -886,6 +899,7 @@ namespace
         m_executionShown = receipt.execution;
         m_apiShown = receipt.api; // API附加、清退和归档状态均由共享服务独立提供。
         m_candidatesShown = receipt.candidates; // 来源快照与本轮native控制值在同一worker回合发布。
+        m_launchShown = receipt.launch; // TLS/loader覆盖和Agent Ready均不从界面状态推断。
         if (action == Action::ReadCandidates)
         {
             m_candidatesPane->Consume(receipt.candidates);
@@ -930,13 +944,14 @@ namespace
         const bool armed = m_result.breakpoint && m_result.breakpoint->state == native::NativeBreakpointState::Armed;
         const auto siteKind = m_siteKind->currentData().toInt(); // 草稿不改变当前结果身份。
         const bool privateDraft = siteKind >= 3 && siteKind <= 5;
-        const bool imageAttachmentDraft = siteKind >= 6; // 普通模块同时展示实例与模块选择器。
+        const bool imageAttachmentDraft = siteKind == 6 || siteKind == 7;
+        const bool launchDraft = siteKind == 8; // 普通启动只需文件及可选RVA，不要求PID/导出。
         const bool executionDraft = siteKind == 2 || siteKind >= 4;
         const bool pageExecutionDraft = siteKind == 5; // 整页与单地址的草稿只影响下一次启动。
-        m_target->setTitle(sourceText(imageAttachmentDraft ? QStringLiteral("已有进程模块断点")
+        m_target->setTitle(sourceText(launchDraft ? QStringLiteral("启动 EXE 并停在入口") : imageAttachmentDraft ? QStringLiteral("已有进程模块断点")
             : privateDraft ? QStringLiteral("已有进程私有地址") : QStringLiteral("合作程序")));
         m_imageLabel->setText(sourceText(imageAttachmentDraft ? QStringLiteral("已加载模块路径") : QStringLiteral("程序路径")));
-        m_exportLabel->setText(sourceText(siteKind == 7 ? QStringLiteral("模块 RVA")
+        m_exportLabel->setText(sourceText(launchDraft ? QStringLiteral("入口 RVA（可选）") : siteKind == 7 ? QStringLiteral("模块 RVA")
             : imageAttachmentDraft ? QStringLiteral("精确 PE 导出名") : QStringLiteral("数据导出名")));
         m_widthLabel->setText(sourceText(QStringLiteral("关注宽度（字节）")));
         m_siteKindLabel->setText(sourceText(QStringLiteral("数据绑定方式")));
@@ -948,13 +963,17 @@ namespace
         m_siteKind->setItemText(5, sourceText(QStringLiteral("已有私有页执行关注")));
         m_siteKind->setItemText(6, sourceText(QStringLiteral("已有模块导出执行关注")));
         m_siteKind->setItemText(7, sourceText(QStringLiteral("已有模块RVA执行关注")));
+        m_siteKind->setItemText(8, sourceText(QStringLiteral("启动 EXE 并停在入口")));
+        m_export->setPlaceholderText(launchDraft ? sourceText(QStringLiteral("留空使用 PE AddressOfEntryPoint")) : QString());
         m_privateFields->setVisible(privateDraft || imageAttachmentDraft);
         m_privateFields->SetPageExecutionMode(pageExecutionDraft, imageAttachmentDraft);
         m_privateFields->SetActive(active);
         auto* targetForm = static_cast<QFormLayout*>(m_target->layout()); // 原表单只按模式显示适用选择器。
         targetForm->setRowVisible(m_image, !privateDraft);
         targetForm->setRowVisible(m_export, !privateDraft);
-        m_siteKind->setToolTip(imageAttachmentDraft
+        m_siteKind->setToolTip(launchDraft
+            ? sourceText(QStringLiteral("普通 AMD64 EXE 无需合作导出。创建挂起后先由原所有者设置入口断点，再释放初始挂起；不覆盖此前 TLS/loader，API Agent 就绪单独报告。"))
+            : imageAttachmentDraft
             ? sourceText(QStringLiteral("已有模块执行关注使用目标PID和创建时间，核验已加载模块及模块内执行位置；无需合作握手，不启动程序或修改页保护。"))
             : sourceText(QStringLiteral("私有区间模式需合作目标初始化指针后发出 Ready，并等待 Gate 许可；绑定期间不自动跟随指针变化。")) +
             QLatin1Char('\n') + sourceText(pageExecutionDraft
@@ -996,7 +1015,10 @@ namespace
         m_siteKind->setEnabled(!active);
         m_browse->setEnabled(!active && !privateDraft);
         PrivateAddressWatchTarget candidate; // 草稿仅检查格式，真实身份与区域由后台核对。
-        const bool targetReady = privateDraft ? m_privateFields->Prepare(candidate, pageExecutionDraft)
+        const bool targetReady = launchDraft
+            ? QFileInfo(m_image->text().trimmed()).isAbsolute() &&
+                (m_export->text().trimmed().isEmpty() || ParseImageExecutionRva(m_export->text()).has_value())
+            : privateDraft ? m_privateFields->Prepare(candidate, pageExecutionDraft)
             : QFileInfo(m_image->text().trimmed()).isAbsolute() && !m_export->text().trimmed().isEmpty() &&
                 (!imageAttachmentDraft || (m_privateFields->Prepare(candidate, false, false) &&
                     (siteKind != 7 || ParseImageExecutionRva(m_export->text()).has_value())));
@@ -1067,10 +1089,11 @@ namespace
             button->setAccessibleName(name);
             button->setToolTip(button->isEnabled() || disabled.isEmpty() ? name : disabled);
         };
-        actionHint(m_browse, sourceText(imageAttachmentDraft ? QStringLiteral("选择已加载模块") : QStringLiteral("选择合作程序")));
-        actionHint(m_start, sourceText(imageAttachmentDraft ? QStringLiteral("附加并设置模块执行断点")
+        actionHint(m_browse, sourceText(launchDraft ? QStringLiteral("选择普通 EXE") : imageAttachmentDraft ? QStringLiteral("选择已加载模块") : QStringLiteral("选择合作程序")));
+        actionHint(m_start, sourceText(launchDraft ? QStringLiteral("启动 EXE 并停在入口") : imageAttachmentDraft ? QStringLiteral("附加并设置模块执行断点")
             : executionDraft ? QStringLiteral("启动私有执行监控") : QStringLiteral("启动写入监控")),
-            sourceText(imageAttachmentDraft ? QStringLiteral("需填写目标 PID、创建 FILETIME、模块绝对路径及精确导出名或非零RVA，且本端无活会话。")
+            sourceText(launchDraft ? QStringLiteral("请选择普通 AMD64 EXE；入口 RVA 可留空，填写时须为非零32位指令边界；本端须无活会话。")
+                : imageAttachmentDraft ? QStringLiteral("需填写目标 PID、创建 FILETIME、模块绝对路径及精确导出名或非零RVA，且本端无活会话。")
                 : pageExecutionDraft ? QStringLiteral("需填写目标 PID、创建 FILETIME 与4KiB对齐的私有页起点，且本端无活会话。")
                 : privateDraft ? QStringLiteral("需填写目标 PID、创建 FILETIME 与私有地址，且本端无活会话。")
                 : QStringLiteral("需选择合作程序并填写数据导出名，且本端无活会话。")));
@@ -1085,7 +1108,7 @@ namespace
         actionHint(m_cancelStep, sourceText(QStringLiteral("取消当前原生步进")),
             sourceText(QStringLiteral("当前没有正在运行的原生步进。")));
         m_stepMode->setToolTip(sourceText(QStringLiteral("步进当前停止事件的线程；跳出仅支持已核验的调用帧，失败时保留停点。")));
-        actionHint(m_close, sourceText(m_runImageAttachment ? QStringLiteral("脱离模块执行监控")
+        actionHint(m_close, sourceText(m_runImageAttachment || m_runSuspendedImage ? QStringLiteral("脱离模块执行监控")
             : m_runExecution ? QStringLiteral("脱离私有执行监控") : QStringLiteral("脱离写入监控")),
             sourceText(QStringLiteral("当前没有可关闭的写入监控会话。")));
 
@@ -1097,7 +1120,7 @@ namespace
             : active && !m_failed && !recovery && !m_closing && m_result.armedPause &&
                 m_result.armedPause->state == native::NativeArmedPauseState::Pending
                 ? sourceText(QStringLiteral("正在等待原执行会话暂停事件"))
-            : m_runImageAttachment
+            : m_runImageAttachment || m_runSuspendedImage
             ? (m_failed || recovery ? sourceText(QStringLiteral("模块执行监控需要恢复"))
                 : state == native::NativeControlStatus::Rejected ? sourceText(QStringLiteral("模块执行监控操作被拒绝"))
                 : state == native::NativeControlStatus::Ended ? sourceText(QStringLiteral("模块执行目标已退出"))
@@ -1150,11 +1173,11 @@ namespace
         ks::ui::FieldDocument document;
         if (!m_runImage.isEmpty() || m_runPrivate.pid)
         {
-            document.section(m_runImageAttachment ? QStringLiteral("模块执行监控回执")
+            document.section(m_runImageAttachment || m_runSuspendedImage ? QStringLiteral("模块执行监控回执")
                 : m_runExecution ? QStringLiteral("私有执行监控回执") : QStringLiteral("写入监控回执"))
                 .field(QStringLiteral("关注宽度（字节）"), m_runExecution
                     ? sourceText(QStringLiteral("不适用（执行入口）")) : QString::number(m_runWidth))
-                .field(QStringLiteral("数据绑定方式"), sourceText(m_runPrivate.pid
+                .field(QStringLiteral("数据绑定方式"), sourceText(m_runSuspendedImage ? QStringLiteral("启动 EXE 并停在入口") : m_runPrivate.pid
                     ? (m_runImageAttachment ? (m_runImageRva ? QStringLiteral("已有模块RVA执行关注") : QStringLiteral("已有模块导出执行关注"))
                         : m_runPrivate.rangeBytes ? QStringLiteral("已有私有页执行关注")
                         : m_runExecution ? QStringLiteral("已有私有地址执行关注") : QStringLiteral("已有私有地址写关注"))
@@ -1177,14 +1200,15 @@ namespace
             if (!m_runImage.isEmpty())
             {
                 document.field(m_runImageAttachment ? QStringLiteral("已加载模块路径") : QStringLiteral("程序路径"), m_runImage)
-                    .field(m_runImageRva ? QStringLiteral("模块 RVA") : QStringLiteral("数据导出名"), m_runExport);
+                    .field(m_runSuspendedImage ? QStringLiteral("入口 RVA（可选）") : m_runImageRva ? QStringLiteral("模块 RVA") : QStringLiteral("数据导出名"),
+                        m_runSuspendedImage && m_runExport.isEmpty() ? sourceText(QStringLiteral("PE AddressOfEntryPoint")) : m_runExport);
             }
         }
         if (const auto& binding = m_result.breakpoint; binding && binding->address)
         {
             document.field(QStringLiteral("关注地址"), QStringLiteral("0x%1").arg(binding->address, 0, 16))
                 .field(QStringLiteral("已登记线程数"), QString::number(binding->enrolledThreads));
-            if (m_runImageAttachment)
+            if (m_runImageAttachment || m_runSuspendedImage)
             {
                 document.field(QStringLiteral("模块基址"), QStringLiteral("0x%1").arg(binding->moduleBase, 0, 16))
                     .field(QStringLiteral("模块 RVA"), QStringLiteral("0x%1").arg(binding->rva, 0, 16));
@@ -1211,6 +1235,19 @@ namespace
                     .field(QStringLiteral("绑定区域保护"), QStringLiteral("0x%1").arg(binding->regionProtection, 0, 16))
                     .field(QStringLiteral("分配代次"), sourceText(QStringLiteral("未知")));
             }
+        }
+        if (const auto& launch = m_launchShown)
+        {
+            // 启动与API分别展示真实里程碑；入口武装不意味着此前TLS/loader已受监控。
+            document.section(QStringLiteral("挂起启动回执"))
+                .field(QStringLiteral("创建时挂起"), launch->createdSuspended ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("首次恢复前所有者已附加"), launch->ownerAttachedBeforeResume ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("首次恢复前入口已武装"), launch->breakpointArmedBeforeResume ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("初始挂起已释放"), launch->initialSuspendReleased ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("最早 TLS/loader 覆盖"), sourceText(QStringLiteral("未覆盖")))
+                .field(QStringLiteral("API Agent 就绪"), sourceText(QStringLiteral("未知")))
+                .field(QStringLiteral("诊断阶段"), QString::fromLatin1(launch->stage))
+                .field(QStringLiteral("Win32 错误"), QString::number(launch->win32Error));
         }
         if (const auto& registers = m_result.registers)
         {

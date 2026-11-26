@@ -232,7 +232,10 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                         archive.ValidateImageDefinition(request.definitionId, request.definitionProjectId, request.executable,
                             request.imageRva, effectiveSource, condition)) {
                         // 模块附加优先于旧启动分支，沿用本worker、项目采样及唯一原生所有者。
-                        result = request.imageExecutionAttachment
+                        result = request.suspendedImageLaunch
+                            ? backend->StartSuspendedImage(request.executable, request.imageRva,
+                                std::move(condition), archive.SampleId())
+                            : request.imageExecutionAttachment
                             ? backend->AttachImageExecution(request.targetPid, request.targetCreationFileTime,
                                 request.executable, request.imageRva, request.exportName, std::move(condition),
                                 archive.SampleId(), archive.ImageSha256()) // 原生按真实调试事件文件核对冻结散列后武装。
@@ -331,6 +334,7 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                 if (command.addRange) status.executionRangeOrigin = command.rangeOrigin;
                 status.memory = archive.Latest();
                 status.execution = archive.ExecutionView();
+                status.launch = backend->LaunchReceipt(); // 只回读启动核心，不由Armed猜测首次Resume或Agent状态。
                 if (command.dumpMemory) status.memoryDumpDiagnostic = std::move(dumpDiagnostic);
                 if (command.api) {
                     status.api = std::move(apiResult);
@@ -377,7 +381,15 @@ LightDataWatchSession::~LightDataWatchSession() {
 
 DWORD LightDataWatchSession::Start(LightDataWatchRequest request, rules::PreparedPredicate condition) {
     if (retiring_ || !Ready()) return ERROR_BUSY;
-    if (request.imageExecutionAttachment) {
+    if (request.suspendedImageLaunch) {
+        // 通用启动不混入既有实例、合作导出或私有范围；可选RVA为空时读取PE入口。
+        if (request.executable.empty() || request.imageExecutionAttachment || request.targetPid ||
+            request.targetCreationFileTime || request.privateAddress || request.privateRangeBytes ||
+            request.bytes || request.indirect || request.privateExecution || !request.exportName.empty() ||
+            !request.definitionId.empty() || (request.imageRva && !*request.imageRva)) {
+            return ERROR_INVALID_PARAMETER;
+        }
+    } else if (request.imageExecutionAttachment) {
         // 仅接受完整实例及一种模块内位置；隐藏的私有/合作草稿不能污染附加请求。
         const bool asciiExport = !request.exportName.empty() && request.exportName.size() <= 255 &&
             std::all_of(request.exportName.begin(), request.exportName.end(),
@@ -394,8 +406,8 @@ DWORD LightDataWatchSession::Start(LightDataWatchRequest request, rules::Prepare
         if (!request.targetPid || !request.targetCreationFileTime || !request.privateAddress ||
             !request.executable.empty() || !request.exportName.empty() || request.indirect ||
             (request.privateExecution ? request.bytes != 0 : !writeWidth) ||
-            (request.privateRangeBytes && (request.privateRangeBytes > 64 * 4096 || request.privateRangeBytes % 4096 || !request.privateExecution ||
-                request.privateAddress % 4096 != 0))) {
+            (request.privateRangeBytes && (request.privateRangeBytes % 4096 || !request.privateExecution ||
+                request.privateAddress % 4096 != 0 || request.privateAddress > UINT64_MAX - request.privateRangeBytes))) {
             return ERROR_INVALID_PARAMETER; // 拒绝不完整身份或混用导出草稿，不回退为启动新程序。
         }
     }
@@ -547,7 +559,7 @@ bool LightDataWatchSession::DumpMemory(const NativeStopSnapshot& displayedStop,
 bool LightDataWatchSession::AddPrivateExecutionRange(const NativeStopSnapshot& displayedStop,
     std::uint64_t address, std::uint64_t bytes, std::shared_ptr<const private_execution::PrivateExecutionRangeDraft> origin)
 {
-    if (!session_ || retiring_ || !address || address % 4096 || !bytes || bytes % 4096 || bytes > 64 * 4096 ||
+    if (!session_ || retiring_ || !address || address % 4096 || !bytes || bytes % 4096 ||
         address > UINT64_MAX - bytes) return false;
     {
         std::lock_guard lock(session_->mutex); // 与相机/继续共用唯一槽，后端再核验事件、重叠及allocation。

@@ -5,6 +5,7 @@
 #include "ExecutionGroupPage.h"
 #include "ToolbarCapabilities.h"
 #include "OfflineSegmentOverview.h"
+#include "NetworkTrafficPane.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../MonitorDock/MonitorDock.h"
 #include "../MonitorDock/MonitorNavigationSchema.h"
@@ -243,6 +244,9 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     auto* executionGroup = new ExecutionGroupPage(m_tabs); // 归档准备复用同一集合页，不创建第二owner。
     ks::monitor::AddMonitorNavigationTab(m_tabs, executionGroup,
         QString::fromLatin1(ks::monitor::ActionAnalyzeExecutionGroupId));
+    // 独立流量参数页直接写入既有sample，不创建第二运行时或网络Dock。
+    ks::monitor::AddMonitorNavigationTab(m_tabs, new NetworkTrafficPane(m_tabs),
+        QString::fromLatin1(ks::monitor::ActionAnalyzeNetworkTrafficId));
     m_overview->prepareExecutionDraft = [this, executionGroup](const Ksword::Evidence::NativeExecutionSiteDraft& draft)
     {
         if (!executionGroup->AddEvidenceDraft(draft))

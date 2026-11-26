@@ -22,6 +22,7 @@
 #include <future>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <thread>
 #include <utility>
 
@@ -156,8 +157,8 @@ private:
     void Pump();
     void Receive(const DEBUG_EVENT& event);
     void ReceiveBreakpoint(const DEBUG_EVENT& event);
-    NativeError ResolveBreakpointImages();
-    NativeError InstallBreakpoint();
+    NativeError ResolveBreakpointImages(std::uintptr_t eventImageBase = 0);
+    NativeError InstallBreakpoint(std::uintptr_t eventImageBase = 0);
     NativeError VerifyBoundSite() const; // 回读当前私有绑定；明确地址按当前实际宽度验证。
     NativeError EnrollThread(DWORD tid, HANDLE eventThread = nullptr);
     NativeError CoverBreakpointThreads(const std::vector<FrozenThread>& frozen);
@@ -402,10 +403,12 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
         target.disposition != NativeTargetDisposition::ResumeAndDetach || !validSite ||
         (request.imageSha256 && (!request.explicitImageAttachment || !ValidNativeImageSha256(*request.imageSha256))) ||
         (request.waitForModule && !request.explicitImageAttachment) ||
+        (request.initialThreadId && (!request.explicitImageAttachment || request.waitForModule)) ||
         (request.explicitImageAttachment && (explicitAddress || pageMode || request.writeWatchBytes ||
             request.writeWatchPointerExport || request.executePointerExport)) ||
         !control || (pageMode && (!explicitAddress || request.writeWatchBytes ||
-            request.privateRangeBytes > 64 * 4096 || request.privateRangeBytes % 4096 || request.privateAddress % 4096)) ||
+            request.privateRangeBytes % 4096 || request.privateAddress % 4096 ||
+            request.privateAddress > UINT64_MAX - request.privateRangeBytes)) ||
         (request.writeWatchBytes && request.rva) ||
         (request.writeWatchPointerExport && !request.writeWatchBytes) ||
         (request.executePointerExport && (request.writeWatchBytes || request.writeWatchPointerExport || request.rva))) {
@@ -425,7 +428,8 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
         (pageMode ? PROCESS_VM_OPERATION : 0), FALSE, target.pid));
     if (!process) { return Reject(WinError("open-breakpoint-process"), LedgerResult::IdentityMismatch); }
     if (const auto error = CheckAdmission(process.Get(), target); error) { return Reject(error, LedgerResult::IdentityMismatch); }
-    if (!explicitAddress && !request.explicitImageAttachment) {
+    if (request.initialThreadId || (!explicitAddress && !request.explicitImageAttachment)) {
+        // 挂起启动只接受本宿主直接创建的实例；普通既有映像入口继续原显式附加准入。
         if (const auto error = CheckOwnedChild(target); error) { return Reject(error, LedgerResult::IdentityMismatch); }
     }
     PauseRecord record{target, {}, {}, NewId()};
@@ -571,7 +575,28 @@ NativeControlResult NativeDebugOwner::Impl::AddPrivateExecutionRange(const Nativ
     auto* page = breakpoint_ && breakpoint_->executionPage && attached_ && !closing_ && !breakpoint_->retire &&
         event_ && latest_ && !step_.Running() && !step_.HasResources() && !breakpoint_->pageAdvancing &&
         failedContinueSerial_ != eventSerial_ ? &*breakpoint_->executionPage : nullptr;
-    if (page) breakpoint_->binding.executionRanges.reserve(64);
+    if (page)
+    {
+        // 原绑定与回执副本都须在改保护前取得实际下一项目录存储，不再预设64项。
+        const auto noCapacity = [&]()
+        {
+            auto rejected = Snapshot(latest_); // 保留完整原停点和恢复责任，只拒绝本次追加。
+            rejected.status = NativeControlStatus::Rejected;
+            rejected.stage = "private-execution-range-binding-allocation-failed";
+            rejected.win32Error = ERROR_NOT_ENOUGH_MEMORY;
+            rejected.ledgerResult = LedgerResult::Capacity;
+            return rejected;
+        };
+        if (page->Ranges().size() >= breakpoint_->binding.executionRanges.max_size()) return noCapacity();
+        try
+        {
+            breakpoint_->binding.executionRanges.reserve(page->Ranges().size() + 1);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return noCapacity();
+        }
+    }
     auto result = rangeHistory_.Apply(owner_, request, Snapshot(latest_), page, process_.Get());
     if (result.ledgerResult != LedgerResult::Duplicate && result.executionRange &&
         result.status == NativeControlStatus::RecoveryRequired) {
@@ -901,7 +926,7 @@ void NativeDebugOwner::Impl::Receive(const DEBUG_EVENT& event) {
     }
 }
 
-NativeError NativeDebugOwner::Impl::ResolveBreakpointImages() {
+NativeError NativeDebugOwner::Impl::ResolveBreakpointImages(std::uintptr_t eventImageBase) {
     auto& bp = *breakpoint_;
     const auto pid = bp.request.target.pid;
     wchar_t directory[MAX_PATH]{};
@@ -910,7 +935,7 @@ NativeError NativeDebugOwner::Impl::ResolveBreakpointImages() {
     std::wstring path(directory, length);
     path += L"\\ntdll.dll";
     const auto resolve = [&](std::string_view name, NativeImageSite& site) {
-        return ResolveNativeImageSite(process_.Get(), pid, path, std::nullopt, name, site);
+        return ResolveNativeImageSite(process_.Get(), pid, path, std::nullopt, name, site, 0, false, eventImageBase);
     };
     if (const auto error = resolve("DbgBreakPoint", bp.systemBreak)) { return {"resolve-system-breakpoint", error}; }
     if (const auto error = resolve("DbgUiRemoteBreakin", bp.systemBreakThread)) { return {"resolve-system-break-thread", error}; }
@@ -949,7 +974,7 @@ NativeError NativeDebugOwner::Impl::CoverBreakpointThreads(const std::vector<Fro
     return {};
 }
 
-NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
+NativeError NativeDebugOwner::Impl::InstallBreakpoint(std::uintptr_t eventImageBase) {
     auto& bp = *breakpoint_;
     NativeImageSite site;
     const auto pid = bp.request.target.pid;
@@ -976,7 +1001,7 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
     } else error = bp.request.writeWatchPointerExport
         ? ResolveNativePointerDataSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName, bp.request.writeWatchBytes, site)
         : ResolveNativeImageSite(process_.Get(), pid, bp.request.modulePath, bp.request.rva,
-            bp.request.exportName, site, bp.request.writeWatchBytes);
+            bp.request.exportName, site, bp.request.writeWatchBytes, false, eventImageBase);
     if (error == ERROR_MOD_NOT_FOUND && bp.request.waitForModule)
     {
         // 只有精确模块缺席可等待；坏PE、错误RVA/导出、哈希或访问失败仍走原清退。
@@ -1036,7 +1061,15 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
         if (const auto enroll = EnrollThread(thread.member.tid, thread.handle.Get()); enroll) { return enroll; }
     }
     if (bp.executionPage) {
-        bp.binding.executionRanges.reserve(64);
+        // 初始目录按真实范围数量预留；保护生效后发布不再触发分配。
+        try
+        {
+            bp.binding.executionRanges.reserve(bp.executionPage->Ranges().size());
+        }
+        catch (const std::bad_alloc&)
+        {
+            return {"page-binding-allocation-failed", ERROR_NOT_ENOUGH_MEMORY};
+        }
         if (const auto arm = bp.executionPage->SetExecutable(process_.Get(), false))
             return {"page-arm-non-executable", arm};
         bp.binding.executionRanges = bp.executionPage->Ranges();
@@ -1557,6 +1590,28 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
         ContinueExitEvent(event.u.ExitProcess.dwExitCode);
         return;
     }
+    if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT && bp.request.initialThreadId &&
+        bp.processVerified && !bp.systemBreak.address && !bp.retire && !closing_)
+    {
+        // 初始挂起时loader表尚不可用；从原加载文件核对系统ntdll，再解析事件基址。
+        wchar_t systemDirectory[MAX_PATH]{}; // 本机AMD64系统目录，与准入架构一致。
+        const auto directoryLength = GetSystemDirectoryW(systemDirectory, MAX_PATH); // 有效目录字符数。
+        wchar_t loadedPath[MAX_PATH + 4]{}; // 原加载文件的规范DOS路径，包含扩展路径前缀。
+        const auto loadedLength = event.u.LoadDll.hFile ? GetFinalPathNameByHandleW(event.u.LoadDll.hFile,
+            loadedPath, static_cast<DWORD>(std::size(loadedPath)), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS) : 0;
+        if (directoryLength && directoryLength < MAX_PATH && loadedLength && loadedLength < std::size(loadedPath))
+        {
+            const auto expectedPath = L"\\\\?\\" + std::wstring(systemDirectory, directoryLength) + L"\\ntdll.dll"; // 精确系统路径。
+            if (CompareStringOrdinal(loadedPath, static_cast<int>(loadedLength), expectedPath.c_str(),
+                static_cast<int>(expectedPath.size()), TRUE) == CSTR_EQUAL)
+            {
+                if (const auto error = ResolveBreakpointImages(reinterpret_cast<std::uintptr_t>(event.u.LoadDll.lpBaseOfDll)); error)
+                {
+                    RetireBreakpoint(error);
+                }
+            }
+        }
+    }
     if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT && bp.processVerified && !bp.awaitingAttachBreak &&
         bp.binding.waitingForModule && !bp.retire && !closing_)
     {
@@ -1572,10 +1627,27 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
             RetireBreakpoint({"event-process-object-mismatch", ERROR_INVALID_DATA});
         } else if (const auto error = CheckProcessIdentity(event.u.CreateProcessInfo.hProcess, bp.request.target); error) {
             RetireBreakpoint(error);
-        } else if (const auto failure = ResolveBreakpointImages(); failure) {
+        } else if (const auto failure = bp.request.initialThreadId ? NativeError{} : ResolveBreakpointImages(); failure) {
             RetireBreakpoint(failure);
         } else {
             bp.processVerified = true;
+            if (bp.request.initialThreadId && !bp.retire && !closing_)
+            {
+                // 原始线程仍有创建者持有的一次挂起。事件线程对象必须匹配，武装失败保留原恢复账。
+                const auto initialThread = event.u.CreateProcessInfo.hThread; // OS交付的原始线程对象，仅在事件内借用。
+                if (event.dwThreadId != bp.request.initialThreadId || !initialThread ||
+                    GetThreadId(initialThread) != bp.request.initialThreadId ||
+                    GetProcessIdOfThread(initialThread) != bp.request.target.pid)
+                {
+                    RetireBreakpoint({"image-launch-initial-thread-mismatch", ERROR_INVALID_DATA});
+                }
+                else if (const auto error = InstallBreakpoint(reinterpret_cast<std::uintptr_t>(event.u.CreateProcessInfo.lpBaseOfImage)); error)
+                {
+                    RetireBreakpoint(error);
+                }
+                // 仍保留awaitingAttachBreak用于识别并吞掉随后OS附加助手的系统断点。
+                // 当前事件继续后真实Armed可被创建者回读；主线程初始挂起由创建者单独归还。
+            }
         }
         if (!bp.processVerified) { bp.awaitingAttachBreak = false; }
     }

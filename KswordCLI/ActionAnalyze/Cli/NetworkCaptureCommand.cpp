@@ -1,4 +1,5 @@
 #include "NetworkCaptureCommand.h"
+#include "NetworkTrafficCommand.h"
 
 #include "../Project/ProjectNetworkEvidence.h"
 #include "../Project/ProjectStorage.h"
@@ -492,6 +493,7 @@ Result Run(const Args& args)
 
 void RegisterNetworkCaptureCommand()
 {
+    RegisterNetworkTrafficCommands(BootId); // 新正文采集与只读回放复用正式登记路径及启动身份读取器。
     Command command;
     command.path = L"analyze network-capture";
     command.syntax = L"KswordCLI.exe analyze network-capture --project PATH --pid PID --create-time FILETIME --duration-ms MS --authorize-loopback yes [--json]";

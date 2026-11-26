@@ -129,6 +129,7 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\SuspendedImageLaunch.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSessionArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -211,7 +212,10 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\LaunchedApiCapture.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.h" />
@@ -220,6 +224,13 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
+    <ClCompile Include="Features\ActionAnalyze\NetworkTrafficPage.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\NetworkTrafficPageLayout.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <ClCompile Include="Features\ActionAnalyze\LightNetworkTrafficWorker.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectNetworkEvidence.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectNetworkRead.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\NetworkTrafficCapture.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\NetworkTrafficRead.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Archive\SegmentInspection.cpp" />
@@ -457,6 +468,7 @@
     <ClInclude Include="Features\ActionAnalyze\LightNativeControlToolbar.h" />
     <ClInclude Include="Features\ActionAnalyze\LightDataWatchSession.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSession.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\SuspendedImageLaunch.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\ProcessGroupMemorySnapshot.h" />
@@ -473,6 +485,12 @@
     <ClInclude Include="Features\ActionAnalyze\ExecutionGroupPage.h" />
     <ClInclude Include="Features\ActionAnalyze\ExecutionGroupPageState.h" />
     <ClInclude Include="Features\ActionAnalyze\ProcessGroupPage.h" />
+    <ClInclude Include="Features\ActionAnalyze\NetworkTrafficPage.h" />
+    <ClInclude Include="Features\ActionAnalyze\NetworkTrafficPageState.h" />
+    <ClInclude Include="Features\ActionAnalyze\LightNetworkTrafficWorker.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectNetworkEvidence.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\NetworkTrafficCapture.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\NetworkTrafficRead.h" />
     <ClInclude Include="Features\ActionAnalyze\ProcessGroupPageState.h" />
     <ClInclude Include="Features\ActionAnalyze\LightProcessGroupMemory.h" />
     <ClInclude Include="Ui\ParameterWorkspace.h" />
@@ -497,7 +515,11 @@
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.h" />
+    <ClInclude Include="..\shared\ApiTransferHandoffProtocol.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\LaunchedApiCapture.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.h" />
     <ClInclude Include="..\shared\evidence\ActionAnalyzeEtwProvider.h" />
     <ClInclude Include="..\shared\ApiMonitorCapture.h" />

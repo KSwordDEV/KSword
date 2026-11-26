@@ -66,7 +66,15 @@ bool ValidFlow(const NetworkFlowMetadata& flow) noexcept
     if (flow.family != NetworkFamily::IPv4 && flow.family != NetworkFamily::IPv6) return false;
     if (flow.transport != NetworkTransport::Tcp && flow.transport != NetworkTransport::Udp) return false;
     if (flow.direction != NetworkDirection::Inbound && flow.direction != NetworkDirection::Outbound) return false;
-    if (flow.processId == 0 || flow.processCreatedUtc100ns == 0 || flow.processObjectId == 0) return false;
+    if (flow.processId == 0 || flow.processObjectId == 0) return false;
+    if (flow.processAttribution == NetworkFlowMetadata::ProcessAttribution::VerifiedInstance) {
+        if (flow.processCreatedUtc100ns == 0) return false;
+    } else if (flow.processAttribution == NetworkFlowMetadata::ProcessAttribution::EndpointTableHint ||
+        flow.processAttribution == NetworkFlowMetadata::ProcessAttribution::NativePidHint) {
+        if (flow.processCreatedUtc100ns != 0 || flow.processObjectId) return false;
+    } else {
+        return false;
+    }
     if (flow.family == NetworkFamily::IPv4) {
         const auto zero = [](auto byte) { return byte == 0; };
         return std::all_of(flow.sourceField.address.begin() + 4, flow.sourceField.address.end(), zero) &&
@@ -208,6 +216,13 @@ JsonValue FlowMetadata(const NetworkEvidenceBinding& binding, const NetworkFlowM
         {"capturedLength", Number(capture.capturedLength)},
         {"sourceTruncated", JsonValue::makeBool(capture.sourceTruncated)},
     });
+    // 保持旧强实例档形状；新来源把弱 PID 的真实能力随每条记录持久化。
+    if (flow.processAttribution != NetworkFlowMetadata::ProcessAttribution::VerifiedInstance) {
+        obj.emplace_back("processAttribution", JsonValue::makeString(
+            flow.processAttribution == NetworkFlowMetadata::ProcessAttribution::EndpointTableHint ?
+                "endpoint-table-hint" : "native-pid-hint"));
+    }
+    if (flow.packetSourceFlags) obj.emplace_back("packetSourceFlags", Number(flow.packetSourceFlags));
     return JsonValue::makeObject(std::move(obj));
 }
 
@@ -335,6 +350,19 @@ bool ReadAddress(const JsonValue& obj, const char* field, std::array<std::uint8_
 
 bool ReadFlow(const JsonValue& obj, NetworkFlowMetadata& value)
 {
+    if (obj.find("packetSourceFlags") && !ReadNumber(obj, "packetSourceFlags", value.packetSourceFlags)) return false;
+    // 旧格式缺省为原有强实例语义；只有明确的新标签才允许无创建时间的 PID 线索。
+    if (const auto* field = obj.find("processAttribution")) {
+        std::string attribution;
+        if (!field->tryGetString(attribution)) return false;
+        if (attribution == "endpoint-table-hint") {
+            value.processAttribution = NetworkFlowMetadata::ProcessAttribution::EndpointTableHint;
+        } else if (attribution == "native-pid-hint") {
+            value.processAttribution = NetworkFlowMetadata::ProcessAttribution::NativePidHint;
+        } else {
+            return false;
+        }
+    }
     std::uint8_t family = 0, transport = 0, direction = 0;
     if (!ReadNumber(obj, "family", family) || !ReadNumber(obj, "protocol", transport) ||
         !ReadNumber(obj, "direction", direction)) return false;

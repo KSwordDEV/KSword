@@ -288,6 +288,10 @@ bool Capture::start() {
     append(L"auto_inject_child", request.autoChildren ? L"1" : L"0");
     append(L"injection_broker_pipe", endpoint.pipeName); append(L"injection_broker_token", endpoint.token);
     append(L"injection_broker_pid", std::to_wstring(endpoint.hostPid)); append(L"injection_broker_creation", std::to_wstring(endpoint.hostCreation));
+    append(L"transfer_handoff_pipe", request.transferHandoff.pipeName);
+    append(L"transfer_handoff_token", request.transferHandoff.token);
+    append(L"transfer_handoff_pid", std::to_wstring(request.transferHandoff.hostPid));
+    append(L"transfer_handoff_creation", std::to_wstring(request.transferHandoff.hostCreation));
     if (cancel.load() || !processAlive(rootReader.process.value)) return false;
     if (strictObservation() && request.beforeResidentPublish) {
         request.beforeResidentPublish(rootReader.process.value);
@@ -485,6 +489,7 @@ void Capture::discoverChildren() {
 }
 void Capture::poll() {
     for (auto& reader : readers) pollReader(*reader);
+    if (request.onControlPoll) request.onControlPoll(); // 启动屏障之前也能接收Hook交接，避免双方等待Ready。
     if (request.autoChildren && !stopping) discoverChildren();
 }
 bool Capture::writeStop(DWORD pid, std::uint64_t creation, bool root, bool* markerWritten) {
@@ -632,6 +637,16 @@ CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic
     for (const auto& [key, value] : request.options)
         valid = valid && (observational.count(key) || (!strict && behavioral.count(key)))
             && value.size() <= 16000 && value.find_first_of(L"\r\n\0", 0, 3) == std::wstring::npos;
+    // 可选端点作为INI值发布；四字段必须同时有效，禁止换行、NUL或非本机管道注入配置。
+    const auto& handoff = request.transferHandoff; // 本轮外部owner端点，与原子进程装载端点独立。
+    if (!handoff.pipeName.empty() || !handoff.token.empty() || handoff.hostPid || handoff.hostCreation)
+    {
+        valid = valid && handoff.pipeName.starts_with(L"\\\\.\\pipe\\KswordTransfer_") &&
+            handoff.pipeName.size() <= 256 && !handoff.token.empty() && handoff.token.size() < 128 &&
+            handoff.hostPid == GetCurrentProcessId() && handoff.hostCreation == processCreationIdentity(GetCurrentProcess()) &&
+            handoff.pipeName.find_first_of(L"\r\n\0", 0, 3) == std::wstring::npos &&
+            handoff.token.find_first_of(L"\r\n\0", 0, 3) == std::wstring::npos && request.onControlPoll;
+    }
     if (!valid) { CaptureResult result; result.code = 1; result.errors.push_back(L"invalid capture request"); return result; }
     return Capture(request, cancel).run();
 }

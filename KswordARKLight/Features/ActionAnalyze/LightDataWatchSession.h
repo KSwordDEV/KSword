@@ -26,6 +26,7 @@ struct LightDataWatchRequest {
     std::uint64_t privateAddress = 0; // 非零表示直接附加私有地址；执行时bytes为0。
     std::uint64_t privateRangeBytes = 0; // 0为原单地址模式；1..64个4KiB页为显式私有执行范围。
     bool imageExecutionAttachment = false; // 已有实例的普通模块执行；不启动合作目标，也不借用私有地址。
+    bool suspendedImageLaunch = false; // 普通EXE原始挂起期间由原owner先布置入口断点。
     std::optional<std::uint32_t> imageRva; // 非零模块RVA与精确PE导出二选一，均在Start前冻结。
     std::string definitionId; // 从项目定义载入的来源ID；仅冻结来源，不作为原生控制令牌。
     std::string definitionProjectId; // 定义入口选择的原项目，由archive在真实sample解析前再次匹配。
@@ -52,6 +53,7 @@ struct LightDataWatchSnapshot {
     std::optional<std::size_t> enrolledThreads;
     std::optional<ks::cli::action_analyze::control::NativeBreakpointBinding> binding; // 当前实际地址及私有区域回读。
     std::optional<LightDataWatchHit> lastHit;
+    std::optional<ks::cli::action_analyze::control::SuspendedImageLaunchReceipt> launch; // 与控制同回合发布的实际启动阶段。
     std::shared_ptr<const ks::cli::action_analyze::control::NativeControlResult> displayedStop;
     std::shared_ptr<const ks::cli::action_analyze::control::NativeControlResult> lastDisplayedStop; // 最近显示停点的只读快照；继续/清退后仍保留，不授控制权。
     std::wstring diagnostic;

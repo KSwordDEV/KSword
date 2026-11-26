@@ -5,6 +5,7 @@
 #include "LightNativeControlToolbar.h"
 #include "ApiTransferPresentation.h"
 #include "ApiTransferCandidateTree.h"
+#include "NetworkTrafficPage.h"
 #include "NativeExecutionPresentation.h"
 
 #include "EvidenceTimeline.h"
@@ -47,9 +48,11 @@ enum ControlId {
     kSampleChoice, kReplaySample, kCancelChoice, kApiOnly, kNetworkOnly,
     kSwitchView, kLivePid, kLiveProvider, kReservedLiveArchive, kLiveStart, kLiveStop, kLiveFollow, kCreateProject,
     kEvidenceFamily, kLocateEvidence, kEvidenceRecord, kLiveApi, kApiPid, kApiSession, kApiCreation, kApiBrowse, kApiPath, kApiSource,
-    kTransferCandidates, kApiDuration, kPrepareExecutionAddress, kPrepareExecutionRange
+    kTransferCandidates, kApiDuration, kPrepareExecutionAddress, kPrepareExecutionRange, kAutoTransfer,
+    kApiExecutable, kApiExecutableBrowse, // 独立EXE草稿和选择动作，不复用JSONL路径。
+    kApiNetworkTraffic // 同采样网络来源草稿，三种实时API来源共用。
 };
-static_assert(kApiSource <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
+static_assert(kApiNetworkTraffic <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
 
 using ApiFamilyGroups = std::map<std::wstring, std::vector<std::size_t>>;
@@ -125,11 +128,16 @@ struct Page {
     HWND liveFollow = nullptr;
     HWND liveApi = nullptr, apiPid = nullptr, apiSession = nullptr, apiCreation = nullptr, apiBrowse = nullptr, apiPath = nullptr;
     HWND apiSource = nullptr;
+    HWND apiExecutable = nullptr, apiExecutableBrowse = nullptr; // 启动采集独立路径及选择器。
+    HWND apiExecutableLabel = nullptr; // 普通EXE可见标签，不要求手填实例身份。
+    HWND autoTransfer = nullptr; // 活API采样的调用前接管策略，开始时冻结。
     Ui::ParameterWorkspace apiParameters; // API 参数独立滚动，固定动作和原有结果视口不参与滚动。
     HWND apiSourceLabel = nullptr, apiPidLabel = nullptr, apiCreationLabel = nullptr; // 活采的可见身份标签。
     HWND apiSessionLabel = nullptr, apiPathLabel = nullptr; // 文件来源专用字段，不进入活采请求。
     HWND apiDurationLabel = nullptr; // 活采时限的可见单位与持续语义。
     HWND apiDuration = nullptr; // 用现有下拉输入选择时长，item data保存毫秒值。
+    HWND apiNetworkTrafficLabel = nullptr; // 同采样网络来源的可见标签。
+    HWND apiNetworkTraffic = nullptr; // 默认关闭；JSONL禁用但保留草稿，不创建网络独立会话。
     bool apiConfirming = false; // 本轮确认框阻断重入开始，确认不保留到下一轮。
     HWND sampleChoice = nullptr; // 项目目录草稿的原生选择器。
     HWND replaySample = nullptr; // 显式提交所选采样。
@@ -221,8 +229,13 @@ bool AttachmentMode(const Page& page) {
 }
 
 // 两种活管道都不使用外部文件/session；准入确认仍由各自模式独立处理。
+// 第四来源创建本次自有EXE；结果实例只由后台创建句柄发布。
+bool LaunchApiMode(const Page& page) {
+    return ::SendMessageW(page.apiSource, CB_GETCURSEL, 0, 0) == 3;
+}
+
 bool LiveApiMode(const Page& page) {
-    return CooperativeMode(page) || AttachmentMode(page);
+    return CooperativeMode(page) || AttachmentMode(page) || LaunchApiMode(page);
 }
 
 const SegmentEvidence* DisplayedEvidence(const Page& page) {
@@ -558,10 +571,24 @@ void Layout(Page& page) {
                 y += height + gap;
             };
             field(page.apiSourceLabel, page.apiSource, true);
-            field(page.apiPidLabel, page.apiPid);
-            field(page.apiCreationLabel, page.apiCreation);
+            if (LaunchApiMode(page))
+            {
+                field(page.apiExecutableLabel, page.apiExecutable);
+                move(page.apiExecutableBrowse, edge, y, (std::min)(apiBrowseWidth, fieldWidth), height);
+                y += height + gap; // 选择路径属于参数正文，动作与结果仍由原workspace负责。
+            }
+            else
+            {
+                field(page.apiPidLabel, page.apiPid);
+                field(page.apiCreationLabel, page.apiCreation);
+            }
             if (cooperative) {
                 field(page.apiDurationLabel, page.apiDuration, true);
+            }
+            field(page.apiNetworkTrafficLabel, page.apiNetworkTraffic, true); // 文件模式也展示禁用草稿。
+            if (cooperative) {
+                move(page.autoTransfer, edge, y, fieldWidth, height);
+                y += height + gap; // 自然高度加入原参数滚动画布。
             }
             if (!cooperative) {
                 field(page.apiSessionLabel, page.apiSession);
@@ -730,7 +757,7 @@ void UpdateDetails(Page& page) {
         } else if (ApiMode(page)) {
             if (const auto& api = page.liveStatus.api; api) {
                 text = L"本次工程 · " + api->manifestPath;
-                text += api->explicitAttachment || api->cooperative
+                text += api->explicitAttachment || api->cooperative || api->launched
                     ? L"\r\n\r\n" + FormatLiveStatus(page.liveStatus) : L"\r\n来源文件 · " + api->sourcePath;
             }
         } else {
@@ -847,7 +874,8 @@ void UpdateStatus(Page& page) {
             if (!text.empty()) text += L"\r\n";
             text += page.liveInputError;
         }
-        if (text.empty()) text = !api ? L"输入自有进程 PID 和 ETW 提供程序 GUID，再开始扫描。" : AttachmentMode(page) ?
+        if (text.empty()) text = !api ? L"输入自有进程 PID 和 ETW 提供程序 GUID，再开始扫描。" : LaunchApiMode(page) ?
+            L"选择普通 AMD64 EXE，入口停止后自动附加 Agent；Ready 与覆盖核验通过才恢复主线程。此前 TLS/loader 不在覆盖范围。" : AttachmentMode(page) ?
             L"按 PID 与创建 FILETIME 选择已运行实例；点击开始后确认装载。文件和外部会话 ID 不参与活采。" : CooperativeMode(page) ?
             L"仅接入已自行加载正式 Agent 的授权目标。" : L"仅跟随明确授权的本地 API JSONL。";
         if (page.liveStopRequested && page.liveStatus.active &&
@@ -872,7 +900,7 @@ void UpdateStatus(Page& page) {
             }
             empty = L"没有匹配的实时记录";
         } else if (api) {
-            const bool live = page.liveStatus.api ? page.liveStatus.api->cooperative || page.liveStatus.api->explicitAttachment : LiveApiMode(page);
+            const bool live = page.liveStatus.api ? page.liveStatus.api->cooperative || page.liveStatus.api->explicitAttachment || page.liveStatus.api->launched : LiveApiMode(page);
             empty = live ? L"API 活采 · 工程采样" : L"被动 API 原包在停止后从工程采样回放。";
         } else if (page.liveStatus.capture.state == LiveCaptureState::Failed) {
             empty = L"采集失败，请查看状态后重试";
@@ -920,7 +948,7 @@ void UpdateStatus(Page& page) {
                 archive->evidence.diagnostic.empty() ? L"此归档段没有记录" : L"已读前缀没有可显示记录") : L"没有匹配的记录";
         if (page.liveStatus.active) {
             text += page.liveStatus.cleanupPending ? L"\r\n实时采集等待清退重试 · 返回实时视图处理" : page.liveStatus.api ?
-                (page.liveStatus.api->explicitAttachment ? L"\r\n显式 API 附加在后台运行" :
+                (page.liveStatus.api->launched ? L"\r\nEXE 启动采集在后台运行" : page.liveStatus.api->explicitAttachment ? L"\r\n显式 API 附加在后台运行" :
                     page.liveStatus.api->cooperative ? L"\r\n合作 Agent 会话在后台运行" : L"\r\n被动 API 文件跟随在后台运行") :
                 L"\r\n实时会话 · PID " + std::to_wstring(page.liveStatus.capture.pid) + L" · 在后台运行";
         }
@@ -1673,17 +1701,18 @@ void BrowseNewProject(Page& page) {
 }
 
 void BrowseApi(Page& page) {
+    const bool launched = LaunchApiMode(page); // 两个独立草稿只有对应来源可被选择器替换。
     std::vector<wchar_t> path(32768, L'\0');
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = ::GetAncestor(page.hwnd, GA_ROOT);
     dialog.lpstrFile = path.data();
     dialog.nMaxFile = static_cast<DWORD>(path.size());
-    dialog.lpstrFilter = L"API JSONL\0*.jsonl\0";
-    dialog.lpstrTitle = L"选择已授权的本地 API JSONL";
+    dialog.lpstrFilter = launched ? L"程序 (*.exe)\0*.exe\0" : L"API JSONL\0*.jsonl\0";
+    dialog.lpstrTitle = launched ? L"选择普通 AMD64 EXE" : L"选择已授权的本地 API JSONL";
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER | OFN_DONTADDTORECENT;
     if (::GetOpenFileNameW(&dialog)) {
-        ::SetWindowTextW(page.apiPath, path.data());
+        ::SetWindowTextW(launched ? page.apiExecutable : page.apiPath, path.data());
         page.liveInputError.clear();
     } else if (const DWORD error = ::CommDlgExtendedError()) {
         page.liveInputError = L"文件选择失败（" + std::to_wstring(error) + L"）";
@@ -1790,9 +1819,22 @@ void UpdateLiveMode(Page& page) {
     const bool file = api && !LiveApiMode(page);
     ::ShowWindow(::GetParent(page.apiParameters.Body()), page.liveView && api ? SW_SHOW : SW_HIDE);
     for (const auto control : {page.livePid, page.liveProvider}) ::ShowWindow(control, page.liveView && !api ? SW_SHOW : SW_HIDE);
-    for (const auto control : {page.apiSource, page.apiPid, page.apiCreation}) ::ShowWindow(control, page.liveView && api ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(page.apiSource, page.liveView && api ? SW_SHOW : SW_HIDE);
+    for (const auto control : {page.apiPid, page.apiCreation, page.apiPidLabel, page.apiCreationLabel})
+    {
+        ::ShowWindow(control, page.liveView && api && !LaunchApiMode(page) ? SW_SHOW : SW_HIDE);
+    }
+    for (const auto control : {page.apiExecutable, page.apiExecutableBrowse, page.apiExecutableLabel})
+    {
+        ::ShowWindow(control, page.liveView && api && LaunchApiMode(page) ? SW_SHOW : SW_HIDE);
+    }
+    ::ShowWindow(page.autoTransfer, page.liveView && api && LiveApiMode(page) ? SW_SHOW : SW_HIDE);
     for (const auto control : {page.apiSession, page.apiBrowse, page.apiPath}) ::ShowWindow(control, page.liveView && file ? SW_SHOW : SW_HIDE);
-    for (const auto control : {page.apiSourceLabel, page.apiPidLabel, page.apiCreationLabel}) ::ShowWindow(control, page.liveView && api ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(page.apiSourceLabel, page.liveView && api ? SW_SHOW : SW_HIDE);
+    for (const auto control : {page.apiNetworkTrafficLabel, page.apiNetworkTraffic})
+    {
+        ::ShowWindow(control, page.liveView && api ? SW_SHOW : SW_HIDE); // JSONL仍可辨识原选择，切换不重置。
+    }
     for (const auto control : {page.apiSessionLabel, page.apiPathLabel}) ::ShowWindow(control, page.liveView && file ? SW_SHOW : SW_HIDE);
     for (const auto control : {page.apiDurationLabel, page.apiDuration}) {
         ::ShowWindow(control, page.liveView && api && !file ? SW_SHOW : SW_HIDE);
@@ -1818,6 +1860,9 @@ void UpdateLiveControls(Page& page) {
     enable(page.liveStop, busy && !page.retiring && (!page.liveStopRequested || retry));
     enable(page.liveFollow, ApiMode(page) ? !page.retiring && CanReplayApi(page) : busy || page.liveProjection.has_value());
     for (const auto control : {page.liveApi, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiBrowse, page.apiDuration}) enable(control, !busy && !page.retiring);
+    enable(page.apiExecutableBrowse, !busy && !page.retiring); // 运行期间冻结EXE选择，已有草稿不被实际PID改写。
+    enable(page.autoTransfer, !busy && !page.retiring);
+    enable(page.apiNetworkTraffic, ApiMode(page) && LiveApiMode(page) && !busy && !page.retiring);
     const wchar_t* stopText = retry ? L"重试清退" : L"停止采集";
     wchar_t current[32]{};
     ::GetWindowTextW(page.liveStop, current, static_cast<int>(std::size(current)));
@@ -1961,11 +2006,37 @@ void StartLive(Page& page) {
     const bool api = ApiMode(page);
     HWND pidBox = api ? page.apiPid : page.livePid;
     const auto pid = ReadPositiveDecimal(pidBox, 10);
-    request.pid = pid <= MAXDWORD ? static_cast<DWORD>(pid) : 0;
+    request.pid = api && LaunchApiMode(page) ? 0 : pid <= MAXDWORD ? static_cast<DWORD>(pid) : 0;
     page.liveInputError.clear();
     const auto source = ::SendMessageW(page.apiSource, CB_GETCURSEL, 0, 0); // 当前草稿只能选择一种来源。
-    if (api && (source < 0 || source > 2)) {
-        page.liveInputError = L"请选择一种 API 来源；文件、合作已装载与显式附加不能混用。";
+    if (api && (source < 0 || source > 3)) {
+        page.liveInputError = L"请选择一种 API 来源；JSONL、合作已装载、显式附加与启动EXE不能混用。";
+    } else if (api && LaunchApiMode(page)) {
+        const int length = ::GetWindowTextLengthW(page.apiExecutable); // 只冻结独立路径，不读取隐藏PID输入。
+        if (!length)
+        {
+            page.liveInputError = L"请选择已授权的普通 AMD64 EXE。";
+            ::SetFocus(page.apiExecutableBrowse);
+        }
+        else
+        {
+            request.api.emplace();
+            request.api->launched = true;
+            request.api->executable.resize(static_cast<std::size_t>(length) + 1);
+            request.api->executable.resize(static_cast<std::size_t>(::GetWindowTextW(page.apiExecutable,
+                request.api->executable.data(), length + 1)));
+            request.api->autoTransfer = ::SendMessageW(page.autoTransfer, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            const auto index = ::SendMessageW(page.apiDuration, CB_GETCURSEL, 0, 0); // 本次Ready后时限。
+            const auto duration = index == CB_ERR ? CB_ERR : ::SendMessageW(page.apiDuration, CB_GETITEMDATA, index, 0);
+            if (duration == CB_ERR || duration < 0 || duration > 120000)
+            {
+                page.liveInputError = L"请选择采集时限；0 表示持续采集，有限区间从 Ready 起算。";
+            }
+            else
+            {
+                request.api->durationMs = static_cast<DWORD>(duration);
+            }
+        }
     } else if (!request.pid) {
         page.liveInputError = L"请输入有效的十进制 PID。";
         ::SetFocus(pidBox);
@@ -1977,6 +2048,7 @@ void StartLive(Page& page) {
         } else {
             request.api = NativeLiveApiSource{{}, 0, creation, CooperativeMode(page)};
             request.api->explicitAttachment = AttachmentMode(page); // 不带文件/session，保持草稿但不提交隐藏字段。
+            request.api->autoTransfer = ::SendMessageW(page.autoTransfer, BM_GETCHECK, 0, 0) == BST_CHECKED;
             const auto durationIndex = ::SendMessageW(page.apiDuration, CB_GETCURSEL, 0, 0); // 本次冻结的时限选项。
             const auto duration = durationIndex == CB_ERR ? CB_ERR :
                 ::SendMessageW(page.apiDuration, CB_GETITEMDATA, durationIndex, 0); // 数据直接使用毫秒，不靠标签授权。
@@ -2006,6 +2078,25 @@ void StartLive(Page& page) {
     } else if (::IsEqualGUID(*request.provider, kSysmonProvider)) {
         page.liveInputError = L"ActionAnalyze 不支持 Sysmon ETW 提供程序。";
         ::SetFocus(page.liveProvider);
+    }
+    if (page.liveInputError.empty() && request.api && LiveApiMode(page))
+    {
+        // 在已有实例确认框前冻结来源；后端在原worker、同一sample中启动与关闭网络。
+        const auto networkSource = ::SendMessageW(page.apiNetworkTraffic, CB_GETCURSEL, 0, 0); // 三值来源草稿。
+        using Backend = Ksword::ActionAnalyze::NetworkTrafficBackend; // 使用共享定义，不重复声明后端枚举。
+        if (networkSource == 1)
+        {
+            request.api->networkTraffic = Backend::RawSocket;
+        }
+        else if (networkSource == 2)
+        {
+            request.api->networkTraffic = Backend::ExistingWfp;
+        }
+        else if (networkSource != 0)
+        {
+            page.liveInputError = L"请选择网络采集来源：不采集、raw-socket 或 existing-wfp。";
+            ::SetFocus(page.apiNetworkTraffic);
+        }
     }
     if (!page.liveInputError.empty()) {
         UpdateStatus(page);
@@ -2105,7 +2196,7 @@ LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UIN
     if (msg == WM_KEYDOWN && wp == VK_TAB) {
         const std::array order{ page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
             page.liveApi, page.livePid, page.liveProvider, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiDuration, page.apiBrowse, page.apiPath,
-            page.liveStart, page.liveStop, page.liveFollow,
+            page.apiExecutable, page.apiExecutableBrowse, page.apiNetworkTraffic, page.autoTransfer, page.liveStart, page.liveStop, page.liveFollow,
             page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
             page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
             page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
@@ -2155,13 +2246,20 @@ bool CreateControls(Page& page) {
         0, 0, 0, 0, apiBody, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiSource)), ::GetModuleHandleW(nullptr), nullptr);
     if (!page.apiSource || ::SendMessageW(page.apiSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"JSONL 跟随")) != 0 ||
         ::SendMessageW(page.apiSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"合作已装载")) != 1 ||
-        ::SendMessageW(page.apiSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"显式附加")) != 2) return false;
+        ::SendMessageW(page.apiSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"显式附加")) != 2 ||
+        ::SendMessageW(page.apiSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"启动EXE并采集")) != 3) return false;
     ::SendMessageW(page.apiSource, CB_SETCURSEL, 0, 0);
     page.apiPid = MakeEdit(apiBody, kApiPid, ES_AUTOHSCROLL | ES_NUMBER);
     page.apiSession = MakeEdit(apiBody, kApiSession, ES_AUTOHSCROLL | ES_NUMBER);
     page.apiCreation = MakeEdit(apiBody, kApiCreation, ES_AUTOHSCROLL | ES_NUMBER);
+    page.autoTransfer = ::CreateWindowExW(0, L"BUTTON", L"自动接管跨进程私有执行目标",
+        WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0, apiBody,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoTransfer)), ::GetModuleHandleW(nullptr), nullptr);
     page.apiBrowse = Ui::CreateButton(apiBody, kApiBrowse, L"选择授权 JSONL…", 0, 0, 0, 0);
     page.apiPath = MakeEdit(apiBody, kApiPath, ES_AUTOHSCROLL | ES_READONLY);
+    page.apiExecutable = MakeEdit(apiBody, kApiExecutable, ES_AUTOHSCROLL | ES_READONLY);
+    page.apiExecutableBrowse = Ui::CreateButton(apiBody, kApiExecutableBrowse, L"选择 EXE…", 0, 0, 0, 0);
+    page.apiExecutableLabel = Ui::CreateText(apiBody, 0, L"启动 EXE", 0, 0, 0, 0);
     page.apiSourceLabel = Ui::CreateText(apiBody, 0, L"API 来源", 0, 0, 0, 0);
     page.apiPidLabel = Ui::CreateText(apiBody, 0, L"来源 PID", 0, 0, 0, 0);
     page.apiCreationLabel = Ui::CreateText(apiBody, 0, L"进程创建 FILETIME", 0, 0, 0, 0);
@@ -2179,6 +2277,18 @@ bool CreateControls(Page& page) {
             ::SendMessageW(page.apiDuration, CB_SETITEMDATA, index, seconds * 1000) == CB_ERR) return false;
     }
     ::SendMessageW(page.apiDuration, CB_SETCURSEL, 0, 0);
+    // 原参数正文中的网络选择器只保存草稿，默认不启用；两个采集来源不做隐式回退。
+    page.apiNetworkTrafficLabel = Ui::CreateText(apiBody, 0, L"网络采集", 0, 0, 0, 0);
+    page.apiNetworkTraffic = ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
+        0, 0, 0, 0, apiBody, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApiNetworkTraffic)), ::GetModuleHandleW(nullptr), nullptr);
+    if (!page.apiNetworkTraffic || !page.apiNetworkTrafficLabel ||
+        ::SendMessageW(page.apiNetworkTraffic, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"不采集")) != 0 ||
+        ::SendMessageW(page.apiNetworkTraffic, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"raw-socket")) != 1 ||
+        ::SendMessageW(page.apiNetworkTraffic, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"existing-wfp")) != 2)
+    {
+        return false;
+    }
+    ::SendMessageW(page.apiNetworkTraffic, CB_SETCURSEL, 0, 0);
     page.liveStart = Ui::CreateButton(page.hwnd, kLiveStart, L"开始采集", 0, 0, 0, 0, Ui::ButtonRole::Primary);
     page.liveStop = Ui::CreateButton(page.hwnd, kLiveStop, L"停止采集", 0, 0, 0, 0);
     page.liveFollow = Ui::CreateButton(page.hwnd, kLiveFollow, L"暂停跟随", 0, 0, 0, 0);
@@ -2205,7 +2315,8 @@ bool CreateControls(Page& page) {
         ::GetModuleHandleW(nullptr), nullptr);
     page.locateEvidence = Ui::CreateButton(page.hwnd, kLocateEvidence, L"定位原始记录", 0, 0, 0, 0);
     if (!page.switchView || !page.livePid || !page.liveProvider || !page.liveStart || !page.liveStop || !page.liveFollow ||
-        !page.liveApi || !page.apiPid || !page.apiSession || !page.apiCreation || !page.apiBrowse || !page.apiPath ||
+        !page.apiExecutable || !page.apiExecutableBrowse || !page.apiExecutableLabel ||
+        !page.liveApi || !page.apiPid || !page.apiSession || !page.apiCreation || !page.apiBrowse || !page.apiPath || !page.autoTransfer ||
         !page.apiSourceLabel || !page.apiPidLabel || !page.apiCreationLabel || !page.apiSessionLabel || !page.apiPathLabel || !page.apiDurationLabel ||
         !page.createProject || !page.open || !page.retry || !page.actions || !page.capability || !page.categories || !page.filterLabel ||
         !page.filter || !page.etwOnly || !page.apiOnly || !page.networkOnly || !page.evidenceFamilyLabel ||
@@ -2228,6 +2339,7 @@ bool CreateControls(Page& page) {
     ::SendMessageW(page.apiSession, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"源会话 ID"));
     ::SendMessageW(page.apiCreation, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"创建 FILETIME"));
     ::SendMessageW(page.apiPath, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"未选择 JSONL"));
+    ::SendMessageW(page.apiExecutable, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"未选择 EXE"));
     UpdateLiveMode(page);
     ::EnableWindow(page.retry, FALSE);
     ::EnableWindow(page.categories, FALSE);
@@ -2291,17 +2403,21 @@ bool CreateControls(Page& page) {
     AddButtonTip(page.tooltip, page.hwnd, page.liveProvider, L"输入 ETW 提供程序 GUID 以观察指定进程并将记录归档");
     AddButtonTip(page.tooltip, page.hwnd, page.liveStop, L"停止观察并清退本次采集会话，可重试失败的清退");
     AddButtonTip(page.tooltip, page.hwnd, page.liveApi, L"选中时使用 API 来源；未选中时使用 ETW");
-    AddButtonTip(page.tooltip, page.hwnd, page.apiSource, L"JSONL 使用文件声明的会话。合作已装载只连接现有 Agent；显式附加经确认后装载匹配架构 Agent。活采不使用文件或外部会话 ID。");
+    AddButtonTip(page.tooltip, page.hwnd, page.apiSource, L"JSONL 跟随、合作已装载、显式附加、启动EXE并采集四选一；启动EXE在入口停止后自动附加 Agent，Ready后恢复主线程，此前TLS/loader不在覆盖范围。");
+    AddButtonTip(page.tooltip, page.hwnd, page.apiExecutableBrowse, L"选择普通 AMD64 EXE；开始后自动创建并采集，不需要手填PID或另行附加。");
+    AddButtonTip(page.tooltip, page.hwnd, page.apiExecutable, L"本次待启动EXE的独立路径；原JSONL和已有实例草稿保留，实际PID与创建时间见回执。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiSession, L"填写来源声明中的源会话 ID（十进制）");
     AddButtonTip(page.tooltip, page.hwnd, page.apiCreation, L"填写源进程或活采目标的创建 FILETIME（十进制）；与 PID 一起冻结实例。");
+    AddButtonTip(page.tooltip, page.hwnd, page.autoTransfer, L"在已覆盖的线程创建、APC和上下文调用前自动解析私有范围并设防；执行命中保存后自动继续，失败单独报告。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiPid, L"填写明确授权目标或 JSONL 来源的十进制 PID，创建时间不匹配时拒绝采集。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiBrowse, L"选择明确授权的本地 API JSONL；切到活采时保留文件草稿但不提交它。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiDuration, L"从 Agent Ready 与覆盖核验通过后计时，最多 120 秒；0 表示持续采集。");
+    AddButtonTip(page.tooltip, page.hwnd, page.apiNetworkTraffic, L"与 API 使用同一采样和写入线程，网络从 Agent Ready 前开始并随采集清退；仅根 PID 线索，不包含后代归属。JSONL 跟随不启用。");
     AddButtonTip(page.tooltip, page.hwnd, page.liveStart, L"按当前项目和来源开始采集；显式附加先确认精确实例。活采时限从 Ready 起算，0 为持续。");
     AddButtonTip(page.tooltip, page.hwnd, page.liveFollow, L"回放本次 API 采样，或暂停、恢复 ETW 结果更新");
     for (HWND child : {page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
         page.liveApi, page.livePid, page.liveProvider, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiDuration, page.apiBrowse, page.apiPath,
-        page.liveStart, page.liveStop, page.liveFollow,
+        page.autoTransfer, page.apiExecutable, page.apiExecutableBrowse, page.apiNetworkTraffic, page.liveStart, page.liveStop, page.liveFollow,
         page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
         page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
         page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
@@ -2362,7 +2478,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         const auto child = reinterpret_cast<HWND>(lp);
         auto& theme = Ui::AppTheme();
         const auto dc = reinterpret_cast<HDC>(wp);
-        if (child == page->details || child == page->status || child == page->apiPath) {
+        if (child == page->details || child == page->status || child == page->apiPath || child == page->apiExecutable) {
             ::SetTextColor(dc, theme.textColor);
             ::SetBkColor(dc, theme.panelColor);
             return reinterpret_cast<LRESULT>(theme.panelBrush());
@@ -2382,7 +2498,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 LOWORD(wp) == kPrepareExecutionRange) : std::nullopt;
             if (draft && !PrepareExecutionGroupEvidenceDraft(hwnd, *draft))
             {
-                page->requestStatus = L"执行集合未接收草稿：请先清退并返回草稿，检查重复 PID 或 16 个成员上限。";
+                page->requestStatus = L"执行集合未接收草稿：请先清退并返回草稿，检查重复 PID。";
                 UpdateStatus(*page);
             }
             return 0;
@@ -2403,6 +2519,9 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             case kApiBrowse:
                 if (page->liveView && ApiMode(*page) && !LiveApiMode(*page) && !page->liveStatus.active) BrowseApi(*page);
                 return 0;
+            case kApiExecutableBrowse:
+                if (page->liveView && ApiMode(*page) && LaunchApiMode(*page) && !page->liveStatus.active) BrowseApi(*page);
+                return 0;
             case kLiveStart: StartLive(*page); return 0;
             case kLiveStop:
                 page->liveStopRequested = true;
@@ -2420,6 +2539,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             (HIWORD(wp) == CBN_CLOSEUP || (HIWORD(wp) == CBN_SELCHANGE && !::SendMessageW(page->apiSource, CB_GETDROPPEDSTATE, 0, 0)))) {
             page->liveInputError.clear();
             UpdateLiveMode(*page);
+            UpdateLiveControls(*page); // 来源切换即同步网络选择资格，JSONL禁用且不重置草稿。
             Layout(*page);
             UpdateStatus(*page);
         }
@@ -2569,8 +2689,11 @@ HWND CreateActionAnalyzeExecutionWorkspace(HWND parent, const RECT& bounds) {
     return Ui::CreateWorkspaceHost(parent, bounds, {
         {1, L"工程、采集与进程控制", L"原有工程、单目标停点和进程集合控制工作台。",
             [](HWND host, const RECT& area) { return CreateActionAnalyzeControlWorkspace(host, area); }},
-        {2, L"执行断点集合", L"冻结1–16个显式进程站点，逐成员暂停、继续、步进和清退。",
+        {2, L"执行断点集合", L"冻结明确选择的进程站点，逐成员暂停、继续、步进和清退。",
             [](HWND host, const RECT& area) { return CreateExecutionGroupPage(host, area); }},
+        // 稳定目录ID=3；直接进入原网络页，不复制采集器或另建宿主线程。
+        {3, L"网络流量", L"选择目标进程并查看归档网络流量。",
+            [](HWND host, const RECT& area) { return CreateNetworkTrafficPage(host, area); }},
     }, std::move(options));
 }
 

@@ -23,6 +23,7 @@
 #include "ApiSectionMapObservation.h"
 #include "ApiMemoryLifecycleObservation.h"
 #include "../../shared/ApiMonitorInjection.h"
+#include "../../shared/ApiTransferHandoffProtocol.h"
 #ifdef _M_IX86
 #include "../../APIMonitor_x86/hook/EntryStubs.h"
 #endif
@@ -3042,6 +3043,30 @@ namespace apimon
             return resultHandle;
         }
 
+        // 调用者的ScopedHookGuard覆盖身份查询、同步交接和原API，避免嵌套重复观察。
+        // 输入强实例、请求入口与入口种类；无返回值，失败通过独立原包报告，原API参数不变。
+        void PrepareTransferExecution(std::uint64_t pid, std::uint64_t creation,
+            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind)
+        {
+            const auto& endpoint = ActiveConfig().transferHandoff;
+            if (endpoint.pipeName.empty() || !pid || pid == GetCurrentProcessId() || pid > MAXDWORD || !creation || !address) return;
+            const DWORD savedError = GetLastError();
+            ks::winapi_monitor::TransferHandoffRequest request{};
+            request.kind = static_cast<DWORD>(kind);
+            request.targetPid = static_cast<DWORD>(pid);
+            request.targetCreation = creation;
+            request.address = address;
+            ks::winapi_monitor::TransferHandoffResponse response{};
+            const bool armed = ks::winapi_monitor::requestTransferHandoff(endpoint, request, response);
+            const DWORD error = armed ? ERROR_SUCCESS : GetLastError();
+            wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
+            swprintf_s(detail, L"handoff-v1 targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
+                request.targetPid, creation, address, armed ? 1u : 0u, response.rangeBase, response.rangeBytes, error);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ActionAnalyze", L"TransferHandoff",
+                error, detail, true, armed ? 1 : 0, ApiCallDuration{});
+            SetLastError(savedError);
+        }
+
         // HookedCreateRemoteThread：processHandle/startAddress 为原目标和请求入口；其余原参数原样转发。
         // 仅采集真实返回线程身份，不解引用 threadIdPointer，也不证明该线程实际执行。
         HANDLE WINAPI HookedCreateRemoteThread(HANDLE processHandle, LPSECURITY_ATTRIBUTES threadAttributesPointer, SIZE_T stackSize, LPTHREAD_START_ROUTINE startAddress, LPVOID parameterPointer, DWORD creationFlags, LPDWORD threadIdPointer)
@@ -3053,6 +3078,8 @@ namespace apimon
             // observation：冻结进程身份和原请求入口，调用后采集返回线程身份。
             ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
                 processHandle, reinterpret_cast<std::uintptr_t>(startAddress), 0);
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                observation.fields().startAddress, ks::winapi_monitor::TransferHandoffKind::ThreadCreate);
             const auto callClock = BeginApiCallClock(); // 原调用耗时计时起点。
             observation.MarkEntry();
             HANDLE resultHandle = g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); // 原返回句柄。
@@ -3064,6 +3091,37 @@ namespace apimon
                 resultHandle != nullptr ? 0 : lastError, L"", true, ApiReturnBits(resultHandle), duration,
                 0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
             ::SetLastError(lastError);
+            return resultHandle;
+        }
+
+        // CreateRemoteThreadEx直接调用也必须先交接；输入原API参数，输出原句柄和LastError。
+        // 不读取调用者的输出指针，成功后从返回线程句柄取得真实线程身份。
+        HANDLE WINAPI HookedCreateRemoteThreadEx(HANDLE processHandle, LPSECURITY_ATTRIBUTES threadAttributes,
+            SIZE_T stackSize, LPTHREAD_START_ROUTINE startAddress, LPVOID parameterPointer, DWORD creationFlags,
+            LPPROC_THREAD_ATTRIBUTE_LIST attributeListPointer, LPDWORD threadIdPointer)
+        {
+            ScopedHookGuard guardValue; // 同名入口与内部NtCreateThreadEx只记录最外层调用。
+            if (guardValue.bypass())
+            {
+                return g_createRemoteThreadExOriginal(processHandle, threadAttributes, stackSize, startAddress,
+                    parameterPointer, creationFlags, attributeListPointer, threadIdPointer);
+            }
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
+                processHandle, reinterpret_cast<std::uintptr_t>(startAddress), 0); // 固定调用双方实例与请求入口。
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                observation.fields().startAddress, ks::winapi_monitor::TransferHandoffKind::ThreadCreate);
+            const auto callClock = BeginApiCallClock(); // 只计原API执行，不把布防等待并入其耗时。
+            observation.MarkEntry();
+            HANDLE resultHandle = g_createRemoteThreadExOriginal(processHandle, threadAttributes, stackSize,
+                startAddress, parameterPointer, creationFlags, attributeListPointer, threadIdPointer); // 原始返回句柄。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原API耗时。
+            const DWORD lastError = GetLastError(); // 观察查询不改变调用者随后读取的错误码。
+            observation.CompleteThread(resultHandle != nullptr, resultHandle);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateRemoteThreadEx",
+                resultHandle != nullptr ? 0 : lastError, L"", true, ApiReturnBits(resultHandle), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
+            SetLastError(lastError);
             return resultHandle;
         }
 
@@ -3236,6 +3294,8 @@ namespace apimon
             }
             // observation：冻结 threadHandle 身份、apcRoutinePointer 和 dataValue 原请求。
             ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer), dataValue);
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const DWORD resultValue = g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue); // 原 DWORD 返回。
@@ -3283,6 +3343,9 @@ namespace apimon
                 return g_setThreadContextOriginal(threadHandle, contextPointer);
             }
             ApiContextObservation observation(threadHandle, contextPointer); // 原目标及安全读取的请求快照。
+            if (observation.fields().flags & Ksword::Evidence::ApiContextControlRegisters)
+                PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                    observation.fields().requestedIp, ks::winapi_monitor::TransferHandoffKind::Context);
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const BOOL resultValue = g_setThreadContextOriginal(threadHandle, contextPointer); // 原 BOOL 返回。
@@ -4877,6 +4940,8 @@ namespace apimon
             // observation：原目标身份、请求入口与成功返回线程身份。
             ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
                 processHandle, reinterpret_cast<std::uintptr_t>(startRoutinePointer), 0);
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                observation.fields().startAddress, ks::winapi_monitor::TransferHandoffKind::ThreadCreate);
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const NTSTATUS statusValue = g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer); // 原 NTSTATUS。
@@ -5197,6 +5262,8 @@ namespace apimon
             ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer),
                 reinterpret_cast<std::uintptr_t>(argument1Pointer), reinterpret_cast<std::uintptr_t>(argument2Pointer),
                 reinterpret_cast<std::uintptr_t>(argument3Pointer));
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const NTSTATUS statusValue = g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); // 原 NTSTATUS。
@@ -5219,9 +5286,16 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntQueueApcThreadExOriginal(threadHandle, reserveHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); }
+            // 扩展APC也先用原线程句柄查询强实例；Reserve和三个参数仍原样传递。
+            ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer),
+                reinterpret_cast<std::uintptr_t>(argument1Pointer), reinterpret_cast<std::uintptr_t>(argument2Pointer),
+                reinterpret_cast<std::uintptr_t>(argument3Pointer)); // 本轮冻结目标身份，不读取参数正文。
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntQueueApcThreadExOriginal(threadHandle, reserveHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
             const auto duration = EndApiCallClock(callClock);
+            const DWORD lastError = ::GetLastError(); // 身份观察和发包后恢复原调用错误值。
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
@@ -5232,6 +5306,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ::SetLastError(lastError);
             return statusValue;
         }
 
@@ -5306,6 +5381,9 @@ namespace apimon
                 return g_ntSetContextThreadOriginal(threadHandle, contextPointer);
             }
             ApiContextObservation observation(threadHandle, contextPointer); // 原身份与安全读取的请求快照。
+            if (observation.fields().flags & Ksword::Evidence::ApiContextControlRegisters)
+                PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                    observation.fields().requestedIp, ks::winapi_monitor::TransferHandoffKind::Context);
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const NTSTATUS statusValue = g_ntSetContextThreadOriginal(threadHandle, contextPointer); // 原 NTSTATUS。

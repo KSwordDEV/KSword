@@ -2,6 +2,8 @@
 #include "ProjectApiCheckpoint.h"
 #include "ProjectEtwEvidence.h"
 #include "ProjectStorage.h"
+#include "ApiTransferHandoff.h"
+#include "NetworkTrafficRead.h"
 #include "../../../shared/ApiMonitorPlatform.h"
 #include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 
@@ -43,6 +45,11 @@ std::string ApiPlan(const ProjectInfo& project, const SampleRecord& sample, cons
     if (target.mode == ApiCaptureMode::ExplicitAttachment) {
         fields.emplace_back("captureMode", Text("explicit-r3-attachment"));
     }
+    if (target.autoTransfer)
+    {
+        // 计划冻结多来源能力，原包身份仍逐条来自各自核验过的Agent管道。
+        fields.emplace_back("multiProcessApi", JsonValue::makeBool(true));
+    }
     if (!database.presetSet.empty()) {
         fields.emplace_back("rulePresetSet", Text(database.presetSet)); // 同一次采样的每段使用同一版本。
         fields.emplace_back("ruleSourceSha256", Text(database.sourceSha256)); // 与实际解析字节对应。
@@ -55,18 +62,30 @@ std::string ApiPlan(const ProjectInfo& project, const SampleRecord& sample, cons
 
 // 将本批普通包按连续源序号写入。空包批次只用于真实管道的终段。
 ProjectResult CommitApiPackets(ProjectDocument& document, const SampleInfo& sample, std::string_view plan,
-    std::span<const Monitor::ApiMonitorEventPacket> packets, std::uint64_t creation, std::string_view end,
+    std::span<const Monitor::ApiMonitorEventPacket> packets, std::span<const std::uint64_t> creations,
+    bool multiProcess, std::string_view end,
     ProjectApiCheckpoint& checkpoint, Archive::RawEvidenceReceipt& receipt)
 {
+    if (packets.size() != creations.size())
+    {
+        return Failure(ProjectError::InvalidArgument, "apiPacketIdentityCount");
+    }
     std::vector<std::string> metadata; // 原包的元数据由本次调用持有至读回完成。
     metadata.reserve(packets.size());
     std::vector<Archive::RawEvidenceInput> records; // 借用计划、元数据和未改写的原包字节。
     records.reserve(packets.size() + 2);
     records.push_back({plan, {}});
     auto sequence = checkpoint.lastSourceSequence; // 源序与封装序列使用各自坐标。
-    for (const auto& packet : packets) {
-        metadata.push_back(Evidence::WriteJson(Object({{"kind", Text(kApiFollowPacketKind)},
-            {"sourceSequence", Number(++sequence)}, {"readerCreation100ns", Number(creation)}})));
+    for (std::size_t index = 0; index < packets.size(); ++index) {
+        const auto& packet = packets[index]; // 同一位置的原包与核验过的来源创建时间共同冻结。
+        JsonObject identity{{"kind", Text(kApiFollowPacketKind)},
+            {"sourceSequence", Number(++sequence)}, {"readerCreation100ns", Number(creations[index])}};
+        if (multiProcess)
+        {
+            identity.emplace_back("readerPid", JsonValue::makeUInt(packet.pid));
+            identity.emplace_back("sessionIdentity", Number(packet.sessionIdentity));
+        }
+        metadata.push_back(Evidence::WriteJson(Object(std::move(identity))));
         records.push_back({metadata.back(), {reinterpret_cast<const char*>(&packet), sizeof(packet)}});
     }
     if (!end.empty()) {
@@ -126,6 +145,39 @@ Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor
     });
 }
 
+// 网络与API共用原sample，回执保留弱PID线索边界及独立来源/归档/清退结果。
+Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCaptureReceipt>& network)
+{
+    if (!network)
+    {
+        return JsonValue::makeNull();
+    }
+    const auto& receipt = *network; // 原worker完成采集后冻结的网络结果。
+    JsonArray diagnostics; // 完整源诊断，不查询当前抓包服务补值。
+    for (const auto& diagnostic : receipt.diagnostics)
+    {
+        diagnostics.push_back(Text(diagnostic));
+    }
+    return Object({
+        {"status", Text(ProjectErrorName(receipt.status.error))},
+        {"detail", Text(receipt.status.detail)},
+        {"win32Error", JsonValue::makeUInt(receipt.status.nativeError)},
+        {"reason", Text(receipt.reason)},
+        {"sourceReady", JsonValue::makeBool(receipt.sourceReady)},
+        {"cleanupConfirmed", JsonValue::makeBool(receipt.cleanupConfirmed)},
+        {"packets", Number(receipt.packets)},
+        {"capturedBytes", Number(receipt.capturedBytes)},
+        {"queueDropped", Number(receipt.queueDropped)},
+        {"sourceGap", Number(receipt.sourceGap)},
+        {"unsupportedPackets", Number(receipt.unsupportedPackets)},
+        {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
+        {"targetScope", Text("root-process-pid-hints")},
+        {"eventTimeProcessIdentity", JsonValue::makeNull()},
+        {"coverage", Text("unknown")},
+        {"diagnostics", JsonValue::makeArray(std::move(diagnostics))}
+    });
+}
+
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady, const CooperativeApiCommitted& onCommitted,
     const CooperativeApiTransferCommitted& onTransfers, const CooperativeApiStartup& onStartup)
@@ -155,8 +207,34 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     }
     request.durationMs = target.durationMs;
     request.eventLimit = 0; // 由项目端分段归档，不重复缓存旧展示数据。
-    request.onResidentReady = onReady; // 直接传递已核验的启动回执，避免桌面端重新解释协议。
-    request.onStartupProgress = onStartup; // 与原包回调同线程，阶段事实不经UI或规则重新推断。
+    ApiTransferHandoff* activeHandoff = nullptr; // 仅借用稍后创建的服务，Ready回调不拥有其生命周期。
+    std::uint64_t rootSession = 0; // 根Agent真实会话，子来源先有普通包时仍由它生成稳定段首计划。
+    std::optional<ULONGLONG> readyAt; // 整条转移链沿根来源真实Ready计时，根退出不重新计时。
+    request.onResidentReady = [&](std::uint64_t session, std::uint64_t revision)
+    {
+        rootSession = session;
+        readyAt = GetTickCount64();
+        if (activeHandoff)
+        {
+            activeHandoff->OriginalSourceReady(session, revision);
+        }
+        if (onReady)
+        {
+            onReady(session, revision);
+        }
+    };
+    request.onStartupProgress = [&](const Monitor::CaptureStartupProgress& progress)
+    {
+        // 管道核验后即可冻结根会话；Hook安装期间出现首个转移也能绑定同一计划。
+        if (progress.session)
+        {
+            rootSession = progress.session;
+        }
+        if (onStartup)
+        {
+            onStartup(progress);
+        }
+    };
 
     const auto database = Rules::LoadApiPresetDatabase(); // 采集途中编辑文件不会更换规则。
     out.rules.presetSet = database.presetSet;
@@ -224,14 +302,16 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     std::string plan; // 由首个核验原包绑定实际管道会话。
     std::vector<Monitor::ApiMonitorEventPacket> pending; // 单批内存上限，包含分类和未分类原包。
     pending.reserve(kApiBatchPackets);
+    std::vector<std::uint64_t> pendingCreations; // 与pending同索引，保持各实际来源的强实例身份。
+    pendingCreations.reserve(kApiBatchPackets);
     std::uint64_t receivedClues = 0; // 根据验证过的普通包计算待归档与已提交的差额。
     std::uint64_t pendingClues = 0; // 本批可从原包重新投影的线索数。
     auto batchStarted = GetTickCount64(); // 当前批次开始缓冲的时间。
     bool notifyCommitted = static_cast<bool>(onCommitted); // 终态回执独立于实时通知。
     bool notifyTransfers = static_cast<bool>(onTransfers); // 消费端显示故障不停止原始采集清退。
     const auto commit = [&](std::string_view end) {
-        out.archiveStatus = CommitApiPackets(document, out.sample, plan, pending, target.creationFileTime,
-            end, checkpoint, out.archive);
+        out.archiveStatus = CommitApiPackets(document, out.sample, plan, pending, pendingCreations,
+            target.autoTransfer, end, checkpoint, out.archive);
         if (out.archiveStatus) {
             out.archivedPackets = checkpoint.lastSourceSequence;
             out.committedSegments = checkpoint.ordinal;
@@ -301,9 +381,11 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         }
         // 写入失败后保留已发布前缀，继续读取和清退管道，避免重复发布失败段。
         pending.clear();
+        pendingCreations.clear();
         pendingClues = 0;
     };
-    request.onVerifiedPacket = [&](const Monitor::ApiMonitorEventPacket& packet) {
+    // 根管道与自动接管管道在原worker串行进入同一批次，不在Agent线程访问项目。
+    const auto acceptPacket = [&](const Monitor::ApiMonitorEventPacket& packet, std::uint64_t creation) {
         if (!IsCooperativeApiCall(packet)) {
             return;
         }
@@ -314,15 +396,85 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             return;
         }
         if (plan.empty()) {
-            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, packet.sessionIdentity, database);
+            const auto session = rootSession ? rootSession : packet.pid == target.pid ? packet.sessionIdentity : 0;
+            if (!session)
+            {
+                out.archiveStatus = Failure(ProjectError::InvalidArgument, "apiRootSessionUnavailable");
+                return;
+            }
+            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, session, database);
         }
         if (pending.empty()) {
             batchStarted = GetTickCount64();
         }
         pending.push_back(packet);
+        pendingCreations.push_back(creation);
         pendingClues += clue;
         if (pending.size() == kApiBatchPackets) {
             commit({});
+        }
+    };
+    request.onVerifiedPacket = [&](const Monitor::ApiMonitorEventPacket& packet)
+    {
+        acceptPacket(packet, target.creationFileTime);
+    };
+
+    // 服务须晚于其回调借用的批次容器构造，异常析构也先排空来源再销毁归档缓冲。
+    std::optional<ApiTransferHandoff> handoff; // 唯一writer线程的自动接管所有者。
+    if (target.autoTransfer)
+    {
+        handoff.emplace(document, out.sample.sampleId, target.pid, target.creationFileTime, cancel,
+            request.agentPath, [&](DWORD pid, std::uint64_t creation, const Monitor::ApiMonitorEventPacket& packet)
+            {
+                // 回调只由handoff原worker排队交付；后台Agent采集线程不访问项目写者。
+                if (pid != packet.pid || !creation)
+                {
+                    out.archiveStatus = Failure(ProjectError::InvalidArgument, "apiTransferPacketIdentity");
+                    return;
+                }
+                acceptPacket(packet, creation);
+            });
+        activeHandoff = &*handoff;
+        if (!target.boundSampleId.empty() || !handoff->Start())
+        {
+            // 已有原生会话有自己的owner和执行流，不能在这里另起竞争者。
+            out.sampleStatus = {ProjectError::InvalidArgument, ERROR_NOT_SUPPORTED, "autoTransferAdmission"};
+            out.transferHandoff = handoff->Describe();
+            return out;
+        }
+        request.transferHandoff = handoff->Endpoint();
+    }
+    std::optional<NetworkTrafficSession> network; // 不申请新writer；原worker同时写API与独立网络流。
+    if (target.networkTraffic)
+    {
+        NetworkTrafficCapturePlan networkPlan; // 绑定根来源，时长由整条API链统一结束。
+        networkPlan.sampleId = out.sample.sampleId;
+        networkPlan.bootId = ReadNetworkTrafficBootId();
+        networkPlan.pid = target.pid;
+        networkPlan.creationFileTime = target.creationFileTime;
+        networkPlan.durationMs = 0;
+        networkPlan.backend = *target.networkTraffic;
+        network.emplace(document, std::move(networkPlan), cancel);
+        const auto beforePublish = request.beforeResidentPublish; // 配套ETW仍沿原核验句柄启动。
+        request.beforeResidentPublish = [&, beforePublish](HANDLE verifiedTarget)
+        {
+            if (beforePublish)
+            {
+                beforePublish(verifiedTarget);
+            }
+            // 新建EXE主线程此时仍挂起，网络源先于Agent Ready后恢复主线程。
+            network->Start();
+        };
+    }
+    request.onControlPoll = [&]
+    {
+        if (handoff)
+        {
+            handoff->Poll();
+        }
+        if (network)
+        {
+            network->Poll();
         }
     };
     request.onResidentPoll = [&]() {
@@ -333,7 +485,59 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     };
 
     // 即使本轮提前结束，也先由原控制器清退，再尝试保存已收取的证据。
+    const auto captureStarted = GetTickCount64(); // 包含根来源、后续来源以及全部清退的本轮耗时。
     out.capture = Monitor::captureApiMonitor(request, cancel);
+    if (handoff) {
+        handoff->OriginalSourceFinished();
+        handoff->Poll();
+        const bool rootExited = !out.capture.processes.empty() && out.capture.processes.front().exited;
+        if (out.capture.started && rootExited && readyAt)
+        {
+            // 根进程自然退出后仍保留已接管来源及在途准入，直到原区间结束、取消或整链退出。
+            while (!cancel.load() && (target.durationMs == 0 || GetTickCount64() - *readyAt < target.durationMs) &&
+                handoff->HasActiveAgents())
+            {
+                request.onControlPoll();
+                request.onResidentPoll();
+                Sleep(5);
+            }
+            out.capture.cancelled = cancel.load();
+            out.capture.intervalElapsedMs = GetTickCount64() - *readyAt;
+            if (target.durationMs && !out.capture.cancelled && *out.capture.intervalElapsedMs >= target.durationMs)
+            {
+                out.capture.completedInterval = true;
+            }
+        }
+        // 先停止并排空各子来源，最后一批仍经同一acceptPacket归档，随后才能封原API终段。
+        handoff->Close();
+        out.capture.elapsedMs = GetTickCount64() - captureStarted;
+        out.capture.cancelled = out.capture.cancelled || cancel.load();
+        out.transferHandoff = handoff->Describe();
+        if (handoff->Incomplete())
+        {
+            // 三端继续使用原采集状态投影；自动接管缺口独立进入回执，不能仍返回全部完成。
+            if (out.capture.code == 0) out.capture.code = 6;
+            out.capture.errors.emplace_back(L"automatic transfer handoff incomplete; inspect transferHandoff receipt");
+        }
+    }
+    if (network)
+    {
+        network->Close(); // 抓包回调结束、队列排空并发布最后网络段后才能封API终段。
+        out.networkTraffic = network->Receipt();
+        const auto& receipt = *out.networkTraffic; // 网络失败保留API已发布前缀并单独报告。
+        const bool failed = !receipt.status || !receipt.sourceReady || !receipt.cleanupConfirmed ||
+            receipt.queueDropped || receipt.sourceGap || receipt.unsupportedPackets ||
+            (receipt.reason != "cancelled" && receipt.reason != "target-exited" &&
+                receipt.reason != "duration-elapsed" && receipt.reason != "stopped");
+        if (failed)
+        {
+            if (out.capture.code == 0)
+            {
+                out.capture.code = 6;
+            }
+            out.capture.errors.emplace_back(L"network capture incomplete; inspect networkTraffic receipt");
+        }
+    }
     if (out.archiveStatus && !out.capture.processes.empty() && out.capture.processes.front().connected) {
         const auto& process = out.capture.processes.front(); // 合作入口固定单个进程实例。
         if (plan.empty()) {
@@ -344,6 +548,8 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             "attachment-ended" : "cooperative-ended"; // 停止原因独立于 Agent 丢失和 EOF。
         JsonObject endFields{{"kind", Text(kApiFollowEndKind)}, {"stopReason", Text(reason)},
             {"startup", ApiCaptureStartupJson(out.capture.startup)},
+            {"transferHandoff", out.transferHandoff},
+            {"networkTraffic", ApiCaptureNetworkJson(out.networkTraffic)},
             {"source", Object({{"kind", Text("cooperative-pipe")}, {"readerPid", JsonValue::makeUInt(process.pid)},
                 {"readerCreation100ns", Number(process.creation)}, {"sessionIdentity", Number(process.session)},
                 {"validatedRows", Number(out.ordinaryPackets)}, {"agentReportedDrops", Number(process.agentDropped)},

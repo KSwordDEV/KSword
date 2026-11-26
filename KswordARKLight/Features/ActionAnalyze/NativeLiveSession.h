@@ -4,6 +4,7 @@
 #include "StoredEvidence.h"
 #include "../../Ui/VirtualListView.h"
 #include "../../../shared/ApiMonitorCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/NetworkTrafficCapture.h"
 
 namespace Ksword::Features::ActionAnalyze {
 
@@ -23,6 +24,11 @@ struct NativeLiveApiSource {
     bool explicitAttachment = false; // 普通目标的显式 R3 附加，与合作模式互斥。
     bool attachmentConfirmed = false; // 针对冻结 PID 与创建 FILETIME 的本轮确认。
     DWORD durationMs = kCooperativeApiDurationMs; // Ready后采集时限，零持续，不由UI计时。
+    bool autoTransfer = false; // 启动冻结的API调用前跨进程私有执行接管策略。
+    bool launched = false; // 第四来源：入口停止后自动附加API Agent。
+    std::wstring executable; // 普通EXE独立路径，不借用JSONL草稿。
+    std::optional<std::uint32_t> entryRva; // 空值使用PE AddressOfEntryPoint。
+    std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 冻结同采样根PID网络源，空值关闭。
 };
 
 struct NativeLiveRequest {
@@ -52,6 +58,10 @@ struct NativeLiveApiReceipt {
     DWORD durationMs = 0; // 结果所属请求的冻结时限，不随下一轮草稿变化。
     bool agentReady = false; // 原控制器启动屏障，独立于三个附加事实及模块存在。
     std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 原worker最后确认的启动阶段，清退和失败不重置。
+    bool launched = false; // 本轮真实来源，显示不依赖当前草稿选择。
+    std::wstring executable; // 冻结的EXE路径，保留结果来源。
+    std::wstring launchProgress; // 共享LaunchedApiProgressJson规范投影。
+    std::wstring networkTraffic; // 原worker返回的ApiCaptureNetworkJson全文，与API状态独立保留。
 };
 
 struct NativeLiveSnapshot {

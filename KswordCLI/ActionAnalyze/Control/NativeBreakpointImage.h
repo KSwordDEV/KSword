@@ -21,9 +21,10 @@ struct NativeImageSite {
 };
 
 // 只解析该进程当前映射的 AMD64 PE；不装载映像，不查远程符号服务器。
+// eventImageBase非零时必须来自已核对身份/文件的原始调试事件，供loader初始化前使用。
 DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
     std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site,
-    std::uint32_t dataBytes = 0, bool allowReadOnlyData = false);
+    std::uint32_t dataBytes = 0, bool allowReadOnlyData = false, std::uintptr_t eventImageBase = 0);
 
 // 读取 AMD64 映像中的指针数据导出，冻结其指向的单个可写私有内存区。
 // 仅选择一次，不跟随之后改变的指针，也不修改目标内存保护。

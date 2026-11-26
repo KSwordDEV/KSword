@@ -4,6 +4,7 @@
 #include "../../CommandRegistry.h"
 #include "../Project/CooperativeApiCapture.h"
 #include "../Project/AttachedApiCapture.h"
+#include "../Project/LaunchedApiCapture.h"
 #include "../Project/ProjectEtwEvidence.h"
 #include "../Project/ProjectApiClueArchive.h"
 #include "../Project/ProjectApiCheckpoint.h"
@@ -466,22 +467,48 @@ Json CooperativeContextTransfersReport(const project::CooperativeApiTransferRece
         {L"contextApplied", Json{}}, {L"execution", Json{}}, {L"recent", Json::array(recent)}});
 }
 
-Result CaptureEvidence(const Args& args, bool attached)
+Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
 {
     const auto title = Utf8Title(args.require(L"--title")); // 冻结到项目的新采样标题。
     const auto duration = args.u32(L"--duration-ms", 3000); // 安装回执及对应覆盖经核验后开始计时。
-    const auto pid = args.u32(L"--pid"); // 显式选择的目标编号。
-    const auto creation = args.integer(L"--creation-filetime"); // 与 PID 一起冻结，不以 PID 单独重绑。
-    if (!args.has(L"--confirm") || pid <= 4 || pid == GetCurrentProcessId() ||
-         !creation || title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
+    auto pid = launch ? DWORD{0} : args.u32(L"--pid"); // 启动模式仅从创建回执取得实际PID。
+    auto creation = launch ? std::uint64_t{0} : args.integer(L"--creation-filetime"); // 已有实例必须冻结创建时间。
+    if (!args.has(L"--confirm") || (!launch && (pid <= 4 || pid == GetCurrentProcessId() || !creation)) ||
+         title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
         (args.has(L"--startup-progress") && args.get(L"--startup-progress") != L"1") ||
         (args.has(L"--agent-etw") && args.get(L"--agent-etw") != L"1")) {
         return Failure(1, attached ? L"invalid-attachment-scope" : L"invalid-resident-capture-scope");
+    }
+    std::optional<std::uint32_t> entryRva; // 启动时省略使用PE入口；显式零值不能偷偷退回默认。
+    if (launch && args.has(L"--rva"))
+    {
+        entryRva = args.u32(L"--rva");
+        if (!*entryRva)
+        {
+            return Failure(1, L"invalid-launch-rva");
+        }
     }
 
     project::ProjectDocument document; // 本轮独占项目写入租约，避免同一采样混用修订。
     if (const auto opened = document.Open(args.require(L"--project"), project::ProjectAccess::ReadWrite); !opened) {
         return Failure(3, L"project-unavailable", 0, opened.nativeError, {}, opened.detail);
+    }
+    std::optional<project::NetworkTrafficBackend> networkTraffic; // 省略时不抓包，显式来源不静默回退。
+    if (args.has(L"--network-traffic"))
+    {
+        const auto source = args.require(L"--network-traffic"); // 原网络页提供的两种实际来源。
+        if (source == L"raw-socket")
+        {
+            networkTraffic = project::NetworkTrafficBackend::RawSocket;
+        }
+        else if (source == L"existing-wfp")
+        {
+            networkTraffic = project::NetworkTrafficBackend::ExistingWfp;
+        }
+        else
+        {
+            return Failure(1, L"invalid-network-traffic-source");
+        }
     }
     const auto revision = document.Info()->revisionId; // 采集启动之前冻住当前保存的修订。
     Cancellation cancel; // 控制台停止由本次采样执行，不终止目标。
@@ -495,10 +522,50 @@ Result CaptureEvidence(const Args& args, bool attached)
             std::wcerr << project::ProjectStorage::WideAscii(evidence::WriteJson(value)) << L'\n';
         };
     }
-    const auto run = attached ? project::CaptureAttachedApi(document,
-        {pid, creation, true, false, duration, title, revision}, *cancel.token, {}, {}, {}, onStartup) :
-        project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw},
+    const bool autoTransfer = args.has(L"--auto-transfer"); // 本轮显式开启API调用前目标自动设防。
+    project::CooperativeApiReceipt run; // 三种准入最终共用同一归档、规则和退出状态投影。
+    std::optional<project::LaunchedApiReceipt> launched; // 自有启动的入口交接责任独立于Agent采集。
+    if (launch)
+    {
+        project::LaunchedApiLaunchProgress onLaunch; // 只有明确选择进度时才写stderr阶段回执。
+        if (args.has(L"--startup-progress"))
+        {
+            onLaunch = [](const project::LaunchedApiProgress& progress)
+            {
+                std::wcerr << project::ProjectStorage::WideAscii(
+                    evidence::WriteJson(project::LaunchedApiProgressJson(progress))) << L'\n';
+            };
+        }
+        launched = project::CaptureLaunchedApi(document,
+            {args.require(L"--exe"), entryRva, duration, title, revision, autoTransfer, networkTraffic},
+            *cancel.token, {}, {}, {}, onStartup, onLaunch);
+        if (launched->launch)
+        {
+            pid = launched->launch->pid;
+            creation = launched->launch->creationFileTime;
+        }
+        run = std::move(launched->api);
+        if (!launched->agentReadyBeforeMainResume && run.sample.sampleId.empty())
+        {
+            // 尚未登记采样的入口故障仍保留启动阶段，不能仅报成项目创建失败。
+            return {cancel.token->load() ? 6 : 3, Json::object({
+                {L"status", Json::string(L"launch-bootstrap-incomplete")},
+                {L"launch", Json{project::ProjectStorage::WideAscii(
+                    evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))}}}), {}};
+        }
+    }
+    else if (attached)
+    {
+        run = project::CaptureAttachedApi(document,
+            {pid, creation, true, false, duration, title, revision, {}, autoTransfer, networkTraffic},
             *cancel.token, {}, {}, {}, onStartup);
+    }
+    else
+    {
+        run = project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw,
+            project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, networkTraffic},
+            *cancel.token, {}, {}, {}, onStartup);
+    }
     if (!run.sampleStatus) {
         return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail);
     }
@@ -523,7 +590,9 @@ Result CaptureEvidence(const Args& args, bool attached)
 
     const auto* etw = run.etw ? &*run.etw : nullptr; // 仅请求时公开独立的 ETW 活采回执。
     const bool etwWriteFailed = etw && (!etw->archiveStatus || !etw->checkpointStatus); // 区分存储故障和来源缺口。
-    const bool incomplete = run.omittedClues || run.rules.failed || (etw && etw->Incomplete()); // 归档与规则各报告缺口。
+    const bool incomplete = run.omittedClues || run.rules.failed || (etw && etw->Incomplete()) ||
+        (launched && (!launched->bootstrapClean || !launched->agentReadyBeforeMainResume ||
+            !launched->initialMainSuspendReleased || launched->error)); // 启动交接不完整同样保留部分结果。
     const int captureCode = captured.code == 0 && incomplete ? 6 : captured.code; // 保留原 API 错误码。
     const int code = archiveResult.code ? archiveResult.code : !run.archiveStatus || etwWriteFailed ? 3 : captureCode;
     const auto* target = root == captured.processes.end() ? nullptr : &*root; // 只投影已绑定的目标实例回执。
@@ -536,8 +605,13 @@ Result CaptureEvidence(const Args& args, bool attached)
         {L"sampleId", Json::string({sample.sampleId.begin(), sample.sampleId.end()})},
         {L"revisionId", Json::string({revision.begin(), revision.end()})},
         {L"pid", Json::number(pid)}, {L"creationFileTime", Json::count(creation)},
+        {L"transferHandoff", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(run.transferHandoff))}},
+        {L"networkTraffic", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
+            project::ApiCaptureNetworkJson(run.networkTraffic)))}},
         {L"residentVerified", Json::boolean(captured.reusedResident)},
-        {L"captureMode", Json::string(attached ? L"explicit-r3-attachment" : L"cooperative-resident")},
+        {L"captureMode", Json::string(launch ? L"launched-r3-attachment" : attached ? L"explicit-r3-attachment" : L"cooperative-resident")},
+        {L"launch", launched ? Json{project::ProjectStorage::WideAscii(
+            evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))} : Json{}},
         {L"attachmentIdentityVerified", attached ? Json::boolean(captured.attachmentIdentityVerified) : Json{}},
         {L"agentLoadAttempted", attached ? Json::boolean(captured.agentLoadAttempted) : Json{}},
         {L"agentModuleVerified", attached ? Json::boolean(captured.agentModuleVerified) : Json{}},
@@ -648,7 +722,7 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command capture; // 合作目标的真实管道和项目归档入口。
     capture.path = L"analyze api-evidence capture";
-    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
+    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
     capture.options = L"Requires an existing project, an explicitly selected cooperative target with the resident product Agent, "
                       L"and its private KSWORD_APIMON_COOPERATIVE_SESSION_V1 directory.";
     capture.summary = L"Collect WinAPI evidence from a cooperative target's resident Agent into a new project sample.";
@@ -657,11 +731,21 @@ void RegisterApiMonitorEvidenceCommands()
                       L"All verified ordinary calls are committed in bounded segments. "
                      L"API rules from profiles/action_analyze_api_rules.json run on committed segments; "
                      L"the result includes their cumulative count and latest source location. "
-                      L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint. "
+                       L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint. "
+                       L"--network-traffic selects the existing packet source and archives root-PID hints and retained bytes to raw-network in the same sample; it uses the original writer and does not decrypt HTTPS. "
                       L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
                       L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
     capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
     addCommand(std::move(capture));
+
+    Command launch; // 普通EXE自动创建、入口交接和附加，复用现有采集结果及回放入口。
+    launch.path = L"analyze api-evidence launch";
+    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--duration-ms MS] [--startup-progress 1] [--json]";
+    launch.summary = L"Launch an AMD64 EXE suspended, hand its entry stop to the product Agent, then archive API calls.";
+    launch.options = L"Select an existing project and a plain EXE. Optional nonzero --rva overrides PE AddressOfEntryPoint. No cooperative exports or manually supplied PID are required. Duration: 1,000-120,000 ms (default 3,000), or 0 until cancellation or exit.";
+    launch.notes = L"The native owner arms entry DR0 before releasing the creation suspension. At the actual main-thread entry stop, the bootstrap takes one explicit main-thread suspension and detaches the debugger. It releases that suspension only after the real Agent Ready and coverage barrier. TLS and earlier loader execution remain outside this entry-based path. --auto-transfer enables automatic private-range discovery and recursive Agent handoff for the same sample. --network-traffic starts the selected existing packet source before Agent Ready releases the main thread, archiving root-PID hints to the same sample without HTTPS decryption. Startup failure terminates only this exact newly created process. --startup-progress 1 emits completed bootstrap and Agent stages to stderr. Replay uses analyze api-evidence replay; saved packet bytes use analyze network-read.";
+    launch.run = [](const Args& args) { return CaptureEvidence(args, true, true); };
+    addCommand(std::move(launch));
 
     Command replay; // 只读重开相同采样，可按序号翻页并选读原包。
     replay.path = L"analyze api-evidence replay";

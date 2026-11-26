@@ -39,7 +39,7 @@
   </ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorPlatform.h" /><ClInclude Include="..\shared\ApiMonitorInjection.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /><ClInclude Include="..\shared\ApiTransferHandoffProtocol.h" /></ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\APIMonitor_x64\core\MonitorDiagnostics.cpp" />
     <ClInclude Include="..\APIMonitor_x64\core\MonitorDiagnostics.h" />

@@ -5,6 +5,7 @@
 #include "../../Ui/BackgroundWork.h"
 #include "../../../KswordCLI/ActionAnalyze/Cli/PassiveApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/LaunchedApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../shared/usermode/backend/process/ProcessControls.h"
 #include "../../../shared/usermode/backend/process/ProcessNavigationIdentity.h"
@@ -228,6 +229,10 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
         run.archivedPackets != run.ordinaryPackets || (capture.started && !last.archive);
     last.state = (capture.code == 0 || partial) ? LiveCaptureState::Stopped : LiveCaptureState::Failed;
     api.details = std::wstring(partial ? L"部分完成" : capture.code == 0 ? L"采样完成" : L"采样未完成") + L" · " + api.details;
+    if (run.transferHandoff.type() != Ksword::Evidence::JsonType::Null)
+    {
+        api.details += L"\r\n自动接管回执=" + Utf8ToWide(Ksword::Evidence::WriteJson(run.transferHandoff)); // 同一正文供原共享文本宿主复制与导出。
+    }
     api.details += L"\r\n普通调用 " + std::to_wstring(run.ordinaryPackets) + L" · 已提交 " +
         std::to_wstring(run.archivedPackets) + L" 包 · 已保留线索 " + std::to_wstring(run.retainedClues) +
         L" · 线索未归档 " + std::to_wstring(run.omittedClues);
@@ -543,7 +548,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
         try {
             if (StopRequested()) {
                 last.state = LiveCaptureState::Stopped;
-            } else if (!Process::QueryProcessCreationTimeR3(request.pid, last.creationFileTime, &identity)) {
+            } else if (!request.api->launched && !Process::QueryProcessCreationTimeR3(request.pid, last.creationFileTime, &identity)) {
                 api.details = identity.timeKnown ? L"目标 PID 与创建 FILETIME 不匹配 · 未归档" : L"无法读取目标身份 · 未归档";
                 last.processStage = "cooperativeTargetIdentity";
                 last.processError = identity.openError ? identity.openError : identity.timeError ? identity.timeError : ERROR_NOT_FOUND;
@@ -556,12 +561,11 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                 } else {
                     const auto mode = request.api->explicitAttachment ? Project::ApiCaptureMode::ExplicitAttachment :
                         Project::ApiCaptureMode::CooperativeResident; // 用户确认的模式，不依赖合作标记或探测回退。
-                    const auto title = std::string(request.api->explicitAttachment ? "Attached API / PID " :
-                        "Cooperative API / PID ") + std::to_string(request.pid); // 本采样冻结的非本地化标题。
+                    const auto title = request.api->launched ? std::string("Launched EXE API") :
+                        std::string(request.api->explicitAttachment ? "Attached API / PID " :
+                            "Cooperative API / PID ") + std::to_string(request.pid); // 本采样冻结标题，不伪造PID。
                     Project::CooperativeApiTransferReceipt latestTransfers; // 与最近成功发布的规则水位一同显示。
-                    const auto run = Project::CaptureCooperativeApi(project,
-                        {last.pid, last.creationFileTime, request.api->durationMs, title, frozen.revisionId, false, mode}, stop,
-                        [this, &api](std::uint64_t session, std::uint64_t revision) {
+                    const Project::CooperativeApiReady ready = [this, &api](std::uint64_t session, std::uint64_t revision) {
                             // 回调在本工作线程同步执行，GUI 一次读到同一会话及其修订。
                             api.sourceSessionId = session;
                             api.readyCoverageRevision = revision;
@@ -571,7 +575,8 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             status.api->readyCoverageRevision = revision;
                             status.api->agentReady = true;
                             status.capture.state = LiveCaptureState::Running;
-                        }, [&](const Project::SampleInfo& sample, const Project::ProjectApiCheckpoint& checkpoint,
+                        };
+                    const Project::CooperativeApiCommitted committed = [&](const Project::SampleInfo& sample, const Project::ProjectApiCheckpoint& checkpoint,
                             const Project::CooperativeApiRuleReceipt& rules) {
                             // 同轮更新冻结身份和归档水位，保持活动与清退状态的原有所有权。
                             last.projectId = frozen.projectId;
@@ -592,10 +597,12 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             status.capture.finalCheckpoint = last.finalCheckpoint;
                             status.api->sampleDescriptionHash = api.sampleDescriptionHash;
                             status.api->details = api.details;
-                        }, [&](const Project::CooperativeApiTransferReceipt& transfers) {
+                        };
+                    const Project::CooperativeApiTransferCommitted transferred = [&](const Project::CooperativeApiTransferReceipt& transfers) {
                             // 通知在同一采集线程内先于 onCommitted，无并发借用或重复查询。
                             latestTransfers = transfers;
-                        }, [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
+                        };
+                    const Project::CooperativeApiStartup startupProgress = [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
                             // 只在阶段快照变化时搬运事实，Ready仍只由原onReady回调确认。
                             if (api.startup == startup)
                             {
@@ -611,11 +618,52 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             status.api->attachmentIdentityVerified = api.attachmentIdentityVerified;
                             status.api->agentLoadAttempted = api.agentLoadAttempted;
                             status.api->agentModuleVerified = api.agentModuleVerified;
-                        });
+                        };
+                    Project::CooperativeApiReceipt run; // 原worker唯一项目写者，启动与采集按序执行。
+                    if (request.api->launched)
+                    {
+                        const auto launched = Project::CaptureLaunchedApi(project,
+                            {request.api->executable, request.api->entryRva, request.api->durationMs, title,
+                                frozen.revisionId, request.api->autoTransfer, request.api->networkTraffic}, stop,
+                            ready, committed, transferred, startupProgress, [&](const Project::LaunchedApiProgress& progress) {
+                                if (progress.launch)
+                                {
+                                    last.pid = progress.launch->pid;
+                                    last.creationFileTime = progress.launch->creationFileTime;
+                                }
+                                api.launchProgress = Utf8ToWide(Ksword::Evidence::WriteJson(Project::LaunchedApiProgressJson(progress)));
+                                std::lock_guard lock(mutex); // UI只读事实快照，不查询当前PID。
+                                status.capture.pid = last.pid;
+                                status.capture.creationFileTime = last.creationFileTime;
+                                status.api->launchProgress = api.launchProgress;
+                            });
+                        run = launched.api;
+                        if (launched.error)
+                        {
+                            last.processStage = launched.stage;
+                            last.processError = launched.error;
+                        }
+                    }
+                    else
+                    {
+                        run = Project::CaptureCooperativeApi(project,
+                            {last.pid, last.creationFileTime, request.api->durationMs, title, frozen.revisionId, false, mode,
+                                {}, request.api->autoTransfer, request.api->networkTraffic}, stop,
+                            ready, committed, transferred, startupProgress);
+                    }
+                    if (request.api->networkTraffic || run.networkTraffic)
+                    {
+                        // 原采集Close后搬运同采样网络回执；页面不重新查询现场或按API结果补造网络状态。
+                        api.networkTraffic = Utf8ToWide(Ksword::Evidence::WriteJson(Project::ApiCaptureNetworkJson(run.networkTraffic)));
+                    }
                     last.projectId = frozen.projectId;
                     if (last.sampleId.empty()) last.sampleId = run.sample.sampleId;
                     project.Close(); // 交还写租约后通过正常项目读侧重新核验。
                     ApplyCooperativeReceipt(next, run);
+                    if (last.processError)
+                    {
+                        last.state = LiveCaptureState::Failed; // 默认空管道回执不能把启动故障投影为成功。
+                    }
                 }
             }
         } catch (...) {
@@ -780,19 +828,23 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
     bool invalidApi = false; // 合并同一请求的即时准入结果，不进行系统查询或装载。
     if (request.api) {
         const auto& source = *request.api; // 本次来源模式与强实例参数。
-        const bool live = source.cooperative || source.explicitAttachment; // 两种活管道共用一个 worker。
-        invalidApi = request.provider.has_value() || !request.project || !source.creationFileTime ||
+        const bool live = source.cooperative || source.explicitAttachment || source.launched; // 三种活采共用原worker。
+        invalidApi = request.provider.has_value() || !request.project || (!source.launched && !source.creationFileTime) ||
+            (source.launched && (source.cooperative || source.explicitAttachment || source.attachmentConfirmed ||
+                source.executable.empty() || source.creationFileTime || request.pid)) ||
+            (!source.launched && (!source.executable.empty() || source.entryRva.has_value())) ||
             (source.explicitAttachment && (!source.attachmentConfirmed || source.cooperative)) ||
             (!source.explicitAttachment && source.attachmentConfirmed);
         if (live) {
-            invalidApi = invalidApi || request.pid <= 4 || request.pid == ::GetCurrentProcessId() ||
+            invalidApi = invalidApi || (!source.launched && (request.pid <= 4 || request.pid == ::GetCurrentProcessId())) ||
                 !source.path.empty() || source.sessionIdentity != 0 ||
                 (source.durationMs != 0 && (source.durationMs < 1000 || source.durationMs > 120000));
         } else {
-            invalidApi = invalidApi || source.path.empty() || !source.sessionIdentity || source.durationMs != 0;
+            invalidApi = invalidApi || source.path.empty() || !source.sessionIdentity || source.durationMs != 0 ||
+                source.networkTraffic.has_value(); // JSONL只跟随文件，不启用网络源。
         }
     }
-    if (!request.pid || invalidApi || (!request.api && request.project && !request.provider)) {
+    if ((!request.pid && !(request.api && request.api->launched)) || invalidApi || (!request.api && request.project && !request.provider)) {
         return ERROR_INVALID_PARAMETER;
     }
     try {
@@ -809,12 +861,23 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
                 request.api->sessionIdentity, {}, {}, request.api->cooperative, {}};
             next->status.api->explicitAttachment = request.api->explicitAttachment;
             next->status.api->durationMs = request.api->durationMs;
+            next->status.api->launched = request.api->launched;
+            next->status.api->executable = request.api->executable;
         }
         std::thread([next, lease, request = std::move(request)] {
             try {
-                if (request.api && (request.api->cooperative || request.api->explicitAttachment)) next->RunCooperativeApi(request);
-                else if (request.api) next->RunApi(request);
-                else next->Run(request);
+                if (request.api && (request.api->cooperative || request.api->explicitAttachment || request.api->launched))
+                {
+                    next->RunCooperativeApi(request); // 启动来源仍沿本端唯一worker串行写入项目。
+                }
+                else if (request.api)
+                {
+                    next->RunApi(request);
+                }
+                else
+                {
+                    next->Run(request);
+                }
             } catch (...) {
                 std::lock_guard lock(next->mutex);
                 next->status.active = false;
@@ -889,16 +952,28 @@ NativeLiveSnapshot NativeLiveSession::ReadStatus() const {
 std::wstring FormatLiveStatus(const NativeLiveSnapshot& status) {
     const auto& capture = status.capture; // 本次已确认的目标和可用来源。
     if (status.api) {
-        if (status.api->cooperative || status.api->explicitAttachment) {
-            std::wstring text = status.api->explicitAttachment ? L"显式 API 附加 · " : L"合作 Agent · ";
+        if (status.api->cooperative || status.api->explicitAttachment || status.api->launched) {
+            std::wstring text = status.api->launched ? L"EXE 启动采集 · " : status.api->explicitAttachment ? L"显式 API 附加 · " : L"合作 Agent · ";
             if (status.active) text += status.api->agentReady ? L"采集中 · " : L"等待就绪核验 · ";
-            text += L"PID " + std::to_wstring(capture.pid) + L" · 创建 FILETIME " + std::to_wstring(capture.creationFileTime);
+            if (capture.pid && capture.creationFileTime)
+            {
+                text += L"PID " + std::to_wstring(capture.pid) + L" · 创建 FILETIME " + std::to_wstring(capture.creationFileTime);
+            }
+            else
+            {
+                text += L"等待创建进程实例"; // 创建前不把空手填PID或零值显示成已核验实例。
+            }
             if (const auto& startup = status.api->startup) // 当前运行或终态均沿用同一份最后已确认快照。
             {
                 text += std::wstring(L"\r\n最后确认的启动阶段：") + StartupStageText(startup->stage);
                 text += L" · " + std::to_wstring(startup->elapsedMs) + L" ms";
             }
-            if (status.api->explicitAttachment) {
+            if (status.api->launched)
+            {
+                text += L"\r\n启动 EXE：" + status.api->executable;
+                text += L"\r\n入口交接回执：" + status.api->launchProgress; // 两端同一规范文档，复制导出保留完整字段。
+            }
+            if (status.api->explicitAttachment || status.api->launched) {
                 // 运行回调确认的真值立即显示；未完成字段等待终态，不借旧结果补齐。
                 const auto fact = [&](bool value) {
                     return !value && status.active ? L"等待最终回执" : value ? L"是" : L"否";
@@ -915,6 +990,11 @@ std::wstring FormatLiveStatus(const NativeLiveSnapshot& status) {
             }
             if (!capture.sampleId.empty()) text += L"\r\n采样 " + WideAscii(capture.sampleId);
             if (!status.api->details.empty()) text += L"\r\n" + status.api->details;
+            if (!status.api->networkTraffic.empty())
+            {
+                // 原详情与搜索/复制共用规范全文，网络失败和空结果均按后端回执呈现。
+                text += L"\r\n同采样网络回执：\r\n" + status.api->networkTraffic;
+            }
             if (!capture.archive) text += L"\r\n" + WideAscii(Ksword::ActionAnalyze::ProjectErrorName(capture.archive.error)) +
                 L" · " + WideAscii(capture.archive.detail) + L" · Win32 " + std::to_wstring(capture.archive.nativeError);
             if (capture.processError) text += L"\r\n" + WideAscii(capture.processStage) +

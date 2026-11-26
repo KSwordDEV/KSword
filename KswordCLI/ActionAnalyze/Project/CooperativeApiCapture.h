@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProjectRawEvidence.h"
+#include "NetworkTrafficCapture.h"
 #include "../Rules/BehaviorPresets.h"
 #include "../Detection/ApiTransferChain.h"
 #include "../../../shared/ApiMonitorCapture.h"
@@ -21,6 +22,8 @@ struct CooperativeApiRequest {
     bool captureAgentEtw = false; // 订阅同一目标的 KSword Agent 生命周期事件。
     ApiCaptureMode mode = ApiCaptureMode::CooperativeResident; // 默认保持合作准入；显式附加由调用端确认授权。
     std::string_view boundSampleId = {}; // 非空时借用原项目写租约与冻结采样；只允许首次写入空的 API 流。
+    bool autoTransfer = false; // 采集时冻结调用前自动解析及接管私有执行目标的策略。
+    std::optional<NetworkTrafficBackend> networkTraffic; // 有值时由同一writer采集根来源网络；空值不启动抓包。
 };
 
 // 同采样 ETW 的启动、清退及封段回执，独立于 API 管道。
@@ -74,6 +77,8 @@ struct CooperativeApiReceipt {
     CooperativeApiRuleReceipt rules; // 仅从已发布并回读的原包求值。
     CooperativeApiTransferReceipt transfers; // 同一已提交前缀中的跨段 API 转移候选。
     std::optional<CooperativeEtwReceipt> etw; // 请求配套 ETW 时提供独立回执。
+    Evidence::JsonValue transferHandoff; // 本轮原生交接与归档回执；未请求时为null。
+    std::optional<NetworkTrafficCaptureReceipt> networkTraffic; // 原sample的网络源、字节及清退事实。
 };
 
 // 在调用端自己的工作线程运行。调用方须确认授权并提供项目写租约；
@@ -89,6 +94,8 @@ using CooperativeApiTransferCommitted = std::function<void(const CooperativeApiT
 using CooperativeApiStartup = std::function<void(const ks::winapi_monitor::CaptureStartupProgress&)>;
 // 输入可缺省的最后启动事实，输出统一JSON投影；空值返回null，不查询当前进程或补造阶段。
 Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup);
+// 输入同采样网络终态，输出三端共用JSON；未启用时返回null，不重新查询现场。
+Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCaptureReceipt>& network);
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady = {},
     const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {},

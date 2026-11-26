@@ -196,6 +196,43 @@ NativeControlResult OwnedDataWatchSession::StartPrivateExecution(const std::wstr
     return StartBound(path, exportName, 0, std::move(condition), true, sampleId, true);
 }
 
+// 通用EXE启动只使用原owner，不经过合作标记、指针导出或Ready/Gate链路。
+NativeControlResult OwnedDataWatchSession::StartSuspendedImage(const std::wstring& path,
+    std::optional<std::uint32_t> rva, rules::PreparedPredicate condition, std::string_view sampleId)
+{
+    if (owner_ || aborted_ || imageLaunch_ || closing_)
+    {
+        return Reject(Query(), "data-watch-session-already-used", ERROR_BUSY, LedgerResult::InvalidTransition);
+    }
+    if ((!sampleId.empty() && !storage::IsUuid(sampleId)) || (rva && !*rva))
+    {
+        return Reject({}, "image-launch-invalid-sample-or-rva", ERROR_INVALID_PARAMETER, LedgerResult::InvalidEvidence);
+    }
+    NativeBreakpointRequest request; // 原sample、session和backend身份在任何创建副作用前准备。
+    if (!sampleId.empty())
+    {
+        identity_.sampleId = sampleId;
+    }
+    if ((sampleId.empty() && !storage::NewId(identity_.sampleId)) || !storage::NewId(identity_.sessionId) ||
+        !storage::NewId(identity_.epoch) || !storage::NewId(identity_.backendInstanceId) ||
+        !storage::NewId(request.target.requestId))
+    {
+        return Reject({}, "data-watch-allocate-identities", ERROR_GEN_FAILURE, LedgerResult::InvalidEvidence);
+    }
+    request.target.explicitlyAuthorized = true;
+    request.target.disposition = NativeTargetDisposition::ResumeAndDetach;
+    request.rva = rva;
+    condition_ = std::move(condition); // 初始入口可带条件，后续命中仍按同一冻结谓词处理。
+    owner_ = std::make_unique<NativeDebugOwner>(identity_);
+    imageLaunch_ = std::make_unique<SuspendedImageLaunch>();
+    return ApplyCondition(imageLaunch_->Start(*owner_, std::move(request), path));
+}
+
+std::optional<SuspendedImageLaunchReceipt> OwnedDataWatchSession::LaunchReceipt() const
+{
+    return imageLaunch_ ? std::optional{imageLaunch_->Receipt()} : std::nullopt;
+}
+
 NativeControlResult OwnedDataWatchSession::AttachPrivateAddress(std::uint32_t pid, std::uint64_t creationFileTime,
     std::uint64_t address, std::uint32_t width, rules::PreparedPredicate condition, std::string_view sampleId,
     std::uint64_t privateRangeBytes)
@@ -412,6 +449,12 @@ NativeControlResult OwnedDataWatchSession::AttachImageExecution(std::uint32_t pi
     return ApplyCondition(std::move(state));
 }
 
+// 入口到API交接保留精确自有对象；没有启动普通EXE时返回空，不回退到PID打开。
+HANDLE OwnedDataWatchSession::LaunchedProcessHandle() const noexcept
+{
+    return imageLaunch_ ? imageLaunch_->ProcessHandle() : nullptr;
+}
+
 NativeControlResult OwnedDataWatchSession::ObserveAbortedLaunch(bool requestTermination)
 {
     auto& launch = *aborted_;
@@ -598,6 +641,10 @@ NativeControlResult OwnedDataWatchSession::Query()
     }
     if (!owner_) return {};
     auto state = owner_->Query(); // 原生武装状态来自原所有者，不由合作 Ready 自述代替。
+    if (imageLaunch_)
+    {
+        state = imageLaunch_->Observe(std::move(state)); // 创建挂起失败仍保留精确子进程的退出确认责任。
+    }
     if (launchGate_) {
         if (const auto error = launchGate_->Observe(state)) {
             (void)owner_->Close(); // 业务许可写失败后清退原绑定，保留查询恢复入口。
@@ -627,6 +674,10 @@ NativeControlResult OwnedDataWatchSession::Continue(const NativeControlResult& d
 NativeControlResult OwnedDataWatchSession::QueryWithoutCondition()
 {
     auto state = owner_ ? owner_->Query() : NativeControlResult{}; // 只回读原owner，不求值、不放行合作Gate。
+    if (imageLaunch_)
+    {
+        state = imageLaunch_->Observe(std::move(state)); // 同样保留未完成启动的退出确认。
+    }
     const auto& decision = conditionReport_.last; // 已发生的自动继续失败属于原会话，不能被原生Held快照抹掉。
     if (!state.clean && decision && decision->failureStage)
     {
@@ -798,11 +849,16 @@ NativeControlResult OwnedDataWatchSession::ReleaseWrite(const NativeControlResul
 NativeControlResult OwnedDataWatchSession::Close()
 {
     closing_ = true;
+    if (imageLaunch_)
+    {
+        imageLaunch_->CancelUnreleased(); // 只撤销尚未完成启动的自有进程，正常目标仍走原detach。
+    }
     if (launchGate_) launchGate_->Close(); // EOF 取消未放行业务，不产生任何额外 Resume。
     if (aborted_) {
         return ObserveAbortedLaunch(true);
     }
-    return owner_ ? owner_->Close() : NativeControlResult{};
+    auto state = owner_ ? owner_->Close() : NativeControlResult{};
+    return imageLaunch_ ? imageLaunch_->Observe(std::move(state)) : state;
 }
 
 } // namespace ks::cli::action_analyze::control

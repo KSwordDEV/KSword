@@ -326,6 +326,10 @@ namespace apimon
         configValue.injectionEndpoint.token = QueryIniText(configValue.configPath, L"injection_broker_token", L"");
         configValue.injectionEndpoint.hostPid = ::GetPrivateProfileIntW(L"monitor", L"injection_broker_pid", 0, configValue.configPath.c_str());
         ParseUnsignedInteger(QueryIniText(configValue.configPath, L"injection_broker_creation", L"0"), &configValue.injectionEndpoint.hostCreation);
+        configValue.transferHandoff.pipeName = QueryIniText(configValue.configPath, L"transfer_handoff_pipe", L"");
+        configValue.transferHandoff.token = QueryIniText(configValue.configPath, L"transfer_handoff_token", L"");
+        configValue.transferHandoff.hostPid = ::GetPrivateProfileIntW(L"monitor", L"transfer_handoff_pid", 0, configValue.configPath.c_str());
+        ParseUnsignedInteger(QueryIniText(configValue.configPath, L"transfer_handoff_creation", L"0"), &configValue.transferHandoff.hostCreation);
         configValue.enableFile = QueryIniBool(configValue.configPath, L"enable_file", true);
         configValue.enableRegistry = QueryIniBool(configValue.configPath, L"enable_registry", true);
         configValue.enableNetwork = QueryIniBool(configValue.configPath, L"enable_network", true);

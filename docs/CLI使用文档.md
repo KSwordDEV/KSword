@@ -177,14 +177,17 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze execution memory` | `KswordCLI.exe analyze execution memory --project PATH --sample UUID --native-ordinal N --memory-ordinal N [--bytes N] [--json]` | 分别核验原生执行与内存段链，匹配同一历史停点后，取执行指令起点处已归档的字节。两个段号均为 1..4096，字节数默认 1、范围 1..15。 |
 | `analyze execution map` | `KswordCLI.exe analyze execution map --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` | 核验 API 与原生两路链，按目标 PID＋创建 FILETIME 及实际映射半开范围输出指令一致性候选，不要求写入。API 段最多 128、原生段最多 4096；分页默认 100、最多 4096 条 API 观察。 |
 | `analyze execution entry` | `KswordCLI.exe analyze execution entry --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` | 无需前置写入，核对跨进程线程创建／APC／AMD64上下文请求与原生事件的精确进程、线程创建代次和入口地址；双链核验及API分页与map一致，不提供活控制。 |
-| `analyze process-group session` | `KswordCLI.exe analyze process-group session --targets PID:CREATION,PID:CREATION --confirm --disposition resume-detach [--input repl\|jsonl] [--project PATH [--sample UUID]]` | 固定 1–16 个明确授权的 AMD64 进程实例，按全集或明确子集控制；可绑定项目，显式读取并保存已显示的内存快照。 |
+| `analyze process-group session` | `KswordCLI.exe analyze process-group session --targets PID:CREATION,PID:CREATION --confirm --disposition resume-detach [--input repl\|jsonl] [--project PATH [--sample UUID]]` | 配置一个或多个明确授权的 AMD64 进程实例，无固定成员额度，按全集或明确子集控制；可绑定项目，显式读取并保存已显示的内存快照。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
-| `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
-| `analyze api-evidence attach` | `KswordCLI.exe analyze api-evidence attach --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 显式为精确进程实例装载或复用同目录正式 Agent，并复用项目分段归档。只支持 R3。 |
+| `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket\|existing-wfp] [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
+| `analyze api-evidence attach` | `KswordCLI.exe analyze api-evidence attach --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket\|existing-wfp] [--duration-ms MS] [--json]` | 显式为精确进程实例装载或复用同目录正式 Agent，并复用项目分段归档。只支持 R3。 |
+| `analyze api-evidence launch` | `KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket\|existing-wfp] [--duration-ms MS] [--startup-progress 1] [--json]` | 普通 AMD64 EXE 自动挂起创建、入口断点交接，真实 Agent Ready 后释放本次主线程挂起并采集。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
 | `analyze api-rule-catalog` | `KswordCLI.exe analyze api-rule-catalog [--json]` | 列出 `profiles/action_analyze_api_rules.json` 中的 API 行为预置、条件、字段及证据口径，并给出本次实际解析文件原始字节的 `sourceSha256`。 |
 | `analyze replay-api-rules` | `KswordCLI.exe analyze replay-api-rules --project PATH --sample UUID [--profile grouped\|by-category] [--offset N] [--limit N] [--json]` | 对指定项目和采样的已核验 API 线索应用外置规则文件中的预置，返回规则 ID 和原包坐标；`sourceSha256` 为当前规则字节摘要，`recordedSourceSha256` 为采集计划摘要，`matchesRecordedRules` 表明两者是否一致，旧档没有记录摘要时后两者为 `null`。 |
 | `analyze network-capture` | `KswordCLI.exe analyze network-capture --project PATH --pid PID --create-time FILETIME --duration-ms MS --authorize-loopback yes [--json]` | 采集一个授权进程的回环网络元数据，写入项目的新采样并回查记录坐标。 |
+| `analyze network-traffic` | `KswordCLI.exe analyze network-traffic --project PATH --sample UUID --pid PID --create-time FILETIME --duration-ms MS --source raw-socket\|existing-wfp --json` | 复用现有流量监控后端，将真实报文字节追加到原采样的 `raw-network`。 |
+| `analyze network-read` | `KswordCLI.exe analyze network-read --project PATH --sample UUID --ordinal N [--record-sequence N] --json` | 核验网络检查点与原段；默认逐条预览64字节，指定记录时返回实际保留的完整正文。 |
 
 入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供持续或显式限时的被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
 
@@ -203,6 +206,16 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 `elapsedMs` 包含启动、采集和清退。`readyAfterMs` 为等待就绪时长，`intervalElapsedMs` 只计就绪后的采集。未就绪时后二者为 `null`。
 
 `api-evidence attach` 与 `capture` 可加 `--startup-progress 1`，在 stderr 按实际前进阶段输出 JSON 行，stdout 仍只输出最终结果。阶段依次为 `identity-verified`、`agent-resolved`、`config-published`、按需出现的 `agent-load-started`、`agent-module-verified`、`pipe-connected`、`session-ready`、`hooks-installed`、`ready`。复用已驻留模块时不产生装载开始阶段。每行保留原 PID、创建 FILETIME、阶段耗时及当时已确认的事实；会话仅在管道服务端核验后提供，覆盖修订仅在完整 Ready 核验后提供。
+
+`--auto-transfer` 明确开启本轮跨进程私有执行接管：已覆盖的 `CreateRemoteThread`、`CreateRemoteThreadEx`、`NtCreateThreadEx`、APC 和上下文 Hook 在原调用前向目标外 owner 同步请求，自动查询请求入口所在完整已提交可执行 `MEM_PRIVATE` 区域，在原执行集合新增目标或范围。成功 ACK 同时要求原 NX 设防回读及下一目标真实 Agent Ready、有效覆盖修订；下一目标继续使用同一交接端点，后续多跳不需要手填私有地址。正在安装的请求返回 Pending 使管道可以服务其它来源，Hook 仍等待最终结果。命中由原 owner 生成真实执行停点，保存到同一 sample 的 `raw-native` 后才沿原 TF／重设防路径自动继续；保存失败保留停点。各来源原包共用原 `raw/checkpoints`，每包分别保存实际 PID、创建 FILETIME 和 session，源序号在整流连续。根进程退出后，已接管来源持续到原根 Ready 起算的时长到期、用户停止或整条链退出；结束先停止并排空各来源再发布终段。`transferHandoff.sources` 分别报告实例、Ready、会话、启动、丢失、结束和清退事实。拒绝、超时和未完成清退会令本轮为部分结果；交接失败后原 API 仍执行，参数和返回语义保留。此路径尚不能承诺全部入口和任意多跳零窗口；已有 NX 范围可复用，未知目标仍重新核验 PID＋创建时间及内存。Qt／Light 使用同名选项，开始时冻结。
+
+普通 EXE 可用 `analyze breakpoint session --exe PATH --launch-suspended --confirm --disposition resume-detach --input jsonl` 启动并停在入口；可选 `--rva RVA`，省略时使用 PE `AddressOfEntryPoint`。不要求合作导出。原主线程创建时挂起，原 owner 在 `CREATE_PROCESS_DEBUG_EVENT` 核验实例并设置入口 DR0、登记线程，回读 Armed 后才释放一次初始挂起。`control.launch` 区分创建挂起、所有者附加、入口武装、初始挂起释放和诊断；`earliestTlsCovered=false`、`apiAgentReady=null`。此入口不覆盖此前 TLS／loader，Agent部署与Ready须看独立API回执。失败仅撤销本次尚未释放初始挂起的自有启动，不操作已有实例。
+
+需要自动进入 API 采集时使用 `analyze api-evidence launch`，不必另查 PID 或手动附加。后端先沿上述普通 EXE 入口停止，在真实原主线程入口额外持有一次挂起，再由原调试 owner 恢复断点并脱离；显式装载同目录正式 Agent，确认 SessionReady、HooksInstalled 和有效覆盖后才归还本次额外挂起。`launch` 回执分别保留实际实例、`entryHeld`、`agentReadyBeforeMainResume`、`initialMainSuspendReleased`、`bootstrapClean` 及失败阶段；这仍是入口之后的覆盖，不包括更早 TLS／loader。入口交接或 Ready 失败只撤销本次自有启动，未完整步骤不会显示为完成。可与 `--auto-transfer` 同时使用，最终原包仍由同一采样的 `api-evidence replay` 读取。
+
+三个实时 API 入口可加 `--network-traffic raw-socket|existing-wfp`，直接使用既有“网络→流量监控”的原始抓包服务或已开启 WFP ring。网络来源在配置发布前启动；普通 EXE 路径先开网络源，再由 Ready 屏障恢复主线程。网络邮箱由原 API worker 轮询，串行写入同一项目、同一 sample 的 `raw-network/checkpoints-network`，不申请第二 writer。`networkTraffic` 回执包含实际包数、保留字节、段号、源状态、清退及丢失；`analyze network-read --project PATH --sample UUID` 可在停止后回读正文。此选项当前只采根 PID 的归属线索，不声称网络事件时强实例、不自动扩大到后代，也不解密 HTTPS；权限或来源失败独立进入部分结果。省略选项不启动抓包，`existing-wfp` 不擅自开启或关闭全局抓包。Qt／Light 在原 API 参数区选择同样来源并冻结到本轮请求。
+
+`network-traffic` 复用“网络 → 流量监控”的 `TrafficMonitorService`／已有 WFP ring。`raw-socket` 沿用接口可见性及4096字节正文上限；`existing-wfp` 只读已经启用的来源，不启停或重置全局捕获。报文按现有 PID 线索筛选，`endpoint-table-hint/native-pid-hint` 是弱归属，创建时间保持0、对象ID留空；请求目标的强实例单独保留。检查点记录来源就绪、包数／字节、丢失、端点、来源时间／序号、flags、截断和正文散列。归档仍用原项目唯一writer，同一sample不得并发写入。退出0表示正常结束，3为项目／归档错误，5为来源不可用，6为中止或部分结果；覆盖率为 `unknown`，HTTPS解密后置。
 
 最终 `startup` 保存最后真实到达阶段及其 `elapsedMs`，失败或取消不把最后阶段改成 Ready，清退期晚到的安装包也不追认启动成功。原生同采样 `control.api.capture` 的 `capture.startup` 使用同一投影。已连接采样的终段保存 `startup` 供历史回查，不授予新控制资格。Qt／Light 在原采样回执刷新内显示同一启动事实；本次扩展尚未构建或运行。
 
@@ -262,7 +275,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 保存的断点定义可带 `condition:{"expressionProfile":"predicate-expr-v3","source":"stop.tid != 0u64"}`。通过原 `project.save` 完整settings提交后，单目标 `--definition` 和集合 `definitionId` 从本轮采样冻结配置准备条件；省略手填继承，非空须与冻结原文相同，冲突或无效规则在附加前拒绝。无条件定义省略该字段，旧五字段形状保持。详见[项目断点定义](action-analyze-planning/project-breakpoint-definitions.md)。
 
-活执行集合新增 `members-append execution/N SITES_PATH confirm COLLECTION_ID`／JSONL `control.members.append`。JSONL携带当前session、`params:{sites:PATH,confirm:true}` 与 `expected:{collectionId}`；新文件使用原站点schema，追加后最多16个不同PID，同一采样内保留原成员、停点和writer。新成员附加部分失败逐项保留，不替换已有PID或自动接纳后代；原128条重放流水也覆盖本命令。Qt／Light对应“追加表单目标到本轮集合”，详见上述专项文档。
+活执行集合新增 `members-append execution/N SITES_PATH confirm COLLECTION_ID`／JSONL `control.members.append`。JSONL携带当前session、`params:{sites:PATH,confirm:true}` 与 `expected:{collectionId}`；新文件使用原站点schema，无固定成员额度，同一采样内保留原成员、停点和writer，同一PID只能登记一次。新成员附加部分失败逐项保留，不替换已有PID或自动接纳后代；原128条重放流水也覆盖本命令。Qt／Light对应“追加表单目标到本轮集合”，详见上述专项文档。
 
 `analyze execution-group session --hold-peers-on-hit` 在Start冻结“成员命中后暂停其他成员”。新断点经条件处理仍持有时，原查询逐项请求其它运行成员暂停；假条件继续，未知条件保持。主动暂停和步进停止不触发，同一事件只请求一次；所选继续不被同一旧事件撤销。`peerHold` 独立保留触发身份和逐成员暂停回执，当前Held须另读成员状态；不保证同时冻结。Qt／Light复用原执行集合参数页同名开关，默认关闭。源码已接，运行待验。
 
@@ -282,7 +295,7 @@ Qt／Light沿原归档后台读任务保存最近128条完整入口请求，独�
 
 执行集合的模块站点可选 `imageSha256`（64个小写十六进制字符），支持精确导出及RVA。每个原成员owner对实际模块基址对应的调试装载事件文件核验后才武装DR0；期望值在 `site.imageSha256`，实测成功值在 `control.breakpoint.imageSha256`，私有地址禁止该字段。不能取得原事件文件或散列不符只清退对应成员，成功成员继续保留。该新增集合约束仍待构建和运行。
 
-执行集合也支持单成员 `control.execution.range.add`：`params:{address,bytes}` 用规范正十进制字符串，`expected:{collectionId,stops:[完整当前NX停点票据]}`。REPL为 `execution-range-add execution/N ADDRESS BYTES TOKENHEX`。它沿原成员owner追加明确整页范围，保留原停点、初始站点和总64页预算，不继续目标；ManualPause允许追加。`canAddRange`、实际 `executionRanges` 和独立 `executionRange` 回执分列。该新增入口尚未构建或实测。
+执行集合也支持单成员 `control.execution.range.add`：`params:{address,bytes}` 用规范正十进制字符串，`expected:{collectionId,stops:[完整当前NX停点票据]}`。REPL为 `execution-range-add execution/N ADDRESS BYTES TOKENHEX`。它沿原成员owner追加明确整页范围，保留原停点和初始站点，无固定总页数额度，不继续目标；ManualPause允许追加。对齐、地址溢出、实际分配及系统资源失败分别检查。`canAddRange`、实际 `executionRanges` 和独立 `executionRange` 回执分列。该新增入口尚未实测。
 
 执行集合另支持 `pause execution/N all|selected TOKENHEX[,TOKENHEX...]`／JSONL `control.pause`：在各成员原执行 owner 内主动暂停，冻结完整 `pauseToken`，全部预核对后逐项提交；独立保留暂停回执。精确 `ManualPause` Held 可继续，本批拒绝步进，不能以创建执行绑定冒充主动暂停。参数及完整包络见上述执行集合文档。
 
@@ -303,7 +316,7 @@ KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME 
 
 实际主动停止显示 `stopReason=manual-pause`，保留当前停止组和完整票据，用原 `continue STOP_ID STATE_REVISION` 恢复。手动暂停不应用断点条件、不生成执行证据，本批不提供在中断线程上的单步；完整 Held 可读内存，关闭仍清退原绑定。真实断点抢先时保留真实命中及暂停请求的独立状态，不将它改名为手动暂停。该新增链路未构建、未实测。
 
-NX执行会话持有当前完整停点后，可用 `execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION` 显式纳入新范围。四项均冻结于请求，地址、长度及修订使用规范正十进制；地址与长度按4096字节对齐，单段来自同一已提交私有分配，允许多段不连续或属于不同分配，全部范围合计最多64页，重叠拒绝。操作保留原停点，不自动继续，也不改写初始 `binding.address/rangeBytes`。`binding.executionRanges` 列出成功范围，`control.executionRange` 保留新增、回滚、阶段和错误回执。
+NX执行会话持有当前完整停点后，可用 `execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION` 显式纳入新范围。四项均冻结于请求，地址、长度及修订使用规范正十进制；地址与长度按4096字节对齐，单段来自同一已提交私有分配，允许多段不连续或属于不同分配，无固定总页数额度，重叠拒绝。操作保留原停点，不自动继续，也不改写初始 `binding.address/rangeBytes`。`binding.executionRanges` 列出成功范围，`control.executionRange` 保留新增、回滚、阶段和错误回执。`rangeProtocol.maximumTotalPages:null` 表示取消固定业务额度；执行集合和进程集合的 `maxMembers` 同为 `null`。传输字节预算、容器容量、系统资源失败及独立内存快照64页限制继续适用。
 
 JSONL方法为 `control.execution.range.add`，请求带当前session、独立连续 `range/1` 起的requestId、`params:{"address":"...","bytes":"..."}` 与 `expected:{"stopId":"...","stateRevision":"..."}`。重放窗口128条，冲突及过期请求拒绝，不占Continue或Step序号。新增失败只回滚新增页，恢复未确认仍由原Close保留责任。
 

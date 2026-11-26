@@ -4,6 +4,7 @@
 #include "../UI/AsyncOperation.h"
 #include "../../../KswordCLI/ActionAnalyze/Cli/PassiveApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/LaunchedApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 
 #include <QScopeGuard>
@@ -145,9 +146,13 @@ void PassiveApiCaptureOwner::publish(const PassiveApiCaptureReceipt& receipt)
 PassiveApiCaptureReceipt PassiveApiCaptureOwner::collect(const ks::ui::AsyncOperationToken& token)
 {
     // 只消费本次冻结的确认；缺确认、混合来源或残留确认均不回退到文件跟随。
-    if ((m_request.explicitAttachment && (!m_request.attachmentConfirmed || m_request.cooperative)) ||
+    if ((m_request.launched && (m_request.cooperative || m_request.explicitAttachment ||
+            m_request.attachmentConfirmed || m_request.executable.isEmpty() || m_request.pid || m_request.creationTime)) ||
+        (!m_request.launched && (!m_request.executable.isEmpty() || m_request.entryRva.has_value())) ||
+        (!(m_request.launched || m_request.cooperative || m_request.explicitAttachment) && m_request.networkTraffic.has_value()) ||
+        (m_request.explicitAttachment && (!m_request.attachmentConfirmed || m_request.cooperative)) ||
         (!m_request.explicitAttachment && m_request.attachmentConfirmed) ||
-        ((m_request.explicitAttachment || m_request.cooperative) &&
+        ((m_request.explicitAttachment || m_request.cooperative || m_request.launched) &&
             (!m_request.path.isEmpty() || m_request.sessionId)))
     {
         PassiveApiCaptureReceipt rejected; // 准入失败不打开项目、不发布配置、不装载 Agent。
@@ -155,7 +160,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collect(const ks::ui::AsyncOper
         rejected.incomplete = true;
         return rejected;
     }
-    if (m_request.cooperative || m_request.explicitAttachment)
+    if (m_request.cooperative || m_request.explicitAttachment || m_request.launched)
     {
         return token.isCanceled() || m_stop.load() ? PassiveApiCaptureReceipt{} : collectCooperative();
     }
@@ -258,15 +263,16 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
                     QString::fromStdString(sample.descriptionHash)}});
         }
     };
-    const auto run = project::CaptureCooperativeApi(document,
-        {m_request.pid, m_request.creationTime, durationMs, title, revision, false, mode}, m_stop,
-        [&](std::uint64_t session, std::uint64_t coverageRevision) {
+    out.actualPid = m_request.pid; // 已有实例保持冻结身份，新建来源由launch回调替换。
+    out.actualCreationTime = m_request.creationTime;
+    const project::CooperativeApiReady ready = [&](std::uint64_t session, std::uint64_t coverageRevision) {
             // 只发布同一会话的就绪证据，归档字段仍等待实际提交和回读。
             out.cooperativeSession = session;
             out.readyCoverageRevision = coverageRevision;
             out.agentReady = true;
             publish(out);
-        }, [&](const project::SampleInfo& sample, const project::ProjectApiCheckpoint& checkpoint,
+        };
+    const project::CooperativeApiCommitted committed = [&](const project::SampleInfo& sample, const project::ProjectApiCheckpoint& checkpoint,
             const project::CooperativeApiRuleReceipt& rules) {
             // 通过发布水位更新活动回执；终段标记不代表采集线程已退出或资源已清退。
             bindSample(sample);
@@ -275,7 +281,8 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
             out.validatedRows = checkpoint.lastSourceSequence; // 活采中只报告已知的已核验普通包下界。
             ApplyCooperativeRules(rules, out);
             publish(out);
-        }, [&](const project::CooperativeApiTransferReceipt& transfers) {
+        };
+    const project::CooperativeApiTransferCommitted transferred = [&](const project::CooperativeApiTransferReceipt& transfers) {
             // 只发布已提交前缀内的候选，原始包继续由该采样的归档入口读取。
             out.transferCandidates = transfers.candidateCount;
             out.evictedTransferWrites = transfers.evictedWrites;
@@ -298,7 +305,8 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
                 out.latestContextTransfer = transfers.recentContext.back();
             }
             publish(out);
-        }, [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
+        };
+    const project::CooperativeApiStartup startupProgress = [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
             // 只复制控制器已确认的事实；模块存在和装载开始都不能推进本端 Ready。
             if (out.startup == startup)
             {
@@ -309,8 +317,42 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
             out.agentLoadAttempted = startup.agentLoadAttempted;
             out.agentModuleVerified = startup.agentModuleVerified;
             publish(out);
-        });
+        };
+    project::CooperativeApiReceipt run; // 两种调用共享原回调、writer与回读处理。
+    if (m_request.launched)
+    {
+        const auto launched = project::CaptureLaunchedApi(document,
+            {m_request.executable.toStdWString(), m_request.entryRva, durationMs, title, revision,
+                m_request.autoTransfer, m_request.networkTraffic},
+            m_stop, ready, committed, transferred, startupProgress, [&](const project::LaunchedApiProgress& progress) {
+                if (progress.launch)
+                {
+                    out.actualPid = progress.launch->pid;
+                    out.actualCreationTime = progress.launch->creationFileTime;
+                }
+                out.launchProgress = QString::fromStdString(Ksword::Evidence::WriteJson(project::LaunchedApiProgressJson(progress)));
+                publish(out); // 只回投值，UI线程不查进程。
+            });
+        run = launched.api;
+        if (launched.error)
+        {
+            out.error = QString::fromLatin1(launched.stage) + QStringLiteral(" · Win32 ") + QString::number(launched.error);
+            out.incomplete = true;
+        }
+    }
+    else
+    {
+        run = project::CaptureCooperativeApi(document,
+            {m_request.pid, m_request.creationTime, durationMs, title, revision, false, mode, {},
+                m_request.autoTransfer, m_request.networkTraffic},
+            m_stop, ready, committed, transferred, startupProgress);
+    }
     document.Close(); // 回读前先交还写租约。
+    if (m_request.networkTraffic || run.networkTraffic)
+    {
+        // 同一worker已经关闭网络源；仅搬运规范全文，网络失败不被API成功或空结果覆盖。
+        out.networkTraffic = QString::fromStdString(Ksword::Evidence::WriteJson(project::ApiCaptureNetworkJson(run.networkTraffic)));
+    }
     const auto& capture = run.capture; // 即使采样登记失败，也保留控制器实际返回的附加事实。
     out.attachmentIdentityVerified = capture.attachmentIdentityVerified;
     out.agentLoadAttempted = capture.agentLoadAttempted;
@@ -322,8 +364,11 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     }
     if (!run.sampleStatus || !run.agentPathAvailable)
     {
-        out.error = StartError(backend::PassiveApiStartStage::Sample, !run.sampleStatus ? run.sampleStatus :
-            project::ProjectResult{project::ProjectError::NotFound, 0, "cooperativeApiAgentPath"});
+        if (out.error.isEmpty())
+        {
+            out.error = StartError(backend::PassiveApiStartStage::Sample, !run.sampleStatus ? run.sampleStatus :
+                project::ProjectResult{project::ProjectError::NotFound, 0, "cooperativeApiAgentPath"});
+        }
         return out;
     }
 
@@ -333,14 +378,19 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     out.agentReady = capture.started;
     out.readyCoverageRevision = capture.readyCoverageRevision.value_or(0);
     out.cleanupComplete = capture.cleanupComplete;
+    if (m_request.autoTransfer)
+    {
+        out.transferHandoff = QString::fromStdString(Ksword::Evidence::WriteJson(run.transferHandoff)); // 回执归本轮采样，不查询当前目标。
+    }
     out.validatedRows = run.ordinaryPackets;
-    out.incomplete = capture.code != 0 || run.archivedPackets != run.ordinaryPackets || !run.archiveStatus;
+    out.incomplete = out.incomplete || capture.code != 0 || run.archivedPackets != run.ordinaryPackets || !run.archiveStatus;
     if (!capture.errors.empty())
     {
-        out.error = QString::fromStdWString(capture.errors.front());
+        const auto diagnostic = QString::fromStdWString(capture.errors.front()); // 保留入口交接首错，追加管道诊断。
+        out.error = out.error.isEmpty() ? diagnostic : out.error + QStringLiteral(" · ") + diagnostic;
     }
     const auto root = std::find_if(capture.processes.begin(), capture.processes.end(), [&](const auto& process) {
-        return process.pid == m_request.pid && process.creation == m_request.creationTime;
+        return process.pid == out.actualPid && process.creation == out.actualCreationTime;
     }); // 只投影同一实际目标的回执。
     if (root != capture.processes.end())
     {

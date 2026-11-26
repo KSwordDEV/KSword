@@ -19,6 +19,9 @@ namespace ks::cli::action_analyze::archive {
 // originalLength, producerCapturedLength, capturedLength and sourceTruncated.
 // Values are lowercase network-byte-order hex addresses, decimal strings for
 // unsigned integers, booleans and null. Metadata stores no source-record bytes.
+// 可选 processAttribution=endpoint-table-hint/native-pid-hint 表示弱 PID 线索，
+// 此时 createTime100ns=0、processObjectId=null；缺少标签的历史记录保持强实例要求。
+// 可选 packetSourceFlags 保留 WFP 原始标志；不把其存在等同于进程强归属。
 // Inline RawRecord bytes are actual communication bytes, limited to 65536 bytes.
 // Large contents may be deferred to the owner for normal sample-local BlobStore.
 // Loss and EOF are metadata-only with independent typed fields.
@@ -53,7 +56,10 @@ struct NetworkFlowMetadata {
     NetworkDirection direction = NetworkDirection::Outbound;
     NetworkEndpointMetadata sourceField;
     NetworkEndpointMetadata destinationField;
-    // Only a verified process instance is eligible. Object ID, when present, is sample-local.
+    // 旧档默认强实例。抓包端口表/原生 PID 线索必须显式降低归属强度，不能补造事件时创建时间。
+    enum class ProcessAttribution { VerifiedInstance, EndpointTableHint, NativePidHint };
+    ProcessAttribution processAttribution = ProcessAttribution::VerifiedInstance;
+    // Object ID, when present, is sample-local. 弱归属不填写创建时间或对象 ID。
     std::uint32_t processId = 0;
     std::uint64_t processCreatedUtc100ns = 0;
     std::optional<std::uint64_t> processObjectId;
@@ -68,6 +74,7 @@ struct NetworkFlowMetadata {
         bool operator==(const EtwDescriptor&) const = default;
     };
     std::optional<EtwDescriptor> etw;
+    std::optional<std::uint32_t> packetSourceFlags; // WFP 原 row flags；R3 没有对应原生标志时缺失。
     bool operator==(const NetworkFlowMetadata&) const = default;
 
     // 对端按本条记录的方向解释。保留未知或零端口及通配地址的原始观测。

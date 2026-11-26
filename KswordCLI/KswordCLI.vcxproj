@@ -196,6 +196,7 @@
     <ClCompile Include="ActionAnalyze\Cli\AttachedApiCaptureCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ApiRuleReplayCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\NetworkCaptureCommand.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\NetworkTrafficCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Rules\BehaviorPresets.cpp" />
     <ClCompile Include="ActionAnalyze\Rules\RuleExpression.cpp" />
     <ClCompile Include="ActionAnalyze\Rules\NumericOperations.cpp" />
@@ -210,6 +211,7 @@
     <ClCompile Include="ActionAnalyze\Cli\ExecutionGroupReport.cpp" />
     <ClCompile Include="ActionAnalyze\Control\OwnedExecutionGroup.cpp" />
     <ClCompile Include="ActionAnalyze\Control\OwnedDataWatchSession.cpp" />
+    <ClCompile Include="ActionAnalyze\Control\SuspendedImageLaunch.cpp" />
     <ClCompile Include="ActionAnalyze\Control\OwnedDataWatchSessionArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ProcessGroupMemoryArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Control\ProcessGroupMemorySnapshot.cpp" />
@@ -278,6 +280,7 @@
     <ClInclude Include="ActionAnalyze\Cli\ExecutionGroupProtocol.h" />
     <ClInclude Include="ActionAnalyze\Control\OwnedExecutionGroup.h" />
     <ClInclude Include="ActionAnalyze\Control\OwnedDataWatchSession.h" />
+    <ClInclude Include="ActionAnalyze\Control\SuspendedImageLaunch.h" />
     <ClInclude Include="ActionAnalyze\Cli\ProcessGroupMemoryArchive.h" />
     <ClInclude Include="ActionAnalyze\Control\ProcessGroupMemorySnapshot.h" />
     <ClInclude Include="ActionAnalyze\Control\OwnedProcessGroup.h" />
@@ -320,6 +323,7 @@
     <ClInclude Include="ActionAnalyze\Cli\AttachedApiCaptureCommand.h" />
     <ClInclude Include="ActionAnalyze\Cli\ApiRuleReplayCommand.h" />
     <ClInclude Include="ActionAnalyze\Cli\NetworkCaptureCommand.h" />
+    <ClInclude Include="ActionAnalyze\Cli\NetworkTrafficCommand.h" />
     <ClInclude Include="ActionAnalyze\Rules\BehaviorPresets.h" />
     <ClInclude Include="ActionAnalyze\Rules\RuleExpression.h" />
     <ClInclude Include="ActionAnalyze\Rules\NumericOperations.h" />
@@ -385,13 +389,19 @@
     <ClCompile Include="ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectApiClueArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Project\CooperativeApiCapture.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ApiTransferHandoff.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ApiTransferAgentCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\AttachedApiCapture.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\LaunchedApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\NativeBoundApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectCallbackEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectNetworkEvidence.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectNetworkRead.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\NetworkTrafficCapture.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\NetworkTrafficRead.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />
     <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h" />
@@ -400,13 +410,19 @@
     <ClInclude Include="ActionAnalyze\Project\ProjectRawEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectApiClueArchive.h" />
     <ClInclude Include="ActionAnalyze\Project\CooperativeApiCapture.h" />
+    <ClInclude Include="ActionAnalyze\Project\ApiTransferHandoff.h" />
+    <ClInclude Include="ActionAnalyze\Project\ApiTransferAgentCapture.h" />
+    <ClInclude Include="..\shared\ApiTransferHandoffProtocol.h" />
     <ClInclude Include="ActionAnalyze\Project\AttachedApiCapture.h" />
+    <ClInclude Include="ActionAnalyze\Project\LaunchedApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\NativeBoundApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectCallbackEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectNetworkEvidence.h" />
+    <ClInclude Include="ActionAnalyze\Project\NetworkTrafficCapture.h" />
+    <ClInclude Include="ActionAnalyze\Project\NetworkTrafficRead.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h" />
     <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h" />
   </ItemGroup>

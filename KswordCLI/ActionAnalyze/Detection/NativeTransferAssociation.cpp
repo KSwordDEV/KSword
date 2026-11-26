@@ -212,7 +212,8 @@ std::optional<NativeExecutionRequest> ReadNativeExecutionRequest(const ArchivedG
         return fields.targetPid <= UINT32_MAX && fields.targetTid <= UINT32_MAX;
     };
     if (request.apiInjection && request.apiFamily == "thread-create" &&
-        (request.operation == "CreateRemoteThread" || request.operation == "NtCreateThreadEx") &&
+        (request.operation == "CreateRemoteThread" || request.operation == "CreateRemoteThreadEx" ||
+            request.operation == "NtCreateThreadEx") &&
         request.apiOutcome == ApiInjectionOutcome::Succeeded)
     {
         const auto& fields = *request.apiInjection; // AAIP1成功创建后的实际线程身份。

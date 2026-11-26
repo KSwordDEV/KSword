@@ -49,10 +49,11 @@ struct CandidateReadCommand {
 constexpr std::array<std::uint32_t, 4> kWatchWidths{1, 2, 4, 8};
 constexpr LRESULT kPrivateWrite = 3, kPrivateExecution = 4, kPrivatePageExecution = 5; // 原模式0..5索引不变。
 constexpr LRESULT kImageExportExecution = 6, kImageRvaExecution = 7; // 保留旧六种绑定，新增已有普通模块入口。
+constexpr LRESULT kSuspendedImageLaunch = 8; // 普通EXE默认PE入口，初始挂起释放前取得真实owner。
 
 bool DirectMode(LRESULT mode) { return mode >= kPrivateWrite && mode <= kPrivatePageExecution; }
 bool ImageMode(LRESULT mode) { return mode == kImageExportExecution || mode == kImageRvaExecution; }
-bool ExecutionMode(LRESULT mode) { return mode == 2 || mode == kPrivateExecution || mode == kPrivatePageExecution || ImageMode(mode); }
+bool ExecutionMode(LRESULT mode) { return mode == 2 || mode == kPrivateExecution || mode == kPrivatePageExecution || ImageMode(mode) || mode == kSuspendedImageLaunch; }
 
 using Ui::Scale;
 namespace native = ks::cli::action_analyze::control;
@@ -66,7 +67,7 @@ struct Page {
     HWND siteKindLabel = nullptr, siteKind = nullptr; // 映像或私有指针绑定的明确选择。
     HWND pidLabel = nullptr, targetPid = nullptr, creationLabel = nullptr, targetCreation = nullptr;
     HWND addressLabel = nullptr, privateAddress = nullptr; // 已有实例的身份和地址不借用路径字段。
-    HWND pagesLabel = nullptr, privatePages = nullptr; // mode5显式选择1..64页，其它模式不采用此草稿。
+    HWND pagesLabel = nullptr, privatePages = nullptr; // mode5输入正十进制页数，其它模式不采用此草稿。
     HWND rangeTitle = nullptr, rangeBaseLabel = nullptr, rangeBase = nullptr, rangePagesLabel = nullptr, rangePages = nullptr, addRange = nullptr;
     HWND rangeSource = nullptr;
     std::shared_ptr<const private_execution::PrivateExecutionRangeDraft> rangeOrigin;
@@ -122,26 +123,30 @@ void DescribeDraftMode(const Page& page) {
     const auto kind = ::SendMessageW(page.siteKind, CB_GETCURSEL, 0, 0);
     const bool direct = DirectMode(kind);
     const bool image = ImageMode(kind);
-    ::SetWindowTextW(page.hint, image
+    const bool launch = kind == kSuspendedImageLaunch; // 新启动不展示已有实例输入或合作导出要求。
+    ::SetWindowTextW(page.hint, launch
+        ? L"选择普通 AMD64 EXE，创建挂起并由原所有者先设置入口断点，再释放初始挂起。RVA留空使用PE入口；不覆盖此前TLS/loader，API Agent就绪单独报告。"
+        : image
         ? kind == kImageRvaExecution
             ? L"附加已有 AMD64 实例的普通模块：选择已加载模块的绝对路径，输入非零32位RVA（十进制或0x）。使用DR0执行断点，不改变页保护。"
             : L"附加已有 AMD64 实例的普通模块：选择已加载模块的绝对路径及区分大小写的精确PE导出名。使用DR0执行断点，不依赖PDB。"
         : direct
         ? kind == kPrivatePageExecution
-            ? L"关注已有私有执行范围：起点4 KiB对齐，1–64页须属同一allocation。逐页保留原保护，关闭时恢复。普通指令按真实BS推进；不支持POPF、SS、特权及需同时开放两页的跨页取指。"
+            ? L"关注已有私有执行范围：起点4 KiB对齐，页数为正十进制整数且须属同一allocation。逐页保留原保护，关闭时恢复。普通指令按真实BS推进；不支持POPF、SS、特权及需同时开放两页的跨页取指。"
             : L"附加已授权的 AMD64 实例。开始时冻结 PID、创建 FILETIME 与私有绝对地址。"
         : L"启动已授权且导出 KSwordActionAnalyzeDataWatchV1 的 AMD64 合作程序。");
-    ::SetWindowTextW(page.start, direct || image ? L"附加并监视" : L"启动并监视");
-    ::SetWindowTextW(page.pathLabel, image ? L"已加载模块" : L"合作目标");
+    ::SetWindowTextW(page.start, launch ? L"启动并停在入口" : direct || image ? L"附加并监视" : L"启动并监视");
+    ::SetWindowTextW(page.pathLabel, launch ? L"程序路径" : image ? L"已加载模块" : L"合作目标");
     ::SetWindowTextW(page.browse, image ? L"选择模块…" : L"选择 EXE…");
-    ::SetWindowTextW(page.exportLabel, kind == kImageRvaExecution ? L"模块RVA" : image ? L"精确PE导出" : L"数据导出");
+    ::SetWindowTextW(page.exportLabel, launch ? L"入口RVA（可选）" : kind == kImageRvaExecution ? L"模块RVA" : image ? L"精确PE导出" : L"数据导出");
     ::SendMessageW(page.exportName, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(
-        kind == kImageRvaExecution ? L"非零uint32：十进制或0x十六进制" : image ? L"区分大小写的PE导出名（ASCII）" : L"区分大小写的数据导出名（ASCII）"));
+        launch ? L"留空使用PE AddressOfEntryPoint" : kind == kImageRvaExecution ? L"非零uint32：十进制或0x十六进制" : image ? L"区分大小写的PE导出名（ASCII）" : L"区分大小写的数据导出名（ASCII）"));
     ::SetWindowTextW(page.bytesLabel, ExecutionMode(kind) ? L"写入宽度：无" : L"写入字节数");
     ::SetWindowTextW(page.addressLabel, kind == kPrivatePageExecution ? L"私有范围起点" : L"私有绝对地址");
-    UpdateDraftTip(page, page.browse, image ? L"选择该精确进程实例中已加载模块的绝对路径，支持DLL和EXE；不加载或启动所选文件。"
+    UpdateDraftTip(page, page.browse, launch ? L"选择已授权的普通AMD64 EXE；不要求合作导出或PDB。" : image ? L"选择该精确进程实例中已加载模块的绝对路径，支持DLL和EXE；不加载或启动所选文件。"
         : L"选择已获明确授权的合作程序");
-    UpdateDraftTip(page, page.exportName, kind == kImageRvaExecution
+    UpdateDraftTip(page, page.exportName, launch ? L"留空使用PE入口；可输入非零32位RVA（十进制或0x），须为明确指令边界。"
+        : kind == kImageRvaExecution
         ? L"模块内非零32位RVA，仅接受完整十进制或0x十六进制；不是绝对地址，不查询PDB。启动时与模块路径及实例一起冻结。"
         : image ? L"精确PE导出名，区分大小写且仅接受可打印ASCII；不作PDB或符号模糊搜索。启动时与模块路径及实例一起冻结。"
         : L"合作程序的数据导出名；指针模式沿用原Ready/Gate流程。");
@@ -210,7 +215,7 @@ void Layout(const Page& page) {
     }
     if (direct) {
         field(page.addressLabel, page.privateAddress);
-        if (kind == kPrivatePageExecution) field(page.pagesLabel, page.privatePages, true);
+        if (kind == kPrivatePageExecution) field(page.pagesLabel, page.privatePages);
     } else {
         if (narrow) {
             field(page.pathLabel, page.path);
@@ -232,7 +237,7 @@ void Layout(const Page& page) {
     move(page.rangeTitle, edge, y, width, rangeTitleHeight);
     y += rangeTitleHeight + gap;
     field(page.rangeBaseLabel, page.rangeBase);
-    field(page.rangePagesLabel, page.rangePages, true);
+    field(page.rangePagesLabel, page.rangePages);
     const int sourceHeight = HintHeight(page.rangeSource, width);
     move(page.rangeSource, edge, y, width, sourceHeight);
     y += sourceHeight + gap;
@@ -286,14 +291,26 @@ std::wstring ReadText(HWND input) {
     return value;
 }
 
+// 从页数编辑框解析正十进制；只限制uint64字节转换不溢出，不另设产品页数上限。
+bool ReadPageCount(HWND input, std::uint64_t& pages, std::wstring& error) {
+    const auto text = ReadText(input); // 原草稿严格保留；空白、符号和十六进制不作隐式转换。
+    if (text.empty() || !std::all_of(text.begin(), text.end(), [](wchar_t ch) { return ch >= L'0' && ch <= L'9'; }) ||
+        !Memory::ParseUnsignedInteger(text, UINT64_MAX / 4096, L"4 KiB页数", pages, error) || !pages) {
+        if (error.empty()) error = L"页数须为正十进制整数，且转换为4 KiB字节数不能溢出。";
+        return false;
+    }
+    return true;
+}
+
 void Browse(Page& page) {
     std::wstring path(32768, L'\0');
     const bool image = ImageMode(::SendMessageW(page.siteKind, CB_GETCURSEL, 0, 0));
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = page.hwnd;
-    dialog.lpstrFilter = image ? L"已加载模块 (*.dll;*.exe)\0*.dll;*.exe\0所有文件 (*.*)\0*.*\0" : L"合作程序 (*.exe)\0*.exe\0";
-    dialog.lpstrTitle = image ? L"选择已有实例中已加载的模块" : L"选择合作写入停点目标";
+    const bool launch = ::SendMessageW(page.siteKind, CB_GETCURSEL, 0, 0) == kSuspendedImageLaunch;
+    dialog.lpstrFilter = image ? L"已加载模块 (*.dll;*.exe)\0*.dll;*.exe\0所有文件 (*.*)\0*.*\0" : L"程序 (*.exe)\0*.exe\0";
+    dialog.lpstrTitle = launch ? L"选择普通EXE启动目标" : image ? L"选择已有实例中已加载的模块" : L"选择合作写入停点目标";
     dialog.lpstrFile = path.data();
     dialog.nMaxFile = static_cast<DWORD>(path.size());
     dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_DONTADDTORECENT;
@@ -306,8 +323,8 @@ void Browse(Page& page) {
 
 const wchar_t* StateText(const LightDataWatchSnapshot& status) {
     const bool execution = status.binding ? status.binding->writeWatchBytes == 0
-        : status.request.privateExecution || status.request.imageExecutionAttachment; // 实际类型优先，模块执行不借用私有标记。
-    const bool image = status.request.imageExecutionAttachment;
+        : status.request.privateExecution || status.request.imageExecutionAttachment || status.request.suspendedImageLaunch;
+    const bool image = status.request.imageExecutionAttachment || status.request.suspendedImageLaunch;
     const bool pageExecution = status.binding ? status.binding->rangeBytes != 0 : status.request.privateRangeBytes != 0;
     switch (status.state) {
     case LightDataWatchState::Idle: return L"尚未启动";
@@ -342,6 +359,7 @@ std::wstring ImageSiteText(const LightDataWatchRequest& request) {
         swprintf_s(rva, L"0x%08X", static_cast<unsigned int>(*request.imageRva));
         return L"模块RVA " + std::wstring(rva);
     }
+    if (request.suspendedImageLaunch) return L"PE AddressOfEntryPoint"; // 未填写RVA时保留实际选择语义。
     return L"精确PE导出 " + std::wstring(request.exportName.begin(), request.exportName.end());
 }
 
@@ -515,7 +533,7 @@ void PublishToolbar(Page& page) {
     }
     if (!page.shown.active) state.scope += L" · 未运行";
     state.scope += L"\r\n" + std::wstring(StateText(page.shown));
-    if (page.shown.request.imageExecutionAttachment) {
+    if (page.shown.request.imageExecutionAttachment || page.shown.request.suspendedImageLaunch) {
         state.scope += L" · 普通模块执行 · " + page.shown.request.executable + L" · " + ImageSiteText(page.shown.request);
     }
     if (page.shown.request.privateRangeBytes) {
@@ -655,7 +673,21 @@ void Refresh(Page& page) {
     }
     if (result.retirement) text += result.retirement->kind == native::NativeRetirementKind::Detached
         ? L"\r\n原native清退回执：Detached · 脱离已确认" : L"\r\n原native清退回执：ExitEventContinued · 退出事件已继续";
-    if (result.request.imageExecutionAttachment) {
+    if (result.request.suspendedImageLaunch) {
+        // 与原native/API回执一起显示启动事实，不能把入口成功当成TLS或Agent已覆盖。
+        text += L"\r\n本次绑定方式：普通EXE挂起启动\r\n目标 " + result.request.executable;
+        text += L"\r\n本次位置：" + ImageSiteText(result.request);
+        if (result.launch) {
+            const auto& launch = *result.launch;
+            text += launch.createdSuspended ? L"\r\n创建时挂起：是" : L"\r\n创建时挂起：否";
+            text += launch.ownerAttachedBeforeResume ? L"\r\n首次恢复前所有者已附加：是" : L"\r\n首次恢复前所有者已附加：否";
+            text += launch.breakpointArmedBeforeResume ? L"\r\n首次恢复前入口已武装：是" : L"\r\n首次恢复前入口已武装：否";
+            text += launch.initialSuspendReleased ? L"\r\n初始挂起已释放：是" : L"\r\n初始挂起已释放：否";
+            text += L"\r\n最早TLS/loader覆盖：未覆盖\r\nAPI Agent就绪：未知";
+            const std::string_view stage(launch.stage); // 原始稳定诊断与原Win32值分别保留。
+            text += L"\r\n启动阶段：" + std::wstring(stage.begin(), stage.end()) + L" · Win32 " + std::to_wstring(launch.win32Error);
+        }
+    } else if (result.request.imageExecutionAttachment) {
         text += L"\r\n本次绑定方式：已有普通模块执行断点";
         text += L"\r\n请求实例：PID " + std::to_wstring(result.request.targetPid) + L" · 创建 FILETIME " +
             std::to_wstring(result.request.targetCreationFileTime);
@@ -697,7 +729,7 @@ void Refresh(Page& page) {
         wchar_t address[24]{}; // AMD64 地址的十六进制呈现。
         swprintf_s(address, L"0x%llX", static_cast<unsigned long long>(binding.address));
         text += (binding.rangeBytes ? L"\r\n执行关注页起点：" : L"\r\n关注地址：") + std::wstring(address);
-        if (result.request.imageExecutionAttachment && binding.moduleBase) {
+        if ((result.request.imageExecutionAttachment || result.request.suspendedImageLaunch) && binding.moduleBase) {
             // 只有后端已回读的映像基址才显示为实际绑定，不把输入RVA当成已成功设置。
             swprintf_s(address, L"0x%llX", static_cast<unsigned long long>(binding.moduleBase));
             text += L"\r\n实际模块基址：" + std::wstring(address);
@@ -883,7 +915,7 @@ void Start(Page& page) {
         ::SetFocus(control);
         Refresh(page);
     };
-    if (siteKind < 0 || siteKind > kImageRvaExecution) {
+    if (siteKind < 0 || siteKind > kSuspendedImageLaunch) {
         page.inputError = L"请选择绑定方式。";
         reject(page.siteKind);
         return;
@@ -895,20 +927,21 @@ void Start(Page& page) {
     }
     LightDataWatchRequest request; // 只冻结本模式的输入，隐藏的地址或导出草稿不混入其它模式。
     request.imageExecutionAttachment = image;
+    request.suspendedImageLaunch = siteKind == kSuspendedImageLaunch;
     if (image) {
         request.definitionId = page.definitionId;
         request.definitionProjectId = page.definitionProjectId;
     }
-    request.privateExecution = execution && !image;
+    request.privateExecution = execution && !image && !request.suspendedImageLaunch;
     request.bytes = execution ? 0 : kWatchWidths[static_cast<std::size_t>(width)];
     if (siteKind == kPrivatePageExecution) {
-        const auto pages = ::SendMessageW(page.privatePages, CB_GETCURSEL, 0, 0); // 下拉限定1..64页，启动时冻结。
-        if (pages < 0 || pages >= 64) {
-            page.inputError = L"请选择1–64个4 KiB页。";
+        std::uint64_t pages = 0; // 启动时从可编辑页数冻结，乘法前验证不溢出。
+        page.inputError.clear();
+        if (!ReadPageCount(page.privatePages, pages, page.inputError)) {
             reject(page.privatePages);
             return;
         }
-        request.privateRangeBytes = (static_cast<std::uint64_t>(pages) + 1) * 4096;
+        request.privateRangeBytes = pages * 4096;
     }
     request.projectDirectory = ReadText(page.projectDirectory);
     const auto projectMode = ::SendMessageW(page.projectMode, CB_GETCURSEL, 0, 0);
@@ -949,11 +982,11 @@ void Start(Page& page) {
         request.executable = ReadText(page.path);
         const auto name = ReadText(page.exportName);
         if (request.executable.empty()) {
-            page.inputError = image ? L"请选择该已有实例中已加载模块的绝对路径（DLL或EXE）。" : L"请选择已明确授权的合作 EXE。";
+            page.inputError = request.suspendedImageLaunch ? L"请选择已授权的普通AMD64 EXE。" : image ? L"请选择该已有实例中已加载模块的绝对路径（DLL或EXE）。" : L"请选择已明确授权的合作 EXE。";
             reject(page.browse);
             return;
         }
-        if (siteKind == kImageRvaExecution) {
+        if (siteKind == kImageRvaExecution || (request.suspendedImageLaunch && !name.empty())) {
             std::uint64_t rva = 0; // 先按32位上限解析，成功后才转换，不截断溢出或容忍尾随字符。
             if (!Memory::ParseUnsignedInteger(name, (std::numeric_limits<std::uint32_t>::max)(), L"模块RVA", rva, page.inputError) || !rva) {
                 if (page.inputError.empty()) page.inputError = L"模块RVA必须为非零32位无符号整数（十进制或0x十六进制）。";
@@ -961,7 +994,7 @@ void Start(Page& page) {
                 return;
             }
             request.imageRva = static_cast<std::uint32_t>(rva);
-        } else {
+        } else if (!request.suspendedImageLaunch) {
             if (name.empty() || !std::all_of(name.begin(), name.end(), [](wchar_t ch) { return ch >= 33 && ch <= 126; })) {
                 page.inputError = image ? L"请输入区分大小写的精确PE导出名，仅接受可打印ASCII。" : L"请输入区分大小写的数据导出名。";
                 reject(page.exportName);
@@ -970,7 +1003,7 @@ void Start(Page& page) {
             request.exportName.reserve(name.size());
             for (const wchar_t character : name) request.exportName.push_back(static_cast<char>(character)); // 已核对可打印ASCII。
         }
-        request.indirect = !image && siteKind != 0;
+        request.indirect = !image && !request.suspendedImageLaunch && siteKind != 0;
     }
     request.condition = ReadText(page.condition);
     auto prepared = native::PrepareDataWatchCondition(request.condition);
@@ -1034,22 +1067,22 @@ bool PrepareCandidateRange(Page& page, const LightPrivateExecutionCandidateSelec
     Refresh(page);
     if (!matches()) return false;
     const auto oldBase = ReadText(page.rangeBase);
-    const auto oldPages = ::SendMessageW(page.rangePages, CB_GETCURSEL, 0, 0);
+    const auto oldPages = ReadText(page.rangePages); // 模态确认期间保留原十进制草稿身份。
     const auto oldOrigin = page.rangeOrigin;
     page.preparingRange = true;
     Refresh(page);
-    const bool replace = (oldBase.empty() && oldPages == 0 && !oldOrigin) ||
+    const bool replace = (oldBase.empty() && oldPages == L"1" && !oldOrigin) ||
         ::MessageBoxW(page.hwnd, L"将替换现有AddRange起点、页数及候选来源草稿。原停点和旧结果保留。这里只载入参数，不暂停、不继续、不纳入范围。是否载入？",
             L"载入范围候选草稿", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES;
     Refresh(page); // 确认期间可能清退、换目录或更新原会话，不能切换到后来对象。
     if (!replace || !matches() || oldBase != ReadText(page.rangeBase) ||
-        oldPages != ::SendMessageW(page.rangePages, CB_GETCURSEL, 0, 0) || oldOrigin != page.rangeOrigin) {
+        oldPages != ReadText(page.rangePages) || oldOrigin != page.rangeOrigin) {
         page.preparingRange = false;
         Refresh(page);
         return false;
     }
     ::SetWindowTextW(page.rangeBase, PrivateCandidateHex(draft.address).c_str());
-    ::SendMessageW(page.rangePages, CB_SETCURSEL, static_cast<WPARAM>(draft.bytes / 4096 - 1), 0);
+    ::SetWindowTextW(page.rangePages, std::to_wstring(draft.bytes / 4096).c_str());
     page.rangeOrigin = std::make_shared<const private_execution::PrivateExecutionRangeDraft>(std::move(draft));
     page.rangeOriginSession = selection.sessionIdentity;
     page.preparingRange = false;
@@ -1059,21 +1092,27 @@ bool PrepareCandidateRange(Page& page, const LightPrivateExecutionCandidateSelec
     return true;
 }
 
-// 在原NX完整Held停点纳入新范围；只校验草稿，allocation/重叠和总页数交原owner回读。
+// 在原NX完整Held停点纳入新范围；只校验草稿，allocation/重叠和保护由原owner回读。
 void AddExecutionRange(Page& page) {
     if (page.preparingRange || !::IsWindowEnabled(page.addRange)) return;
     const auto stop = page.shown.displayedStop;
     const auto baseText = ReadText(page.rangeBase);
-    const auto pages = ::SendMessageW(page.rangePages, CB_GETCURSEL, 0, 0);
+    std::uint64_t pages = 0; // 明确十进制页数，不再以ComboBox索引计算范围。
     std::uint64_t base = 0;
     page.inputError.clear();
+    if (!ReadPageCount(page.rangePages, pages, page.inputError)) {
+        page.parameters.Reveal(page.rangePages); // 页数错误定位原编辑框，不把焦点移到有效的起点。
+        ::SetFocus(page.rangePages);
+        Refresh(page);
+        return;
+    }
     if (!Memory::ParseUnsignedInteger(baseText, (std::numeric_limits<std::uint64_t>::max)(), L"新增范围起点", base, page.inputError) ||
-        !base || base % 4096 || pages < 0 || pages >= 64) {
-        if (page.inputError.empty()) page.inputError = L"新增范围须为非零4 KiB对齐起点及1–64页；不会自动取整。";
+        !base || base % 4096 || base > UINT64_MAX - pages * 4096) {
+        if (page.inputError.empty()) page.inputError = L"新增范围须为非零4 KiB对齐起点及正十进制页数，地址加字节数不能溢出；不会自动取整。";
         page.parameters.Reveal(page.rangeBase);
         ::SetFocus(page.rangeBase);
     } else if ((page.rangeOrigin && page.rangeOriginSession != page.shown.sessionIdentity) ||
-        !page.session.AddPrivateExecutionRange(stop, base, (static_cast<std::uint64_t>(pages) + 1) * 4096, page.rangeOrigin)) {
+        !page.session.AddPrivateExecutionRange(stop, base, pages * 4096, page.rangeOrigin)) {
         page.inputError = L"仅当前NX会话的完整Held停点可纳入范围，请核对原页回执及在途操作。";
     } else {
         page.inputError.clear();
@@ -1214,10 +1253,10 @@ bool CreateControls(Page& page) {
     page.siteKind = ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
         0, 0, 1, 1, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSiteKind)), ::GetModuleHandleW(nullptr), nullptr);
     for (const auto label : {L"映像数据导出", L"指针导出的私有区间", L"指针导出的私有执行入口",
-         L"已有私有地址写入", L"已有私有地址执行", L"已有私有范围NX执行", L"已有模块精确PE导出执行", L"已有模块RVA执行"}) {
+         L"已有私有地址写入", L"已有私有地址执行", L"已有私有范围NX执行", L"已有模块精确PE导出执行", L"已有模块RVA执行", L"启动EXE并停在入口"}) {
         if (::SendMessageW(page.siteKind, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label)) < 0) return false;
     }
-    ::SendMessageW(page.siteKind, CB_SETCURSEL, 0, 0);
+    ::SendMessageW(page.siteKind, CB_SETCURSEL, kSuspendedImageLaunch, 0);
     page.pidLabel = Ui::CreateText(page.hwnd, 0, L"目标 PID", 0, 0, 1, 1);
     page.targetPid = MakeEdit(page.hwnd, kTargetPid, ES_AUTOHSCROLL);
     page.creationLabel = Ui::CreateText(page.hwnd, 0, L"创建 FILETIME", 0, 0, 1, 1);
@@ -1225,23 +1264,16 @@ bool CreateControls(Page& page) {
     page.addressLabel = Ui::CreateText(page.hwnd, 0, L"私有绝对地址", 0, 0, 1, 1);
     page.privateAddress = MakeEdit(page.hwnd, kPrivateAddress, ES_AUTOHSCROLL);
     page.pagesLabel = Ui::CreateText(page.hwnd, 0, L"4 KiB页数", 0, 0, 1, 1);
-    page.privatePages = ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-        0, 0, 1, 1, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPrivatePages)), ::GetModuleHandleW(nullptr), nullptr);
+    page.privatePages = MakeEdit(page.hwnd, kPrivatePages, ES_AUTOHSCROLL | ES_NUMBER);
     page.rangeTitle = Ui::CreateText(page.hwnd, 0, L"纳入新的私有执行范围", 0, 0, 1, 1);
     page.rangeSource = Ui::CreateText(page.hwnd, 0, L"", 0, 0, 1, 1);
     page.rangeBaseLabel = Ui::CreateText(page.hwnd, 0, L"新范围起点", 0, 0, 1, 1);
     page.rangeBase = MakeEdit(page.hwnd, kRangeBase, ES_AUTOHSCROLL);
     page.rangePagesLabel = Ui::CreateText(page.hwnd, 0, L"4 KiB页数", 0, 0, 1, 1);
-    page.rangePages = ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-        0, 0, 1, 1, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRangePages)), ::GetModuleHandleW(nullptr), nullptr);
+    page.rangePages = MakeEdit(page.hwnd, kRangePages, ES_AUTOHSCROLL | ES_NUMBER);
     page.addRange = Ui::CreateButton(page.hwnd, kAddRange, L"纳入新的执行范围", 0, 0, 1, 1);
-    for (unsigned pages = 1; pages <= 64; ++pages) {
-        const auto label = std::to_wstring(pages);
-        if (::SendMessageW(page.privatePages, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())) < 0) return false;
-        if (::SendMessageW(page.rangePages, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())) < 0) return false;
-    }
-    ::SendMessageW(page.privatePages, CB_SETCURSEL, 0, 0); // 默认1页，与旧单页入口保持相同范围。
-    ::SendMessageW(page.rangePages, CB_SETCURSEL, 0, 0);
+    ::SetWindowTextW(page.privatePages, L"1"); // 默认1页，用户可输入实际范围，不设固定页数列表。
+    ::SetWindowTextW(page.rangePages, L"1");
     page.stepLabel = Ui::CreateText(page.hwnd, 0, L"原生步进", 0, 0, 1, 1);
     page.stepMode = ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
         0, 0, 1, 1, page.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStepMode)), ::GetModuleHandleW(nullptr), nullptr);
@@ -1332,7 +1364,7 @@ bool CreateControls(Page& page) {
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
     AddTip(page, page.browse, L"选择已获明确授权的合作程序");
     AddTip(page, page.exportName, L"位置在开始时与目标实例一起冻结；精确PE导出区分大小写，模块RVA使用非零32位整数。");
-    AddTip(page, page.start, L"按当前模式显式启动合作程序，或附加已有实例的私有地址、已加载模块；运行中实例、路径和位置冻结，清退确认后可重新开始。");
+    AddTip(page, page.start, L"按当前模式显式启动普通EXE并停在入口、启动合作程序，或附加已有实例的私有地址、已加载模块；运行中实例、路径和位置冻结，清退确认后可重新开始。");
     AddTip(page, page.pause, L"只在原绑定Armed且无Held、运行中步进或恢复责任时，用原owner请求pause/N；不新建暂停会话，不应用条件。"
         L"Pending不等于已停止，Preempted保留真实事件。ManualPause仅提供继续、完整Held内存读取/转储及关闭，本批不授步进或执行观测保存。");
     AddTip(page, page.resume, L"继续当前回执所对应的主动暂停、写入、执行或步进停点；NX范围内普通指令按真实BS推进。"
@@ -1354,22 +1386,23 @@ bool CreateControls(Page& page) {
     AddTip(page, page.stepMode, L"改变模式不执行操作；跳出仅支持已核验的调用帧，失败时保留停点。");
     AddTip(page, page.siteKind, L"前三项启动合作程序；指针导出沿同一Ready/Gate，只有真实Armed才放行。"
         L"已有私有地址模式无需EXE或导出，核对PID、创建FILETIME、AMD64及MEM_PRIVATE区域后设置关注。"
-        L"执行模式要求EXECUTE/RX/RWX；写入宽度为1/2/4/8字节。NX私有执行范围要求4 KiB对齐、1..64页并属同一allocation，"
+        L"执行模式要求EXECUTE/RX/RWX；写入宽度为1/2/4/8字节。NX私有执行范围要求4 KiB对齐、正十进制页数并属同一allocation，"
         L"临时撤X，逐页保留不同RX/RWX等原保护，关闭时恢复，不装DR0。普通指令按真实BS推进；"
         L"POPF/SS/特权及需同时开放两页的跨页取指不支持，实际结果见后端stage，尚未实测。"
-        L"最后两项附加已有模块，以绝对路径及精确PE导出或非零uint32 RVA设置执行DR0，不改页保护、不查询PDB、不启动目标。当前会话清退确认前不能修改绑定。");
+        L"已有模块两项以绝对路径及精确PE导出或非零uint32 RVA设置执行DR0，不改页保护、不查询PDB、不启动目标。"
+        L"普通EXE启动项先挂起创建，由原owner确认入口武装后释放初始挂起；RVA留空使用PE入口，不要求合作标记，不覆盖此前TLS/loader。当前会话清退确认前不能修改绑定。");
     AddTip(page, page.targetPid, L"已有AMD64目标的非零32位PID；仅接受完整无符号十进制或0x十六进制，不截断。"
         L"点击附加时与创建FILETIME一起冻结；活会话中禁用。");
     AddTip(page, page.targetCreation, L"该精确实例的非零64位创建FILETIME；十进制或0x十六进制。"
         L"不是日期文本，也不自动改用后来同PID的进程；活会话中禁用。");
     AddTip(page, page.privateAddress, L"非零64位私有绝对地址，0x前缀十六进制，其余十进制。"
         L"私有页模式要求4 KiB对齐；不填模块RVA或指针导出地址。区域身份及保护由原所有者核验，活会话中禁用。");
-    AddTip(page, page.privatePages, L"仅NX私有执行范围采用此项：1..64个4 KiB页，默认1。起点必须已对齐，不自动取整；"
+    AddTip(page, page.privatePages, L"仅NX私有执行范围采用此项：输入正十进制页数，每页4 KiB，默认1。起点必须已对齐，不自动取整；"
         L"范围须属同一allocation，每页原RX/RWX等保护分别保留和恢复。开始时冻结总字节数，运行中禁用。");
     AddTip(page, page.addRange, L"仅当前NX会话完整Held可用：冻结此处起点/页数及原停点，在原owner纳入，不Continue。"
-        L"可跨不同allocation且不连续，但每段须属同一allocation、总计最多64页，重叠拒绝。失败仅回滚新增页，未恢复由原关闭负责。");
+        L"可跨不同allocation且不连续，但每段须属同一allocation，重叠拒绝。失败仅回滚新增页，未恢复由原关闭负责。");
     AddTip(page, page.rangeBase, L"新增段的非零4 KiB对齐绝对地址，十进制或0x十六进制；不会自动取整，可与初始范围不连续。");
-    AddTip(page, page.rangePages, L"新增段1..64个4 KiB页，同一allocation；所有已纳入范围合计最多64页，后端核验重叠及原保护。");
+    AddTip(page, page.rangePages, L"新增段输入正十进制页数，每页4 KiB且属同一allocation；字节数转换不能溢出，后端核验重叠及原保护。");
     AddTip(page, page.apiPid, L"明确选择另一API来源的十进制PID，不从native目标或历史选区推导。原worker复核来源强实例。");
     AddTip(page, page.apiCreation, L"API来源的精确非零创建FILETIME（十进制），与来源PID一起冻结；不是当前native目标。");
     AddTip(page, page.apiDuration, L"Ready后有限采集区间：1000..10000毫秒，默认3000；不支持连续采集。");
@@ -1515,7 +1548,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     }
     case WM_COMMAND:
         if (!page->preparingRange && ((LOWORD(wp) == kRangeBase && HIWORD(wp) == EN_CHANGE) ||
-            (LOWORD(wp) == kRangePages && HIWORD(wp) == CBN_SELCHANGE))) {
+            (LOWORD(wp) == kRangePages && HIWORD(wp) == EN_CHANGE))) {
             if (page->rangeOrigin) page->inputError = L"已手工编辑AddRange草稿，原候选来源已解除；需保留候选来源时请从候选页重新载入子范围。";
             page->rangeOrigin.reset();
             page->rangeOriginSession.reset();
@@ -1536,7 +1569,7 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         }
         if (LOWORD(wp) == kExport && HIWORD(wp) == EN_CHANGE && !page->preparingDefinition) page->definitionId.clear();
         if ((LOWORD(wp) == kCondition || LOWORD(wp) == kTargetPid || LOWORD(wp) == kTargetCreation ||
-            LOWORD(wp) == kPrivateAddress || LOWORD(wp) == kExport) && HIWORD(wp) == EN_CHANGE && !page->inputError.empty()) {
+            LOWORD(wp) == kPrivateAddress || LOWORD(wp) == kPrivatePages || LOWORD(wp) == kExport) && HIWORD(wp) == EN_CHANGE && !page->inputError.empty()) {
             page->inputError.clear(); // 清除草稿校验提示，保留当前或上一轮实际回执。
             Refresh(*page);
             return 0;

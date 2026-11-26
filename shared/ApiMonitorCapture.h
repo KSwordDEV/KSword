@@ -1,6 +1,7 @@
 #pragma once
 #include "ApiMonitorCoverage.h"
 #include "ApiMonitorCliView.h"
+#include "ApiMonitorInjectionProtocol.h"
 #include <deque>
 #include <functional>
 #include <map>
@@ -99,6 +100,8 @@ struct CaptureRequest {
     bool strictReadOnlyObservation = false;
     // 同一采集线程仅在阶段前进时调用；借用本次快照，异常走原停止及排空链。
     std::function<void(const CaptureStartupProgress&)> onStartupProgress;
+    InjectionEndpoint transferHandoff; // Optional ActionAnalyze external owner; separate from child injection.
+    std::function<void()> onControlPoll; // 同一采集线程启动/采集/排空均服务目标外同步交接，不新建轮询线程。
 };
 struct CaptureProcess {
     DWORD pid = 0, pipeError = 0;

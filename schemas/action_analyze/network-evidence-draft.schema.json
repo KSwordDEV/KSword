@@ -17,7 +17,7 @@
     "nullablePositive": { "anyOf": [{ "$ref": "#/$defs/positive" }, { "type": "null" }] },
     "u8": { "type": "string", "pattern": "^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])(?![\\s\\S])" },
     "u16": { "$comment": "Range 0..65535 after decimal parsing.", "allOf": [{ "$ref": "#/$defs/u64" }, { "maxLength": 5 }] },
-    "pid": { "$comment": "Verified nonzero payload PID. The serialized field is a uint32 decimal string.", "allOf": [{ "$ref": "#/$defs/positive" }, { "maxLength": 10 }] },
+    "pid": { "$comment": "Nonzero observed payload PID. processAttribution determines whether it is an instance binding or only a PID hint. The serialized field is a uint32 decimal string.", "allOf": [{ "$ref": "#/$defs/positive" }, { "maxLength": 10 }] },
     "label": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_.:/-]+(?![\\s\\S])" },
     "ipv4": { "type": "string", "minLength": 8, "maxLength": 8, "pattern": "^[0-9a-f]+$" },
     "ipv6": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]+$" },
@@ -48,7 +48,7 @@
       "unevaluatedProperties": false
     },
     "flow": {
-      "$comment": "Retain source-native endpoints, original clock ticks and optional source sequence. Tag values for direction are inbound 1 and outbound 2. Tag values for protocol are TCP 6 and UDP 17. A flow requires a verified process creation time. Unresolved metadata from a scoped PID stays outside this record variant. observedBytes preserves the source measurement, such as ETW size. originalLength describes the captured layer. Require capturedLength to equal both the inline tail size and min(producerCapturedLength, 65536). A known originalLength must be at least producerCapturedLength and strictly greater if sourceTruncated is true. Derive truncated if the source marked truncation, the writer retained a prefix, or capturedLength is smaller than the known originalLength. Otherwise derive no-payload for originalLength zero, complete for a known positive length, or captured for an unknown originalLength. A zero-byte captured observation with unknown originalLength leaves payload presence unknown. For producerCapturedLength above 65536, the default returns NeedsBlob. The caller can explicitly request retaining the 65536-byte prefix.",
+      "$comment": "Retain source-native endpoints, original clock ticks and optional source sequence. Tag values for direction are inbound 1 and outbound 2. Tag values for protocol are TCP 6 and UDP 17. Historical flows without processAttribution require a verified process creation time. Explicit endpoint-table-hint/native-pid-hint flows require createTime100ns=0 and processObjectId=null; the requested target identity lives separately in the sample network checkpoint. observedBytes preserves the source measurement, such as ETW size. originalLength describes the captured layer. Require capturedLength to equal both the inline tail size and min(producerCapturedLength, 65536). A known originalLength must be at least producerCapturedLength and strictly greater if sourceTruncated is true. Derive truncated if the source marked truncation, the writer retained a prefix, or capturedLength is smaller than the known originalLength. Otherwise derive no-payload for originalLength zero, complete for a known positive length, or captured for an unknown originalLength. A zero-byte captured observation with unknown originalLength leaves payload presence unknown. For producerCapturedLength above 65536, the default returns NeedsBlob. The caller can explicitly request retaining the 65536-byte prefix.",
       "type": "object",
       "required": ["family", "protocol", "direction", "sourceAddress", "sourcePort", "destinationAddress", "destinationPort", "payloadPid", "createTime100ns", "processObjectId", "sourceTick", "producerSequence", "receiveQpc", "observedBytes", "eventId", "version", "opcode", "captureLayer", "payloadState", "encoding", "originalLength", "producerCapturedLength", "capturedLength", "sourceTruncated"],
       "properties": {
@@ -61,8 +61,13 @@
         "destinationAddress": { "anyOf": [{ "$ref": "#/$defs/ipv4" }, { "$ref": "#/$defs/ipv6" }] },
         "destinationPort": { "anyOf": [{ "$ref": "#/$defs/u16" }, { "type": "null" }] },
         "payloadPid": { "$ref": "#/$defs/pid" },
-        "createTime100ns": { "$ref": "#/$defs/positive" },
+        "createTime100ns": { "$ref": "#/$defs/u64" },
         "processObjectId": { "$ref": "#/$defs/nullablePositive" },
+        "processAttribution": {
+          "$comment": "Absent in historical verified-instance records. Weak hints never establish event-time process instance identity or verifiedOutboundLink eligibility.",
+          "enum": ["endpoint-table-hint", "native-pid-hint"]
+        },
+        "packetSourceFlags": { "$comment": "Optional original WFP uint32 flags, preserved without promoting attribution.", "allOf": [{ "$ref": "#/$defs/u64" }, { "maxLength": 10 }] },
         "sourceTick": { "$ref": "#/$defs/u64" },
         "producerSequence": { "$ref": "#/$defs/nullableU64" },
         "receiveQpc": { "$ref": "#/$defs/nullableU64" },
@@ -86,6 +91,11 @@
         "sourceTruncated": { "type": "boolean" }
       },
       "allOf": [
+        {
+          "if": { "required": ["processAttribution"] },
+          "then": { "properties": { "createTime100ns": { "const": "0" }, "processObjectId": { "type": "null" } } },
+          "else": { "properties": { "createTime100ns": { "$ref": "#/$defs/positive" } } }
+        },
         {
           "if": { "properties": { "family": { "const": "4" } } },
           "then": { "properties": { "sourceAddress": { "$ref": "#/$defs/ipv4" }, "destinationAddress": { "$ref": "#/$defs/ipv4" } } },

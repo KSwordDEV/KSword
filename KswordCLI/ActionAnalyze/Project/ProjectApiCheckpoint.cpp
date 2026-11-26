@@ -88,6 +88,7 @@ struct ApiSource {
     std::uint64_t creation = 0; // 声明的调用者创建 FILETIME。
     std::uint64_t sessionIdentity = 0; // 声明的 WinAPI 归档会话。
     bool cooperative = false; // 合作管道计划使用调用序号，无 JSONL 文件身份。
+    bool multiProcess = false; // 自动接管采样按每条元数据声明实际管道实例，原单来源格式保持不变。
 };
 
 // 核对计划版本、冻结样本配置及来源字段，给逐包校验提供声明身份。
@@ -113,6 +114,14 @@ bool ReadPlan(const JsonValue& plan, const ProjectInfo& project, const SampleRec
     if (!bound) {
         return false;
     }
+    // 多进程只用于同采样的真实Agent管道。后续原包逐项核对自身实例，不借用根进程身份。
+    if (const auto* multiple = plan.find("multiProcessApi"))
+    {
+        if (!source.cooperative || !multiple->tryGetBool(source.multiProcess) || !source.multiProcess)
+        {
+            return false;
+        }
+    }
     // 同一段只接受一种输入协议。存档只能核验声明和原包的一致性。
     return source.cooperative ? !file && !plan.find("identity") :
         !plan.find("archiveSource") && IsString(plan, "identity", kIdentity) && file &&
@@ -129,13 +138,26 @@ bool ReadPacket(const JsonValue& metadata, std::string_view bytes, const ApiSour
     std::uint64_t creation = 0; // 每行保留的声明创建时间。
     if (!IsString(metadata, "kind", kApiFollowPacketKind) || bytes.size() != sizeof(packet) ||
         previousSequence == UINT64_MAX || !GetNumber(metadata, "sourceSequence", sequence) ||
-        sequence != previousSequence + 1 || !GetNumber(metadata, "readerCreation100ns", creation) ||
-        creation != source.creation) {
+        sequence != previousSequence + 1 || !GetNumber(metadata, "readerCreation100ns", creation) || !creation) {
+        return false;
+    }
+    auto pid = source.pid; // 单来源沿原冻结计划；多来源只使用该包实际采集管道声明。
+    auto session = source.sessionIdentity; // 与原包会话ID对应，不能借用根来源会话。
+    if (source.multiProcess)
+    {
+        if (!ReadUInt(metadata, "readerPid", pid) || pid <= 4 || pid > UINT32_MAX ||
+            !GetNumber(metadata, "sessionIdentity", session) || !session)
+        {
+            return false;
+        }
+    }
+    else if (creation != source.creation)
+    {
         return false;
     }
     std::memcpy(&packet, bytes.data(), sizeof(packet));
     return packet.size == sizeof(packet) && packet.version == Monitor::kProtocolVersion &&
-        packet.pid == source.pid && packet.sessionIdentity == source.sessionIdentity &&
+        packet.pid == pid && packet.sessionIdentity == session &&
         (source.cooperative ? IsCooperativeApiCall(packet) :
             packet.eventKind <= static_cast<std::uint32_t>(Monitor::EventKind::IoCancel) || Monitor::isCoverageEvent(packet.eventKind)) &&
         packet.category <= static_cast<std::uint32_t>(Monitor::EventCategory::Gui) &&

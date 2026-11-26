@@ -100,10 +100,38 @@ DWORD ReadExport(const ImageReader& image, IMAGE_DATA_DIRECTORY entry, std::stri
 
 DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
     std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site, std::uint32_t dataBytes,
-    bool allowReadOnlyData) {
-    std::uintptr_t base = 0;
-    DWORD size = 0;
-    if (const auto error = GetImage(pid, path, base, size)) { return error; }
+    bool allowReadOnlyData, std::uintptr_t eventImageBase) {
+    std::uintptr_t base = eventImageBase; // 原调试事件的真实映像基址；普通附加仍从模块表读取。
+    DWORD size = 0; // 原PE解析的映像边界，不用磁盘头替代远程头。
+    if (!eventImageBase)
+    {
+        if (const auto error = GetImage(pid, path, base, size)) { return error; }
+    }
+    else
+    {
+        MEMORY_BASIC_INFORMATION headerMemory{}; // 映射头区域限制固定长度读取。
+        if (!VirtualQueryEx(process, reinterpret_cast<void*>(base), &headerMemory, sizeof(headerMemory)))
+        {
+            return GetLastError();
+        }
+        if (headerMemory.State != MEM_COMMIT || headerMemory.Type != MEM_IMAGE ||
+            reinterpret_cast<std::uintptr_t>(headerMemory.AllocationBase) != base ||
+            reinterpret_cast<std::uintptr_t>(headerMemory.BaseAddress) != base ||
+            headerMemory.RegionSize > UINT32_MAX)
+        {
+            return ERROR_BAD_EXE_FORMAT;
+        }
+        const ImageReader header{process, base, static_cast<DWORD>(headerMemory.RegionSize)}; // 只借用远程头页。
+        IMAGE_DOS_HEADER dosHeader{}; // 初读e_lfanew，完整PE验证仍走下方原逻辑。
+        IMAGE_NT_HEADERS64 imageHeader{}; // SizeOfImage提供原读器边界。
+        if (!header.Read(0, dosHeader) || dosHeader.e_magic != IMAGE_DOS_SIGNATURE ||
+            dosHeader.e_lfanew < static_cast<LONG>(sizeof(dosHeader)) ||
+            !header.Read(static_cast<DWORD>(dosHeader.e_lfanew), imageHeader))
+        {
+            return ERROR_BAD_EXE_FORMAT;
+        }
+        size = imageHeader.OptionalHeader.SizeOfImage;
+    }
     if (size > std::numeric_limits<std::uintptr_t>::max() - base) { return ERROR_BAD_EXE_FORMAT; }
     const ImageReader image{process, base, size};
     IMAGE_DOS_HEADER dos{};

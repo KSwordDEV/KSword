@@ -71,6 +71,7 @@ namespace apimon
         std::wstring agentDllPath;              // agentDllPath：当前 APIMonitor_x64.dll 路径，供子进程自动注入复用。
         std::wstring controllerSid;             // controllerSid：创建会话的控制端 SID，用于 DWM/服务账户管道 ACL。
         ks::winapi_monitor::InjectionEndpoint injectionEndpoint;
+        ks::winapi_monitor::InjectionEndpoint transferHandoff;
         bool enableFile = true;                 // enableFile：是否启用文件 API Hook。
         bool enableRegistry = true;             // enableRegistry：是否启用注册表 API Hook。
         bool enableNetwork = true;              // enableNetwork：是否启用网络 API Hook。

@@ -1,5 +1,6 @@
 #pragma once
 #include <Windows.h>
+#include <winternl.h> // NTSTATUS由公开NT头提供，独立编译及x86/x64均不依赖包含顺序。
 #include "../../shared/evidence/ApiMemoryLifecycleFields.h"
 
 namespace apimon {

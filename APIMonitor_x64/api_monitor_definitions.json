@@ -3766,9 +3766,8 @@
         "scope": "targets"
       },
       "wrapper": {
-        "kind": "generated",
-        "capture_handler": "CaptureCreateRemoteThreadEx",
-        "policy": "handle"
+        "kind": "special",
+        "handler": "HookedCreateRemoteThreadEx"
       }
     },
     {

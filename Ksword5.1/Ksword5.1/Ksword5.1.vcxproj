@@ -442,6 +442,12 @@
     <ClCompile Include="ActionAnalyze\ExecutionGroupFields.cpp" />
     <ClCompile Include="ActionAnalyze\ExecutionGroupSiteEditor.cpp" />
     <ClCompile Include="ActionAnalyze\ProcessGroupMemoryPane.cpp" />
+    <ClCompile Include="ActionAnalyze\NetworkTrafficPane.cpp" />
+    <ClCompile Include="ActionAnalyze\NetworkTrafficWorker.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNetworkEvidence.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNetworkRead.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\NetworkTrafficCapture.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\NetworkTrafficRead.cpp" />
     <ClCompile Include="ActionAnalyze\NativeStopMemoryArchive.cpp" />
     <ClCompile Include="ActionAnalyze\NativeStopMemoryCandidates.cpp" />
     <ClCompile Include="ActionAnalyze\PrivateExecutionCandidatesPane.cpp" />
@@ -478,6 +484,7 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSession.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\SuspendedImageLaunch.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSessionArchive.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp" />
@@ -522,7 +529,10 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\LaunchedApiCapture.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.h" />
@@ -1089,6 +1099,11 @@
     <ClInclude Include="ActionAnalyze\ExecutionGroupFields.h" />
     <ClInclude Include="ActionAnalyze\ExecutionGroupSiteEditor.h" />
     <ClInclude Include="ActionAnalyze\ProcessGroupMemoryPane.h" />
+    <ClInclude Include="ActionAnalyze\NetworkTrafficPane.h" />
+    <ClInclude Include="ActionAnalyze\NetworkTrafficWorker.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNetworkEvidence.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\NetworkTrafficCapture.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\NetworkTrafficRead.h" />
     <ClInclude Include="ActionAnalyze\NativeStopMemoryArchive.h" />
     <ClInclude Include="ActionAnalyze\NativeStopMemoryCandidates.h" />
     <ClInclude Include="ActionAnalyze\PrivateExecutionCandidatesPane.h" />
@@ -1116,6 +1131,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSession.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\SuspendedImageLaunch.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.h" />
     <ClInclude Include="ActionAnalyze\ArchivedSampleAnalysis.h" />
@@ -1159,7 +1175,11 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.h" />
+    <ClInclude Include="..\..\shared\ApiTransferHandoffProtocol.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\LaunchedApiCapture.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.h" />
     <ClInclude Include="..\..\shared\ApiMonitorCapture.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.h" />

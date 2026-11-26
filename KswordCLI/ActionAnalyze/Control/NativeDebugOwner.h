@@ -33,10 +33,11 @@ struct NativeBreakpointRequest {
     bool writeWatchPointerExport = false; // 数据导出内保存 AMD64 指针，实际关注其指向的私有区间。
     bool executePointerExport = false; // 数据导出内的 AMD64 指针选择私有可执行位置；writeWatchBytes 必须为 0。
     std::uint64_t privateAddress = 0; // 非零时与映像/导出/RVA/指针模式互斥；0宽度执行，1/2/4/8宽度写。
-    std::uint64_t privateRangeBytes = 0; // 非零仅配privateAddress且writeWatchBytes=0；4096整数倍，最多64页，同私有分配。
+    std::uint64_t privateRangeBytes = 0; // 非零仅配privateAddress且writeWatchBytes=0；4096整数倍，同私有分配，无固定页数上限。
     bool explicitImageAttachment = false; // 仅普通映像执行允许附加既有目标，仍须完整显式进程授权和准入。
     std::optional<std::string> imageSha256; // 冻结定义约束；必须核对实际装载事件文件，不能仅检查同名盘上文件。
     bool waitForModule = false; // 仅显式普通映像执行允许，沿原LOAD_DLL事件等待首次加载；不自动重绑已卸载模块。
+    std::uint32_t initialThreadId = 0; // 本宿主挂起创建的原始线程；在CREATE_PROCESS先武装，不等附加助手断点。
     bool operator==(const NativeBreakpointRequest&) const = default;
 };
 

@@ -248,7 +248,7 @@
     <ClInclude Include="..\shared\ApiMonitorInjection.h" />
   </ItemGroup>
   <ItemGroup><ClInclude Include="..\shared\ApiMonitorRemoteExports.h" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\shared\ApiMonitorInjectionProtocol.h" /><ClInclude Include="..\shared\ApiTransferHandoffProtocol.h" /></ItemGroup>
   <ItemGroup><ClInclude Include="hook\NearAllocation.h" /><ClInclude Include="hook\ThreadPatchGuard.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="hook\CodePageAllocator.h" /></ItemGroup>
 <ItemGroup><ClInclude Include="hook\RawAbiSnapshot.h" /><ClInclude Include="hook\HookCallStack.h" /><ClInclude Include="..\shared\ApiMonitorCallStack.h" /></ItemGroup>

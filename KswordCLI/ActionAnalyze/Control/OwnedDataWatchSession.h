@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeDebugOwner.h"
+#include "SuspendedImageLaunch.h"
 #include "ProcessGroupMemorySnapshot.h"
 #include "../Rules/RuleExpression.h"
 
@@ -71,6 +72,15 @@ public:
     // 不将零宽度解释为写入，不创建另一个owner；沿同一Ready/Gate启动链路。
     [[nodiscard]] NativeControlResult StartPrivateExecution(const std::wstring& path, const std::string& exportName,
         Ksword::ActionAnalyze::Rules::PreparedPredicate condition = {}, std::string_view sampleId = {});
+    // 通用非合作EXE：创建挂起，原owner确认模块入口DR0后才归还初始一次挂起。
+    // 省略rva使用PE AddressOfEntryPoint；入口命中后保持停止，继续/步进沿本会话原令牌。
+    [[nodiscard]] NativeControlResult StartSuspendedImage(const std::wstring& path,
+        std::optional<std::uint32_t> rva = {}, Ksword::ActionAnalyze::Rules::PreparedPredicate condition = {},
+        std::string_view sampleId = {});
+    // 只读本轮真实启动阶段；TLS/loader覆盖与API Agent Ready分别报告，不凭Armed推断。
+    [[nodiscard]] std::optional<SuspendedImageLaunchReceipt> LaunchReceipt() const;
+    // 同一worker借用本会话新建进程的创建句柄；仅在会话存活期间有效，不能关闭或存入UI。
+    [[nodiscard]] HANDLE LaunchedProcessHandle() const noexcept;
     // 两端后台可直接关注已运行实例的私有地址，无EXE导出或合作握手。
     // width=0为执行，1/2/4/8为写入；调用方显式授权后在原串行worker执行。
     [[nodiscard]] NativeControlResult AttachPrivateAddress(std::uint32_t pid, std::uint64_t creationFileTime,
@@ -132,6 +142,7 @@ private:
 
     OwnerIdentity identity_; // 本会话独立身份，继续提交给同一个原生账本。
     std::unique_ptr<NativeDebugOwner> owner_; // 原生调试线程和清退责任的所有者。
+    std::unique_ptr<SuspendedImageLaunch> imageLaunch_; // 在owner之前销毁，负责尚未归还的创建挂起。
     std::unique_ptr<AbortedLaunch> aborted_; // 首次执行前撤销的启动及其回执。
     std::unique_ptr<CooperativeBreakpointGate> launchGate_; // 仅间接私有内存模式等待初始化并控制业务放行。
     Ksword::ActionAnalyze::Rules::PreparedPredicate condition_; // 本次生效的冻结谓词。

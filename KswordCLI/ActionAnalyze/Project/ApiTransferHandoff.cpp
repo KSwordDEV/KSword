@@ -1,0 +1,740 @@
+#include "ApiTransferHandoff.h"
+#include "ApiTransferAgentCapture.h"
+#include "ProjectStorage.h"
+#include "../Control/OwnedExecutionGroup.h"
+#include <sddl.h>
+#include <algorithm>
+#include <map>
+#include <new>
+#include <deque>
+
+namespace Ksword::ActionAnalyze {
+namespace {
+namespace n = ks::cli::action_analyze::control;
+namespace m = ks::winapi_monitor;
+using V = Evidence::JsonValue;
+using ProjectStorage::Handle;
+
+bool PipeSecurity(PSECURITY_DESCRIPTOR* out)
+{
+    // 输出仅当前用户及SYSTEM可连接的ACL；描述符由调用方LocalFree。
+    HANDLE raw = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw)) return false;
+    Handle token(raw);
+    DWORD bytes = 0;
+    GetTokenInformation(raw, TokenUser, nullptr, 0, &bytes);
+    std::vector<unsigned char> buffer(bytes);
+    if (!bytes || !GetTokenInformation(raw, TokenUser, buffer.data(), bytes, &bytes)) return false;
+    wchar_t* sid = nullptr;
+    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid)) return false;
+    const auto acl = L"D:P(A;;GA;;;SY)(A;;GA;;;" + std::wstring(sid) + L")";
+    LocalFree(sid);
+    return ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1, out, nullptr) != FALSE;
+}
+bool Covered(const n::ExecutionGroupMember& member, std::uint64_t base, std::uint64_t bytes)
+{
+    // 输入同owner回读及完整范围，核对原NX绑定；不把请求已接受当作Armed。
+    if (!member.control.attached || !member.control.breakpoint || member.control.firstRecoveryFailure ||
+        member.control.pid != member.site.pid || member.control.processCreationTime != member.site.creationFileTime ||
+        member.owner.backendInstanceId.empty() || member.owner.sessionId.empty()) return false;
+    const auto& binding = *member.control.breakpoint;
+    if (binding.state != n::NativeBreakpointState::Armed && binding.state != n::NativeBreakpointState::Held) return false;
+    if (!bytes || base > UINT64_MAX - bytes) return false; // 覆盖判断只接受可表示的非空半开区间。
+    return std::any_of(binding.executionRanges.begin(), binding.executionRanges.end(), [&](const auto& range) {
+        return base >= range.base && base - range.base <= range.bytes && bytes <= range.bytes - (base - range.base);
+    });
+}
+DWORD VerifyArmedRange(HANDLE process, const n::ExecutionGroupMember& member, std::uint64_t base, std::uint64_t bytes)
+{
+    // ACK前重读整段当前内存状态；旧owner登记和同地址的新分配都不能代替实际NX保护。
+    const auto& ranges = member.control.breakpoint->executionRanges;
+    const auto binding = std::find_if(ranges.begin(), ranges.end(), [&](const auto& range) {
+        return base >= range.base && base - range.base <= range.bytes && bytes <= range.bytes - (base - range.base);
+    });
+    if (binding == ranges.end()) return ERROR_INVALID_STATE;
+    for (auto address = base; address < base + bytes;) {
+        MEMORY_BASIC_INFORMATION memory{};
+        if (!VirtualQueryEx(process, reinterpret_cast<void*>(address), &memory, sizeof(memory))) return GetLastError();
+        const auto region = reinterpret_cast<std::uint64_t>(memory.BaseAddress);
+        if (memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE || !memory.RegionSize ||
+            region > address || memory.RegionSize > UINT64_MAX - region ||
+            region + memory.RegionSize <= address ||
+            reinterpret_cast<std::uint64_t>(memory.AllocationBase) != binding->allocationBase ||
+            (memory.Protect & (PAGE_GUARD | PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+            return ERROR_INVALID_STATE;
+        address = std::min(base + bytes, region + static_cast<std::uint64_t>(memory.RegionSize));
+    }
+    return ERROR_SUCCESS;
+}
+}
+
+class ApiTransferHandoff::Impl {
+public:
+    ProjectDocument& project; // 借用原采集writer，所有归档均在该worker执行。
+    std::string sample; // 本轮采样身份，目标owner沿用同一sample。
+    DWORD sourcePid; // 原主capture已认证来源，递归来源另按真实Ready登记。
+    std::uint64_t sourceCreation; // 来源创建时间，防止PID复用。
+    std::uint64_t originalSession = 0, originalRevision = 0;
+    bool originalReady = false, originalEnded = false;
+    const std::atomic_bool& cancel; // 原采集取消位，不新建停止任务。
+    m::InjectionEndpoint endpoint; // 本轮独立的同步交接端点。
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    OVERLAPPED io{};
+    enum class Phase { Connect, Read, Reply, Release } phase = Phase::Connect;
+    bool pending = false, immediate = false, started = false, closing = false;
+    DWORD immediateBytes = 0, setupError = 0, lastError = 0;
+    DWORD firstPipeError = 0;
+    std::uint64_t pipeFailures = 0;
+    ULONGLONG ioStarted = 0;
+    m::TransferHandoffRequest request{};
+    m::TransferHandoffResponse response{};
+    n::OwnedExecutionGroup group; // 自动发现成员的唯一集合及原恢复责任。
+    n::ExecutionGroupResult current; // 最近原owner回读，不接受外来反序列化控制。
+    std::uint64_t requests = 0, armed = 0, rejected = 0, saved = 0;
+    std::uint64_t nativeOrdinal = 0;
+    std::optional<std::uint64_t> previousSequence;
+    ProjectResult archiveStatus;
+    std::map<std::string, n::NativeEventKey> observed;
+    std::wstring agentPath; // 主capture使用的同一产品Agent路径，不另接受用户DLL参数。
+    SourcePacket onPacket; // 借原worker合并到唯一API归档流。
+    struct Source {
+        DWORD pid = 0;
+        std::uint64_t creation = 0, session = 0, revision = 0, dropped = 0, deliveryDropped = 0;
+        bool ready = false, ended = false, failed = false;
+        DWORD error = 0;
+        std::optional<m::CaptureStartupProgress> startup;
+        std::optional<m::CaptureResult> result;
+        std::unique_ptr<ApiTransferAgentCapture> capture;
+    };
+    std::map<DWORD, Source> sources; // 每个强实例仅一份控制器；原来源不重装、不申请第二会话。
+    enum class Admission { Initial, Armed, Paused, Running, Agent, Done };
+    struct Transfer {
+        m::TransferHandoffRequest request;
+        DWORD source = 0, error = ERROR_IO_PENDING;
+        std::uint64_t base = 0, bytes = 0;
+        ULONGLONG started = 0;
+        Handle target; // 保留从准入到ACK的真实目标对象。
+        Admission stage = Admission::Initial;
+        bool ownPause = false;
+        std::string pauseRequestId; // 只结清本次主动暂停票据，不按ManualPause标签释放其它请求。
+    };
+    std::deque<Transfer> transfers; // 处理中请求与终态短窗口；Hook重连不会重复建owner。
+    bool callbackFailed = false;
+
+    Impl(ProjectDocument& p, std::string s, DWORD pid, std::uint64_t creation, const std::atomic_bool& c,
+        const std::wstring& path, SourcePacket packets)
+        : project(p), sample(std::move(s)), sourcePid(pid), sourceCreation(creation), cancel(c),
+          agentPath(path), onPacket(std::move(packets)) {}
+    ~Impl() { ClosePipe(); if (io.hEvent) CloseHandle(io.hEvent); }
+
+    void PipeFailure(DWORD error)
+    {
+        lastError = error;
+        if (!firstPipeError) firstPipeError = error;
+        ++pipeFailures;
+    }
+
+    void ClosePipe()
+    {
+        // 取消并排空当前overlapped操作后关闭；不让栈上缓冲仍被内核使用。
+        if (pipe == INVALID_HANDLE_VALUE) return;
+        if (pending) {
+            CancelIoEx(pipe, &io);
+            DWORD ignored = 0;
+            GetOverlappedResult(pipe, &io, &ignored, TRUE);
+        }
+        pending = immediate = false;
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
+        pipe = INVALID_HANDLE_VALUE;
+    }
+    void Begin(Phase next)
+    {
+        // 沿同一事件驱动Connect→Read→Reply，不创建专门的轮询线程。
+        phase = next;
+        const auto event = io.hEvent;
+        io = {};
+        io.hEvent = event;
+        ResetEvent(io.hEvent);
+        pending = immediate = false;
+        DWORD bytes = 0;
+        const BOOL ok = next == Phase::Connect ? ConnectNamedPipe(pipe, &io) : next == Phase::Read
+            ? ReadFile(pipe, &request, sizeof(request), &bytes, &io)
+            : WriteFile(pipe, &response, sizeof(response), &bytes, &io);
+        const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+        if (ok || (next == Phase::Connect && error == ERROR_PIPE_CONNECTED)) {
+            immediate = true; immediateBytes = bytes;
+        } else if (error == ERROR_IO_PENDING) pending = true;
+        else { PipeFailure(error); DisconnectNamedPipe(pipe); }
+        ioStarted = GetTickCount64();
+    }
+    bool Start()
+    {
+        // 为当前采样发布唯一私有管道；配置发布前完成创建，失败不装载Agent。
+        if (agentPath.empty() || !onPacket) { setupError = ERROR_INVALID_PARAMETER; return false; }
+        std::string id;
+        if (!ProjectStorage::NewId(id)) { setupError = ERROR_GEN_FAILURE; return false; }
+        endpoint.hostPid = GetCurrentProcessId();
+        endpoint.hostCreation = m::transferProcessCreation(GetCurrentProcess());
+        endpoint.token.assign(id.begin(), id.end());
+        endpoint.pipeName = L"\\\\.\\pipe\\KswordTransfer_" + endpoint.token;
+        io.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!io.hEvent) { setupError = GetLastError(); return false; }
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        if (!PipeSecurity(&descriptor)) { setupError = GetLastError(); return false; }
+        SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
+        pipe = CreateNamedPipeW(endpoint.pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
+            sizeof(response), sizeof(request), 0, &security);
+        setupError = pipe == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+        LocalFree(descriptor);
+        if (setupError) return false;
+        started = true;
+        Begin(Phase::Connect);
+        return true;
+    }
+    const n::ExecutionGroupMember* Member(const m::TransferHandoffRequest& r) const
+    {
+        // 用请求冻结PID+创建时间定位本集合成员；返回值只借用到下次回读。
+        const auto found = std::find_if(current.members.begin(), current.members.end(), [&](const auto& member) {
+            return member.site.pid == r.targetPid && member.site.creationFileTime == r.targetCreation &&
+                member.owner.sampleId == sample;
+        });
+        return found == current.members.end() ? nullptr : &*found;
+    }
+    bool SourceReady(DWORD pid, std::uint64_t creation) const
+    {
+        if (pid == sourcePid) return creation == sourceCreation && originalReady && !originalEnded;
+        const auto found = sources.find(pid);
+        return found != sources.end() && found->second.creation == creation && found->second.ready &&
+            !found->second.failed && !found->second.ended;
+    }
+    bool SourceAuthenticated(DWORD pid, std::uint64_t creation) const
+    {
+        // 根初始化期间可先接纳Pending，由主capture真实Ready后推进；递归源必须先Ready才入目录。
+        return pid == sourcePid ? creation == sourceCreation && !originalEnded : SourceReady(pid, creation);
+    }
+    DWORD Prepare()
+    {
+        // 输入已接收请求；先核验来源和目标对象，再查询入口所在MEM_PRIVATE范围。
+        ULONG client = 0;
+        if (request.size != sizeof(request) || request.version != m::kTransferHandoffVersion ||
+            request.kind < 1 || request.kind > 3 || !std::wmemchr(request.token, 0, std::size(request.token)) ||
+            request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
+            !SourceAuthenticated(client, request.sourceCreation) || !request.address ||
+            request.targetPid <= 4 || request.targetPid == GetCurrentProcessId() ||
+            !request.targetCreation) return ERROR_ACCESS_DENIED;
+        const auto sourceHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, client);
+        if (!sourceHandle) return GetLastError();
+        Handle source(sourceHandle);
+        const auto targetHandle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE, FALSE, request.targetPid);
+        if (!targetHandle) return GetLastError();
+        Handle target(targetHandle);
+        if (m::transferProcessCreation(source.get()) != request.sourceCreation ||
+            m::transferProcessCreation(target.get()) != request.targetCreation ||
+            WaitForSingleObject(source.get(), 0) != WAIT_TIMEOUT ||
+            WaitForSingleObject(target.get(), 0) != WAIT_TIMEOUT) return ERROR_INVALID_HANDLE;
+        // Pending返回只让Hook重连，原API仍同步等待最终ACK；释放单实例管道服务安装期间的其它请求。
+        const auto existing = std::find_if(transfers.begin(), transfers.end(), [&](const auto& t) {
+            return t.source == client && t.request.sourceCreation == request.sourceCreation &&
+                t.request.targetPid == request.targetPid && t.request.targetCreation == request.targetCreation &&
+                t.request.address == request.address && t.request.kind == request.kind;
+        });
+        if (existing != transfers.end()) {
+            if (existing->stage != Admission::Done) return ERROR_IO_PENDING;
+            if (existing->error) return existing->error;
+            // ACK重试仍核对当前原owner/范围和已认证Agent；旧成功不跨清退或范围失效复用。
+            current = group.QueryWithoutCondition();
+            const auto* member = Member(request);
+            if (!SourceReady(request.targetPid, request.targetCreation) || !member ||
+                !Covered(*member, existing->base, existing->bytes)) return ERROR_INVALID_STATE;
+            const auto protectionError = VerifyArmedRange(target.get(), *member, existing->base, existing->bytes);
+            if (protectionError) return protectionError;
+            response.rangeBase = existing->base; response.rangeBytes = existing->bytes;
+            return ERROR_SUCCESS;
+        }
+        // 只淘汰终态，不丢弃活准入及其恢复责任；拒绝也进入本轮Incomplete。
+        if (transfers.size() >= 256) {
+            const auto done = std::find_if(transfers.begin(), transfers.end(), [](const auto& t) {
+                return t.stage == Admission::Done && !t.ownPause;
+            });
+            if (done == transfers.end()) return ERROR_BUSY;
+            transfers.erase(done);
+        }
+        MEMORY_BASIC_INFORMATION memory{};
+        if (!VirtualQueryEx(target.get(), reinterpret_cast<void*>(request.address), &memory, sizeof(memory))) return GetLastError();
+        auto base = reinterpret_cast<std::uint64_t>(memory.BaseAddress);
+        auto bytes = static_cast<std::uint64_t>(memory.RegionSize);
+        current = group.QueryWithoutCondition();
+        const auto* member = Member(request);
+        bool covered = false;
+        if (memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && member && member->control.breakpoint &&
+            !(memory.Protect & (PAGE_GUARD | PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+        {
+            // 自有NX会拆分或合并VirtualQuery区域，使用原owner已登记范围检查入口，不能拿新的RegionSize改写范围。
+            for (const auto& range : member->control.breakpoint->executionRanges)
+            {
+                if (request.address >= range.base && request.address - range.base < range.bytes &&
+                    range.allocationBase == reinterpret_cast<std::uint64_t>(memory.AllocationBase) &&
+                    Covered(*member, range.base, range.bytes))
+                {
+                    base = range.base; bytes = range.bytes; covered = true;
+                    break;
+                }
+            }
+        }
+        // NX只取得已提交私有执行页；不把整段裁成单页，也不将映像/映射冒充私有。
+        if (!covered && (memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE || (memory.Protect & PAGE_GUARD) ||
+            !(memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) ||
+            !bytes || base % 4096 || bytes % 4096 || base > UINT64_MAX - bytes ||
+            request.address < base || request.address - base >= bytes)) return ERROR_NOT_SUPPORTED;
+        Transfer transfer;
+        transfer.request = request; transfer.source = client;
+        transfer.base = base; transfer.bytes = bytes; transfer.started = GetTickCount64();
+        transfer.target = std::move(target);
+        transfers.push_back(std::move(transfer));
+        return ERROR_IO_PENDING;
+    }
+    void Finish(Transfer& transfer, DWORD error)
+    {
+        transfer.error = error;
+        transfer.stage = Admission::Done;
+        lastError = error;
+        if (error) ++rejected; else ++armed;
+        if (error) {
+            const auto found = sources.find(transfer.request.targetPid);
+            if (found != sources.end() && !found->second.ready && found->second.creation == transfer.request.targetCreation) {
+                found->second.failed = true;
+                if (!found->second.error) found->second.error = error;
+                found->second.capture->Stop(); // 过期准入不能由清退期晚到Ready重新授予执行资格。
+            }
+        }
+    }
+    void DrainSources()
+    {
+        // 后台仅发布纯值；原包和终态归档始终回到原worker，不申请第二项目writer。
+        for (auto& [pid, source] : sources) {
+            auto batch = source.capture->Drain();
+            source.startup = std::move(batch.startup);
+            source.dropped = batch.dropped;
+            if (batch.ready) {
+                source.ready = true;
+                source.session = batch.session;
+                source.revision = batch.coverageRevision;
+            }
+            if (source.dropped) { source.failed = true; source.error = ERROR_BUFFER_OVERFLOW; }
+            for (const auto& packet : batch.packets) {
+                if (callbackFailed) { ++source.deliveryDropped; continue; }
+                try { onPacket(pid, source.creation, packet); }
+                catch (...) {
+                    callbackFailed = source.failed = true;
+                    source.error = ERROR_WRITE_FAULT;
+                    ++source.deliveryDropped;
+                    for (auto& [otherPid, other] : sources) other.capture->Stop();
+                }
+            }
+            if (batch.finished) {
+                source.ended = true;
+                source.result = std::move(batch.finished);
+                const auto& result = *source.result;
+                // 持续采集由本轮Close取消，不拿code=6/未到时作为伪失败，也不掩盖清退和实际丢失。
+                bool failed = !result.started || !result.cleanupComplete || !result.errors.empty() ||
+                    result.bufferDropped || result.invalidPackets;
+                bool exited = false;
+                for (const auto& process : result.processes)
+                {
+                    failed = failed || process.pipeError || process.agentDropped || process.partialHooks ||
+                        process.installFailed || !process.installed || !process.coverageComplete || process.coverageStale ||
+                        (process.connected && !process.cleanPipeEof);
+                    exited = exited || process.exited;
+                }
+                if (failed || (!closing && !exited)) {
+                    source.failed = true;
+                    if (!source.error) source.error = failed ? ERROR_GEN_FAILURE : ERROR_BROKEN_PIPE;
+                }
+            }
+        }
+    }
+    void AddRange(Transfer& transfer, const n::ExecutionGroupMember& member)
+    {
+        current = group.AddRange(member.control, transfer.base, transfer.bytes);
+        const auto* updated = Member(transfer.request);
+        const bool added = updated && updated->control.executionRange &&
+            updated->control.executionRange->added && Covered(*updated, transfer.base, transfer.bytes);
+        const auto error = updated && updated->control.win32Error ? updated->control.win32Error : ERROR_NOT_SUPPORTED;
+        // 仅归还本请求主动暂停；真实NX事件必须走归档，并等Agent Ready后才继续。
+        if (transfer.ownPause && updated && updated->control.armedPause &&
+            updated->control.armedPause->request.requestId == transfer.pauseRequestId &&
+            updated->control.stopReason == n::NativeStopReason::ManualPause &&
+            n::OwnedExecutionGroup::CanContinueMember(*updated)) {
+            const n::ExecutionGroupSessionEntry entry{updated->owner, updated->control};
+            current = group.Continue(std::span(&entry, 1), false);
+        }
+        if (!added) Finish(transfer, error);
+        else transfer.stage = Admission::Running;
+    }
+    void Advance(Transfer& transfer)
+    {
+        const auto& r = transfer.request;
+        if (cancel.load() || closing) { Finish(transfer, ERROR_OPERATION_ABORTED); return; }
+        if (!SourceAuthenticated(transfer.source, r.sourceCreation)) { Finish(transfer, ERROR_ACCESS_DENIED); return; }
+        if (GetTickCount64() - transfer.started >= 12000) { Finish(transfer, ERROR_TIMEOUT); return; }
+        if (!SourceReady(transfer.source, r.sourceCreation)) return;
+        if (WaitForSingleObject(transfer.target.get(), 0) != WAIT_TIMEOUT ||
+            m::transferProcessCreation(transfer.target.get()) != r.targetCreation) {
+            Finish(transfer, ERROR_INVALID_HANDLE); return;
+        }
+        current = group.QueryWithoutCondition();
+        const auto* member = Member(r);
+        if (member && member->control.firstRecoveryFailure) {
+            const auto error = member->control.firstRecoveryFailure->win32Error;
+            Finish(transfer, error ? error : ERROR_GEN_FAILURE); return;
+        }
+        if (transfer.stage == Admission::Initial) {
+            if (!member) {
+                // 回跳原来源也可在此新增NX owner；来源Agent仍复用原capture，不创建双会话。
+                n::ExecutionGroupSite site;
+                site.pid = r.targetPid; site.creationFileTime = r.targetCreation;
+                site.address = transfer.base; site.rangeBytes = transfer.bytes;
+                if (current.collectionId.empty())
+                    current = group.Start({site}, true, n::NativeTargetDisposition::ResumeAndDetach, sample);
+                else current = group.AppendMembers({site}, true, current.collectionId);
+                if (current.operation && !current.operation->admitted) {
+                    Finish(transfer, current.operation->win32Error ? current.operation->win32Error : ERROR_ACCESS_DENIED); return;
+                }
+                transfer.stage = Admission::Armed;
+                return;
+            }
+            if (Covered(*member, transfer.base, transfer.bytes)) transfer.stage = Admission::Running;
+            else if (n::CanPauseDataWatchSession(member->control)) {
+                const n::ExecutionGroupSessionEntry entry{member->owner, member->control};
+                current = group.Pause(std::span(&entry, 1), false);
+                transfer.ownPause = true;
+                const auto* paused = Member(r);
+                if (paused && paused->control.armedPause)
+                    transfer.pauseRequestId = paused->control.armedPause->request.requestId;
+                if (transfer.pauseRequestId.empty()) { Finish(transfer, ERROR_INVALID_STATE); return; }
+                transfer.stage = Admission::Paused;
+                return;
+            } else if (n::OwnedExecutionGroup::CanAddRangeMember(*member)) { AddRange(transfer, *member); return; }
+            else { Finish(transfer, member->control.win32Error ? member->control.win32Error : ERROR_BUSY); return; }
+        }
+        if (transfer.stage == Admission::Armed) {
+            if (!member) { Finish(transfer, ERROR_INVALID_STATE); return; }
+            if (!member->attachAccepted || member->control.win32Error) {
+                Finish(transfer, member->control.win32Error ? member->control.win32Error : ERROR_ACCESS_DENIED); return;
+            }
+            if (!Covered(*member, transfer.base, transfer.bytes)) return;
+            transfer.stage = Admission::Running;
+        }
+        if (transfer.stage == Admission::Paused) {
+            if (!member) { Finish(transfer, ERROR_INVALID_STATE); return; }
+            if (n::OwnedExecutionGroup::CanAddRangeMember(*member)) AddRange(transfer, *member);
+            else if (member->control.win32Error) Finish(transfer, member->control.win32Error);
+            return;
+        }
+        if (transfer.stage == Admission::Running) {
+            if (!member || !Covered(*member, transfer.base, transfer.bytes)) return;
+            if (SourceReady(r.targetPid, r.targetCreation)) { Finish(transfer, ERROR_SUCCESS); return; }
+            auto found = sources.find(r.targetPid);
+            if (found == sources.end()) {
+                if (r.targetPid == sourcePid) {
+                    // 原capture还未Ready可等它正常推进；已经结束不能重装来冒充原会话仍在采集。
+                    if (originalEnded) Finish(transfer, ERROR_BROKEN_PIPE);
+                    return;
+                }
+                // NX设防后原owner须已恢复运行。持真实debug停点盲装LoadLibrary会冻结其helper。
+                if (!n::CanPauseDataWatchSession(member->control)) {
+                    Finish(transfer, ERROR_BUSY); return;
+                }
+                Source source;
+                source.pid = r.targetPid; source.creation = r.targetCreation;
+                source.capture = std::make_unique<ApiTransferAgentCapture>(r.targetPid, r.targetCreation, endpoint, agentPath);
+                found = sources.emplace(r.targetPid, std::move(source)).first;
+                if (!found->second.capture->Start()) {
+                    found->second.failed = true; found->second.error = ERROR_NOT_ENOUGH_MEMORY;
+                    Finish(transfer, ERROR_NOT_ENOUGH_MEMORY); return;
+                }
+            }
+            if (found->second.creation != r.targetCreation || found->second.failed || found->second.ended) {
+                Finish(transfer, found->second.error ? found->second.error : ERROR_INVALID_STATE); return;
+            }
+            transfer.stage = Admission::Agent;
+        }
+        if (transfer.stage == Admission::Agent) {
+            const auto found = sources.find(r.targetPid);
+            if (found == sources.end() || found->second.failed || found->second.ended) {
+                Finish(transfer, found == sources.end() || !found->second.error ? ERROR_INVALID_STATE : found->second.error); return;
+            }
+            if (SourceReady(r.targetPid, r.targetCreation) && member && Covered(*member, transfer.base, transfer.bytes))
+                Finish(transfer, ERROR_SUCCESS);
+        }
+    }
+    void AdvanceTransfers()
+    {
+        for (auto currentTransfer = transfers.begin(); currentTransfer != transfers.end(); ++currentTransfer) {
+            if (currentTransfer->stage == Admission::Done) continue;
+            // 同目标范围更改串行；其它目标及管道服务照常推进，绝不嵌套同步等待Ready。
+            if (std::any_of(transfers.begin(), currentTransfer, [&](const auto& prior) {
+                return prior.stage != Admission::Done && prior.request.targetPid == currentTransfer->request.targetPid;
+            })) continue;
+            try { Advance(*currentTransfer); }
+            catch (const std::bad_alloc&) { Finish(*currentTransfer, ERROR_NOT_ENOUGH_MEMORY); }
+            catch (...) { Finish(*currentTransfer, ERROR_GEN_FAILURE); }
+        }
+    }
+    void RestoreRequestPauses()
+    {
+        // 超时/拒绝不能遗留本请求引入的手动暂停；真实执行停点仍由归档及Ready策略持有。
+        for (auto& transfer : transfers) {
+            if (!transfer.ownPause || transfer.stage == Admission::Paused) continue;
+            current = group.QueryWithoutCondition();
+            const auto* member = Member(transfer.request);
+            if (!member || member->control.clean || n::CanPauseDataWatchSession(member->control)) {
+                transfer.ownPause = false;
+                continue;
+            }
+            if (member->control.armedPause && !transfer.pauseRequestId.empty() &&
+                member->control.armedPause->request.requestId != transfer.pauseRequestId) {
+                transfer.ownPause = false;
+                continue;
+            }
+            if (member->control.armedPause && member->control.armedPause->state != n::NativeArmedPauseState::Pending &&
+                member->control.armedPause->state != n::NativeArmedPauseState::Held &&
+                member->control.armedPause->state != n::NativeArmedPauseState::RecoveryRequired) {
+                transfer.ownPause = false; // 请求被真实命中抢先或已拒绝；不释放替代事件。
+                continue;
+            }
+            if (!transfer.pauseRequestId.empty() && member->control.armedPause &&
+                member->control.armedPause->request.requestId == transfer.pauseRequestId &&
+                member->control.stopReason == n::NativeStopReason::ManualPause &&
+                n::OwnedExecutionGroup::CanContinueMember(*member)) {
+                const n::ExecutionGroupSessionEntry entry{member->owner, member->control};
+                current = group.Continue(std::span(&entry, 1), false);
+            }
+        }
+    }
+    void Observe()
+    {
+        // 输入原集合最新停点，按同一原事件去重写raw-native；失败保留现场与首错。
+        if (current.collectionId.empty()) return;
+        current = group.Query();
+        for (const auto& member : current.members) {
+            const auto execution = n::NativeExecutionFromOwnedStop(member.control);
+            if (!execution || observed.contains(member.owner.backendInstanceId) &&
+                observed.at(member.owner.backendInstanceId) == execution->event) continue;
+            if (!archiveStatus) continue; // 写失败保留原事件和首错，不自动放行未保存停点。
+            ProjectNativeExecutionReceipt receipt;
+            archiveStatus = WriteNativeExecution(project, member.owner, nativeOrdinal + 1, previousSequence, member.control, receipt);
+            if (!archiveStatus || !receipt.verified || !receipt.raw.flushed) continue;
+            nativeOrdinal = receipt.ordinal;
+            previousSequence = receipt.raw.flushed->lastSequence;
+            ++saved;
+            observed[member.owner.backendInstanceId] = execution->event;
+        }
+        // 追踪模式只在执行停点保存后沿原NX owner的TF/重设防路径继续，不伪造令牌。
+        std::vector<n::ExecutionGroupSessionEntry> resume;
+        for (const auto& member : current.members) {
+            const auto execution = n::NativeExecutionFromOwnedStop(member.control);
+            const auto found = observed.find(member.owner.backendInstanceId);
+            if (execution && SourceReady(member.site.pid, member.site.creationFileTime) &&
+                found != observed.end() && found->second == execution->event &&
+                n::OwnedExecutionGroup::CanContinueMember(member)) resume.push_back({member.owner, member.control});
+        }
+        if (!resume.empty()) current = group.Continue(resume, false);
+    }
+    void Poll()
+    {
+        // 每次只处理一个已完成阶段；未完成返回原采集循环，不阻塞GUI。
+        DrainSources();
+        AdvanceTransfers();
+        RestoreRequestPauses();
+        Observe();
+        if (!started || closing || cancel.load()) return;
+        if (phase == Phase::Release) {
+            // overlapped写完成只表示入管道，不能马上Disconnect丢掉尚未被Hook读取的ACK。
+            DWORD available = 0;
+            const bool connected = PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) != FALSE;
+            if (connected && GetTickCount64() - ioStarted < 15000) return;
+            DisconnectNamedPipe(pipe); Begin(Phase::Connect); return;
+        }
+        DWORD bytes = immediateBytes;
+        if (pending) {
+            if (WaitForSingleObject(io.hEvent, 0) != WAIT_OBJECT_0) {
+                if (GetTickCount64() - ioStarted < 15000 || phase == Phase::Connect) return;
+                CancelIoEx(pipe, &io);
+                DWORD ignored = 0; GetOverlappedResult(pipe, &io, &ignored, TRUE);
+                PipeFailure(ERROR_TIMEOUT);
+                pending = false; DisconnectNamedPipe(pipe); Begin(Phase::Connect); return;
+            }
+            const bool ok = GetOverlappedResult(pipe, &io, &bytes, FALSE) != FALSE;
+            pending = false;
+            if (!ok) { PipeFailure(GetLastError()); DisconnectNamedPipe(pipe); Begin(Phase::Connect); return; }
+        } else if (!immediate) { Begin(Phase::Connect); return; }
+        immediate = false;
+        if (phase == Phase::Connect) { request = {}; Begin(Phase::Read); }
+        else if (phase == Phase::Read) {
+            response = {};
+            ++requests;
+            try
+            {
+                response.error = bytes == sizeof(request) ? Prepare() : ERROR_INVALID_DATA;
+            }
+            catch (const std::bad_alloc&)
+            {
+                response.error = ERROR_NOT_ENOUGH_MEMORY; // owner仍留在集合内，清退沿原账继续。
+            }
+            catch (...)
+            {
+                response.error = ERROR_GEN_FAILURE;
+            }
+            if (response.error && response.error != ERROR_IO_PENDING) { lastError = response.error; ++rejected; }
+            Begin(Phase::Reply);
+        } else {
+            if (bytes != sizeof(response)) PipeFailure(ERROR_INVALID_DATA);
+            phase = Phase::Release; ioStarted = GetTickCount64();
+        }
+    }
+};
+
+ApiTransferHandoff::ApiTransferHandoff(ProjectDocument& project, std::string sampleId,
+    DWORD pid, std::uint64_t creation, const std::atomic_bool& cancel,
+    const std::wstring& agentPath, SourcePacket onPacket)
+    : impl_(std::make_unique<Impl>(project, std::move(sampleId), pid, creation, cancel, agentPath, std::move(onPacket))) {}
+ApiTransferHandoff::~ApiTransferHandoff() { Close(); }
+bool ApiTransferHandoff::Start() { return impl_->Start(); }
+void ApiTransferHandoff::Poll() { impl_->Poll(); }
+void ApiTransferHandoff::OriginalSourceReady(std::uint64_t session, std::uint64_t coverageRevision)
+{
+    if (impl_->closing || impl_->originalEnded || !session || !coverageRevision) return;
+    impl_->originalSession = session;
+    impl_->originalRevision = coverageRevision;
+    impl_->originalReady = true;
+}
+void ApiTransferHandoff::OriginalSourceFinished() { impl_->originalEnded = true; }
+void ApiTransferHandoff::Close()
+{
+    auto& self = *impl_;
+    if (self.closing) return; // 析构沿同一账清退，不再次提交已经完成的关闭操作。
+    self.closing = true;
+    self.ClosePipe();
+    for (auto& transfer : self.transfers)
+        if (transfer.stage != Impl::Admission::Done) self.Finish(transfer, ERROR_OPERATION_ABORTED);
+    for (auto& [pid, source] : self.sources) source.capture->Stop();
+    // 先停止所有Agent并排空队列，最后才撤NX/调试owner，避免后代管道尾记落在writer关闭之后。
+    while (std::any_of(self.sources.begin(), self.sources.end(), [](const auto& entry) {
+        return !entry.second.capture->Finished();
+    })) {
+        self.DrainSources();
+        self.Observe();
+        Sleep(5); // 原capture自身启动/清退有界；此处不重发装载或Stop。
+    }
+    self.DrainSources();
+    self.Observe();
+    if (!self.current.collectionId.empty())
+    {
+        self.current = self.group.Close(); // 先提交原owner恢复，再等真实clean；取消位不能跳过清退责任。
+        const auto deadline = GetTickCount64() + 10000; // 有限等待本次集合排空，不无限重发Close。
+        while (!self.current.clean && GetTickCount64() < deadline)
+        {
+            Sleep(5);
+            self.current = self.group.QueryWithoutCondition();
+        }
+    }
+}
+m::InjectionEndpoint ApiTransferHandoff::Endpoint() const { return impl_->started ? impl_->endpoint : m::InjectionEndpoint{}; }
+bool ApiTransferHandoff::Incomplete() const
+{
+    const auto& self = *impl_; // 只读取冻结回执，不再向原owner发新控制。
+    return !self.started || self.setupError || self.rejected || self.pipeFailures || self.callbackFailed || !self.archiveStatus ||
+        std::any_of(self.sources.begin(), self.sources.end(), [](const auto& entry) {
+            const auto& source = entry.second;
+            return source.failed || source.dropped || source.deliveryDropped || !source.ready ||
+                !source.ended || !source.result || !source.result->cleanupComplete;
+        }) ||
+        (!self.current.collectionId.empty() && !self.current.clean);
+}
+bool ApiTransferHandoff::HasActiveAgents() const
+{
+    const auto& self = *impl_;
+    return !self.closing && (std::any_of(self.sources.begin(), self.sources.end(), [](const auto& entry) {
+        return !entry.second.ended;
+    }) || std::any_of(self.transfers.begin(), self.transfers.end(), [](const auto& transfer) {
+        return transfer.stage != Impl::Admission::Done;
+    }));
+}
+Evidence::JsonValue ApiTransferHandoff::Describe() const
+{
+    const auto& s = *impl_;
+    Evidence::JsonArray sources;
+    sources.push_back(V::makeObject({{"pid", V::makeUInt(s.sourcePid)},
+        {"creationFileTime", V::makeString(std::to_string(s.sourceCreation))}, {"original", V::makeBool(true)},
+        {"ready", V::makeBool(s.originalReady)}, {"ended", V::makeBool(s.originalEnded)},
+        {"session", V::makeString(std::to_string(s.originalSession))},
+        {"coverageRevision", V::makeString(std::to_string(s.originalRevision))}}));
+    for (const auto& [pid, source] : s.sources) {
+        Evidence::JsonArray errors, processes;
+        if (source.result) {
+            for (const auto& error : source.result->errors) {
+                const auto bytes = WideCharToMultiByte(CP_UTF8, 0, error.data(), static_cast<int>(error.size()), nullptr, 0, nullptr, nullptr);
+                std::string text(bytes > 0 ? bytes : 0, '\0');
+                if (bytes > 0) WideCharToMultiByte(CP_UTF8, 0, error.data(), static_cast<int>(error.size()), text.data(), bytes, nullptr, nullptr);
+                errors.push_back(V::makeString(text));
+            }
+            for (const auto& process : source.result->processes)
+                processes.push_back(V::makeObject({{"pid", V::makeUInt(process.pid)},
+                    {"creationFileTime", V::makeString(std::to_string(process.creation))},
+                    {"session", V::makeString(std::to_string(process.session))},
+                    {"connected", V::makeBool(process.connected)}, {"installed", V::makeBool(process.installed)},
+                    {"removed", V::makeBool(process.removed)}, {"exited", V::makeBool(process.exited)},
+                    {"sessionReady", V::makeBool(process.sessionReady)}, {"cleanPipeEof", V::makeBool(process.cleanPipeEof)},
+                    {"coverageComplete", V::makeBool(process.coverageComplete)}, {"coverageStale", V::makeBool(process.coverageStale)},
+                    {"partialHooks", V::makeBool(process.partialHooks)}, {"installFailed", V::makeBool(process.installFailed)},
+                    {"agentDropped", V::makeUInt(process.agentDropped)}, {"pipeError", V::makeUInt(process.pipeError)}}));
+        }
+        sources.push_back(V::makeObject({{"pid", V::makeUInt(pid)},
+            {"creationFileTime", V::makeString(std::to_string(source.creation))},
+            {"ready", V::makeBool(source.ready)}, {"session", V::makeString(std::to_string(source.session))},
+            {"coverageRevision", V::makeString(std::to_string(source.revision))}, {"ended", V::makeBool(source.ended)},
+            {"failed", V::makeBool(source.failed)}, {"error", V::makeUInt(source.error)},
+            {"queueDropped", V::makeUInt(source.dropped)}, {"deliveryDropped", V::makeUInt(source.deliveryDropped)},
+            {"startupStage", source.startup ? V::makeString(m::CaptureStartupStageName(source.startup->stage)) : V::makeNull()},
+            {"captureCode", source.result ? V::makeUInt(source.result->code) : V::makeNull()},
+            {"attachmentIdentityVerified", V::makeBool(source.result ? source.result->attachmentIdentityVerified :
+                source.startup && source.startup->attachmentIdentityVerified)},
+            {"agentModuleVerified", V::makeBool(source.result ? source.result->agentModuleVerified :
+                source.startup && source.startup->agentModuleVerified)},
+            {"started", V::makeBool(source.result ? source.result->started : source.ready)},
+            {"cancelled", V::makeBool(source.result && source.result->cancelled)},
+            {"cleanupComplete", V::makeBool(source.result && source.result->cleanupComplete)},
+            {"stopWritten", V::makeBool(source.result && source.result->stopWritten)},
+            {"invalidPackets", V::makeUInt(source.result ? source.result->invalidPackets : 0)},
+            {"bufferDropped", V::makeUInt(source.result ? source.result->bufferDropped : 0)},
+            {"received", V::makeUInt(source.result ? source.result->received : 0)},
+            {"errors", V::makeArray(std::move(errors))}, {"processes", V::makeArray(std::move(processes))}}));
+    }
+    Evidence::JsonArray admissions;
+    for (const auto& transfer : s.transfers)
+        admissions.push_back(V::makeObject({{"sourcePid", V::makeUInt(transfer.source)},
+            {"sourceCreationFileTime", V::makeString(std::to_string(transfer.request.sourceCreation))},
+            {"targetPid", V::makeUInt(transfer.request.targetPid)},
+            {"targetCreationFileTime", V::makeString(std::to_string(transfer.request.targetCreation))},
+            {"address", V::makeString(std::to_string(transfer.request.address))},
+            {"rangeBase", V::makeString(std::to_string(transfer.base))},
+            {"rangeBytes", V::makeString(std::to_string(transfer.bytes))},
+            {"requestPauseOutstanding", V::makeBool(transfer.ownPause)},
+            {"completed", V::makeBool(transfer.stage == Impl::Admission::Done)}, {"error", V::makeUInt(transfer.error)}}));
+    return V::makeObject({{"kind", V::makeString("api-transfer-handoff-v1")}, {"enabled", V::makeBool(s.started)},
+        {"sourcePid", V::makeUInt(s.sourcePid)}, {"sourceCreationFileTime", V::makeString(std::to_string(s.sourceCreation))},
+        {"requests", V::makeUInt(s.requests)}, {"armed", V::makeUInt(s.armed)}, {"rejected", V::makeUInt(s.rejected)},
+        {"savedExecutionStops", V::makeUInt(s.saved)}, {"setupError", V::makeUInt(s.setupError)},
+        {"lastError", V::makeUInt(s.lastError)}, {"archiveError", V::makeUInt(s.archiveStatus.nativeError)},
+        {"pipeFailures", V::makeUInt(s.pipeFailures)}, {"firstPipeError", V::makeUInt(s.firstPipeError)},
+        {"collectionId", V::makeString(s.current.collectionId)}, {"members", V::makeUInt(s.current.members.size())},
+        {"clean", V::makeBool(s.current.clean)}, {"callbackFailed", V::makeBool(s.callbackFailed)},
+        {"activeAgents", V::makeBool(HasActiveAgents())}, {"sources", V::makeArray(std::move(sources))},
+        {"admissions", V::makeArray(std::move(admissions))},
+        {"recursiveAgentReady", V::makeBool(!s.sources.empty() && std::all_of(s.sources.begin(), s.sources.end(),
+            [](const auto& entry) { return entry.second.ready && !entry.second.failed; }))}});
+}
+}

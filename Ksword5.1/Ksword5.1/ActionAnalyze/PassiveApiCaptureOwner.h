@@ -2,6 +2,7 @@
 
 #include "OfflineProjectReader.h"
 #include "../../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/NetworkTrafficCapture.h"
 #include "../../../shared/ApiMonitorCapture.h"
 
 #include <atomic>
@@ -30,6 +31,11 @@ namespace ks::action_analyze
         bool explicitAttachment = false; // 用户明确选择普通目标附加，与合作模式互斥。
         bool attachmentConfirmed = false; // UI 在冻结 PID 与创建时间后取得的本次附加确认。
         quint32 durationMs = 0; // 两种活采均从 Ready 起计时；零为持续到停止或目标退出。
+        bool autoTransfer = false; // 本轮明确选择的自动跨进程执行接管策略。
+        bool launched = false; // 第四来源：创建普通EXE并在入口交接到API Agent。
+        QString executable; // 独立EXE草稿，不借用JSONL路径或手填身份。
+        std::optional<std::uint32_t> entryRva; // 空值使用PE入口，供共享后端调用。
+        std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 原worker同采样网络来源，空值关闭。
     };
 
     // GUI 只读快照。数据水位与归档状态来自同一轮后端回读。
@@ -76,6 +82,11 @@ namespace ks::action_analyze
         bool agentLoadAttempted = false; // 本轮是否尝试装载产品 Agent，与 Ready 独立。
         bool agentModuleVerified = false; // 已核验所选架构 Agent 模块，不代表 Hook 已就绪。
         std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 同一次启动最后确认的阶段，终态保留失败前快照。
+        QString transferHandoff; // 原后端规范JSON回执，供同一字段文档搜索/复制/导出。
+        quint32 actualPid = 0; // 原worker发布的实际新建实例，不能用空手填PID替代。
+        quint64 actualCreationTime = 0; // 同一创建对象的强实例身份。
+        QString launchProgress; // 两端共用LaunchedApiProgressJson规范文档。
+        QString networkTraffic; // 原后端ApiCaptureNetworkJson全文，不从页面草稿推断源状态。
 
         bool operator==(const PassiveApiCaptureReceipt&) const = default;
     };
