@@ -25,6 +25,7 @@ struct EvidenceRef {
     std::optional<RawLocator> raw;
     std::optional<std::uint64_t> sourceSequence;
     std::string sourceGroup;                       // 同一底层来源的两层包装使用同组。
+    bool operator==(const EvidenceRef&) const = default;
 };
 
 // 同一采样只能消费绑定到该机器及启动期的对象。调用方从可信采样元数据提供这些键。

@@ -9,6 +9,7 @@ namespace Ksword::ActionAnalyze {
 // 调用方持有项目写租约；成功后的刷盘边界从 receipt 读取。
 ProjectResult WriteApiClueArchive(ProjectDocument& document, const SampleInfo& sample,
     std::span<const Evidence::ArchivedApiMonitorClue> rows, std::uint64_t sourceRows,
-    Evidence::ApiMonitorArchiveSource source, ks::cli::action_analyze::archive::RawEvidenceReceipt& receipt);
+    Evidence::ApiMonitorArchiveSource source, ks::cli::action_analyze::archive::RawEvidenceReceipt& receipt,
+    bool mixedEtw = false);
 
 } // namespace Ksword::ActionAnalyze

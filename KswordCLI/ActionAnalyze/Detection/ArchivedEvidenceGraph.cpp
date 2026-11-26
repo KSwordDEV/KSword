@@ -6,6 +6,7 @@
 #include "../Project/ProjectStorage.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
+#include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 
 #include <utility>
 
@@ -37,6 +38,58 @@ struct GraphPageDraft {
     ArchivedGraphPage page; // 归档读侧回执与本页原始坐标。
     std::vector<GraphEventInput> inputs; // 与原始坐标同序的证据图输入。
     bool more = false; // 本页之后还有已核验的观察。
+
+    // 输入创建操作的全部候选，返回当前页有界保存的候选与真实计数。
+    void AddTransfers(const ArchivedGraphRequest& request, const Archive::DecodedRecord& record,
+        const std::vector<ApiTransferLink>& links)
+    {
+        if (record.recordSequence <= request.afterSequence || page.records.size() >= request.limit) {
+            return;
+        }
+        page.transferCandidateCount += links.size();
+        // 每页候选至多 128 条，防止重叠写入把普通观察页扩张成巨大响应。
+        const auto capacity = (std::min)(request.limit, std::size_t{128});
+        for (const auto& link : links) {
+            if (page.transferCandidates.size() >= capacity) {
+                break;
+            }
+            page.transferCandidates.push_back(link);
+        }
+    }
+
+    // APC结果单独分页限额，不消耗已有线程创建候选的容量。
+    void AddApcTransfers(const ArchivedGraphRequest& request, const Archive::DecodedRecord& record,
+        const std::vector<ApiApcTransferLink>& links)
+    {
+        if (record.recordSequence <= request.afterSequence || page.records.size() >= request.limit) {
+            return;
+        }
+        page.apcTransferCandidateCount += links.size();
+        const auto capacity = (std::min)(request.limit, std::size_t{128}); // 与普通候选相同的响应边界。
+        for (const auto& link : links) {
+            if (page.apcTransferCandidates.size() >= capacity) {
+                break;
+            }
+            page.apcTransferCandidates.push_back(link);
+        }
+    }
+
+    // 输入本页原包和已形成候选，输出到独立上下文窗口；不改变观察分页游标。
+    void AddContextTransfers(const ArchivedGraphRequest& request, const Archive::DecodedRecord& record,
+        const std::vector<ApiContextTransferLink>& links)
+    {
+        if (record.recordSequence <= request.afterSequence || page.records.size() >= request.limit) {
+            return;
+        }
+        page.contextTransferCandidateCount += links.size();
+        const auto capacity = (std::min)(request.limit, std::size_t{128}); // 与其它候选组相同的响应上限。
+        for (const auto& link : links) {
+            if (page.contextTransferCandidates.size() >= capacity) {
+                break;
+            }
+            page.contextTransferCandidates.push_back(link);
+        }
+    }
 
     template<class Projection>
     void AddObservation(const ArchivedGraphRequest& request, const Archive::SegmentIdentity& identity,
@@ -89,6 +142,22 @@ GraphEventInput ApiContext(const SampleScope& scope, const Evidence::ArchivedApi
     coordinate.headerPid = clue.packet.pid;
     coordinate.headerTid = clue.packet.tid;
     coordinate.apiFamily = clue.clue->family;
+    coordinate.apiInjection = Evidence::ReadApiInjectionFields(clue.packet);
+    if (coordinate.apiInjection) {
+        coordinate.apiOutcome = Evidence::ApiInjectionCallOutcome(clue.packet, *coordinate.apiInjection);
+    }
+    coordinate.apiApc = Evidence::ReadApiApcFields(clue.packet);
+    if (coordinate.apiApc) {
+        coordinate.apcOutcome = Evidence::ApiApcCallOutcome(clue.packet); // 接受不等于实际投递。
+    }
+    coordinate.apiContext = Evidence::ReadApiContextFields(clue.packet);
+    if (coordinate.apiContext) {
+        coordinate.contextOutcome = Evidence::ApiContextCallOutcome(clue.packet); // 不把请求IP解释成实际RIP。
+    }
+    coordinate.apiSectionMap = Evidence::ReadApiSectionMapFields(clue.packet);
+    if (coordinate.apiSectionMap) {
+        coordinate.sectionMapOutcome = Evidence::ApiSectionMapCallOutcome(clue.packet); // 成功映射不表示写入或执行。
+    }
     // 线索目录只接受这两类。公开值用于筛选，与本地化分类名称独立。
     coordinate.apiCategory = clue.clue->category == ks::winapi_monitor::EventCategory::Memory ? "memory" : "thread";
 
@@ -98,6 +167,7 @@ GraphEventInput ApiContext(const SampleScope& scope, const Evidence::ArchivedApi
     if (imported) {
         gaps.push_back(Issue::LegacySummaryOnly);
     }
+    // 结构字段保留源端解析结果；归档读侧不把内容自述升级成已认证的现场强角色。
     gaps.push_back(Issue::ActorInstanceUnknown);
     gaps.push_back(Issue::TargetInstanceUnknown);
     auto input = Context(scope, coordinate, (imported ? "api-monitor-import:" : "api-monitor-follow:") + session,
@@ -105,9 +175,29 @@ GraphEventInput ApiContext(const SampleScope& scope, const Evidence::ArchivedApi
     if (coordinate.apiFamily == "memory-write") {
         input.event.gaps.push_back(Issue::ActualWriteRangeUnknown);
     }
-    if (coordinate.apiFamily == "thread-create") {
+    if (coordinate.apiFamily == "thread-create" || coordinate.apiFamily == "apc-queue") {
         input.event.gaps.push_back(Issue::ThreadInstanceUnknown);
         input.event.gaps.push_back(Issue::ExecutionUnknown);
+    }
+    if (coordinate.apiFamily == "thread-context") {
+        input.event.gaps.push_back(Issue::ThreadInstanceUnknown);
+        input.event.gaps.push_back(Issue::ExecutionUnknown); // 仅请求上下文不能证明目标已沿该IP执行。
+    }
+    if (coordinate.apiFamily == "section-map") {
+        input.event.gaps.push_back(Issue::ActualWriteRangeUnknown);
+        input.event.gaps.push_back(Issue::ExecutionUnknown); // 映射范围不是写入范围或共享别名传播证据。
+    }
+    if (clue.packet.coverageState == Evidence::kApiInjectionFieldsMarker && !coordinate.apiInjection) {
+        input.event.gaps.push_back(Issue::InvalidNativeRecord);
+    }
+    if (clue.packet.coverageState == Evidence::kApiApcFieldsMarker && !coordinate.apiApc) {
+        input.event.gaps.push_back(Issue::InvalidNativeRecord); // 损坏的新格式仍保留原包，不猜测成旧字段。
+    }
+    if (clue.packet.coverageState == Evidence::kApiContextFieldsMarker && !coordinate.apiContext) {
+        input.event.gaps.push_back(Issue::InvalidNativeRecord);
+    }
+    if (clue.packet.coverageState == Evidence::kApiSectionMapFieldsMarker && !coordinate.apiSectionMap) {
+        input.event.gaps.push_back(Issue::InvalidNativeRecord);
     }
     return input;
 }
@@ -117,6 +207,14 @@ GraphEventInput EtwContext(const SampleScope& scope, const Evidence::ArchivedEtw
     ArchivedGraphRecord& coordinate)
 {
     coordinate.operation = "etw-observation-v1";
+    namespace Agent = ks::action_analyze::etw;
+    if (observation.providerId == Agent::kProviderId && observation.version == 1 && observation.opcode == 0 &&
+        !observation.originalPayloadBytes && !observation.malformedPayload) {
+        const auto operation = Agent::AgentOperation(static_cast<Agent::AgentEvent>(observation.eventId)); // 已登记的声明性操作名。
+        if (!operation.empty()) {
+            coordinate.operation = operation;
+        }
+    }
     coordinate.headerPid = observation.headerPid;
     coordinate.headerTid = observation.headerTid;
 
@@ -139,7 +237,8 @@ ProjectResult ReadCommittedApiGraph(const ProjectDocument& project, const Sample
         return Failure(ProjectError::LimitExceeded, "graphApiCheckpointLimit");
     }
 
-    std::string sourceEpoch; // 请求段计划记录中的已验证来源代次。
+    std::string sourceEpoch; // 从首段冻结且逐段相同的来源代次。
+    ApiTransferChain transfers(scope); // 连续核验前序段时也保留有界的先前写入，支持跨段关联。
     const Archive::SegmentBodyVisitor collect = [&](const Archive::SegmentIdentity& identity,
         const Archive::BlockInfo& block, const std::vector<Archive::DecodedRecord>& records) {
         if (sourceEpoch.empty()) {
@@ -155,6 +254,13 @@ ProjectResult ReadCommittedApiGraph(const ProjectDocument& project, const Sample
         for (const auto& record : records) {
             const auto& raw = std::get<Archive::RawRecordV1>(record.body);
             if (const auto clue = ReadCommittedApiClue(raw)) {
+                auto coordinate = Location(identity, block, record, raw);
+                const auto context = ApiContext(scope, *clue, coordinate, sourceEpoch);
+                const auto links = transfers.Accept(*context.contextEvidence, clue->packet);
+                if (identity.ordinal != request.segmentOrdinal) continue; // 前序只供串链，不计入当前页。
+                draft.AddTransfers(request, record, links);
+                draft.AddApcTransfers(request, record, transfers.AcceptApc(*context.contextEvidence, clue->packet));
+                draft.AddContextTransfers(request, record, transfers.AcceptContext(*context.contextEvidence, clue->packet));
                 draft.AddObservation(request, identity, block, record, raw, [&](auto& coordinate) {
                     return ApiContext(scope, *clue, coordinate, sourceEpoch);
                 });
@@ -164,23 +270,25 @@ ProjectResult ReadCommittedApiGraph(const ProjectDocument& project, const Sample
     };
 
     ProjectApiCheckpoint committed; // 仅成功验证后才会替换上一段水位。
-    const Archive::SegmentBodyVisitor skipProjection; // 前序段无需收集候选观察。
     for (std::uint64_t ordinal = 1; ordinal <= request.segmentOrdinal; ++ordinal) {
         if (committed.finalSegment) {
             return Failure(ProjectError::NotFound, "graphApiAfterFinalSegment");
         }
         const auto status = ReadApiCheckpoint(project, scope.sampleId, ordinal, ordinal == 1 ? nullptr : &committed,
-            committed, ordinal == request.segmentOrdinal ? collect : skipProjection);
+            committed, collect);
         if (!status) {
             return status;
         }
     }
     draft.page.source = ArchivedGraphSource::CommittedApiFollow;
+    draft.page.apiInputKind = committed.source == Evidence::ApiMonitorArchiveSource::CooperativePipe
+        ? Evidence::ApiMonitorArchiveSourceName(committed.source) : "jsonl-follow";
     draft.page.end = committed.rawEnd;
     draft.page.sha256 = std::move(committed.rawSha256);
     draft.page.apiFinalSegment = committed.finalSegment;
     draft.page.apiCheckpoint = ArchivedApiGraphCheckpoint{
         committed.previousSourceSequence, committed.lastSourceSequence};
+    draft.page.evictedTransferWrites = transfers.EvictedWrites();
     return {};
 }
 
@@ -259,6 +367,7 @@ ProjectResult ReadInitialOrEtwGraph(const ProjectDocument& project, const Sample
         page.etwFinalSegment = checkpoint.finalSegment;
     }
     Evidence::ApiMonitorClueReadback api; // 核对整个导入段，含本页之外的行和尾记。
+    ApiTransferChain transfers(scope); // 已关闭导入档同样支持显式字段；普通摘要不能参与关联。
     ProjectResult visitorStatus; // 保存回调拒绝原因，区分未支持格式和已识别格式损坏。
     bool callbackBatch = false; // 识别计划后停止通用扫描，交由回调专用读侧完整核验。
 
@@ -309,6 +418,13 @@ ProjectResult ReadInitialOrEtwGraph(const ProjectDocument& project, const Sample
                     }
                 }
 
+                if (clue) {
+                    auto coordinate = Location(identity, block, record, raw);
+                    const auto context = ApiContext(scope, *clue, coordinate);
+                    draft.AddTransfers(request, record, transfers.Accept(*context.contextEvidence, clue->packet));
+                    draft.AddApcTransfers(request, record, transfers.AcceptApc(*context.contextEvidence, clue->packet));
+                    draft.AddContextTransfers(request, record, transfers.AcceptContext(*context.contextEvidence, clue->packet));
+                }
                 draft.AddObservation(request, identity, block, record, raw, [&](auto& coordinate) {
                     return etw ? EtwContext(scope, *etw, coordinate) : ApiContext(scope, *clue, coordinate);
                 });
@@ -338,6 +454,11 @@ ProjectResult ReadInitialOrEtwGraph(const ProjectDocument& project, const Sample
         return Failure(ProjectError::Corrupt, "graphArchivePrefix");
     }
     page.end = *scan.checked;
+    // 只有整段和尾记通过后才发布输入方式；不把尾记当作历史生产者的认证。
+    if (!committedEtw) {
+        page.apiInputKind = Evidence::ApiMonitorArchiveSourceName(api.source);
+        page.evictedTransferWrites = transfers.EvictedWrites();
+    }
     return {};
 }
 

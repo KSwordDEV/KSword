@@ -18,6 +18,27 @@ struct ProjectApiCheckpointAccess {
     }
 };
 
+ProjectResult RequireUnusedApiArchive(const ProjectDocument& project, std::string_view sampleId)
+{
+    const auto* info = project.Info(); // 原调用者持有的项目及写租约。
+    if (!info) return ProjectStorage::Failure(ProjectError::NotOpen, "project");
+    if (info->access != ProjectAccess::ReadWrite) {
+        return ProjectStorage::Failure(ProjectError::ReadOnly, "apiCaptureRequiresWriter");
+    }
+    SampleRecord sample; // 只接受当前项目已登记并通过快照核验的采样。
+    if (const auto read = project.ReadSample(sampleId, sample); !read) return read;
+    const auto* root = ProjectApiCheckpointAccess::Root(project); // 借用已固定的安全目录链。
+    if (!root) return ProjectStorage::Failure(ProjectError::NotOpen, "project");
+    const auto id = ProjectStorage::WideAscii(sample.info.sampleId); // 校验后的 UUID 路径组件。
+    for (const std::wstring_view name : {L"raw", L"checkpoints"}) {
+        ProjectStorage::Directory directory; // 即使没有有效标记也不恢复或覆盖既有 API 流。
+        const auto opened = ProjectStorage::OpenDirectory(*root, {L"samples", id, name}, directory);
+        if (opened) return ProjectStorage::Failure(ProjectError::RecoveryRequired, "apiCaptureLaneAlreadyUsed");
+        if (opened.error != ProjectError::NotFound) return opened;
+    }
+    return {};
+}
+
 namespace {
 
 namespace Archive = ks::cli::action_analyze::archive;
@@ -206,6 +227,12 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                         (!preset->tryGetString(draft.rulePresetSet) || draft.rulePresetSet.empty() ||
                          draft.rulePresetSet.size() > 128 || draft.rulePresetSet.find_first_not_of(
                              "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._") != std::string::npos)) {
+                        return false;
+                    }
+                    // 摘要只绑定采集时的规则内容；没有该可选字段的旧档仍可完整回读。
+                    if (const auto* hash = doc.value.find("ruleSourceSha256"); hash &&
+                        (!hash->tryGetString(draft.ruleSourceSha256) || draft.ruleSourceSha256.size() != 64 ||
+                         draft.ruleSourceSha256.find_first_not_of("0123456789abcdef") != std::string::npos)) {
                         return false;
                     }
                     if (source.cooperative) {

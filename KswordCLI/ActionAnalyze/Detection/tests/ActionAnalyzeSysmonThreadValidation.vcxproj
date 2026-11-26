@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{22620DB6-822B-4C3C-9A4B-F0B1D0425794}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\SysmonThreadValidation\</IntDir>
+    <TargetName>ActionAnalyzeSysmonThreadValidation</TargetName>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <Import Project="..\..\..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem><AdditionalDependencies>Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="SysmonThreadSourceTests.cpp" />
+    <ClCompile Include="..\SysmonThreadSource.cpp" />
+    <ClCompile Include="..\..\Cli\SysmonThreadCommand.cpp" />
+    <ClCompile Include="..\..\..\CommandRegistry.cpp" />
+    <ClInclude Include="..\SysmonThreadSource.h" />
+    <ClInclude Include="..\..\Cli\SysmonThreadCommand.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

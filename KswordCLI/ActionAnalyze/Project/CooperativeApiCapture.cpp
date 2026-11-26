@@ -1,12 +1,16 @@
 #include "CooperativeApiCapture.h"
 #include "ProjectApiCheckpoint.h"
+#include "ProjectEtwEvidence.h"
 #include "ProjectStorage.h"
 #include "../../../shared/ApiMonitorPlatform.h"
+#include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 
 namespace Ksword::ActionAnalyze {
 namespace {
 
 namespace Monitor = ks::winapi_monitor;
+namespace Etw = ks::r3::monitor;
+namespace AgentEtw = ks::action_analyze::etw;
 namespace Archive = ks::cli::action_analyze::archive;
 using namespace ProjectStorage;
 constexpr std::size_t kApiBatchPackets = 256; // 与 API 检查点的最大原包数一致。
@@ -26,7 +30,7 @@ std::wstring ResidentAgentPath()
 
 // 按实际项目、采样修订和管道会话生成每段共享的冻结计划。
 std::string ApiPlan(const ProjectInfo& project, const SampleRecord& sample, const CooperativeApiRequest& target,
-    std::string_view epoch, std::uint64_t session, std::string_view presetSet)
+    std::string_view epoch, std::uint64_t session, const Rules::ApiPresetDatabase& database)
 {
     JsonObject fields{{"kind", Text(kApiFollowPlanKind)}, {kApiFollowCheckpointField, JsonValue::makeBool(true)},
         {"archiveSource", Text("cooperative-pipe")}, {"projectId", Text(project.projectId)},
@@ -36,8 +40,15 @@ std::string ApiPlan(const ProjectInfo& project, const SampleRecord& sample, cons
         {"configSemanticHash", Text(sample.configSemanticHash)}, {"durationMs", JsonValue::makeUInt(target.durationMs)},
         {"readerPid", JsonValue::makeUInt(target.pid)}, {"readerCreation100ns", Number(target.creationFileTime)},
         {"sessionIdentity", Number(session)}};
-    if (!presetSet.empty()) {
-        fields.emplace_back("rulePresetSet", Text(presetSet)); // 同一次采样的每段使用同一版本。
+    if (target.mode == ApiCaptureMode::ExplicitAttachment) {
+        fields.emplace_back("captureMode", Text("explicit-r3-attachment"));
+    }
+    if (!database.presetSet.empty()) {
+        fields.emplace_back("rulePresetSet", Text(database.presetSet)); // 同一次采样的每段使用同一版本。
+        fields.emplace_back("ruleSourceSha256", Text(database.sourceSha256)); // 与实际解析字节对应。
+    }
+    if (target.captureAgentEtw) {
+        fields.emplace_back("mixedEtw", JsonValue::makeBool(true));
     }
     return Evidence::WriteJson(Object(std::move(fields)));
 }
@@ -64,14 +75,44 @@ ProjectResult CommitApiPackets(ProjectDocument& document, const SampleInfo& samp
     return CommitApiCheckpoint(document, sample.sampleId, records, checkpoint, receipt);
 }
 
+// 用本次冻结的项目采样和 ETW 来源创建兼容的 Stored 计划。
+JsonValue AgentEtwPlan(const SampleRecord& sample, const CooperativeApiRequest& target, std::string_view epoch,
+    const Etw::PassiveEtwStatus& status, const Etw::PassiveEtwOptions& options)
+{
+    return Object({{"kind", Text("etw-capture-plan-v1")}, {"backend", Text("r3")},
+        {"session", Object({{"id", Text(sample.info.sampleId)}, {"epoch", Text(epoch)}})},
+        {"sourceEpoch", Text(status.sourceEpoch)}, {"revisionId", Text(sample.info.revisionId)},
+        {"snapshotId", Text(sample.info.snapshotId)}, {"revisionHash", Text(sample.revisionHash)},
+        {"configSemanticHash", Text(sample.configSemanticHash)}, {"providerId", Text(AgentEtw::kProviderId)},
+        {"headerPid", JsonValue::makeUInt(target.pid)}, {"processCreationFileTime", Number(target.creationFileTime)},
+        {"durationMs", JsonValue::makeUInt(target.durationMs)}, {"headerRole", Text("record-context")},
+        {"sourceClock", Text("filetime-100ns")}, {"receiveClock", Text("local-qpc")},
+        {"maxRecords", JsonValue::makeUInt(static_cast<std::uint32_t>(options.maxQueuedRecords))},
+        {"maxPayloadBytes", JsonValue::makeUInt(static_cast<std::uint32_t>(options.maxPayloadBytes))},
+        {"mixedEtw", JsonValue::makeBool(true)}});
+}
+
 } // namespace
 
+bool CooperativeEtwReceipt::Incomplete() const noexcept
+{
+    const auto& native = source.native; // 队列和原生丢失分别判为缺口。
+    return !setup || !started || !stopped || !archiveStatus || !checkpointStatus || !raw.flushed ||
+        source.state != Etw::PassiveEtwState::Stopped || !source.enqueued || !native.statisticsKnown ||
+        !native.processCompleted || native.processStatus != ERROR_SUCCESS || native.tailDeliveryUnconfirmed ||
+        native.callbackFailed || native.eventsLost || native.logBuffersLost || native.realTimeBuffersLost ||
+        source.queueDropped || source.payloadTruncated || source.malformedPayload;
+}
+
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
-    const std::atomic_bool& cancel, const CooperativeApiReady& onReady, const CooperativeApiCommitted& onCommitted)
+    const std::atomic_bool& cancel, const CooperativeApiReady& onReady, const CooperativeApiCommitted& onCommitted,
+    const CooperativeApiTransferCommitted& onTransfers)
 {
     CooperativeApiReceipt out; // 工作线程独占，封段后交给本端投影。
     if (target.pid <= 4 || target.pid == GetCurrentProcessId() || !target.creationFileTime ||
-        target.title.empty() || target.durationMs < 1000 || target.durationMs > 120000) {
+        (target.boundSampleId.empty() && target.title.empty()) ||
+        (!target.boundSampleId.empty() && target.captureAgentEtw) ||
+        (target.durationMs != 0 && (target.durationMs < 1000 || target.durationMs > 120000))) {
         out.sampleStatus = {ProjectError::InvalidArgument, ERROR_INVALID_PARAMETER, "cooperativeApiTarget"};
         return out;
     }
@@ -83,23 +124,40 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         return out;
     }
     request.pid = target.pid;
-    request.residentCreationFileTime = target.creationFileTime;
+    if (target.mode == ApiCaptureMode::ExplicitAttachment) {
+        request.attachCreationFileTime = target.creationFileTime;
+        request.attachConfirmed = true; // 仅显式附加封装完成授权准入后选择此模式。
+        request.strictReadOnlyObservation = true;
+    } else {
+        request.residentCreationFileTime = target.creationFileTime;
+    }
     request.durationMs = target.durationMs;
     request.eventLimit = 0; // 由项目端分段归档，不重复缓存旧展示数据。
     request.onResidentReady = onReady; // 直接传递已核验的启动回执，避免桌面端重新解释协议。
 
     const auto database = Rules::LoadApiPresetDatabase(); // 采集途中编辑文件不会更换规则。
     out.rules.presetSet = database.presetSet;
+    out.rules.sourceSha256 = database.sourceSha256;
     out.rules.configError = database.error;
     out.rules.failed = !database.error.empty();
 
-    // 采样在本端的项目写租约下创建，目标与修订在运行期间不变。
-    out.sampleStatus = document.CreateSample(target.title, out.sample, target.revisionId);
-    if (!out.sampleStatus) {
-        return out;
-    }
     SampleRecord apiSample; // 读回项目层为本采样冻结的配置身份。
-    out.sampleStatus = document.ReadSample(out.sample.sampleId, apiSample);
+    if (target.boundSampleId.empty()) {
+        // 旧入口仍在本端项目写租约下创建独立采样，不改变桌面与既有 CLI 的默认行为。
+        out.sampleStatus = document.CreateSample(target.title, out.sample, target.revisionId);
+        if (out.sampleStatus) out.sampleStatus = document.ReadSample(out.sample.sampleId, apiSample);
+    } else {
+        // 原生停点会话借用同一项目对象，不申请第二写者、不创建新 sample 或迁移控制身份。
+        out.sampleStatus = document.ReadSample(target.boundSampleId, apiSample);
+        if (out.sampleStatus) {
+            out.sample = apiSample.info;
+            if (!target.revisionId.empty() && target.revisionId != apiSample.info.revisionId) {
+                out.sampleStatus = Failure(ProjectError::InvalidArgument, "apiCaptureBoundRevisionMismatch");
+            } else {
+                out.sampleStatus = RequireUnusedApiArchive(document, target.boundSampleId);
+            }
+        }
+    }
     std::string apiEpoch; // 归档计划中的样本代次，独立于管道会话数字。
     if (out.sampleStatus) {
         out.sampleStatus = NewId(apiEpoch);
@@ -108,7 +166,38 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         return out;
     }
 
+    // 配套来源在合作准入通过后启动，目标句柄跨过管道控制器退出保留到 ETW 停止。
+    Handle etwTarget; // 本次冻结的进程对象引用。
+    std::optional<Etw::PassiveEtwSource> etwSource; // 仅在调用方请求配套 ETW 时创建。
+    SampleRecord etwSample; // ETW 计划所需的冻结项目散列。
+    std::string etwEpoch; // 本次 ETW 归档的会话代次。
+    Etw::PassiveEtwOptions etwOptions; // 仅订阅自有 Provider 及被冻结的报头 PID。
+    if (target.captureAgentEtw) {
+        auto& etw = out.etw.emplace(); // 配套流程的独立阶段回执。
+        etw.setup = document.ReadSample(out.sample.sampleId, etwSample);
+        if (etw.setup) {
+            etw.setup = NewId(etwEpoch);
+        }
+        if (etw.setup) {
+            etwOptions.provider = AgentEtw::kProviderGuid;
+            etwOptions.headerPid = target.pid;
+            etwOptions.maxPayloadBytes = 0; // 自有生命周期描述符只使用标准头。
+            etwSource.emplace();
+            request.beforeResidentPublish = [&](HANDLE verifiedTarget) {
+                HANDLE pinned = nullptr; // 复制合作控制器已核验的对象句柄。
+                const auto current = GetCurrentProcess(); // 本地复制的源和目标句柄表。
+                if (!DuplicateHandle(current, verifiedTarget, current, &pinned, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                    etw.setup = WinFailure("pinCooperativeEtwTarget", GetLastError());
+                    return;
+                }
+                etwTarget = Handle(pinned);
+                etw.started = etwSource->start(etwOptions);
+            };
+        }
+    }
+
     ProjectApiCheckpoint checkpoint; // 仅在刷盘、逐字节回读并发布标记后推进。
+    Detection::ApiTransferChain transferChain({document.Info()->projectId, out.sample.sampleId, {}, {}});
     std::string plan; // 由首个核验原包绑定实际管道会话。
     std::vector<Monitor::ApiMonitorEventPacket> pending; // 单批内存上限，包含分类和未分类原包。
     pending.reserve(kApiBatchPackets);
@@ -116,6 +205,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     std::uint64_t pendingClues = 0; // 本批可从原包重新投影的线索数。
     auto batchStarted = GetTickCount64(); // 当前批次开始缓冲的时间。
     bool notifyCommitted = static_cast<bool>(onCommitted); // 终态回执独立于实时通知。
+    bool notifyTransfers = static_cast<bool>(onTransfers); // 消费端显示故障不停止原始采集清退。
     const auto commit = [&](std::string_view end) {
         out.archiveStatus = CommitApiPackets(document, out.sample, plan, pending, target.creationFileTime,
             end, checkpoint, out.archive);
@@ -123,6 +213,50 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             out.archivedPackets = checkpoint.lastSourceSequence;
             out.committedSegments = checkpoint.ordinal;
             out.retainedClues += pendingClues;
+            // CommitApiCheckpoint 已逐字节验证同一批原包及元数据；这里只处理已经发布的精确坐标。
+            for (std::size_t index = 0; index < pending.size(); ++index) {
+                const auto& packet = pending[index]; // 同批次成功提交的普通包，没有接收时间推测。
+                Detection::EvidenceRef evidence;
+                evidence.projectId = document.Info()->projectId;
+                evidence.sampleId = out.sample.sampleId;
+                evidence.sourceId = "api-monitor-follow:" + std::to_string(packet.sessionIdentity);
+                evidence.sourceEpoch = apiEpoch;
+                evidence.raw = Detection::RawLocator{checkpoint.ordinal, checkpoint.planRawSequence + 1 + index};
+                evidence.sourceSequence = checkpoint.previousSourceSequence + 1 + index;
+                evidence.sourceGroup = "api-monitor";
+                const auto links = transferChain.Accept(evidence, packet); // 跨段状态由本次采样独占。
+                out.transfers.candidateCount += links.size();
+                for (const auto& link : links) {
+                    if (out.transfers.recent.size() == 32) {
+                        out.transfers.recent.erase(out.transfers.recent.begin());
+                    }
+                    out.transfers.recent.push_back(link);
+                }
+                const auto apcLinks = transferChain.AcceptApc(evidence, packet); // 只消费已提交前缀，与线程创建共用写入状态。
+                out.transfers.apcCandidateCount += apcLinks.size();
+                for (const auto& link : apcLinks) {
+                    if (out.transfers.recentApc.size() == 32) {
+                        out.transfers.recentApc.erase(out.transfers.recentApc.begin());
+                    }
+                    out.transfers.recentApc.push_back(link);
+                }
+                const auto contextLinks = transferChain.AcceptContext(evidence, packet); // 复用同一1024条实际写入窗口。
+                out.transfers.contextCandidateCount += contextLinks.size();
+                for (const auto& link : contextLinks) {
+                    if (out.transfers.recentContext.size() == 32) {
+                        out.transfers.recentContext.erase(out.transfers.recentContext.begin());
+                    }
+                    out.transfers.recentContext.push_back(link);
+                }
+            }
+            out.transfers.evictedWrites = transferChain.EvictedWrites();
+            if (notifyTransfers) {
+                try {
+                    onTransfers(out.transfers);
+                } catch (...) {
+                    notifyTransfers = false; // 与原有规则通知一样，保留终态供调用方回查。
+                }
+            }
             if (!out.rules.failed && !pending.empty()) {
                 auto evaluated = Rules::AnalyzeCommittedApiPresetBatch(database, pending, checkpoint.planRawSequence,
                     checkpoint.previousSourceSequence); // 使用逐字节读回确认的同一批原包。
@@ -157,7 +291,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             return;
         }
         if (plan.empty()) {
-            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, packet.sessionIdentity, database.presetSet);
+            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, packet.sessionIdentity, database);
         }
         if (pending.empty()) {
             batchStarted = GetTickCount64();
@@ -180,19 +314,45 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     if (out.archiveStatus && !out.capture.processes.empty() && out.capture.processes.front().connected) {
         const auto& process = out.capture.processes.front(); // 合作入口固定单个进程实例。
         if (plan.empty()) {
-            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, process.session, database.presetSet);
+            plan = ApiPlan(*document.Info(), apiSample, target, apiEpoch, process.session, database);
         }
         const auto* reason = out.capture.cancelled ? "cancelled" : out.capture.completedInterval ? "duration-limit" :
-            process.exited ? "target-exited" : "cooperative-ended"; // 停止原因独立于 Agent 丢失和 EOF。
-        const auto end = Evidence::WriteJson(Object({{"kind", Text(kApiFollowEndKind)}, {"stopReason", Text(reason)},
+            process.exited ? "target-exited" : target.mode == ApiCaptureMode::ExplicitAttachment ?
+            "attachment-ended" : "cooperative-ended"; // 停止原因独立于 Agent 丢失和 EOF。
+        JsonObject endFields{{"kind", Text(kApiFollowEndKind)}, {"stopReason", Text(reason)},
             {"source", Object({{"kind", Text("cooperative-pipe")}, {"readerPid", JsonValue::makeUInt(process.pid)},
                 {"readerCreation100ns", Number(process.creation)}, {"sessionIdentity", Number(process.session)},
                 {"validatedRows", Number(out.ordinaryPackets)}, {"agentReportedDrops", Number(process.agentDropped)},
                 {"invalidPackets", Number(out.capture.invalidPackets)},
-                {"state", Text(process.cleanPipeEof ? "pipe-eof" : "unconfirmed-end")}})}}));
+                {"state", Text(process.cleanPipeEof ? "pipe-eof" : "unconfirmed-end")}})}};
+        if (target.mode == ApiCaptureMode::ExplicitAttachment) {
+            // 保存控制器当时的独立回执；重开归档不因此取得新的控制权或认证生产者。
+            endFields.emplace_back("attachmentReceipt", Object({
+                {"identityVerified", JsonValue::makeBool(out.capture.attachmentIdentityVerified)},
+                {"agentLoadAttempted", JsonValue::makeBool(out.capture.agentLoadAttempted)},
+                {"agentModuleVerified", JsonValue::makeBool(out.capture.agentModuleVerified)},
+                {"agentReady", JsonValue::makeBool(out.capture.started)},
+                {"hooksRemoved", JsonValue::makeBool(process.removed)},
+                {"cleanPipeEof", JsonValue::makeBool(process.cleanPipeEof)},
+                {"cleanupComplete", JsonValue::makeBool(out.capture.cleanupComplete)}}));
+        }
+        const auto end = Evidence::WriteJson(Object(std::move(endFields)));
         commit(end);
     }
     out.omittedClues = receivedClues - out.retainedClues;
+    if (etwSource && etwTarget) {
+        auto& etw = *out.etw; // 原生状态与 API 管道回执分别保存。
+        etw.stopped = etwSource->stop();
+        etw.source = etwSource->status();
+        if (etw.started && etw.stopped) {
+            const auto etwPlan = AgentEtwPlan(etwSample, target, etwEpoch, etw.source, etwOptions); // 冻结 ETW 段头。
+            const auto* reason = out.capture.cancelled ? "cancelled" :
+                out.capture.completedInterval ? "duration-limit" : "cooperative-ended"; // API 区间结束原因。
+            etw.archiveStatus = CommitFiniteEtwEvidence(document, out.sample.sampleId, ProjectEvidenceLane::MixedEtw,
+                etwPlan, reason, *etwSource, etw.raw, etw.checkpointStatus);
+            etw.source = etwSource->status();
+        }
+    }
     return out;
 }
 

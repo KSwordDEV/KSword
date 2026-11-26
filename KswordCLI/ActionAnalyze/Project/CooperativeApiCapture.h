@@ -2,29 +2,61 @@
 
 #include "ProjectRawEvidence.h"
 #include "../Rules/BehaviorPresets.h"
+#include "../Detection/ApiTransferChain.h"
 #include "../../../shared/ApiMonitorCapture.h"
+#include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
 
 namespace Ksword::ActionAnalyze {
 
 struct ProjectApiCheckpoint;
+enum class ApiCaptureMode { CooperativeResident, ExplicitAttachment };
 
 // 只描述已授权的合作目标和本轮采样，不接受 Agent 路径、注入或行为修改选项。
 struct CooperativeApiRequest {
     DWORD pid = 0; // 与创建时间一起标识目标实例。
     std::uint64_t creationFileTime = 0; // 必须非零，后端不允许退回普通采集入口。
-    DWORD durationMs = 3000; // 先等就绪，再开始计时。
+    DWORD durationMs = 3000; // 先等就绪再计时；0 持续到显式停止或目标退出。
     std::string_view title; // 调用期间借用的 UTF-8 采样标题。
     std::string_view revisionId; // 冻结的项目配置修订。
+    bool captureAgentEtw = false; // 订阅同一目标的 KSword Agent 生命周期事件。
+    ApiCaptureMode mode = ApiCaptureMode::CooperativeResident; // 末尾默认值保持桌面和合作调用契约。
+    std::string_view boundSampleId = {}; // 非空时借用原项目写租约与冻结采样；只允许首次写入空的 API 流。
+};
+
+// 同采样 ETW 的启动、清退及封段回执，独立于 API 管道。
+struct CooperativeEtwReceipt {
+    ProjectResult setup; // 构造冻结计划及持有目标句柄的结果。
+    bool started = false; // ETW 控制器确认启动。
+    bool stopped = false; // ETW 控制器确认清退。
+    ks::r3::monitor::PassiveEtwStatus source; // 原生状态及源端和队列计数。
+    ProjectResult archiveStatus; // ETW 原始段写入及回读结果。
+    ProjectResult checkpointStatus; // ETW 覆盖、散列及检查点发布结果。
+    ks::cli::action_analyze::archive::RawEvidenceReceipt raw; // raw-etw 首段刷盘边界。
+
+    // 当配套 ETW 仍有未完成的责任、缺失观察或来源丢失时返回真。
+    bool Incomplete() const noexcept;
 };
 
 // 按段求值的累计回执。失败时保留已完成段的命中及坐标。
 struct CooperativeApiRuleReceipt {
     std::string presetSet; // 本次开始时加载的规则版本。
+    std::string sourceSha256; // 与冻结规则谓词绑定的实际文件字节摘要，失败时为空。
     std::string configError; // 规则配置失败只影响派生规则结果。
     std::uint64_t matchedRows = 0; // 已求值并命中的分类线索数。
     std::uint64_t latestSegment = 0; // 最近命中所在的段号。
     std::optional<Rules::ApiPresetMatch> latest; // 最近命中的原始坐标及规则解释。
     bool failed = false; // 规则失败与存储失败独立报告。
+};
+
+// 候选只由已发布检查点内的原包产生；滚动窗口不改变累计计数和旧写入淘汰数。
+struct CooperativeApiTransferReceipt {
+    std::uint64_t candidateCount = 0; // 同一采样中写入到创建请求的候选累计数。
+    std::uint64_t evictedWrites = 0; // 先前写入因链路容量被移出的数量。
+    std::vector<Detection::ApiTransferLink> recent; // 最近至多 32 条，保留两端的真实归档坐标。
+    std::uint64_t apcCandidateCount = 0; // 写入到APC例程请求的独立累计候选数。
+    std::vector<Detection::ApiApcTransferLink> recentApc; // 最近至多32条APC候选，不挤占创建候选窗口。
+    std::uint64_t contextCandidateCount = 0; // 写入到请求IP的累计上下文候选数。
+    std::vector<Detection::ApiContextTransferLink> recentContext; // 最近32条上下文候选，与APC独立。
 };
 
 struct CooperativeApiReceipt {
@@ -40,6 +72,8 @@ struct CooperativeApiReceipt {
     ProjectResult archiveStatus; // 封段故障不覆盖采集回执。
     ks::cli::action_analyze::archive::RawEvidenceReceipt archive; // 最后一次已发布的刷盘边界。
     CooperativeApiRuleReceipt rules; // 仅从已发布并回读的原包求值。
+    CooperativeApiTransferReceipt transfers; // 同一已提交前缀中的跨段 API 转移候选。
+    std::optional<CooperativeEtwReceipt> etw; // 请求配套 ETW 时提供独立回执。
 };
 
 // 在调用端自己的工作线程运行。调用方须确认授权并提供项目写租约；
@@ -49,8 +83,10 @@ using CooperativeApiReady = std::function<void(std::uint64_t session, std::uint6
 // onCommitted 在采集线程发布冻结身份、已核验段及累计规则回执；参数只在本次通知内借用。
 using CooperativeApiCommitted = std::function<void(const SampleInfo&, const ProjectApiCheckpoint&,
     const CooperativeApiRuleReceipt&)>;
+// 与规则通知独立，配置或规则求值故障不停止原包候选分析；参数只在通知期间借用。
+using CooperativeApiTransferCommitted = std::function<void(const CooperativeApiTransferReceipt&)>;
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady = {},
-    const CooperativeApiCommitted& onCommitted = {});
+    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {});
 
 } // namespace Ksword::ActionAnalyze

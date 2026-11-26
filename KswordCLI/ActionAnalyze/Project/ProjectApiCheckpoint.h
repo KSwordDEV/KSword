@@ -17,6 +17,10 @@ enum class ApiFollowArchiveKind { Other, Legacy, Checkpointed };
 // 判断原包是否属于合作采样的普通调用。源序号只为这些包递增。
 bool IsCooperativeApiCall(const ks::winapi_monitor::ApiMonitorEventPacket& packet) noexcept;
 
+// 在原项目写租约下准入同采样首次 API 采集。已有 raw 或 checkpoints 目录即拒绝，
+// 不把空目录、缺标记、损坏段或坏尾当作可覆盖空档；不检查或修改独立 native/memory 流。
+ProjectResult RequireUnusedApiArchive(const ProjectDocument& project, std::string_view sampleId);
+
 // 只保存已核验的一段。调用方从 1 开始逐段传入上次成功返回的对象，不能越过缺段。
 struct ProjectApiCheckpoint {
     std::string sampleId; // 此水位属于已登记的采样。
@@ -27,6 +31,7 @@ struct ProjectApiCheckpoint {
     std::uint64_t planRawSequence = 0; // 段首计划的 Stored 序号。
     std::string planJson; // 冻结计划原文，后续段必须逐字节一致。
     std::string rulePresetSet; // 采集计划声明的规则版本，旧档为空。
+    std::string ruleSourceSha256; // 已核验计划声明的实际规则内容摘要，旧档或配置失败时为空。
     Evidence::ApiMonitorArchiveSource source = Evidence::ApiMonitorArchiveSource::LegacyUnspecified; // 旧跟随档沿用原来源标识。
     std::uint64_t previousSourceSequence = 0; // 本段之前最后提交的源行号。
     std::uint64_t lastSourceSequence = 0; // 原包为零时与上一段相同。

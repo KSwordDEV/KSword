@@ -14,7 +14,7 @@ constexpr std::size_t kBatchRows = 128; // 每个 Stored 块保留的线索上�
 
 ProjectResult WriteApiClueArchive(ProjectDocument& document, const SampleInfo& sample,
     std::span<const Evidence::ArchivedApiMonitorClue> rows, std::uint64_t sourceRows,
-    Evidence::ApiMonitorArchiveSource source, Archive::RawEvidenceReceipt& receipt)
+    Evidence::ApiMonitorArchiveSource source, Archive::RawEvidenceReceipt& receipt, bool mixedEtw)
 {
     const auto* project = document.Info(); // 项目标识绑定当前持有的目录。
     if (!project) {
@@ -48,6 +48,9 @@ ProjectResult WriteApiClueArchive(ProjectDocument& document, const SampleInfo& s
             {"kind", V::makeString(std::string(Evidence::kApiMonitorClueEnd))},
             {"archiveSource", V::makeString(std::string(Evidence::ApiMonitorArchiveSourceName(source)))},
             {"sourceRows", V::makeString(std::to_string(sourceRows))}, {"clueRows", V::makeString(std::to_string(rows.size()))}};
+        if (mixedEtw) {
+            fields.emplace_back("mixedEtw", V::makeBool(true)); // 专用 ETW 流独立发布自己的水位。
+        }
         const auto metadata = Evidence::WriteJson(V::makeObject(std::move(fields))); // 已封装的终态声明。
         const Archive::RawEvidenceInput end{metadata, {}}; // 尾记不携带原包。
         const auto written = writer.Append(std::span(&end, 1)); // 单独封装尾记。

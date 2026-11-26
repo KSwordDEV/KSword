@@ -3,6 +3,7 @@
   <ItemGroup>
     <ClCompile Include="CrossProcessEvidenceGraphTests.cpp" />
     <ClCompile Include="..\ArchivedEvidenceGraph.cpp" />
+    <ClCompile Include="..\ApiTransferChain.cpp" />
     <ClCompile Include="..\CrossProcessEvidenceGraph.cpp" />
     <ClCompile Include="..\InjectionDiscovery.cpp" />
     <ClCompile Include="..\InjectionTelemetry.cpp" />
@@ -12,6 +13,7 @@
     <ClCompile Include="..\..\..\..\shared\evidence\ObjectIdentity.cpp" />
     <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\ArchivedEvidenceGraph.h" />
+    <ClInclude Include="..\ApiTransferChain.h" />
     <ClInclude Include="..\CrossProcessEvidenceGraph.h" />
     <ClInclude Include="..\InjectionDiscovery.h" />
     <ClInclude Include="..\InjectionTelemetry.h" />

@@ -1,7 +1,10 @@
 #pragma once
 
 #include "CrossProcessEvidenceGraph.h"
+#include "ApiTransferChain.h"
 #include "../Project/ProjectCallbackEvidence.h"
+#include "../../../shared/evidence/ApiContextFields.h"
+#include "../../../shared/evidence/ApiSectionMapFields.h"
 
 namespace Ksword::ActionAnalyze::Detection {
 
@@ -20,7 +23,7 @@ struct ArchivedGraphRequest {
     std::uint64_t afterSequence = 0; // 只返回大于此原始记录序号的观察。
     std::size_t limit = kArchivedGraphDefaultRows; // 本页保留的观察数上限。
     std::string_view expectedSha256; // 可选的既有 raw 前缀散列。
-    ProjectEvidenceLane lane = ProjectEvidenceLane::Primary; // 游标仅在本流内有效。
+    ProjectEvidenceLane lane = ProjectEvidenceLane::Primary;
 };
 
 // 回调 v1 通知中的弱角色提示，不能作为进程或线程实例使用。
@@ -49,11 +52,19 @@ struct ArchivedGraphRecord {
     std::string_view apiFamily; // 共用目录的稳定线索类别。视图指向静态文本，ETW 为空。
     std::string_view apiCategory; // 原包核对后的业务分类 memory 或 thread。视图指向静态文本，ETW 为空。
     std::optional<ArchivedCallbackHints> callbackHints; // 仅自有回调批次提供。
+    std::optional<Evidence::ApiInjectionFieldsV1> apiInjection; // 显式版本化 API 字段，仍按来源声明展示。
+    Evidence::ApiInjectionOutcome apiOutcome = Evidence::ApiInjectionOutcome::Unknown; // 按精确返回约定解码。
+    std::optional<Evidence::ApiApcFieldsV1> apiApc; // 独立AAAP1返回字段，不与AAIP1入口字段混用。
+    Evidence::ApiApcQueueOutcome apcOutcome = Evidence::ApiApcQueueOutcome::Unknown; // 仅队列接受状态。
+    std::optional<Evidence::ApiContextFieldsV1> apiContext; // 原上下文请求，不作为实际寄存器现场。
+    Evidence::ApiContextOutcome contextOutcome = Evidence::ApiContextOutcome::Unknown; // 原接口是否接受请求。
+    std::optional<Evidence::ApiSectionMapFieldsV1> apiSectionMap; // 原映射请求和可读的成功输出。
+    Evidence::ApiSectionMapOutcome sectionMapOutcome = Evidence::ApiSectionMapOutcome::Unknown; // 仅映射调用返回。
 };
 
 struct ArchivedApiGraphCheckpoint {
-    std::uint64_t previousSourceSequence; // 本段之前最后提交的源行号。
-    std::uint64_t lastSourceSequence; // 本段提交后最后提交的源行号，包含未分类包。
+    std::uint64_t previousSourceSequence; // 本段之前最后提交的源序号。
+    std::uint64_t lastSourceSequence; // 本段提交后的源序号，包含未分类包。
 };
 
 struct ArchivedGraphPage {
@@ -69,7 +80,15 @@ struct ArchivedGraphPage {
     std::optional<bool> etwFinalSegment; // ETW 检查点是否报告本段为终段。
     std::optional<bool> apiFinalSegment; // 已验证的 API 跟随检查点是否报告本段为终段。
     std::optional<ArchivedApiGraphCheckpoint> apiCheckpoint; // 本次已从首段连续验证的 API 水位。
+    std::string_view apiInputKind; // API 输入方式及源序号口径，引用静态文本；非 API 页为空。
     std::optional<ArchivedCallbackBatch> callbackBatch; // 仅回调档提供，不代表整次采样覆盖。
+    std::vector<ApiTransferLink> transferCandidates; // 当前页创建操作与先前实际写入的区间候选，非执行确认。
+    std::uint64_t transferCandidateCount = 0; // 当前页创建操作的候选总数，超过候选容量时仍计数。
+    std::uint64_t evictedTransferWrites = 0; // 链路状态达到容量后淘汰的旧写入数。
+    std::vector<ApiApcTransferLink> apcTransferCandidates; // 当前页队列请求与先前写入的范围候选。
+    std::uint64_t apcTransferCandidateCount = 0; // 独立于线程创建候选的完整页内计数。
+    std::vector<ApiContextTransferLink> contextTransferCandidates; // 本页上下文请求与先前实际写入。
+    std::uint64_t contextTransferCandidateCount = 0; // 独立上下文候选总数，不占用APC/创建窗口。
 };
 
 // 从已登记的 raw 段读取一页。支持完整 API 导入、已提交的 API 跟随和 ETW、完整自有回调批次。

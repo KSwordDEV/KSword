@@ -6,10 +6,16 @@
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 using namespace Ksword::ActionAnalyze::Detection;
 using Ksword::Evidence::OptionalU64;
+namespace Monitor = ks::winapi_monitor;
 
 namespace {
 
@@ -90,6 +96,105 @@ ExecutionObservation Execution(std::uint64_t ordinal, ExecutionState state)
 GraphEventInput Event(InjectionEvent event)
 {
     return GraphEventInput{ProjectInjectionEvent(scope, std::move(event)), std::nullopt};
+}
+
+// 构造带显式 AAIP1 字段的普通 API 包。返回位非零才满足原调用成功语义。
+Monitor::ApiMonitorEventPacket InjectionPacket(const wchar_t* module, const wchar_t* api,
+    Monitor::EventCategory category, const Ksword::Evidence::ApiInjectionFieldsV1& fields,
+    std::uint64_t session = 1234, std::uint64_t returnBits = 8)
+{
+    Monitor::ApiMonitorEventPacket packet;
+    packet.pid = 10;
+    packet.tid = 11;
+    packet.category = static_cast<std::uint32_t>(category);
+    const std::wstring_view moduleText{module};
+    const std::wstring_view apiText{api};
+    std::copy(moduleText.begin(), moduleText.end(), packet.moduleName);
+    std::copy(apiText.begin(), apiText.end(), packet.apiName);
+    packet.snapshotIndex = Monitor::kApiCallReturnValueMarker; // 返回位槽位标记。
+    packet.hookAddress = returnBits; // BOOL 或线程句柄，非零表示成功。
+    packet.sessionIdentity = session;
+    Ksword::Evidence::StoreApiInjectionFields(packet, fields); // 同一份字段写入详情槽和覆盖标记。
+    return packet;
+}
+
+// 写入字段只声明调用窗口内解析出的身份、实际范围与 QPC。
+Ksword::Evidence::ApiInjectionFieldsV1 WriteFields(std::uint64_t address, std::uint64_t requested,
+    std::uint64_t completed, std::uint64_t enterQpc = 100, std::uint64_t returnQpc = 110,
+    std::uint64_t actorCreated = 1000, std::uint64_t targetPid = 20, std::uint64_t targetCreated = 2000)
+{
+    using namespace Ksword::Evidence;
+    ApiInjectionFieldsV1 fields;
+    fields.operation = ApiInjectionOperation::MemoryWrite;
+    fields.flags = ApiInjectionActorIdentity | ApiInjectionTargetIdentity | ApiInjectionTargetStable |
+        ApiInjectionAddress | ApiInjectionCompletedLength;
+    fields.actorCreationFileTime = actorCreated;
+    fields.targetPid = targetPid;
+    fields.targetCreationFileTime = targetCreated;
+    fields.address = address;
+    fields.requestedBytes = requested;
+    fields.completedBytes = completed;
+    fields.enterQpc = enterQpc;
+    fields.returnQpc = returnQpc;
+    return fields;
+}
+
+// 线程创建字段包含返回线程身份，但入口地址仍只是请求值。
+Ksword::Evidence::ApiInjectionFieldsV1 ThreadFields(std::uint64_t startAddress, std::uint64_t enterQpc = 200,
+    std::uint64_t returnQpc = 210, std::uint64_t actorCreated = 1000, std::uint64_t targetPid = 20,
+    std::uint64_t targetCreated = 2000)
+{
+    using namespace Ksword::Evidence;
+    ApiInjectionFieldsV1 fields;
+    fields.operation = ApiInjectionOperation::ThreadCreate;
+    fields.flags = ApiInjectionActorIdentity | ApiInjectionTargetIdentity | ApiInjectionThreadIdentity |
+        ApiInjectionTargetStable | ApiInjectionStartAddress;
+    fields.actorCreationFileTime = actorCreated;
+    fields.targetPid = targetPid;
+    fields.targetCreationFileTime = targetCreated;
+    fields.targetTid = 30;
+    fields.targetThreadCreationFileTime = 3000;
+    fields.startAddress = startAddress;
+    fields.enterQpc = enterQpc;
+    fields.returnQpc = returnQpc;
+    return fields;
+}
+
+// 同一采样内允许跨段，来源和代次仍须逐项相同。
+EvidenceRef TransferEvidence(std::uint64_t segment, std::uint64_t sequence, const char* source = "api",
+    const char* epoch = "epoch")
+{
+    EvidenceRef result;
+    result.projectId = scope.projectId;
+    result.sampleId = scope.sampleId;
+    result.sourceId = source;
+    result.sourceEpoch = epoch;
+    result.raw = RawLocator{segment, sequence};
+    result.sourceGroup = "api-group";
+    return result;
+}
+
+// 每次用独立链状态验证一组输入，避免前一个负例影响后续覆盖。
+std::vector<ApiTransferLink> TransferLinks(const Monitor::ApiMonitorEventPacket& writePacket,
+    const Monitor::ApiMonitorEventPacket& createPacket, const EvidenceRef& writeEvidence,
+    const EvidenceRef& createEvidence)
+{
+    ApiTransferChain chain(scope);
+    chain.Accept(writeEvidence, writePacket); // 写入自身不产生候选。
+    return chain.Accept(createEvidence, createPacket);
+}
+
+// 读取固定小文件用于恢复测试段；测试只操作自己创建的项目目录。
+std::vector<unsigned char> ReadBytes(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void WriteBytes(const std::filesystem::path& path, const std::vector<unsigned char>& bytes)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 // 检查给定的证据缺口是否实际出现在观察回执中。
@@ -248,6 +353,145 @@ void TestThreadCreationEvidence()
     Check(!raw.finding && archive.nodes.empty() && archive.edges.empty(), "raw-notification-cannot-add-relationships");
 }
 
+void TestApiTransferCandidates()
+{
+    // 写入位于第 1 段，线程创建请求位于第 2 段；候选保留双方真实原包坐标。
+    const auto write = InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        WriteFields(0x1000, 8, 8));
+    const auto create = InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        ThreadFields(0x1004));
+    const auto writeAt = TransferEvidence(1, 2);
+    const auto createAt = TransferEvidence(2, 2);
+    const auto positive = TransferLinks(write, create, writeAt, createAt);
+    Check(positive.size() == 1, "cross-segment-source-candidate");
+    if (positive.size() == 1) {
+        const auto& link = positive.front();
+        Check(link.write == writeAt && link.threadCreate == createAt, "candidate-keeps-both-raw-coordinates");
+        Check(link.actorPid == 10 && link.actorCreationFileTime == 1000 && link.targetPid == 20 &&
+            link.targetCreationFileTime == 2000, "candidate-keeps-both-generation-identities");
+        Check(link.writtenAddress == 0x1000 && link.writtenBytes == 8 &&
+            link.requestedStartAddress == 0x1004, "candidate-uses-actual-write-range");
+    }
+
+    // 入口必须落在 [address, address + completedBytes) 的半开区间内。
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x1000)), writeAt, createAt).size() == 1,
+        "half-open-interval-includes-start");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x1007)), writeAt, createAt).size() == 1,
+        "half-open-interval-includes-last-byte");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x1008)), writeAt, createAt).empty(),
+        "half-open-interval-excludes-end");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x0fff)), writeAt, createAt).empty(),
+        "half-open-interval-excludes-before-start");
+
+    // 部分写入只按实际完成长度构成区间，不沿用请求长度。
+    const auto partialWrite = InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        WriteFields(0x2000, 16, 8));
+    const auto partialInside = TransferLinks(partialWrite, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x2007)), writeAt, createAt);
+    Check(partialInside.size() == 1 && partialInside.front().writtenBytes == 8, "partial-write-uses-completed-length");
+    Check(TransferLinks(partialWrite, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x2008)), writeAt, createAt).empty(),
+        "partial-write-range-is-half-open");
+
+    // 失败调用按源端契约不携带实际完成长度，因此不能形成可关联区间。
+    auto failedFields = WriteFields(0x1000, 8, 8);
+    failedFields.flags &= ~Ksword::Evidence::ApiInjectionCompletedLength; // 来源只应在成功且安全读取后置位。
+    Check(TransferLinks(InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        failedFields, 1234, 0), create, writeAt, createAt).empty(),
+        "failed-write-without-completion-is-not-a-candidate-source");
+    auto missingCompletion = WriteFields(0x1000, 8, 8);
+    missingCompletion.flags &= ~Ksword::Evidence::ApiInjectionCompletedLength;
+    Check(TransferLinks(InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        missingCompletion), create, writeAt, createAt).empty(), "missing-completion-length-is-not-a-range");
+    auto missingAddress = WriteFields(0x1000, 8, 8);
+    missingAddress.flags &= ~Ksword::Evidence::ApiInjectionAddress;
+    Check(TransferLinks(InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        missingAddress), create, writeAt, createAt).empty(), "missing-write-address-is-not-a-range");
+    auto missingStart = ThreadFields(0x1004);
+    missingStart.flags &= ~Ksword::Evidence::ApiInjectionStartAddress;
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        missingStart), writeAt, createAt).empty(), "missing-requested-entry-is-not-a-candidate");
+
+    // 来源、会话、身份代次或事实时钟不一致时都必须断开候选。
+    auto differentSource = createAt;
+    differentSource.sourceId = "other-api";
+    Check(TransferLinks(write, create, writeAt, differentSource).empty(), "different-source-breaks-candidate");
+    auto differentEpoch = createAt;
+    differentEpoch.sourceEpoch = "other-epoch";
+    Check(TransferLinks(write, create, writeAt, differentEpoch).empty(), "different-source-epoch-breaks-candidate");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x1004), 999), writeAt, createAt).empty(),
+        "different-session-breaks-candidate");
+    Check(TransferLinks(InjectionPacket(L"KernelBase", L"WriteProcessMemory", Monitor::EventCategory::Memory,
+        WriteFields(0x1000, 8, 8, 100, 110, 1000, 20, 2000)), InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread",
+        Monitor::EventCategory::Thread, ThreadFields(0x1004, 200, 210, 1001)), writeAt, createAt).empty(),
+        "different-actor-generation-breaks-candidate");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        ThreadFields(0x1004, 200, 210, 1000, 21)), writeAt, createAt).empty(),
+        "different-target-process-breaks-candidate");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        ThreadFields(0x1004, 200, 210, 1000, 20, 2001)), writeAt, createAt).empty(),
+        "different-target-generation-breaks-candidate");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        ThreadFields(0x1004, 110)), writeAt, createAt).empty(),
+        "equal-qpc-breaks-candidate");
+    Check(TransferLinks(write, InjectionPacket(L"Kernel32.dll", L"CreateRemoteThread", Monitor::EventCategory::Thread,
+        ThreadFields(0x1004, 105)), writeAt, createAt).empty(),
+        "reverse-qpc-breaks-candidate");
+
+    // 坏原包锚点不能参与跨段状态，也不能借用同数字的邻居补全。
+    auto zeroWriteSequence = writeAt;
+    zeroWriteSequence.raw->sequence = 0;
+    Check(TransferLinks(write, create, zeroWriteSequence, createAt).empty(), "zero-write-sequence-rejected");
+    auto zeroCreateSegment = createAt;
+    zeroCreateSegment.raw->segmentOrdinal = 0;
+    Check(TransferLinks(write, create, writeAt, zeroCreateSegment).empty(), "zero-create-segment-rejected");
+    auto foreignSample = writeAt;
+    foreignSample.sampleId = "other-sample";
+    Check(TransferLinks(write, create, foreignSample, createAt).empty(), "foreign-sample-anchor-rejected");
+    auto missingRaw = createAt;
+    missingRaw.raw.reset();
+    Check(TransferLinks(write, create, writeAt, missingRaw).empty(), "missing-raw-anchor-rejected");
+    auto emptySource = createAt;
+    emptySource.sourceId.clear();
+    Check(TransferLinks(write, create, writeAt, emptySource).empty(), "empty-source-anchor-rejected");
+
+    // 重复消费同一原包不增加链路状态；创建操作仍只形成一条候选。
+    {
+        ApiTransferChain chain(scope);
+        chain.Accept(writeAt, write);
+        chain.Accept(writeAt, write);
+        const auto links = chain.Accept(createAt, create);
+        Check(links.size() == 1 && chain.EvictedWrites() == 0, "duplicate-write-packet-keeps-one-state");
+    }
+
+    // 写入窗口满后淘汰旧状态，后续创建不能再关联已被淘汰的写入。
+    {
+        ApiTransferChain chain(scope);
+        chain.Accept(TransferEvidence(1, 1), write); // 将被淘汰的首条写入。
+        for (std::uint64_t index = 1; index <= 1024; ++index) {
+            chain.Accept(TransferEvidence(1, index + 2), InjectionPacket(L"KernelBase", L"WriteProcessMemory",
+                Monitor::EventCategory::Memory, WriteFields(0x3000, 8, 8)));
+        }
+        Check(chain.EvictedWrites() == 1, "transfer-write-window-evicts-oldest");
+        Check(chain.Accept(createAt, create).empty(), "evicted-write-cannot-support-a-candidate");
+    }
+
+    // 候选只连接来源报告的两份包，不产生执行确认或原生角色。
+    EventProjection projection; // 与归档读侧相同的来源上下文缺口。
+    projection.gaps = {Issue::SourceUnverified, Issue::ThreadInstanceUnknown, Issue::ExecutionUnknown};
+    const std::array<GraphEventInput, 1> input{GraphEventInput{projection, createAt,
+        GraphArchiveContext{10, 11, GraphApiClue::ThreadCreate}}};
+    const auto graph = BuildCrossProcessEvidenceGraph(scope, input);
+    Check(graph.observations.size() == 1 && graph.observations.front().evidence &&
+        !graph.observations.front().finding && !graph.observations.front().observedThread &&
+        graph.nodes.empty() && graph.edges.empty(), "transfer-candidate-does-not-prove-execution");
+}
+
 void TestCallbackArchiveTruncation(const std::filesystem::path& root)
 {
     using namespace Ksword::ActionAnalyze;
@@ -315,6 +559,31 @@ void TestCallbackArchiveTruncation(const std::filesystem::path& root)
             row.actorPidHint == 10 && row.actorTidHint == 11 && row.targetPidHint == 20 && row.targetTidHint == 30 &&
             Gap(row, Issue::ThreadInstanceUnknown) && Gap(row, Issue::ExecutionUnknown), "callback-weak-evidence-retains-anchor");
     }
+
+    // 坏段或错请求不得替换调用方上一次完整结果，也不能发布部分回调观察。
+    ArchivedGraphPage sentinel;
+    sentinel.sha256 = "sentinel-prefix"; // 失败时保持不变的旧结果标识。
+    sentinel.segmentOrdinal = 77;
+    const auto missing = ReadArchivedEvidenceGraph(reader, {sample.sampleId, 2, 0, events.size(), {}}, sentinel);
+    Check(!missing && sentinel.sha256 == "sentinel-prefix" && sentinel.segmentOrdinal == 77,
+        "missing-segment-keeps-previous-page");
+    const auto stale = ReadArchivedEvidenceGraph(reader, {sample.sampleId, 1, 0, events.size(),
+        std::string(64, '0')}, sentinel);
+    Check(!stale && sentinel.sha256 == "sentinel-prefix", "wrong-prefix-hash-keeps-previous-page");
+
+    const auto segment = root / "samples" / sample.sampleId / "raw" / "00000000000000000001.ksaseg";
+    const auto original = ReadBytes(segment);
+    auto corrupted = original; // 只修改本次测试创建段的临时副本。
+    corrupted[corrupted.size() / 2] ^= 0xff;
+    WriteBytes(segment, corrupted);
+    const auto broken = ReadArchivedEvidenceGraph(reader, {sample.sampleId, 1, 0, events.size(), receipt.prefixSha256}, sentinel);
+    Check(!broken && sentinel.sha256 == "sentinel-prefix" && sentinel.segmentOrdinal == 77,
+        "corrupt-segment-keeps-previous-page");
+    WriteBytes(segment, original); // 恢复后同一前缀必须重新完整发布。
+    ArchivedGraphPage restored;
+    const auto reread = ReadArchivedEvidenceGraph(reader, {sample.sampleId, 1, 0, events.size(), receipt.prefixSha256}, restored);
+    Check(reread && restored.sha256 == receipt.prefixSha256 && restored.records.size() == events.size() &&
+        restored.graph.observations.size() == events.size(), "restored-segment-publishes-complete-page");
 }
 
 } // namespace
@@ -326,6 +595,7 @@ int wmain(int argc, wchar_t** argv)
     TestUnknowns();
     TestUnknownMachine();
     TestThreadCreationEvidence();
+    TestApiTransferCandidates();
     if (argc == 2) {
         TestCallbackArchiveTruncation(argv[1]);
     }
