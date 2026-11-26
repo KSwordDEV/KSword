@@ -20,6 +20,7 @@ struct ArchivedGraphRequest {
     std::uint64_t afterSequence = 0; // 只返回大于此原始记录序号的观察。
     std::size_t limit = kArchivedGraphDefaultRows; // 本页保留的观察数上限。
     std::string_view expectedSha256; // 可选的既有 raw 前缀散列。
+    ProjectEvidenceLane lane = ProjectEvidenceLane::Primary; // 游标仅在本流内有效。
 };
 
 // 从原始段扫描器复制实际坐标。行号与图 observations 下标逐项对应。

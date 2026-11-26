@@ -187,8 +187,9 @@ ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const Sa
     const ArchivedGraphRequest& request, GraphPageDraft& draft)
 {
     ProjectEtwCheckpoint checkpoint; // 已提交的同编号 raw 与 records 端点。
-    const auto checkpointStatus = project.ReadEtwCheckpoint(scope.sampleId, checkpoint, request.segmentOrdinal);
-    if (!checkpointStatus && (checkpointStatus.error != ProjectError::NotFound || request.segmentOrdinal != 1)) {
+    const auto checkpointStatus = project.ReadEtwCheckpoint(scope.sampleId, checkpoint, request.segmentOrdinal, request.lane);
+    if (!checkpointStatus && (request.lane == ProjectEvidenceLane::MixedEtw ||
+            checkpointStatus.error != ProjectError::NotFound || request.segmentOrdinal != 1)) {
         return checkpointStatus;
     }
     const bool committedEtw = static_cast<bool>(checkpointStatus); // 无首检查点时只接纳严格的 API 导入档。
@@ -253,7 +254,7 @@ ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const Sa
                 });
             }
             return true;
-        }, committedEtw ? kEtwReadBytes : kApiReadBytes};
+        }, committedEtw ? kEtwReadBytes : kApiReadBytes, request.lane};
 
     Archive::RawEvidenceScanResult scan; // 只在扫描和散列一致后公布图与坐标。
     if (const auto status = project.ReadRawEvidenceSegment(read, scan, &page.sha256); !status) {
@@ -299,8 +300,10 @@ ProjectResult ReadArchivedEvidenceGraph(const ProjectDocument& project, const Ar
     const SampleScope scope{projectInfo->projectId, sample.info.sampleId, {}, {}}; // 当前归档只支持来源内身份。
 
     ApiFollowArchiveKind apiKind = ApiFollowArchiveKind::Other; // 探测结果只用于选择读路径。
-    if (const auto status = ProbeApiFollowArchive(project, scope.sampleId, apiKind); !status) {
-        return status;
+    if (request.lane == ProjectEvidenceLane::Primary) {
+        if (const auto status = ProbeApiFollowArchive(project, scope.sampleId, apiKind); !status) {
+            return status;
+        }
     }
     if (apiKind == ApiFollowArchiveKind::Legacy) {
         return Failure(ProjectError::Unsupported, "graphApiLegacyUnpublished");

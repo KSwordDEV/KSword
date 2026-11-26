@@ -30,7 +30,7 @@
       "properties": {
         "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
-        "stream": { "const": "raw" },
+        "stream": { "enum": ["raw", "raw-etw"] },
         "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "view": { "const": "graph" },
         "afterSequence": { "$ref": "value.schema.json#/$defs/u64", "default": "0" },
@@ -152,7 +152,7 @@
         "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
         "generation": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
-        "stream": { "const": "raw" },
+        "stream": { "enum": ["raw", "raw-etw"] },
         "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "descriptionHash": { "$ref": "#/$defs/hash" },
         "archiveSource": { "enum": ["api-import", "api-follow-checkpoint", "etw-checkpoint"] },
@@ -190,7 +190,7 @@
         "observations": { "items": { "properties": { "apiFamily": { "type": "null" } } } }
       } },
       "else": {
-        "properties": { "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } } },
+        "properties": { "stream": { "const": "raw" }, "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } } },
         "if": { "properties": { "archiveSource": { "const": "api-follow-checkpoint" } } },
         "then": { "properties": { "finalSegment": { "type": "boolean" } } },
         "else": { "properties": { "finalSegment": { "type": "null" } } }

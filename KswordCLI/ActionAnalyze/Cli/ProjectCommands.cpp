@@ -34,8 +34,9 @@ constexpr ProjectCommand kMethods[] = {
         "Read frozen settings and optionally verify an ETW or passive API archive segment.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
     {M::InspectArchive, "archive.inspect", "archive inspect",
-        "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET | graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]]",
-        "Inspect Stored segment framing or read a verified raw evidence graph page in the open project.", false},
+        "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]\n"
+        "archive inspect SAMPLE_ID raw|raw-etw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]",
+        "Inspect Stored framing or a verified graph page. For mixed ETW use stream raw-etw with graph.", false},
 };
 
 Reply Invalid(const char* message) {
@@ -253,7 +254,7 @@ V GraphObservationJson(const Detection::GraphObservation& observation,
 
 // 从已打开项目查询一页已验证的 raw 归档。续页使用同一段和前缀摘要。
 Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleId, std::uint64_t ordinal,
-                       const V& params) {
+                       const V& params, bool mixedEtw) {
     std::uint64_t after = 0; // 首页从第一条观察开始。
     std::uint64_t limit = kArchiveGraphPageRows; // 本帧最多返回的观察数。
     std::string sha256; // 可由客户端提供上一页的前缀摘要。
@@ -267,7 +268,8 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
 
     Detection::ArchivedGraphPage page; // 已通过来源读取器核验的快照。
     const auto status = Detection::ReadArchivedEvidenceGraph(document,
-        {sampleId, ordinal, after, static_cast<std::size_t>(limit), sha256}, page);
+        {sampleId, ordinal, after, static_cast<std::size_t>(limit), sha256,
+            mixedEtw ? ProjectEvidenceLane::MixedEtw : ProjectEvidenceLane::Primary}, page);
     if (!status) {
         return FromError(status);
     }
@@ -294,7 +296,7 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
     const auto finalSegment = etw ? page.etwFinalSegment : page.apiFinalSegment; // 旧导入没有连续段终态。
     auto result = Object({{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
         {"sampleId", Text(page.graph.scope.sampleId)}, {"generation", Number(document.Info()->generation)},
-        {"stream", Text("raw")}, {"ordinal", Number(page.segmentOrdinal)}, {"descriptionHash", Text(page.descriptionHash)},
+        {"stream", Text(mixedEtw ? "raw-etw" : "raw")}, {"ordinal", Number(page.segmentOrdinal)}, {"descriptionHash", Text(page.descriptionHash)},
         {"archiveSource", Text(etw ? "etw-checkpoint" : apiFollow ? "api-follow-checkpoint" : "api-import")},
         {"sourceCoverage", Text("unknown")},
         {"machineId", V::makeNull()}, {"bootId", V::makeNull()},
@@ -419,15 +421,16 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         if (view) {
             std::string sampleId; // 要回读的登记采样。
             std::uint64_t ordinal = 0; // 显式选择的 raw 段号。
+            const bool mixedEtw = IsString(params, "stream", "raw-etw");
             if (!KnownKeys(params, {"projectId", "sampleId", "stream", "ordinal", "view", "afterSequence", "limit", "expectedSha256"}) ||
                 !GetUuid(params, "sampleId", sampleId) || !IsString(params, "view", "graph") ||
-                !IsString(params, "stream", "raw") || !GetNumber(params, "ordinal", ordinal) || !ordinal) {
-                return Invalid("Graph view requires sampleId, stream raw and a positive ordinal");
+                (!mixedEtw && !IsString(params, "stream", "raw")) || !GetNumber(params, "ordinal", ordinal) || !ordinal) {
+                return Invalid("Graph view requires sampleId, stream raw or raw-etw and a positive ordinal");
             }
             if (const auto error = checkProject()) {
                 return {{}, {}, error};
             }
-            return ReadArchiveGraph(document_, sampleId, ordinal, params);
+            return ReadArchiveGraph(document_, sampleId, ordinal, params, mixedEtw);
         }
         std::string sampleId, stream;
         std::uint64_t ordinal = 0, end = 0;
@@ -542,7 +545,7 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         fields.emplace_back("ordinal", Text(words[2]));
         if (words.size() >= 4 && words[3] == "graph") {
             if (words.size() == 6 || words.size() > 7) {
-                return Invalid("Usage: archive inspect SAMPLE_ID raw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]");
+                return Invalid("Usage: archive inspect SAMPLE_ID raw|raw-etw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]");
             }
             fields.emplace_back("view", Text("graph"));
             if (words.size() >= 5) {
