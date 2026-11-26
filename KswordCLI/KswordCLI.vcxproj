@@ -222,6 +222,7 @@
     <ClCompile Include="ActionAnalyze\Cli\NativeSessionApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\NativeStopMemoryJournal.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\NativeExecutionCommand.cpp" />
+    <ClCompile Include="..\shared\evidence\ApiNativeExecutionProjection.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\NativeSectionMapCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectNativeExecution.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ExecutionGroupArchive.cpp" />
@@ -288,6 +289,7 @@
     <ClInclude Include="ActionAnalyze\Cli\NativeSessionApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Cli\NativeStopMemoryJournal.h" />
     <ClInclude Include="ActionAnalyze\Cli\NativeExecutionCommand.h" />
+    <ClInclude Include="..\shared\evidence\ApiNativeExecutionProjection.h" />
     <ClInclude Include="ActionAnalyze\Cli\NativeSectionMapCommand.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectNativeExecution.h" />
     <ClInclude Include="ActionAnalyze\Project\ExecutionGroupArchive.h" />

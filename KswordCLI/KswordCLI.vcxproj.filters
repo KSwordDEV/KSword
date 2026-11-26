@@ -110,6 +110,7 @@
     <ClCompile Include="ActionAnalyze\Cli\NativeSessionApiCapture.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\NativeStopMemoryJournal.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\NativeExecutionCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\ApiNativeExecutionProjection.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\NativeSectionMapCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectNativeExecution.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ExecutionGroupArchive.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -176,6 +177,7 @@
     <ClInclude Include="ActionAnalyze\Cli\NativeSessionApiCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\NativeStopMemoryJournal.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\NativeExecutionCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiNativeExecutionProjection.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\NativeSectionMapCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectNativeExecution.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ExecutionGroupArchive.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

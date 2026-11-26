@@ -155,6 +155,7 @@ struct Page {
     ApiTransferCandidateTree transferTree; // 当前回放的写入与创建来源声明候选。
     std::optional<EvidenceRecord> selectedCandidate; // 原包已滚出列表时仍供共享详情读取。
     std::optional<Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>> selectedExecution; // 只读原生来源，与 API 原行分别保存。
+    std::optional<Ksword::Evidence::NativeExecutionHistoryEntry> selectedNativeHistory; // 独立历史选择，不依赖API候选。
     std::optional<SegmentIdentity> candidateScope; // 独立于目录草稿保留当前候选的采样身份。
     std::optional<ProjectReplayRequest> candidateSample; // 同一路径切换采样时禁止复用旧候选选择。
     std::wstring candidatePath; // 独立段与项目入口的真实读取路径。
@@ -693,9 +694,11 @@ std::wstring ArchivedRelationText(const EvidenceRecord& record) {
 }
 
 void UpdateDetails(Page& page) {
-    if (!page.liveView && page.selectedExecution)
+    if (!page.liveView && (page.selectedExecution || page.selectedNativeHistory))
     {
-        const auto text = NativeExecutionDetails(page.selectedExecution->sourceDocument); // 两端同一份规范源。
+        const auto& source = page.selectedNativeHistory ? page.selectedNativeHistory->sourceDocument
+            : page.selectedExecution->sourceDocument; // 两端同一份规范源，独立历史不补API请求。
+        const auto text = NativeExecutionDetails(source);
         if (text != page.displayedDetails)
         {
             page.displayedDetails = text;
@@ -941,7 +944,8 @@ void SetListSelection(Page& page, std::size_t record, bool reveal) {
 void SetLiveFollow(Page& page, bool enabled);
 
 void SelectRecord(Page& page, std::size_t index) {
-    if (page.selected == index && !page.selectedCandidate && !page.selectedExecution) return;
+    if (page.selected == index && !page.selectedCandidate && !page.selectedExecution && !page.selectedNativeHistory) return;
+    page.selectedNativeHistory.reset(); // 用户列表选择回到原事件详情。
     page.selectedExecution.reset(); // 用户从列表选择时回到 API/事件详情。
     page.selectedCandidate.reset(); // 列表和时间线主动选择后回到原有记录身份。
     page.selected = index;
@@ -1161,9 +1165,12 @@ void LocateTransferCandidate(Page& page) {
     if (page.retiring || page.liveView) {
         return;
     }
-    if (const auto* execution = page.transferTree.Execution())
+    const auto* execution = page.transferTree.Execution(); // API一致性候选中的原生叶。
+    const auto* history = page.transferTree.History(); // 无API依赖的独立历史叶。
+    if (execution || history)
     {
-        page.selectedExecution = *execution; // 历史文档不授予 Continue 或步进资格。
+        page.selectedExecution = execution ? std::optional(*execution) : std::nullopt;
+        page.selectedNativeHistory = history ? std::optional(*history) : std::nullopt; // 均只读，不授实时控制权。
         page.selectedCandidate.reset();
         page.selected.reset();
         page.timeline.select(std::nullopt, false);
@@ -1186,6 +1193,7 @@ void LocateTransferCandidate(Page& page) {
         return;
     }
     page.selectedExecution.reset(); // 同一树里的 API 叶仍走原定位路径。
+    page.selectedNativeHistory.reset();
     const auto& rows = archive->evidence.rows; // 在有界近期表中按完整物理坐标查找。
     const auto found = std::find_if(rows.begin(), rows.end(), [&](const EvidenceRecord& record) {
         return CoordinateOf(record) == CoordinateOf(*row);
@@ -1247,6 +1255,15 @@ void PresentResults(Page& page, bool refreshLive = false, const Snapshot* previo
         if (!sameCandidateScope) {
             page.selectedCandidate.reset();
             page.selectedExecution.reset();
+            page.selectedNativeHistory.reset();
+        }
+        if (sameCandidateScope && page.selectedNativeHistory)
+        {
+            const auto& entries = archive->evidence.nativeExecution.observations; // 新快照重核原物理来源。
+            const auto found = std::find_if(entries.begin(), entries.end(), [&](const auto& entry) {
+                return Ksword::Evidence::SameNativeExecutionHistory(entry, *page.selectedNativeHistory);
+            });
+            page.selectedNativeHistory = found != entries.end() ? std::optional(*found) : std::nullopt;
         }
         if (sameCandidateScope && page.selectedExecution)
         {
@@ -2424,13 +2441,14 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     case WM_NOTIFY: {
         const auto& notice = *reinterpret_cast<const NMHDR*>(lp);
         if (notice.idFrom == kTransferCandidates) {
-            if (notice.code == TVN_SELCHANGEDW && !page->applyingProjection && page->transferTree.Execution())
+            if (notice.code == TVN_SELCHANGEDW && !page->applyingProjection &&
+                (page->transferTree.Execution() || page->transferTree.History()))
             {
                 LocateTransferCandidate(*page); // 原生叶随选择更新只读详情，不发起 I/O。
             }
             if (notice.code == NM_DBLCLK || (notice.code == TVN_KEYDOWN &&
                 reinterpret_cast<const NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN)) {
-                if (page->transferTree.Activate() || page->transferTree.Execution()) {
+                if (page->transferTree.Activate() || page->transferTree.Execution() || page->transferTree.History()) {
                     LocateTransferCandidate(*page);
                 } else if (notice.code == TVN_KEYDOWN) {
                     const auto node = TreeView_GetSelection(page->transferTree.hwnd()); // Enter 只切换分组展开。

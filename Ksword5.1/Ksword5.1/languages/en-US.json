@@ -8,6 +8,11 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "原生执行历史": "Native execution history",
+    "历史观察保留原始停点、绑定和寄存器；不授予实时控制权。": "Historical observations preserve the original stop, binding and registers. They do not grant live control.",
+    "原生执行历史（保留 %1 / 已核验 %2）": "Native execution history (%1 retained / %2 verified)",
+    "项目 %1 · 采样 %2 · 原生执行历史": "Project %1 · Sample %2 · Native execution history",
+    "当前采样仅显示已核验的原生执行历史。": "This sample displays verified native execution history only.",
     "v3 支持两个 bool 字段或谓词的 ==、!= 比较；任一未知即返回未知，bool 不支持大小比较。": "v3 supports == and != between two bool fields or predicates. Either unknown operand yields Unknown. Ordering comparisons are not supported for bool.",
     "读取唯一选中成员的停点内存；保存使用本轮集合项目和原读取范围。修改参数或选择不会改变已读结果。逐页取样不是原子进程转储。": "Read memory at the selected member's held stop. Save the original read and range to this execution group's project. Editing parameters or changing selection preserves the read result. Page sampling is not an atomic process dump.",
     "内存结果 JSON": "Memory result JSON",

@@ -31,9 +31,14 @@ ks::ui::FieldNode Node(const QString& name, const Ksword::Evidence::JsonValue& v
 ks::ui::FieldDocument NativeExecutionDocument(const Ksword::Evidence::JsonValue& source)
 {
     ks::ui::FieldDocument document; // 共享详情框架使用的唯一规范文档。
-    document.title = QStringLiteral("API 与原生执行一致性候选");
-    document.note(QStringLiteral("候选不证明注入、因果、区域版本或跨来源时序；进入尝试与指令完成按原记录分别呈现。"));
-    document.nodes.append(Node(QStringLiteral("api-native"), source));
+    std::string kind; // 独立历史与API候选共用字段外壳，标题保留各自语义。
+    const auto* type = source.find("kind"); // 来源类型由后台投影固定。
+    const bool history = type && type->tryGetString(kind) && kind == "native-execution-history";
+    document.title = history ? QStringLiteral("原生执行历史") : QStringLiteral("API 与原生执行一致性候选");
+    document.note(history
+        ? QStringLiteral("历史观察保留原始停点、绑定和寄存器；不授予实时控制权。")
+        : QStringLiteral("候选不证明注入、因果、区域版本或跨来源时序；进入尝试与指令完成按原记录分别呈现。"));
+    document.nodes.append(Node(history ? QStringLiteral("raw-native") : QStringLiteral("api-native"), source));
     return document;
 }
 

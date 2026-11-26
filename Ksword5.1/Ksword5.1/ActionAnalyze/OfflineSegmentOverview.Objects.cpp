@@ -129,7 +129,7 @@ public:
         endResetModel();
     }
 
-    // 九根展示API原行、来源上下文、三类来源候选和四类执行候选；各自使用独立节点编号。
+    // 十根含独立原生历史；200000为历史叶，不与候选双方或四类执行编号混用。
     QModelIndex index(int row, int column, const QModelIndex& parent = {}) const override
     {
         if (!hasIndex(row, column, parent))
@@ -137,6 +137,10 @@ public:
             return {};
         }
         // 执行候选使用独立 ID 空间，保留既有 API 三类分支的身份和定位语义。
+        if (parent.isValid() && parent.internalId() == 0 && parent.row() == 9)
+        {
+            return createIndex(row, column, quintptr(200000));
+        }
         if (parent.isValid() && parent.internalId() == 0 && parent.row() >= 5)
         {
             return createIndex(row, column, quintptr(100000 + parent.row() - 5));
@@ -154,6 +158,10 @@ public:
     // 把叶项的内部 ID 转回分组节点，顶级分组没有父节点。
     QModelIndex parent(const QModelIndex& index) const override
     {
+        if (index.internalId() == 200000)
+        {
+            return createIndex(9, 0, quintptr(0));
+        }
         if (index.internalId() >= 1000000)
         {
             return createIndex(static_cast<int>((index.internalId() - 1000000) / 4), 0,
@@ -176,7 +184,11 @@ public:
     {
         if (!parent.isValid())
         {
-            return m_hasGroups ? 9 : 0;
+            return m_hasGroups ? 10 : 0;
+        }
+        if (parent.internalId() == 200000)
+        {
+            return 0;
         }
         if (parent.internalId() >= 1000000)
         {
@@ -196,6 +208,10 @@ public:
         }
         if (parent.row() >= 2)
         {
+            if (parent.row() == 9)
+            {
+                return static_cast<int>(m_snapshot->nativeExecution.observations.size());
+            }
             if (parent.row() >= 5)
             {
                 return static_cast<int>(std::count_if(m_snapshot->nativeExecution.candidates.begin(),
@@ -266,6 +282,29 @@ public:
         if (!index.isValid() || (role != Qt::DisplayRole && role != Qt::ToolTipRole))
         {
             return {};
+        }
+        if ((!index.internalId() && index.row() == 9) || index.internalId() == 200000)
+        {
+            if (role == Qt::ToolTipRole)
+            {
+                return sourceText(QStringLiteral("历史观察保留原始停点、绑定和寄存器；不授予实时控制权。"));
+            }
+            if (!index.internalId())
+            {
+                return sourceText(QStringLiteral("原生执行历史（保留 %1 / 已核验 %2）"))
+                    .arg(m_snapshot->nativeExecution.observations.size()).arg(m_snapshot->nativeExecution.verifiedNativeCount);
+            }
+            const auto* entry = history(index); // 只取当前不可变快照中的真实观察。
+            const auto* native = entry ? entry->sourceDocument.find("native") : nullptr;
+            const auto* observation = native ? native->find("observation") : nullptr;
+            std::string kind; // 使用归档原值区分进入尝试与完成。
+            if (observation)
+            {
+                observation->tryGetString(kind);
+            }
+            return entry ? QStringLiteral("raw-native/%1 #%2 @%3 · %4")
+                .arg(entry->nativeOrdinal).arg(entry->nativeSequence).arg(entry->nativeRecordOffset)
+                .arg(QString::fromStdString(kind)) : QString();
         }
         if ((index.internalId() == 0 && index.row() >= 5) || index.internalId() >= 100000)
         {
@@ -398,7 +437,7 @@ public:
                 if (const int children = rowCount(group))
                 {
                     emit dataChanged(index(0, 0, group), index(children - 1, 0, group));
-                    if (row >= 2)
+                    if (row >= 2 && row < 9)
                     {
                         for (int candidate = 0; candidate < children; ++candidate)
                         {
@@ -409,6 +448,17 @@ public:
                 }
             }
         }
+    }
+
+    // 输入独立历史叶，返回当前已发布观察；根、旧模型及越界节点均没有历史来源。
+    const Ksword::Evidence::NativeExecutionHistoryEntry* history(const QModelIndex& index) const
+    {
+        if (!m_snapshot || index.model() != this || index.internalId() != 200000 || index.row() < 0 ||
+            static_cast<std::size_t>(index.row()) >= m_snapshot->nativeExecution.observations.size())
+        {
+            return nullptr;
+        }
+        return &m_snapshot->nativeExecution.observations[static_cast<std::size_t>(index.row())];
     }
 
     // 输入树节点及可选快照身份，输出同一已发布候选；只遍历当前 512 条只读窗口。
@@ -443,6 +493,11 @@ public:
         {
             return QStringLiteral("root:%1").arg(index.row());
         }
+        if (const auto* entry = history(index))
+        {
+            return QStringLiteral("history:%1:%2:%3:%4").arg(entry->nativeOrdinal).arg(entry->nativeSequence)
+                .arg(entry->nativeRecordOffset).arg(QString::fromStdString(entry->nativeSha256));
+        }
         if (const auto* candidate = execution(index, nullptr))
         {
             return QStringLiteral("native:%1:%2:%3:%4:%5:%6:%7:%8").arg(candidate->kind)
@@ -468,7 +523,8 @@ private:
     // 候选拓扑未变时才能复用旧树持久索引；来源计数变化通过根文字刷新。
     bool sameCandidates(const SegmentSnapshot& next) const
     {
-        if (!m_snapshot->nativeExecution.candidates.empty() || !next.nativeExecution.candidates.empty() ||
+        if (!m_snapshot->nativeExecution.observations.empty() || !next.nativeExecution.observations.empty() ||
+            !m_snapshot->nativeExecution.candidates.empty() || !next.nativeExecution.candidates.empty() ||
             m_snapshot->nativeExecution.state != next.nativeExecution.state)
         {
             return false; // 原生拓扑按完整来源键恢复，不沿用旧持久下标。
@@ -644,7 +700,11 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
         m_archiveRelationPanel->setVisible(expanded);
     });
     connect(m_archiveRelationTree, &QTreeView::activated, this, [this](const QModelIndex& index) {
-        if (index.internalId() >= 1000000 && index.row() == 2)
+        if (const auto* entry = m_archiveRelationModel->history(index))
+        {
+            selectNativeHistory(*entry);
+        }
+        else if (index.internalId() >= 1000000 && index.row() == 2)
         {
             if (const auto* candidate = m_archiveRelationModel->execution(index, m_snapshot.get()))
             {
@@ -662,7 +722,11 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
     });
     connect(m_archiveRelationTree->selectionModel(), &QItemSelectionModel::currentChanged, this,
         [this](const QModelIndex& index) {
-            if (index.internalId() >= 1000000 && index.row() == 2)
+            if (const auto* entry = m_archiveRelationModel->history(index))
+            {
+                selectNativeHistory(*entry);
+            }
+            else if (index.internalId() >= 1000000 && index.row() == 2)
             {
                 if (const auto* candidate = m_archiveRelationModel->execution(index, m_snapshot.get()))
                 {
@@ -682,7 +746,7 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
     std::optional<std::pair<SegmentRowAnchor, SegmentRowAnchor>> selectedCandidate; // 重叠候选需双方坐标区分所在分支。
     int selectedGroup = -1; // 普通叶项恢复到原分类，候选叶项不跳到同坐标的普通行。
     bool selectedRoot = false; // 分类根的键盘选择也在模型重置后保留。
-    std::array<bool, 9> expanded{}; // 原有来源组与四类原生执行组分别恢复。
+    std::array<bool, 10> expanded{}; // 原有候选与独立历史分别恢复。
     QString selectedNativeKey; // 完整分支来源键，不将原生坐标误作 API 坐标。
     QSet<QString> expandedNativeKeys; // 新旧模型之间不保存节点地址或 QModelIndex。
     std::array<QList<std::pair<SegmentRowAnchor, SegmentRowAnchor>>, 3> expandedCandidates; // 类型及双方坐标共同区分候选。
@@ -808,6 +872,16 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
     if (!sameScope)
     {
         m_nativeSelection.reset(); // 新采样不能继承任何旧原生历史文档。
+        m_nativeHistorySelection.reset();
+    }
+    const auto historyRoot = m_archiveRelationModel->index(9, 0); // 历史叶按原物理来源恢复，不按列表位置恢复。
+    for (int member = 0; member < m_archiveRelationModel->rowCount(historyRoot); ++member)
+    {
+        const auto leaf = m_archiveRelationModel->index(member, 0, historyRoot); // 新快照的历史叶。
+        if (!selectedNativeKey.isEmpty() && selectedNativeKey == m_archiveRelationModel->identity(leaf))
+        {
+            m_archiveRelationTree->setCurrentIndex(leaf);
+        }
     }
     if (selected && selectedNativeKey.isEmpty())
     {

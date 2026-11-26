@@ -414,6 +414,10 @@ static const wchar_t* ApiCheckpointName(const ReplayCheckpoint& checkpoint) {
 }
 
 std::wstring DescribeReplayCheckpoint(const ReplayCheckpoint& checkpoint, const SegmentEvidence& evidence) {
+    if (evidence.nativeHistoryOnly)
+    {
+        return L"当前采样仅显示已核验的原生执行历史。";
+    }
     const bool api = checkpoint.kind == ReplayCheckpointKind::PassiveApi;
     if (checkpoint.state == CheckpointState::Verified) {
         auto status = api ? std::wstring(ApiCheckpointName(checkpoint)) + L" 终态检查点已验证 · " + RawCheckpointExtent(checkpoint) :
@@ -433,6 +437,10 @@ std::wstring DescribeReplayCheckpoint(const ReplayCheckpoint& checkpoint, const 
 }
 
 std::wstring DescribeReplayPreview(const ReplayCheckpoint& checkpoint, const SegmentEvidence& evidence) {
+    if (evidence.nativeHistoryOnly)
+    {
+        return L" · 原生执行历史，原始段坐标见下方历史树";
+    }
     std::wstring text;
     if (checkpoint.state == CheckpointState::PreviewLimited) {
         text = L" · 已核验首段，点击回放可读取后续段";
@@ -576,7 +584,22 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, Pro
         return primary;
     }
     if (hasApi) return primary;
-    return ReadEtwProjectReplay(project, root, request, mode, Project::ProjectEvidenceLane::Primary);
+    auto result = ReadEtwProjectReplay(project, root, request, mode, Project::ProjectEvidenceLane::Primary); // 原主流状态保留。
+    if (!result.raw.identity && result.checkpoint.kind == ReplayCheckpointKind::None &&
+        (result.raw.systemError == ERROR_FILE_NOT_FOUND || result.raw.systemError == ERROR_PATH_NOT_FOUND))
+    {
+        const auto native = Ksword::Evidence::ReadNativeExecutionHistory(project, request.sampleId); // 无API流也读原生历史。
+        result.raw.nativeExecution = Ksword::Evidence::ProjectApiNativeExecution<EvidenceRecord>(
+            {request.projectId, request.sampleId, {}, {}}, native, {}, {}, {}, {}, 0);
+        if (!result.raw.nativeExecution.observations.empty())
+        {
+            result.raw.nativeHistoryOnly = true;
+            result.raw.identity = SegmentIdentity{request.projectId, request.sampleId, 0, 1}; // 逻辑采样锚点，不冒充raw段。
+            result.raw.diagnostic.clear(); // 普通raw缺失是此独立历史采样的预期形态。
+            result.raw.systemError = 0;
+        }
+    }
+    return result;
 }
 
 } // namespace Ksword::Features::ActionAnalyze

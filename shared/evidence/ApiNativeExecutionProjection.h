@@ -32,6 +32,27 @@ JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection
     const ActionAnalyze::Detection::ArchivedGraphRecord& requestRecord, std::optional<std::uint64_t> writeOffset,
     std::string_view mappingSha256 = {});
 
+// 单独的历史观察没有API请求；两端按这些物理坐标恢复选择，完整文档只供读取。
+struct NativeExecutionHistoryEntry {
+    std::uint64_t nativeOrdinal = 0; // raw-native的真实段号。
+    std::uint64_t nativeSequence = 0; // 该段原记录序号。
+    std::uint64_t nativeRecordOffset = 0; // 核验得到的记录头偏移。
+    std::string nativeSha256; // 原段摘要，防止同坐标内容变化后沿用选择。
+    JsonValue sourceDocument; // 同一归档文档用于详情、复制与导出。
+};
+
+// 输入已核验的段及真实段号，输出独立历史来源；不创建API关联或活控制令牌。
+NativeExecutionHistoryEntry NativeExecutionHistorySource(
+    const ActionAnalyze::ArchivedNativeExecution& execution, std::uint64_t ordinal);
+
+// 输入两次发布的历史叶项，返回物理来源是否相同；不按PID或树下标认领旧选择。
+inline bool SameNativeExecutionHistory(const NativeExecutionHistoryEntry& left,
+    const NativeExecutionHistoryEntry& right)
+{
+    return left.nativeOrdinal == right.nativeOrdinal && left.nativeSequence == right.nativeSequence &&
+        left.nativeRecordOffset == right.nativeRecordOffset && left.nativeSha256 == right.nativeSha256;
+}
+
 template<typename Row>
 struct ApiNativeExecutionCandidate {
     int kind = 0; // 0 创建，1 APC，2 上下文，3 节映射。
@@ -53,6 +74,7 @@ struct ApiNativeExecutionProjection {
     std::uint64_t candidateCount = 0; // 当前 API 窗口内全部匹配数，包含结果裁剪。
     std::uint64_t evictedMaps = 0; // API 映射输入窗口淘汰数。
     std::deque<ApiNativeExecutionCandidate<Row>> candidates; // 最近 512 个一致性候选，常数开销淘汰旧项。
+    std::deque<NativeExecutionHistoryEntry> observations; // 最近512条独立观察，匹配不到API也保留。
 };
 
 // 后台项目任务传入同采样的已核验API窗口、原生历史和取消回调，返回有界只读候选与独立状态。
@@ -98,11 +120,17 @@ ApiNativeExecutionProjection<Row> ProjectApiNativeExecution(
         {
             result.state = NativeHistoryState::Canceled;
             result.candidates.clear();
+            result.observations.clear();
             result.candidateCount = 0;
             return result; // 取消只影响原生投影，API已核验窗口仍由原读任务保留。
         }
         const auto& native = history.records[index]; // 已从首段连续核验的原生文档。
         const auto ordinal = static_cast<std::uint64_t>(index + 1); // 不采用 UI 行号作为段号。
+        if (result.observations.size() == 512)
+        {
+            result.observations.pop_front();
+        }
+        result.observations.push_back(NativeExecutionHistorySource(native, ordinal));
         for (const auto& pair : threads)
         {
             if (detection::AssociateNativeTransfer(scope, pair.link, pair.requestRecord, native, ordinal))

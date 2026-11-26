@@ -143,7 +143,8 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
     const bool keepComplete = m_snapshot && m_snapshot->path == result.path
         && m_snapshot->end == SegmentEnd::Complete && result.end != SegmentEnd::Complete;
     m_latestPublished = result.end == SegmentEnd::Complete ||
-        (!keepComplete && result.end != SegmentEnd::Canceled && result.ordinal && !result.rows.isEmpty());
+        (!keepComplete && result.end != SegmentEnd::Canceled && result.ordinal &&
+            (!result.rows.isEmpty() || result.nativeHistoryOnly)); // 原生链达到上限时仍可浏览已核验历史。
     if (!m_latestPublished)
     {
         updateText();

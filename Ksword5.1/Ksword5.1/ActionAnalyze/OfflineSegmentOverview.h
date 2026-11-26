@@ -124,6 +124,8 @@ namespace ks::action_analyze
         void selectRecord(SegmentRowAnchor anchor, bool scrollTable);
         // 输入当前快照的原生候选，清除API选区并显示同一来源文档；不执行查询或控制。
         void selectNativeExecution(const Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>& candidate);
+        // 输入树叶所持同采样历史，显示共享详情；不访问进程或执行控制动作。
+        void selectNativeHistory(const Ksword::Evidence::NativeExecutionHistoryEntry& observation);
         // 刷新状态和共享详情文档，不执行文件 I/O。
         void updateText();
         void updateDetails();
@@ -204,6 +206,7 @@ namespace ks::action_analyze
         std::optional<quint64> m_upper; // 已应用不含上界。
         std::optional<SegmentRowAnchor> m_selection; // 用户选择的实际通道和记录，过滤时可以暂不可见。
         std::optional<Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>> m_nativeSelection; // 当前原生叶项的只读来源身份。
+        std::optional<Ksword::Evidence::NativeExecutionHistoryEntry> m_nativeHistorySelection; // 独立历史选择，与API候选分开。
         std::optional<SegmentRow> m_selectedLiveRow; // 同一采样内独立保留的选中证据。
         std::optional<ArchivedObjectObservation> m_objectFilter; // 生效的采样内对象范围。
         std::optional<ArchivedObjectObservation> m_viewedObject; // 用户显式查看的归档引用。

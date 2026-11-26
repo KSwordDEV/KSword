@@ -15,6 +15,8 @@ public:
     const EvidenceRecord* Activate() const;
     // 无输入，返回当前原生执行叶的规范来源；API 叶及分类根返回空。
     const Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>* Execution() const;
+    // 无输入；仅独立历史叶返回原观察，API候选和状态根返回空。
+    const Ksword::Evidence::NativeExecutionHistoryEntry* History() const;
     // 返回父页面拥有的控件句柄，供布局及 WM_NOTIFY 处理使用；调用方不单独销毁。
     HWND hwnd() const noexcept { return hwnd_; }
 
@@ -28,6 +30,7 @@ private:
     };
     HWND hwnd_ = nullptr; // 页面拥有的原生 TreeView，随父窗口销毁。
     std::vector<Candidate> candidates_; // 最多512对API来源候选和512个执行候选，自持有来源防止快照更换悬空。
+    std::vector<Ksword::Evidence::NativeExecutionHistoryEntry> history_; // 最近512条独立历史，按原来源恢复选择。
 };
 
 } // namespace Ksword::Features::ActionAnalyze

@@ -225,6 +225,7 @@ namespace ks::action_analyze
         std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<SegmentRow>> sectionMapRequests; // 独立映射原行窗口。
         quint64 evictedSectionMaps = 0; // 映射输入裁剪数。
         Ksword::Evidence::ApiNativeExecutionProjection<SegmentRow> nativeExecution; // 同采样后台执行候选与状态。
+        bool nativeHistoryOnly = false; // 采样只有独立原生历史，普通raw缺失不伪造API/ETW终段。
     };
 
     // 从已冻结的目录请求计算 raw/1 的规范路径，非法项目或采样标识返回空字符串。

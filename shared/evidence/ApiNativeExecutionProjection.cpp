@@ -163,6 +163,32 @@ NativeExecutionHistory ReadNativeExecutionHistory(const ActionAnalyze::ProjectDo
     return result;
 }
 
+// 输入已核验原生段及真实段号，生成没有API依赖的来源文档；保留完整绑定和寄存器。
+NativeExecutionHistoryEntry NativeExecutionHistorySource(
+    const ActionAnalyze::ArchivedNativeExecution& execution, std::uint64_t ordinal)
+{
+    const auto count = [](std::uint64_t value) { // 协议计数用十进制字符串保留64位精度。
+        return JsonValue::makeString(std::to_string(value));
+    };
+    NativeExecutionHistoryEntry entry; // 当前独立历史叶的值，不拥有任何活owner。
+    entry.nativeOrdinal = ordinal;
+    entry.nativeSequence = execution.end.lastSequence;
+    entry.nativeRecordOffset = execution.recordOffset;
+    entry.nativeSha256 = execution.sha256;
+    entry.sourceDocument = JsonValue::makeObject({
+        {"kind", JsonValue::makeString("native-execution-history")},
+        {"historical", JsonValue::makeBool(true)},
+        {"nativeSegmentOrdinal", count(ordinal)},
+        {"nativeRecordSequence", count(execution.end.lastSequence)},
+        {"nativeRecordOffset", count(execution.recordOffset)},
+        {"nativeBlockOrdinal", count(execution.blockOrdinal)},
+        {"nativeEndOffset", count(execution.end.byteOffset)},
+        {"nativeSha256", JsonValue::makeString(execution.sha256)},
+        {"native", execution.document}
+    });
+    return entry;
+}
+
 // 输出包含匹配类型、原包坐标和完整原生文档；历史来源不转换为活停点或放行票据。
 JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection::EvidenceRef* write,
     const ActionAnalyze::Detection::EvidenceRef& request,

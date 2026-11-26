@@ -6,6 +6,7 @@
 #include "../Project/MemorySnapshotReader.h"
 #include "../Project/ProjectStorage.h"
 #include "../../CommandRegistry.h"
+#include "../../../shared/evidence/ApiNativeExecutionProjection.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -60,6 +61,60 @@ Result Read(const Args& args)
         {L"endOffset", Json::count(archived.end.byteOffset)}, {L"blockOrdinal", Json::count(archived.end.blockOrdinal)},
         {L"lastSequence", Json::count(archived.end.lastSequence)}, {L"historical", Json::boolean(true)},
         {L"document", Document(archived.document)}}), {}};
+}
+
+// 输入项目、采样和段号游标，分页列出原生观察摘要；完整原文沿execution read读取。
+Result History(const Args& args)
+{
+    const auto sample = Sample(args); // 规范采样UUID，禁止把当前进程身份当采样身份。
+    const auto after = args.has(L"--after") ? args.integer(L"--after") : 0; // 已消费的原生段号。
+    const auto limit = args.has(L"--limit") ? args.integer(L"--limit") : 32; // 单页摘要数量。
+    if (after > 4096 || !limit || limit > 128)
+    {
+        throw std::invalid_argument("--after must be 0..4096; --limit must be 1..128");
+    }
+    project::ProjectDocument document; // 当前命令独占只读项目，不启动任何实时会话。
+    if (const auto status = document.Open(args.require(L"--project"), project::ProjectAccess::ReadOnly); !status)
+    {
+        return Failed(status);
+    }
+    project::SampleRecord frozen; // 空历史也必须属于已登记采样，随机UUID不冒充成功空结果。
+    if (const auto status = document.ReadSample(sample, frozen); !status)
+    {
+        return Failed(status);
+    }
+    const auto history = Ksword::Evidence::ReadNativeExecutionHistory(document, sample); // 同桌面读取器核验整条受限链。
+    if (history.state == Ksword::Evidence::NativeHistoryState::Failed)
+    {
+        return Failed(history.problem);
+    }
+    std::vector<Json> records; // 单页只保存摘要；不重复输出18寄存器和全部NX范围。
+    auto nextAfter = after; // 空页不向前伪造游标。
+    const auto end = (std::min)(static_cast<std::uint64_t>(history.records.size()), after + limit); // 本页真实上界。
+    for (auto index = after; index < end; ++index)
+    {
+        const auto& record = history.records[static_cast<std::size_t>(index)]; // 从首段连续核验的历史记录。
+        const auto source = Ksword::Evidence::NativeExecutionHistorySource(record, index + 1); // 与桌面叶项同源。
+        auto fields = *source.sourceDocument.asObject(); // 复制来源坐标后只替换native为摘要，原记录不变。
+        std::erase_if(fields, [](const auto& field) { return field.first == "native"; });
+        for (const auto* name : {"observation", "target", "thread", "instructionAddress"})
+        {
+            const auto* value = record.document.find(name); // 旧档缺失字段仍为空，不推断或查当前PID。
+            fields.emplace_back(name, value ? *value : JsonValue{});
+        }
+        records.push_back(Document(JsonValue::makeObject(std::move(fields))));
+        nextAfter = index + 1;
+    }
+    return {0, Json::object({
+        {L"projectId", Json::string(storage::WideAscii(document.Info()->projectId))},
+        {L"sampleId", Json::string(storage::WideAscii(sample))},
+        {L"stream", Json::string(L"raw-native")}, {L"historical", Json::boolean(true)},
+        {L"verifiedRecords", Json::count(history.records.size())},
+        {L"historyLimited", Json::boolean(history.state == Ksword::Evidence::NativeHistoryState::Limited)},
+        {L"firstUnreadOrdinal", Json::count(history.failedOrdinal)},
+        {L"after", Json::count(after)}, {L"nextAfter", Json::count(nextAfter)},
+        {L"hasMore", Json::boolean(nextAfter < history.records.size())},
+        {L"records", Json::array(records)}}), {}};
 }
 
 // 两条独立 lane 各自从首段核验，不能从旧实时快照回退拼接证据。
@@ -405,6 +460,14 @@ void RegisterNativeExecutionCommands()
     read.notes = L"Verifies every raw-native segment from 1 through the requested ordinal. Accepts legacy native-execution-v1/v2 and current native-execution-v3 with full event-thread registers and the original event binding. The binding retains admitted NX ranges and any measured image SHA256; missing legacy fields remain unknown. Returns the historical document, SHA-256 and raw-native boundary. Archived registers are event-stop values; instruction-completed registers describe the state after the instruction. Historical binding and stop IDs cannot grant live control.";
     read.run = Read;
     addCommand(std::move(read));
+    Command history; // 历史列表按raw-native游标分页，不依赖API流存在。
+    history.path = L"analyze execution history";
+    history.syntax = L"KswordCLI.exe analyze execution history --project PATH --sample UUID [--after N --limit N] [--json]";
+    history.summary = L"List verified native execution history independently of API transfer candidates.";
+    history.options = L"Requires --project and --sample. --after is the last consumed raw-native ordinal (default 0, max 4096). --limit defaults to 32 (1..128).";
+    history.notes = L"Uses the desktop history reader to verify the continuous raw-native chain, up to 4096 segments. Returns original coordinates, hashes, observation phase, process/thread identities and instruction address. Empty history is distinct from read failure. nextAfter/hasMore page the verified range; historyLimited and firstUnreadOrdinal report the independent scan limit. Use execution read --ordinal N for the complete historical binding and registers. Reads no target process and grants no live control.";
+    history.run = History;
+    addCommand(std::move(history));
     Command correlate;
     correlate.path = L"analyze execution correlate";
     correlate.syntax = L"KswordCLI.exe analyze execution correlate --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]";

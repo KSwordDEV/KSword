@@ -1179,12 +1179,25 @@ SegmentSnapshot ReadProjectReplay(const QString& path, const CancelCheck& isCanc
     {
         return ReadCallbackReplay(path, isCanceled, expected, document, sampleId);
     }
-    if (!qtLive && legacy.hasArchivedApi && legacy.end == SegmentEnd::Complete)
+    if (!qtLive && ((legacy.hasArchivedApi && legacy.end == SegmentEnd::Complete) || legacy.end == SegmentEnd::Unavailable))
     {
         const auto native = Ksword::Evidence::ReadNativeExecutionHistory(document, sampleId, isCanceled); // 原后台项目任务。
         legacy.nativeExecution = Ksword::Evidence::ProjectApiNativeExecution<SegmentRow>(
             {document.Info()->projectId, sampleId, {}, {}}, native, legacy.transferCandidates,
             legacy.apcTransferCandidates, legacy.contextTransferCandidates, legacy.sectionMapRequests, legacy.evictedSectionMaps, isCanceled);
+        const auto attributes = GetFileAttributesW(reinterpret_cast<const wchar_t*>(path.utf16())); // 只确认普通raw是否实际缺失。
+        const auto missingError = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS; // 不把无权限当无主流。
+        if (legacy.end == SegmentEnd::Unavailable &&
+            (missingError == ERROR_FILE_NOT_FOUND || missingError == ERROR_PATH_NOT_FOUND) &&
+            !legacy.nativeExecution.observations.empty())
+        {
+            legacy.nativeHistoryOnly = true;
+            legacy.projectId = expected.projectId;
+            legacy.sampleId = expected.sample.id;
+            legacy.ordinal = 1; // 项目回放的逻辑采样锚点，实际段号只在历史叶中使用。
+            legacy.end = native.state == Ksword::Evidence::NativeHistoryState::Complete
+                ? SegmentEnd::Complete : SegmentEnd::PreviewLimit; // 描述原生链读取，不表示实时采样终止。
+        }
     }
     return qtLive ? ReadQtRawReplay(path, isCanceled, expected, document, sampleId, maxSegments) : std::move(legacy);
 }

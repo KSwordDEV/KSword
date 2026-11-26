@@ -16,6 +16,7 @@ namespace {
 
 using Key = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>; // 实际raw段号、序号和记录头偏移。
 using CandidateKey = std::tuple<int, Key, Key, Key, std::string>; // 类型、双方、原生物理坐标和段摘要共同区分来源。
+constexpr LPARAM kHistoryLeaf = 1000000; // 独立历史节点值，与三角色候选编码分开。
 
 // 输入原行，输出真实坐标，不使用当前表格下标。
 Key Coordinate(const EvidenceRecord& row)
@@ -74,7 +75,8 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
     std::optional<Key> selected; // 当前叶项坐标。
     std::optional<CandidateKey> selectedPair; // 当前候选类型与双方身份。
     std::optional<int> selectedRoot; // 当前分类根，不以旧节点句柄恢复。
-    std::array<bool, 7> rootExpanded{}; // 原三类与四类执行候选分别恢复。
+    std::array<bool, 8> rootExpanded{}; // 第八根同时承载历史状态和独立观察。
+    std::optional<Ksword::Evidence::NativeExecutionHistoryEntry> selectedHistory; // 原历史选择按散列与坐标恢复。
     std::optional<int> selectedSide; // 原生叶与同序号 API 叶不可互换。
     std::set<CandidateKey> expanded; // 三类重叠候选分别恢复展开。
     const auto current = TreeView_GetSelection(hwnd_); // 旧树当前节点。
@@ -89,7 +91,11 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
     if (sameScope)
     {
         const auto value = NodeValue(hwnd_, current); // 根为负值，叶为正值，候选父项为零。
-        if (value < 0)
+        if (const auto* entry = History())
+        {
+            selectedHistory = *entry;
+        }
+        else if (value < 0)
         {
             selectedRoot = static_cast<int>(-value - 1);
         }
@@ -111,7 +117,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
         {
             const auto groupValue = NodeValue(hwnd_, root); // -1 创建，-2 APC，-3 上下文。
             const auto group = static_cast<int>(-groupValue - 1); // 独立根类型。
-            if (group < 0 || group >= 7)
+            if (group < 0 || group >= 8)
             {
                 continue;
             }
@@ -132,8 +138,10 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
     ::SendMessageW(hwnd_, WM_SETREDRAW, FALSE, 0);
     TreeView_DeleteAllItems(hwnd_);
     candidates_.clear();
+    history_.clear();
     if (evidence)
     {
+        history_.assign(evidence->nativeExecution.observations.begin(), evidence->nativeExecution.observations.end());
         for (const auto& pair : evidence->transferCandidates)
         {
             candidates_.push_back({pair.write, pair.threadCreate, 0,
@@ -280,6 +288,29 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
             status = L"原生历史读取已取消。";
         }
         const auto statusNode = Insert(hwnd_, TVI_ROOT, status, -8); // 成功空历史与失败均有稳定状态节点。
+        for (std::size_t index = 0; index < history_.size(); ++index)
+        {
+            const auto& entry = history_[index]; // 原生流段号及实际记录坐标不借用API原行。
+            const auto* document = entry.sourceDocument.find("native"); // 完整历史来自原后台核验。
+            const auto* observation = document ? document->find("observation") : nullptr;
+            std::string kind; // 真实阶段，保留进入尝试和指令完成原值。
+            if (observation)
+            {
+                observation->tryGetString(kind);
+            }
+            const auto text = L"raw-native/" + std::to_wstring(entry.nativeOrdinal) + L" #" +
+                std::to_wstring(entry.nativeSequence) + L" @" + std::to_wstring(entry.nativeRecordOffset) +
+                L" · " + std::wstring(kind.begin(), kind.end()); // 详情通过同一sourceDocument展开全部身份和寄存器。
+            const auto leaf = Insert(hwnd_, statusNode, text, kHistoryLeaf + static_cast<LPARAM>(index));
+            if (selectedHistory && Ksword::Evidence::SameNativeExecutionHistory(*selectedHistory, entry))
+            {
+                TreeView_SelectItem(hwnd_, leaf);
+            }
+        }
+        if (!sameScope || rootExpanded[7])
+        {
+            TreeView_Expand(hwnd_, statusNode, TVE_EXPAND);
+        }
         if (selectedRoot == 7)
         {
             TreeView_SelectItem(hwnd_, statusNode);
@@ -293,7 +324,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
 const EvidenceRecord* ApiTransferCandidateTree::Activate() const
 {
     const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 正值才有原包定位资格。
-    if (value <= 0)
+    if (value <= 0 || value >= kHistoryLeaf)
     {
         return nullptr;
     }
@@ -315,12 +346,24 @@ const EvidenceRecord* ApiTransferCandidateTree::Activate() const
 const Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>* ApiTransferCandidateTree::Execution() const
 {
     const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 控件自持有的稳定角色编号。
-    if (value <= 0 || (value - 1) % 3 != 2)
+    if (value <= 0 || value >= kHistoryLeaf || (value - 1) % 3 != 2)
     {
         return nullptr;
     }
     const auto index = static_cast<std::size_t>((value - 1) / 3); // 当前只读分支下标。
     return index < candidates_.size() && candidates_[index].execution ? &*candidates_[index].execution : nullptr;
+}
+
+// 输入为当前树选择；只返回本树自有的独立历史，调用方复制值后才能跨快照保留。
+const Ksword::Evidence::NativeExecutionHistoryEntry* ApiTransferCandidateTree::History() const
+{
+    const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 独立编码只用于历史叶。
+    if (value < kHistoryLeaf)
+    {
+        return nullptr;
+    }
+    const auto index = static_cast<std::size_t>(value - kHistoryLeaf); // 本轮有界历史窗口下标。
+    return index < history_.size() ? &history_[index] : nullptr;
 }
 
 } // namespace Ksword::Features::ActionAnalyze

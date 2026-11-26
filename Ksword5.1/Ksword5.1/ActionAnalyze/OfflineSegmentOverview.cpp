@@ -993,6 +993,7 @@ void OfflineSegmentOverview::selectNativeExecution(
     const Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>& candidate)
 {
     m_nativeSelection = candidate; // 自持当前原生文档，模型重建后按完整来源重新核对。
+    m_nativeHistorySelection.reset(); // API候选与独立历史各有自己的来源身份。
     m_lastClue.reset(); // 主动浏览原生观察后，迟到的API线索定位不能抢回详情。
     m_clueMissing = false;
     m_selection.reset();
@@ -1004,10 +1005,27 @@ void OfflineSegmentOverview::selectNativeExecution(
     updateDetails();
 }
 
+// 输入独立历史叶，复用现有选择清理及字段详情；不调用任何活owner。
+void OfflineSegmentOverview::selectNativeHistory(const Ksword::Evidence::NativeExecutionHistoryEntry& observation)
+{
+    m_nativeHistorySelection = observation;
+    m_nativeSelection.reset();
+    m_lastClue.reset();
+    m_clueMissing = false;
+    m_selection.reset();
+    m_selectedLiveRow.reset();
+    m_waterfall->setSelected(std::nullopt);
+    const QSignalBlocker guard(m_table->selectionModel()); // 清掉旧API高亮，不触发原表选择。
+    m_table->selectionModel()->clear();
+    updateText();
+    updateDetails();
+}
+
 // 发布实际通道坐标。显示中的记录可同步选中但不会改变控件焦点。
 void OfflineSegmentOverview::selectRecord(SegmentRowAnchor anchor, bool scrollTable)
 {
     m_nativeSelection.reset(); // 用户选择 API 原包或事件表后，详情回到对应原记录。
+    m_nativeHistorySelection.reset();
     // 用户在同一份归档主动浏览其它记录后，仍可追读，但迟到的线索定位不能改回选中行。
     if (!m_updatingSelection && m_lastClue && m_lastSampleRequest && m_snapshot && !m_snapshot->live &&
         m_snapshot->path == m_lastPath && m_snapshot->projectId == m_lastSampleRequest->projectId &&
@@ -1130,7 +1148,9 @@ void OfflineSegmentOverview::updateText()
     }
     else if (m_snapshot)
     {
-        m_identity->setText(sourceText(QStringLiteral("%1 · 项目 %2 · 采样 %3 · 流 %4 · 段 %5"))
+        m_identity->setText(m_snapshot->nativeHistoryOnly
+            ? sourceText(QStringLiteral("项目 %1 · 采样 %2 · 原生执行历史")).arg(m_snapshot->projectId, m_snapshot->sampleId)
+            : sourceText(QStringLiteral("%1 · 项目 %2 · 采样 %3 · 流 %4 · 段 %5"))
             .arg(m_snapshot->path, m_snapshot->projectId, m_snapshot->sampleId,
                 QString::number(m_snapshot->stream), QString::number(m_snapshot->ordinal)));
         QString match; // 实际项目和采样身份的结果。
@@ -1191,7 +1211,11 @@ void OfflineSegmentOverview::updateText()
         {
             status = sourceText(QStringLiteral("已验证 API 跟随归档检查点。"));
         }
-        if (!mixed && (status.isEmpty() || m_latestEnd != SegmentEnd::Complete))
+        if (m_snapshot->nativeHistoryOnly)
+        {
+            status = sourceText(QStringLiteral("当前采样仅显示已核验的原生执行历史。"));
+        }
+        if (!m_snapshot->nativeHistoryOnly && !mixed && (status.isEmpty() || m_latestEnd != SegmentEnd::Complete))
         {
             if (!status.isEmpty())
             {
@@ -1199,7 +1223,7 @@ void OfflineSegmentOverview::updateText()
             }
             status += EndText(m_latestEnd);
         }
-        if (!mixed)
+        if (!mixed && !m_snapshot->nativeHistoryOnly)
         {
             status += u' ' + sourceText(QStringLiteral("已校验前缀 %1 / %2 字节。"))
                 .arg(m_snapshot->prefixBytes).arg(m_snapshot->fileBytes);
@@ -1318,6 +1342,21 @@ void OfflineSegmentOverview::updateText()
 // 用一个结构化文档呈现记录、可用字段、原始引用及其解析边界。
 void OfflineSegmentOverview::updateDetails()
 {
+    if (m_snapshot && m_nativeHistorySelection)
+    {
+        const auto& entries = m_snapshot->nativeExecution.observations; // 同采样新快照重新核对原段来源。
+        const auto found = std::find_if(entries.begin(), entries.end(), [this](const auto& entry) {
+            return Ksword::Evidence::SameNativeExecutionHistory(entry, *m_nativeHistorySelection);
+        });
+        if (found != entries.end())
+        {
+            m_nativeHistorySelection = *found;
+            updateObjectEvidence(nullptr);
+            m_details->setDocument(NativeExecutionDocument(found->sourceDocument));
+            return;
+        }
+        m_nativeHistorySelection.reset(); // 窗口淘汰或段内容变化后不继续展示旧字节。
+    }
     if (m_snapshot && m_nativeSelection)
     {
         const auto& candidates = m_snapshot->nativeExecution.candidates; // 新快照必须重新拥有同一候选来源。

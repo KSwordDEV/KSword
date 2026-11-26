@@ -118,6 +118,7 @@ struct SegmentEvidence {
     std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<EvidenceRecord>> sectionMapRequests; // 独立映射原行窗口。
     std::uint64_t evictedSectionMaps = 0; // 映射输入裁剪数。
     Ksword::Evidence::ApiNativeExecutionProjection<EvidenceRecord> nativeExecution; // 同采样执行候选及独立读取状态。
+    bool nativeHistoryOnly = false; // 普通raw不存在，只展示独立原生归档，不表示API或ETW检查点通过。
 };
 
 inline constexpr std::size_t kEvidenceRows = 4096;
