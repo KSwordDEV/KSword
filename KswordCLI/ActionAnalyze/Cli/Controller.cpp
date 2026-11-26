@@ -12,7 +12,9 @@ constexpr std::size_t kReplayEntries = 4096;
 constexpr std::size_t kReplayBytes = 32u << 20;
 constexpr std::size_t kReplayEntryOverhead = 512;
 constexpr std::size_t kReservedCloseBytes = 2048;
-constexpr std::size_t kReservedLiveReplyBytes = 8192;
+// 混采 STOP 同时返回 API 诊断和 ETW 清退回执。每个保留槽还需容纳请求身份和账本开销。
+constexpr std::size_t kLiveFinalResultBytes = 8u << 10;
+constexpr std::size_t kReservedLiveReplyBytes = 2 * kLiveFinalResultBytes;
 constexpr std::size_t kVersionCount = 16;
 
 Reply Reject(const char* id, const char* message, int code = 1) {
@@ -229,7 +231,7 @@ Reply Controller::Dispatch(Request request, bool repl) {
         live->method != LiveMethod::Stop ? 1 : session_.CleanupPending() ? 2 : 3;
     const auto entryLimit = kReplayEntries - reserved;
     const auto byteLimit = kReplayBytes - reserved * (live_ ? kReservedLiveReplyBytes : kReservedCloseBytes);
-    const auto responseBudget = validClose ? 256 : finishLive ? kReservedLiveReplyBytes / 2 : kResultBytes;
+    const auto responseBudget = validClose ? 256 : finishLive ? kLiveFinalResultBytes : kResultBytes;
     if (replies_.size() >= entryLimit || replayBytes_ > byteLimit || charge + responseBudget > byteLimit - replayBytes_)
         return Reject("request-ledger-full", "Request ledger is full. Close the open project or shut down with a fresh ID.", 6);
     auto entry = replies_.emplace(std::move(request.id), Cached{std::move(request.method), std::move(requestKey), {}, {}, false}).first;
