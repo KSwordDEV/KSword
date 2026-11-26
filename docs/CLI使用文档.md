@@ -168,6 +168,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
 | `analyze sysmon-thread-create follow` | `KswordCLI.exe analyze sysmon-thread-create follow --target-guid GUID [--input repl 或 jsonl]` | 持续订阅指定目标的未来 Sysmon Event 8。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
+| `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
 | `analyze api-rule-catalog` | `KswordCLI.exe analyze api-rule-catalog [--json]` | 列出 `profiles/action_analyze_api_rules.json` 中的 API 行为预置、条件、字段及证据口径。 |
 | `analyze replay-api-rules` | `KswordCLI.exe analyze replay-api-rules --project PATH --sample UUID [--profile grouped\|by-category] [--offset N] [--limit N] [--json]` | 对指定项目和采样的已核验 API 线索应用外置规则文件中的预置，返回规则 ID 和原包坐标。 |
@@ -178,11 +179,23 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 导入后的采样可在 Qt「监控 → 行为分析 → 项目与采样」和 Light「监控 → ActionAnalyze」中打开。Qt 总览可勾选 `API` 筛选并查看来源坐标。CLI 的 `--packet 1` 可取回完整包，桌面详情提供有界前缀。
 
+`api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒。退出码 `6` 表示部分采样或取消。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。
+
+目标和 CLI 须通过 `KSWORD_APIMON_COOPERATIVE_SESSION_V1` 使用同一个绝对路径，目录名为 `KswordApiMonCooperative`。该目录由本轮发起者准备，访问仅限当前用户和 SYSTEM；目录不合格时拒绝发布配置，不回退到共享目录。`configPublished`、`sessionReady`、`hooksInstalled` 分别表示配置已发布、收到同会话就绪回执、收到安装回执。收到安装回执不代表全部 Hook 成功，仍须看 `partialHooks`。
+
+CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆盖快照。快照修订达到或超过 Agent 声明的安装修订，且至少包含一个已生效的观测 Hook 时，`agentReady` 才为 `true`，采集时长从此刻起算。`readyCoverageRevision` 记录启动时实际核验的修订，未就绪时为 `null`。旧 Agent 的安装回执缺少覆盖修订时，命令以 `capture-failed` 和退出码 `3` 返回，并尝试清退本轮会话。
+
+`elapsedMs` 包含启动、采集和清退。`readyAfterMs` 为等待就绪时长，`intervalElapsedMs` 只计就绪后的采集。未就绪时后二者为 `null`。
+
+清退时，`stopMarkerWritten` 表示控制端已发布停止标记。`hooksRemoved` 表示收到本会话的停钩回执，`cleanPipeEof` 表示管道在原包边界正常结束。未建立连接时后两项为 `null`。目标退出后，CLI 仍会在清退时限内读取已连接的管道，并保留异常读取或截断末包的 `pipeError`。不能单凭 `cleanupComplete` 判定 Agent 确认停钩。`coverageRevision` 是最近完整读回的覆盖快照修订，`requiredFinalCoverageRevision` 仅在停钩回执声明时有值；`coverageSnapshotCurrent` 为真也不意味着所有 Hook 均安装成功。
+
 `api-evidence replay` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采样（`cooperative-pipe`）以及未声明来源的旧档（`legacy-unspecified`）。合作管道的 `sourceSequence` 为普通包流水号，分页用 Stored 的 `rawSequence`，每条线索另有 `rawSegment`。正在提交的采样返回已核验的连续前缀，后续段损坏时保留前缀、退出 `4` 并返回 `failedSegment`。采集覆盖保持 `unknown`。
+
+合作采集在每段检查点发布后运行五类基础预置。`capture` 结束回执的 `rules` 给出预置版本、累计 `matchedRows` 和最近命中的 `segmentOrdinal`、`rawSequence`、`sourceSequence`。没有检查点时 `rules` 为空；规则求值失败时保留此前的匹配和已提交原包。`replay-api-rules` 的 `presetSet` 是实际回放版本，`recordedPresetSet` 是已核验的采集计划版本，旧档未声明时为空。规则命中只解释同一已核验原包的字段，来源覆盖仍为 `unknown`。
 
 `api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。当前文件只包含已验证的小型 API 预置，KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
 
-文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。
+文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，合作采集和 JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。
 
 `replay-api-rules` 支持单段导入及最多 128 个连续已提交的 API 跟随段。默认使用 `grouped` 两组预置，可用 `by-category` 切为五类细分。`--offset` 是从零开始的线索偏移，`--limit` 默认为 25，范围 1–100。使用上一页的 `nextOffset` 继续。返回段号、块号、原始序号、记录及原包偏移。后续段无法核验时返回 `verified-prefix-only` 和退出码 `6`。报告将采集覆盖标为 `unknown`。 `presetSet` 表示实际求值版本；`recordedPresetSet` 表示采集计划声明的版本，旧档可以为空。
 

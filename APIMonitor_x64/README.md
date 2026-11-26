@@ -31,6 +31,12 @@ API Monitor v2 Alpha r13 XML 转换结果仅保留在隔离候选中，尚未合
 
 GUI 新增 77 项只采具名参数值/地址、返回位和耗时，不读取结构、文本或图像内容。未保证线程错误来源的接口使用 `error_source=none`：已知失败返回会标记 `StatusUnknown`，不能从旧 `GetLastError` 猜测错误原因。该语义覆盖 BOOL、空句柄失败及非零/正数成功策略。
 
+## 合作应用的启动等待
+
+应用在装载前须通过 `KSWORD_APIMON_COOPERATIVE_SESSION_V1` 选用与控制端相同的私有目录，再从自己的安装目录装载同架构 Agent。两个导出均须在加载器锁外调用。先调用 `DWORD WINAPI KSwordApiMonitorEnableCooperativeCapture()`，返回 `ERROR_NOT_READY` 时可在应用的启动时限内重试。启用成功后，在约定的业务入口之前调用 `DWORD WINAPI KSwordApiMonitorWaitForCooperativeStartup(DWORD timeoutMs)`。参数为 0 时只读回当前状态，超过 120,000 毫秒时返回 `ERROR_INVALID_PARAMETER`。
+
+`ERROR_SUCCESS` 表示首个合作采集尝试已在本进程安装至少一个观测 Hook 并发布对应覆盖。等待未完成时返回 `ERROR_TIMEOUT`，Agent 拒绝合作初始化时返回 `ERROR_ACCESS_DENIED`，首次会话启动失败会返回相应错误。停止后已就绪的状态变为 `ERROR_OPERATION_ABORTED`。应用自行处理等待结果，后续会话不会重新开放启动门闩。CLI 独立从本次管道核验 `SessionReady`、`HooksInstalled` 和完整覆盖修订。
+
 ## 逐接口运行验证
 
 断言总数不等于已运行的 API 数。`runtime_probe_fixture.cpp` 使用 SDK 函数指针从精确模块导出调用，在未注入基线和监控阶段分别记录线程、调用时间窗、返回位及 LastError。运行被限定在明确授权的 `DESKTOP-D2161R7` 来宾；探针仅使用自有窗口、内存、COM/CNG 对象，服务查询为只读。

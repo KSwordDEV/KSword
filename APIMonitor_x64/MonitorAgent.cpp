@@ -2,6 +2,7 @@
 #include "MonitorAgent.h"
 #include "core/MonitorDiagnostics.h"
 #include "ApiMonitorDefinitionIdentity.h"
+#include "core/MonitorCoverage.h"
 #include "core/MonitorPipe.h"
 #include "hook/HookEngine.h"
 #include "hook/HookTargets.h"
@@ -16,6 +17,12 @@ namespace apimon
         std::atomic_bool g_eventsPaused{ false };
         std::atomic_bool g_processDetachRequested{ false }; // g_processDetachRequested：DLL 正在卸载，worker 不得重新开启会话。
         std::atomic<const MonitorConfig*> g_activeConfig{ new MonitorConfig{} };                // g_activeConfig：当前已加载的会话配置。
+        enum class CooperativeState { Initializing, Unselected, AwaitingEnable, Enabled, Rejected };
+        std::atomic<CooperativeState> g_cooperativeState{ CooperativeState::Initializing };
+        // The application startup point belongs to the first cooperative attempt in this process.
+        std::atomic<DWORD> g_cooperativeStartupResult{ ERROR_IO_PENDING };
+        constexpr DWORD kCooperativeStartupMaxWaitMs = 120000;
+        constexpr DWORD kCooperativeStartupPollMs = 10;
         constexpr DWORD kSessionIdlePollMs = 100;       // kSessionIdlePollMs：等待下一次 UI 会话配置时的低频轮询间隔。
         constexpr DWORD kSessionActivePollMs = 250;     // kSessionActivePollMs：已安装 Hook 后检查停止标记的轮询间隔。
 
@@ -30,11 +37,34 @@ namespace apimon
             ::OutputDebugStringW(outputText.c_str());
         }
 
+        void CompleteCooperativeStartup(DWORD status)
+        {
+            DWORD pending = ERROR_IO_PENDING;
+            g_cooperativeStartupResult.compare_exchange_strong(pending, status);
+        }
+
+        bool HasCooperativeStartupCoverage()
+        {
+            using namespace ks::winapi_monitor;
+            const auto snapshot = LatestCoverageSnapshot();
+            if (!snapshot || !snapshot->revision || snapshot->session != CurrentMonitorSessionIdentity())
+            {
+                return false;
+            }
+            return std::any_of(snapshot->items.begin(), snapshot->items.end(), [](const auto& item) {
+                const auto kind = static_cast<HookKind>(item.hookKind);
+                const auto state = static_cast<CoverageState>(item.coverageState);
+                return item.apiId && item.hookAddress
+                    && (kind == HookKind::Strong || kind == HookKind::Raw || kind == HookKind::DynamicExtension)
+                    && (state == CoverageState::Installed || state == CoverageState::SharedEntry);
+            });
+        }
+
         // WaitForNextSessionConfig 作用：
         // - 输入：configOut 接收已完整加载且允许启动的下一份会话配置；
         // - 处理：停标记存在时保持 Agent 常驻，等 UI 原子提交新 INI 并清除停标记后才返回；
         // - 返回：获得可启动会话时为 true，DLL 卸载时为 false。
-        bool WaitForNextSessionConfig(MonitorConfig* const configOut)
+        bool WaitForNextSessionConfig(MonitorConfig* const configOut, const CooperativeSessionFiles* cooperative)
         {
             if (configOut == nullptr)
             {
@@ -46,7 +76,7 @@ namespace apimon
             {
                 MonitorConfig candidateConfig;
                 std::wstring errorText;
-                if (!LoadMonitorConfigForCurrentProcess(&candidateConfig, &errorText))
+                if (!LoadMonitorConfigForCurrentProcess(&candidateConfig, &errorText, cooperative))
                 {
                     if (errorText != lastErrorText)
                     {
@@ -76,7 +106,8 @@ namespace apimon
         // - 输入：activeConfigValue 为当前已安装 Hook 的会话配置；
         // - 处理：重新读取原子提交后的 INI，比对 UI 写入的唯一 session_id；
         // - 返回：检测到不同的新会话时为 true，读取失败或旧版无标识配置时为 false。
-        bool SessionConfigWasReplaced(const MonitorConfig& activeConfigValue, bool syncClipboardHooks)
+        bool SessionConfigWasReplaced(const MonitorConfig& activeConfigValue, bool syncClipboardHooks,
+            const CooperativeSessionFiles* cooperative)
         {
             if (activeConfigValue.sessionId.empty())
             {
@@ -85,7 +116,7 @@ namespace apimon
 
             MonitorConfig observedConfig;
             std::wstring ignoredErrorText;
-            if (!LoadMonitorConfigForCurrentProcess(&observedConfig, &ignoredErrorText)
+            if (!LoadMonitorConfigForCurrentProcess(&observedConfig, &ignoredErrorText, cooperative)
                 || observedConfig.sessionId.empty())
             {
                 return false;
@@ -110,7 +141,8 @@ namespace apimon
         // - 输入：configValue 为本次已启动会话的稳定配置；
         // - 处理：等待 UI 写入停止标记或 DLL 卸载请求，并把文件标记同步到进程内停止状态；
         // - 返回：无返回值，返回后调用方必须卸载 Hook 并停止管道。
-        void WaitForCurrentSessionStop(const MonitorConfig& configValue, HANDLE pauseEvent, bool initiallyPaused = false)
+        void WaitForCurrentSessionStop(const MonitorConfig& configValue, HANDLE pauseEvent,
+            const CooperativeSessionFiles* cooperative, bool initiallyPaused = false)
         {
             std::wstring lastRetryReport;
             bool hooksPaused = initiallyPaused;
@@ -119,7 +151,7 @@ namespace apimon
             while (!g_processDetachRequested.load() && !StopRequested())
             {
                 const bool pauseRequested = pauseEvent && ::WaitForSingleObject(pauseEvent, 0) == WAIT_OBJECT_0;
-                if (IsStopFlagPresent(configValue) || SessionConfigWasReplaced(configValue, !pauseRequested && !needsInstall))
+                if (IsStopFlagPresent(configValue) || SessionConfigWasReplaced(configValue, !pauseRequested && !needsInstall, cooperative))
                 {
                     APIMON_DIAG_MARK("stop-observed",0,0);
                     RequestStop();
@@ -191,10 +223,15 @@ namespace apimon
         DWORD WINAPI MonitorWorkerBody(LPVOID parameterValue);
         DWORD HandleMonitorWorkerFailure(DWORD failure)
         {
+                if (g_cooperativeState.load() == CooperativeState::Enabled)
+                {
+                    CompleteCooperativeStartup(failure);
+                }
                 // Agent exceptions must not terminate the host application.
                 // Keep code resident, stop logging, and attempt safe restoration.
                 ScopedInlineHookInternalBypass bypass;
                 RequestStop();
+                g_cooperativeState.store(CooperativeState::Rejected);
                 try {
                     SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal,L"Agent",L"AgentFailure",
                         failure,L"Agent worker exception; monitoring stopped and cleanup attempted.");
@@ -226,12 +263,46 @@ namespace apimon
             // - 原因：内部控制线程不是被测业务线程，监控它会引入 Wait/File/Loader 自递归噪声，并可能放大为退出期崩溃。
             HMODULE pinnedAgent = nullptr;
             if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                    reinterpret_cast<LPCWSTR>(&MonitorWorkerThread), &pinnedAgent)) return 1;
+                    reinterpret_cast<LPCWSTR>(&MonitorWorkerThread), &pinnedAgent)) {
+                g_cooperativeState.store(CooperativeState::Rejected);
+                return 1;
+            }
             ScopedInlineHookInternalBypass agentBypassScope;
+            using Directory = ks::winapi_monitor::CooperativeSessionDirectory;
+            Directory directory;
+            DWORD directoryError = ERROR_SUCCESS;
+            CooperativeSessionFiles files;
+            switch (directory.open(directoryError)) {
+            case Directory::Selection::Rejected:
+                g_cooperativeState.store(CooperativeState::Rejected);
+                TraceAgentFailure(L"Cooperative session directory rejected. error=" + std::to_wstring(directoryError));
+                return directoryError;
+            case Directory::Selection::Opened: {
+                FILETIME created{}, exited{}, kernel{}, user{};
+                if (!::GetProcessTimes(::GetCurrentProcess(), &created, &exited, &kernel, &user)
+                    || !ks::winapi_monitor::currentProcessUserSidString(&files.userSid)) {
+                    g_cooperativeState.store(CooperativeState::Rejected);
+                    TraceAgentFailure(L"Could not resolve cooperative Agent identity.");
+                    return ERROR_ACCESS_DENIED;
+                }
+                const auto creation = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+                const DWORD pid = ::GetCurrentProcessId();
+                files.configPath = directory.configPath(pid, creation);
+                files.stopPath = directory.stopPath(pid, creation);
+                g_cooperativeState.store(CooperativeState::AwaitingEnable);
+                while (!g_processDetachRequested.load() && g_cooperativeState.load() != CooperativeState::Enabled)
+                    ::Sleep(kSessionIdlePollMs);
+                break;
+            }
+            case Directory::Selection::Unset:
+                g_cooperativeState.store(CooperativeState::Unselected);
+                break;
+            }
+            const auto* cooperative = directory.selected() ? &files : nullptr;
             while (!g_processDetachRequested.load())
             {
                 MonitorConfig configValue;
-                if (!WaitForNextSessionConfig(&configValue))
+                if (!WaitForNextSessionConfig(&configValue, cooperative))
                 {
                     break;
                 }
@@ -246,6 +317,11 @@ namespace apimon
                 std::wstring errorText;
                 if (!StartMonitorPipeServer(configValue, &errorText))
                 {
+                    if (cooperative)
+                    {
+                        CompleteCooperativeStartup(IsStopFlagPresent(configValue) || StopRequested()
+                            ? ERROR_OPERATION_ABORTED : ERROR_CONNECTION_ABORTED);
+                    }
                     if (!g_processDetachRequested.load() && !IsStopFlagPresent(configValue))
                     {
                         TraceAgentFailure(errorText);
@@ -280,6 +356,10 @@ namespace apimon
                 const bool cancelled = StopRequested() || IsStopFlagPresent(configValue);
                 if (!installed || cancelled)
                 {
+                    if (cooperative)
+                    {
+                        CompleteCooperativeStartup(cancelled ? ERROR_OPERATION_ABORTED : ERROR_GEN_FAILURE);
+                    }
                     if(cancelled)RequestStop();
                     SendMonitorEvent(
                         ks::winapi_monitor::EventCategory::Internal,
@@ -287,7 +367,7 @@ namespace apimon
                         cancelled ? L"InstallHooksCancelled" : L"InstallHooksFailed",
                         1,
                         errorText);
-                    if(!cancelled)WaitForCurrentSessionStop(configValue, pause.value);
+                    if(!cancelled)WaitForCurrentSessionStop(configValue, pause.value, cooperative);
                     while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
                     ::Sleep(kSessionActivePollMs);
                     SendHooksRemovedEvent(L"Inline hooks removed after incomplete installation.");
@@ -306,17 +386,30 @@ namespace apimon
                         errorText);
                 }
 
-                SendMonitorEvent(
-                    ks::winapi_monitor::EventCategory::Internal,
-                    L"Agent",
-                    initiallyPaused ? L"HooksPaused" : L"HooksInstalled",
-                    0,
-                    initiallyPaused ? L"Session started paused; no hooks were installed." : L"Configured inline hooks are now active.");
+                constexpr auto installedDetail = L"Configured inline hooks are now active.";
+                if (initiallyPaused)
+                {
+                    SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksPaused", 0,
+                        L"Session started paused; no hooks were installed.");
+                }
+                else if (cooperative)
+                {
+                    const bool announced = SendHooksInstalledEvent(installedDetail);
+                    CompleteCooperativeStartup(!announced ? ERROR_WRITE_FAULT
+                        : HasCooperativeStartupCoverage() ? ERROR_SUCCESS : ERROR_INVALID_DATA);
+                }
+                else
+                {
+                    SendMonitorEvent(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksInstalled", 0,
+                        installedDetail);
+                }
 
-                WaitForCurrentSessionStop(configValue, pause.value, initiallyPaused);
+                WaitForCurrentSessionStop(configValue, pause.value, cooperative, initiallyPaused);
                 APIMON_DIAG_MARK("uninstall-begin",0,0);
                 while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
+                {
                     ::Sleep(kSessionActivePollMs);
+                }
                 SendHooksRemovedEvent(L"Inline hooks removed and agent is waiting for the next session.");
                 APIMON_DIAG_MARK("uninstall-end",0,0);
                 (void)DrainMonitorPipeServer();
@@ -346,6 +439,7 @@ namespace apimon
         }
         else
         {
+            g_cooperativeState.store(CooperativeState::Rejected);
             TraceAgentFailure(L"CreateThread for monitor worker failed.");
         }
     }
@@ -377,5 +471,72 @@ namespace apimon
     void RequestStop()
     {
         g_stopRequested.store(true);
+        if (g_cooperativeState.load() == CooperativeState::Enabled)
+        {
+            DWORD result = g_cooperativeStartupResult.load();
+            while (result == ERROR_IO_PENDING || result == ERROR_SUCCESS)
+            {
+                if (g_cooperativeStartupResult.compare_exchange_strong(result, ERROR_OPERATION_ABORTED))
+                {
+                    break;
+                }
+            }
+        }
     }
+
+    DWORD EnableCooperativeCapture()
+    {
+        auto state = CooperativeState::AwaitingEnable;
+        if (g_cooperativeState.compare_exchange_strong(state, CooperativeState::Enabled)
+            || state == CooperativeState::Enabled) return ERROR_SUCCESS;
+        if (state == CooperativeState::Initializing) return ERROR_NOT_READY;
+        if (state == CooperativeState::Unselected) return ERROR_NOT_SUPPORTED;
+        return ERROR_ACCESS_DENIED;
+    }
+
+    DWORD WaitForCooperativeStartup(DWORD timeoutMs)
+    {
+        if (timeoutMs > kCooperativeStartupMaxWaitMs) return ERROR_INVALID_PARAMETER;
+        ScopedInlineHookInternalBypass bypass;
+        const auto started = ::GetTickCount64();
+        const auto deadline = started + timeoutMs;
+        for (auto now = started; ; now = ::GetTickCount64())
+        {
+            if (timeoutMs && now >= deadline) return ERROR_TIMEOUT;
+            const auto state = g_cooperativeState.load();
+            if (state == CooperativeState::Unselected) return ERROR_NOT_SUPPORTED;
+            const DWORD result = g_cooperativeStartupResult.load();
+            if (state == CooperativeState::Rejected)
+            {
+                return result != ERROR_IO_PENDING && result != ERROR_SUCCESS ? result : ERROR_ACCESS_DENIED;
+            }
+            if (state != CooperativeState::Enabled) return ERROR_NOT_READY;
+            if (result != ERROR_IO_PENDING)
+            {
+                return result == ERROR_SUCCESS && StopRequested() ? ERROR_OPERATION_ABORTED : result;
+            }
+
+            if (!timeoutMs) return ERROR_TIMEOUT;
+            ::Sleep(static_cast<DWORD>((std::min)(deadline - now, static_cast<ULONGLONG>(kCooperativeStartupPollMs))));
+        }
+    }
+}
+
+// Called by the target itself outside loader lock, after its Agent is resident.
+// Success accepts the local opt-in. The existing pipe handshake reports session readiness.
+#ifdef _M_IX86
+#pragma comment(linker, "/export:KSwordApiMonitorEnableCooperativeCapture=_KSwordApiMonitorEnableCooperativeCapture@0")
+#pragma comment(linker, "/export:KSwordApiMonitorWaitForCooperativeStartup=_KSwordApiMonitorWaitForCooperativeStartup@4")
+#endif
+extern "C" __declspec(dllexport) DWORD WINAPI KSwordApiMonitorEnableCooperativeCapture()
+{
+    return apimon::EnableCooperativeCapture();
+}
+
+// Call outside loader lock after explicit cooperative opt-in. Zero polls the local status.
+// ERROR_SUCCESS confirms active local hooks and published coverage for the startup attempt.
+// The controller independently verifies the packets on its own connection.
+extern "C" __declspec(dllexport) DWORD WINAPI KSwordApiMonitorWaitForCooperativeStartup(DWORD timeoutMs)
+{
+    return apimon::WaitForCooperativeStartup(timeoutMs);
 }

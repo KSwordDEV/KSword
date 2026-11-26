@@ -284,6 +284,8 @@
     <ClCompile Include="ActionAnalyze\Project\ProjectDocument.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectLock.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectRawEvidence.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectApiClueArchive.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\CooperativeApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />
@@ -291,6 +293,8 @@
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectLock.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectRawEvidence.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectApiClueArchive.h" />
+    <ClInclude Include="ActionAnalyze\Project\CooperativeApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h" />
