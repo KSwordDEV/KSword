@@ -14,6 +14,9 @@ inline constexpr char kApiFollowEndKind[] = "api-archive-follow-end-v1"; // 本�
 
 enum class ApiFollowArchiveKind { Other, Legacy, Checkpointed };
 
+// 判断原包是否属于合作采样的普通调用。源序号只为这些包递增。
+bool IsCooperativeApiCall(const ks::winapi_monitor::ApiMonitorEventPacket& packet) noexcept;
+
 // 只保存已核验的一段。调用方从 1 开始逐段传入上次成功返回的对象，不能越过缺段。
 struct ProjectApiCheckpoint {
     std::string sampleId; // 此水位属于已登记的采样。
@@ -23,6 +26,7 @@ struct ProjectApiCheckpoint {
     std::string rawSha256; // 实际读回的 raw 前缀摘要。
     std::uint64_t planRawSequence = 0; // 段首计划的 Stored 序号。
     std::string planJson; // 冻结计划原文，后续段必须逐字节一致。
+    Evidence::ApiMonitorArchiveSource source = Evidence::ApiMonitorArchiveSource::LegacyUnspecified; // 旧跟随档沿用原来源标识。
     std::uint64_t previousSourceSequence = 0; // 本段之前最后提交的源行号。
     std::uint64_t lastSourceSequence = 0; // 原包为零时与上一段相同。
     bool finalSegment = false; // 本端跟随终段，源文件可能继续追加。
@@ -43,6 +47,11 @@ ProjectResult PublishApiCheckpoint(ProjectDocument& project, std::string_view sa
     const ks::cli::action_analyze::archive::RawEvidenceReceipt& receipt,
     std::span<const ks::cli::action_analyze::archive::RawEvidenceInput> expected,
     const ProjectApiCheckpoint* previous, ProjectApiCheckpoint& out);
+
+// 写入一批完整记录，刷盘后核验并发布检查点。失败时保留上次检查点和刷盘回执。
+ProjectResult CommitApiCheckpoint(ProjectDocument& project, std::string_view sampleId,
+    std::span<const ks::cli::action_analyze::archive::RawEvidenceInput> records,
+    ProjectApiCheckpoint& checkpoint, ks::cli::action_analyze::archive::RawEvidenceReceipt& receipt);
 
 // 只读验证一个标记及其 raw 前缀，成功后更新 out。NotFound 只代表标记缺失。
 // previous 和 out 可为同一对象。投影回调的行须暂存，函数成功后才可发布。

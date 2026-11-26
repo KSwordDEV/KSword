@@ -66,6 +66,7 @@ struct ApiSource {
     std::uint64_t pid = 0; // 文件与包头声明的调用者 PID。
     std::uint64_t creation = 0; // 声明的调用者创建 FILETIME。
     std::uint64_t sessionIdentity = 0; // 声明的 WinAPI 归档会话。
+    bool cooperative = false; // 合作管道计划使用调用序号，无 JSONL 文件身份。
 };
 
 // 核对计划版本、冻结样本配置及来源字段，给逐包校验提供声明身份。
@@ -78,24 +79,32 @@ bool ReadPlan(const JsonValue& plan, const ProjectInfo& project, const SampleRec
     std::string epoch; // 计划和会话使用同一个代次。
     std::string fileId; // 文件 ID 的固定长度小写十六进制。
     std::uint64_t number = 0; // 检查归档文件和持续时间字段类型。
-    return IsString(plan, "kind", kApiFollowPlanKind) && required && required->tryGetBool(checkpointRequired) &&
-        checkpointRequired && IsString(plan, "identity", kIdentity) && IsString(plan, "projectId", project.projectId) &&
+    source.cooperative = IsString(plan, "archiveSource", "cooperative-pipe");
+    const bool bound = IsString(plan, "kind", kApiFollowPlanKind) && required && required->tryGetBool(checkpointRequired) &&
+        checkpointRequired && IsString(plan, "projectId", project.projectId) &&
         IsString(plan, "revisionId", sample.info.revisionId) && IsString(plan, "snapshotId", sample.info.snapshotId) &&
         IsString(plan, "revisionHash", sample.revisionHash) && IsString(plan, "configSemanticHash", sample.configSemanticHash) &&
         GetUuid(plan, "sourceEpoch", epoch) && session && IsString(*session, "id", sample.info.sampleId) &&
-        IsString(*session, "epoch", epoch) && file && GetString(*file, "fileId", fileId) && fileId.size() == 32 &&
-        fileId.find_first_not_of("0123456789abcdef") == fileId.npos && GetNumber(*file, "volumeSerial", number) &&
-        GetNumber(*file, "initialVisibleBytes", number) && ReadUInt(plan, "durationMs", number) &&
+        IsString(*session, "epoch", epoch) && ReadUInt(plan, "durationMs", number) &&
         ReadUInt(plan, "readerPid", source.pid) && source.pid && source.pid <= UINT32_MAX &&
         GetNumber(plan, "readerCreation100ns", source.creation) && source.creation &&
         GetNumber(plan, "sessionIdentity", source.sessionIdentity) && source.sessionIdentity;
+    if (!bound) {
+        return false;
+    }
+    // 同一段只接受一种输入协议。存档只能核验声明和原包的一致性。
+    return source.cooperative ? !file && !plan.find("identity") :
+        !plan.find("archiveSource") && IsString(plan, "identity", kIdentity) && file &&
+        GetString(*file, "fileId", fileId) && fileId.size() == 32 &&
+        fileId.find_first_not_of("0123456789abcdef") == fileId.npos && GetNumber(*file, "volumeSerial", number) &&
+        GetNumber(*file, "initialVisibleBytes", number);
 }
 
-// 核对下一行及原包。控制、覆盖和未分类包都计入连续的源行范围。
+// 核对源序号及原包。跟随文件按行计数，合作管道只计普通调用。
 bool ReadPacket(const JsonValue& metadata, std::string_view bytes, const ApiSource& source, std::uint64_t previousSequence)
 {
     Monitor::ApiMonitorEventPacket packet; // 从无对齐保证的字节复制协议包。
-    std::uint64_t sequence = 0; // 源 JSONL 的一基行号。
+    std::uint64_t sequence = 0; // 来源的一基序号。
     std::uint64_t creation = 0; // 每行保留的声明创建时间。
     if (!IsString(metadata, "kind", kApiFollowPacketKind) || bytes.size() != sizeof(packet) ||
         previousSequence == UINT64_MAX || !GetNumber(metadata, "sourceSequence", sequence) ||
@@ -106,7 +115,8 @@ bool ReadPacket(const JsonValue& metadata, std::string_view bytes, const ApiSour
     std::memcpy(&packet, bytes.data(), sizeof(packet));
     return packet.size == sizeof(packet) && packet.version == Monitor::kProtocolVersion &&
         packet.pid == source.pid && packet.sessionIdentity == source.sessionIdentity &&
-        (packet.eventKind <= static_cast<std::uint32_t>(Monitor::EventKind::IoCancel) || Monitor::isCoverageEvent(packet.eventKind)) &&
+        (source.cooperative ? IsCooperativeApiCall(packet) :
+            packet.eventKind <= static_cast<std::uint32_t>(Monitor::EventKind::IoCancel) || Monitor::isCoverageEvent(packet.eventKind)) &&
         packet.category <= static_cast<std::uint32_t>(Monitor::EventCategory::Gui) &&
         packet.resultKind <= static_cast<std::uint32_t>(Monitor::EventResultKind::StatusUnknown);
 }
@@ -116,6 +126,18 @@ bool ReadEnd(const JsonValue& end, const ApiSource& source, ProjectApiCheckpoint
 {
     const auto* report = end.find("source"); // 跟随结束时归档的来源回执。
     std::uint64_t value = 0; // 逐项读取回执中的身份和计数。
+    if (source.cooperative) {
+        // EOF 表示端点已排空，录制仍可能存在 Agent 丢失或无效包。
+        return report && IsString(*report, "kind", "cooperative-pipe") &&
+            ReadUInt(*report, "readerPid", value) && value == source.pid &&
+            GetNumber(*report, "readerCreation100ns", value) && value == source.creation &&
+            GetNumber(*report, "sessionIdentity", value) && value == source.sessionIdentity &&
+            GetNumber(*report, "validatedRows", value) && value == draft.lastSourceSequence &&
+            GetNumber(*report, "agentReportedDrops", value) && GetNumber(*report, "invalidPackets", value) &&
+            GetString(*report, "state", draft.sourceState) &&
+            (draft.sourceState == "pipe-eof" || draft.sourceState == "unconfirmed-end") &&
+            GetString(end, "stopReason", draft.stopReason) && IsText(draft.stopReason, 64);
+    }
     if (!report || !IsString(*report, "kind", "passive-api-archive") || !IsString(*report, "identity", kIdentity) ||
         !IsString(*report, "coverage", "unknown") || !IsNull(*report, "writerReceipt") ||
         !ReadUInt(*report, "readerPid", value) || value != source.pid ||
@@ -179,6 +201,9 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                     }
                     if (const auto* mixed = doc.value.find("mixedEtw");
                         mixed && (!mixed->tryGetBool(draft.mixedEtw) || !draft.mixedEtw)) return false;
+                    if (source.cooperative) {
+                        draft.source = Evidence::ApiMonitorArchiveSource::CooperativePipe;
+                    }
                     draft.planJson = raw.metadataJson;
                     seenPlan = true;
                 } else if (IsString(doc.value, "kind", kApiFollowEndKind)) {
@@ -220,6 +245,15 @@ ProjectResult ReadMarker(const Directory& root, std::string_view sampleId, std::
 }
 
 } // namespace
+
+// 普通调用由源端包类型及实际 API 身份决定，过滤 Agent 自身的控制流。
+bool IsCooperativeApiCall(const Monitor::ApiMonitorEventPacket& packet) noexcept
+{
+    const auto module = Evidence::ApiMonitorPacketText(packet.moduleName); // 固定长度字段的模块视图。
+    return packet.eventKind == static_cast<std::uint32_t>(Monitor::EventKind::ApiCall) &&
+        packet.category != static_cast<std::uint32_t>(Monitor::EventCategory::Internal) &&
+        !module.empty() && module != L"Agent" && !Evidence::ApiMonitorPacketText(packet.apiName).empty();
+}
 
 ProjectResult ProbeApiFollowArchive(const ProjectDocument& project, std::string_view sampleId, ApiFollowArchiveKind& out)
 {
@@ -312,6 +346,37 @@ ProjectResult PublishApiCheckpoint(ProjectDocument& project, std::string_view sa
     }
     out = std::move(draft);
     return {};
+}
+
+// 用上一段的真实端点续写。只有检查点发布成功才推进两个输出参数。
+ProjectResult CommitApiCheckpoint(ProjectDocument& project, std::string_view sampleId,
+    std::span<const Archive::RawEvidenceInput> records, ProjectApiCheckpoint& checkpoint,
+    Archive::RawEvidenceReceipt& receipt)
+{
+    const auto* info = project.Info(); // 当前项目写租约提供的身份。
+    const auto ordinal = checkpoint.ordinal + 1; // 下一个可发布段号。
+    if (!info || !ordinal || records.empty() || checkpoint.finalSegment) {
+        return Failure(ProjectError::InvalidArgument, "apiArchiveCommit");
+    }
+    Archive::RawEvidenceReceipt written; // 未通过核验前，只在当前调用中使用。
+    const auto status = project.WriteRawEvidenceSegment({info->projectId, sampleId, ordinal,
+        checkpoint.rawEnd.lastSequence, [records](Archive::RawEvidenceArchive& writer) -> ProjectResult {
+            const auto appended = writer.Append(records); // 一次写出有界数据块。
+            if (appended.result.status == Archive::SegmentWriteStatus::Ok) {
+                return {};
+            }
+            return Failure(ProjectError::IoError, "apiArchiveRawWrite", appended.result.error.win32Error);
+        }}, written);
+    if (!status) {
+        return status;
+    }
+    // 每个标记绑定写端字节、上一段散列和本段真实读回结果。
+    const auto published = PublishApiCheckpoint(project, sampleId, ordinal, written, records,
+        checkpoint.ordinal ? &checkpoint : nullptr, checkpoint);
+    if (published) {
+        receipt = std::move(written);
+    }
+    return published;
 }
 
 ProjectResult ReadApiCheckpoint(const ProjectDocument& project, std::string_view sampleId, std::uint64_t ordinal,
