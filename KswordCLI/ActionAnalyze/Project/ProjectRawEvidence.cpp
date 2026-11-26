@@ -13,7 +13,7 @@ using ProjectStorage::Failure;
 
 // 从已登记采样生成安全路径组件和段头身份。外来路径字符串不能进入归档位置。
 ProjectResult ResolveRawEvidence(const ProjectDocument& project, std::string_view projectId,
-    std::string_view sampleId, std::uint64_t ordinal, Archive::SegmentIdentity& identity,
+    std::string_view sampleId, std::uint64_t ordinal, ProjectEvidenceLane lane, Archive::SegmentIdentity& identity,
     Archive::SegmentLogicalName& name)
 {
     const auto* info = project.Info();
@@ -35,6 +35,7 @@ ProjectResult ResolveRawEvidence(const ProjectDocument& project, std::string_vie
         return Failure(ProjectError::InvalidArgument, "archiveOrdinal");
     }
     name = std::move(*resolvedName);
+    if (lane == ProjectEvidenceLane::MixedEtw) name.streamDirectory = L"raw-etw";
     return {};
 }
 
@@ -59,14 +60,14 @@ ProjectResult ProjectDocument::WriteRawEvidenceSegment(const ProjectRawEvidenceW
     Archive::SegmentIdentity identity;
     Archive::SegmentLogicalName name;
     if (const auto status = ResolveRawEvidence(*this, request.projectId, request.sampleId, request.ordinal,
-            identity, name); !status) {
+            request.lane, identity, name); !status) {
         return status;
     }
 
     // 核对前段的完整前缀与末序号。无法确认边界时必须保留中断，不能追加新段掩盖短尾。
     if (request.ordinal > 1) {
         const ProjectRawEvidenceRead previous{request.projectId, request.sampleId, request.ordinal - 1,
-            std::nullopt, std::nullopt, {}};
+            std::nullopt, std::nullopt, {}, std::nullopt, request.lane};
         Archive::RawEvidenceScanResult checked;
         if (const auto status = ReadRawEvidenceSegment(previous, checked); !status) {
             return status;
@@ -120,7 +121,7 @@ ProjectResult ProjectDocument::ReadRawEvidenceSegment(const ProjectRawEvidenceRe
     Archive::SegmentIdentity identity;
     Archive::SegmentLogicalName name;
     if (const auto status = ResolveRawEvidence(*this, request.projectId, request.sampleId, request.ordinal,
-            identity, name); !status) {
+            request.lane, identity, name); !status) {
         return status;
     }
 

@@ -23,6 +23,8 @@ namespace ProjectStorage { struct Directory; }
 struct ProjectRawEvidenceWrite;
 struct ProjectRawEvidenceRead;
 struct ProjectEtwCheckpoint;
+enum class ProjectEvidenceLane { Primary, MixedEtw };
+inline constexpr std::string_view kMixedEtwProviderId = "d4a71ada-81b0-4b15-a173-417f33bc8107";
 
 // 该能力只承载离线项目、调查说明与未采集的独立配置快照。
 inline constexpr char kOfflineProjectFeature[] = "cli-offline-project-v1";
@@ -162,10 +164,11 @@ public:
         ks::cli::action_analyze::archive::RawEvidenceScanResult& out, std::string* prefixHash = nullptr) const;
     ProjectResult PublishEtwCheckpoint(std::string_view sampleId,
         const ks::cli::action_analyze::archive::RawEvidenceBoundary& rawEnd,
-        const ks::cli::action_analyze::archive::EtwCoverageV1& coverage, ProjectEtwCheckpoint& out);
+        const ks::cli::action_analyze::archive::EtwCoverageV1& coverage, ProjectEtwCheckpoint& out,
+        ProjectEvidenceLane lane = ProjectEvidenceLane::Primary);
     // 校验指定代次的双流。NotFound 仅表示该代次的标记不存在。
     ProjectResult ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out,
-        std::uint64_t ordinal = 1) const;
+        std::uint64_t ordinal = 1, ProjectEvidenceLane lane = ProjectEvidenceLane::Primary) const;
     // 显式扫描未纳入当前目录的样本目录名，返回尚待核验的孤立候选 ID。
     ProjectResult ListOrphans(std::vector<std::string>& out) const;
 

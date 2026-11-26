@@ -13,6 +13,14 @@ using namespace ProjectStorage;
 using Archive::EtwCoverageV1;
 constexpr std::uint64_t kRawLimit = 4u << 20;
 
+std::wstring_view CheckpointDirectory(ProjectEvidenceLane lane) {
+    return lane == ProjectEvidenceLane::MixedEtw ? L"checkpoints-etw" : L"checkpoints";
+}
+
+std::wstring_view RecordsDirectory(ProjectEvidenceLane lane) {
+    return lane == ProjectEvidenceLane::MixedEtw ? L"records-etw" : L"records";
+}
+
 std::wstring CheckpointFile(std::uint64_t ordinal) {
     const auto digits = std::to_wstring(ordinal);
     return std::wstring(20 - digits.size(), L'0') + digits + L".json";
@@ -47,9 +55,10 @@ bool MatchesStatistic(const JsonValue& doc, std::string_view key, std::optional<
 }
 
 ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& sample, const EtwCoverageV1& coverage,
-                        ProjectEtwCheckpoint& checkpoint) {
+                        ProjectEtwCheckpoint& checkpoint, ProjectEvidenceLane lane) {
     auto& prefix = checkpoint.raw; // 已刷盘端点与同一文件句柄读回的摘要。
     if (!coverage.rawSegmentOrdinal || !coverage.planRawSequence ||
+        (lane == ProjectEvidenceLane::MixedEtw && coverage.providerId != kMixedEtwProviderId) ||
         (coverage.rawSegmentOrdinal == 1 && coverage.planRawSequence != 1) ||
         coverage.endRawSequence != prefix.end.lastSequence || coverage.endRawSequence <= coverage.planRawSequence ||
         coverage.observationCount != coverage.endRawSequence - coverage.planRawSequence - 1) {
@@ -68,6 +77,10 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                 if (record.recordSequence == coverage.planRawSequence) {
                     const auto* session = doc.value.find("session");
                     const auto* pid = doc.value.find("headerPid");
+                    const auto* mixed = doc.value.find("mixedEtw");
+                    bool mixedPlan = false;
+                    if (lane == ProjectEvidenceLane::MixedEtw ?
+                        (!mixed || !mixed->tryGetBool(mixedPlan) || !mixedPlan) : mixed != nullptr) return false;
                     if (raw.inlineRawBytes || !IsString(doc.value, "kind", "etw-capture-plan-v1") ||
                         !IsString(doc.value, "backend", "r3") || !session || !IsString(*session, "id", sample.info.sampleId) ||
                         !IsString(doc.value, "revisionId", sample.info.revisionId) ||
@@ -106,7 +119,7 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                 }
             }
             return true;
-        }, kRawLimit};
+         }, kRawLimit, lane};
     std::string hash;
     if (const auto result = project.ReadRawEvidenceSegment(request, scan, &hash); !result) return result;
     if (!scan.VerifiedBoundary(prefix.end) || hash.empty() || (!prefix.sha256.empty() && hash != prefix.sha256)) {
@@ -117,14 +130,14 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
 }
 
 ProjectResult VerifyRecords(const Directory& root, const Archive::SegmentIdentity& identity, std::string_view sampleId,
-                            EtwCheckpointPrefix& prefix, EtwCoverageV1& coverage) {
+                            EtwCheckpointPrefix& prefix, EtwCoverageV1& coverage, ProjectEvidenceLane lane) {
     const auto name = Archive::NameInspectionSegment(identity);
     if (!name || prefix.end.blockOrdinal != 1 || prefix.end.lastSequence != identity.ordinal ||
         prefix.end.byteOffset > Archive::kSegmentHeaderBytes + Archive::kMaxEtwCoverageV1Bytes + 256) {
         return Failure(ProjectError::Corrupt, "checkpointRecordsRange");
     }
     Directory directory;
-    if (const auto result = OpenDirectory(root, {L"samples", WideAscii(sampleId), name->streamDirectory}, directory); !result) return result;
+    if (const auto result = OpenDirectory(root, {L"samples", WideAscii(sampleId), RecordsDirectory(lane)}, directory); !result) return result;
     Handle file;
     if (const auto result = OpenFile(directory, name->fileName, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, file); !result) return result;
     bool valid = false;
@@ -156,7 +169,8 @@ Archive::SegmentIdentity RecordsIdentity(const ProjectInfo& project, const Sampl
 } // namespace
 
 ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, const Archive::RawEvidenceBoundary& rawEnd,
-                                                    const EtwCoverageV1& coverage, ProjectEtwCheckpoint& out) {
+                                                     const EtwCoverageV1& coverage, ProjectEtwCheckpoint& out,
+                                                     ProjectEvidenceLane lane) {
     out = {};
     const auto* root = RootForRead();
     if (!root) return Failure(ProjectError::NotOpen, "project");
@@ -169,7 +183,7 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
     }
     ProjectEtwCheckpoint draft;
     draft.raw.end = rawEnd;
-    if (const auto result = VerifyRaw(*this, sample, coverage, draft); !result) return result;
+    if (const auto result = VerifyRaw(*this, sample, coverage, draft, lane); !result) return result;
 
     const auto ordinal = coverage.rawSegmentOrdinal;
     const auto identity = RecordsIdentity(*Info(), sample, ordinal);
@@ -177,7 +191,7 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
     if (!name) return Failure(ProjectError::InvalidArgument, "checkpointRecordsIdentity");
     const auto sampleDirectory = WideAscii(sample.info.sampleId);
     Directory records;
-    const auto recordPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), name->streamDirectory};
+    const auto recordPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), RecordsDirectory(lane)};
     auto directoryResult = OpenDirectory(*root, recordPath, records);
     if (directoryResult.error == ProjectError::NotFound) {
         directoryResult = OpenDirectory(*root, recordPath, records, true);
@@ -191,11 +205,11 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
     draft.records.end = {writer.FlushedBytes(), 1, ordinal};
     draft.planRawSequence = coverage.planRawSequence;
     EtwCoverageV1 checked;
-    if (const auto result = VerifyRecords(*root, identity, sampleId, draft.records, checked); !result) return result;
-    if (const auto result = VerifyRaw(*this, sample, checked, draft); !result) return result;
+    if (const auto result = VerifyRecords(*root, identity, sampleId, draft.records, checked, lane); !result) return result;
+    if (const auto result = VerifyRaw(*this, sample, checked, draft, lane); !result) return result;
 
     Directory checkpoints;
-    const auto markerPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), std::wstring_view(L"checkpoints")};
+    const auto markerPath = {std::wstring_view(L"samples"), std::wstring_view(sampleDirectory), CheckpointDirectory(lane)};
     directoryResult = OpenDirectory(*root, markerPath, checkpoints);
     if (directoryResult.error == ProjectError::NotFound) {
         directoryResult = OpenDirectory(*root, markerPath, checkpoints, true);
@@ -205,14 +219,14 @@ ProjectResult ProjectDocument::PublishEtwCheckpoint(std::string_view sampleId, c
         {"projectId", Text(Info()->projectId)}, {"sampleId", Text(sample.info.sampleId)},
         {"descriptionHash", Text(sample.info.descriptionHash)}, {"raw", PrefixDocument(draft.raw, ordinal)},
         {"records", PrefixDocument(draft.records, ordinal)}});
-    if (const auto result = Publish(*root, {L"samples", sampleDirectory, L"checkpoints"}, CheckpointFile(ordinal), document, false); !result) return result;
+    if (const auto result = Publish(*root, markerPath, CheckpointFile(ordinal), document, false); !result) return result;
     out = std::move(draft);
     return {};
 }
 
 // 从项目快照读取采样描述与终态标记，只有标记缺失时返回 NotFound。
 ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, ProjectEtwCheckpoint& out,
-                                                 std::uint64_t ordinal) const {
+                                                 std::uint64_t ordinal, ProjectEvidenceLane lane) const {
     out = {};
     if (!ordinal) return Failure(ProjectError::InvalidArgument, "checkpointOrdinal");
     const auto* root = RootForRead(); // 当前项目持有的目录句柄。
@@ -222,7 +236,7 @@ ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, Proj
         return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointSampleMissing") : result;
     }
     JsonValue document; // 本次读取的检查点标记。
-    if (const auto result = Read(*root, {L"samples", WideAscii(sample.info.sampleId), L"checkpoints"},
+    if (const auto result = Read(*root, {L"samples", WideAscii(sample.info.sampleId), CheckpointDirectory(lane)},
             CheckpointFile(ordinal), {}, document); !result) return result;
     ProjectEtwCheckpoint checked;
     std::uint64_t generation = 0;
@@ -234,11 +248,11 @@ ProjectResult ProjectDocument::ReadEtwCheckpoint(std::string_view sampleId, Proj
         return Failure(ProjectError::Corrupt, "checkpointDocument");
     }
     EtwCoverageV1 coverage;
-    if (const auto result = VerifyRecords(*root, RecordsIdentity(*Info(), sample, ordinal), sampleId, checked.records, coverage); !result) {
+    if (const auto result = VerifyRecords(*root, RecordsIdentity(*Info(), sample, ordinal), sampleId, checked.records, coverage, lane); !result) {
         return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointRecordsMissing") : result;
     }
     if (coverage.rawSegmentOrdinal != ordinal) return Failure(ProjectError::Corrupt, "checkpointOrdinalMismatch");
-    if (const auto result = VerifyRaw(*this, sample, coverage, checked); !result) {
+    if (const auto result = VerifyRaw(*this, sample, coverage, checked, lane); !result) {
         return result.error == ProjectError::NotFound ? Failure(ProjectError::Corrupt, "checkpointRawMissing") : result;
     }
     checked.planRawSequence = coverage.planRawSequence;

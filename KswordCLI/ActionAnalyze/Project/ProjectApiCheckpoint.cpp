@@ -177,6 +177,8 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                         !ReadPlan(doc.value, *project.Info(), sample, source)) {
                         return false;
                     }
+                    if (const auto* mixed = doc.value.find("mixedEtw");
+                        mixed && (!mixed->tryGetBool(draft.mixedEtw) || !draft.mixedEtw)) return false;
                     draft.planJson = raw.metadataJson;
                     seenPlan = true;
                 } else if (IsString(doc.value, "kind", kApiFollowEndKind)) {

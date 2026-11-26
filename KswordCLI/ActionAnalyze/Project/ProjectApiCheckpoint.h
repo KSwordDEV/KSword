@@ -26,6 +26,7 @@ struct ProjectApiCheckpoint {
     std::uint64_t previousSourceSequence = 0; // 本段之前最后提交的源行号。
     std::uint64_t lastSourceSequence = 0; // 原包为零时与上一段相同。
     bool finalSegment = false; // 本端跟随终段，源文件可能继续追加。
+    bool mixedEtw = false; // 来自已核验计划，不代表 ETW 已启动或有数据。
     std::string stopReason; // 终段归档声明的本端结束原因。
     std::string sourceState; // 终段归档声明的源读取状态。
     bool sourceCutoffReached = false; // 已读到本端冻结的字节截止点。

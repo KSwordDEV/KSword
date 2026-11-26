@@ -16,6 +16,7 @@ struct ProjectRawEvidenceWrite {
     // 对每次 Append 的失败，回调负责停止或按原错误纠正后重试。
     // 返回后同步收尾并刷盘。回调错误和刷盘回执同时返回，便于保留部分结果。
     std::function<ProjectResult(ks::cli::action_analyze::archive::RawEvidenceArchive&)> append;
+    ProjectEvidenceLane lane = ProjectEvidenceLane::Primary;
 };
 
 // 指定段的扫描通过项目目录、固定路径和段头复核采样身份。
@@ -27,6 +28,7 @@ struct ProjectRawEvidenceRead {
     std::optional<std::uint64_t> previousSequence;
     ks::cli::action_analyze::archive::SegmentBodyVisitor visitor;
     std::optional<std::uint64_t> maxFileBytes = std::nullopt; // 整段读取可附加文件大小上限。
+    ProjectEvidenceLane lane = ProjectEvidenceLane::Primary;
 };
 
 } // namespace Ksword::ActionAnalyze
