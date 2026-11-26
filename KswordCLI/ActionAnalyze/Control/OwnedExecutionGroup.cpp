@@ -83,7 +83,7 @@ bool Unresolved(const NativeControlResult& state)
         state.status == NativeControlStatus::ClosePending;
 }
 
-// 输入成员条件和完整Held回执，只允许本事件同修订真条件；手动暂停与步进不沿用执行条件。
+// 输入成员条件和完整Held回执，允许本事件同修订真/未知条件显式操作；假值仍自动继续。
 bool ReleaseEligible(const ExecutionGroupSite& site, const NativeControlResult& state, const DataWatchConditionReport& condition)
 {
     // 条件自动释放失败仍由原会话持有责任，不能因无条件回读恢复成Held而授予新动作。
@@ -99,7 +99,9 @@ bool ReleaseEligible(const ExecutionGroupSite& site, const NativeControlResult& 
     const auto* stop = DataWatchHeldStop(state); // Matches已保证stop及group完整存在。
     const auto& last = condition.last; // 只接受本事件及修订实际求值的条件。
     return last && last->event == stop->event && last->groupId == stop->groupId &&
-        last->stateRevision == state.group->stateRevision && last->evaluation.truth == Ksword::ActionAnalyze::Rules::Truth::True;
+        last->stateRevision == state.group->stateRevision &&
+        (last->evaluation.truth == Ksword::ActionAnalyze::Rules::Truth::True ||
+            last->evaluation.truth == Ksword::ActionAnalyze::Rules::Truth::Unknown);
 }
 } // namespace
 
@@ -302,7 +304,11 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     // 先完成全部配置及会话的分配，再进行任何附加；启动失败也不覆盖既有成功 owner。
     std::vector<Impl::Member> frozen;
     frozen.reserve(sites.size());
-    for (auto& site : sites) frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false, {}});
+    for (auto& site : sites)
+    {
+        // 每个集合成员由同一原会话保留Unknown，联停和归档才能看到该真实事件。
+        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(true), {}, false, {}});
+    }
     self.members = std::move(frozen);
     self.holdPeersOnHit = holdPeersOnHit;
     self.started = true;
@@ -351,7 +357,7 @@ ExecutionGroupResult OwnedExecutionGroup::AppendMembers(std::vector<ExecutionGro
     frozen.reserve(sites.size());
     for (auto& site : sites)
     {
-        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false, {}});
+        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(true), {}, false, {}});
     }
     const auto first = self.members.size(); // 原目录索引保持稳定，新成员仅追加到末尾。
     self.members.reserve(first + frozen.size());

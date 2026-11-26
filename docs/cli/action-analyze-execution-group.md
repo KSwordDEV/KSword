@@ -89,6 +89,8 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 - `owner`：成员原 `sampleId/sessionId/epoch/backendInstanceId`。
 - `control`：成员原生状态、绑定、命中、步进、继续与清退诊断；`nativeSnapshot` 保留停止投影。
 - `condition`：该成员真、假、未知计数及最近实际求值和自动继续结果。
+
+集合成员在原 `OwnedDataWatchSession` 构造时冻结“未知保留”策略，包含运行中追加成员。未知条件只计数一次并保留同一事件，不写自动释放回执；可用原完整停止令牌显式继续、步进、追加NX范围、读取及保存，仍须满足各动作原生资格。默认旧单目标会话继续沿用假／未知自动继续，本扩展不改变该已验策略。集合联停与自动执行归档因此可看到原未知事件；源码待验。
 - `pauseToken`：原执行 owner 的活绑定满足 `CanPauseDataWatchSession` 时提供完整显示快照，不要求已有停点。
 - `stopToken`：仅在成员实际持有可控停止事件时给出完整当前票据。
 - `stepToken`：原会话存在步进请求时给出完整票据，取消仍由原会话核对精确请求。

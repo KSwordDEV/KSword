@@ -40,7 +40,7 @@ struct DataWatchConditionDecision {
     std::string groupId; // 求值时所属的冻结停止组。
     std::uint64_t stateRevision = 0; // 求值时的停止组修订。
     Ksword::ActionAnalyze::Rules::Evaluation evaluation; // 三值及求值故障，均来自同一冻结快照。
-    std::optional<ReleaseResult> release; // 假/未知的实际继续回执，真条件留空。
+    std::optional<ReleaseResult> release; // 实际自动继续回执；集合保留Unknown时为空，旧单目标策略不变。
     const char* failureStage = nullptr; // 自动继续失败的诊断，要求显式清退。
     std::uint32_t releaseError = 0; // 自动继续失败时原生错误码。
 };
@@ -56,7 +56,8 @@ struct DataWatchConditionReport {
 // Close 可能返回尚未清退的原生状态。保留会话并 Query 或再次 Close，直到确认 clean。
 class OwnedDataWatchSession final {
 public:
-    OwnedDataWatchSession();
+    // 集合传true保留未知条件；默认false兼容旧单目标假/未知自动继续的已验语义。
+    explicit OwnedDataWatchSession(bool holdUnknownCondition = false);
     ~OwnedDataWatchSession();
     OwnedDataWatchSession(const OwnedDataWatchSession&) = delete;
     OwnedDataWatchSession& operator=(const OwnedDataWatchSession&) = delete;
@@ -121,7 +122,7 @@ private:
         std::string_view sampleId, bool execute);
     // 只处理尚未交给调试所有者的失败启动，保留句柄直到确认退出。
     [[nodiscard]] NativeControlResult ObserveAbortedLaunch(bool requestTermination);
-    // 使用新快照对单个原生事件求值；假/未知提交继续，仅真值向页面发布手动停点。
+    // 使用新快照求值；假值自动继续，未知按构造策略保留或继续，真值保持原停点。
     [[nodiscard]] NativeControlResult ApplyCondition(NativeControlResult state);
     // 使用调用方已核验的原生令牌提交继续。自动和手动操作共享同一个序列。
     [[nodiscard]] NativeControlResult ReleaseWrite(const NativeControlResult& state, const EventResponsibility& stop);
@@ -139,6 +140,7 @@ private:
     std::uint64_t rangeSequence_ = 0; // 独立range/N票据，不消费继续、步进或follow序列。
     std::uint64_t pauseSequence_ = 0; // 原执行owner主动暂停的独立pause/N流水。
     bool closing_ = false; // 关闭一经请求，停止接受继续和启动。
+    bool holdUnknownCondition_ = false; // 构造时冻结，集合未知条件可调查和显式继续，不热改旧单目标行为。
 };
 
 } // namespace ks::cli::action_analyze::control

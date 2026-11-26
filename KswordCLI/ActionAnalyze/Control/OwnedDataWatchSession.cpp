@@ -175,7 +175,11 @@ struct OwnedDataWatchSession::AbortedLaunch {
     DWORD terminationError = ERROR_SUCCESS;
 };
 
-OwnedDataWatchSession::OwnedDataWatchSession() = default;
+OwnedDataWatchSession::OwnedDataWatchSession(bool holdUnknownCondition)
+    : holdUnknownCondition_(holdUnknownCondition)
+{
+    // 策略属于原会话，所有Query/Continue/Step复用同一求值与资格路径。
+}
 OwnedDataWatchSession::~OwnedDataWatchSession() = default;
 
 NativeControlResult OwnedDataWatchSession::Start(const std::wstring& requestedPath, const std::string& exportName,
@@ -555,6 +559,11 @@ NativeControlResult OwnedDataWatchSession::ApplyCondition(NativeControlResult st
         ++conditionReport_.falseCount;
     } else {
         ++conditionReport_.unknownCount;
+        if (holdUnknownCondition_)
+        {
+            // 集合Unknown保留原事件，供联停、自动归档、读取和显式恢复；不制造自动释放失败。
+            return state;
+        }
     }
 
     // 提交前记录待核实状态。即使原生调用抛出异常，下次回读也不会重发同一事件。
@@ -697,9 +706,12 @@ bool OwnedDataWatchSession::MatchesDisplayedStop(const NativeControlResult& disp
         selected->stopId != live->stopId || displayed.group->stateRevision != current.group->stateRevision) {
         return false;
     }
-    const auto& decision = conditionReport_.last; // 写入和执行进入均须匹配本事件的真条件，普通step独立。
+    const auto& decision = conditionReport_.last; // 精确事件的真值或集合保留的未知值可显式继续；普通step独立。
     return IsDataWatchStepStop(current) || current.stopReason == NativeStopReason::ManualPause || !condition_.valid() ||
-        (decision && decision->event == live->event && decision->evaluation.truth == rules::Truth::True);
+        (decision && decision->event == live->event && decision->groupId == live->groupId &&
+            decision->stateRevision == current.group->stateRevision &&
+            (decision->evaluation.truth == rules::Truth::True ||
+                (holdUnknownCondition_ && decision->evaluation.truth == rules::Truth::Unknown)));
 }
 
 // 在原串行worker核验点击时停止身份，只有当前NX会话可以追加；失败保留原native恢复账。
