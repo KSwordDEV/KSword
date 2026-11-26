@@ -267,7 +267,7 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
 }
 
 // 将两个合作程序的原生状态和值化回执投影到同一个 CLI 会话。成员自己的令牌不对外发布。
-V ReportPair(const native::OwnedBreakpointGroupResult& result)
+JsonObject PairFields(const native::OwnedBreakpointGroupResult& result)
 {
     using enum native::OwnedBreakpointGroupState;
     const char* state = "idle"; // 组级状态独立于两个原生所有者。
@@ -320,7 +320,7 @@ V ReportPair(const native::OwnedBreakpointGroupResult& result)
             {"stateRevision", Count(release->stop.stateRevision)}, {"continued", V::makeBool(release->continued)},
             {"members", V::makeArray(std::move(outcomes))}}));
     }
-    return V::makeObject(std::move(report));
+    return report;
 }
 
 // REPL 和 JSONL 共用原生所有者。控制线程没有 stdout，也不借用管道来保持暂停状态。
@@ -415,15 +415,17 @@ private:
             }
             // 输入繁忙和空闲时都处理停点。命令分发沿用同一快照，不能绕过对新停点求值。
             std::optional<native::NativeControlResult> observed;
-            if (condition_ && !closeRequested_) {
+            std::optional<native::OwnedBreakpointGroupResult> pairObserved; // 本轮命令与条件使用同一组快照。
+            if (pair_) {
+                pairObserved = pair_->Query();
+                if (condition_ && !closeRequested_) {
+                    if (const char* failure = ApplyPairCondition(*pairObserved)) return End(failure, 6);
+                }
+            } else if (condition_ && !closeRequested_) {
                 observed = owner_.Query();
                 if (const char* failure = ApplyCondition(*observed)) return End(failure, 6);
             }
             if (input.kind == InputKind::Tick) {
-                if (pair_) {
-                    // 合作启动、停点和个别退出不依赖客户端发查询。
-                    (void)pair_->Query();
-                }
                 continue;
             }
             const auto decoded = jsonl_ ? DecodeJsonLine(input.line, RequestProfile::Live) : DecodeReplLine(input.line);
@@ -433,7 +435,7 @@ private:
             }
             if (decoded.request.method.empty()) continue;
             std::optional<V> closed; // 显式退出成功时携带已确认的清退回执。
-            if (const int action = Dispatch(decoded.request, std::move(observed), closed); action != 0) {
+            if (const int action = Dispatch(decoded.request, std::move(observed), std::move(pairObserved), closed); action != 0) {
                 return closed ? WriteSummary("requested", 0, std::move(*closed), true) : End("output-lost", 3);
             }
         }
@@ -449,17 +451,20 @@ private:
         std::uint32_t releaseError = 0;
     };
 
-    const char* ApplyCondition(native::NativeControlResult& observed)
+    // 单目标和双目标均只从真实持有的同一冻结快照取字段，不用现场枚举补身份。
+    bool VerifiedConditionStop(const native::NativeControlResult& observed) const
     {
-        if (observed.status != native::NativeControlStatus::Held) return nullptr;
-        if (!observed.breakpointHit || !observed.pending || !observed.pending->ledgerOwned || !observed.group ||
-            !observed.group->origin || observed.group->origin->phase != native::StopPhase::ExecutionEnterAttempt ||
-            !observed.responsibility || observed.responsibility->state != native::EventState::Held ||
-            observed.responsibility->event != observed.pending->event)
-            return "condition-stop-unverified";
-        const auto& event = *observed.pending;
-        if (lastCondition_ && lastCondition_->eventSerial == event.event.serial) return nullptr;
+        return observed.status == native::NativeControlStatus::Held && observed.breakpointHit && observed.pending &&
+            observed.pending->ledgerOwned && observed.group && observed.group->origin &&
+            observed.group->origin->phase == native::StopPhase::ExecutionEnterAttempt && observed.responsibility &&
+            observed.responsibility->state == native::EventState::Held &&
+            observed.responsibility->event == observed.pending->event;
+    }
 
+    // 调用方先核验真实停点；输出保留三值，不把缺少的寄存器补成零。
+    rules::Evaluation EvaluateCondition(const native::NativeControlResult& observed) const
+    {
+        const auto& event = *observed.pending;
         using enum rules::Quality;
         const auto* thread = FrozenOriginThread(observed); // 从同一停点快照确认创建时间。
         rules::FieldSample threadCreated{"stop.thread.creationFileTime", NotCollected, std::monostate{}};
@@ -479,7 +484,16 @@ private:
         };
         if (event.exceptionCode) samples[1] = {"stop.exceptionCode", Known, std::uint64_t{*event.exceptionCode}};
         if (event.exceptionFirstChance.has_value()) samples[2] = {"stop.firstChance", Known, *event.exceptionFirstChance};
-        const auto evaluation = rules::EvaluatePredicate(condition_->predicate, kConditionPhase, samples);
+        return rules::EvaluatePredicate(condition_->predicate, kConditionPhase, samples);
+    }
+
+    const char* ApplyCondition(native::NativeControlResult& observed)
+    {
+        if (observed.status != native::NativeControlStatus::Held) return nullptr;
+        if (!VerifiedConditionStop(observed)) return "condition-stop-unverified";
+        const auto& event = *observed.pending;
+        if (lastCondition_ && lastCondition_->eventSerial == event.event.serial) return nullptr;
+        const auto evaluation = EvaluateCondition(observed);
         lastCondition_ = ConditionDecision{event.event.serial, observed.group->groupId, observed.group->stateRevision,
             evaluation, std::nullopt};
         if (evaluation.truth == rules::Truth::True) {
@@ -499,6 +513,68 @@ private:
             observed.status == native::NativeControlStatus::RecoveryRequired)
             return "condition-release-failed";
         return nullptr;
+    }
+
+    struct PairConditionDecision {
+        native::OwnedBreakpointGroupToken stop; // 两成员全部持有后才冻结的组令牌。
+        JsonArray members; // 启动顺序中的身份、原生代次与各自三值结果。
+        bool hold = false; // 任一成员为真时保留整个组；否则整组自动继续。
+        bool continued = false; // 原生组确认两份释放均成功后才置位。
+    };
+
+    // 部分持有不求值、不释放；完整组按同一表达式逐成员求值且每代只执行一次。
+    const char* ApplyPairCondition(native::OwnedBreakpointGroupResult& observed)
+    {
+        if (!observed.stop) return nullptr;
+        if (lastPairCondition_ && lastPairCondition_->stop == *observed.stop) return nullptr;
+        PairConditionDecision decision{*observed.stop, {}};
+        for (const auto& member : observed.members) {
+            if (!member.held || !member.control || !VerifiedConditionStop(*member.control) ||
+                member.control->pending->pid != member.pid ||
+                member.control->pid != member.pid || member.control->processCreationTime != member.creationFileTime) {
+                return "pair-condition-stop-unverified";
+            }
+            const auto& state = *member.control; // 字段与原生事件都来自此次组快照。
+            const auto evaluation = EvaluateCondition(state);
+            const auto truth = evaluation.truth;
+            decision.hold |= truth == rules::Truth::True;
+            if (truth == rules::Truth::True) ++conditionTrue_;
+            else if (truth == rules::Truth::False) ++conditionFalse_;
+            else ++conditionUnknown_;
+            decision.members.push_back(V::makeObject({{"pid", V::makeUInt(member.pid)},
+                {"creationFileTime", Count(member.creationFileTime)}, {"groupId", Text(state.group->groupId)},
+                {"stateRevision", Count(state.group->stateRevision)}, {"eventSerial", Count(state.pending->event.serial)},
+                {"truth", Text(truth == rules::Truth::True ? "true" : truth == rules::Truth::False ? "false" : "unknown")},
+                {"evaluationFault", evaluation.fault == rules::EvaluationFault::None ? V::makeNull() :
+                    Text(evaluation.fault == rules::EvaluationFault::Budget ? "budget" : "invalid-input")}}));
+        }
+        lastPairCondition_ = std::move(decision);
+        if (lastPairCondition_->hold) return nullptr;
+        // 仅提交这次求值冻结的组令牌；组控制器继续核对两份真实原生责任。
+        observed = pair_->Continue(lastPairCondition_->stop);
+        lastPairCondition_->continued = observed.lastRelease &&
+            observed.lastRelease->stop == lastPairCondition_->stop && observed.lastRelease->continued;
+        return lastPairCondition_->continued ? nullptr : "pair-condition-release-failed";
+    }
+
+    // 组判定与清退回执并列保留，自动继续不占用客户端 continue/N 序号。
+    V ReportPair(const native::OwnedBreakpointGroupResult& result) const
+    {
+        auto report = PairFields(result);
+        if (!condition_) return V::makeObject(std::move(report));
+        V last = V::makeNull(); // 尚未出现完整停点组时没有判定。
+        if (lastPairCondition_) {
+            const auto& decision = *lastPairCondition_;
+            last = V::makeObject({{"stopId", Text(decision.stop.stopId)},
+                {"stateRevision", Count(decision.stop.stateRevision)},
+                {"action", Text(decision.hold ? "hold" : "auto-continue")},
+                {"continued", V::makeBool(decision.continued)}, {"members", V::makeArray(decision.members)}});
+        }
+        report.emplace_back("condition", V::makeObject({{"profile", Text(rules::PredicateExpressionProfile)},
+            {"expression", Text(condition_->expression)}, {"phase", Text("execution-enter-attempt")},
+            {"aggregation", Text("any-true-holds-group")}, {"trueCount", Count(conditionTrue_)},
+            {"falseCount", Count(conditionFalse_)}, {"unknownCount", Count(conditionUnknown_)}, {"last", std::move(last)}}));
+        return V::makeObject(std::move(report));
     }
 
     V ReportControl(const native::NativeControlResult& result) const
@@ -585,6 +661,7 @@ private:
             return {state.clean, ReportControl(state)};
         }
         const auto deadline = GetTickCount64() + 3000; // 与单目标关闭等待预算相同。
+        closeRequested_ = true; // 关闭重试期间也禁止组条件自动继续。
         auto state = pair_->Close(); // 先向全部已接管成员发出关闭，再等回执。
         while (!state.clean && state.state != native::OwnedBreakpointGroupState::RecoveryRequired &&
             GetTickCount64() < deadline) {
@@ -621,7 +698,8 @@ private:
     }
 
     int Dispatch(const Request& request, std::optional<native::NativeControlResult> observed,
-         std::optional<V>& closed)
+          std::optional<native::OwnedBreakpointGroupResult> pairObserved,
+          std::optional<V>& closed)
     {
         const auto* args = request.params.asArray();
         const auto* fields = request.params.asObject();
@@ -641,7 +719,8 @@ private:
             return 1;
         }
         if ((method == "status" || method == "control.query") && empty && !request.expected) {
-            auto status = pair_ ? ReportPair(pair_->Query()) : ReportControl(observed ? *observed : owner_.Query());
+            auto status = pair_ ? ReportPair(pairObserved ? *pairObserved : pair_->Query()) :
+                ReportControl(observed ? *observed : owner_.Query());
             return Emit("response", request.id, std::move(status)) ? 0 : 3;
         }
         if (method == "help" && !jsonl_ && empty)
@@ -731,6 +810,7 @@ private:
     native::OwnerIdentity identity_;
     const std::optional<BreakpointCondition> condition_;
     std::optional<ConditionDecision> lastCondition_;
+    std::optional<PairConditionDecision> lastPairCondition_; // 最近完整组判定在继续和清退后仍可回读。
     std::uint64_t conditionTrue_ = 0;
     std::uint64_t conditionFalse_ = 0;
     std::uint64_t conditionUnknown_ = 0;
@@ -756,8 +836,8 @@ int Run(const Args& args)
     }
     const bool cooperativePair = args.has(L"--cooperative-pair"); // 仅接本工具启动的同一合作 EXE 的两个实例。
     if (cooperativePair && (!args.has(L"--export") || args.has(L"--module") ||
-        args.has(L"--condition") || args.has(L"--watch-write-bytes"))) {
-        throw std::invalid_argument("Cooperative pair requires one EXE execution export and no module, condition or data watch");
+        args.has(L"--watch-write-bytes"))) {
+        throw std::invalid_argument("Cooperative pair requires one EXE execution export and no module or data watch");
     }
     native::NativeBreakpointRequest request;
     request.modulePath = std::move(module);
@@ -801,10 +881,10 @@ void RegisterBreakpointCommand()
 {
     Command command;
     command.path = L"analyze breakpoint session";
-    command.syntax = L"KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME | --rva RVA) --confirm --disposition resume-detach [--input repl|jsonl] [--condition EXPR | --watch-write-bytes 1|2|4|8 | --cooperative-pair]";
+    command.syntax = L"KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME | --rva RVA) --confirm --disposition resume-detach [--input repl|jsonl] [--condition EXPR] [--watch-write-bytes 1|2|4|8 | --cooperative-pair]";
     command.summary = L"Control breakpoints in explicitly authorized AMD64 child processes.";
     command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA. Optional --condition uses predicate-expr-v2 at execution-enter-attempt. Fields: stop.address, stop.exceptionCode, stop.pid, stop.tid, stop.thread.rip and stop.thread.creationFileTime (u64), stop.firstChance (bool), stop.thread.rax (u64, not collected).";
-    command.notes = L"Data write watch requires the EXE's aligned writable data export. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs start at continue/1; expired receipts cannot be replayed. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
+    command.notes = L"Data write watch requires the EXE's aligned writable data export. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. Pair conditions evaluate only a fully held group: any true member holds both; otherwise both auto-continue. REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs start at continue/1; expired receipts cannot be replayed. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
     command.runStreaming = Run;
     addCommand(std::move(command));
 }

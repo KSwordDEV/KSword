@@ -478,7 +478,8 @@ def wait_pair(session, state, identities, *, require_exits=False):
 
 
 @contextmanager
-def armed_pair(log):
+def armed_pair(log, condition=None, spawn_member=None):
+    """拉起双目标合作会话；可选条件表达式随会话启动时交给正式 CLI。"""
     prefix = r'Local\KSwordProductPair-' + uuid4().hex
     env = dict(os.environ, KSWORD_PRODUCT_BREAKPOINT_PAIR_EVENTS=prefix)
     events = []  # 保存本轮创建的所有事件，失败也会释放。
@@ -493,7 +494,7 @@ def armed_pair(log):
 
     try:
         configured = create_event('configured', manual=True)
-        session = Session(env, log, 0, cooperative_pair=True)
+        session = Session(env, log, 0, condition=condition, cooperative_pair=True)
         hello = session.receive('hello')
         control = hello['control']
         members = control['members']
@@ -503,10 +504,13 @@ def armed_pair(log):
         identities = [(member['pid'], member['creationFileTime']) for member in members]
         require(len({pid for pid, _ in identities}) == 2, identities)
         triggers, completions = [], []
-        for pid, creation_time in identities:
+        for index, (pid, creation_time) in enumerate(identities):
             children.append(checked_target(dict(targetPid=pid, targetCreationFileTime=creation_time)))
             triggers.append(create_event(f'{pid}-trigger'))
             completions.append(create_event(f'{pid}-done'))
+            if spawn_member is not None and index == spawn_member:
+                # 仅测试模式：本成员存在 spawn 事件时由新建线程执行命中点。
+                create_event(f'{pid}-spawn')
         require(SetEvent(configured), 'allow both cooperative workloads to initialize')
 
         armed = wait_pair(session, 'running', identities)
@@ -650,12 +654,282 @@ def cooperative_pair_exit_regression(log):
                   f'RETIREMENTS={",".join(kinds)} CLI_EXIT=0 CHILD_EXITS=0,0 PIDS={identities[0][0]},{identities[1][0]}\n')
 
 
+PAIR_CONDITION_TRUTHS = ('true', 'false', 'unknown')
+
+
+def pair_condition_expression(truth, lower, upper):
+    """与单目标条件同一组字段；假条件落在本次会话之前的线程创建时间之前。"""
+    rip = 'stop.thread.rip > 0xffffffffu64'
+    created = 'stop.thread.creationFileTime'
+    return {
+        'true': f'{rip} && {created} >= {lower}u64 && {created} <= {upper}u64',
+        'false': f'{rip} && {created} < {lower}u64',
+        'unknown': f'{rip} && stop.thread.rax == 0u64',
+    }[truth]
+
+
+def wait_pair_condition(session, identities, action, timeout=10):
+    """等待完整组的条件判定；真条件保持持有，假/未知条件已自动继续。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        report = session.status()
+        pair_members(report, identities)
+        last = (report.get('condition') or {}).get('last')
+        if isinstance(last, dict) and last.get('action') == action:
+            return report, last
+        require(time.monotonic() < deadline, f'pair condition never reached {action}: {report}')
+        time.sleep(0.01)
+
+
+def pair_condition_members(report, identities, truth):
+    """核对完整组逐成员的三值判定、身份和各自的原生组。"""
+    members = report['condition']['last']['members']
+    require(len(members) == 2 and
+            [(member['pid'], member['creationFileTime']) for member in members] == identities and
+            all(member['truth'] == truth and member['evaluationFault'] is None for member in members) and
+            len({member['groupId'] for member in members}) == 2 and
+            all(int(member['eventSerial']) > 0 and int(member['stateRevision']) > 0 for member in members), report)
+    return members
+
+
+def check_pair_condition_members(report, members, identities, lower, upper, held):
+    """核对逐成员判定与真实原生身份；持有态再核对命中线程的创建时间。"""
+    for decision, member, (pid, _) in zip(members, report['members'], identities, strict=True):
+        control = member['control']
+        require(decision['pid'] == pid and decision['groupId'] == control['stopGroup']['id'], decision)
+        require(int(control['breakpoint']['address'], 16) > 0xffffffff, control)
+        if not held:
+            # 自动继续后原生待决事件已归还，只核对两份真实释放回执。
+            require(not member['held'] and control['state'] == 'released' and
+                    control['release']['result'] == 'continued', member)
+            continue
+        hit = control['hit']
+        require(member['held'] and int(hit['address'], 16) > 0xffffffff and hit['tid'], member)
+        created = owned_thread_creation(pid, hit['tid'])
+        require(lower <= created <= upper, (pid, hit['tid'], created, lower, upper))
+
+
+def close_pair_condition(session, identities, children, triggers, completions, log, note):
+    """关闭双目标：两份脱离，自有目标跑完剩余两轮并正常退出。"""
+    session.send('shutdown', 'controller.shutdown')
+    summary = session.receive('summary')
+    closed = summary['control']
+    require(summary['reason'] == 'requested' and summary['exitCode'] == 0 and closed['state'] == 'closed' and
+            closed['endReason'] == 'requested' and closed['outcomeMember'] is None and
+            closed['clean'] and 'stop' not in closed and closed['release']['continued'], summary)
+    backends = set()
+    for member in pair_members(closed, identities):
+        native = member['control']
+        backends.add(check_pair_retirement(member, 'detached'))
+        require(member['exitCode'] is None and native['breakpoint']['state'] == 'retired' and
+                native['breakpoint']['enrolledThreads'] == '0' and
+                native['release']['result'] == 'continued', member)
+    require(len(backends) == 2 and session.process.wait(timeout=8) == 0 and
+            all(Wait(child, 0) == WAIT_TIMEOUT and not attached(child) for child in children), summary)
+    # 脱离后的自有目标仍能执行剩余两轮并正常退出。
+    for index in range(2):
+        require(all(SetEvent(trigger) for trigger in triggers) and
+                all(Wait(done, 5000) == WAIT_OBJECT for done in completions), f'detached round {index + 1}')
+    require([checked_exit_code(child) for child in children] == [0, 0], 'detached members must exit normally')
+    log.write(f'{note} PAIR_CLOSE=PASS END_REASON=requested RETIREMENTS=detached,detached '
+              f'CLI_EXIT=0 CHILD_EXITS=0,0 PIDS={identities[0][0]},{identities[1][0]}\n')
+
+
+def pair_condition_regression(log, truth):
+    """双目标条件：部分持有不求值；完整组逐成员求值，真条件保持，假/未知自动继续。"""
+    before = win.FILETIME()
+    GetSystemTimeAsFileTime(ct.byref(before))
+    lower = (before.dwHighDateTime << 32) | before.dwLowDateTime
+    upper = lower + 60 * 10_000_000  # FILETIME counts 100 ns ticks.
+    expression = pair_condition_expression(truth, lower, upper)
+    with armed_pair(log, expression) as (session, identities, children, triggers, completions):
+        # 部分持有：不求值、不发布组令牌、不释放任何成员。
+        require(SetEvent(triggers[0]), 'trigger only the first owner')
+        partial = wait_pair(session, 'held-partial', identities)
+        condition = partial['condition']
+        require([member['held'] for member in partial['members']] == [True, False] and
+                'stop' not in partial and 'release' not in partial and condition['last'] is None and
+                condition['trueCount'] == '0' and condition['falseCount'] == '0' and
+                condition['unknownCount'] == '0' and
+                all(Wait(done, 0) == WAIT_TIMEOUT for done in completions), partial)
+        log.write('PAIR_CONDITION_PARTIAL=PASS EVALUATIONS=0 GROUP_TOKEN=absent\n')
+
+        # 完整组：同一表达式逐成员求值，任一为真保持整组。
+        require(SetEvent(triggers[1]), 'trigger the second owner')
+        action = 'hold' if truth == 'true' else 'auto-continue'
+        report, last = wait_pair_condition(session, identities, action)
+        condition = report['condition']
+        expected = {'true': '0', 'false': '0', 'unknown': '0'}
+        expected[truth] = '2'
+        require(condition['profile'] == 'predicate-expr-v2' and condition['phase'] == 'execution-enter-attempt' and
+                condition['aggregation'] == 'any-true-holds-group' and condition['expression'] == expression and
+                condition['trueCount'] == expected['true'] and condition['falseCount'] == expected['false'] and
+                condition['unknownCount'] == expected['unknown'] and
+                last['stopId'] and int(last['stateRevision']) > 0, condition)
+        members = pair_condition_members(report, identities, truth)
+        check_pair_condition_members(report, members, identities, lower, upper, truth == 'true')
+
+        token = dict(stopId=last['stopId'], stateRevision=last['stateRevision'])
+        if truth == 'true':
+            require(report['state'] == 'held-complete' and 'stop' in report and
+                    report['stop']['id'] == last['stopId'] and
+                    report['stop']['stateRevision'] == last['stateRevision'] and
+                    last['continued'] is False, report)
+            # 重复查询不改变计数，也不重新发布判定。
+            for _ in range(3):
+                again = session.status()
+                pair_members(again, identities)
+                require(again['condition']['trueCount'] == '2' and again['condition']['falseCount'] == '0' and
+                        again['condition']['unknownCount'] == '0' and again['condition']['last'] == last, again)
+            released = session.request('continue/1', 'control.continue', token)
+            receipt = released['release']
+            require(receipt['continued'] and receipt['stopId'] == last['stopId'] and
+                    receipt['stateRevision'] == last['stateRevision'] and len(receipt['members']) == 2, released)
+            require(all(Wait(done, 5000) == WAIT_OBJECT for done in completions), 'both released members must execute')
+            after = session.status()
+            require('stop' not in after and after['release']['continued'] and
+                    after['condition']['trueCount'] == '2', after)
+            # 旧组令牌：序号仍然合法，但令牌已过期。
+            stale = session.request('continue/2', 'control.continue', token, kind='error')
+            require(stale['errorId'] == 'stale-stop', stale)
+            log.write('PAIR_CONDITION_HOLD=PASS TRUE_COUNT=2 REPEAT_QUERY=unchanged '
+                      'CONTINUE=continued STALE_STOP=rejected\n')
+        else:
+            require('stop' not in report and last['continued'] is True, report)
+            require(all(Wait(done, 5000) == WAIT_OBJECT for done in completions),
+                    'auto-continued members must execute without a client request')
+            # 自动继续后客户端 continue/1 仍合法：旧组令牌报 stale-stop 而不是序号错误。
+            stale = session.request('continue/1', 'control.continue', token, kind='error')
+            require(stale['errorId'] == 'stale-stop', stale)
+            after = session.status()
+            require('stop' not in after and after['release']['continued'] and
+                    after['condition'][truth + 'Count'] == '2', after)
+            log.write(f'PAIR_CONDITION_AUTO_CONTINUE=PASS TRUTH={truth} '
+                      f'{truth.upper()}_COUNT=2 CLIENT_CONTINUE=stale-stop\n')
+
+        close_pair_condition(session, identities, children, triggers, completions, log,
+                             f'PAIR_CONDITION_TRUTH={truth}')
+
+
+MIXED_THRESHOLD_TICKS = 10 * 10_000_000  # 阈值在会话启动前冻结，给双目标启动与武装留出余量。
+MIXED_AFTER_MARGIN_TICKS = 2 * 10_000_000  # 第二成员的命中线程必须在阈值之后创建。
+ONE_SECOND_TICKS = 10_000_000  # 进程创建时间与初始线程创建时间的比较窗口。
+
+
+def mixed_pair_expression(threshold):
+    """第一成员命中主线程（创建早于阈值），第二成员命中阈值之后新建的线程。"""
+    return f'stop.thread.rip > 0xffffffffu64 && stop.thread.creationFileTime < {threshold}u64'
+
+
+def system_file_time():
+    """读取当前系统 FILETIME，与内核记录的线程创建时间同一时钟。"""
+    now = win.FILETIME()
+    GetSystemTimeAsFileTime(ct.byref(now))
+    return (now.dwHighDateTime << 32) | now.dwLowDateTime
+
+
+def wait_past(threshold, margin):
+    """等待系统时间越过阈值加余量，保证后建线程一定落在阈值之后。"""
+    limit = threshold + margin
+    while system_file_time() < limit:
+        time.sleep(0.05)
+    return system_file_time()
+
+
+def pair_condition_mixed_regression(log):
+    """同一冻结组内一真一假：任一成员为真即保持整组，显式继续后两成员都释放。"""
+    startup = system_file_time()
+    threshold = startup + MIXED_THRESHOLD_TICKS  # 启动前冻结的线程创建 FILETIME 阈值。
+    expression = mixed_pair_expression(threshold)
+    # 第二成员由新建线程执行命中点，第一成员仍由主线程命中。
+    with armed_pair(log, expression, spawn_member=1) as (session, identities, children, triggers, completions):
+        # 第一成员：主线程命中，创建时间早于阈值，该成员必须判真。
+        require(SetEvent(triggers[0]), 'trigger the main-thread owner')
+        partial = wait_pair(session, 'held-partial', identities)
+        condition = partial['condition']
+        require([member['held'] for member in partial['members']] == [True, False] and
+                'stop' not in partial and 'release' not in partial and condition['last'] is None and
+                condition['trueCount'] == '0' and condition['falseCount'] == '0' and
+                condition['unknownCount'] == '0' and
+                all(Wait(done, 0) == WAIT_TIMEOUT for done in completions), partial)
+        old_hit = partial['members'][0]['control']['hit']
+        old_created = owned_thread_creation(identities[0][0], old_hit['tid'])
+        # 首成员命中进程初始线程：创建时间与进程创建时间同量级，且早于阈值。
+        require(old_created < threshold and old_created >= startup and
+                abs(old_created - int(identities[0][1])) < ONE_SECOND_TICKS,
+                (old_hit, old_created, identities[0][1], startup, threshold))
+        log.write(f'PAIR_MIXED_PARTIAL=PASS MAIN_THREAD_TID={old_hit["tid"]} '
+                  f'MAIN_THREAD_CREATED={old_created} PROCESS_CREATED={identities[0][1]} '
+                  f'STARTUP={startup} THRESHOLD={threshold} EVALUATIONS=0 GROUP_TOKEN=absent\n')
+
+        # 第二成员：命中线程在阈值之后创建，该成员必须判假，整组仍因第一成员为真而保持。
+        require(wait_past(threshold, MIXED_AFTER_MARGIN_TICKS) >= threshold + MIXED_AFTER_MARGIN_TICKS,
+                'the mixed threshold was not reached')
+        require(SetEvent(triggers[1]), 'trigger the new-thread owner')
+        report, last = wait_pair_condition(session, identities, 'hold')
+        condition = report['condition']
+        require(condition['profile'] == 'predicate-expr-v2' and
+                condition['aggregation'] == 'any-true-holds-group' and
+                condition['expression'] == expression and condition['phase'] == 'execution-enter-attempt' and
+                condition['trueCount'] == '1' and condition['falseCount'] == '1' and
+                condition['unknownCount'] == '0' and last['action'] == 'hold' and
+                last['continued'] is False and last['stopId'] and int(last['stateRevision']) > 0, condition)
+        decisions = last['members']
+        require(len(decisions) == 2 and
+                [(item['pid'], item['creationFileTime']) for item in decisions] == identities and
+                [item['truth'] for item in decisions] == ['true', 'false'] and
+                all(item['evaluationFault'] is None and int(item['eventSerial']) > 0 and
+                    int(item['stateRevision']) > 0 for item in decisions), report)
+        # 完整组仍然双持有：真成员与假成员都停在原生事件上，组令牌同时发布。
+        require(report['state'] == 'held-complete' and 'stop' in report and
+                report['stop']['id'] == last['stopId'] and
+                report['stop']['stateRevision'] == last['stateRevision'] and
+                all(member['held'] for member in report['members']) and
+                all(member['control']['stopGroup']['state'] == 'held-complete' for member in report['members']) and
+                all(Wait(done, 0) == WAIT_TIMEOUT for done in completions), report)
+        # 独立核对两个命中线程的真实身份：主线程早于阈值，新线程晚于阈值。
+        new_hit = report['members'][1]['control']['hit']
+        new_created = owned_thread_creation(identities[1][0], new_hit['tid'])
+        require(new_created > threshold and
+                new_created - int(identities[1][1]) > ONE_SECOND_TICKS,
+                (new_hit, new_created, identities[1][1], threshold))
+        log.write(f'PAIR_MIXED_GROUP=PASS TRUE_COUNT=1 FALSE_COUNT=1 NEW_THREAD_TID={new_hit["tid"]} '
+                  f'NEW_THREAD_CREATED={new_created} HELD_MEMBERS=2\n')
+
+        # 重复查询不重复计数，也不重新发布判定。
+        for _ in range(3):
+            again = session.status()
+            pair_members(again, identities)
+            require(again['condition']['trueCount'] == '1' and again['condition']['falseCount'] == '1' and
+                    again['condition']['unknownCount'] == '0' and again['condition']['last'] == last, again)
+
+        token = dict(stopId=last['stopId'], stateRevision=last['stateRevision'])
+        released = session.request('continue/1', 'control.continue', token)
+        receipt = released['release']
+        require(receipt['continued'] and receipt['stopId'] == last['stopId'] and
+                receipt['stateRevision'] == last['stateRevision'] and len(receipt['members']) == 2, released)
+        require(all(Wait(done, 5000) == WAIT_OBJECT for done in completions), 'both released members must execute')
+        after = session.status()
+        require('stop' not in after and after['release']['continued'] and
+                after['condition']['trueCount'] == '1' and after['condition']['falseCount'] == '1', after)
+        # 旧组令牌：序号仍然合法，但令牌已过期。
+        stale = session.request('continue/2', 'control.continue', token, kind='error')
+        require(stale['errorId'] == 'stale-stop', stale)
+        log.write('PAIR_MIXED_HOLD=PASS REPEAT_QUERY=unchanged CONTINUE=continued '
+                  'RELEASED_MEMBERS=2 STALE_STOP=rejected\n')
+
+        close_pair_condition(session, identities, children, triggers, completions, log,
+                             'PAIR_MIXED_TRUTH=true,false')
+
+
 def main():
     options = argparse.ArgumentParser()
     mode = options.add_mutually_exclusive_group()
     mode.add_argument('--write-watch', action='store_true')
     mode.add_argument('--condition-registers', action='store_true')
     mode.add_argument('--cooperative-pair', action='store_true')
+    mode.add_argument('--pair-condition', action='store_true')
+    mode.add_argument('--pair-condition-mixed', action='store_true')
     options.add_argument('--expected-cli-sha256', help='Require this Release CLI SHA-256 before any fixture starts')
     args = options.parse_args()
     expected_digest = args.expected_cli_sha256.lower() if args.expected_cli_sha256 is not None else None
@@ -673,9 +947,18 @@ def main():
         with evidence.open('x', encoding='utf-8', buffering=1) as log:
             if args.cooperative_pair:
                 log.write('【子代理｜第6项调试恢复】\n')
+            if args.pair_condition:
+                log.write('【子代理｜第10项双目标条件】\n')
+            if args.pair_condition_mixed:
+                log.write('【子代理｜第10项双目标条件混合真假】\n')
             log.write(f'FORMAL_CLI_SHA256={digest}\n')
             with installed_fixture(log):
-                if args.cooperative_pair:
+                if args.pair_condition_mixed:
+                    pair_condition_mixed_regression(log)
+                elif args.pair_condition:
+                    for truth in PAIR_CONDITION_TRUTHS:
+                        pair_condition_regression(log, truth)
+                elif args.cooperative_pair:
                     cooperative_pair_regression(log)
                     cooperative_pair_exit_regression(log)
                 elif args.condition_registers:
@@ -687,7 +970,11 @@ def main():
                         regression(log, width)
     finally:
         require(fingerprint(CLI) == digest, 'formal CLI digest changed during validation')
-    if args.cooperative_pair:
+    if args.pair_condition_mixed:
+        result = 'PAIR_CONDITION_MIXED=PASS TRUTHS=true,false AGGREGATION=any-true-holds-group'
+    elif args.pair_condition:
+        result = 'PAIR_CONDITION=PASS TRUTHS=true,false,unknown'
+    elif args.cooperative_pair:
         result = 'COOPERATIVE_PAIR=PASS'
     elif args.condition_registers:
         result = 'CONDITION_REGISTERS=PASS'

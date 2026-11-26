@@ -37,6 +37,14 @@ static DWORD WINAPI WriteFromNewThread(void* value)
     return SetEvent(args->done) ? 0 : 1;
 }
 
+// 测试专用分支：本成员存在 spawn 事件时，命中点改由新建线程执行，
+// 使该成员的命中线程创建时间晚于主线程，用于区分老线程与后建线程。
+static DWORD WINAPI TickFromNewThread(void* value)
+{
+    HANDLE done = (HANDLE)value;
+    return ExportedTick(done) ? 0 : 1;
+}
+
 // 顺序执行同值写、主线程变化、新线程变化和脱离后写入，各轮由 trigger 驱动。
 static int RunWriteWatch(HANDLE trigger, HANDLE done, unsigned width)
 {
@@ -116,17 +124,42 @@ static int RunCooperativePair(HANDLE ready, HANDLE gate)
     }
     const HANDLE trigger = OpenFixtureEvent(prefix, L"trigger", SYNCHRONIZE);
     const HANDLE done = OpenFixtureEvent(prefix, L"done", EVENT_MODIFY_STATE);
+    // 仅测试模式：本成员存在 spawn 事件时，每轮命中点由新建线程执行。
+    const HANDLE spawn = OpenFixtureEvent(prefix, L"spawn", SYNCHRONIZE);
     int result = 2;
     if (trigger && done) {
         result = 0;
         // 第一轮由组继续，第二轮由关闭归还；第三轮确认脱离后的代码还能运行。
         for (unsigned round = 0; round < 3; ++round) {
-            if (WaitForSingleObject(trigger, 20000) != WAIT_OBJECT_0 || !ExportedTick(done)) {
+            if (WaitForSingleObject(trigger, 20000) != WAIT_OBJECT_0) {
+                result = 3;
+                break;
+            }
+            if (spawn) {
+                // 新建线程执行命中点：命中线程的创建时间必然晚于主线程。
+                const HANDLE worker = CreateThread(NULL, 0, TickFromNewThread, done, 0, NULL);
+                DWORD code = 1;
+                BOOL complete = FALSE;
+                if (!worker) {
+                    result = 4;
+                    break;
+                }
+                complete = WaitForSingleObject(worker, 20000) == WAIT_OBJECT_0 &&
+                    GetExitCodeThread(worker, &code) && code == 0;
+                CloseHandle(worker);
+                if (!complete) {
+                    result = 4;
+                    break;
+                }
+                continue;
+            }
+            if (!ExportedTick(done)) {
                 result = 3;
                 break;
             }
         }
     }
+    if (spawn) CloseHandle(spawn);
     if (done) CloseHandle(done);
     if (trigger) CloseHandle(trigger);
     return result;

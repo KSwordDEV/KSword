@@ -164,7 +164,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
 | `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，可选附加只读线程观察。 |
 | `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text 或 jsonl] [--backend r3]` | 持续逐轮跟踪明确授权的自有进程，可选附加只读线程观察，接受 `stop`。 |
-| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR 或 --watch-write-bytes N 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程。可使用单目标执行或写入停点，以及两个合作实例的执行停点组。 |
+| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR] [--watch-write-bytes N 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程。可使用单目标执行或写入停点，以及两个合作实例的执行停点组。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
 | `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
@@ -213,7 +213,9 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。单目标模式接受明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内。两种模式均不支持 WOW64、PDB 或 R0，异常退出后不保证恢复。
 
-`--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--condition`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，保留原始 `endReason`（`requested`、`failed` 或 `member-ended`）和已经取得的继续回执。`members[].exitCode` 来自启动时取得的进程句柄；未观察到退出时为 `null`，即使调试清退已确认。
+`--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，保留原始 `endReason`（`requested`、`failed` 或 `member-ended`）和已经取得的继续回执。`members[].exitCode` 来自启动时取得的进程句柄；未观察到退出时为 `null`，即使调试清退已确认。
+
+双目标可同时提供 `--condition EXPR`。表达式在启动前冻结，仅在两成员均真实持有时，按启动顺序分别对冻结字段求值。任一成员为 `true` 就保留整个组；两成员均为 `false` 或 `unknown` 时使用当轮组令牌自动继续全部成员。部分持有不求值或释放。`condition.aggregation` 为 `any-true-holds-group`，`condition.last.members` 保留每个成员的 PID、创建 FILETIME、原生组修订、事件序号、三值与求值错误；计数按成员累计。同一组代次查询不重复计数，自动继续不消耗客户端 `continue/N` 序号。
 
 单目标和组内成员均在取得原生凭据时返回 `retirement`：`detached` 表示已脱离，`exit-event-continued` 表示已继续进程退出事件，后者附带 `exitEvent` 和事件报告的退出码。`firstRecoveryFailure` 独立保存首次未清退阶段、Win32 错误、原生所有者及当时已知的事件和继续请求 ID，后续清退成功仍保留。事件凭据由 `backendInstanceId` 和十进制字符串 `serial` 共同定位，无凭据时对应字段为空。
 
