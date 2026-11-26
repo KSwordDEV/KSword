@@ -43,7 +43,10 @@ bool SameBinding(const NativeControlResult& displayed, const NativeControlResult
 {
     return SameInstance(displayed, current) && displayed.attached && current.attached &&
         !displayed.clean && !current.clean && displayed.breakpoint && current.breakpoint &&
-        !displayed.breakpoint->requestId.empty() && displayed.breakpoint->requestId == current.breakpoint->requestId;
+        !displayed.breakpoint->requestId.empty() && displayed.breakpoint->requestId == current.breakpoint->requestId &&
+        displayed.breakpoint->address == current.breakpoint->address &&
+        displayed.breakpoint->rangeBytes == current.breakpoint->rangeBytes &&
+        displayed.breakpoint->executionRanges == current.breakpoint->executionRanges;
 }
 
 // 明确恢复失败不能被已有Held或运行状态覆盖；原控制回执和恢复责任原样保留。
@@ -51,17 +54,26 @@ bool Unresolved(const NativeControlResult& state)
 {
     return state.status == NativeControlStatus::RecoveryRequired || state.status == NativeControlStatus::Rejected ||
         state.status == NativeControlStatus::ClosePending || state.firstRecoveryFailure.has_value() ||
-        (state.breakpoint && state.breakpoint->state == NativeBreakpointState::RecoveryRequired);
+        (state.breakpoint && state.breakpoint->state == NativeBreakpointState::RecoveryRequired) ||
+        (state.step && state.step->state == NativeStepState::RecoveryRequired) ||
+        (state.armedPause && state.armedPause->state == NativeArmedPauseState::RecoveryRequired);
 }
 
 // 输入成员条件和完整Held回执，只允许本事件同修订真条件；手动暂停与步进不沿用执行条件。
-bool ReleaseEligible(const ExecutionGroupMember& member)
+bool ReleaseEligible(const ExecutionGroupSite& site, const NativeControlResult& state, const DataWatchConditionReport& condition)
 {
-    const auto& state = member.control; // 仅显示资格计算，不查询系统。
-    if (Unresolved(state) || !OwnedExecutionGroup::Matches(state, state)) return false;
-    if (state.stopReason == NativeStopReason::ManualPause || IsDataWatchStepStop(state) || !member.site.condition.valid()) return true;
+    // 条件自动释放失败仍由原会话持有责任，不能因无条件回读恢复成Held而授予新动作。
+    if (Unresolved(state) || (condition.last && condition.last->failureStage) ||
+        !SameBinding(state, state) || !OwnedExecutionGroup::Matches(state, state))
+    {
+        return false;
+    }
+    if (state.stopReason == NativeStopReason::ManualPause || IsDataWatchStepStop(state) || !site.condition.valid())
+    {
+        return true;
+    }
     const auto* stop = DataWatchHeldStop(state); // Matches已保证stop及group完整存在。
-    const auto& last = member.condition.last;
+    const auto& last = condition.last; // 只接受本事件及修订实际求值的条件。
     return last && last->event == stop->event && last->groupId == stop->groupId &&
         last->stateRevision == state.group->stateRevision && last->evaluation.truth == Ksword::ActionAnalyze::Rules::Truth::True;
 }
@@ -95,6 +107,13 @@ public:
             // 在原会话建立 owner 前拒绝的附加没有新的原生状态；保留其明确失败而非改成 idle。
             if (!member.session->Identity().backendInstanceId.empty()) {
                 auto current = applyCondition ? member.session->Query() : member.session->QueryWithoutCondition();
+                const auto& decision = member.session->ConditionReport().last; // 原会话条件恢复责任独立于原生Query状态。
+                if (!current.clean && decision && decision->failureStage)
+                {
+                    current.status = NativeControlStatus::RecoveryRequired;
+                    current.stage = decision->failureStage;
+                    current.win32Error = decision->releaseError;
+                }
                 if (current.status != NativeControlStatus::Idle || member.current.status != NativeControlStatus::Rejected)
                     member.current = std::move(current);
             }
@@ -103,13 +122,8 @@ public:
 
     bool Eligible(const Member& member) const
     {
-        if (IsDataWatchStepStop(member.current) || member.current.stopReason == NativeStopReason::ManualPause ||
-            !member.site.condition.valid()) return true;
-        const auto* stop = DataWatchHeldStop(member.current);
-        const auto& last = member.session->ConditionReport().last;
-        return stop && last && last->event == stop->event && last->groupId == stop->groupId &&
-            last->stateRevision == member.current.group->stateRevision &&
-            last->evaluation.truth == Ksword::ActionAnalyze::Rules::Truth::True;
+        // UI与实际批次共用同一资格规则，不能因显示/调用两份逻辑漂移放行失败条件。
+        return ReleaseEligible(member.site, member.current, member.session->ConditionReport());
     }
 
     ExecutionGroupResult Result() const
@@ -217,7 +231,9 @@ bool OwnedExecutionGroup::Matches(const NativeControlResult& displayed, const Na
 {
     const auto* selected = DataWatchHeldStop(displayed);
     const auto* live = DataWatchHeldStop(current);
-    if (!SameInstance(displayed, current) || !selected || !live || !displayed.pending || !current.pending ||
+    if (!SameBinding(displayed, current) || Unresolved(displayed) || Unresolved(current) ||
+        displayed.status != NativeControlStatus::Held || current.status != NativeControlStatus::Held ||
+        !selected || !live || !displayed.pending || !current.pending ||
         selected->event != live->event || selected->groupId != live->groupId || selected->stopId != live->stopId ||
         selected->actualEventThread != live->actualEventThread || selected->state != live->state ||
         selected->lastRequestId != live->lastRequestId || displayed.status != current.status ||
@@ -273,20 +289,23 @@ bool OwnedExecutionGroup::MatchesStep(const NativeControlResult& displayed, cons
 bool OwnedExecutionGroup::MatchesPause(const NativeControlResult& displayed, const NativeControlResult& current)
 {
     return SameBinding(displayed, current) && !Unresolved(displayed) && !Unresolved(current) && CanPauseDataWatchSession(displayed) &&
-        CanPauseDataWatchSession(current) && !displayed.breakpoint->requestId.empty() &&
-        displayed.breakpoint->requestId == current.breakpoint->requestId;
+        CanPauseDataWatchSession(current) &&
+        (displayed.status == NativeControlStatus::Accepted || displayed.status == NativeControlStatus::Released) &&
+        (current.status == NativeControlStatus::Accepted || current.status == NativeControlStatus::Released);
 }
 
 bool OwnedExecutionGroup::CanPauseMember(const ExecutionGroupMember& member)
 {
     const auto& state = member.control; // 混合暂停允许保留精确Held，无须重新提交Pause。
-    return !Unresolved(state) && SameBinding(state, state) &&
+    return !(member.condition.last && member.condition.last->failureStage) && !Unresolved(state) && SameBinding(state, state) &&
         (Matches(state, state) || MatchesPause(state, state));
 }
 
 bool OwnedExecutionGroup::CanContinueMember(const ExecutionGroupMember& member)
 {
-    return ReleaseEligible(member) || MatchesPause(member.control, member.control); // Armed运行者只记already-running。
+    // 明确条件恢复责任不能因当前原生看似Armed就变成already-running。
+    return !(member.condition.last && member.condition.last->failureStage) &&
+        (ReleaseEligible(member.site, member.control, member.condition) || MatchesPause(member.control, member.control));
 }
 
 // 新session表先核验全体原owner，不把裸PID转换为权威票据。后续旧接口再次回读并核对完整状态。
@@ -341,8 +360,14 @@ ExecutionGroupResult OwnedExecutionGroup::Pause(std::span<const NativeControlRes
     for (const auto& state : displayedSessions)
     {
         auto& member = *self.Find(state); // 原session再次核对活绑定并分配自身pause/N，不创建第二owner。
-        if (Matches(state, member.current)) self.Already(member, "already-held");
-        else self.Outcome(member, member.session->Pause(state));
+        if (Matches(state, member.current))
+        {
+            self.Already(member, "already-held");
+        }
+        else
+        {
+            self.Outcome(member, member.session->Pause(state));
+        }
     }
     return self.Result(); // 逐成员原回执分列；Pending与Held不混为同时冻结。
 }
@@ -366,8 +391,14 @@ ExecutionGroupResult OwnedExecutionGroup::Continue(std::span<const NativeControl
     // 前置核对不是跨进程事务；每个原会话仍在实际调用前再次核对自己的完整票据。
     for (const auto& stop : displayedStops) {
         auto& member = *self.Find(stop);
-        if (MatchesPause(stop, member.current)) self.Already(member, "already-running");
-        else self.Outcome(member, member.session->Continue(stop));
+        if (MatchesPause(stop, member.current))
+        {
+            self.Already(member, "already-running");
+        }
+        else
+        {
+            self.Outcome(member, member.session->Continue(stop));
+        }
     }
     return self.Result();
 }

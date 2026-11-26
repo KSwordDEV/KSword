@@ -37,7 +37,7 @@ public:
             if (!Emit("hello", {}, V::makeObject({{"sampleId", Text(identity_.sampleId)}, {"control", p::Report(started, !jsonl_)},
                 {"protocol", V::makeObject({{"maxMembers", V::makeUInt(n::kOwnedExecutionGroupLimit)},
                     {"mutationRequestId", Text("execution/<strictly increasing canonical positive uint64>")},
-                    {"replayEntries", V::makeUInt(128)}, {"stopToken", Text("Pause copies member.pauseToken; continue/step copy member.stopToken; step-cancel copies member.stepToken")},
+                     {"replayEntries", V::makeUInt(128)}, {"stopToken", Text("Mixed pause/continue copy complete member.sessionToken entries; legacy lists combine pauseToken for running members and stopToken for Held; step/cancel retain stopToken/stepToken")},
                     {"pauseScope", Text("all/selected validate every explicit session first; exact Held is already-held; Armed bindings call original Pause")},
                     {"continueScope", Text("all/selected validate every explicit session first; exact Held calls Continue; Armed running is already-running")},
                     {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
@@ -170,24 +170,52 @@ private:
         if (tokens.empty() || tokens.size() > n::kOwnedExecutionGroupLimit || (!scoped && tokens.size() != 1) ||
             (scoped && scope != "all" && scope != "selected") || (step && mode != "into" && mode != "over-call" && mode != "out"))
             return Invalid(request, "invalid-selection", "Provide explicit nonempty stops and valid scope or mode; step/cancel select exactly one");
-        for (const auto& token : tokens) {
-            if (scoped && (sessionTable || token.find("owner"))) {
+        // 输入完整批次令牌；输出只含同一种形状的值数组，不借用现场状态补票。
+        for (const auto& token : tokens)
+        {
+            if (scoped && (sessionTable || token.find("owner")))
+            {
                 n::ExecutionGroupSessionEntry entry; // 原样解析完整owner与control，不补现场数据。
-                if (!p::ParseSessionToken(token, entry)) return Invalid(request, "invalid-session-token", "Copy complete member.sessionToken");
+                if (!p::ParseSessionToken(token, entry))
+                {
+                    return Invalid(request, "invalid-session-token", "Copy complete member.sessionToken");
+                }
                 sessions.push_back(std::move(entry));
                 continue;
             }
-            n::NativeControlResult state;
-            if (!p::ParseStopToken(token, state)) return Invalid(request, "invalid-stop-token", "Copy each complete current member token");
+            n::NativeControlResult state; // 兼容旧完整control列表，仍严格解析全部停止和绑定字段。
+            if (!p::ParseStopToken(token, state))
+            {
+                return Invalid(request, "invalid-stop-token", "Copy each complete current member token");
+            }
             stops.push_back(std::move(state));
         }
-        if (!sessions.empty() && !stops.empty()) return Invalid(request, "mixed-token-shapes", "Use one complete session table or one legacy token list");
+        if (!sessions.empty() && !stops.empty())
+        {
+            return Invalid(request, "mixed-token-shapes", "Use one complete session table or one legacy token list");
+        }
         const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : "step-cancel")},
             {"scope", Text(scope)}, {"mode", Text(mode)}, {"stops", V::makeArray(tokens)}}));
         return Mutate(request, std::move(id), signature, [&] {
-            const auto result = pause ? (sessions.empty() ? group_.Pause(stops, scope == "all") : group_.Pause(sessions, scope == "all")) :
-                resume ? (sessions.empty() ? group_.Continue(stops, scope == "all") : group_.Continue(sessions, scope == "all")) : cancel ? group_.CancelStep(stops.front()) :
-                group_.Step(stops.front(), mode == "into" ? n::NativeStepMode::Into : mode == "over-call" ? n::NativeStepMode::OverCall : n::NativeStepMode::Out);
+            n::ExecutionGroupResult result; // 一次幂等修改仅派发一个原集合动作，并保存其全部成员结果。
+            if (pause)
+            {
+                result = sessions.empty() ? group_.Pause(stops, scope == "all") : group_.Pause(sessions, scope == "all");
+            }
+            else if (resume)
+            {
+                result = sessions.empty() ? group_.Continue(stops, scope == "all") : group_.Continue(sessions, scope == "all");
+            }
+            else if (cancel)
+            {
+                result = group_.CancelStep(stops.front());
+            }
+            else
+            {
+                const auto stepMode = mode == "into" ? n::NativeStepMode::Into :
+                    mode == "over-call" ? n::NativeStepMode::OverCall : n::NativeStepMode::Out; // 已校验的三种单成员步进。
+                result = group_.Step(stops.front(), stepMode);
+            }
             return p::Report(result, !jsonl_);
         });
     }
