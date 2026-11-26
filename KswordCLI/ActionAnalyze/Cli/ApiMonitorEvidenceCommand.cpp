@@ -294,10 +294,11 @@ std::optional<Result> ReplayCooperative(const project::ProjectDocument& document
         }
     }
     if (!checkpoint.ordinal) {
-        return Failure(status.error == project::ProjectError::NotFound ? 5 : 4,
+        return Failure(invalid ? 4 : 5,
+    // 结束回执有写端已确认的水位；在这个范围内缺检查点同样是回读故障。
+    const bool invalid = !status && (status.error != project::ProjectError::NotFound || checkpoint.ordinal < through);
             L"archive-invalid-or-incomplete", 0, status.nativeError, sample, status.detail);
     }
-    const bool invalid = !status && status.error != project::ProjectError::NotFound; // 缺失发布与坏段分开报告。
     return Result{invalid ? 4 : 0, Json::object({{L"status", Json::string(checkpoint.finalSegment ? L"readback-verified" : L"readback-prefix")},
         {L"sampleId", Json::string({sample.begin(), sample.end()})}, {L"rawSegment", Json::count(1)},
         {L"committedSegments", Json::count(checkpoint.ordinal)}, {L"finalSegment", Json::boolean(checkpoint.finalSegment)},
