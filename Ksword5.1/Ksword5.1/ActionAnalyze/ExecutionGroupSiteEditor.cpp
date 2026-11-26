@@ -2,6 +2,7 @@
 #include "ExecutionGroupSiteEditor.h"
 #include "PrivateAddressWatchFields.h"
 #include "../../../KswordCLI/ActionAnalyze/Control/NativeBreakpointImageIdentity.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/SecondaryPageLayout.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -71,6 +72,11 @@ namespace ks::action_analyze
         m_imageSha256->setMaxLength(128); // 超过64位仍保留为非法输入，不能截成有效散列后发送。
         addRow(QStringLiteral("期望映像 SHA256（可选）"), m_imageSha256);
         language.bindToolTip(m_imageSha256, {}, QStringLiteral("仅模块导出或 RVA 可填写64位小写十六进制 SHA256；留空不设约束。原生所有者核验实际调试装载文件后才武装断点，不自动采集。"));
+        m_definitionId = new QLineEdit(body); // 高级关联草稿不替代明确模块和RVA，启动前统一核对。
+        m_definitionId->setObjectName(QStringLiteral("execution_group_definition_id"));
+        m_definitionId->setMaxLength(128); // 超长ID保留为非法输入，不截成有效UUID。
+        addRow(QStringLiteral("冻结断点定义 ID（可选）"), m_definitionId);
+        language.bindToolTip(m_definitionId, {}, QStringLiteral("仅模块 RVA 可关联项目断点定义。启动前核对本轮采样冻结的启用定义、模块名、RVA 与映像散列；任一不符时不附加任何成员。"));
         m_condition = new QLineEdit(body);
         m_condition->setMaxLength(8192);
         addRow(QStringLiteral("命中条件"), m_condition);
@@ -96,6 +102,7 @@ namespace ks::action_analyze
         m_form->setRowVisible(m_moduleRow, image);
         m_form->setRowVisible(m_location, image);
         m_form->setRowVisible(m_imageSha256, image); // 不清除隐藏草稿；Prepare只在模块分支发送。
+        m_form->setRowVisible(m_definitionId, m_kind->currentIndex() == 1); // 不把定义ID发送给导出或私有地址站点。
     }
 
     // 输入保存的单成员草稿，回填全部参数；实际绑定的测量散列不能覆盖期望值。
@@ -108,6 +115,10 @@ namespace ks::action_analyze
         if (!site.address)
         {
             m_imageSha256->setText(site.imageSha256 ? QString::fromStdString(*site.imageSha256) : QString());
+        }
+        if (site.rva)
+        {
+            m_definitionId->setText(QString::fromStdString(site.definitionId)); // 显式载入完整保存项，隐藏模式保留之前草稿。
         }
         m_condition->setText(QString::fromStdWString(site.conditionSource));
         m_kind->setCurrentIndex(kind);
@@ -159,6 +170,12 @@ namespace ks::action_analyze
                 if (!parsed.rva)
                 {
                     error = sourceText(QStringLiteral("请输入非零的 32 位模块 RVA。"));
+                    return false;
+                }
+                parsed.definitionId = m_definitionId->text().toUtf8().toStdString(); // 不修剪或重写定义身份。
+                if (!parsed.definitionId.empty() && !Ksword::ActionAnalyze::ProjectStorage::IsUuid(parsed.definitionId))
+                {
+                    error = sourceText(QStringLiteral("冻结断点定义 ID 须为空或规范 UUID。"));
                     return false;
                 }
             }

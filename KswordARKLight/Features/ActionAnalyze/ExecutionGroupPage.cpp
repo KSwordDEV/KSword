@@ -77,11 +77,13 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
             RebuildColumns(*page);
             Refresh(*page);
         } else if ((id == kTextMode || id == kDraft) && code == CBN_SELCHANGE) RefreshText(*page);
-        else if (id == kAddress && code == EN_CHANGE)
+        else if ((id == kAddress || id == kExport) && code == EN_CHANGE)
         {
             const bool image = InputText(page->inputs[Address]).empty(); // 仅在机制可见性改变时重新布局，逐字符编辑不重排页面。
             const bool shown = (::GetWindowLongPtrW(page->inputs[ImageSha256], GWL_STYLE) & WS_VISIBLE) != 0;
-            if (image != shown)
+            const bool definition = image && InputText(page->inputs[Export]).empty(); // 精确导出不发送隐藏的RVA定义草稿。
+            const bool definitionShown = (::GetWindowLongPtrW(page->inputs[DefinitionId], GWL_STYLE) & WS_VISIBLE) != 0;
+            if (image != shown || definition != definitionShown)
             {
                 Layout(*page); // 地址切到私有机制时隐藏散列行，保留其文本和原集合结果。
             }

@@ -24,9 +24,13 @@ bool ValidSite(const ExecutionGroupSite& site)
         return false; // 所有成员在任何附加前核对约束格式，不把空值或大写隐式改写。
     }
     if (site.address) {
-        return site.modulePath.empty() && !site.rva && site.exactExport.empty() && !site.imageSha256 &&
+        return site.modulePath.empty() && !site.rva && site.exactExport.empty() && !site.imageSha256 && site.definitionId.empty() &&
             (!site.rangeBytes || (!(site.address % 4096) && !(site.rangeBytes % 4096) &&
                 site.rangeBytes <= 64ull * 4096 && site.address <= UINT64_MAX - site.rangeBytes));
+    }
+    if (!site.definitionId.empty() && (!Ksword::ActionAnalyze::ProjectStorage::IsUuid(site.definitionId) || !site.rva))
+    {
+        return false; // 冻结定义只支持模块RVA，不把PDB符号或私有地址混入同一激活语义。
     }
     const auto& path = site.modulePath;
     return !site.rangeBytes && path.size() > 3 && path.size() <= 32767 &&

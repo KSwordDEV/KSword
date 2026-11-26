@@ -96,7 +96,7 @@ struct LightExecutionGroupSession::Shared {
                         if (!group) {
                             group = std::make_unique<execution_native::OwnedExecutionGroup>();
                             archive = std::make_unique<Ksword::ActionAnalyze::ExecutionGroupArchive>();
-                            if (archive->Prepare(request->projectDirectory, request->openExistingProject))
+                            if (archive->Prepare(request->projectDirectory, request->openExistingProject) && archive->ResolveSites(request->sites))
                             {
                                 // 真实sample在附加前创建，全部成员共享身份而不共享调试owner。
                                 Publish(group->Start(std::move(request->sites), request->authorized,

@@ -1,5 +1,6 @@
 #include "ExecutionGroupArchive.h"
 #include "ProjectStorage.h"
+#include "SampleImageDefinition.h"
 
 #include <algorithm>
 
@@ -130,6 +131,47 @@ bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExis
         project_.reset(); // 保留实际失败和已创建项目身份，但归还尚未使用的writer。
     }
     return static_cast<bool>(view_.setup);
+}
+
+// 输入Start冻结的完整目录；先解析副本再统一提交，任何定义错误都在首个附加前停止。
+bool ExecutionGroupArchive::ResolveSites(std::vector<native::ExecutionGroupSite>& sites)
+{
+    auto resolved = sites; // 失败时不把部分成员的继承散列写回原目录。
+    for (auto& site : resolved)
+    {
+        if (site.definitionId.empty())
+        {
+            continue; // 手工站点保持原语义，不要求必须存在项目定义。
+        }
+        if (!project_ || !view_.writerHeld || site.address || !site.rva || !site.exactExport.empty())
+        {
+            view_.setup = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionProjectRvaRequired"};
+            break;
+        }
+        std::uint32_t rva = 0; // 仅由本轮sample冻结配置解析，不读取项目后来修订。
+        std::optional<std::string> hash; // 冻结的期望映像约束，由原native核验实际文件。
+        view_.setup = ResolveSampleImageDefinition(*project_, view_.sampleId, site.definitionId, site.modulePath, rva, &hash);
+        if (!view_.setup)
+        {
+            break;
+        }
+        if (*site.rva != rva || (site.imageSha256 && hash && site.imageSha256 != hash))
+        {
+            view_.setup = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionSiteMismatch"};
+            break; // 手工输入不能覆盖冻结RVA或弱化已保存的映像散列。
+        }
+        if (hash)
+        {
+            site.imageSha256 = std::move(hash); // 未手填散列时继承冻结定义，不从磁盘同名文件补值。
+        }
+    }
+    if (!view_.setup)
+    {
+        Close(); // 尚未启动任一成员；失败直接释放本次未使用的项目写租约。
+        return false;
+    }
+    sites = std::move(resolved);
+    return true;
 }
 
 // 显式保存只回读已有owner；不会自动求值条件、暂停其它成员或保存上一次事件。

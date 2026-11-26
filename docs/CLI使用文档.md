@@ -255,6 +255,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 执行集合可用 `--project PATH` 新建项目，或 `--project PATH --open-project` 打开已有项目；两者都在附加前创建本轮新采样。REPL `execution-save execution/N TOKENHEX`、JSONL `control.execution.save`（空 params，expected 携 collectionId 和唯一完整 stopToken）显式保存当前成员执行观察到同采样 `raw-native`，不继续任何成员。`executionArchive` 分别报告真实项目/采样、事件、段号、written/flushed/verified、去重和首次追加失败；ManualPause 不构成执行证据。Qt 和 Light 执行集合入口同步提供项目草稿、保存动作及同源详情。新增接线尚未构建或实测。
 
+执行集合的模块 RVA 站点支持可选 `definitionId`。它引用本轮采样冻结的启用 RVA 定义，要求项目、模块名及 RVA 一致，并继承定义的映像 SHA256；冲突或缺失在任何附加前拒绝。Qt/Light 提供相同字段；手工导出和私有站点不发送隐藏定义草稿。完整全局定义自动激活及 PDB 符号解析仍未实现。
+
 执行集合的模块站点可选 `imageSha256`（64个小写十六进制字符），支持精确导出及RVA。每个原成员owner对实际模块基址对应的调试装载事件文件核验后才武装DR0；期望值在 `site.imageSha256`，实测成功值在 `control.breakpoint.imageSha256`，私有地址禁止该字段。不能取得原事件文件或散列不符只清退对应成员，成功成员继续保留。该新增集合约束仍待构建和运行。
 
 执行集合也支持单成员 `control.execution.range.add`：`params:{address,bytes}` 用规范正十进制字符串，`expected:{collectionId,stops:[完整当前NX停点票据]}`。REPL为 `execution-range-add execution/N ADDRESS BYTES TOKENHEX`。它沿原成员owner追加明确整页范围，保留原停点、初始站点和总64页预算，不继续目标；ManualPause允许追加。`canAddRange`、实际 `executionRanges` 和独立 `executionRange` 回执分列。该新增入口尚未构建或实测。

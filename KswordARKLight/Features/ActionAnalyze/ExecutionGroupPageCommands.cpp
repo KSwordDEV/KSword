@@ -1,5 +1,6 @@
 #include "ExecutionGroupPageState.h"
 #include "../../../KswordCLI/ActionAnalyze/Control/NativeBreakpointImageIdentity.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 #include "../../Ui/ExportUtil.h"
 #include "../../../shared/evidence/NumericTextParse.h"
 #include <algorithm>
@@ -76,6 +77,24 @@ bool Site(Page& page, execution_native::ExecutionGroupSite& site)
     // 模块站点才冻结用户期望散列；私有地址保留隐藏输入，但不会将其放入请求。
     if (!site.address)
     {
+        if (site.rva)
+        {
+            const auto definition = InputText(page.inputs[DefinitionId]); // 模块RVA严格保留定义原文，不允许窄化Unicode。
+            for (const auto character : definition)
+            {
+                if (character > 127)
+                {
+                    page.error = L"冻结断点定义ID须为空或规范UUID，且只适用于模块RVA。";
+                    return false;
+                }
+                site.definitionId.push_back(static_cast<char>(character));
+            }
+            if (!site.definitionId.empty() && !Ksword::ActionAnalyze::ProjectStorage::IsUuid(site.definitionId))
+            {
+                page.error = L"冻结断点定义ID须为空或规范UUID，且只适用于模块RVA。";
+                return false;
+            }
+        }
         const auto expected = InputText(page.inputs[ImageSha256]); // 保留原文，不自动去空白或转小写。
         if (!expected.empty())
         {
@@ -121,7 +140,8 @@ void LoadDraft(Page& page)
     const std::array<std::wstring, FieldCount> values{std::to_wstring(site.pid), std::to_wstring(site.creationFileTime),
         site.modulePath, site.rva ? hex(*site.rva) : L"", Widen(site.exactExport), site.address ? hex(site.address) : L"",
         site.rangeBytes ? std::to_wstring(site.rangeBytes) : L"", site.conditionSource,
-        site.address ? InputText(page.inputs[ImageSha256]) : site.imageSha256 ? Widen(*site.imageSha256) : L""};
+        site.address ? InputText(page.inputs[ImageSha256]) : site.imageSha256 ? Widen(*site.imageSha256) : L"",
+        site.rva ? Widen(site.definitionId) : InputText(page.inputs[DefinitionId])};
     for (std::size_t i = 0; i < FieldCount; ++i) ::SetWindowTextW(page.inputs[i], values[i].c_str());
     // 载入只改变编辑草稿；旧集合来源和成员选择保持不变。
     Layout(page); // 地址机制决定散列行显隐；私有站点载入不抹去之前隐藏的散列输入。

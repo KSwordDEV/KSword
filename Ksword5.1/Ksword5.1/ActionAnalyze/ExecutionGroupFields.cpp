@@ -312,11 +312,23 @@ namespace ks::action_analyze
                 .field(QStringLiteral("期望映像 SHA256"), site.imageSha256
                     ? QString::fromStdString(*site.imageSha256) : sourceText(QStringLiteral("未指定")))
                 .field(QStringLiteral("命中条件"), QString::fromStdWString(site.conditionSource));
+            if (!site.definitionId.empty())
+            {
+                document.field(QStringLiteral("冻结断点定义 ID（可选）"), QString::fromStdString(site.definitionId)); // 草稿选择不会覆盖已核对结果。
+            }
             for (const auto& member : snapshot.result.members)
             {
                 if (member.site.pid != site.pid || member.site.creationFileTime != site.creationFileTime)
                 {
                     continue;
+                }
+                if (!member.site.definitionId.empty())
+                {
+                    // 实际核对后的继承约束来自worker冻结目录，不能以原输入框空值显示成无约束。
+                    document.section(QStringLiteral("冻结定义绑定"))
+                        .field(QStringLiteral("冻结断点定义 ID（可选）"), QString::fromStdString(member.site.definitionId))
+                        .field(QStringLiteral("期望映像 SHA256"), member.site.imageSha256
+                            ? QString::fromStdString(*member.site.imageSha256) : sourceText(QStringLiteral("未指定")));
                 }
                 document.field(QStringLiteral("采样 ID"), QString::fromStdString(member.owner.sampleId))
                     .field(QStringLiteral("会话 ID"), QString::fromStdString(member.owner.sessionId))

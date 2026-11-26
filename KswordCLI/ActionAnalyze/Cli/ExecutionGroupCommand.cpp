@@ -43,7 +43,7 @@ public:
     {
         if (const auto fault = transport_.Start(jsonl_)) { std::cerr << fault.message << '\n'; return fault.code; }
         try {
-            if (!archive_.Prepare(projectDirectory_, openExisting_))
+            if (!archive_.Prepare(projectDirectory_, openExisting_) || !archive_.ResolveSites(sites_))
             {
                 // 项目或采样失败在任何附加前报告，原集合仍为空，不创建隐式替代项目。
                 (void)Emit("error", {}, Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
@@ -371,6 +371,7 @@ void RegisterExecutionGroupCommand()
         L"Optional imageSha256 is exactly 64 lowercase hex characters; the original member owner verifies the actual debug-load event file before arming DR0. Private sites reject this field. "
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
+        L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
     command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; quit. Copy full replToken bytes, never a member index. "

@@ -38,6 +38,8 @@ class ExecutionGroupArchive final {
 public:
     // 输入显式目录及新建/打开方式，输出准备结果；已有项目也只创建本轮新sample。
     bool Prepare(const std::wstring& directory, bool openExisting);
+    // 在任何成员附加前核对全部可选冻结定义；成功继承约束，失败保留原草稿并归还未使用writer。
+    bool ResolveSites(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites);
     // 输入完整原成员owner/control；先无条件回读，匹配精确事件后写raw-native，不Continue。
     void Save(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed);

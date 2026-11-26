@@ -20,6 +20,7 @@ struct ExecutionGroupSite {
     std::wstring conditionSource; // 冻结原文，供端侧显示，不重新编译或热替换。
     Ksword::ActionAnalyze::Rules::PreparedPredicate condition;
     std::optional<std::string> imageSha256; // 可选模块文件SHA256约束，由原owner对装载事件文件核验；私有地址不接受。
+    std::string definitionId; // 可选项目冻结RVA定义ID，启动前由原项目writer核对全部站点。
 };
 
 enum class ExecutionGroupState { Idle, Active, HeldPartial, HeldComplete, PartialFailure, RecoveryRequired, Closing, Closed };

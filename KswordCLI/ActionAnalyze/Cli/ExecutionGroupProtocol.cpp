@@ -1,4 +1,5 @@
 #include "ExecutionGroupProtocol.h"
+#include "../Project/ProjectStorage.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -168,10 +169,11 @@ std::vector<n::ExecutionGroupSite> ReadSites(const std::wstring& path)
         const auto* rva = value.find("rva");
         const auto* name = value.find("exactExport");
         const auto* imageHash = value.find("imageSha256"); // 可选输入约束独立于模块定位和条件。
-        const std::size_t expected = 4 + (expression ? 1 : 0) + (imageHash ? 1 : 0);
+        const auto* definition = value.find("definitionId"); // 只标识冻结RVA定义；实际配置由本轮sample提供。
+        const std::size_t expected = 4 + (expression ? 1 : 0) + (imageHash ? 1 : 0) + (definition ? 1 : 0);
         if (object->size() != expected) throw std::invalid_argument("Site has unknown or missing fields");
         if (address) {
-            if (rva || name || imageHash || value.find("module") || !Number(address, site.address) || !Number(value.find("rangeBytes"), site.rangeBytes, true))
+            if (rva || name || imageHash || definition || value.find("module") || !Number(address, site.address) || !Number(value.find("rangeBytes"), site.rangeBytes, true))
                 throw std::invalid_argument("Private site requires decimal-string address and rangeBytes only");
         } else {
             std::string module;
@@ -181,6 +183,11 @@ std::vector<n::ExecutionGroupSite> ReadSites(const std::wstring& path)
                 throw std::invalid_argument("Image site requires absolute module and exactly one numeric rva or exactExport");
             site.modulePath = Wide(module);
             if (rva) site.rva = offset;
+            if (definition && (!rva || !String(definition, site.definitionId, 36) ||
+                !Ksword::ActionAnalyze::ProjectStorage::IsUuid(site.definitionId)))
+            {
+                throw std::invalid_argument("definitionId requires a canonical UUID and module+rva site");
+            }
             if (imageHash)
             {
                 std::string hash; // 请求中的规范小写SHA256，不读取本地同名路径补值。

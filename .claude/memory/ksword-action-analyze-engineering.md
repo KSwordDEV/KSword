@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第6项集合冻结定义源码。** `ExecutionGroupArchive::ResolveSites`在首个成员附加前以副本解析全部模块RVA站点的可选`definitionId`，复用`ResolveSampleImageDefinition`读取本轮sample冻结启用定义，核对模块名/RVA并继承映像散列；冲突、缺项目或不支持定位在附加前失败并释放未使用writer。Qt/Light/CLI同入口，结果保留实际解析后站点和期望散列；隐藏模式保留草稿但不发送。项目失败沿原空集合清退再启动恢复。只是显式实例站点引用，不是完整全局定义自动激活，不解析PDB。本批未构建、测试、GUI、派发或推送。
+
 - **2026-11-26 执行集合显式保存三端源码。** `Project/ExecutionGroupArchive`在原worker准备可选新项目／打开项目及本轮新sample，全部原成员沿用真实sample；保存前`OwnedExecutionGroup::QueryWithoutCondition`回读原owner完整事件，不求同伴条件、不Continue。`native-execution-v3`原写入器保留18寄存器、事件绑定、NX范围及实测散列，backend/serial去重；真实追加失败阻止跳段，保留首次失败及written/flushed/verified。CLI `--project PATH [--open-project]`与`execution-save`／`control.execution.save`；Qt／Light原执行集合参数页、原worker、详情同步接入。导航为“监控→行为分析→执行断点集合”，类型为参数执行＋管理表（None）＋同源字段详情，沿用ParameterWorkspace；对照原DataWriteWatch及ProcessGroupMemoryPane。全部新增仅源码，无构建／测试／GUI／验收回执／推送。继续禁止新增CodeBuddy任务，已派两项仍等待自动最终消息，不轮询。
 
 - **2026-11-26 进度口径纠正，交接保留。** 用户质疑“整体70%”是否为应付目标；主代理已明确收回整体70%及±10%说法。这些数值没有统一任务分母或权重，混合了历史实证与新源码接线，不能证明达到70%目标。以后按“历史正式产品已验范围／新增源码已接待验／明确未实现”报告，不以新增提交数量或主观平均数提高完成度，不为重新算百分比增加审查和验收任务。

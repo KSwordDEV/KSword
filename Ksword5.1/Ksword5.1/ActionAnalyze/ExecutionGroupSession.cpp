@@ -109,7 +109,7 @@ namespace ks::action_analyze
                         {
                         case ExecutionGroupCommand::Start:
                             started = true;
-                            if (archive.Prepare(request.projectDirectory, request.openExistingProject))
+                            if (archive.Prepare(request.projectDirectory, request.openExistingProject) && archive.ResolveSites(request.sites))
                             {
                                 // 先创建本轮采样，再给全部原成员同一真实sample；失败不附加任何目标。
                                 result = group->Start(std::move(request.sites), request.authorized,

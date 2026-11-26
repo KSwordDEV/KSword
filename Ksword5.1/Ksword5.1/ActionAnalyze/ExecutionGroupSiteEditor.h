@@ -27,6 +27,7 @@ namespace ks::action_analyze
         QLineEdit* m_module = nullptr; // 用户明确选择的绝对DOS模块路径。
         QLineEdit* m_location = nullptr; // 区分大小写导出或非零RVA草稿。
         QLineEdit* m_imageSha256 = nullptr; // 用户显式期望散列；私有模式隐藏并保留，不随请求发送。
+        QLineEdit* m_definitionId = nullptr; // 可选项目冻结RVA定义ID；只有模块RVA模式发送。
         QLineEdit* m_condition = nullptr; // 当前单成员条件原文，与活集合分离。
         QWidget* m_moduleRow = nullptr; // 文件选择器与模块输入共用一行。
     };

@@ -190,6 +190,7 @@ V Report(const n::ExecutionGroupResult& result, bool repl)
             if (site.rva) config.emplace_back("rva", V::makeUInt(*site.rva));
             else config.emplace_back("exactExport", Text(site.exactExport));
             if (site.imageSha256) config.emplace_back("imageSha256", Text(*site.imageSha256)); // 冻结期望值，与原control实测值分开。
+            if (!site.definitionId.empty()) config.emplace_back("definitionId", Text(site.definitionId)); // 本轮已核对的冻结定义关联。
         }
         const bool held = n::DataWatchHeldStop(member.control) != nullptr;
         const bool stepping = member.control.step.has_value();

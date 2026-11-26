@@ -284,6 +284,7 @@ void RefreshText(Page& page)
             text += L"\r\n\r\n选中草稿=" + std::to_wstring(site.pid) + L" / " + std::to_wstring(site.creationFileTime) +
                 L"\r\n草稿执行站点=" + SiteText(site) +
                 L"\r\n草稿期望映像 SHA256=" + (site.imageSha256 ? Widen(*site.imageSha256) : L"未指定");
+            text += L"\r\n冻结断点定义ID=" + Widen(site.definitionId); // 原草稿引用，不冒充已激活。
         }
         const auto selected = SelectedRows(page);
         if (selected.empty()) text += L"\r\n请选择成员查看冻结站点、原生身份和完整票据。";
@@ -297,6 +298,7 @@ void RefreshText(Page& page)
                 std::to_wstring(member.condition.trueCount) + L"/" + std::to_wstring(member.condition.falseCount) + L"/" + std::to_wstring(member.condition.unknownCount);
             text += L"\r\n最近操作回执=" + MemberOutcomeText(result, member);
             text += L"\r\n冻结期望映像 SHA256=" + (member.site.imageSha256 ? Widen(*member.site.imageSha256) : L"未指定"); // 与实际装载文件测量值分列。
+            text += L"\r\n已核对冻结断点定义ID=" + Widen(member.site.definitionId); // 原worker启动前已核对的sample引用。
             if (member.condition.last) {
                 const auto& last = *member.condition.last;
                 text += L"\r\n最近条件 event=" + std::to_wstring(last.event.serial) + L" group=" + Widen(last.groupId) +
