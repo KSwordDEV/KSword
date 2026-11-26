@@ -1629,7 +1629,7 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
                     const auto extras = reasons & ~static_cast<DWORD64>(kDr0Local); // 除本端DR0以外的同时命中位。
                     const bool ownedStepReason = stepStopped && verifiedReasons_ &&
                         event.dwThreadId == receipt.request.tid &&
-                        ((receipt.request.mode == NativeStepMode::Into && extras == 0x4000) ||
+                        ((NativeStepUsesSingleInstructionTrap(receipt) && extras == 0x4000) ||
                             (receipt.destination && extras == 2 && address == *receipt.destination));
                     if (ownedStepReason)
                     {

@@ -512,7 +512,8 @@ void RegisterExecutionGroupCommand()
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
         L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
-    command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
+    command.notes = L"over-call steps over decoded CALLs at their return boundary and performs one TF step for supported non-CALL instructions, retaining the original requested mode and destination:null. "
+        L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
         L"memory-read execution/N ADDRESS BYTES TOKENHEX; memory-save execution/N TRACKING_EPOCH; "
         L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]; quit. Copy full replToken bytes, never a member index. "

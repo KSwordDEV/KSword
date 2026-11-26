@@ -280,12 +280,13 @@ NativeStepError NativeStepRuntime::Destination(const CONTEXT& context, std::opti
             return {"step-instruction-overflow", ERROR_INVALID_DATA};
         callReturn_ = ip + instruction.size;
     }
-    if (receipt_.request.mode == NativeStepMode::OverCall) {
-        if (!instruction.call) return {"step-over-requires-call", ERROR_NOT_SUPPORTED};
+    if (receipt_.request.mode == NativeStepMode::OverCall && instruction.call) {
         destination = callReturn_;
         expectedSp_ = Sp(context);
         return Executable(*destination);
     }
+    // 普通指令的步过等价于单条TF；不以ip+长度猜测跳转/RET后的实际位置。
+    // request.mode仍保留用户原OverCall，destination为空明确表示本轮没有DR1返回边界。
     return {};
 }
 

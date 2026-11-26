@@ -7,9 +7,9 @@
 `NativeExecutionFromOwnedStop` 只处理当前仍持有、账本已接纳、未进入继续未决状态的第一机会 `EXCEPTION_SINGLE_STEP`，以及原 owner 核验的登记 NX 页执行访问异常。事件 PID、实际线程身份、创建 FILETIME 和原生事件键来自同一份 `NativeDebugOwner` 快照。历史组、已释放组或另一个事件的步进回执不会生成本格式。
 
 - `execution-enter-attempt`：DR0 执行断点命中精确绑定地址，表示尝试在该地址执行。它不证明该指令完成。
-- `instruction-completed`：Into 模式的 TF 步进完成；临时步进资源已恢复，回执的新事件、停止组和实际线程与当前停点一致。`instructionAddress` 为此次步进的起始 RIP，`nextInstructionAddress` 为事件时回读的下一 RIP。
+- `instruction-completed`：Into 或非 CALL 的 OverCall 使用一次真实 TF 步进并完成；回执不带 DR1 目的地，临时步进资源已恢复，回执的新事件、停止组和实际线程与当前停点一致。`instructionAddress` 为此次步进的起始 RIP，`nextInstructionAddress` 为事件时回读的下一 RIP。请求模式保持原值，内部 NX 推进不生成此观察。
 
-步过调用、跳出完成与数据写入停点不按上述 Into 规则生成单指令完成。指令完成不说明该线程之后继续执行，也不反推整条跨进程注入链的因果归属。执行位置与内存的区域分配代次、内容版本仍是不同证据。
+CALL 的 DR1 返回边界、跳出完成与数据写入停点不按上述单条 TF 规则生成单指令完成。指令完成不说明该线程之后继续执行，也不反推整条跨进程注入链的因果归属。执行位置与内存的区域分配代次、内容版本仍是不同证据。新增非 CALL 步过为源码接入，未构建或运行。
 
 ## 项目归档
 

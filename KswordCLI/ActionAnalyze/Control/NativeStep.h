@@ -33,4 +33,12 @@ struct NativeStepReceipt {
     bool resourcesRestored = false;
 };
 
+// 输入receipt为已经准备的原步进回执，返回是否使用单条TF；OverCall只有非CALL分支不设DR1目的地。
+// 这里只分类实际机制，完成、事件身份和资源恢复仍由原owner及证据投影分别核对。
+inline bool NativeStepUsesSingleInstructionTrap(const NativeStepReceipt& receipt) noexcept
+{
+    return !receipt.destination && (receipt.request.mode == NativeStepMode::Into ||
+        receipt.request.mode == NativeStepMode::OverCall);
+}
+
 } // namespace ks::cli::action_analyze::control

@@ -60,8 +60,8 @@ std::optional<NativeExecutionEvidence> NativeExecutionFromOwnedStop(const Native
         result.registers = state.registers; // 与实际执行阶段一起保存，Query不会补读现场。
     }
 
-    // Into 的已完成 TF 回执绑定同一实际线程和新的停止事件；旧步进票据不得污染后续命中。
-    if (singleStep && state.step && state.step->request.mode == NativeStepMode::Into &&
+    // Into或非CALL步过的真实单条TF回执；CALL的DR1返回边界不能冒充单条指令完成。
+    if (singleStep && state.step && NativeStepUsesSingleInstructionTrap(*state.step) &&
         state.step->state == NativeStepState::Completed && state.step->resourcesRestored &&
         state.step->observedEvent == state.pending->event && state.step->stopGroupId == state.group->groupId &&
         state.step->request.thread == thread->identity && state.step->request.tid == thread->tid &&

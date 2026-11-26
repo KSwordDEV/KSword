@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第5/6项非CALL步过源码。** 原`NativeStepRuntime::Destination`对OverCall的非CALL分支改用既有TF路径，CALL继续DR1返回边界；请求模式不改写、无目的地表示单条TF，不预测跳转或RET后IP。`NativeStepUsesSingleInstructionTrap`统一证据及同时DR0/TF事件分类，完成的真实单条TF可形成instruction-completed，CALL返回/Out/内部NX推进仍不冒充。Qt、Light、CLI单目标及集合沿同一runtime，无新增owner、轮询或页面布局；CLI内置help/文档同步。历史“仅用户Into”边界由此源码扩为“用户Into或非CALL Over的真实单条TF”，不是运行通过。无构建/测试/GUI/验收记录/派发/推送，历史线程退出及取消失败仍待验。
+
 - **2026-11-26 第9项独立原生历史源码。** 共享`ApiNativeExecutionProjection`新增最近512条独立观察及`NativeExecutionHistorySource`；不要求匹配API，完整来源含原生段号/序号/偏移/块/端点/SHA256及原文。Qt归档关系树第十根、Light原生历史状态根加入叶项，按原物理坐标和散列续持选择，共用原字段/文本详情；只有raw-native的采样沿原项目异步回放入口接入，不伪报API/ETW终段。CLI新增`analyze execution history --after N --limit N`共享同一读侧，摘要分页默认32/最大128、全链上限4096，完整原文沿execution read。导航为监控→行为分析→项目与采样→归档关系，类型主树+共享详情；对照原API关系树、原生候选字段视图和Light候选树，不新增布局/观察器。内置help、CLI文档及双语同步，CLI登记共享cpp。仅源码，无构建/测试/GUI/验收记录/推送；既有其他核心缺口继续推进，禁止新CodeBuddy派发仍有效。
 
 - **2026-11-26 第1/2项启动展示源码归位。** 提交此前遗留的Qt条件块位置修正：先组合API启动阶段再判断状态文本是否变化，执行观察的if声明与其字段块保持同一作用域，避免阶段存在性错误门控状态刷新。Light将启动详情与原诊断按实际区块排列；语言包/CLI文档仅归位已有启动字段与同步采集说明，无新增采集行为。源码未构建/运行，正式Release未更新。
