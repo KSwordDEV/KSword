@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-26 本地恢复点。** 当前`ActionAnalyze`最新源码提交`a0e5abe25`；本轮所有产品改动、共享记忆和新增入口夹具已提交，未推送。保留用户原有`KswordCLI/KswordCLI.cpp`、`Control/tests/Invoke-NativeStepValidation.ps1`及未跟踪`product_execution_group_append.py`、`TextFieldComparisonValidation.cpp`、runtime测试证据，禁止回滚/清空。原11:55收尾automation已删除，不留明日自动作业；最后CodeBuddy只做收尾，不运行新场景。
+
 - **2026-11-26 关机前收尾约束与当前状态。** 用户已执行`shutdown -s -t 1380`，要求本机12:00前收工；随后说明无需列剩余事项，只要确保没有执行中的任务、明天原地恢复。不得取消关机；停止本次后台任务前核对精确PID/命令，不触碰无关进程。新增5项CodeBuddy额度现用3/5：第1项1800秒超时143，CLI/x64及x86 Agent构建日志成功、入口场景A PASS，B/C未执行且无最终回执；第2项已正常结束，theme PASS、i18n两个源串四项缺失已定点修正；第3项`sh_2188b3835001RPmN7PXTSBkZuA`仅最终CLI增量Build、i18n复查及原日志回执整理，最晚11:54退出，不增加运行场景。`bb1ebe216`提交解除固定上限，`52bb756d9`提交三端EXE/递归接管/同采样网络整合，`d4591fa80`修正NX owner先恢复再等待Agent清退。全部未推送，最新修正不能借旧日志算运行通过。
 
 - **2026-11-26 最新 CodeBuddy 授权覆盖旧限额：新增最多5项。** 用户原话「按照先前的codebuddy任务量，你还可以布置5个新的。」当前新增额度已用1/5；第1项核心接管实测独占正式CLI/Agent构建，宿主`sh_2186eb512001kWHvAfOrt7eumS`，最多挂起入口/首次转移/追加范围三场景，等自动回执。由主协调统一计数，测试、夹具、回执与验收记录均交CodeBuddy，源码作者不自行替测。未派不算通过，失败不自动追加第6项。Qt/Win32 GUI实测仍后置，继续核心源码与三端接线。
