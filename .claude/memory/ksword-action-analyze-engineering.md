@@ -4,6 +4,8 @@
 
 - **2026-11-26 第10项文本字段等值源码。** 原FilterAst新增TextFieldComparison布尔叶，准备时绑定双方当前阶段Text目录，v3解析`left.field ==/!= right.field`，原常量/null/v1/v2路径保留。解释器左到右读取，完整Known按原UTF-8区分大小写比较，两个显式Null相等、Null/空文本不同；缺失/截断/读失败为Unknown，不因同字段折叠，原预算/UTF-8故障保留。Qt规则草稿说明、CLI catalog内置help、README/CLI文档及双语同步；Light预置回放复用同一核心，不新增字段或页面。仅源码，无构建/测试/GUI/派发/验收记录/推送。另已核对执行集合AddRange实际已有三端完整接线，不再重复实现。
 
+- 文本字段间比较随后调整为先走原二元优先级再归并叶；不能在Atom中提前生成bool，避免`bool == textA == textB`被错误接受为`bool == (textA == textB)`。临时字段叶只在当前阶段两Text的==/!=归并，未归并交原类型准备拒绝；不修改原文本常量语法。仍仅源码未测。
+
 - **2026-11-26 第9项独立历史失败发布补齐。** Qt保存本次原生失败摘要，即使首次无可发布快照或保留旧完整树仍显示真实段/阶段/Win32；取消沿原取消态。达到4096段的已核验独立原生窗口不再被旧Complete拦住。Light普通raw缺失、原生链坏时沿原失败回执显示raw-native段及项目错误，不清诊断或伪装空成功。只改原异步读侧及共享状态文案，无布局/计时器/所有者变动。CLI新增共享include的三级父路径已直接核对为仓库shared。源码未构建/测试/GUI/推送，无新增验收记录；原用户KswordCLI.cpp改动保留。
 
 - **2026-11-26 第5/6项非CALL步过源码。** 原`NativeStepRuntime::Destination`对OverCall的非CALL分支改用既有TF路径，CALL继续DR1返回边界；请求模式不改写、无目的地表示单条TF，不预测跳转或RET后IP。`NativeStepUsesSingleInstructionTrap`统一证据及同时DR0/TF事件分类，完成的真实单条TF可形成instruction-completed，CALL返回/Out/内部NX推进仍不冒充。Qt、Light、CLI单目标及集合沿同一runtime，无新增owner、轮询或页面布局；CLI内置help/文档同步。历史“仅用户Into”边界由此源码扩为“用户Into或非CALL Over的真实单条TF”，不是运行通过。无构建/测试/GUI/验收记录/派发/推送，历史线程退出及取消失败仍待验。

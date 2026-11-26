@@ -41,7 +41,7 @@ struct FieldSample {
     friend bool operator==(const FieldSample&, const FieldSample&) = default;
 };
 
-// 原有字段谓词继续支持显式常量；数值表达式使用独立类型化节点。
+// 原有字段谓词继续支持显式常量；数值表达式及文本字段间比较使用独立类型化节点。
 enum class FieldOp {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
     Contains, StartsWith, EndsWith, IsNull, IsComplete, IsKnown, QualityEqual, QualityNotEqual

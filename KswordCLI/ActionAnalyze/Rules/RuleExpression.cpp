@@ -192,6 +192,23 @@ private:
         return false;
     }
 
+    // 输入临时字段引用，返回其是否为当前阶段已登记文本；仅供比较归并，不按运行值猜类型。
+    bool IsTextReference(const NumericField* reference) const
+    {
+        if (!reference)
+        {
+            return false;
+        }
+        for (const auto& binding : catalog_) // 字段可能在不同阶段拥有不同类型，必须使用本次阶段。
+        {
+            if (binding.id == reference->field && binding.phase == phase_)
+            {
+                return binding.type == FieldType::Text;
+            }
+        }
+        return false;
+    }
+
     // 保留第一个错误。EOF 使用零长度定位。
     bool Fail(ExpressionError error, TokenRange range)
     {
@@ -356,6 +373,20 @@ private:
                 // 旧字段对常量形式保留原节点及 null 比较语义；复杂数值树不折叠。
                 const auto* field = std::get_if<NumericField>(&nodes_[left]);
                 const auto* literal = std::get_if<NumericLiteral>(&nodes_[right]);
+                const auto* rightField = std::get_if<NumericField>(&nodes_[right]); // 右侧仅字段时按静态目录区分文本。
+                if ((*comparison == FieldOp::Equal || *comparison == FieldOp::NotEqual) &&
+                    right == left + 1 && IsTextReference(field) && IsTextReference(rightField))
+                {
+                    TextFieldComparison text{*comparison, field->field, rightField->field}; // 优先级解析完双方再归并。
+                    const auto fieldRange = ranges_[left]; // 沿原字段范围报告准备错误。
+                    nodes_.resize(left);
+                    ranges_.resize(left);
+                    if (!Emit(std::move(text), fieldRange))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
                 if (field && literal && right == left + 1) {
                     FieldTest test{*comparison, field->field, literal->value};
                     const auto fieldRange = ranges_[left];
@@ -520,11 +551,17 @@ private:
             position_ = saved;
             return Emit(FieldTest{FieldOp::Equal, std::string(name), true}, range); // 读取已登记bool；未知质量仍返回Unknown。
         }
+        const auto comparisonStart = position_; // 文本字段间比较需回交外层优先级，不能在Atom内提前折成bool。
         const auto op = allowComparison ? Comparison() : std::nullopt; // 旧版本保留字段对常量语法。
         if (version_ >= 3 && fieldType == FieldType::Text && (op == FieldOp::Equal || op == FieldOp::NotEqual))
         {
             SkipSpace();
             const auto saved = position_; // 探查右侧字段；null/true/false仍回到原字面量类型核对。
+            if (source_.substr(position_).starts_with("("))
+            {
+                position_ = comparisonStart;
+                return Emit(NumericField{std::string(name)}, range); // 括号内容由原优先级解析，不在此处猜测类型。
+            }
             if (position_ < source_.size() && IdentifierStart(source_[position_]))
             {
                 TokenRange right{}; // 右字段的完整原文范围，包含点分目录ID。
@@ -535,11 +572,16 @@ private:
                 const auto rightName = TextAt(right); // 不执行名称或函数，仅交准备器绑定字段。
                 if (rightName != "null" && rightName != "true" && rightName != "false")
                 {
-                    return Emit(TextFieldComparison{*op, std::string(name), std::string(rightName)},
-                        {range.begin, right.end});
+                    // 临时借用字段叶；只有外层同阶段文本==/!=能归并，未归并会被原类型准备器拒绝。
+                    position_ = comparisonStart;
+                    return Emit(NumericField{std::string(name)}, range);
                 }
                 position_ = saved;
             }
+        }
+        if (version_ >= 3 && fieldType == FieldType::Text && !op)
+        {
+            return Emit(NumericField{std::string(name)}, range); // 供右侧字段或括号字段参与比较，不授予数值运算。
         }
         Literal literal = true; // 布尔简写的右侧值。
         if (op && !ReadLiteral(literal)) {
