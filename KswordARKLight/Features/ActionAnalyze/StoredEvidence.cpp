@@ -2,7 +2,6 @@
 
 #include "../../Core/Win32Lean.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
-#include "../../../shared/evidence/ApiMonitorClue.h"
 #include "../../../shared/evidence/EvidenceJson.h"
 
 #include <algorithm>
@@ -179,15 +178,79 @@ std::wstring HexPreview(Bytes bytes) {
     return result;
 }
 
-// 旧导入和被动检查点使用相同的类别、来源坐标和原包预览。
+// 把已解封的线索和原包写入待发布行；序号的显示口径由核验完成的读侧补齐。
 void SetApiCluePreview(EvidenceRecord& row, const ArchivedApiMonitorClue& clue, Bytes bytes) {
     row.apiClue = clue.clue->api;
     row.apiFamily.assign(clue.clue->family.begin(), clue.clue->family.end());
+    row.apiSourceSequence = clue.sourceSequence;
     row.headerPid = clue.packet.pid;
     row.headerTid = clue.packet.tid;
-    row.preview = L"源归档行号：" + std::to_wstring(clue.sourceSequence) + L"\r\nFILETIME：" +
-        std::to_wstring(clue.packet.timestamp100ns) + L"\r\n目标身份、实际写入范围、执行和归因未知。\r\n" +
-        HexPreview(bytes);
+    row.memoryWriteReturn = ReadApiMonitorMemoryWriteReturn(clue.packet);
+    row.behaviorObservation = Ksword::ActionAnalyze::Rules::ReadApiBehaviorObservation(clue.packet);
+    row.apiTransfer = Ksword::Evidence::ReadApiInjectionFields(clue.packet);
+    if (row.apiTransfer) {
+        row.apiTransferOutcome = Ksword::Evidence::ApiInjectionCallOutcome(clue.packet, *row.apiTransfer);
+    }
+    row.apiApc = Ksword::Evidence::ReadApiApcFields(clue.packet); // AAAP1 与写入／创建参数分别解码。
+    if (row.apiApc)
+    {
+        row.apcOutcome = Ksword::Evidence::ApiApcCallOutcome(clue.packet);
+    }
+    // 只投影当前包的独立协议，不扩展关联器或目标控制资格。
+    row.apiContext = Ksword::Evidence::ReadApiContextFields(clue.packet);
+    if (row.apiContext)
+    {
+        row.contextOutcome = Ksword::Evidence::ApiContextCallOutcome(clue.packet);
+    }
+    row.apiSectionMap = Ksword::Evidence::ReadApiSectionMapFields(clue.packet);
+    row.apiMemoryLifecycle = Ksword::Evidence::ReadApiMemoryLifecycleFields(clue.packet);
+    if (row.apiMemoryLifecycle)
+    {
+        row.memorySourceSession = clue.packet.sessionIdentity; // 来源会话与目标强实例分开显示。
+    }
+    if (row.apiSectionMap)
+    {
+        row.sectionMapOutcome = Ksword::Evidence::ApiSectionMapCallOutcome(clue.packet);
+    }
+    // 内联区是 Stored raw 负载的末尾。原包偏移相对于这条记录实际所属的段文件。
+    const auto packetOffset = row.offset + kRecordHeaderBytes + row.payloadBytes - bytes.size();
+    row.preview = L"FILETIME：" +
+        std::to_wstring(clue.packet.timestamp100ns) + L"\r\n内联原包字节偏移：" + std::to_wstring(packetOffset) +
+        L"    原包长度：" + std::to_wstring(bytes.size()) + L" B\r\n";
+    // 新版包的已采字段在同一详情中单独显示，旧摘要不能把这些字段重新标成未知。
+    if (row.apiMemoryLifecycle)
+    {
+        row.preview += L"内存生命周期仅记录原请求及返回；释放全区、分配代次、后续执行与因果未知。\r\n";
+    }
+    else if (row.apiContext || row.apiSectionMap)
+    {
+        row.preview += L"请求与返回字段见本次 API 详情；未证明后续生效、写入、别名传播或执行。\r\n";
+    }
+    else if (row.apiApc)
+    {
+        row.preview += L"APC 参数见本次 API 字段；接受入队不证明投递或执行。\r\n";
+    }
+    else if (row.apiTransfer)
+    {
+        row.preview += L"目标身份与写入范围见本次 API 字段；实际执行和跨事件归因未知。\r\n";
+    }
+    else
+    {
+        row.preview += L"目标身份、实际写入范围、执行和归因未知。\r\n";
+    }
+    row.preview += HexPreview(bytes);
+}
+
+// 将已核验的输入类型和序号写入原生详情，尾记声明只在旧导入段上显示。
+void SetApiClueSourcePreview(EvidenceRecord& row, std::optional<ApiMonitorArchiveSource> source, bool importTail) {
+    row.apiArchiveSource = source;
+    std::wstring fields; // 详情首部与原包预览共用同一个可复制文本。
+    if (importTail && source && *source != ApiMonitorArchiveSource::LegacyUnspecified) {
+        const auto name = ApiMonitorArchiveSourceName(*source); // 与 CLI 共用的 ASCII 来源标识。
+        fields = L"归档输入类型（尾记声明）：" + std::wstring(name.begin(), name.end()) + L"\r\n";
+    }
+    fields += source == ApiMonitorArchiveSource::CooperativePipe ? L"合作流水号（非 JSONL 行号）：" : L"源归档行号：";
+    row.preview.insert(0, fields + std::to_wstring(row.apiSourceSequence) + L"\r\n");
 }
 
 // 普通原始行保留有界 JSON 与原包预览，不附加分类或关系。
@@ -201,7 +264,8 @@ std::wstring RawPreview(Bytes metadata, Bytes inlineData) {
 // 解码一个已通过封装检查的记录，并按需要构造独立预览。
 std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, bool rawStream,
     const Archive::SegmentIdentity& identity, bool& apiImport, ApiMonitorClueReadback& api,
-    bool& showRow, SegmentEvidence& out, bool stopAtApiFollowPlan) {
+    bool& showRow, SegmentEvidence& out, bool legacyFirstRecord,
+    Ksword::Evidence::ApiTransferCandidateWindow<EvidenceRecord>& transfers) {
     if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
         if (apiImport) return "raw.apiImportRecord";
         if (show) row.preview = L"不透明负载（十六进制）\r\n" + HexPreview(payload);
@@ -215,11 +279,21 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
         const auto jsonData = payload.subspan(4, jsonBytes); // 已验证的归档 JSON 子范围。
         if (!ReadJsonObject(jsonData, nullptr, nullptr, rawStream ? &metadata : nullptr)) return "raw.json";
         const auto inlineData = payload.subspan(4 + jsonBytes); // 已由正文边界验证的内联数据。
-        if (rawStream && (row.sequence == 1 || stopAtApiFollowPlan)) {
-            const auto* kind = metadata.find("kind"); // 区别新采集计划和旧的独立 raw 文件。
-            std::string name; // 元数据中的计划类型。
-            if (kind) kind->tryGetString(name);
-            if (stopAtApiFollowPlan && name == Ksword::ActionAnalyze::kApiFollowPlanKind) {
+        std::string kindName;
+        if (rawStream) {
+            if (const auto* kind = metadata.find("kind")) kind->tryGetString(kindName);
+            // 已停用的历史来源不得降级为普通原始记录。
+            if (kindName == "sysmon-retained-plan-v1" || kindName == "sysmon-event8-v2-observation" ||
+                kindName == "sysmon-retained-end-v1") return kUnsupportedRawSource;
+            // 这里只分派段首计划。任何回调行都不得由通用预览发布，独立段也不能替代采样绑定校验。
+            if (kindName == "kswordark-callback-thread-create-plan-v1") {
+                return legacyFirstRecord ? kCallbackProjectRequired : kCallbackProjectOnly;
+            }
+            if (kindName == "kswordark-callback-thread-create-observation-v1" ||
+                kindName == "kswordark-callback-thread-create-end-v1") return "raw.callbackPlanMissing";
+        }
+        if (rawStream && (row.sequence == 1 || legacyFirstRecord)) {
+            if (legacyFirstRecord && kindName == Ksword::ActionAnalyze::kApiFollowPlanKind) {
                 out.apiFollowRequiresCheckpoint = metadata.find("checkpointRequired") != nullptr;
                 return {}; // 只识别段首跟随计划，直接退出，不投影此块或后续块。
             }
@@ -227,7 +301,7 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
                 apiImport = apiImport || IsApiMonitorClueImport(metadata);
                 const auto* duration = metadata.find("durationMs"); // 零表示无预设时限。
                 std::uint64_t milliseconds = 0; // 只接受非负整数型时长。
-                out.continuousEtwPlan = name == "etw-capture-plan-v1" && duration && duration->type() == JsonType::UInt &&
+                out.continuousEtwPlan = kindName == "etw-capture-plan-v1" && duration && duration->type() == JsonType::UInt &&
                     duration->tryGetU64(milliseconds) && milliseconds == 0;
             }
         }
@@ -236,14 +310,16 @@ std::string_view DecodeRecord(Bytes payload, EvidenceRecord& row, bool show, boo
             const std::string_view original(reinterpret_cast<const char*>(inlineData.data()), inlineData.size());
             if (row.sequence != api.clues + 1 || !api.Accept(metadata, original, clue)) return "raw.apiImportRecord";
             showRow = show && clue.has_value();
-            if (showRow) SetApiCluePreview(row, *clue, inlineData);
+            if (showRow) {
+                SetApiCluePreview(row, *clue, inlineData);
+                transfers.Accept(*clue, row, row.segmentOrdinal, row.sequence); // 独立文件只在本段串链。
+            }
             return {};
         }
         if (rawStream) {
-            const auto* kind = metadata.find("kind"); // 只对声明为网络流的正文执行专用校验。
             const auto* record = metadata.find("record"); // 丢失摘要与尾记保留普通原始行。
-            std::string kindName, recordName; // 来自同一条原始记录的两个类型字段。
-            if (kind && kind->tryGetString(kindName) && kindName == "ksword.actionAnalyze.network.v1" &&
+            std::string recordName;
+            if (kindName == "ksword.actionAnalyze.network.v1" &&
                 record && record->tryGetString(recordName) && recordName == "flow") {
                 const Archive::RecordView view{row.type, row.schemaVersion, row.flags, row.sequence,
                     row.offset, payload.data(), row.payloadBytes, true}; // 本条的封装、边界与 CRC 已通过。
@@ -364,6 +440,8 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
     std::uint64_t firstDecodeErrorOffset = 0;
     bool apiImport = false; // 由首条原始记录明确声明的 API 导入格式。
     ApiMonitorClueReadback api; // 共享尾记和来源序号校验状态。
+    Ksword::Evidence::ApiTransferCandidateWindow<EvidenceRecord> transfers(
+        {identity.projectId, identity.sampleId, {}, {}}); // 发布必须等待整段和尾记通过。
     std::deque<EvidenceRecord> recentRows; // 最近窗口仅在整段核验完成后交付。
 
     while (out.framedBytes < size) {
@@ -431,8 +509,15 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             bool showRow = show; // API 导入尾记不进入结果列表。
             const bool legacyFirstRecord = mode == StoredReadMode::LegacyProject && !previousBlock && index == 0;
             const auto error = DecodeRecord(payload, row, show, identity.streamKind == 1, archiveIdentity, apiImport, api, showRow, out,
-                legacyFirstRecord);
+                legacyFirstRecord, transfers);
             if (out.apiFollowRequiresCheckpoint.has_value()) return out;
+            if (error == kUnsupportedRawSource || error == kCallbackProjectRequired ||
+                error == kCallbackProjectOnly || error == "raw.callbackPlanMissing") {
+                SegmentEvidence unsupported;
+                unsupported.diagnostic = error;
+                unsupported.failureOffset = recordOffset;
+                return unsupported;
+            }
             if (!error.empty() && decodeError.empty()) { decodeError = error; decodeOffset = recordOffset; }
             if (row.schemaVersion != 1 || (row.type != 3 && row.type != 4)) {
                 if (row.flags & 1) ++opaqueRequired;
@@ -485,6 +570,37 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
         if (out.diagnostic.empty() && !api.ended) fail("raw.apiImportEnd", out.decodedPrefixBytes);
         if (out.diagnostic.empty()) {
             out.apiClues = api.clues;
+            // 只给通过整段核验的最近线索补上尾记声明和确切的序号口径。
+            for (auto& row : recentRows) {
+                SetApiClueSourcePreview(row, api.source, true);
+            }
+            out.transferCandidates.assign(transfers.Candidates().begin(), transfers.Candidates().end());
+            out.transferCandidateCount = transfers.CandidateCount();
+            out.apcTransferCandidates.assign(transfers.ApcCandidates().begin(), transfers.ApcCandidates().end());
+            out.apcTransferCandidateCount = transfers.ApcCandidateCount();
+            out.contextTransferCandidates.assign(transfers.ContextCandidates().begin(), transfers.ContextCandidates().end());
+            out.contextTransferCandidateCount = transfers.ContextCandidateCount();
+            out.sectionMapRequests.assign(transfers.Maps().begin(), transfers.Maps().end());
+            out.evictedSectionMaps = transfers.EvictedMaps();
+            for (auto& mapping : out.sectionMapRequests)
+            {
+                SetApiClueSourcePreview(mapping.row, api.source, true);
+            }
+            for (auto& candidate : out.contextTransferCandidates) // candidate 为完整导入通过后发布的双方原行。
+            {
+                SetApiClueSourcePreview(candidate.write, api.source, true);
+                SetApiClueSourcePreview(candidate.context, api.source, true);
+            }
+            out.evictedTransferWrites = transfers.EvictedWrites();
+            for (auto& candidate : out.apcTransferCandidates) // 导入尾记通过后同步双方来源。
+            {
+                SetApiClueSourcePreview(candidate.write, api.source, true);
+                SetApiClueSourcePreview(candidate.queue, api.source, true);
+            }
+            for (auto& candidate : out.transferCandidates) {
+                SetApiClueSourcePreview(candidate.write, api.source, true);
+                SetApiClueSourcePreview(candidate.threadCreate, api.source, true);
+            }
         } else {
             out.rows.clear();
         }
@@ -514,6 +630,14 @@ EvidenceRecord PreviewCommittedApiRecord(const Archive::BlockInfo& block, const 
         row.preview = RawPreview(metadata, inlineData);
     }
     return row;
+}
+
+// 仅对已归类观测标注来源。旧检查点继续显示 JSONL 行号。
+void ApplyCommittedApiClueSource(EvidenceRecord& row, ApiMonitorArchiveSource source) {
+    if (!row.apiClue.empty()) {
+        SetApiClueSourcePreview(row, source == ApiMonitorArchiveSource::LegacyUnspecified ? std::nullopt :
+            std::optional{source}, false);
+    }
 }
 
 SegmentEvidence OpenStoredEvidence(const std::wstring& path) {

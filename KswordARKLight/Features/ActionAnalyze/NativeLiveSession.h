@@ -6,20 +6,50 @@
 
 namespace Ksword::Features::ActionAnalyze {
 
+inline constexpr DWORD kCooperativeApiDurationMs = 0; // 活采默认持续；请求可冻结有限时长，保留启动及清退超时。
+
 struct NativeLiveProject {
     std::wstring manifestPath; // 正在查看的本地项目清单。
     std::string projectId; // 从已验证历史回放中取得的项目 UUID。
+    std::string revisionId; // 目录读取时核验的项目修订。
+};
+
+struct NativeLiveApiSource {
+    std::wstring path;
+    std::uint64_t sessionIdentity = 0;
+    std::uint64_t creationFileTime = 0;
+    bool cooperative = false;
+    bool explicitAttachment = false; // 普通目标的显式 R3 附加，与合作模式互斥。
+    bool attachmentConfirmed = false; // 针对冻结 PID 与创建 FILETIME 的本轮确认。
+    DWORD durationMs = kCooperativeApiDurationMs; // Ready后采集时限，零持续，不由UI计时。
 };
 
 struct NativeLiveRequest {
     DWORD pid = 0; // 用户明确输入的十进制 PID。
     std::optional<GUID> provider; // 空值只查询进程活动。
-    std::optional<NativeLiveProject> project; // 显式启用后将 ETW 提交到当前项目。
+    std::optional<NativeLiveProject> project;
+    std::optional<NativeLiveApiSource> api; // 本地文件、合作 Agent 或显式附加，与 ETW 互斥。
 };
 
 struct NativeLiveProjection {
     SegmentEvidence evidence; // 同一快照中的最近实时观察。
     std::shared_ptr<const std::vector<Ui::VirtualListRow>> presentation; // 后台准备的虚拟表行。
+};
+
+struct NativeLiveApiReceipt {
+    std::wstring manifestPath;
+    std::wstring sourcePath; // 冻结来源，不随下一轮文件选择改变。
+    std::uint64_t sourceSessionId = 0;
+    std::string sampleDescriptionHash;
+    std::wstring details; // 后台从共享报告投影的来源、水位、规则回执。
+    bool cooperative = false;
+    std::optional<std::uint64_t> readyCoverageRevision; // 合作 Agent 就绪时核验的覆盖修订。
+    bool explicitAttachment = false; // 回执绑定本轮准入方式，不根据模块或文件存在推断。
+    bool attachmentIdentityVerified = false; // 控制器已固定并核验目标实例。
+    bool agentLoadAttempted = false; // 本轮实际尝试装载，与模块存在或 Ready 独立。
+    bool agentModuleVerified = false; // 产品 Agent 模块核验通过，不代表 Hook 就绪。
+    DWORD durationMs = 0; // 结果所属请求的冻结时限，不随下一轮草稿变化。
+    bool agentReady = false; // 原控制器启动屏障，独立于三个附加事实及模块存在。
 };
 
 struct NativeLiveSnapshot {
@@ -28,6 +58,7 @@ struct NativeLiveSnapshot {
     bool active = false; // 后台线程尚未完成与本次会话有关的操作。
     bool cleanupPending = false; // 已真实尝试清退，等待显式重试。
     DWORD projectionError = ERROR_SUCCESS; // 后台投影准备失败。
+    std::optional<NativeLiveApiReceipt> api;
 };
 
 // 页面只在 GUI 线程调用。采集句柄、项目和有界投影属于后台线程。

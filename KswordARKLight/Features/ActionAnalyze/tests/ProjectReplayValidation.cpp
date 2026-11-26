@@ -1,8 +1,10 @@
 #include "../ProjectReplay.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
+#include "../../../../KswordCLI/ActionAnalyze/Project/ProjectCallbackEvidence.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectEtwCheckpoint.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectRawEvidence.h"
 #include "../../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
+#include "../../../../shared/driver/KswordArkCallbackIoctl.h"
 #include "../../../../shared/evidence/ApiMonitorClue.h"
 
 #include <array>
@@ -92,7 +94,8 @@ Project::ProjectEtwCheckpoint WriteCapture(Project::ProjectDocument& project, co
     return checkpoint;
 }
 
-void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& sample) {
+// 写入单段导入的历史格式，可显式声明当时的合作输入。
+void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& sample, bool cooperative = false) {
     namespace Evidence = Ksword::Evidence;
     namespace Monitor = ks::winapi_monitor;
     Monitor::ApiMonitorEventPacket packet{};
@@ -107,8 +110,10 @@ void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& 
     wcscpy_s(packet.apiName, L"WriteProcessMemory");
     const auto clue = Evidence::WriteJson(Object({{"kind", Text(Evidence::kApiMonitorClueRecord)},
         {"sourceSequence", Number(3)}}));
-    const auto end = Evidence::WriteJson(Object({{"kind", Text(Evidence::kApiMonitorClueEnd)},
-        {"sourceRows", Number(4)}, {"clueRows", Number(1)}}));
+    Evidence::JsonObject terminal{{"kind", Text(Evidence::kApiMonitorClueEnd)},
+        {"sourceRows", Number(4)}, {"clueRows", Number(1)}}; // 旧单段从尾记确定输入语义。
+    if (cooperative) terminal.emplace_back("archiveSource", Text("cooperative-pipe"));
+    const auto end = Evidence::WriteJson(Object(std::move(terminal)));
     const std::array inputs{Archive::RawEvidenceInput{clue, {reinterpret_cast<const char*>(&packet), sizeof(packet)}},
         Archive::RawEvidenceInput{end, {}}};
     Archive::RawEvidenceReceipt raw;
@@ -122,18 +127,24 @@ void WriteApiClue(Project::ProjectDocument& project, const Project::SampleInfo& 
 // 使用生产写入器和检查点发布器生成固定的离线原包，无实际 API 操作。
 void WriteFollowSegment(Project::ProjectDocument& project, const Project::SampleInfo& sample,
     std::uint64_t ordinal, const Project::ProjectApiCheckpoint* previous, bool terminal, bool legacy,
-    Project::ProjectApiCheckpoint* published) {
+    Project::ProjectApiCheckpoint* published, bool cooperative = false) {
     using namespace Ksword::Evidence;
     namespace Monitor = ks::winapi_monitor;
     Project::SampleRecord checked;
     Check(static_cast<bool>(project.ReadSample(sample.sampleId, checked)), "read frozen API follow sample");
-    JsonObject planFields{{"kind", Text(Project::kApiFollowPlanKind)}, {"identity", Text("archive-consistency-only")},
+    JsonObject planFields{{"kind", Text(Project::kApiFollowPlanKind)},
         {"projectId", Text(project.Info()->projectId)}, {"revisionId", Text(sample.revisionId)}, {"snapshotId", Text(sample.snapshotId)},
         {"revisionHash", Text(checked.revisionHash)}, {"configSemanticHash", Text(checked.configSemanticHash)},
         {"sourceEpoch", Text(kSourceEpoch)}, {"session", Object({{"id", Text(sample.sampleId)}, {"epoch", Text(kSourceEpoch)}})},
-        {"file", Object({{"fileId", Text("123456789abc4def8123456789abcdef")}, {"volumeSerial", Number(9)}, {"initialVisibleBytes", Number(0)}})},
         {"durationMs", JsonValue::makeUInt(0)}, {"readerPid", JsonValue::makeUInt(100)},
         {"readerCreation100ns", Number(101)}, {"sessionIdentity", Number(1)}};
+    if (cooperative) {
+        planFields.emplace_back("archiveSource", Text("cooperative-pipe"));
+    } else {
+        planFields.emplace_back("identity", Text("archive-consistency-only"));
+        planFields.emplace_back("file", Object({{"fileId", Text("123456789abc4def8123456789abcdef")},
+            {"volumeSerial", Number(9)}, {"initialVisibleBytes", Number(0)}}));
+    }
     if (!legacy) planFields.emplace_back("checkpointRequired", JsonValue::makeBool(true));
     const auto plan = WriteJson(Object(std::move(planFields)));
 
@@ -152,21 +163,34 @@ void WriteFollowSegment(Project::ProjectDocument& project, const Project::Sample
     wcscpy_s(unclassified.apiName, L"ReadProcessMemory");
     const std::string_view unclassifiedBytes(reinterpret_cast<const char*>(&unclassified), sizeof(unclassified));
     const auto previousSource = previous ? previous->lastSourceSequence : 0;
-    const std::size_t count = terminal ? 2 : 256;
+    // 合作终段只放尾记。上一段同时包含分类和未分类普通包。
+    const std::size_t count = terminal ? (cooperative ? 0 : 2) : 256;
     std::vector<std::string> packetMetadata;
     packetMetadata.reserve(count);
     std::vector<Archive::RawEvidenceInput> input{{plan, {}}};
     for (std::size_t index = 0; index < count; ++index) {
         packetMetadata.push_back(WriteJson(Object({{"kind", Text(Project::kApiFollowPacketKind)},
             {"sourceSequence", Number(previousSource + index + 1)}, {"readerCreation100ns", Number(101)}})));
-        input.push_back({packetMetadata.back(), terminal && index == 1 ? unclassifiedBytes : bytes});
+        const bool rawOnly = cooperative ? index != 0 : terminal && index == 1; // 未分类包也计入水位。
+        input.push_back({packetMetadata.back(), rawOnly ? unclassifiedBytes : bytes});
+    }
+    const auto sourceKind = cooperative ? "cooperative-pipe" : "passive-api-archive"; // 两类计划对应各自的终段来源回执。
+    JsonObject source{{"kind", Text(sourceKind)}, {"readerPid", JsonValue::makeUInt(100)},
+        {"readerCreation100ns", Number(101)}, {"sessionIdentity", Number(1)}, {"validatedRows", Number(previousSource + count)}};
+    if (cooperative) {
+        source.emplace_back("state", Text("pipe-eof"));
+        source.emplace_back("agentReportedDrops", Number(0));
+        source.emplace_back("invalidPackets", Number(0));
+    } else {
+        source.emplace_back("identity", Text("archive-consistency-only"));
+        source.emplace_back("coverage", Text("unknown"));
+        source.emplace_back("writerReceipt", JsonValue::makeNull());
+        source.emplace_back("state", Text("cutoff"));
+        source.emplace_back("cutoffReached", JsonValue::makeBool(true));
+        source.emplace_back("partialLineBytes", Number(0));
     }
     const auto end = WriteJson(Object({{"kind", Text(Project::kApiFollowEndKind)}, {"stopReason", Text("fixture")},
-        {"source", Object({{"kind", Text("passive-api-archive")}, {"identity", Text("archive-consistency-only")},
-            {"coverage", Text("unknown")}, {"writerReceipt", JsonValue::makeNull()},
-            {"readerPid", JsonValue::makeUInt(100)}, {"readerCreation100ns", Number(101)}, {"sessionIdentity", Number(1)},
-            {"validatedRows", Number(previousSource + count)}, {"state", Text("cutoff")},
-            {"cutoffReached", JsonValue::makeBool(true)}, {"partialLineBytes", Number(0)}})}}));
+        {"source", Object(std::move(source))}}));
     if (terminal) input.push_back({end, {}});
 
     Archive::RawEvidenceReceipt raw;
@@ -276,6 +300,133 @@ void VerifyApiFollowReplay(Project::ProjectDocument& writer, const fs::path& roo
     Check(Light::ReadProjectReplay(request).checkpoint.lastVerifiedOrdinal == 16, "truncated API raw keeps previous checkpoint");
     WriteBytes(terminalPath, terminal);
     Check(Light::ReadProjectReplay(request).checkpoint.state == Light::CheckpointState::Verified, "restored API terminal replays");
+}
+
+// 通过正式读回入口测试合作多段、缺末标记和零包终段，全部输入为本地合成封装。
+void VerifyCooperativeApiReplay(Project::ProjectDocument& writer, const fs::path& root, const std::wstring& manifest) {
+    using Ksword::Evidence::ApiMonitorArchiveSource;
+    Project::SampleInfo sample, empty, legacy; // 分别覆盖多段采样、零普通包终段和旧单段导入。
+    Check(writer.Open(manifest, Project::ProjectAccess::ReadWrite) && writer.CreateSample("cooperative API", sample) &&
+        writer.CreateSample("empty cooperative API", empty) && writer.CreateSample("legacy cooperative API", legacy),
+        "register cooperative API fixtures");
+    const auto projectId = writer.Info()->projectId; // 正常读回使用已登记项目的实际 ID。
+    Project::ProjectApiCheckpoint first, terminal, emptyTerminal; // 写端实际发布的基准端点。
+    WriteFollowSegment(writer, sample, 1, nullptr, false, false, &first, true);
+    WriteFollowSegment(writer, sample, 2, &first, true, false, &terminal, true);
+    WriteFollowSegment(writer, empty, 1, nullptr, true, false, &emptyTerminal, true);
+    WriteApiClue(writer, legacy, true);
+    writer.Close();
+
+    const auto result = Light::ReadProjectReplay({manifest, projectId, sample.sampleId, sample.descriptionHash});
+    Check(result.checkpoint.state == Light::CheckpointState::Verified && result.checkpoint.lastVerifiedOrdinal == 2 &&
+        result.checkpoint.apiArchiveSource == ApiMonitorArchiveSource::CooperativePipe &&
+        result.apiSourcePackets == 256 && result.raw.apiClues == 1 && result.raw.rows.size() == 259 &&
+        result.raw.lastSequence == terminal.rawEnd.lastSequence && result.raw.decodedPrefixBytes == terminal.rawEnd.byteOffset,
+        "cooperative API replay uses terminal segment and cumulative packet count");
+    const auto& clue = result.raw.rows[1]; // 首个普通包是唯一分类线索，下一包仍可作为原始记录回放。
+    Check(clue.segmentOrdinal == 1 && clue.apiSourceSequence == 1 && clue.apiArchiveSource == ApiMonitorArchiveSource::CooperativePipe &&
+        clue.preview.find(L"合作流水号（非 JSONL 行号）：1\r\n") != std::wstring::npos && result.raw.rows[2].apiClue.empty(),
+        "cooperative clue uses its actual segment and call sequence");
+
+    const auto emptyResult = Light::ReadProjectReplay({manifest, projectId, empty.sampleId, empty.descriptionHash});
+    Check(emptyResult.raw.identity && emptyResult.checkpoint.state == Light::CheckpointState::Verified &&
+        emptyResult.checkpoint.lastVerifiedOrdinal == 1 && emptyResult.checkpoint.apiArchiveSource == ApiMonitorArchiveSource::CooperativePipe &&
+        emptyResult.apiSourcePackets == 0 && emptyResult.raw.apiClues == 0 &&
+        emptyResult.raw.decodedPrefixBytes == emptyTerminal.rawEnd.byteOffset, "cooperative empty terminal identifies its source");
+
+    const auto legacyResult = Light::ReadProjectReplay({manifest, projectId, legacy.sampleId, legacy.descriptionHash});
+    Check(legacyResult.checkpoint.state == Light::CheckpointState::NotPublished && legacyResult.raw.rows.size() == 1 &&
+        legacyResult.raw.apiClues == 1 && legacyResult.raw.rows[0].apiArchiveSource == ApiMonitorArchiveSource::CooperativePipe &&
+        legacyResult.raw.rows[0].preview.find(L"合作流水号（非 JSONL 行号）：3\r\n") != std::wstring::npos,
+        "legacy single-segment cooperative clues keep the validated source and call sequence");
+
+    const auto marker = root / L"samples" / WideAscii(sample.sampleId) / L"checkpoints" / L"00000000000000000002.json";
+    Check(fs::remove(marker), "remove cooperative fixture terminal marker");
+    const auto prefix = Light::ReadProjectReplay({manifest, projectId, sample.sampleId, sample.descriptionHash});
+    Check(prefix.checkpoint.state == Light::CheckpointState::Pending && prefix.checkpoint.pendingOrdinal == 2 &&
+        prefix.checkpoint.lastVerifiedOrdinal == 1 && prefix.checkpoint.apiArchiveSource == ApiMonitorArchiveSource::CooperativePipe &&
+        prefix.apiSourcePackets == 256 && prefix.raw.apiClues == 1 && prefix.raw.rows.size() == 257 &&
+        prefix.raw.decodedPrefixBytes == first.rawEnd.byteOffset, "cooperative prefix retains count and coordinates without a terminal marker");
+}
+
+void VerifyCallbackReplay(Project::ProjectDocument& writer, const fs::path& root, const std::wstring& manifest) {
+    Check(static_cast<bool>(writer.Open(manifest, Project::ProjectAccess::ReadWrite)), "open callback fixture project");
+    Project::SampleInfo positive, empty, missing;
+    Check(writer.CreateSample("callback observation", positive) && writer.CreateSample("empty callback batch", empty) &&
+        writer.CreateSample("unpublished callback batch", missing), "register callback samples");
+    const auto projectId = writer.Info()->projectId;
+    const Project::ProjectCallbackEvidencePlan plan{kSourceEpoch, 100, 4};
+    const Project::ProjectCallbackEvidenceEnd end{Project::CallbackBatchState::CaughtUp, 102, 102, 2, 0, std::nullopt};
+    KSWORD_ARK_CALLBACK_MONITOR_EVENT event{};
+    event.version = KSWORD_ARK_CALLBACK_MONITOR_PROTOCOL_VERSION;
+    event.size = static_cast<unsigned long>(sizeof(event));
+    event.category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD;
+    event.operation = KSWORD_ARK_THREAD_OP_CREATE;
+    event.sequence = 102;
+    event.originatingProcessId = 100;
+    event.originatingThreadId = 101;
+    event.targetProcessId = 200;
+    event.targetThreadId = 201;
+    event.timeUtc100ns = 132903391110000000LL;
+    Project::ProjectCallbackEvidenceReceipt written, emptyWritten;
+    Check(static_cast<bool>(Project::WriteInitialCallbackEvidence(writer, positive.sampleId, plan, end, {&event, 1}, written)),
+        "write callback observation without opening the driver");
+    const Project::ProjectCallbackEvidenceEnd emptyEnd{Project::CallbackBatchState::CaughtUp, 101, 101, 1, std::nullopt, 0};
+    Check(static_cast<bool>(Project::WriteInitialCallbackEvidence(writer, empty.sampleId, plan, emptyEnd, {}, emptyWritten)),
+        "write complete empty callback batch with a non-thread raw return");
+    writer.Close();
+
+    const auto request = [&](const Project::SampleInfo& sample) {
+        return Light::ProjectReplayRequest{manifest, projectId, sample.sampleId, sample.descriptionHash};
+    };
+    const auto path = root / L"samples" / WideAscii(positive.sampleId) / L"raw" / kSegment;
+    const auto bytes = ReadBytes(path);
+    const auto& receipt = written.records.front();
+    const auto verifyFailure = [](const Light::ProjectReplayEvidence& result) {
+        Check(!result.raw.diagnostic.empty() && result.raw.rows.empty() && !result.callback,
+            "callback failure must not publish a partial batch or a complete empty batch");
+    };
+    for (const auto mode : {Light::ProjectReplayMode::Explicit, Light::ProjectReplayMode::SelectionPreview}) {
+        const auto result = Light::ReadProjectReplay(request(positive), mode);
+        Check(result.callback && result.raw.identity && result.raw.identity->sampleId == positive.sampleId &&
+            result.raw.identity->streamKind == 1 && result.raw.identity->ordinal == 1 && result.raw.rows.size() == 1 &&
+            result.raw.records == 3 && result.raw.diagnostic.empty() && result.raw.fileBytes == bytes.size() &&
+            result.raw.decodedPrefixBytes == written.boundary.byteOffset && result.checkpoint.kind == Light::ReplayCheckpointKind::None,
+            "verified callback batch projects observations without a checkpoint");
+        const auto& row = result.raw.rows.front();
+        Check(row.callback && row.callback->sourceSequence == event.sequence && row.sequence == receipt.rawSequence &&
+            row.sequence == 2 && row.segmentOrdinal == written.segmentOrdinal && row.blockOrdinal == written.boundary.blockOrdinal &&
+            row.offset == receipt.rawOffset && row.callback->inlineOffset == receipt.inlineOffset && row.callback->inlineBytes == sizeof(event) &&
+            bytes.substr(static_cast<std::size_t>(row.callback->inlineOffset), row.callback->inlineBytes) ==
+                std::string_view(reinterpret_cast<const char*>(&event), sizeof(event)), "callback row uses exact file coordinates and bytes");
+        Check(row.callback->contextPid == 100 && row.callback->contextTid == 101 && row.callback->targetPid == 200 &&
+            row.callback->targetTid == 201 && row.callback->sourceUtc100ns == event.timeUtc100ns &&
+            !row.headerPid && !row.headerTid && !row.eventOrdinal && !row.actorObjectId && !row.targetObjectId && !row.threadObjectId &&
+            !row.receiveQpc && row.apiClue.empty() && !row.etw && !row.network, "callback IDs stay hints and FILETIME is not QPC");
+        Check(result.callback->prefixSha256 == written.prefixSha256 && result.callback->plan.sourceEpoch == kSourceEpoch &&
+            result.callback->end.lostBeforeFirst == 0 && !result.callback->end.droppedCount &&
+            Light::CallbackReplayDetails(*result.callback).find(L"采集覆盖：未知") != std::wstring::npos,
+            "known zero loss and absent cumulative count do not establish coverage");
+
+        const auto verifiedEmpty = Light::ReadProjectReplay(request(empty), mode);
+        Check(verifiedEmpty.callback && verifiedEmpty.raw.identity && verifiedEmpty.raw.diagnostic.empty() &&
+            verifiedEmpty.raw.rows.empty() && verifiedEmpty.raw.records == 2 && verifiedEmpty.callback->end.returnedCount == 1 &&
+            !verifiedEmpty.callback->end.lostBeforeFirst && verifiedEmpty.callback->end.droppedCount == 0 &&
+            verifiedEmpty.callback->prefixSha256 == emptyWritten.prefixSha256, "complete empty callback batch retains its receipt");
+        verifyFailure(Light::ReadProjectReplay(request(missing), mode));
+    }
+    const auto standalone = Light::OpenStoredEvidence(path.wstring());
+    Check(!standalone.identity && standalone.rows.empty() && !standalone.diagnostic.empty(), "standalone opening cannot bypass sample binding");
+    Check(ReadBytes(path) == bytes, "callback replay leaves bytes untouched");
+    for (const auto& damaged : {bytes + "torn", bytes.substr(0, bytes.size() - 1), bytes.substr(0, Archive::kSegmentHeaderBytes)}) {
+        WriteBytes(path, damaged);
+        for (const auto mode : {Light::ProjectReplayMode::Explicit, Light::ProjectReplayMode::SelectionPreview}) {
+            verifyFailure(Light::ReadProjectReplay(request(positive), mode));
+        }
+        Check(ReadBytes(path) == damaged, "failed callback replay does not repair bytes");
+    }
+    WriteBytes(path, bytes);
+    Check(Light::ReadProjectReplay(request(positive)).callback.has_value(), "restored callback archive replays");
 }
 
 // 在不会覆盖已有输出的固定项目目录，验证 Light 同一生产入口的成功与失败情形。
@@ -427,6 +578,8 @@ void Run(const fs::path& folder) {
     Check(brokenApi.raw.rows.empty() && brokenApi.raw.apiClues == 0 && !brokenApi.raw.diagnostic.empty(),
         "incomplete API import does not publish classifications");
     VerifyApiFollowReplay(writer, root, manifest);
+    VerifyCooperativeApiReplay(writer, root, manifest);
+    VerifyCallbackReplay(writer, root, manifest);
 }
 
 } // namespace
@@ -445,5 +598,5 @@ void VerifyProjectReplay(const std::filesystem::path& testOutput) {
         throw;
     }
     Check(fs::remove_all(folder) > 0 && !fs::exists(folder), "clean fixture output");
-    std::cout << "PASS Light project replay: creation, preview bounds, API families and follow checkpoints, checked streams, identity and retry\n";
+    std::cout << "PASS Light project replay: creation, preview bounds, passive and cooperative API, callback batches, checked streams, identity and retry\n";
 }

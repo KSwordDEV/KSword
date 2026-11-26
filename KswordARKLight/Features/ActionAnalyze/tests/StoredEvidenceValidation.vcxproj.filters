@@ -5,6 +5,8 @@
     <ClCompile Include="ProjectReplayValidation.cpp" />
     <ClCompile Include="..\..\..\..\tools\action_analyze_validation\light\NetworkReplayValidation.cpp" />
     <ClCompile Include="..\StoredEvidence.cpp" />
+    <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp" />
+    <ClInclude Include="..\..\..\..\shared\evidence\ApiTransferCandidateWindow.h" />
     <ClCompile Include="..\ProjectReplay.cpp" />
     <ClCompile Include="..\NetworkReplayPresentation.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp" />
@@ -13,6 +15,7 @@
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
+    <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp" />
     <ClCompile Include="..\..\..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
@@ -26,6 +29,7 @@
     <ClInclude Include="..\StoredEvidence.h" />
     <ClInclude Include="..\ProjectReplay.h" />
     <ClInclude Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />
+    <ClInclude Include="..\..\..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.h" />
     <ClInclude Include="..\NetworkReplayPresentation.h" />
     <ClInclude Include="..\..\..\..\shared\evidence\ArchivedEtwObservation.h" />
   </ItemGroup>
