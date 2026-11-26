@@ -126,6 +126,10 @@ namespace ks::action_analyze
                         case ExecutionGroupCommand::Query:
                             result = group->Query();
                             break;
+                        case ExecutionGroupCommand::AppendMembers:
+                            result = archive.AppendMembers(*group, std::move(request.sites), request.authorized,
+                                request.collectionId); // 沿同一worker、writer和sample追加，不重新启动原成员。
+                            break;
                         case ExecutionGroupCommand::Continue:
                             result = group->Continue(request.sessions, request.all);
                             break;

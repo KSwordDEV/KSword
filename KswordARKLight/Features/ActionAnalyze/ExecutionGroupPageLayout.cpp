@@ -59,7 +59,7 @@ void Layout(Page& page)
     const auto move = [](HWND child, int x, int y, int w, int h) {
         ::MoveWindow(child, x, y, (std::max)(1, w), (std::max)(1, h), TRUE);
     };
-    const std::array actions{page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
+    const std::array actions{page.start, page.appendMembers, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
         page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi,
         page.readMemory, page.saveMemory, page.close};
     const int actionsHeight = Ui::LayoutParameterActions(actions, edge, 0, width, Scale(136), row, gap, false);
@@ -216,6 +216,7 @@ bool CreateControls(Page& page)
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kAuthorized), ::GetModuleHandleW(nullptr), nullptr);
     page.start = Ui::CreateButton(page.hwnd, kStart, L"启动执行集合", 0, 0, 1, 1, Ui::ButtonRole::Primary);
+    page.appendMembers = Ui::CreateButton(page.hwnd, kAppendMembers, L"追加表单目标到本轮集合", 0, 0, 1, 1); // 复杂动作保留明确文字。
     page.query = Ui::CreateButton(page.hwnd, kQuery, L"刷新原集合", 0, 0, 1, 1);
     page.pauseAll = Ui::CreateButton(page.hwnd, kPauseAll, L"暂停全部成员", 0, 0, 1, 1);
     page.pauseSelected = Ui::CreateButton(page.hwnd, kPauseSelected, L"暂停选中成员", 0, 0, 1, 1);
@@ -252,7 +253,7 @@ bool CreateControls(Page& page)
     controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 新来源字段参与原键盘导航，不另建窗口。
     controls.insert(controls.end(), page.memoryInputs.begin(), page.memoryInputs.end()); // 原键盘路由覆盖内存范围输入。
     for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
-        page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
+        page.start, page.appendMembers, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
         page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.readMemory, page.saveMemory, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
     for (const auto control : controls)
@@ -267,6 +268,7 @@ bool CreateControls(Page& page)
     if (page.tooltip) {
         ::SendMessageW(page.tooltip, TTM_SETMAXTIPWIDTH, 0, Scale(440));
         Tip(page, page.start, L"须有1–16个草稿站点、全集授权及已结清的旧集合。启动按值冻结全部参数，部分失败保留成功成员。");
+        Tip(page, page.appendMembers, L"明确授权后，冻结当前表单的新进程实例与条件，追加到本轮同一采样。已有成员和停点不替换、不继续。累计最多16个不同PID；失败保留原集合与恢复责任，可修改表单后重试。");
         Tip(page, page.pauseAll, L"全部成员须可暂停或已持有停点，且至少一个需要暂停。整批核对身份后只向运行成员请求暂停；已停成员单列already-held回执。不证明同时冻结。");
         Tip(page, page.pauseSelected, L"所选成员须可暂停或已持有停点，且至少一个需要暂停。提交整个选区的完整快照；已停成员不重复请求暂停。");
         Tip(page, page.continueAll, L"全部成员须可继续或已运行，且至少一个需要继续。只继续精确Held停点；运行成员单列already-running回执，不伪造释放。");

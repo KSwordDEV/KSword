@@ -164,7 +164,30 @@ void RefreshDraft(Page& page)
 void Command(Page& page, int id)
 {
     page.error.clear();
-    if (id == kAdd) {
+    if (id == kAppendMembers)
+    {
+        // 输入当前表单与授权，输出按值请求；待追加目录与下一轮草稿列表分别保留。
+        execution_native::ExecutionGroupSite site; // Site统一准备完整身份、站点与条件。
+        if (page.retiring || page.shown.busy || page.shown.closing ||
+            !execution_native::OwnedExecutionGroup::CanAppendMembers(page.shown.result) ||
+            ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) != BST_CHECKED)
+        {
+            page.error = L"本轮集合不可追加，请确认授权、剩余名额及原集合状态。";
+        }
+        else if (Site(page, site))
+        {
+            LightExecutionGroupRequest request; // 不使用当前成员行号或下一轮草稿作为新目标。
+            request.command = LightExecutionGroupCommand::AppendMembers;
+            request.sites.push_back(std::move(site));
+            request.authorized = true;
+            request.collectionId = page.shown.result.collectionId;
+            if (!page.session.Submit(std::move(request)))
+            {
+                page.error = L"原集合未受理追加请求，请刷新后重试。";
+            }
+        }
+    }
+    else if (id == kAdd) {
         execution_native::ExecutionGroupSite site;
         if (page.sites.size() >= execution_native::kOwnedExecutionGroupLimit) page.error = L"草稿最多16个进程站点。";
         else if (Site(page, site)) {

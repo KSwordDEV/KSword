@@ -10,6 +10,10 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 可选 `--project PATH` 在附加前新建项目并创建本轮独立采样；`--project PATH --open-project` 打开已有项目并创建新采样，不复用旧停止票据。不提供目录时仍可控制集合，但不能保存执行观察。项目准备失败会阻止附加；项目被其它会话占用时不另开 writer。Qt 和 Light 的执行集合页提供相同目录及打开方式草稿，Start 时冻结，由原 worker 持有写租约，全部原成员 clean 后才归还。
 
+运行中的集合支持显式追加新实例。REPL 使用 `members-append execution/N SITES_PATH confirm COLLECTION_ID`；JSONL 使用 `control.members.append`，`params:{"sites":"配置文件路径","confirm":true}`、`expected:{"collectionId":"原集合ID"}` 和当前 hello session。文件复用下方完整站点 schema，按本次请求一次读入，追加后总数最多16个不同PID；既有PID即使填写另一创建时间也不能替换。重放仍用原128条 `execution/N` 回执，相同请求不重读文件、不重复附加。配置解析失败同样保留该请求ID的失败结果，修正后须用更大的ID。
+
+新增成员沿用本轮采样，拥有独立session/epoch/backend，目录仅在原成员后追加；原owner、停点、范围、条件与保存结果保持各自身份。新成员的附加部分失败逐项报告，保留成功及失败项，不清退原成员。清退中、全体已退出、恢复责任未结清或达到16个成员时不接受追加；不会自动跟随所有后代。可选定义仍从本轮sample冻结配置解析；错误记录在 `executionArchive.memberSetupError`，不覆盖初始 `setupError`、释放已有writer或阻止旧成员保存。Qt／Light 的“追加表单目标到本轮集合”冻结当前表单，和下一轮草稿列表分开；Qt只在表尾增行，不重置已有选区。本扩展已接源码，运行结论以独立测试回执为准。
+
 模块 RVA 站点可再指定可选 `definitionId`（规范 UUID）。必须同时配置项目；启动时读取本轮新采样冻结配置中的同 ID 启用 RVA 定义，并核对模块文件名及填写的 RVA。定义中的映像 SHA256 自动继承；手填散列与冻结散列冲突时拒绝。全部成员解析成功才开始附加，任一失败不附加任何成员，详情保留 `executionArchive.setupError`，可清退空集合后修改草稿重试。精确导出和私有站点不接受定义 ID；此入口不解析 PDB、不自动枚举全系统实例。
 
 ## 配置文件

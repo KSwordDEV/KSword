@@ -12,12 +12,13 @@ namespace ks::action_analyze
     namespace execution_group_native = ks::cli::action_analyze::control;
 
     // 请求完全按值进入原串行线程，界面行索引和控件不进入后台。
-    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory };
+    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory, AppendMembers };
 
     struct ExecutionGroupRequest
     {
         ExecutionGroupCommand command = ExecutionGroupCommand::Query; // 显式动作类型。
-        std::vector<execution_group_native::ExecutionGroupSite> sites; // Start冻结的唯一站点目录。
+        std::vector<execution_group_native::ExecutionGroupSite> sites; // Start或显式追加时冻结的新站点目录。
+        std::string collectionId; // 追加请求冻结原集合身份，不能套用后来新建的集合。
         std::vector<execution_group_native::NativeControlResult> stops; // 点击时复制的完整原生票据；Pause使用活绑定，不要求旧stop。
         std::vector<execution_group_native::ExecutionGroupSessionEntry> sessions; // 混合Pause/Continue携带每项完整原owner与显示快照。
         execution_group_native::NativeStepMode mode = execution_group_native::NativeStepMode::Into; // 单成员步进模式。

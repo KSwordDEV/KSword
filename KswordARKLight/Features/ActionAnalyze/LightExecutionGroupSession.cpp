@@ -115,6 +115,13 @@ struct LightExecutionGroupSession::Shared {
                     case LightExecutionGroupCommand::Query:
                         if (group) Publish(group->Query());
                         break;
+                    case LightExecutionGroupCommand::AppendMembers:
+                        if (group && archive)
+                        {
+                            Publish(archive->AppendMembers(*group, std::move(request->sites), request->authorized,
+                                request->collectionId), true, &archive->View()); // 原writer和采样，旧成员不重启。
+                        }
+                        break;
                     case LightExecutionGroupCommand::Continue:
                         // 保留Held与已运行成员的原owner/control，原group整批核对后决定实际释放。
                         if (group) Publish(group->Continue(request->sessions, request->all), true);

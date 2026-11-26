@@ -35,6 +35,7 @@ namespace ks::action_analyze
         void LoadSite(); // 显式载入唯一选中的完整草稿，不以列表选择覆盖未保存表单。
         void RemoveSites(); // 仅从未启动目录移除点击时选中行。
         void Start(); // 在原worker上创建并启动唯一集合。
+        void AppendMember(); // 冻结当前完整表单、授权与集合ID，将新实例追加到原集合。
         void AddRange(std::uint64_t address, std::uint64_t bytes); // 冻结单选成员的完整停点，将范围交原worker追加。
         void CaptureApi(); // 冻结单选原成员及另一来源，确认后交本端原worker采集。
         void Memory(bool save); // 读取当前唯一成员范围，或保存冻结的原读取字节；不Continue。
@@ -64,6 +65,7 @@ namespace ks::action_analyze
         QPushButton* m_load = nullptr; // 将保存的完整成员草稿载回编辑器。
         QPushButton* m_remove = nullptr; // 移除选中草稿成员。
         QPushButton* m_start = nullptr; // 开始原生集合。
+        QPushButton* m_append = nullptr; // 显式将表单中的新实例追加到本轮集合，不替换旧成员。
         QPushButton* m_newDraft = nullptr; // clean之后显式返回目录草稿。
         QPushButton* m_pauseAll = nullptr; // 固定全集在原执行owner内主动暂停。
         QPushButton* m_pauseSelected = nullptr; // 明确所选子集在原执行owner内主动暂停。

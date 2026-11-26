@@ -41,6 +41,7 @@ const char* Action(n::ExecutionGroupAction value)
     case CancelStep: return "step-cancel";
     case Close: return "close";
     case AddRange: return "range-add";
+    case AppendMembers: return "members-append";
     }
     return "unknown";
 }

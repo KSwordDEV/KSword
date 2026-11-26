@@ -88,6 +88,7 @@ Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveVie
         {"directory", Path(view.directory)},
         {"projectId", V::makeString(view.projectId)}, {"sampleId", V::makeString(view.sampleId)},
         {"setupError", Issue(view.setup)}, {"writerLeaseHeld", V::makeBool(view.writerHeld)},
+        {"memberSetupError", view.memberSetup ? Issue(*view.memberSetup) : V::makeNull()},
         {"apiOwner", view.api ? V::makeObject({{"sampleId", V::makeString(view.apiOwner.sampleId)},
             {"sessionId", V::makeString(view.apiOwner.sessionId)}, {"epoch", V::makeString(view.apiOwner.epoch)},
             {"backendInstanceId", V::makeString(view.apiOwner.backendInstanceId)}}) : V::makeNull()},
@@ -213,6 +214,18 @@ bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExis
 // 输入Start冻结的完整目录；先解析副本再统一提交，任何定义错误都在首个附加前停止。
 bool ExecutionGroupArchive::ResolveSites(std::vector<native::ExecutionGroupSite>& sites)
 {
+    if (!ResolveSitesForSample(sites, view_.setup))
+    {
+        Close(); // Start尚未附加成员，失败可归还未使用writer；活集合追加不走此分支。
+        return false;
+    }
+    return true;
+}
+
+// 输入本轮新增目录和独立状态槽；全部成功才替换目录，失败保留原站点和原项目租约。
+bool ExecutionGroupArchive::ResolveSitesForSample(std::vector<native::ExecutionGroupSite>& sites, ProjectResult& status)
+{
+    status = {};
     auto resolved = sites; // 失败时不把部分成员的继承散列写回原目录。
     for (auto& site : resolved)
     {
@@ -222,19 +235,19 @@ bool ExecutionGroupArchive::ResolveSites(std::vector<native::ExecutionGroupSite>
         }
         if (!project_ || !view_.writerHeld || site.address || !site.rva || !site.exactExport.empty())
         {
-            view_.setup = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionProjectRvaRequired"};
+            status = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionProjectRvaRequired"};
             break;
         }
         std::uint32_t rva = 0; // 仅由本轮sample冻结配置解析，不读取项目后来修订。
         std::optional<std::string> hash; // 冻结的期望映像约束，由原native核验实际文件。
-        view_.setup = ResolveSampleImageDefinition(*project_, view_.sampleId, site.definitionId, site.modulePath, rva, &hash);
-        if (!view_.setup)
+        status = ResolveSampleImageDefinition(*project_, view_.sampleId, site.definitionId, site.modulePath, rva, &hash);
+        if (!status)
         {
             break;
         }
         if (*site.rva != rva || (site.imageSha256 && hash && site.imageSha256 != hash))
         {
-            view_.setup = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionSiteMismatch"};
+            status = {ProjectError::InvalidArgument, 0, "executionGroupDefinitionSiteMismatch"};
             break; // 手工输入不能覆盖冻结RVA或弱化已保存的映像散列。
         }
         if (hash)
@@ -242,13 +255,31 @@ bool ExecutionGroupArchive::ResolveSites(std::vector<native::ExecutionGroupSite>
             site.imageSha256 = std::move(hash); // 未手填散列时继承冻结定义，不从磁盘同名文件补值。
         }
     }
-    if (!view_.setup)
+    if (!status)
     {
-        Close(); // 尚未启动任一成员；失败直接释放本次未使用的项目写租约。
         return false;
     }
     sites = std::move(resolved);
     return true;
+}
+
+// 输入明确追加请求，沿原worker和冻结sample解析；不创建第二writer，也不改写已有成员目录。
+native::ExecutionGroupResult ExecutionGroupArchive::AppendMembers(native::OwnedExecutionGroup& group,
+    std::vector<native::ExecutionGroupSite> sites, bool explicitlyAuthorized, std::string_view collectionId)
+{
+    auto current = group.QueryWithoutCondition(); // 不求条件或继续任何已有成员。
+    view_.memberSetup.reset();
+    if (!explicitlyAuthorized || collectionId != current.collectionId || !native::OwnedExecutionGroup::CanAppendMembers(current))
+    {
+        return group.AppendMembers(std::move(sites), explicitlyAuthorized, collectionId); // 核心统一返回真实准入拒绝。
+    }
+    view_.memberSetup.emplace(); // 与初次setup分开，错误不阻塞已有成员保存/清退。
+    if (!ResolveSitesForSample(sites, *view_.memberSetup))
+    {
+        // 没有可提交的完整目录；让原集合保留一份真实拒绝回执，定义失败细节独立留在memberSetup。
+        return group.AppendMembers({}, explicitlyAuthorized, collectionId);
+    }
+    return group.AppendMembers(std::move(sites), explicitlyAuthorized, collectionId);
 }
 
 // 输入本次原成员和明确来源请求，输出独立API回执；原调试线程继续持有全部停止责任。

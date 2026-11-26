@@ -8,12 +8,13 @@
 namespace Ksword::Features::ActionAnalyze {
 namespace execution_native = ks::cli::action_analyze::control;
 
-enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory };
+enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory, AppendMembers };
 
 // 点击时按值冻结；不借用窗口、列表索引或稍后可能改变的参数。
 struct LightExecutionGroupRequest {
     LightExecutionGroupCommand command = LightExecutionGroupCommand::Query;
     std::vector<execution_native::ExecutionGroupSite> sites;
+    std::string collectionId; // 显式追加冻结原集合身份，不能作用于下一轮集合。
     std::vector<execution_native::ExecutionGroupSessionEntry> sessions; // 混合Pause/Continue逐成员冻结原owner和完整control。
     std::vector<execution_native::NativeControlResult> stops;
     execution_native::NativeStepMode stepMode = execution_native::NativeStepMode::Into;

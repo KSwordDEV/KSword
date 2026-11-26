@@ -35,6 +35,7 @@ struct ExecutionGroupArchiveView {
     std::string projectId; // 实际创建或打开的项目身份。
     std::string sampleId; // 本轮独立新采样，全部成员沿用同一sample。
     ProjectResult setup; // 项目和采样准备结果，未配置目录时不创建项目。
+    std::optional<ProjectResult> memberSetup; // 最近显式追加的冻结定义解析结果；失败不影响已有采样和writer。
     std::shared_ptr<const ExecutionGroupExecutionSave> saved; // 最近一次显式保存回执。
     std::shared_ptr<const ExecutionGroupExecutionSave> firstFailure; // 首次追加失败，旧成功重放不覆盖。
     std::shared_ptr<const NativeBoundApiResult> api; // 本轮原writer的另一明确来源实例采集，不自动保存执行事件。
@@ -57,6 +58,11 @@ public:
     bool Prepare(const std::wstring& directory, bool openExisting);
     // 在任何成员附加前核对全部可选冻结定义；成功继承约束，失败保留原草稿并归还未使用writer。
     bool ResolveSites(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites);
+    // 输入新站点、授权及原集合ID，复用本轮冻结配置解析后追加；失败不关闭已有writer或成员。
+    ks::cli::action_analyze::control::ExecutionGroupResult AppendMembers(
+        ks::cli::action_analyze::control::OwnedExecutionGroup& group,
+        std::vector<ks::cli::action_analyze::control::ExecutionGroupSite> sites,
+        bool explicitlyAuthorized, std::string_view collectionId);
     // 在原worker借唯一writer采集另一明确来源，拒绝来源属于集合；前后回读不求条件或Continue。
     void CaptureApi(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed,
@@ -77,6 +83,8 @@ public:
     void Close();
 
 private:
+    bool ResolveSitesForSample(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites,
+        ProjectResult& status); // 事务式解析同一采样中的定义，输出独立状态，不关闭项目。
     std::optional<ProjectDocument> project_; // 原worker独占的项目写租约。
     ExecutionGroupArchiveView view_; // 本轮项目身份及最新保存回执。
     std::uint64_t ordinal_ = 1; // 新采样raw-native从第1段开始，不扫描或覆盖其它采样。

@@ -113,6 +113,7 @@ public:
     };
     std::vector<Member> members;
     std::string collectionId;
+    std::string sampleId; // 整个集合唯一采样；无项目时也生成一次，追加成员不另起采样。
     bool started = false;
     bool closing = false;
     std::optional<ExecutionGroupOperation> operation;
@@ -197,6 +198,24 @@ public:
     {
         operation->outcomes.push_back({member.site.pid, member.site.creationFileTime, member.current, false, disposition});
     }
+
+    // 输入已冻结的新成员，调用其唯一原session附加；回执及恢复责任始终保留在该成员中。
+    void Attach(Member& member)
+    {
+        const auto& site = member.site; // 只使用入队时冻结的身份和站点，不从当前选择补值。
+        auto state = site.address ? member.session->AttachPrivateAddress(site.pid, site.creationFileTime,
+            site.address, 0, site.condition, sampleId, site.rangeBytes) :
+            member.session->AttachImageExecution(site.pid, site.creationFileTime, site.modulePath,
+                site.rva, site.exactExport, site.condition, sampleId, site.imageSha256);
+        if (!state.pid)
+        {
+            state.pid = site.pid;
+            state.processCreationTime = site.creationFileTime;
+        }
+        member.accepted = !state.win32Error && state.status != NativeControlStatus::Rejected &&
+            state.status != NativeControlStatus::RecoveryRequired;
+        Outcome(member, std::move(state)); // 部分失败不删除失败项，也不清退此前成功成员。
+    }
 };
 
 OwnedExecutionGroup::OwnedExecutionGroup() : impl_(std::make_unique<Impl>()) {}
@@ -225,6 +244,9 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     }
     if (!storage::NewId(self.collectionId))
         return self.Reject(ExecutionGroupAction::Start, "execution-group-identity-failed", ERROR_GEN_FAILURE);
+    self.sampleId = sampleId;
+    if (self.sampleId.empty() && !storage::NewId(self.sampleId))
+        return self.Reject(ExecutionGroupAction::Start, "execution-group-sample-identity-failed", ERROR_GEN_FAILURE);
     // 先完成全部配置及会话的分配，再进行任何附加；启动失败也不覆盖既有成功 owner。
     std::vector<Impl::Member> frozen;
     frozen.reserve(sites.size());
@@ -233,18 +255,62 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     self.started = true;
     self.operation = ExecutionGroupOperation{ExecutionGroupAction::Start, true, "execution-group-start-submitted", 0, {}};
     for (auto& member : self.members) {
-        const auto& site = member.site;
-        auto state = site.address ? member.session->AttachPrivateAddress(site.pid, site.creationFileTime,
-            site.address, 0, site.condition, sampleId, site.rangeBytes) :
-            member.session->AttachImageExecution(site.pid, site.creationFileTime, site.modulePath,
-                site.rva, site.exactExport, site.condition, sampleId, site.imageSha256);
-        if (!state.pid) {
-            state.pid = site.pid;
-            state.processCreationTime = site.creationFileTime;
+        self.Attach(member);
+    }
+    return self.Result();
+}
+
+// 输入当前纯值快照，返回是否可显式追加；清退/恢复阶段不扩张原控制责任。
+bool OwnedExecutionGroup::CanAppendMembers(const ExecutionGroupResult& current)
+{
+    return !current.collectionId.empty() && !current.clean && current.members.size() < kOwnedExecutionGroupLimit &&
+        (current.state == ExecutionGroupState::Active || current.state == ExecutionGroupState::HeldPartial ||
+            current.state == ExecutionGroupState::HeldComplete || current.state == ExecutionGroupState::PartialFailure);
+}
+
+// 新成员在任何附加前统一核对并分配；已有成员只无条件回读，保持原停点、条件和恢复资源。
+ExecutionGroupResult OwnedExecutionGroup::AppendMembers(std::vector<ExecutionGroupSite> sites,
+    bool explicitlyAuthorized, std::string_view collectionId)
+{
+    auto& self = *impl_; // 本端原串行worker唯一持有的集合。
+    self.Observe(false);
+    if (collectionId != self.collectionId || !CanAppendMembers(self.Result()))
+    {
+        return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-append-unavailable", ERROR_INVALID_STATE);
+    }
+    if (!explicitlyAuthorized || sites.empty() || sites.size() > kOwnedExecutionGroupLimit - self.members.size())
+    {
+        return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-append-explicit-sites-required", ERROR_INVALID_PARAMETER);
+    }
+    std::set<std::uint32_t> pids; // 同PID也不替换旧代次；原成员必须先沿原owner清退。
+    for (const auto& member : self.members)
+    {
+        pids.insert(member.site.pid);
+    }
+    for (const auto& site : sites)
+    {
+        if (!ValidSite(site) || !pids.insert(site.pid).second)
+        {
+            return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-invalid-or-duplicate-site", ERROR_INVALID_PARAMETER);
         }
-        member.accepted = !state.win32Error && state.status != NativeControlStatus::Rejected &&
-            state.status != NativeControlStatus::RecoveryRequired;
-        self.Outcome(member, std::move(state));
+    }
+    std::vector<Impl::Member> frozen; // 全部配置与session先分配，避免中途分配失败丢失已附加owner。
+    frozen.reserve(sites.size());
+    for (auto& site : sites)
+    {
+        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false});
+    }
+    const auto first = self.members.size(); // 原目录索引保持稳定，新成员仅追加到末尾。
+    self.members.reserve(first + frozen.size());
+    self.operation = ExecutionGroupOperation{ExecutionGroupAction::AppendMembers, true, "execution-group-append-submitted", 0, {}};
+    self.operation->outcomes.reserve(frozen.size());
+    for (auto& member : frozen)
+    {
+        self.members.push_back(std::move(member));
+    }
+    for (std::size_t index = first; index < self.members.size(); ++index)
+    {
+        self.Attach(self.members[index]); // 逐项原生结果，不承诺同时附加或同时冻结。
     }
     return self.Result();
 }

@@ -418,6 +418,8 @@ void Refresh(Page& page)
     for (const auto& member : page.shown.result.members) all.Include(member);
     for (const auto row : rows) subset.Include(page.shown.result.members[static_cast<std::size_t>(row)]);
     ::EnableWindow(page.start, controls && page.shown.canStart && !page.sites.empty() && ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    ::EnableWindow(page.appendMembers, controls && execution_native::OwnedExecutionGroup::CanAppendMembers(page.shown.result) &&
+        ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED); // 原核心资格，失败清退时不扩张责任。
     ::EnableWindow(page.identify, controls);
     ::EnableWindow(page.projectDirectory, controls && page.shown.canStart); // 活writer不跟随路径草稿变化。
     ::EnableWindow(page.openProject, controls && page.shown.canStart);
@@ -463,6 +465,11 @@ void Refresh(Page& page)
     {
         const auto& failure = !page.shown.archive.setup ? page.shown.archive.setup : page.shown.archive.saved->status; // 存储诊断与控制结果分列。
         status += L"\r\n执行观察归档 / " + Widen(failure.detail) + L" / Win32 " + std::to_wstring(failure.nativeError);
+    }
+    if (page.shown.archive.memberSetup && !*page.shown.archive.memberSetup)
+    {
+        const auto& failure = *page.shown.archive.memberSetup; // 与旧成员保存失败分开，不释放旧writer。
+        status += L"\r\n追加表单目标到本轮集合 / " + Widen(failure.detail) + L" / Win32 " + std::to_wstring(failure.nativeError);
     }
     if (InputText(page.status) != status) ::SetWindowTextW(page.status, status.c_str());
     RefreshText(page);

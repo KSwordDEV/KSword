@@ -8,6 +8,9 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "我明确授权控制列表及本次追加的进程实例": "I explicitly authorize control of the listed process instances and the instances added by this request",
+    "追加表单目标到本轮集合": "Add form target to current group",
+    "冻结当前表单中的新进程实例与条件，沿同一采样追加成员；保留已有停点，不替换原成员。最多 16 个不同 PID。": "Freeze the new process instance and condition from this form, then add it to the same sample. Preserve existing stops and members. Maximum 16 distinct PIDs.",
     "原生执行历史": "Native execution history",
     "历史观察保留原始停点、绑定和寄存器；不授予实时控制权。": "Historical observations preserve the original stop, binding and registers. They do not grant live control.",
     "原生执行历史（保留 %1 / 已核验 %2）": "Native execution history (%1 retained / %2 verified)",

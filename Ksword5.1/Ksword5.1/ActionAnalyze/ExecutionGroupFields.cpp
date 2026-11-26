@@ -262,7 +262,17 @@ namespace ks::action_analyze
 
     void ExecutionGroupMemberModel::Apply(const native::ExecutionGroupResult& snapshot)
     {
-        result = snapshot; // 固定目录只更新值，不丢弃多选。
+        result = snapshot; // 原成员只更新值；追加新行保持已有多选和稳定行身份。
+        if (!snapshot.collectionId.empty() && snapshot.members.size() > sites.size())
+        {
+            const auto first = sites.size(); // 原成员不会移除或重排，新增目录仅在末尾发布。
+            beginInsertRows({}, static_cast<int>(first), static_cast<int>(snapshot.members.size() - 1));
+            for (std::size_t row = first; row < snapshot.members.size(); ++row)
+            {
+                sites.push_back(snapshot.members[row].site); // 保留实际解析后的新站点，不借当前表单重建。
+            }
+            endInsertRows();
+        }
         if (!sites.empty())
         {
             emit dataChanged(index(0, 0), index(rowCount() - 1, 3));

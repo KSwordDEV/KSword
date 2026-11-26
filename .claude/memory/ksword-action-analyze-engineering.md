@@ -2,6 +2,10 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 新授权最多3项测试。** 用户原话「我再批3个测试的额度，可继续调用codebuddy。」计划按条件解析、历史线程恢复失败、集合追加成员各一项，限制focused场景，禁止整批重跑、GUI或额外子派发。主代理仍负责功能源码；所有测试改动、执行、结果落盘归CodeBuddy。已用2/3：条件文本字段最多8组（sh_21812235f001qocCy95j8uXwn2）、历史线程恢复最多2场景（sh_21813eecb001fKXDq9hTcc2QML）已直接派出；剩余1项在集合追加源码提交后派发。只允许第三项构建完整CLI一次，前两项编译独立小夹具，固定IntDir/统一Release。自动等回执，不轮询、不擅自续接。最新goal重激活不撤销本次数量边界。
+
+- **2026-11-26 第4/6项运行中追加实例源码。** OwnedExecutionGroup::AppendMembers按显式授权+原collectionId接收新站点，总计16个不同PID；先统一校验和分配，逐新成员独立Attach，原成员仅QueryWithoutCondition、不Continue/重建。Start无项目也只生成一个sample，后续沿用。ExecutionGroupArchive使用原sample冻结定义解析，追加失败独立memberSetupError，保留旧setup/writer。CLI新增members-append/control.members.append及原execution/N重放；Qt/Light原worker与固定动作栏接当前完整表单，Qt模型末尾insert不reset。导航为监控→行为分析→执行断点集合，参数执行+None管理清单+共享字段详情，复用ParameterWorkspace/FlowLayout/原生适配；对照DataWriteWatchPage与ProcessGroupMemoryPane及其共享实现。没有新增轮询、驱动协议、页面或源码文件；双语及CLI帮助文档同步。主代理未执行构建/测试/GUI，运行交第三项CodeBuddy，尚未通过；不自动后代或全系统激活。
+
 - **2026-11-26 第10项文本字段等值源码。** 原FilterAst新增TextFieldComparison布尔叶，准备时绑定双方当前阶段Text目录，v3解析`left.field ==/!= right.field`，原常量/null/v1/v2路径保留。解释器左到右读取，完整Known按原UTF-8区分大小写比较，两个显式Null相等、Null/空文本不同；缺失/截断/读失败为Unknown，不因同字段折叠，原预算/UTF-8故障保留。Qt规则草稿说明、CLI catalog内置help、README/CLI文档及双语同步；Light预置回放复用同一核心，不新增字段或页面。仅源码，无构建/测试/GUI/派发/验收记录/推送。另已核对执行集合AddRange实际已有三端完整接线，不再重复实现。
 
 - 文本字段间比较随后调整为先走原二元优先级再归并叶；不能在Atom中提前生成bool，避免`bool == textA == textB`被错误接受为`bool == (textA == textB)`。临时字段叶只在当前阶段两Text的==/!=归并，未归并交原类型准备拒绝；不修改原文本常量语法。仍仅源码未测。

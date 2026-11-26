@@ -8,7 +8,7 @@ namespace ks::cli::action_analyze::control {
 
 inline constexpr std::size_t kOwnedExecutionGroupLimit = 16;
 
-// 一个显式进程实例只接一份执行站点。条件与站点均在 Start 时按值冻结。
+// 一个显式进程实例只接一份执行站点。条件与站点在Start或显式追加时按值冻结。
 struct ExecutionGroupSite {
     std::uint32_t pid = 0;
     std::uint64_t creationFileTime = 0;
@@ -24,7 +24,7 @@ struct ExecutionGroupSite {
 };
 
 enum class ExecutionGroupState { Idle, Active, HeldPartial, HeldComplete, PartialFailure, RecoveryRequired, Closing, Closed };
-enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause, AddRange };
+enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause, AddRange, AppendMembers };
 
 struct ExecutionGroupMember {
     ExecutionGroupSite site;
@@ -60,7 +60,7 @@ struct ExecutionGroupResult {
     std::string collectionId; // 本集合身份，与各成员 stop groupId 完全独立。
     ExecutionGroupState state = ExecutionGroupState::Idle;
     bool clean = true;
-    std::vector<ExecutionGroupMember> members; // Start 固定顺序，不隐式增加进程或后代。
+    std::vector<ExecutionGroupMember> members; // 原成员顺序不变，显式追加只加到末尾，不隐式增加后代。
     std::optional<ExecutionGroupOperation> operation; // 最近一次操作回执，与当前状态分别报告。
 };
 
@@ -75,6 +75,10 @@ public:
 
     [[nodiscard]] ExecutionGroupResult Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
         NativeTargetDisposition disposition, std::string_view sampleId = {});
+    // 输入新实例站点、显式授权及原集合ID；沿本轮sample追加独立owner，不释放或替换原成员。
+    [[nodiscard]] ExecutionGroupResult AppendMembers(std::vector<ExecutionGroupSite> sites,
+        bool explicitlyAuthorized, std::string_view collectionId);
+    [[nodiscard]] static bool CanAppendMembers(const ExecutionGroupResult& current); // 当前集合仍活跃、无待恢复且未满16成员。
     [[nodiscard]] ExecutionGroupResult Query();
     // 仅回读原成员，不执行命中条件或自动Continue；用于显式保存/调查的前置核对。
     [[nodiscard]] ExecutionGroupResult QueryWithoutCondition();

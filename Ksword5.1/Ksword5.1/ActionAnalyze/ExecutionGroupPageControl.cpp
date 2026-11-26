@@ -124,6 +124,29 @@ namespace ks::action_analyze
         Detail();
     }
 
+    // 输入当前表单和明确授权，追加唯一新实例；编辑不改变已有成员、停点和旧结果来源。
+    void ExecutionGroupPage::AppendMember()
+    {
+        if (!m_session || !m_append->isEnabled())
+        {
+            return;
+        }
+        native::ExecutionGroupSite site; // 原editor统一校验完整身份、站点、期望散列和条件。
+        if (!m_editor->Prepare(site, m_inputError))
+        {
+            Render();
+            return;
+        }
+        ExecutionGroupRequest request; // 表单、授权和集合身份按值冻结，不借列表选择补新目标。
+        request.command = ExecutionGroupCommand::AppendMembers;
+        request.sites.push_back(std::move(site));
+        request.authorized = m_authorized->isChecked();
+        request.collectionId = m_shown.result.collectionId;
+        m_inputError = m_session->Submit(std::move(request)) ? QString() :
+            sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
+        Poll(); // 仅投影已公布状态，不在GUI执行原生附加。
+    }
+
     // 用户显式Start，冻结目录、授权和共同sampleId；所有原生owner在同一worker创建。
     void ExecutionGroupPage::Start()
     {
@@ -408,9 +431,11 @@ namespace ks::action_analyze
                 });
             });
         };
-        m_editor->setEnabled(editable); // 活集合目录和条件不可被参数编辑静默重配。
+        const bool appendable = ready && native::OwnedExecutionGroup::CanAppendMembers(m_shown.result); // 核心与界面共用资格。
+        m_editor->setEnabled(editable || appendable); // 活集合只允许编辑待追加表单，原成员不被重配。
         m_projectSection->setEnabled(editable); // 目录编辑不重定向已产生的结果或writer。
-        m_authorized->setEnabled(editable);
+        m_authorized->setEnabled(editable || appendable);
+        m_append->setEnabled(appendable && m_authorized->isChecked());
         m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);
         m_replace->setEnabled(editable && selected.size() == 1);
         m_load->setEnabled(editable && selected.size() == 1);
@@ -470,6 +495,12 @@ namespace ks::action_analyze
         {
             const auto& failure = !m_shown.archive.setup ? m_shown.archive.setup : m_shown.archive.saved->status; // 存储失败不冒充控制失败。
             status += QLatin1Char('\n') + sourceText(QStringLiteral("执行观察归档")) + QStringLiteral(" / %1 / Win32 %2")
+                .arg(QString::fromLatin1(failure.detail)).arg(failure.nativeError);
+        }
+        if (m_shown.archive.memberSetup && !*m_shown.archive.memberSetup)
+        {
+            const auto& failure = *m_shown.archive.memberSetup; // 新成员定义失败单列，不掩盖已有成员状态。
+            status += QLatin1Char('\n') + sourceText(QStringLiteral("追加表单目标到本轮集合")) + QStringLiteral(" / %1 / Win32 %2")
                 .arg(QString::fromLatin1(failure.detail)).arg(failure.nativeError);
         }
         if (!m_registered)

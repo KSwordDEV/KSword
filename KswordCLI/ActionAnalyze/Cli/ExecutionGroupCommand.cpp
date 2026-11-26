@@ -67,7 +67,8 @@ public:
                       {"executionSave", Text("control.execution.save params:{}; expected:{collectionId,stops:[one current execution stopToken]}; requires configured project; never Continue")},
                       {"memoryRead", Text("control.memory.read params:{address:decimal-string,bytes:decimal-string}; expected:{collectionId,stops:[one complete stopToken]}; no automatic save or Continue")},
                       {"memorySave", Text("control.memory.save params:{}; expected:{collectionId,trackingEpoch}; save the current original read to raw-memory, independent of member selection")},
-                      {"apiCapture", Text("control.api.capture requires one complete sessionToken in expected.sessions and a confirmed explicit source outside all members; shared sample writer, never Continue")},
+                       {"apiCapture", Text("control.api.capture requires one complete sessionToken in expected.sessions and a confirmed explicit source outside all members; shared sample writer, never Continue")},
+                       {"membersAppend", Text("control.members.append params:{sites:UTF-8-config-path,confirm:true}; expected:{collectionId}; append explicit new instances to the same sample, at most 16 total")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
             // 部分启动失败仍进入命令循环，保留成功附加者供状态、继续、步进及清退。
@@ -257,11 +258,70 @@ private:
         });
     }
 
+    // 输入已确认的新站点配置文件及原集合身份；重放先命中原回执，不重读变化后的配置或重复附加。
+    bool AppendMembers(const Request& request)
+    {
+        if (cleanupOnly_)
+        {
+            return Invalid(request, "cleanup-pending", "Original owners are closing");
+        }
+        std::string id = request.id, path, collectionId; // 配置路径只用于本次显式追加，不改启动参数。
+        bool confirmed = false; // 每次追加必须明确确认控制新实例。
+        if (jsonl_)
+        {
+            const auto* fields = request.params.asObject(); // 此动作只接受文件路径与显式授权。
+            const auto* sites = request.params.find("sites");
+            const auto* confirm = request.params.find("confirm");
+            const auto* expected = request.expected ? request.expected->asObject() : nullptr;
+            const auto* collection = request.expected ? request.expected->find("collectionId") : nullptr;
+            if (!request.session || !fields || fields->size() != 2 || !sites || !sites->tryGetString(path) ||
+                !confirm || !confirm->tryGetBool(confirmed) || !confirmed || !expected || expected->size() != 1 ||
+                !collection || !collection->tryGetString(collectionId) || collectionId != collectionId_)
+            {
+                return Invalid(request, "invalid-append-members", "Require params:{sites:PATH,confirm:true}, expected:{collectionId} and current session");
+            }
+        }
+        else
+        {
+            const auto* args = request.params.asArray(); // REPL显式带集合ID，不能依当前界面索引猜身份。
+            std::string confirmation; // 原文必须为confirm，不接受任意非空值。
+            if (request.expected || !args || args->size() != 4 || !(*args)[0].tryGetString(id) ||
+                !(*args)[1].tryGetString(path) || !(*args)[2].tryGetString(confirmation) || confirmation != "confirm" ||
+                !(*args)[3].tryGetString(collectionId) || collectionId != collectionId_)
+            {
+                return Invalid(request, "invalid-append-members", "Use members-append execution/N SITES_PATH confirm COLLECTION_ID");
+            }
+            confirmed = true;
+        }
+        if (path.empty() || path.size() > 32767 || path.find('\0') != std::string::npos)
+        {
+            return Invalid(request, "invalid-sites-path", "Require a nonempty configuration file path");
+        }
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text("members-append")},
+            {"sites", Text(path)}, {"collectionId", Text(collectionId)}, {"confirm", V::makeBool(confirmed)}}));
+        return Mutate(request, std::move(id), signature, [&] {
+            std::vector<n::ExecutionGroupSite> sites; // 原ReadSites一次冻结文件字节、字段与条件。
+            try
+            {
+                sites = p::ReadSites(p::Wide(path));
+            }
+            catch (const std::invalid_argument& error)
+            {
+                return FaultJson({"invalid-append-sites", error.what(), std::nullopt, 1, "cli", 0, "execution-group"});
+            }
+            return Report(archive_.AppendMembers(group_, std::move(sites), confirmed, collectionId));
+        });
+    }
+
     bool Dispatch(const Request& request, bool& closed)
     {
         if (request.session && (request.session->id != identity_.sessionId || request.session->epoch != identity_.epoch))
             return Invalid(request, "wrong-session", "Use the current hello session and epoch");
         const auto& method = request.method;
+        if (method == "members-append" || method == "control.members.append")
+        {
+            return AppendMembers(request); // 共享execution/N流水，先核对hello身份再读取新配置。
+        }
         if (method == "api-capture" || method == "control.api.capture")
         {
             return CaptureApi(request); // 此路径仍受上方hello身份核对及原修改流水约束。
@@ -282,7 +342,7 @@ private:
         const bool rangeInput = range || readMemory; // 两种动作共用数值输入，但内存读取不要求整页对齐。
         const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
+            "status | members-append execution/N SITES_PATH confirm COLLECTION_ID | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
         if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(group_.Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
@@ -514,7 +574,7 @@ void RegisterExecutionGroupCommand()
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
     command.notes = L"over-call steps over decoded CALLs at their return boundary and performs one TF step for supported non-CALL instructions, retaining the original requested mode and destination:null. "
         L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
-        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
+        L"members-append execution/N SITES_PATH confirm COLLECTION_ID; step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
         L"memory-read execution/N ADDRESS BYTES TOKENHEX; memory-save execution/N TRACKING_EPOCH; "
         L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
@@ -537,6 +597,9 @@ void RegisterExecutionGroupCommand()
         L"site retains initial configuration; control.breakpoint.executionRanges and control.executionRange show actual ranges and the native range/N receipt. "
         L"128 replay receipts, strictly increasing IDs; replay returns original result and does not repeat actions. "
         L"All stop identities/events/revisions are checked before any selected continue; actual calls remain sequential and may partly fail. "
+        L"control.members.append uses params:{sites:PATH,confirm:true}, expected:{collectionId}, current session and execution/N. "
+        L"It reads the same sites schema once, appends new distinct PIDs to the same sample (16 total), and retains all original owners/stops. "
+        L"Frozen definitions resolve against the current sample; definition failures preserve the existing writer and memberSetupError. "
         L"Partial attach and continue retain successful members and original responsibility. No automatic descendants or system-wide attachment. "
         L"Close/EOF/break/output loss close admission, cancel steps and retain original owners until clean; owner-death recovery is not promised. "
         L"See docs/cli/action-analyze-execution-group.md for schema and protocol examples.";

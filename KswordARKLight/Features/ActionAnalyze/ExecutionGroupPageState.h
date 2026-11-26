@@ -12,7 +12,7 @@ enum : int {
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
     kPauseAll, kPauseSelected, kAddRange, kImageSha256, kProjectDirectory, kOpenProject, kSaveExecution, kDefinitionId,
-    kApiPid, kApiCreation, kApiDuration, kCaptureApi, kMemoryAddress, kMemoryBytes, kReadMemory, kSaveMemory
+    kApiPid, kApiCreation, kApiDuration, kCaptureApi, kMemoryAddress, kMemoryBytes, kReadMemory, kSaveMemory, kAppendMembers
 };
 // 末尾增加输入字段，保留既有控件ID与字段顺序；散列使用独立kImageSha256标识。
 enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, ImageSha256, DefinitionId, FieldCount };
@@ -32,6 +32,7 @@ struct Page {
     HWND readMemory = nullptr, saveMemory = nullptr; // 读取唯一成员及保存当前原读取是两个明确动作。
     HWND draft = nullptr, add = nullptr, remove = nullptr, loadDraft = nullptr, authorized = nullptr;
     HWND start = nullptr, query = nullptr, continueAll = nullptr, continueSelected = nullptr;
+    HWND appendMembers = nullptr; // 固定动作栏中显式追加当前表单新实例，沿原集合和采样。
     HWND pauseAll = nullptr, pauseSelected = nullptr;
     HWND stepInto = nullptr, stepOver = nullptr, stepOut = nullptr, cancelStep = nullptr, close = nullptr;
     HWND members = nullptr, preset = nullptr, textMode = nullptr, copy = nullptr, exportText = nullptr;

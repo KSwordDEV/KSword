@@ -118,7 +118,7 @@ namespace ks::action_analyze
             }
         });
         m_authorized = new QCheckBox(workspace); // 授权在Start请求时冻结，不随后续UI变化重配。
-        language.bindText(m_authorized, {}, QStringLiteral("我明确授权控制列表中的全部进程实例"));
+        language.bindText(m_authorized, {}, QStringLiteral("我明确授权控制列表及本次追加的进程实例"));
         workspace->parameters()->addWidget(m_authorized);
         m_rangeTarget = new QLabel(workspace); // 目标随明确单选展示，编辑范围不改变原成员或站点草稿。
         m_rangeTarget->setTextFormat(Qt::PlainText);
@@ -137,8 +137,11 @@ namespace ks::action_analyze
             AddRange(address, bytes); // 点击时再冻结显示停点，worker不读取控件或行索引。
         };
         m_start = Action(workspace, "execution_group_start", QStringLiteral("开始执行集合"), QStringLiteral("在原后台线程冻结全部站点并逐成员附加，部分失败仍保留成功成员和恢复责任。"));
+        m_append = Action(workspace, "execution_group_append", QStringLiteral("追加表单目标到本轮集合"),
+            QStringLiteral("冻结当前表单中的新进程实例与条件，沿同一采样追加成员；保留已有停点，不替换原成员。最多 16 个不同 PID。"));
         m_newDraft = Action(workspace, "execution_group_new", QStringLiteral("返回站点草稿"), QStringLiteral("仅在原集合确认清退后返回原站点目录；新开始创建新的集合身份。"));
         workspace->actions()->addWidget(m_start);
+        workspace->actions()->addWidget(m_append); // 复杂控制动作保留文字，沿共享固定动作区自然换行。
         workspace->actions()->addWidget(m_newDraft);
         ks::ui::ApplyFlatButtonTheme(m_start, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
 
@@ -204,6 +207,7 @@ namespace ks::action_analyze
         connect(m_load, &QPushButton::clicked, this, [this] { LoadSite(); });
         connect(m_remove, &QPushButton::clicked, this, [this] { RemoveSites(); });
         connect(m_start, &QPushButton::clicked, this, [this] { Start(); });
+        connect(m_append, &QPushButton::clicked, this, [this] { AppendMember(); });
         connect(m_newDraft, &QPushButton::clicked, this, [this]
         {
             if (!m_session || !m_shown.retired)
