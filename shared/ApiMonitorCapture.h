@@ -8,6 +8,54 @@
 #include <optional>
 
 namespace ks::winapi_monitor {
+// 严格采集的启动里程碑；输入为控制器已完成的真实动作，不把模块存在当作Hook就绪。
+enum class CaptureStartupStage {
+    IdentityVerified,
+    AgentResolved,
+    ConfigPublished,
+    AgentLoadStarted,
+    AgentModuleVerified,
+    PipeConnected,
+    SessionReady,
+    HooksInstalled,
+    Ready
+};
+
+// 输入启动阶段，返回稳定诊断名；桌面负责翻译显示，CLI可直接输出同一名称。
+inline const char* CaptureStartupStageName(CaptureStartupStage stage) noexcept
+{
+    switch (stage)
+    {
+    case CaptureStartupStage::IdentityVerified: return "identity-verified";
+    case CaptureStartupStage::AgentResolved: return "agent-resolved";
+    case CaptureStartupStage::ConfigPublished: return "config-published";
+    case CaptureStartupStage::AgentLoadStarted: return "agent-load-started";
+    case CaptureStartupStage::AgentModuleVerified: return "agent-module-verified";
+    case CaptureStartupStage::PipeConnected: return "pipe-connected";
+    case CaptureStartupStage::SessionReady: return "session-ready";
+    case CaptureStartupStage::HooksInstalled: return "hooks-installed";
+    case CaptureStartupStage::Ready: return "ready";
+    }
+    return "unknown";
+}
+
+// 采集线程发布的纯值快照；失败和取消保留最后到达阶段，不由清退期晚到消息补成Ready。
+struct CaptureStartupProgress {
+    CaptureStartupStage stage = CaptureStartupStage::IdentityVerified; // 最后实际到达的启动阶段。
+    DWORD pid = 0; // 原请求目标PID。
+    std::uint64_t creationFileTime = 0; // 已保留对象核验的创建时间。
+    std::uint64_t elapsedMs = 0; // 从控制器调用开始到当前阶段的耗时。
+    std::uint64_t session = 0; // 管道服务端核验后发布本轮会话；此前为零。
+    std::uint64_t coverageRevision = 0; // Ready时确认的完整覆盖修订；安装回执不能代替它。
+    bool attachmentIdentityVerified = false; // 普通附加是否通过实例准入。
+    bool agentLoadAttempted = false; // 本轮是否调用装载器。
+    bool agentModuleVerified = false; // 对应产品模块已在原实例核对。
+    bool reusedResident = false; // 本轮复用已存在模块，没有重新装载。
+    bool configPublished = false; // 本轮完整配置已原子发布。
+
+    bool operator==(const CaptureStartupProgress&) const = default;
+};
+
 // Value-only, Qt-free controller. Injection, leases and wire decoding are the
 // same implementations used by WinAPIDock; callers own output and cancellation.
 struct CaptureRequest {
@@ -49,6 +97,8 @@ struct CaptureRequest {
     std::uint64_t attachCreationFileTime = 0;
     bool attachConfirmed = false;
     bool strictReadOnlyObservation = false;
+    // 同一采集线程仅在阶段前进时调用；借用本次快照，异常走原停止及排空链。
+    std::function<void(const CaptureStartupProgress&)> onStartupProgress;
 };
 struct CaptureProcess {
     DWORD pid = 0, pipeError = 0;
@@ -79,6 +129,7 @@ struct CaptureResult {
     bool attachmentIdentityVerified = false;
     bool agentLoadAttempted = false;
     bool agentModuleVerified = false; // Module presence only; never Hook readiness.
+    std::optional<CaptureStartupProgress> startup; // 最后启动事实；最终清退不改写其阶段或耗时。
 };
 CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic_bool& cancel);
 }

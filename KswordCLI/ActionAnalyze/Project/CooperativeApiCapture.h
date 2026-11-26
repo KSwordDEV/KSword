@@ -85,8 +85,13 @@ using CooperativeApiCommitted = std::function<void(const SampleInfo&, const Proj
     const CooperativeApiRuleReceipt&)>;
 // 与规则通知独立，配置或规则求值故障不停止原包候选分析；参数只在通知期间借用。
 using CooperativeApiTransferCommitted = std::function<void(const CooperativeApiTransferReceipt&)>;
+// 启动中同步通知原控制器里程碑；不等于原包已归档，参数仅在回调期间借用。
+using CooperativeApiStartup = std::function<void(const ks::winapi_monitor::CaptureStartupProgress&)>;
+// 输入可缺省的最后启动事实，输出统一JSON投影；空值返回null，不查询当前进程或补造阶段。
+Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup);
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady = {},
-    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {});
+    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {},
+    const CooperativeApiStartup& onStartup = {});
 
 } // namespace Ksword::ActionAnalyze

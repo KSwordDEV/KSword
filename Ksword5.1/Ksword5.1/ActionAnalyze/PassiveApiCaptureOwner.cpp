@@ -298,12 +298,28 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
                 out.latestContextTransfer = transfers.recentContext.back();
             }
             publish(out);
+        }, [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
+            // 只复制控制器已确认的事实；模块存在和装载开始都不能推进本端 Ready。
+            if (out.startup == startup)
+            {
+                return;
+            }
+            out.startup = startup;
+            out.attachmentIdentityVerified = startup.attachmentIdentityVerified;
+            out.agentLoadAttempted = startup.agentLoadAttempted;
+            out.agentModuleVerified = startup.agentModuleVerified;
+            publish(out);
         });
     document.Close(); // 回读前先交还写租约。
     const auto& capture = run.capture; // 即使采样登记失败，也保留控制器实际返回的附加事实。
     out.attachmentIdentityVerified = capture.attachmentIdentityVerified;
     out.agentLoadAttempted = capture.agentLoadAttempted;
     out.agentModuleVerified = capture.agentModuleVerified;
+    if (capture.startup)
+    {
+        // 终态使用原控制器冻结的启动快照，不从清退期收到的包推导更晚阶段。
+        out.startup = capture.startup;
+    }
     if (!run.sampleStatus || !run.agentPathAvailable)
     {
         out.error = StartError(backend::PassiveApiStartStage::Sample, !run.sampleStatus ? run.sampleStatus :

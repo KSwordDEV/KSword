@@ -2,6 +2,7 @@
 
 #include "OfflineProjectReader.h"
 #include "../../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
+#include "../../../shared/ApiMonitorCapture.h"
 
 #include <atomic>
 #include <memory>
@@ -74,6 +75,7 @@ namespace ks::action_analyze
         bool attachmentIdentityVerified = false; // 控制器已固定并核验本次普通目标实例。
         bool agentLoadAttempted = false; // 本轮是否尝试装载产品 Agent，与 Ready 独立。
         bool agentModuleVerified = false; // 已核验所选架构 Agent 模块，不代表 Hook 已就绪。
+        std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 同一次启动最后确认的阶段，终态保留失败前快照。
 
         bool operator==(const PassiveApiCaptureReceipt&) const = default;
     };

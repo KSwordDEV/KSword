@@ -104,9 +104,31 @@ bool CooperativeEtwReceipt::Incomplete() const noexcept
         source.queueDropped || source.payloadTruncated || source.malformedPayload;
 }
 
+Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup)
+{
+    if (!startup)
+    {
+        return JsonValue::makeNull(); // 准入之前失败，没有到达任何实例核验阶段。
+    }
+    const auto& progress = *startup; // 只投影同一控制器冻结的启动值。
+    return Object({
+        {"stage", Text(Monitor::CaptureStartupStageName(progress.stage))},
+        {"pid", JsonValue::makeUInt(progress.pid)},
+        {"creationFileTime", Number(progress.creationFileTime)},
+        {"elapsedMs", Number(progress.elapsedMs)},
+        {"sessionIdentity", progress.session ? Number(progress.session) : JsonValue::makeNull()},
+        {"coverageRevision", progress.coverageRevision ? Number(progress.coverageRevision) : JsonValue::makeNull()},
+        {"attachmentIdentityVerified", JsonValue::makeBool(progress.attachmentIdentityVerified)},
+        {"agentLoadAttempted", JsonValue::makeBool(progress.agentLoadAttempted)},
+        {"agentModuleVerified", JsonValue::makeBool(progress.agentModuleVerified)},
+        {"reusedResident", JsonValue::makeBool(progress.reusedResident)},
+        {"configPublished", JsonValue::makeBool(progress.configPublished)}
+    });
+}
+
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady, const CooperativeApiCommitted& onCommitted,
-    const CooperativeApiTransferCommitted& onTransfers)
+    const CooperativeApiTransferCommitted& onTransfers, const CooperativeApiStartup& onStartup)
 {
     CooperativeApiReceipt out; // 工作线程独占，封段后交给本端投影。
     if (target.pid <= 4 || target.pid == GetCurrentProcessId() || !target.creationFileTime ||
@@ -134,6 +156,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     request.durationMs = target.durationMs;
     request.eventLimit = 0; // 由项目端分段归档，不重复缓存旧展示数据。
     request.onResidentReady = onReady; // 直接传递已核验的启动回执，避免桌面端重新解释协议。
+    request.onStartupProgress = onStartup; // 与原包回调同线程，阶段事实不经UI或规则重新推断。
 
     const auto database = Rules::LoadApiPresetDatabase(); // 采集途中编辑文件不会更换规则。
     out.rules.presetSet = database.presetSet;
@@ -320,6 +343,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             process.exited ? "target-exited" : target.mode == ApiCaptureMode::ExplicitAttachment ?
             "attachment-ended" : "cooperative-ended"; // 停止原因独立于 Agent 丢失和 EOF。
         JsonObject endFields{{"kind", Text(kApiFollowEndKind)}, {"stopReason", Text(reason)},
+            {"startup", ApiCaptureStartupJson(out.capture.startup)},
             {"source", Object({{"kind", Text("cooperative-pipe")}, {"readerPid", JsonValue::makeUInt(process.pid)},
                 {"readerCreation100ns", Number(process.creation)}, {"sessionIdentity", Number(process.session)},
                 {"validatedRows", Number(out.ordinaryPackets)}, {"agentReportedDrops", Number(process.agentDropped)},

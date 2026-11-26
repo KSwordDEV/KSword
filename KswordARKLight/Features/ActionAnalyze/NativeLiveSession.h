@@ -3,6 +3,7 @@
 #include "LiveCapture.h"
 #include "StoredEvidence.h"
 #include "../../Ui/VirtualListView.h"
+#include "../../../shared/ApiMonitorCapture.h"
 
 namespace Ksword::Features::ActionAnalyze {
 
@@ -50,6 +51,7 @@ struct NativeLiveApiReceipt {
     bool agentModuleVerified = false; // 产品 Agent 模块核验通过，不代表 Hook 就绪。
     DWORD durationMs = 0; // 结果所属请求的冻结时限，不随下一轮草稿变化。
     bool agentReady = false; // 原控制器启动屏障，独立于三个附加事实及模块存在。
+    std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 原worker最后确认的启动阶段，清退和失败不重置。
 };
 
 struct NativeLiveSnapshot {

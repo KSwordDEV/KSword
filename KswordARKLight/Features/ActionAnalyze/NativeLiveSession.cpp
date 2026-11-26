@@ -29,6 +29,35 @@ std::wstring WideAscii(std::string_view value) {
     return {value.begin(), value.end()};
 }
 
+// 输入共享控制器确认的实际阶段，返回原生详情使用的中文标签；不根据连接或装载事实推断 Ready。
+const wchar_t* StartupStageText(ks::winapi_monitor::CaptureStartupStage stage)
+{
+    using Stage = ks::winapi_monitor::CaptureStartupStage; // 与Qt及项目采集共用唯一阶段定义。
+    switch (stage)
+    {
+    case Stage::IdentityVerified:
+        return L"身份核对完成";
+    case Stage::AgentResolved:
+        return L"Agent 路径已解析";
+    case Stage::ConfigPublished:
+        return L"配置已发布";
+    case Stage::AgentLoadStarted:
+        return L"Agent 装载已开始";
+    case Stage::AgentModuleVerified:
+        return L"Agent 模块已核验";
+    // 协议阶段分别显示，安装回执不能代替含当前活动覆盖核验的Ready屏障。
+    case Stage::PipeConnected:
+        return L"管道已核对";
+    case Stage::SessionReady:
+        return L"SessionReady";
+    case Stage::HooksInstalled:
+        return L"HooksInstalled";
+    case Stage::Ready:
+        return L"Ready";
+    }
+    return L"";
+}
+
 namespace Passive = ks::cli::action_analyze;
 using Ksword::Evidence::JsonValue;
 using ks::r3::process::Utf8ToWide;
@@ -148,6 +177,11 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
     api.agentLoadAttempted = capture.agentLoadAttempted;
     api.agentModuleVerified = capture.agentModuleVerified;
     api.agentReady = capture.started;
+    if (capture.startup)
+    {
+        // 保留控制器冻结的最后启动阶段，不按清退阶段晚到的握手或安装包重新推导。
+        api.startup = capture.startup;
+    }
 
     api.details = std::wstring(L"连接 ") + (connected ? L"已核验" : L"未核实") +
         L" · 握手 " + observed(connected && target->sessionReady) +
@@ -490,6 +524,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
         return update;
     }
 
+    // 在原采集worker执行冻结请求；启动事实同步发布为值快照，由既有页面回读，不另建会话或计时器。
     void RunCooperativeApi(const NativeLiveRequest& request) {
         namespace Project = Ksword::ActionAnalyze;
         namespace Process = ks::r3::process;
@@ -560,6 +595,22 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                         }, [&](const Project::CooperativeApiTransferReceipt& transfers) {
                             // 通知在同一采集线程内先于 onCommitted，无并发借用或重复查询。
                             latestTransfers = transfers;
+                        }, [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
+                            // 只在阶段快照变化时搬运事实，Ready仍只由原onReady回调确认。
+                            if (api.startup == startup)
+                            {
+                                return;
+                            }
+                            api.startup = startup;
+                            api.attachmentIdentityVerified = startup.attachmentIdentityVerified;
+                            api.agentLoadAttempted = startup.agentLoadAttempted;
+                            api.agentModuleVerified = startup.agentModuleVerified;
+                            // 同一把锁发布整组启动字段，旧归档及当前采样身份均不在此处改写。
+                            std::lock_guard lock(mutex); // 与页面ReadStatus同步值快照。
+                            status.api->startup = api.startup;
+                            status.api->attachmentIdentityVerified = api.attachmentIdentityVerified;
+                            status.api->agentLoadAttempted = api.agentLoadAttempted;
+                            status.api->agentModuleVerified = api.agentModuleVerified;
                         });
                     last.projectId = frozen.projectId;
                     if (last.sampleId.empty()) last.sampleId = run.sample.sampleId;
@@ -842,10 +893,15 @@ std::wstring FormatLiveStatus(const NativeLiveSnapshot& status) {
             std::wstring text = status.api->explicitAttachment ? L"显式 API 附加 · " : L"合作 Agent · ";
             if (status.active) text += status.api->agentReady ? L"采集中 · " : L"等待就绪核验 · ";
             text += L"PID " + std::to_wstring(capture.pid) + L" · 创建 FILETIME " + std::to_wstring(capture.creationFileTime);
+            if (const auto& startup = status.api->startup) // 当前运行或终态均沿用同一份最后已确认快照。
+            {
+                text += std::wstring(L"\r\n最后确认的启动阶段：") + StartupStageText(startup->stage);
+                text += L" · " + std::to_wstring(startup->elapsedMs) + L" ms";
+            }
             if (status.api->explicitAttachment) {
-                // 装载三个事实仅终态有值；提前身份拒绝也显示本次的否，不借旧结果补齐。
+                // 运行回调确认的真值立即显示；未完成字段等待终态，不借旧结果补齐。
                 const auto fact = [&](bool value) {
-                    return status.active ? L"等待最终回执" : value ? L"是" : L"否";
+                    return !value && status.active ? L"等待最终回执" : value ? L"是" : L"否";
                 }; // 运行时默认false是尚未发布，不能显示成已核实的否。
                 text += std::wstring(L"\r\n附加实例已核验：") + fact(status.api->attachmentIdentityVerified) +
                     L"\r\n已尝试装载 Agent：" + fact(status.api->agentLoadAttempted) +

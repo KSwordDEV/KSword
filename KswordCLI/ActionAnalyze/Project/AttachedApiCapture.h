@@ -17,5 +17,6 @@ struct AttachedApiRequest {
 // boundSampleId为空沿用独立采样；非空由同一核心核验原API流未使用，不另开writer。
 CooperativeApiReceipt CaptureAttachedApi(ProjectDocument& document, const AttachedApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady = {},
-    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {});
+    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {},
+    const CooperativeApiStartup& onStartup = {});
 }

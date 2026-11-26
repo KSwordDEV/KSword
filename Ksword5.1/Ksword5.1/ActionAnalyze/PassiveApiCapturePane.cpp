@@ -86,6 +86,47 @@ namespace
         }
         return state;
     }
+
+    // 输入控制器已经完成的阶段，返回当前语言的短标签；不按本端时间或模块存在猜测阶段。
+    QString StartupStageText(ks::winapi_monitor::CaptureStartupStage stage)
+    {
+        using Stage = ks::winapi_monitor::CaptureStartupStage; // 后端唯一阶段定义。
+        switch (stage)
+        {
+        case Stage::IdentityVerified:
+            return sourceText(QStringLiteral("身份核对完成"));
+        case Stage::AgentResolved:
+            return sourceText(QStringLiteral("Agent 路径已解析"));
+        case Stage::ConfigPublished:
+            return sourceText(QStringLiteral("配置已发布"));
+        case Stage::AgentLoadStarted:
+            return sourceText(QStringLiteral("Agent 装载已开始"));
+        case Stage::AgentModuleVerified:
+            return sourceText(QStringLiteral("Agent 模块已核验"));
+        // 三项协议阶段分别显示，只有原 Ready 回调能够改变正在采样的状态。
+        case Stage::PipeConnected:
+            return sourceText(QStringLiteral("管道已核对"));
+        case Stage::SessionReady:
+            return sourceText(QStringLiteral("SessionReady"));
+        case Stage::HooksInstalled:
+            return sourceText(QStringLiteral("HooksInstalled"));
+        case Stage::Ready:
+            return sourceText(QStringLiteral("Ready"));
+        }
+        return {};
+    }
+
+    // 将可选启动快照追加到现有规范文档；无快照表示尚无已完成阶段，不伪造初始成功。
+    void AppendStartupProgress(ks::ui::FieldDocument& document,
+        const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup)
+    {
+        if (!startup)
+        {
+            return;
+        }
+        document.field(QStringLiteral("最后确认的启动阶段"), StartupStageText(startup->stage))
+            .field(QStringLiteral("启动阶段耗时（毫秒）"), QString::number(startup->elapsedMs));
+    }
 }
 
 // 使用共享参数、固定动作和详情投影；不另设导航、日志或档案表。
@@ -426,27 +467,33 @@ QString PassiveApiCapturePane::summary() const
     }
     if (m_owner->request().cooperative || m_owner->request().explicitAttachment)
     {
-        // 未越过启动屏障时只显示等待状态。
+        // 本轮启动摘要只使用当前快照；旧结果仍由 m_resultOwner 保留自己的身份。
+        const auto startup = m_currentReceipt.startup
+            ? sourceText(QStringLiteral("最后确认的启动阶段：%1")).arg(StartupStageText(m_currentReceipt.startup->stage))
+            : QString(); // 无已完成阶段时继续沿用明确的等待提示。
+        const auto withStartup = [&](const QString& text) {
+            return startup.isEmpty() ? text : text + QStringLiteral(" · ") + startup;
+        }; // 停止或启动失败仍报告最后确认的阶段，不以终态文字覆盖启动原因。
         if (m_stopping)
         {
-            return sourceText(QStringLiteral("正在停止 API 活采并归档"));
+            return withStartup(sourceText(QStringLiteral("正在停止 API 活采并归档")));
         }
         if (m_busy)
         {
             return m_liveCoverageRevision
                 ? sourceText(QStringLiteral("Agent 已就绪 · 覆盖修订 %1 · 正在采样")).arg(m_liveCoverageRevision)
-                : sourceText(QStringLiteral("API 活采请求处理中，等待 Ready 与覆盖核验"));
+                : withStartup(sourceText(QStringLiteral("API 活采请求处理中，等待 Ready 与覆盖核验")));
         }
-        if (!m_startError.isEmpty() && (m_failed || !m_receipt.agentReady))
+        if (!m_startError.isEmpty() && (m_failed || !m_currentReceipt.agentReady))
         {
-            return sourceText(QStringLiteral("API 活采未完成：%1")).arg(m_startError);
+            return withStartup(sourceText(QStringLiteral("API 活采未完成：%1")).arg(m_startError));
         }
         if (m_resultOwner != m_owner)
         {
-            return sourceText(QStringLiteral("API 活采未开始"));
+            return withStartup(sourceText(QStringLiteral("API 活采未开始")));
         }
-        return sourceText(m_receipt.incomplete ? QStringLiteral("API 活采已结束（部分结果）· 已归档 %1 个原包")
-            : QStringLiteral("API 活采已结束 · 已归档 %1 个原包")).arg(m_receipt.recordedRows);
+        return withStartup(sourceText(m_receipt.incomplete ? QStringLiteral("API 活采已结束（部分结果）· 已归档 %1 个原包")
+            : QStringLiteral("API 活采已结束 · 已归档 %1 个原包")).arg(m_receipt.recordedRows));
     }
     if (m_stopping)
     {
@@ -563,23 +610,28 @@ void PassiveApiCapturePane::updateControls()
 void PassiveApiCapturePane::renderReceipt()
 {
     ks::ui::FieldDocument document; // 供共享字段视图搜索、复制、导出的唯一正文。
-    if (m_owner && m_resultOwner != m_owner && m_owner->request().explicitAttachment)
+    if (m_owner && m_resultOwner != m_owner &&
+        (m_owner->request().explicitAttachment || m_owner->request().cooperative))
     {
         // 新请求无采样时单列本轮事实，下面仍保留旧归档的完整来源与可复制文档。
         const auto& request = m_owner->request(); // 本轮确认过的冻结实例和项目。
         const auto yesNo = [](bool value) { return sourceText(value ? QStringLiteral("是") : QStringLiteral("否")); };
         const auto attachmentFact = [&](bool value) {
-            return m_busy ? sourceText(QStringLiteral("等待最终回执")) : yesNo(value);
-        }; // 装载事实由原控制器终态发布，运行期间不能用默认false冒充已确认的否。
-        document.section(QStringLiteral("本次显式 API 附加请求"))
+            return !value && m_busy ? sourceText(QStringLiteral("等待最终回执")) : yesNo(value);
+        }; // 已发布的真值立即显示；尚未完成的事实在运行期间不能冒充已确认的否。
+        document.section(request.explicitAttachment ? QStringLiteral("本次显式 API 附加请求") : QStringLiteral("本次合作 API 采样请求"))
             .field(QStringLiteral("项目清单"), request.manifest)
             .field(QStringLiteral("来源 PID"), QString::number(request.pid))
             .field(QStringLiteral("进程创建 FILETIME"), QString::number(request.creationTime))
-            .field(QStringLiteral("采集时限（毫秒，0 为持续）"), QString::number(request.durationMs))
-            .field(QStringLiteral("附加实例已核验"), attachmentFact(m_currentReceipt.attachmentIdentityVerified))
-            .field(QStringLiteral("已尝试装载 Agent"), attachmentFact(m_currentReceipt.agentLoadAttempted))
-            .field(QStringLiteral("Agent 模块已核验"), attachmentFact(m_currentReceipt.agentModuleVerified))
-            .field(QStringLiteral("Agent 已就绪"), yesNo(m_currentReceipt.agentReady))
+            .field(QStringLiteral("采集时限（毫秒，0 为持续）"), QString::number(request.durationMs));
+        AppendStartupProgress(document, m_currentReceipt.startup);
+        if (request.explicitAttachment)
+        {
+            document.field(QStringLiteral("附加实例已核验"), attachmentFact(m_currentReceipt.attachmentIdentityVerified))
+                .field(QStringLiteral("已尝试装载 Agent"), attachmentFact(m_currentReceipt.agentLoadAttempted))
+                .field(QStringLiteral("Agent 模块已核验"), attachmentFact(m_currentReceipt.agentModuleVerified));
+        }
+        document.field(QStringLiteral("Agent 已就绪"), yesNo(m_currentReceipt.agentReady))
             .field(QStringLiteral("就绪覆盖修订"), m_currentReceipt.readyCoverageRevision
                 ? QString::number(m_currentReceipt.readyCoverageRevision) : QStringLiteral("—"));
         if (!m_startError.isEmpty())
@@ -600,13 +652,14 @@ void PassiveApiCapturePane::renderReceipt()
         if (live)
         {
             const auto yesNo = [](bool value) { return sourceText(value ? QStringLiteral("是") : QStringLiteral("否")); };
+            AppendStartupProgress(document, m_receipt.startup);
             if (request.explicitAttachment)
             {
                 // 身份、装载与模块存在各自呈现；任一项均不能代替 Ready 和当前覆盖核验。
                 const auto attachmentFact = [&](bool value) {
-                    return m_busy && m_resultOwner == m_owner
+                    return !value && m_busy && m_resultOwner == m_owner
                         ? sourceText(QStringLiteral("等待最终回执")) : yesNo(value);
-                }; // 活采归档可以先发布，三个事实仍等待原控制器终态。
+                }; // 同一运行回调确认后立即显示，未完成字段等待终态而不抢先判断失败。
                 document.field(QStringLiteral("附加实例已核验"), attachmentFact(m_receipt.attachmentIdentityVerified))
                     .field(QStringLiteral("已尝试装载 Agent"), attachmentFact(m_receipt.agentLoadAttempted))
                     .field(QStringLiteral("Agent 模块已核验"), attachmentFact(m_receipt.agentModuleVerified));

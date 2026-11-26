@@ -197,6 +197,10 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `elapsedMs` 包含启动、采集和清退。`readyAfterMs` 为等待就绪时长，`intervalElapsedMs` 只计就绪后的采集。未就绪时后二者为 `null`。
 
+`api-evidence attach` 与 `capture` 可加 `--startup-progress 1`，在 stderr 按实际前进阶段输出 JSON 行，stdout 仍只输出最终结果。阶段依次为 `identity-verified`、`agent-resolved`、`config-published`、按需出现的 `agent-load-started`、`agent-module-verified`、`pipe-connected`、`session-ready`、`hooks-installed`、`ready`。复用已驻留模块时不产生装载开始阶段。每行保留原 PID、创建 FILETIME、阶段耗时及当时已确认的事实；会话仅在管道服务端核验后提供，覆盖修订仅在完整 Ready 核验后提供。
+
+最终 `startup` 保存最后真实到达阶段及其 `elapsedMs`，失败或取消不把最后阶段改成 Ready，清退期晚到的安装包也不追认启动成功。原生同采样 `control.api.capture` 的 `capture.startup` 使用同一投影。已连接采样的终段保存 `startup` 供历史回查，不授予新控制资格。Qt／Light 在原采样回执刷新内显示同一启动事实；本次扩展尚未构建或运行。
+
 清退时，`stopMarkerWritten` 表示控制端已发布停止标记。`hooksRemoved` 表示收到本会话的停钩回执，`cleanPipeEof` 表示管道在原包边界正常结束。未建立连接时后两项为 `null`。目标退出后，CLI 仍会在清退时限内读取已连接的管道，并保留异常读取或截断末包的 `pipeError`。不能单凭 `cleanupComplete` 判定 Agent 确认停钩。`coverageRevision` 是最近完整读回的覆盖快照修订，`requiredFinalCoverageRevision` 仅在停钩回执声明时有值；`coverageSnapshotCurrent` 为真也不意味着所有 Hook 均安装成功。
 
 `api-evidence replay` 和 `replay-api-rules` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采集（`cooperative-pipe`）及未记录来源的旧档（`legacy-unspecified`）；规则回放的文件跟随为 `jsonl-follow`。合作管道的 `sourceSequence` 是普通 API 包流水号。合作分段归档按全采样的 `rawSequence` 分页，每条线索另有 `rawSegment`。未见终段时返回 `readback-prefix`；后续段损坏时保留此前已核验的页，退出 `4` 并返回 `failedSegment`。来源字段来自已核验的归档声明，覆盖范围仍为 `unknown`。

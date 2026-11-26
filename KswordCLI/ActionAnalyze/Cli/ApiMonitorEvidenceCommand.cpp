@@ -12,6 +12,7 @@
 
 #include <array>
 #include <iterator>
+#include <iostream>
 #include <wincrypt.h>
 
 #pragma comment(lib, "Crypt32.lib")
@@ -472,7 +473,8 @@ Result CaptureEvidence(const Args& args, bool attached)
     const auto pid = args.u32(L"--pid"); // 显式选择的目标编号。
     const auto creation = args.integer(L"--creation-filetime"); // 与 PID 一起冻结，不以 PID 单独重绑。
     if (!args.has(L"--confirm") || pid <= 4 || pid == GetCurrentProcessId() ||
-        !creation || title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
+         !creation || title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
+        (args.has(L"--startup-progress") && args.get(L"--startup-progress") != L"1") ||
         (args.has(L"--agent-etw") && args.get(L"--agent-etw") != L"1")) {
         return Failure(1, attached ? L"invalid-attachment-scope" : L"invalid-resident-capture-scope");
     }
@@ -484,9 +486,19 @@ Result CaptureEvidence(const Args& args, bool attached)
     const auto revision = document.Info()->revisionId; // 采集启动之前冻住当前保存的修订。
     Cancellation cancel; // 控制台停止由本次采样执行，不终止目标。
     const bool captureEtw = args.has(L"--agent-etw"); // 同一采样增开配套的自有 ETW 流。
+    project::CooperativeApiStartup onStartup; // 显式选择才向stderr输出，不改变stdout最终单JSON文档。
+    if (args.has(L"--startup-progress"))
+    {
+        onStartup = [](const monitor::CaptureStartupProgress& progress) {
+            // 一阶段一行，输出原快照；用户可在采样未结束时分辨装载与真正Ready。
+            const auto value = project::ApiCaptureStartupJson(progress); // 使用归档与原生响应相同字段。
+            std::wcerr << project::ProjectStorage::WideAscii(evidence::WriteJson(value)) << L'\n';
+        };
+    }
     const auto run = attached ? project::CaptureAttachedApi(document,
-        {pid, creation, true, false, duration, title, revision}, *cancel.token) :
-        project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw}, *cancel.token);
+        {pid, creation, true, false, duration, title, revision}, *cancel.token, {}, {}, {}, onStartup) :
+        project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw},
+            *cancel.token, {}, {}, {}, onStartup);
     if (!run.sampleStatus) {
         return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail);
     }
@@ -531,6 +543,8 @@ Result CaptureEvidence(const Args& args, bool attached)
         {L"agentModuleVerified", attached ? Json::boolean(captured.agentModuleVerified) : Json{}},
         {L"agentPath", attached && !captured.agentPath.empty() ? Json::string(captured.agentPath) : Json{}},
         {L"configPublished", Json::boolean(captured.configPublished)},
+        {L"startup", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
+            project::ApiCaptureStartupJson(captured.startup))), L"startup"}},
         {L"connected", Json::boolean(connected)}, {L"agentReady", Json::boolean(ready)},
         {L"sessionReady", connected ? Json::boolean(target->sessionReady) : Json{}},
         {L"hooksInstalled", connected ? Json::boolean(target->installed) : Json{}},
@@ -634,7 +648,7 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command capture; // 合作目标的真实管道和项目归档入口。
     capture.path = L"analyze api-evidence capture";
-    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--agent-etw 1] [--duration-ms MS] [--json]";
+    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
     capture.options = L"Requires an existing project, an explicitly selected cooperative target with the resident product Agent, "
                       L"and its private KSWORD_APIMON_COOPERATIVE_SESSION_V1 directory.";
     capture.summary = L"Collect WinAPI evidence from a cooperative target's resident Agent into a new project sample.";
@@ -643,7 +657,9 @@ void RegisterApiMonitorEvidenceCommands()
                       L"All verified ordinary calls are committed in bounded segments. "
                      L"API rules from profiles/action_analyze_api_rules.json run on committed segments; "
                      L"the result includes their cumulative count and latest source location. "
-                     L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint.";
+                      L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint. "
+                      L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
+                      L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
     capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
     addCommand(std::move(capture));
 

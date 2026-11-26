@@ -127,6 +127,8 @@ private:
     bool residentOnly() const { return request.residentCreationFileTime != 0; }
     bool attaching() const { return request.attachCreationFileTime != 0; }
     bool strictObservation() const { return residentOnly() || attaching(); }
+    // 输入已完成阶段，输出通知是否成功；不查询新进程、不增加采集线程或轮询。
+    bool reportStartup(CaptureStartupStage stage);
     bool start();
     bool addReader(DWORD pid, std::uint64_t expected = 0);
     void poll();
@@ -137,6 +139,47 @@ private:
     void cleanup();
     void error(const std::wstring& value) { result.errors.push_back(value); }
 };
+
+bool Capture::reportStartup(CaptureStartupStage stage)
+{
+    if (!strictObservation() || stopping || callbackFailed)
+    {
+        return !callbackFailed; // 清退只排空原包，不能追认新的启动里程碑。
+    }
+    if (result.startup && stage <= result.startup->stage)
+    {
+        return true; // 重复控制包不触发相同阶段的显示和回调。
+    }
+    const auto& root = readers.front()->evidence; // 启动只属于已固定的根目标。
+    CaptureStartupProgress progress; // 本次阶段的累计事实，全部来自同一控制器。
+    progress.stage = stage;
+    progress.pid = root.pid;
+    progress.creationFileTime = root.creation;
+    progress.elapsedMs = ::GetTickCount64() - startedAt;
+    progress.session = root.connected ? root.session : 0;
+    progress.coverageRevision = result.readyCoverageRevision.value_or(0);
+    progress.attachmentIdentityVerified = result.attachmentIdentityVerified;
+    progress.agentLoadAttempted = result.agentLoadAttempted;
+    progress.agentModuleVerified = result.agentModuleVerified;
+    progress.reusedResident = result.reusedResident;
+    progress.configPublished = result.configPublished;
+    result.startup = progress;
+    if (request.onStartupProgress)
+    {
+        try
+        {
+            request.onStartupProgress(progress); // 调用端仅借用值，不获得目标句柄或装载权。
+        }
+        catch (...)
+        {
+            callbackFailed = true;
+            error(L"startup progress callback failed");
+            return false;
+        }
+    }
+    return true;
+}
+
 bool Capture::addReader(DWORD pid, std::uint64_t expected) {
     for (const auto& reader : readers) if (reader->evidence.pid == pid) return true;
     if (readers.size() >= 8192) { error(L"child reader capacity exceeded"); return false; }
@@ -174,8 +217,10 @@ bool Capture::start() {
         if (!processAlive(rootReader.process.value)) { error(L"attachment target exited before admission"); return false; }
         result.attachmentIdentityVerified = true;
     }
+    if (!reportStartup(CaptureStartupStage::IdentityVerified)) return false;
     std::wstring detail;
     if (!resolveAgentPath(request.pid, request.agentPath, &result.agentPath, &detail)) { error(detail); return false; }
+    if (!reportStartup(CaptureStartupStage::AgentResolved)) return false;
     if (residentOnly()) {
         if (cancel.load()) return false;
         if (!processAlive(rootReader.process.value)) { error(L"resident capture target exited"); return false; }
@@ -185,6 +230,7 @@ bool Capture::start() {
             return false;
         }
         result.reusedResident = true;
+        result.agentModuleVerified = true; // 合作模式只核对已有模块，不尝试装载。
 
         // 合作采集只读已启用 Agent，专用目录属于本轮，不能走旧入口的共享目录授权。
         const auto selection = cooperativeDirectory.open(failure);
@@ -249,12 +295,14 @@ bool Capture::start() {
     }
     if (!publish(result.configPath, body, request.pid, detail, strictObservation() ? rootReader.process.value : nullptr)) { error(detail); return false; }
     result.configPublished = true;
+    if (!reportStartup(CaptureStartupStage::ConfigPublished)) return false;
     if (strictObservation() && (cancel.load() || !processAlive(rootReader.process.value))) return false;
     if (!::DeleteFileW(result.stopPath.c_str()) && ::GetLastError() != ERROR_FILE_NOT_FOUND) { error(L"remove old stop marker failed"); return false; }
 #ifndef KSWORD_APIMON_COOPERATIVE_ONLY
     if (!residentOnly()) result.reusedResident = remoteImageLoaded(request.pid, result.agentPath);
     if (!residentOnly() && !result.reusedResident) {
         result.agentLoadAttempted = true;
+        if (!reportStartup(CaptureStartupStage::AgentLoadStarted)) return false;
         // The injector has a bounded native wait; a watcher translates Ctrl+C to
         // its cancellation handle without ever closing handles from another thread.
         std::atomic_bool done{false};
@@ -282,6 +330,8 @@ bool Capture::start() {
         if (!result.agentModuleVerified) { error(L"attached product Agent module not verified on the frozen target"); return false; }
     }
 #endif
+    if (strictObservation() && result.agentModuleVerified &&
+        !reportStartup(CaptureStartupStage::AgentModuleVerified)) return false;
     const auto deadline = ::GetTickCount64() + request.startupTimeoutMs;
     while (::GetTickCount64() < deadline && !cancel.load()) {
         poll();
@@ -305,7 +355,7 @@ bool Capture::start() {
                         return false;
                     }
                     result.readyCoverageRevision = root.revision;
-                    return true;
+                    return reportStartup(CaptureStartupStage::Ready);
                 }
             }
         } else {
@@ -343,10 +393,15 @@ void Capture::consume(Reader& reader, const ApiMonitorEventPacket& packet) {
         && (!strictObservation() || (packet.eventKind == static_cast<std::uint32_t>(EventKind::ApiCall)
             && packet.resultKind == static_cast<std::uint32_t>(EventResultKind::StatusCode)))) {
         const auto name = text(packet.apiName);
-        if (name == L"SessionReady" && packet.resultCode == 0) state.sessionReady = true;
+        if (name == L"SessionReady" && packet.resultCode == 0)
+        {
+            state.sessionReady = true;
+            if (state.pid == request.pid) reportStartup(CaptureStartupStage::SessionReady);
+        }
         if (name == L"HooksInstalled" && (!strictObservation() || (state.sessionReady && packet.resultCode == 0))) {
             state.installed = true;
             reader.installRevision = packet.snapshotRevision;
+            if (state.pid == request.pid) reportStartup(CaptureStartupStage::HooksInstalled);
         }
         if (name == L"HooksRemoved" && (!strictObservation() || (state.sessionReady && packet.resultCode == 0))) {
             state.removed = true;
@@ -399,6 +454,7 @@ void Capture::pollReader(Reader& reader) {
             state.pipeError = ERROR_ACCESS_DENIED; reader.pipe.reset(); return;
         }
         state.connected = true;
+        if (state.pid == request.pid && !reportStartup(CaptureStartupStage::PipeConnected)) return;
     }
     // Limit each turn so one hot producer cannot starve cancellation/children.
     for (unsigned budget = 0; budget < 512; ++budget) {

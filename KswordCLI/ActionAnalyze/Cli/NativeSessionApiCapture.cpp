@@ -136,6 +136,7 @@ V Report(const project::NativeBoundApiResult& result, const control::NativeContr
             {"agentModuleVerified", V::makeBool(capture.agentModuleVerified)},
             {"reusedResident", V::makeBool(capture.reusedResident)},
             {"configPublished", V::makeBool(capture.configPublished)},
+            {"startup", Ksword::ActionAnalyze::ApiCaptureStartupJson(capture.startup)},
             {"started", V::makeBool(capture.started)},
             {"hooksInstalled", process ? V::makeBool(process->installed) : V::makeNull()},
             {"installFailed", process ? V::makeBool(process->installFailed) : V::makeNull()},
