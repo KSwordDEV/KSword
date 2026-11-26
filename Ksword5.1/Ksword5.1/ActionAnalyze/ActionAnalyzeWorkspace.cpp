@@ -1,6 +1,8 @@
 #include "ActionAnalyzeWorkspace.h"
 #include "ActionAnalyzeBreakpointPage.h"
-#include "BehaviorRulesPage.h"
+#include "DataWriteWatchPage.h"
+#include "ProcessGroupPage.h"
+#include "ExecutionGroupPage.h"
 #include "ToolbarCapabilities.h"
 #include "OfflineSegmentOverview.h"
 #include "../Internationalization/LanguageManager.h"
@@ -210,9 +212,36 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     m_overview->setObjectName(QStringLiteral("action_analyze_overview"));
     ks::monitor::AddMonitorNavigationTab(m_tabs, createProjectBrowser(), QString::fromLatin1(ks::monitor::ActionAnalyzeSamplesId));
     ks::monitor::AddMonitorNavigationTab(m_tabs, m_overview, QString::fromLatin1(ks::monitor::ActionAnalyzeOverviewId));
-    ks::monitor::AddMonitorNavigationTab(m_tabs, CreateBehaviorRulesPage(m_tabs), QString::fromLatin1(ks::monitor::ActionAnalyzeRulesId));
+    m_rulesPage = CreateBehaviorRulesPage(m_tabs, m_replaySamplePresets, [this](bool busy) {
+        m_rulesBusy = busy;
+        updateSampleReplayAction();
+    });
+    ks::monitor::AddMonitorNavigationTab(m_tabs, m_rulesPage, QString::fromLatin1(ks::monitor::ActionAnalyzeRulesId));
     m_breakpoints = new ActionAnalyzeBreakpointPage(m_tabs);
     ks::monitor::AddMonitorNavigationTab(m_tabs, m_breakpoints, QString::fromLatin1(ks::monitor::ActionAnalyzeBreakpointsId));
+    // 合作写入会话属于本端实时控制，使用自己的参数和结果页。
+    const auto nativeToolbar = std::make_shared<DataWatchToolbarPort>(); // 工作台只连接已有页面的原生控制入口。
+    auto* nativeWatchPage = CreateDataWriteWatchPage(m_tabs, nativeToolbar); // 定义和总览共用同一个控制页。
+    ks::monitor::AddMonitorNavigationTab(m_tabs, nativeWatchPage,
+        QString::fromLatin1(ks::monitor::ActionAnalyzeDataWatchId));
+    m_breakpoints->setLivePreparation([this, nativeToolbar, nativeWatchPage](
+        const QString& module, std::uint32_t rva, const QString& definitionId) {
+        if (!nativeToolbar->prepareImageRva || !nativeToolbar->prepareImageRva(module, rva, definitionId))
+        {
+            return false;
+        }
+        m_tabs->setCurrentWidget(nativeWatchPage); // 接收后直达实例参数，开始仍由用户明确点击。
+        return true;
+    });
+    m_overview->setNativeWatchToolbar(nativeToolbar);
+    // 显式进程集合属于本端控制页，原票据和恢复责任留在该页会话。
+    const auto groupToolbar = std::make_shared<ProcessGroupToolbarPort>(); // 全局动作以已核验集合为边界。
+    ks::monitor::AddMonitorNavigationTab(m_tabs, CreateProcessGroupPage(m_tabs, groupToolbar),
+        QString::fromLatin1(ks::monitor::ActionAnalyzeProcessGroupId));
+    m_overview->setProcessGroupToolbar(groupToolbar);
+    // 执行站点集合拥有独立原生会话，保留暂停集合工具栏和定义→单目标准备端口。
+    ks::monitor::AddMonitorNavigationTab(m_tabs, new ExecutionGroupPage(m_tabs),
+        QString::fromLatin1(ks::monitor::ActionAnalyzeExecutionGroupId));
     m_overview->openBreakpointPage = [this]() {
         m_tabs->setCurrentWidget(m_breakpoints);
     };
@@ -311,6 +340,9 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
     m_sampleArchive->setObjectName(QStringLiteral("action_analyze_sample_archive"));
     ks::ui::SetThemeButtonIcon(m_sampleArchive, QIcon(QStringLiteral(":/Icon/process_open_folder.svg")));
     tools->addWidget(m_sampleArchive);
+    m_sampleReplay = new QPushButton(toolbar); // 随现有采样动作一起适配窄窗。
+    m_sampleReplay->setObjectName(QStringLiteral("action_analyze_sample_rule_replay"));
+    tools->addWidget(m_sampleReplay);
     ks::ui::NormalizeToolbarLayout(tools);
     layout->addWidget(toolbar);
 
@@ -364,6 +396,17 @@ QWidget* ActionAnalyzeWorkspace::createProjectBrowser()
             if (m_overview->openSampleArchive(selected, clue))
             {
                 m_tabs->setCurrentWidget(m_overview);
+            }
+        }
+    });
+    connect(m_sampleReplay, &QPushButton::clicked, this, [this]() {
+        // 与查看归档复用选区校验；规则页重新打开同一冻结采样验证实际归档。
+        if (!m_readingProject && !m_rulesBusy && sampleArchiveEligibility().enabled())
+        {
+            const SampleRequest selected = *m_verifiedSample; // 点击时冻结此前通过校验的目录行。
+            if (m_replaySamplePresets(selected))
+            {
+                m_tabs->setCurrentWidget(m_rulesPage);
             }
         }
     });
@@ -686,6 +729,22 @@ ToolbarActionEligibility ActionAnalyzeWorkspace::sampleArchiveEligibility() cons
     return EvaluateToolbarArchiveLocation(state);
 }
 
+// 工具带沿用采样读取资格，启用提示说明这次动作的真实输入和输出。
+void ActionAnalyzeWorkspace::updateSampleReplayAction()
+{
+    const auto archive = sampleArchiveEligibility(); // 同一轮目录读取确认的采样资格。
+    const bool enabled = archive.enabled() && !m_readingProject && !m_rulesBusy; // 实际提交门禁。
+    m_sampleReplay->setText(sourceText(QStringLiteral("回放采样规则")));
+    m_sampleReplay->setEnabled(enabled);
+    m_sampleReplay->setToolTip(enabled
+        ? sourceText(QStringLiteral("用规则库回放选中采样的已核验 API 观测，并在行为规则中查看报告。"))
+        : m_rulesBusy ? sourceText(QStringLiteral("请等待当前规则操作完成。"))
+        : m_readingProject ? sourceText(QStringLiteral("请等待项目读取完成。"))
+        : archive.reason == ToolbarDisabledReason::SampleReadInProgress ? sourceText(QStringLiteral("正在读取采样详情…"))
+        : archive.reason == ToolbarDisabledReason::SampleReadFailed ? DescribeProblem(m_sampleProblem)
+        : sourceText(QStringLiteral("请先选择并读取一项采样。")));
+}
+
 // 并列更新操作进度、真实发布身份和采样的可用性。
 void ActionAnalyzeWorkspace::updateStatus()
 {
@@ -723,6 +782,7 @@ void ActionAnalyzeWorkspace::updateStatus()
         : sourceText(QStringLiteral("请先选择并读取一项采样。")); // 禁用提示使用真实回执或当前依赖。
     m_sampleArchive->setToolTip(archive.enabled() ? sourceText(QStringLiteral("在总览中查看当前项目所选采样的记录。"))
         : archiveHint);
+    updateSampleReplayAction();
     m_source->setVisible(hasProject);
     m_manifestPath->setVisible(hasProject);
     m_manifestPath->setText(m_project.manifestPath);

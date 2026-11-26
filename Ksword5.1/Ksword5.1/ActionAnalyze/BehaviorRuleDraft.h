@@ -3,6 +3,8 @@
 #include "../../../KswordCLI/ActionAnalyze/Rules/AnalysisRun.h"
 #include "../../../KswordCLI/ActionAnalyze/Rules/RuleExpression.h"
 
+#include <utility>
+
 namespace ks::action_analyze
 {
     inline constexpr std::size_t BehaviorRuleMaxBytes = 256 * 1024; // UTF-8 草稿文件上限。
@@ -21,6 +23,9 @@ namespace ks::action_analyze
 
     // 无界面依赖。返回可直接编辑并通过生产规则引擎运行的完整样例。
     std::string_view BehaviorRuleExample();
+
+    // 编辑器说明与准备器共用实际字段目录，类型不是展示文本推断的。
+    std::span<const std::pair<std::string_view, Ksword::ActionAnalyze::Rules::FieldType>> BehaviorRuleFields();
 
     // 校验 UTF-8 JSON 草稿并准备两个选择器。runReplay 为真时只处理草稿中的合成事件。
     BehaviorRuleCheck CheckBehaviorRuleDraft(std::string_view utf8, bool runReplay);

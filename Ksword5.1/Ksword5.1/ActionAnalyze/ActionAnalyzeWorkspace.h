@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ArchivedSampleAnalysis.h"
+#include "BehaviorRulesPage.h"
 #include "OfflineProjectReader.h"
 #include <QWidget>
 
@@ -57,6 +58,8 @@ namespace ks::action_analyze
         void updateSampleClues();
         // 根据当前加载阶段、已发布项目和采样刷新工具与状态文字。
         void updateStatus();
+        // 重算规则入口启用状态；由目录选择和规则页在途状态共同驱动。
+        void updateSampleReplayAction();
         // 返回目录当前选中归档的资格，点击和界面刷新使用同一判断。
         ToolbarActionEligibility sampleArchiveEligibility() const;
 
@@ -68,12 +71,15 @@ namespace ks::action_analyze
         QPushButton* m_cancel = nullptr; // 取消当前项目读取并保留原目录。
         QPushButton* m_sampleRetry = nullptr; // 重读当前目录行，不依赖项目打开历史。
         QPushButton* m_sampleArchive = nullptr; // 打开所选采样的原始归档。
+        QPushButton* m_sampleReplay = nullptr; // 对选中采样显式运行五类规则预置。
         QComboBox* m_sampleClue = nullptr; // 此采样内明确选定的原始记录锚点。
         QList<SampleSensitiveClue> m_displayedClues; // 当前选项与归档坐标的对应关系。
         QLabel* m_status = nullptr; // 当前读取进度、空结果或失败。
         QLabel* m_source = nullptr; // 已发布目录实际对应的项目与代次。
         QLabel* m_manifestPath = nullptr; // 只显示已发布清单路径。
         OfflineSegmentOverview* m_overview = nullptr; // 独立归档投影与当前项目身份对照。
+        QWidget* m_rulesPage = nullptr; // 已挂在同一子导航中的规则页。
+        ReplaySamplePresets m_replaySamplePresets; // 将冻结请求交给规则页的唯一控制器。
         ActionAnalyzeBreakpointPage* m_breakpoints = nullptr; // 同一工作台内保存项目定义的页面。
         QLabel* m_sessionStatus = nullptr; // 当前页面的真实会话状态。
         QTableView* m_samples = nullptr; // 项目已提交采样目录。
@@ -96,5 +102,6 @@ namespace ks::action_analyze
         bool m_creatingProject = false; // 后台可能正在提交清单，此阶段不可取消写入。
         bool m_projectCanceled = false; // 用户取消了最近一次项目读取。
         bool m_readingSample = false; // 详情请求尚未结束。
+        bool m_rulesBusy = false; // 规则页有已受理的请求时，目录入口暂停提交。
     };
 }

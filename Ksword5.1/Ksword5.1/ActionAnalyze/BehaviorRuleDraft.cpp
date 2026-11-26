@@ -236,7 +236,7 @@ namespace
 
     // 读取选择器并按当前明确阶段准备谓词，失败时保留 JSON Pointer。
     bool DecodeSelection(const json::JsonValue& root, std::string_view name,
-        DraftSelection& output, BehaviorRuleCheck& result)
+        DraftSelection& output, BehaviorRuleCheck& result, std::string_view expressionProfile)
     {
         const auto path = '/' + std::string(name); // 当前选择器在草稿中的位置。
         const auto* selector = root.find(name); // 当前选择器 JSON 对象。
@@ -276,11 +276,11 @@ namespace
         std::string expression; // JSON 解码后的纯 UTF-8 表达式，不包含外层引号。
         if (predicate->tryGetString(expression))
         {
-            auto prepared = rule::PreparePredicateExpression(expression, *phase, bindings); // 包含类型与阶段校验。
+            auto prepared = rule::PreparePredicateExpression(expression, *phase, bindings, expressionProfile); // 保留版本准入。
             if (prepared.error != rule::ExpressionError::None)
             {
                 result.expressionLocation = prepared.location;
-                const auto error = prepared.preparationError == rule::PrepareError::None
+                const auto error = prepared.error != rule::ExpressionError::PreparationFailed
                     ? rule::ExpressionErrorId(prepared.error) : PreparationError(prepared.preparationError);
                 return Fail(result, error, predicatePath);
             }
@@ -415,12 +415,19 @@ namespace
     }
 }
 
+// 编辑器和实际准备器读取同一份字段及类型，避免帮助说明另造支持范围。
+std::span<const std::pair<std::string_view, rule::FieldType>> BehaviorRuleFields()
+{
+    return kFields;
+}
+
 // 提供有真实命中和 Unknown 结果的初始合成例子。事件名仅用于这个示例。
 std::string_view BehaviorRuleExample()
 {
     return R"({
   "kind": "semantic-rule",
   "version": 1,
+  "expressionProfile": "predicate-expr-v3",
   "ruleId": "demo.repeated-read",
   "mode": "countAtLeast",
   "window100ns": "300000000",
@@ -428,7 +435,7 @@ std::string_view BehaviorRuleExample()
   "step": {
     "eventType": "demo.file.read",
     "phase": "observation",
-    "predicate": "(source.headerPid == 42u64 && !isNull(source.headerPid)) || source.headerPid == 0x2au64"
+    "predicate": "isKnown(source.headerPid) && (source.headerPid & 0xffu64) == 42u64"
   },
   "anchor": {
     "eventType": "demo.file.read",
@@ -465,7 +472,7 @@ BehaviorRuleCheck CheckBehaviorRuleDraft(std::string_view utf8, bool runReplay)
         return result;
     }
     const auto& root = parsed.value; // 整份版本化草稿文档。
-    if (!Keys(root, {"kind", "version", "ruleId", "mode", "window100ns", "threshold", "step", "anchor", "replay"},
+    if (!Keys(root, {"kind", "version", "expressionProfile", "ruleId", "mode", "window100ns", "threshold", "step", "anchor", "replay"},
         {}, result))
     {
         return result;
@@ -515,9 +522,20 @@ BehaviorRuleCheck CheckBehaviorRuleDraft(std::string_view utf8, bool runReplay)
         Fail(result, "invalid-threshold", "/threshold");
         return result;
     }
+    std::string expressionProfile = "predicate-expr-v2"; // 未声明的旧草稿保持原句法，不静默升级。
+    if (root.find("expressionProfile"))
+    {
+        expressionProfile = Text(root, "expressionProfile");
+        if (!rule::IsSupportedPredicateExpressionProfile(expressionProfile))
+        {
+            Fail(result, "expression-unsupported-profile", "/expressionProfile");
+            return result;
+        }
+    }
     DraftSelection step; // 候选事件的精确选择器。
     DraftSelection anchor; // 建立计数窗口或序列结束的锚点选择器。
-    if (!DecodeSelection(root, "step", step, result) || !DecodeSelection(root, "anchor", anchor, result))
+    if (!DecodeSelection(root, "step", step, result, expressionProfile) ||
+        !DecodeSelection(root, "anchor", anchor, result, expressionProfile))
     {
         return result;
     }

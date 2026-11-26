@@ -1,5 +1,6 @@
 #include "OfflineSegmentOverview.h"
 #include "LiveEtwCapture.h"
+#include "PassiveApiCapturePane.h"
 #include "ToolbarCapabilities.h"
 
 #include "../Framework/BackgroundTaskRegistry.h"
@@ -13,6 +14,7 @@
 
 #include <QLineEdit>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QTableView>
 #include <QTimer>
 #include <limits>
@@ -138,9 +140,93 @@ void OfflineSegmentOverview::createLiveControls(ks::ui::FlowLayout* parameters, 
     });
 }
 
+// 在可浮出的现有工具条增加明确的 API 入口。归档读写仍由原工作台和异步所有者负责。
+void OfflineSegmentOverview::createApiCaptureControls(ks::ui::FlowLayout* actions)
+{
+    m_apiCaptureToggle = new QPushButton(actions->parentWidget());
+    m_apiCaptureToggle->setObjectName(QStringLiteral("action_analyze_api_capture"));
+    m_apiCaptureToggle->setCheckable(true);
+    actions->addWidget(m_apiCaptureToggle);
+    m_apiCapture = new PassiveApiCapturePane(m_captureContent);
+    m_captureContent->addWidget(m_apiCapture);
+    // 回执只通知当前工作台；查看归档走已有的样本身份核验和后台读取。
+    m_apiCapture->registered = [this](const SampleRequest& sample) {
+        if (liveSampleRegistered)
+        {
+            liveSampleRegistered(sample.manifestPath, sample.projectId);
+        }
+    };
+    m_apiCapture->openArchive = [this](const SampleRequest& sample) {
+        if (openSampleArchive(sample) && activateOverview)
+        {
+            activateOverview();
+        }
+    };
+    m_apiCapture->statusChanged = [this]() {
+        updateLiveControls();
+        followCommittedApiPrefix();
+    };
+    connect(m_apiCaptureToggle, &QPushButton::toggled, this, [this](bool api) {
+        m_captureContent->setCurrentIndex(api ? 1 : 0);
+        m_pidInput->setVisible(!api);
+        m_providerInput->setVisible(!api);
+        if (api && activateOverview)
+        {
+            activateOverview();
+        }
+        updateLiveControls();
+        if (!api)
+        {
+            refreshLive();
+            followCommittedApiPrefix();
+        }
+    });
+}
+
+// 只有用户已明确打开的同一采样可自动推进。进度只触发读取，后台仍核对每个段。
+void OfflineSegmentOverview::followCommittedApiPrefix()
+{
+    if (!m_allowApiPrefixFollow || m_reading || m_livePreviewEnabled || !isVisible() ||
+        m_apiCaptureToggle->isChecked() || !m_lastSampleRequest)
+    {
+        return;
+    }
+    const auto& current = m_apiCapture->archiveReceipt(); // 来自既有 API 活跟随所有者的值回执。
+    const auto& requested = *m_lastSampleRequest; // 用户打开时冻结的目录行。
+    if (!current.sample || current.sample->manifestPath != requested.manifestPath ||
+        current.sample->projectId != requested.projectId || current.sample->sample.id != requested.sample.id ||
+        current.sample->sample.descriptionHash != requested.sample.descriptionHash ||
+        requested.manifestPath != m_projectManifest || current.segment <= m_apiPrefixAttempt ||
+        current.segment <= m_latestVerifiedOrdinal)
+    {
+        return;
+    }
+    m_apiPrefixAttempt = current.segment;
+    const auto clue = m_lastClue; // 只沿用尚未定位、也未被用户改选的已冻结线索。
+    openSegment(m_lastPath, requested, clue ? &*clue : nullptr, true);
+}
+
+// 只在确有 API 会话或当前查看其回执时显示 API 状态，否则使用原监控回执。
+void OfflineSegmentOverview::publishSessionStatus()
+{
+    if (!sessionStatusChanged)
+    {
+        return;
+    }
+    const auto api = m_apiCapture && (m_apiCapture->busy() || m_apiCaptureToggle->isChecked())
+        ? m_apiCapture->summary() : QString(); // 旧 API 结果不覆盖后续 ETW 回执。
+    sessionStatusChanged(api.isEmpty() ? m_liveFeedback : api);
+}
+
 // 从项目页转到现有采样草稿，复用 PID 控件的原访问和校验行为。
 void OfflineSegmentOverview::focusScanTarget()
 {
+    if (m_apiCapture->busy())
+    {
+        m_apiCaptureToggle->setChecked(true); // 已有采样时定位真实所有者的停止入口。
+        return;
+    }
+    m_apiCaptureToggle->setChecked(false);
     if (m_pidInput->isEnabled())
     {
         m_pidInput->setFocus(Qt::OtherFocusReason);
@@ -150,7 +236,7 @@ void OfflineSegmentOverview::focusScanTarget()
 // 显式启动常驻采集，冻结项目和过滤参数；开始失败仍保留上一份证据。
 void OfflineSegmentOverview::startLive()
 {
-    if (!toolbarCapabilities().startCapture.enabled())
+    if (m_apiCaptureToggle->isChecked() || m_apiCapture->busy() || !toolbarCapabilities().startCapture.enabled())
     {
         return;
     }
@@ -165,6 +251,16 @@ void OfflineSegmentOverview::startLive()
         updateText();
         return;
     }
+    // 仅限制行为分析的手工入口。按解析后的 GUID 比较，大小写和大括号不影响结果。
+    static const QUuid kSysmonEtwProvider(QStringLiteral("{5770385f-c22a-43e0-bf4c-06f5698ffbd9}")); // Sysmon 的 ETW 提供者身份。
+    if (provider == kSysmonEtwProvider)
+    {
+        m_liveFeedback = sourceText(QStringLiteral("行为分析不支持 Sysmon ETW 提供者。"));
+        updateText();
+        return;
+    }
+
+    // 来源校验通过后才冻结草稿并创建后台会话。
     m_liveManifest = m_projectManifest;
     m_liveProjectId = m_projectId;
     m_announcedSample.clear();
@@ -252,13 +348,10 @@ void OfflineSegmentOverview::refreshLive(bool final)
         if (feedback != m_liveFeedback)
         {
             m_liveFeedback = feedback;
-            if (sessionStatusChanged)
-            {
-                sessionStatusChanged(m_liveFeedback);
-            }
+            publishSessionStatus();
         }
     }
-    if (!m_livePreviewEnabled || m_reading || !isVisible() || !m_followingLive || liveViewInteracting())
+    if (!m_livePreviewEnabled || m_reading || !isVisible() || m_apiCaptureToggle->isChecked() || !m_followingLive || liveViewInteracting())
     {
         return;
     }
@@ -275,6 +368,7 @@ void OfflineSegmentOverview::refreshLive(bool final)
     ks::ui::ResultTableHost::submitGroup(this, QStringLiteral("action_analyze_live"), {m_host},
         [this, owner, readGeneration, snapshot = *next]() {
             if (owner != m_live || !m_livePreviewEnabled || m_reading || readGeneration != m_read->generation() || !isVisible() ||
+                m_apiCaptureToggle->isChecked() ||
                 !m_followingLive || liveViewInteracting())
             {
                 return;
@@ -348,6 +442,7 @@ void OfflineSegmentOverview::followLive()
     {
         return;
     }
+    m_apiCaptureToggle->setChecked(false); // 恢复的是原监控实时窗口，不更改 API 读端。
     m_livePreviewEnabled = true;
     m_followingLive = true;
     if (m_snapshot && m_snapshot->live)
@@ -458,13 +553,23 @@ void OfflineSegmentOverview::updateLiveControls()
     m_providerInput->setAccessibleName(QStringLiteral("ETW Provider GUID"));
     m_providerInput->setPlaceholderText(sourceText(QStringLiteral("ETW Provider GUID（可选）")));
     m_providerInput->setToolTip(sourceText(QStringLiteral("留空时只分析进程活动。辅助采集 Kernel-File 需要系统授权。")));
+    const bool apiView = m_apiCaptureToggle->isChecked(); // API 与原证据共同占用总览正文。
+    const bool apiBusy = m_apiCapture->busy(); // 独立采样未退出时 ETW 不取第二个项目写租约。
+    m_apiCapture->setContext(m_projectManifest, m_projectId, m_projectRevision, m_liveBusy || m_liveRecovery, m_reading);
+    m_apiCaptureToggle->setText(sourceText(QStringLiteral("API 采样")));
+    m_apiCaptureToggle->setToolTip(apiView ? sourceText(QStringLiteral("返回行为分析证据视图"))
+        : sourceText(QStringLiteral("打开 API 采样：跟随授权 JSONL、连接合作已装载 Agent 或显式附加。")));
+    // 只呈现当前来源的启动动作；旧 ETW 仍占用时保留原所有者的停止入口。
+    m_startLive->setVisible(!apiView);
+    m_stopLive->setVisible(!apiView || m_liveBusy || m_liveRecovery);
     const auto capabilities = toolbarCapabilities(); // 按钮状态和点击守卫使用同一规则。
     m_startLive->setAccessibleName(sourceText(QStringLiteral("开始监控")));
     const QString startHint = m_projectManifest.isEmpty()
         ? sourceText(QStringLiteral("开始监控。持续采集到手动停止或目标退出；未打开项目，仅保留实时窗口。"))
         : sourceText(QStringLiteral("开始监控并保存到当前项目：%1。持续采集到手动停止或目标退出。")).arg(m_projectManifest);
-    m_startLive->setToolTip(capabilities.startCapture.enabled() ? startHint
-        : CaptureActionDisabledText(capabilities.startCapture.reason));
+    m_startLive->setToolTip(apiBusy ? sourceText(QStringLiteral("已有监控会话在运行或启动中。"))
+        : apiView ? sourceText(QStringLiteral("返回行为分析证据视图")) : capabilities.startCapture.enabled()
+            ? startHint : CaptureActionDisabledText(capabilities.startCapture.reason));
     m_stopLive->setAccessibleName(sourceText(QStringLiteral("停止监控")));
     m_stopLive->setToolTip(!capabilities.stopCapture.enabled() ? CaptureActionDisabledText(capabilities.stopCapture.reason)
         : m_liveRecovery ? sourceText(QStringLiteral("重试清退原 ETW 会话。")) : m_stopLive->accessibleName());
@@ -473,20 +578,19 @@ void OfflineSegmentOverview::updateLiveControls()
     m_breakpointPage->setToolTip(m_breakpointPage->accessibleName());
     m_breakpointPage->setEnabled(capabilities.openBreakpointDefinitions.enabled());
     updateActionToolbarText();
+    updateNativeWatchToolbar();
+    updateProcessGroupToolbar();
     updateCapturedArchiveAction();
     const bool archiveView = m_snapshot && !m_snapshot->live; // 当前可见结果来自归档。
     m_followLive->setToolTip(!capabilities.followLive.enabled() ? CaptureActionDisabledText(capabilities.followLive.reason)
         : archiveView ? sourceText(QStringLiteral("返回最近一次监控的实时窗口。"))
         : sourceText(QStringLiteral("清除时间范围并继续跟随最新事件。")));
-    const bool canStart = capabilities.startCapture.enabled(); // 参数编辑资格保持与开始监控一致。
+    const bool canStart = !apiView && !apiBusy && capabilities.startCapture.enabled(); // 不以 ETW 资格代替 API 资格。
     m_startLive->setEnabled(canStart);
     m_stopLive->setEnabled(capabilities.stopCapture.enabled());
     m_followLive->setEnabled(capabilities.followLive.enabled());
     m_pidInput->setEnabled(canStart);
     m_providerInput->setEnabled(canStart);
-    if (sessionStatusChanged)
-    {
-        sessionStatusChanged(m_liveFeedback);
-    }
+    publishSessionStatus();
 }
 }

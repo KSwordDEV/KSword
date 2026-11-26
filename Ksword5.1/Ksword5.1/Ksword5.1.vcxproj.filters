@@ -883,11 +883,61 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ActionAnalyze\ActionAnalyzeBreakpointPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\DataWriteWatchPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateAddressWatchFields.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateExecutionRangePane.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.NativeControl.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ProcessGroupPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ProcessGroupSession.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ExecutionGroupPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ExecutionGroupPageControl.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ExecutionGroupSession.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ExecutionGroupFields.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ExecutionGroupSiteEditor.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ProcessGroupMemoryPane.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\NativeStopMemoryArchive.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\NativeStopMemoryCandidates.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateExecutionCandidatesPane.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateExecutionCandidatesLayout.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateExecutionCandidatesRender.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PrivateExecutionCandidatesFields.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\NativeSessionApiPane.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\NativeSessionApiFields.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ApiNativeExecutionProjection.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\NativeExecutionPresentation.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\ProcessGroupMemorySnapshot.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Memory\SelectedMemorySnapshot.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\Common.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStepRuntime.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionSite.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExplicitMemorySite.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionPage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSession.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSessionArchive.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\ArchivedSampleAnalysis.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\BehaviorPresetReplay.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\BehaviorRuleDraft.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\BehaviorRulesPage.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\LiveEtwCapture.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\LiveSampleArchive.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PassiveApiCaptureOwner.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\PassiveApiCapturePane.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\ObjectContextMenu.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -906,6 +956,8 @@
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Loading.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ActionAnalyze\CallbackArchivePresentation.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ApiTransferPresentation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Network.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -939,17 +991,44 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Cli\PassiveApiCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\evidence\PassiveApiArchiveTail.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\evidence\PassiveApiSourceDiagnosis.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiTransferCandidateWindow.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiNativeExecutionProjection.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\NativeExecutionPresentation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiApcFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiContextFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiSectionMapFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiMemoryLifecycleFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClCompile Include="..\..\shared\ApiMonitorCapture.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\shared\usermode\backend\monitor\PassiveEtwSource.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\AnalysisRun.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\FilterAst.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\NumericOperations.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresetFields.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\ApiBehaviorObservation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresets.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
       <Filter>Source Files</Filter>
@@ -2867,13 +2946,55 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ActionAnalyze\ActionAnalyzeBreakpointPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\DataWriteWatchPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PrivateAddressWatchFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PrivateExecutionRangePane.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ProcessGroupPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ProcessGroupSession.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ExecutionGroupPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ExecutionGroupSession.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ExecutionGroupFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ExecutionGroupSiteEditor.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ProcessGroupMemoryPane.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\NativeStopMemoryArchive.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\NativeStopMemoryCandidates.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PrivateExecutionCandidatesPane.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PrivateExecutionCandidatesFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\NativeSessionApiPane.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\ProcessGroupMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Memory\SelectedMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStep.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStepRuntime.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionSite.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExplicitMemorySite.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionPage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedDataWatchSession.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedExecutionGroup.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ArchivedSampleAnalysis.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\BehaviorPresetReplay.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\BehaviorRuleDraft.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\BehaviorRulesPage.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\NumericOperations.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresetFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\ApiBehaviorObservation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\BehaviorPresets.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\LiveEtwCapture.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\LiveSampleArchive.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PassiveApiCaptureOwner.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\PassiveApiCapturePane.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ToolbarCapabilities.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ObjectContextMenu.h">
       <Filter>Header Files</Filter>
@@ -2893,6 +3014,8 @@
     <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ActionAnalyze\CallbackArchivePresentation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ApiTransferPresentation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2904,10 +3027,23 @@
     </ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\RawEvidenceArchive.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ActionAnalyzeEtwProvider.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\usermode\backend\monitor\PassiveEtwSource.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Cli\PassiveApiCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\PassiveApiArchiveTail.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\PassiveApiSourceDiagnosis.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectLock.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\NativeBoundApiCapture.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\ApiMonitorCapture.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.h"><Filter>Header Files</Filter></ClInclude>
     <QtMoc Include="MonitorDock\MonitorDock.h">

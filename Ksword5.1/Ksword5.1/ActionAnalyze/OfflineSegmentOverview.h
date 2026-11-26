@@ -5,6 +5,7 @@
 #include "OfflineObjectEvidence.h"
 
 #include <QSet>
+#include <QList>
 #include <functional>
 #include <QWidget>
 #include <memory>
@@ -15,8 +16,11 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QStackedWidget;
 class QTableView;
 class QTimer;
+class QToolButton;
+class QTreeView;
 
 namespace ks::ui
 {
@@ -29,11 +33,15 @@ namespace ks::ui
 
 namespace ks::action_analyze
 {
+    class ArchiveRelationModel;
     class SegmentTableModel;
     class SegmentWaterfall;
     class LiveEtwCapture;
+    class PassiveApiCapturePane;
     struct LiveEtwReceipt;
     struct ToolbarOverviewCapabilities;
+    struct DataWatchToolbarPort;
+    struct ProcessGroupToolbarPort;
 
     // 行为追踪总览独立持有归档证据，项目页提供可选的身份对照。
     class OfflineSegmentOverview final : public QWidget
@@ -55,6 +63,9 @@ namespace ks::action_analyze
         std::function<void(const QString&, const QString&)> liveSampleRegistered;
         std::function<void()> openBreakpointPage; // 工作台负责切换到已经登记的全局断点页。
         std::function<void()> activateOverview; // 浮窗的归档动作受理后定位共用总览。
+        // 接入现有写入/执行owner的动作端口，不创建采集器或第二个原生控制器。
+        void setNativeWatchToolbar(std::shared_ptr<DataWatchToolbarPort> toolbar);
+        void setProcessGroupToolbar(std::shared_ptr<ProcessGroupToolbarPort> toolbar); // 复用显式集合的暂停/恢复入口。
 
     protected:
         // 接收语言变化，更新固定文案及当前数据显示。
@@ -65,18 +76,25 @@ namespace ks::action_analyze
         // 打开文件对话框或将指定文件作为下一次后台读取请求。
         void chooseSegment();
         bool openSegment(const QString& path, std::optional<SampleRequest> sample = std::nullopt,
-            const SampleSensitiveClue* clue = nullptr);
+            const SampleSensitiveClue* clue = nullptr, bool followPrefix = false);
+        void followCommittedApiPrefix(); // 在可见总览中补读当前 API 采样的已提交前缀。
         // 取消有效读取代次，继续展示上次成功提交的结果。
         void cancelRead();
         // 接收后台值，保留失败前的已发布结果。
         void publish(const SegmentSnapshot& result);
         // 在现有工具带加采集入口，并在同一视图应用实时快照。
         void createLiveControls(ks::ui::FlowLayout* parameters, ks::ui::FlowLayout* actions);
+        // 用同一总览工具带切换证据视图和 API 文件采集参数，不生成新页签。
+        void createApiCaptureControls(ks::ui::FlowLayout* actions);
+        // 汇总本端实时回执；ETW 与 API 写入与数据投影各自独立。
+        void publishSessionStatus();
         // 建立可停靠的动作带。浮出时移动同一组按钮，关闭浮窗时归位。
         QWidget* createActionToolbar();
         void toggleActionToolbar();
         void restoreActionToolbar();
         void updateActionToolbarText();
+        void updateNativeWatchToolbar(); // 只读取原页面回投的资格与目标身份。
+        void updateProcessGroupToolbar(); // 集合全局/选中范围均以原集合页为准。
         // 按动作自然宽度、当前屏幕工作区计算浮窗尺寸下限。不改内嵌栏布局。
         void fitFloatingActionToolbar();
         void startLive();
@@ -102,15 +120,20 @@ namespace ks::action_analyze
         void clearFilters();
         // 同步有效过滤条件、表格、瀑布和稳定选中项。
         void applyFilters();
-        // 以段内序号选中记录，共享表格和瀑布的选择锚。
-        void selectSequence(quint64 sequence, bool scrollTable);
+        // 根据通道、段和记录序号选择证据，表格和瀑布用同一个锚点。
+        void selectRecord(SegmentRowAnchor anchor, bool scrollTable);
+        // 输入当前快照的原生候选，清除API选区并显示同一来源文档；不执行查询或控制。
+        void selectNativeExecution(const Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>& candidate);
         // 刷新状态和共享详情文档，不执行文件 I/O。
         void updateText();
         void updateDetails();
         // 建立底部键盘可访问的引用区及共享菜单入口。
         QWidget* createObjectEvidence(QWidget* parent);
-        // 同步证据清单和选中的对象身份；nullptr 清空当前记录引用。
-        void updateObjectEvidence(const SegmentRow* row);
+        // 同步选中的对象身份与归档关系提示；nullptr 清空当前记录引用。
+        void updateObjectEvidence(const SegmentRow* row, bool filteredOut = false);
+        // 发布新归档窗口的关系分组，并更新独立控件的语言。
+        void updateArchiveRelations(bool sameScope); // 同采样使用新持久快照更新已提交关系。
+        void retranslateArchiveRelations();
         // 校验对象归属并报告当前应用的对象筛选。
         bool matchesSample(const ArchivedObjectObservation& object) const;
         QString objectFilterSummary() const;
@@ -150,6 +173,11 @@ namespace ks::action_analyze
         QLabel* m_graphStatus = nullptr; // 关系和来源解析能力。
         QLabel* m_objectStatus = nullptr; // 通过菜单显式查看的对象证据。
         OfflineObjectEvidence* m_objects = nullptr; // 当前证据的可导航对象引用。
+        QToolButton* m_archiveRelationToggle = nullptr; // 归档关系区的可聚焦展开入口。
+        QWidget* m_archiveRelationPanel = nullptr; // 仅在归档窗口内显示的关系浏览区。
+        QLabel* m_archiveRelationStatus = nullptr; // 空窗口、操作提示或隐藏原行的反馈。
+        QTreeView* m_archiveRelationTree = nullptr; // 通过真实归档坐标定位原始记录的只读树。
+        ArchiveRelationModel* m_archiveRelationModel = nullptr; // 当前归档窗口的分组索引。
         QString m_projectManifest; // 下次开始时冻结的项目清单路径。
         QString m_projectRevision; // 已打开项目的配置修订，启动时重新核对。
         QString m_projectId; // 已打开项目的 UUID。
@@ -158,6 +186,8 @@ namespace ks::action_analyze
         QString m_lastPath; // 最新读取请求路径。
         std::optional<SampleRequest> m_lastSampleRequest; // 重试沿用已冻结的目录身份。
         std::optional<SampleSensitiveClue> m_lastClue; // 重试仍定位本次请求的同一条证据。
+        quint64 m_apiPrefixAttempt = 0; // 当前请求已尝试的最新 API 检查点段号。
+        bool m_allowApiPrefixFollow = false; // 取消后等用户重新打开或重读才继续跟随。
         bool m_clueMissing = false; // 最新完成的归档读取未重新核验所请求的证据。
         std::shared_ptr<const SegmentSnapshot> m_snapshot; // 最后发布的段。
         SegmentEnd m_latestEnd = SegmentEnd::Unavailable; // 最新读取结尾；可与保留结果不同。
@@ -165,13 +195,15 @@ namespace ks::action_analyze
         quint64 m_latestOffset = 0; // 最新问题发生的位置。
         quint64 m_latestVerifiedOrdinal = 0; // 最新请求核验通过的最后一段，独立于仍显示的旧结果。
         quint64 m_latestFailedOrdinal = 0; // 最新请求遇到的第一个坏段。
+        std::optional<MixedArchiveReadback> m_latestMixed; // 本次请求的双通道回执，与仍显示的旧结果独立。
         bool m_latestPublished = false; // 最新读取是否替换了视图。
         bool m_reading = false; // 有有效的读取请求在途。
         bool m_updatingSelection = false; // 表格和瀑布相互更新时防止回环。
         bool m_invalidRange = false; // 当前提交草稿是否有错误。
         std::optional<quint64> m_lower; // 已应用包含下界。
         std::optional<quint64> m_upper; // 已应用不含上界。
-        std::optional<quint64> m_sequence; // 用户选择，过滤时可以暂不可见。
+        std::optional<SegmentRowAnchor> m_selection; // 用户选择的实际通道和记录，过滤时可以暂不可见。
+        std::optional<Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>> m_nativeSelection; // 当前原生叶项的只读来源身份。
         std::optional<SegmentRow> m_selectedLiveRow; // 同一采样内独立保留的选中证据。
         std::optional<ArchivedObjectObservation> m_objectFilter; // 生效的采样内对象范围。
         std::optional<ArchivedObjectObservation> m_viewedObject; // 用户显式查看的归档引用。
@@ -185,6 +217,13 @@ namespace ks::action_analyze
         QPushButton* m_followLive = nullptr; // 只恢复视图跟随。
         QPushButton* m_captureArchive = nullptr; // 打开原监控所写归档，与当前项目浏览选择无关。
         QPushButton* m_breakpointPage = nullptr; // 打开全局断点定义，不改变活动会话。
+        std::shared_ptr<DataWatchToolbarPort> m_nativeWatch; // 与原写入停点页共用的纯UI端口。
+        QList<QPushButton*> m_nativeWatchButtons; // 继续、三种步进、取消与脱离的既有工具条动作。
+        std::shared_ptr<ProcessGroupToolbarPort> m_processGroupToolbar; // 集合页已有控制器的纯UI端口。
+        QList<QPushButton*> m_processGroupButtons; // 全部/所选暂停继续、原票据恢复与清退。
+        QPushButton* m_apiCaptureToggle = nullptr; // 切换总览正文到被动 API 跟随参数。
+        QStackedWidget* m_captureContent = nullptr; // 两种正文共用原总览外框与工具带。
+        PassiveApiCapturePane* m_apiCapture = nullptr; // 独立的 Qt API 文件跟随所有者入口。
         QWidget* m_actionDock = nullptr; // 内嵌工具带原位，浮出时不占用页面高度。
         QWidget* m_actionStrip = nullptr; // 两种布局共用的真实按钮宿主。
         QDialog* m_actionWindow = nullptr; // 只在首次浮出时创建的原生置顶窗口。

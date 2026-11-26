@@ -1,4 +1,5 @@
 #include "ArchivedSampleAnalysis.h"
+#include "CallbackArchivePresentation.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/StructuredFieldView.h"
@@ -9,6 +10,7 @@ namespace ks::action_analyze
 {
 namespace
 {
+    using ks::i18n::sourceText;
     constexpr qsizetype kCluePreview = 32; // 字段详情最多展示最近 32 条，计数覆盖本次整个窗口。
     constexpr quint64 kAutomaticSegments = 32; // 自动读取的连续段预算，显式归档仍读完整范围。
 
@@ -27,6 +29,9 @@ namespace
             {"thread-create", QStringLiteral("线程创建")},
             {"thread-context", QStringLiteral("线程上下文修改")},
             {"apc-queue", QStringLiteral("APC 入队")},
+            {"memory-allocation", QStringLiteral("内存分配")},
+            {"memory-protection", QStringLiteral("内存保护变更")},
+            {"memory-free-request", QStringLiteral("内存释放请求")},
         }};
         return categories;
     }
@@ -34,7 +39,7 @@ namespace
     // 把分类器 ID 转成显示枚举。未来新增的类别没有对应文案时保持未知。
     std::optional<std::size_t> CategoryIndex(const QString& key)
     {
-        const auto& categories = Categories(); // 已支持的五个已知类别。
+        const auto& categories = Categories(); // 与枚举同序的已知API类别，包含生命周期请求。
         for (std::size_t index = 0; index < categories.size(); ++index)
         {
             if (key == QLatin1StringView(categories[index].key))
@@ -45,11 +50,57 @@ namespace
         return std::nullopt;
     }
 
+    // 按单一通道格式化已验边界，无终段和坏段分别报告。
+    QString LaneStatus(SegmentEnd end, quint64 last, quint64 failed)
+    {
+        QString status; // 当前通道可核对的回执。
+        switch (end)
+        {
+        case SegmentEnd::Complete:
+            status = sourceText(QStringLiteral("已核验终段。"));
+            break;
+        case SegmentEnd::IncompleteSample:
+            status = sourceText(QStringLiteral("归档尚未发布有效终段。"));
+            break;
+        case SegmentEnd::PreviewLimit:
+            status = sourceText(QStringLiteral("已达到离线预览上限。"));
+            break;
+        default:
+            status = sourceText(QStringLiteral("无法验证项目检查点或其引用的归档数据。"));
+            break;
+        }
+        if (last)
+        {
+            status += u' ' + sourceText(QStringLiteral("已验证至第 %1 段。")).arg(last);
+        }
+        if (failed)
+        {
+            status += u' ' + sourceText(QStringLiteral("第 %1 段校验失败。")).arg(failed);
+        }
+        return status;
+    }
+}
+
+// 以物理目录区分两通道，让每个终态、水位及坏段均能追溯。
+QString MixedArchiveStatus(const MixedArchiveReadback& mixed, quint64 apiLast, quint64 apiFailed)
+{
+    auto etw = LaneStatus(mixed.etwEnd, mixed.etwLastOrdinal, mixed.etwFailedOrdinal); // ETW 自有检查点回执。
+    if (mixed.etwFailureOffset)
+    {
+        etw += u' ' + sourceText(QStringLiteral("停止位置：%1 字节。")).arg(mixed.etwFailureOffset);
+    }
+    return sourceText(QStringLiteral("API (raw)：%1\nETW (raw-etw)：%2"))
+        .arg(LaneStatus(mixed.apiEnd, apiLast, apiFailed), etw);
 }
 
 // 附带终止原因及失败段，区分没有证据、未读取和读取失败。
 void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis)
 {
+    if (analysis.mixed)
+    {
+        document.note(MixedArchiveStatus(*analysis.mixed, analysis.lastSegment, analysis.failedSegment));
+        return;
+    }
     if (analysis.legacyUnpublished)
     {
         document.note(QStringLiteral("旧 API 跟随归档没有持久提交标记。"));
@@ -65,6 +116,10 @@ void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const A
     else if (analysis.end == SegmentEnd::Unavailable)
     {
         document.note(QStringLiteral("此采样暂无可读取的归档。"));
+    }
+    else if (analysis.end == SegmentEnd::InvalidCallbackBatch)
+    {
+        document.note(QStringLiteral("KSwordARK 回调归档读取或核验失败。"));
     }
     else if (analysis.end != SegmentEnd::Complete)
     {
@@ -92,18 +147,27 @@ ArchivedSampleAnalysis ReadArchivedSampleAnalysis(const SampleRequest& request, 
     ArchivedSampleAnalysis analysis; // 仅保存分类、段水位及少量锚点。
     analysis.end = snapshot.end;
     analysis.failedSegment = snapshot.failedOrdinal;
+    analysis.mixed = snapshot.mixed;
     analysis.legacyUnpublished = snapshot.checkpoint == SegmentCheckpoint::ApiLegacyUnpublished;
     // 只接受已有尾记、检查点或正常扫描完的同一采样，拒绝未经发布的部分单段。
     analysis.verified = snapshot.projectId == request.projectId && snapshot.sampleId == request.sample.id &&
-        (snapshot.end == SegmentEnd::Complete || snapshot.lastVerifiedOrdinal != 0);
+        (snapshot.end == SegmentEnd::Complete || snapshot.lastVerifiedOrdinal != 0 ||
+            (snapshot.mixed && snapshot.mixed->etwLastOrdinal != 0));
     if (!analysis.verified)
     {
         return analysis;
     }
 
-    analysis.lastSegment = snapshot.lastVerifiedOrdinal ? snapshot.lastVerifiedOrdinal : snapshot.ordinal;
+    analysis.lastSegment = snapshot.mixed || snapshot.lastVerifiedOrdinal ? snapshot.lastVerifiedOrdinal : snapshot.ordinal;
     analysis.windowRows = snapshot.rows.size();
-    analysis.archiveRows = snapshot.verifiedRows ? snapshot.verifiedRows : static_cast<quint64>(analysis.windowRows);
+    analysis.archiveRows = snapshot.mixed || snapshot.verifiedRows
+        ? snapshot.verifiedRows : static_cast<quint64>(analysis.windowRows);
+    // 回调专用段没有 API 分类。回传核验过的批次与实际完整观测数。
+    if (snapshot.callbackBatch)
+    {
+        analysis.callbackBatch = snapshot.callbackBatch;
+        return analysis;
+    }
     for (const auto& row : snapshot.rows)
     {
         analysis.etwRows += row.liveEtw.has_value();
@@ -124,7 +188,7 @@ ArchivedSampleAnalysis ReadArchivedSampleAnalysis(const SampleRequest& request, 
                 analysis.recentClues.removeFirst();
             }
             analysis.recentClues.append(SampleSensitiveClue{clue.api, static_cast<SensitiveApiFamily>(*index),
-                row.segmentOrdinal, row.sequence, clue.sourceSequence});
+                row.segmentOrdinal, row.sequence, clue.sourceSequence, clue.archiveSource});
         }
     }
     return analysis;
@@ -140,8 +204,24 @@ void AppendArchivedSampleAnalysis(ks::ui::FieldDocument& document, const Archive
         return;
     }
 
-    document.field(QStringLiteral("已核验末段"), QString::number(analysis.lastSegment));
-    document.field(QStringLiteral("归档记录数"), QString::number(analysis.archiveRows));
+    if (analysis.mixed)
+    {
+        // 水位已按通道列在回执中；归档数也分别显示，不把 UI 窗口当作源记录数。
+        document.field(QStringLiteral("API 归档记录数"), QString::number(analysis.archiveRows));
+        document.field(QStringLiteral("ETW 归档记录数"), QString::number(analysis.mixed->etwVerifiedRows));
+    }
+    else
+    {
+        document.field(QStringLiteral("已核验末段"), QString::number(analysis.lastSegment));
+        document.field(QStringLiteral("归档记录数"), QString::number(analysis.archiveRows));
+    }
+    if (analysis.callbackBatch)
+    {
+        document.note(CallbackArchiveStatus(analysis.windowRows));
+        AppendCallbackBatchFields(document, *analysis.callbackBatch);
+        document.field(QStringLiteral("归档线程创建观测数"), QString::number(analysis.windowRows));
+        return;
+    }
     document.field(QStringLiteral("分析窗口行数"), QString::number(analysis.windowRows));
     document.note(QStringLiteral("跨进程因果关系缺少已核验的执行方、目标及操作结果。"));
 
@@ -166,8 +246,19 @@ void AppendArchivedSampleAnalysis(ks::ui::FieldDocument& document, const Archive
     for (const auto& clue : analysis.recentClues)
     {
         const auto family = categories[static_cast<std::size_t>(clue.family)].name; // 稳定类别对应的文案。
-        const QString location = QStringLiteral("raw/%1 #%2 · events.jsonl #%3")
-            .arg(clue.segment).arg(clue.sequence).arg(clue.sourceSequence); // 可回查的两套序号。
+        // 缺尾记声明的旧导入只显示原始序号；无导入尾记的跟随档仍为 JSONL 读回。
+        using Ksword::Evidence::ApiMonitorArchiveSource;
+        QString sourceLabel = QStringLiteral("events.jsonl #"); // 关闭的 JSONL 或被动跟随的原坐标。
+        if (clue.archiveSource == ApiMonitorArchiveSource::CooperativePipe)
+        {
+            sourceLabel = ks::i18n::sourceText(QStringLiteral("合作流水号（非 JSONL 行号）")) + QLatin1Char(' ');
+        }
+        else if (clue.archiveSource == ApiMonitorArchiveSource::LegacyUnspecified)
+        {
+            sourceLabel = ks::i18n::sourceText(QStringLiteral("原始序号（输入类型未声明）")) + QLatin1Char(' ');
+        }
+        const auto location = QStringLiteral("raw/%1 #%2 · %3%4") // Stored 坐标与源坐标分别呈现。
+            .arg(clue.segment).arg(clue.sequence).arg(sourceLabel).arg(clue.sourceSequence);
         document.field(clue.api, location + QStringLiteral(" · ") + ks::i18n::sourceText(family));
         document.nodes.last().children.last().translateName = false;
     }

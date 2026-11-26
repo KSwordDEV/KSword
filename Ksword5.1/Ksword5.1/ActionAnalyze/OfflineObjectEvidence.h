@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OfflineSegmentReader.h"
+
 #include <QList>
 #include <QUuid>
 #include <QWidget>
@@ -26,13 +28,21 @@ namespace ks::action_analyze
         bool operator==(const ArchivedObjectObservation&) const = default;
     };
 
-    struct SegmentRow;
     class ObjectContextMenu;
 
     // 按正文实例引用匹配。调用方先核对范围，返回该行是否引用同种类和编号的对象。
     bool RowReferencesObject(const SegmentRow& row, const ArchivedObjectObservation& object);
 
     enum class EvidenceGraphSource { Archive, Live }; // 决定事件节点和空态的来源说明。
+    enum class ArchivedRelationKind { ApiCandidate, SourceContext }; // 候选和来源上下文都由原始证据支撑。
+
+    struct ArchivedRelationAnchor
+    {
+        ArchivedRelationKind kind; // 已选记录在图中的证据分类。
+        SegmentRowAnchor record; // 实际归档通道、段号和已核验的记录序号。
+
+        bool operator==(const ArchivedRelationAnchor&) const = default;
+    };
 
     // 事件节点携带冻结的范围及已知编号，缺失的编号由调用方保留为空。
     struct EvidenceGraphEvent
@@ -54,6 +64,7 @@ namespace ks::action_analyze
         std::optional<quint64> targetProcessId; // 规范事件的目标方引用。
         std::optional<quint64> observedThreadId; // 规范事件的观测线程引用。
         std::optional<quint64> associatedProcessId; // 类型化网络证据给出的关联进程引用。
+        std::optional<ArchivedRelationAnchor> archivedRelation; // 同一行的候选或来源上下文及其物理坐标。
 
         bool operator==(const EvidenceGraphSnapshot&) const = default;
     };

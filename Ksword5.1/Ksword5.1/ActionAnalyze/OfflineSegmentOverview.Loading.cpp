@@ -6,6 +6,8 @@
 
 #include <QFileDialog>
 #include <QLineEdit>
+#include <QMetaObject>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <algorithm>
 
@@ -28,11 +30,16 @@ bool OfflineSegmentOverview::openSampleArchive(const SampleRequest& sample, cons
 
 // 冻结路径与目录身份后交给后台。只有仍有效的请求可以切换证据来源。
 bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<SampleRequest> sample,
-    const SampleSensitiveClue* clue)
+    const SampleSensitiveClue* clue, bool followPrefix)
 {
     if (path.isEmpty())
     {
         return false;
+    }
+    if (!followPrefix)
+    {
+        m_apiPrefixAttempt = 0;
+        m_allowApiPrefixFollow = sample.has_value();
     }
     struct Request
     {
@@ -60,18 +67,19 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
                     {
                         publish(segment);
                         // 同时核对采样、段、记录和原包分类坐标，避免跳到回读时已更新的行。
-                        if (anchor && m_latestPublished)
+                        if (anchor && anchor == m_lastClue)
                         {
-                            const auto row = std::find_if(segment.rows.cbegin(), segment.rows.cend(), [&](const SegmentRow& candidate) {
-                                return candidate.segmentOrdinal == anchor->segment && candidate.sequence == anchor->sequence &&
+                            const auto row = m_latestPublished ? std::find_if(segment.rows.cbegin(), segment.rows.cend(), [&](const SegmentRow& candidate) {
+                                return RowAnchor(candidate) == SegmentRowAnchor{Ksword::ActionAnalyze::ProjectEvidenceLane::Primary,
+                                        anchor->segment, anchor->sequence} &&
                                     candidate.archivedApi && candidate.archivedApi->sourceSequence == anchor->sourceSequence &&
-                                    candidate.archivedApi->api == anchor->api;
-                            }); // 回放窗口中的同一条已核验观察。
+                                    candidate.archivedApi->archiveSource == anchor->archiveSource && candidate.archivedApi->api == anchor->api;
+                            }) : segment.rows.cend(); // 未发布的回读不能提供定位目标。
                             if (row != segment.rows.cend())
                             {
                                 // 已定位后，普通重读沿用总览当前选择，允许用户自由查看别的记录。
                                 m_lastClue.reset();
-                                selectSequence(row->sequence, true);
+                                selectRecord(RowAnchor(*row), true);
                             }
                             else
                             {
@@ -95,6 +103,11 @@ bool OfflineSegmentOverview::openSegment(const QString& path, std::optional<Samp
     {
         publish({});
     }
+    else
+    {
+        // 唯一的归档入口回到原证据视图，API 源读端不受影响。
+        m_apiCaptureToggle->setChecked(false);
+    }
     return accepted != 0;
 }
 
@@ -103,6 +116,7 @@ void OfflineSegmentOverview::cancelRead()
 {
     if (m_reading)
     {
+        m_allowApiPrefixFollow = false;
         m_read->cancel();
         SegmentSnapshot canceled; // 独立回执，不携带待发布行。
         canceled.end = SegmentEnd::Canceled;
@@ -119,6 +133,12 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
     m_latestOffset = result.failureOffset;
     m_latestVerifiedOrdinal = result.lastVerifiedOrdinal;
     m_latestFailedOrdinal = result.failedOrdinal;
+    m_latestMixed = result.mixed;
+    // 现有读取槽空闲后再补读在途期间到达的新段，避免嵌套提交覆盖当前代次。
+    if (m_allowApiPrefixFollow)
+    {
+        QMetaObject::invokeMethod(this, [this]() { followCommittedApiPrefix(); }, Qt::QueuedConnection);
+    }
     // 重读同一文件失败时，旧结果保留原范围并附加本次失败回执。
     const bool keepComplete = m_snapshot && m_snapshot->path == result.path
         && m_snapshot->end == SegmentEnd::Complete && result.end != SegmentEnd::Complete;
@@ -137,14 +157,20 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
 // 在同一模型发布实时或档案快照。同源增量沿用已提交的筛选和选择。
 void OfflineSegmentOverview::setActiveSnapshot(const SegmentSnapshot& result)
 {
-    const bool same = m_snapshot && m_snapshot->live == result.live && m_snapshot->path == result.path && m_snapshot->projectId == result.projectId
-        && m_snapshot->sampleId == result.sampleId && m_snapshot->stream == result.stream && m_snapshot->ordinal == result.ordinal;
+    // 回调段若已被替换，同一个 Stored 序号可能指向不同的原包。
+    const bool sameCallbackBatch = m_snapshot && (result.callbackBatch
+        ? m_snapshot->callbackBatch && m_snapshot->callbackBatch->sha256 == result.callbackBatch->sha256
+        : !m_snapshot->callbackBatch); // 核验同路径回调的实际文件内容。
+    const bool same = sameCallbackBatch && m_snapshot->live == result.live && m_snapshot->path == result.path
+        && m_snapshot->projectId == result.projectId && m_snapshot->sampleId == result.sampleId
+        && m_snapshot->sampleDescriptionHash == result.sampleDescriptionHash
+        && m_snapshot->stream == result.stream && m_snapshot->ordinal == result.ordinal; // 是否保留原选择和筛选。
     m_snapshot = std::make_shared<const SegmentSnapshot>(result);
     if (!same)
     {
         const QSignalBlocker guard(m_keyword); // 新段重置关键字，不提交临时模型。
         m_keyword->clear();
-        m_sequence.reset();
+        m_selection.reset();
         m_selectedLiveRow.reset();
         m_lower.reset();
         m_upper.reset();
@@ -155,6 +181,7 @@ void OfflineSegmentOverview::setActiveSnapshot(const SegmentSnapshot& result)
         m_objectFilter.reset();
         m_viewedObject.reset();
     }
+    updateArchiveRelations(same);
     fillCategories(same);
     applyFilters();
 }

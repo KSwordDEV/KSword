@@ -1,6 +1,5 @@
 #include "OfflineObjectEvidence.h"
 #include "ObjectContextMenu.h"
-#include "OfflineSegmentReader.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/MainSurfaceStyle.h"
@@ -66,6 +65,18 @@ namespace
         }
         return parts.join(QStringLiteral(" · "));
     }
+
+    // 从选中 raw 记录的分类和段坐标生成底部图的可读分支标签。
+    QString ArchivedRelationText(const ArchivedRelationAnchor& anchor)
+    {
+        const auto& record = anchor.record; // 关系仅指回已核验的原包坐标。
+        if (anchor.kind == ArchivedRelationKind::ApiCandidate)
+        {
+            return sourceText(QStringLiteral("未解析候选 · raw/%1 #%2")).arg(record.segment).arg(record.sequence);
+        }
+        return sourceText(QStringLiteral("来源上下文 · %1/%2 #%3"))
+            .arg(RawLaneName(record.lane)).arg(record.segment).arg(record.sequence);
+    }
 }
 
 // 输入是相同项目、采样下的已核验行和对象引用；仅匹配同类型的正文编号。
@@ -103,6 +114,7 @@ OfflineObjectEvidence::OfflineObjectEvidence(QWidget* owner, ObjectContextMenu* 
     m_stateLabel = new QLabel(this);
     m_stateLabel->setWordWrap(true);
     m_stateLabel->setTextFormat(Qt::PlainText);
+    m_stateLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     layout->addWidget(m_stateLabel);
     updateText();
 }
@@ -192,10 +204,14 @@ void OfflineObjectEvidence::updateText()
         m_eventLabel->setText(EventText(m_snapshot));
     }
     // 空态区分未选事件和该事件没有受支持的关系。
-    m_stateLabel->setVisible(m_nodes.isEmpty());
+    m_stateLabel->setVisible(m_nodes.isEmpty() || m_snapshot.archivedRelation.has_value());
     if (!m_snapshot.event)
     {
         m_stateLabel->setText(sourceText(QStringLiteral("选择事件以查看对象关系。")));
+    }
+    else if (m_snapshot.archivedRelation)
+    {
+        m_stateLabel->setText(ArchivedRelationText(*m_snapshot.archivedRelation));
     }
     else if (m_nodes.isEmpty())
     {

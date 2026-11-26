@@ -1,8 +1,7 @@
 #include "BehaviorRulesPage.h"
 #include "../Framework.h"
+#include "BehaviorPresetReplay.h"
 #include "BehaviorRuleDraft.h"
-#include "OfflineSegmentReader.h"
-#include "../../../KswordCLI/ActionAnalyze/Rules/BehaviorPresets.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/CodeEditorWidget.h"
@@ -28,9 +27,7 @@
 #include <QStringDecoder>
 #include <QTextDocument>
 #include <QVBoxLayout>
-
-#include <algorithm>
-#include <array>
+#include <utility>
 
 namespace ks::action_analyze
 {
@@ -39,7 +36,7 @@ namespace
     using ks::i18n::sourceText;
     namespace rule = Ksword::ActionAnalyze::Rules;
 
-    enum class Operation { Idle, Open, Save, Validate, Replay, ArchivePresets }; // 单一在途操作的类型。
+    enum class Operation { Idle, Open, Save, Validate, Replay, ArchivePresets, SamplePresets }; // 单一在途操作的类型。
     enum class FileError { None, FileAccess, Size, Utf8 }; // 可独立本地化的文件错误。
 
     struct Request
@@ -57,142 +54,10 @@ namespace
         QString text; // 成功打开的原始规则内容。
     };
 
-    struct ArchivePresetCheck
-    {
-        QString error; // 失败原因的稳定诊断码。
-        QString projectId; // Stored 段头内的项目标识。
-        QString sampleId; // Stored 段头内的采样标识。
-        rule::ApiPresetReport report; // 已分析的单段最近窗口与线索证据。
-    };
-
-    struct ArchivePresetCategory
-    {
-        std::string_view ruleId; // 规则引擎回执中的细分预置 ID。
-        bool memoryOperation; // 两组汇总的归属：内存操作或线程控制。
-    };
-
-    constexpr std::array kArchivePresetCategories{ // 顺序与下方五类计数文案一致。
-        ArchivePresetCategory{"ksword.api.memory-write-observed.v1", true},
-        ArchivePresetCategory{"ksword.api.section-map-observed.v1", true},
-        ArchivePresetCategory{"ksword.api.thread-create-observed.v1", false},
-        ArchivePresetCategory{"ksword.api.thread-context-observed.v1", false},
-        ArchivePresetCategory{"ksword.api.apc-queue-observed.v1", false},
-    };
-
-    // 从已命中的细分规则定位报告槽位。目录外的 ID 不能归入现有两组。
-    std::size_t ArchivePresetCategoryIndex(std::string_view ruleId)
-    {
-        const auto category = std::find_if(kArchivePresetCategories.begin(), kArchivePresetCategories.end(),
-            [ruleId](const ArchivePresetCategory& entry) { return entry.ruleId == ruleId; }); // 末尾表示未登记。
-        return static_cast<std::size_t>(category - kArchivePresetCategories.begin());
-    }
-
     // 将严格解析器或规则引擎返回的原始 UTF-8 数据转换为纯文本。
     QString DisplayUtf8(std::string_view bytes)
     {
         return QString::fromUtf8(bytes.data(), static_cast<qsizetype>(bytes.size()));
-    }
-
-    // 工作线程从选中的段读取已验证 API Monitor 观测，一次运行得到细分结果。
-    ArchivePresetCheck CheckArchivePresets(const Request& request, const ks::ui::AsyncOperationToken& token)
-    {
-        const auto segment = ReadOfflineSegment(request.path, [&token] { return token.isCanceled(); }); // 本次冻结输入。
-        ArchivePresetCheck result; // 输出只保留验证后的证据坐标。
-        switch (segment.end)
-        {
-        case SegmentEnd::Complete: break;
-        case SegmentEnd::Unavailable: result.error = QStringLiteral("archive-unavailable"); break;
-        case SegmentEnd::Truncated: result.error = QStringLiteral("archive-truncated"); break;
-        case SegmentEnd::Invalid: result.error = QStringLiteral("archive-invalid"); break;
-        case SegmentEnd::Unsupported: result.error = QStringLiteral("archive-unsupported"); break;
-        case SegmentEnd::PreviewLimit: result.error = QStringLiteral("archive-preview-limit"); break;
-        case SegmentEnd::Canceled: result.error = QStringLiteral("archive-canceled"); break;
-        default: result.error = QStringLiteral("archive-incomplete"); break;
-        }
-        if (!result.error.isEmpty())
-        {
-            return result;
-        }
-        if (!segment.hasArchivedApi || segment.ordinal != 1 || segment.projectId.isEmpty() || segment.sampleId.isEmpty())
-        {
-            result.error = QStringLiteral("archive-not-api-monitor-import");
-            return result;
-        }
-        result.projectId = segment.projectId;
-        result.sampleId = segment.sampleId;
-
-        // 转换后的字符串拥有稳定存储，供同步执行的规则解释器借用。
-        std::vector<std::pair<QByteArray, QByteArray>> text; // 逐行持有导出名和已核验分类。
-        std::vector<rule::ArchivedApiObservation> observations; // 只读借用视图。
-        text.reserve(static_cast<std::size_t>(segment.rows.size()));
-        observations.reserve(text.capacity());
-        for (const auto& row : segment.rows)
-        {
-            if (!row.archivedApi || token.isCanceled())
-            {
-                result.error = token.isCanceled() ? QStringLiteral("archive-canceled") : QStringLiteral("archive-missing-api-row");
-                return result;
-            }
-            const auto& clue = *row.archivedApi; // 归档读侧已根据原包字段核对。
-            const auto& [api, family] = text.emplace_back(clue.api.toUtf8(), clue.family.toUtf8());
-            observations.push_back({row.sequence, clue.sourceSequence,
-                {api.constData(), static_cast<std::size_t>(api.size())},
-                {family.constData(), static_cast<std::size_t>(family.size())}});
-        }
-        const auto database = rule::LoadApiPresetDatabase(); // 本次单段回放使用冻结的规则。
-        result.report = rule::AnalyzeArchivedApiPresets(database, observations, segment.verifiedRows, rule::ApiPresetProfile::ByCategory);
-        if (result.report.error != rule::ApiPresetError::None)
-        {
-            result.error = result.report.error == rule::ApiPresetError::InvalidPreset
-                ? QStringLiteral("archive-preset-invalid") : QStringLiteral("archive-projection-invalid");
-        }
-        else if (std::any_of(result.report.matches.begin(), result.report.matches.end(), [](const rule::ApiPresetMatch& hit)
-        {
-            return ArchivePresetCategoryIndex(hit.ruleId) == kArchivePresetCategories.size();
-        }))
-        {
-            result.error = QStringLiteral("archive-preset-invalid"); // 保留上次成功报告，避免把未知类别计入汇总。
-        }
-        return result;
-    }
-
-    // 结果身份和实际扫描范围随代码编辑器回执保留，方便复制并返回原归档核对。
-    QString FormatArchivePresets(const ArchivePresetCheck& result)
-    {
-        std::array<qulonglong, kArchivePresetCategories.size()> categoryCounts{}; // 同次回放的五类条数。
-        qulonglong memoryCount = 0; // 内存操作大类的合计，其余有效分类归入线程控制。
-        QStringList evidenceLines; // 按原始顺序保留一份证据行。
-        for (const auto& hit : result.report.matches)
-        {
-            const auto index = ArchivePresetCategoryIndex(hit.ruleId); // 后台发布前已验证类别。
-            const bool memory = kArchivePresetCategories[index].memoryOperation; // 此条证据的汇总归属。
-            ++categoryCounts[index];
-            if (memory)
-            {
-                ++memoryCount;
-            }
-
-            const std::string_view groupId = memory // 保留旧汇总预置 ID，便于搜索历史回执。
-                ? "ksword.api.memory-operation-observed.v1" : "ksword.api.thread-control-observed.v1";
-            const auto ruleIds = DisplayUtf8(groupId) + QStringLiteral(" · ") + DisplayUtf8(hit.ruleId); // 同一观测的两层分类。
-            evidenceLines << sourceText(QStringLiteral("段内序号 %1 · 源行 %2 · %3 · %4"))
-                .arg(qulonglong(hit.rawSequence)).arg(qulonglong(hit.sourceSequence))
-                .arg(DisplayUtf8(hit.api), ruleIds);
-        }
-
-        QStringList lines; // 完整回执文本。
-        lines << sourceText(QStringLiteral("项目 %1 · 采样 %2")).arg(result.projectId, result.sampleId);
-        lines << sourceText(QStringLiteral("已分析最近 %1 条，共验证 %2 条归档线索。命中 %3 条。"))
-            .arg(qulonglong(result.report.analyzedRows)).arg(qulonglong(result.report.importedRows))
-            .arg(qulonglong(result.report.matches.size()));
-        lines << sourceText(QStringLiteral("汇总：内存操作 %1 条 · 线程控制 %2 条"))
-            .arg(memoryCount).arg(qulonglong(result.report.matches.size()) - memoryCount);
-        const auto& [writes, maps, creates, contexts, apcs] = categoryCounts; // 按摘要顺序展开五个计数槽位。
-        lines << sourceText(QStringLiteral("细分：内存写入 %1 条 · 节映射 %2 条 · 线程创建 %3 条 · 线程上下文修改 %4 条 · APC 入队 %5 条"))
-            .arg(writes).arg(maps).arg(creates).arg(contexts).arg(apcs);
-        lines << sourceText(QStringLiteral("以下为 API 观测。目标身份、调用效果和采集覆盖未知。"));
-        lines.append(evidenceLines);
-        return lines.join(QLatin1Char('\n'));
     }
 
     // 在线程池读取用户选定的文件。失败时返回值诊断，原草稿由 UI 保留。
@@ -368,8 +233,10 @@ namespace
     {
     public:
         // 接入共享参数/动作/结果框架，初始草稿为实际可执行的合成例子。
-        explicit BehaviorRulesPage(QWidget* parent);
+        BehaviorRulesPage(QWidget* parent, std::function<void(bool)> busyChanged);
         ~BehaviorRulesPage() override;
+        // 从项目目录接收冻结采样，仍交给本页同一个异步控制器。
+        bool replaySample(const SampleRequest& sample);
 
     protected:
         // 语言热切换时重投影自己的文案，保留规则原文和检查快照。
@@ -390,6 +257,12 @@ namespace
         void check(Operation operation);
         // 选择一个已导入的 API Monitor 数据段并运行只读预置。
         void archivePresets();
+        // 两个归档入口共用提交及结果门禁。返回是否受理后台任务。
+        bool submitPresets(PresetReplayRequest request);
+        // 只由实际回执更新结果。失败和覆盖缩小的同采样重试保留原报告。
+        void applyPresets(const PresetReplayRequest& request, const PresetReplayResult& result);
+        // 将失败或保留旧报告的原因与冻结采样身份放在同一状态提示中。
+        QString presetStatus() const;
         // 发布一次文件级回执。request 含提交时的操作和草稿版本。
         void applyFile(const Request& request, const FileResult& result);
         // 返回本次请求的正文。未编辑时沿用原始换行，编辑后保留普通空格和不换行空格的区别。
@@ -423,13 +296,14 @@ namespace
         quint64 m_revision = 0; // 由草稿实际编辑递增的代次。
         quint64 m_reportRevision = 0; // 最近回执对应的草稿代次。
         std::optional<BehaviorRuleCheck> m_result; // 不可变的最近回执，用于语言重投影。
-        std::optional<ArchivePresetCheck> m_archiveResult; // 独立归档回执，不随草稿编辑改变。
-        QString m_archiveError; // 最近一次回放失败的稳定代码。
-        QString m_archiveErrorPath; // 与失败编码对应的实际文件。
+        std::optional<PresetReplayResult> m_archiveResult; // 独立归档回执，不随草稿编辑改变。
+        QString m_reportSampleHash; // 项目回执使用的冻结采样描述散列。
+        std::optional<PresetReplayResult> m_archiveIssue; // 最近失败或回退的回执摘要，不存证据行。
+        PresetReplayRequest m_presetRequest; // 本次运行进度和失败状态使用的冻结输入。
     };
 
     // 页壳内由共享框架拥有宽窄分栏和固定动作。父工作台负责页签外边距。
-    BehaviorRulesPage::BehaviorRulesPage(QWidget* parent)
+    BehaviorRulesPage::BehaviorRulesPage(QWidget* parent, std::function<void(bool)> busyChanged)
         : QWidget(parent)
     {
         auto* root = new QVBoxLayout(this); // 当前页签的无重复留白容器。
@@ -504,7 +378,11 @@ namespace
 
         // 修改代次和文件未保存标记各自更新，结果不跟随草稿内容重算。
         m_worker = new ks::ui::AsyncOperation(this);
-        m_worker->setStateChangedCallback([this]() { refreshState(); });
+        m_worker->setStateChangedCallback([this, busyChanged = std::move(busyChanged)]()
+        {
+            refreshState();
+            busyChanged(m_worker->isBusy());
+        });
         connect(m_draft, &QPlainTextEdit::textChanged, this, [this]()
         {
             ++m_revision;
@@ -546,13 +424,31 @@ namespace
         m_archivePresets->setText(sourceText(QStringLiteral("运行归档预置")));
         m_report->setAccessibleName(sourceText(QStringLiteral("规则检查回执")));
 
+        // 类型说明直接来自生产准备器目录，合成编辑和归档预置的字段范围分别列出。
+        QStringList draftFields; // 当前草稿真正可编辑的字段与类型。
+        for (const auto& [id, type] : BehaviorRuleFields())
+        {
+            draftFields << DisplayUtf8(id) + QStringLiteral(" : ") +
+                (type == rule::FieldType::U64 ? QStringLiteral("u64") : QStringLiteral("text"));
+        }
+        QStringList archiveFields; // 实际预置投影支持的字段，不将其冒充合成事件输入。
+        for (const auto& binding : rule::ApiPresetFields(true))
+        {
+            const auto type = binding.type == rule::FieldType::U64 ? QStringLiteral("u64") :
+                binding.type == rule::FieldType::Bool ? QStringLiteral("bool") : QStringLiteral("text");
+            archiveFields << DisplayUtf8(binding.id) + QStringLiteral(" : ") + type;
+        }
         // 提交新回执后，格式提示仍可从草稿说明和编辑器的辅助信息读取。
         const QStringList guideLines{ // 分行翻译格式提示，保持 JSON 关键字原样。
             sourceText(QStringLiteral("校验当前示例以检查选择器和字段类型，或回放以查看锚点及证据。")),
             sourceText(QStringLiteral("mode 支持 countAtLeast、countEqual、sequence。window100ns 和计数阈值使用十进制字符串。")),
             sourceText(QStringLiteral("predicate 接受布尔常量或字段测试。运算符包括 eq、ne、lt、le、gt、ge、contains、startsWith、endsWith、isNull 和 isComplete。")),
             sourceText(QStringLiteral("predicate 也可使用 C# 风格表达式字符串，例如 source.headerPid == 42u64 && !isNull(source.headerPid)。支持括号、布尔组合、字段比较和白名单函数。")),
-            sourceText(QStringLiteral("字段支持 event.projectId、event.sampleId、event.eventOrdinal、source.sequence、source.headerPid、source.headerTid 和 time.receivedQpc。")),
+            sourceText(QStringLiteral("合成草稿字段及类型：%1")).arg(draftFields.join(QStringLiteral(", "))),
+            sourceText(QStringLiteral("数值表达式需声明 expressionProfile 为 predicate-expr-v3。例：(source.headerPid & 0xffu64) == 42u64。支持 ~、一元 +、* / % + - << >> & ^ | 和字段间比较；位运算参与比较时加括号。")),
+            sourceText(QStringLiteral("u64 加减乘溢出环绕，移位取计数低六位。未知值不视为零；除零或余零返回未知及 division-by-zero。旧 v1/v2 只接受原字段对常量语法。")),
+            sourceText(QStringLiteral("归档预置字段及类型：%1。它们仅来自同一原包的已核验协议和有效位，不是合成草稿字段；API 请求接受不证明执行或注入成功。"))
+                .arg(archiveFields.join(QStringLiteral(", "))),
             sourceText(QStringLiteral("序列使用显式 sourceSequence。合成事件无法证明真实来源覆盖，缺证据的窗口可判为未知。"))
         };
         const QString guideText = guideLines.join(QLatin1Char('\n')); // 可滚动阅读的完整格式说明。
@@ -560,7 +456,7 @@ namespace
         m_draft->setAccessibleDescription(guideText);
         if (m_archiveResult)
         {
-            m_report->setRawText(FormatArchivePresets(*m_archiveResult));
+            m_report->setRawText(FormatBehaviorPresets(*m_archiveResult));
         }
         else if (m_result)
         {
@@ -593,18 +489,21 @@ namespace
         }
         if (!busy)
         {
-            m_archivePresets->setToolTip(sourceText(QStringLiteral("选择已导入的 API Monitor 数据段，查看两组汇总、五类观测及其源行。")));
+            m_archivePresets->setToolTip(sourceText(QStringLiteral("选择已归档的 API Monitor 数据段，查看两组汇总、五类观测及其来源序号。")));
         }
-        const auto busyText = m_operation == Operation::ArchivePresets ? sourceText(QStringLiteral("正在分析归档预置…"))
+        const auto busyText = m_operation == Operation::SamplePresets ? sourceText(QStringLiteral("正在回放采样 %1 的规则…"))
+            .arg(m_presetRequest.sample->sample.id)
+            : m_operation == Operation::ArchivePresets ? sourceText(QStringLiteral("正在分析归档预置…"))
             : sourceText(QStringLiteral("正在处理规则草稿…")); // 明确草稿与归档各自的在途状态。
-        const auto failure = !m_archiveError.isEmpty() ? sourceText(QStringLiteral("归档预置失败：%1\n%2"))
-            .arg(m_archiveErrorPath, m_archiveError) : fileStatus(); // 失败保留请求路径和原结果。
+        const auto completion = m_archiveIssue ? presetStatus() : fileStatus(); // 保留失败目标及原因。
         const auto status = busy ? busyText
-            : m_workerFailed ? sourceText(QStringLiteral("规则操作失败，请重试。")) : failure;
+            : m_workerFailed ? sourceText(QStringLiteral("规则操作失败，请重试。")) : completion;
         m_progress->setVisible(!status.isEmpty());
         m_progress->setText(status);
         ks::ui::ApplyStatusRole(m_progress, busy ? ks::ui::StatusRole::Info
-            : m_workerFailed || !m_archiveError.isEmpty() || m_fileResult.error != FileError::None ? ks::ui::StatusRole::Error
+            : m_workerFailed || (m_archiveIssue && !m_archiveIssue->error.isEmpty()) || m_fileResult.error != FileError::None
+                ? ks::ui::StatusRole::Error
+            : m_archiveIssue ? ks::ui::StatusRole::Warning
             : ks::ui::StatusRole::Success);
     }
 
@@ -616,7 +515,8 @@ namespace
             m_reportIdentity->setText(sourceText(QStringLiteral("尚未校验或回放")));
             return;
         }
-        const auto action = m_archiveResult ? m_archivePresets->text()
+        const auto action = m_reportOperation == Operation::SamplePresets ? sourceText(QStringLiteral("回放采样规则"))
+            : m_archiveResult ? m_archivePresets->text()
             : m_reportOperation == Operation::Replay ? m_replay->text() : m_validate->text(); // 回执类型。
         const auto origin = m_reportPath.isEmpty() ? sourceText(QStringLiteral("未绑定文件")) : m_reportPath; // 提交路径。
         const auto time = m_reportAt.toString(Qt::ISODateWithMs); // 用户可核对的回执时间。
@@ -660,7 +560,7 @@ namespace
         const Request request{Operation::Open, QFileInfo(path).absoluteFilePath(), {}, m_revision}; // 冻结读取身份。
         m_operation = request.operation;
         m_workerFailed = false;
-        m_archiveError.clear();
+        m_archiveIssue.reset();
         m_worker->submit<Request, FileResult>(request,
             [](const Request& input, const ks::ui::AsyncOperationToken&) // 工作线程只读文件。
             {
@@ -697,7 +597,7 @@ namespace
             currentDraftText(), m_revision}; // 本次写入完全冻结。
         m_operation = request.operation;
         m_workerFailed = false;
-        m_archiveError.clear();
+        m_archiveIssue.reset();
         m_worker->submitTransaction<Request, FileResult>(request, SaveDraft,
             [this, request](const FileResult& result, std::uint64_t) // 结果仅返回当前存活页面。
             {
@@ -719,7 +619,7 @@ namespace
         m_lastFileOperation = Operation::Idle;
         m_fileResult = {};
         m_workerFailed = false;
-        m_archiveError.clear();
+        m_archiveIssue.reset();
         m_worker->submit<Request, BehaviorRuleCheck>(request,
             [](const Request& input, const ks::ui::AsyncOperationToken&) // 实际校验/回放后台执行。
             {
@@ -730,6 +630,7 @@ namespace
             [this, request](const BehaviorRuleCheck& result, std::uint64_t) // 稳定的值回执投影。
             {
                 m_archiveResult.reset();
+                m_reportSampleHash.clear();
                 m_result = result;
                 m_reportRevision = request.revision;
                 m_reportOperation = request.operation;
@@ -756,32 +657,93 @@ namespace
         {
             return;
         }
-        const Request request{Operation::ArchivePresets, QFileInfo(path).absoluteFilePath(), {}, 0}; // 独立于草稿。
-        m_operation = request.operation;
+        submitPresets({QFileInfo(path).absoluteFilePath(), std::nullopt}); // 独立于草稿及项目选择。
+    }
+
+    // 目录翻页或切换项目只影响下次提交，本次只读取这个冻结的项目及采样。
+    bool BehaviorRulesPage::replaySample(const SampleRequest& sample)
+    {
+        return submitPresets({sample.manifestPath, sample});
+    }
+
+    // 同一规则页只受理一个后台操作。工作线程只能访问冻结输入和取消令牌。
+    bool BehaviorRulesPage::submitPresets(PresetReplayRequest request)
+    {
+        if (m_worker->isBusy())
+        {
+            return false;
+        }
+        m_operation = request.sample ? Operation::SamplePresets : Operation::ArchivePresets;
+        m_presetRequest = request;
         m_lastFileOperation = Operation::Idle;
         m_fileResult = {};
         m_workerFailed = false;
-        m_archiveError.clear();
-        m_worker->submit<Request, ArchivePresetCheck>(request, CheckArchivePresets,
-            [this, request](const ArchivePresetCheck& result, std::uint64_t)
+        m_archiveIssue.reset();
+        return m_worker->submit<PresetReplayRequest, PresetReplayResult>(request,
+            [](const PresetReplayRequest& input, const ks::ui::AsyncOperationToken& token)
             {
-                if (!result.error.isEmpty())
-                {
-                    m_archiveError = result.error;
-                    m_archiveErrorPath = request.path;
-                    return true;
-                }
-                // 当前保留一份结果，回执以本次归档请求的来源和时间为准。
-                m_result.reset();
-                m_archiveResult = result;
-                m_reportOperation = request.operation;
-                m_reportPath = request.path;
-                m_reportAt = QDateTime::currentDateTime();
-                m_report->setRawText(FormatArchivePresets(result));
-                refreshReportIdentity();
+                return ReadBehaviorPresets(input, [&token]() { return token.isCanceled(); });
+            },
+            [this, request](const PresetReplayResult& result, std::uint64_t)
+            {
+                applyPresets(request, result);
                 return true;
             },
-            [this](std::exception_ptr) { m_workerFailed = true; });
+            [this](std::exception_ptr) { m_workerFailed = true; }) != 0;
+    }
+
+    // 同一采样重新读到较短前缀时保留范围更完整的旧报告，同时明确标出这次的停止位置。
+    void BehaviorRulesPage::applyPresets(const PresetReplayRequest& request, const PresetReplayResult& result)
+    {
+        const bool sameSample = request.sample && m_archiveResult && m_reportOperation == Operation::SamplePresets &&
+            m_reportPath == request.path && m_archiveResult->projectId == result.projectId &&
+            m_archiveResult->sampleId == result.sampleId && m_reportSampleHash == request.sample->sample.descriptionHash;
+        const bool shorterPrefix = sameSample && result.firstUnverifiedSegment &&
+            (!m_archiveResult->firstUnverifiedSegment || result.verifiedSegments < m_archiveResult->verifiedSegments ||
+                result.report.importedRows < m_archiveResult->report.importedRows);
+        if (!result.error.isEmpty() || shorterPrefix)
+        {
+            auto& issue = m_archiveIssue.emplace(); // 状态只需要诊断及段边界，旧编辑器正文不变。
+            issue.error = result.error;
+            issue.configError = result.configError;
+            issue.end = result.end;
+            issue.verifiedSegments = result.verifiedSegments;
+            issue.firstUnverifiedSegment = result.firstUnverifiedSegment;
+            return;
+        }
+
+        // 归档发布只改变报告和来源，不访问当前草稿或项目目录选择。
+        m_result.reset();
+        m_archiveResult = result;
+        m_reportOperation = request.sample ? Operation::SamplePresets : Operation::ArchivePresets;
+        m_reportSampleHash = request.sample ? request.sample->sample.descriptionHash : QString();
+        m_reportPath = request.path;
+        m_reportAt = QDateTime::currentDateTime();
+        m_report->setRawText(FormatBehaviorPresets(result));
+        refreshReportIdentity();
+    }
+
+    // 格式化本次失败的目标。较短前缀有自己的水位，不能把上次报告呈现为本次结果。
+    QString BehaviorRulesPage::presetStatus() const
+    {
+        const auto& issue = *m_archiveIssue; // refreshState 仅在存在诊断时调用。
+        const auto& request = m_presetRequest; // 失败时的实际源路径与采样。
+        // 外置规则库失败保留诊断原文，修正规则文件后可从原入口重试。
+        const auto error = issue.configError.isEmpty() ? issue.error :
+            sourceText(QStringLiteral("规则库加载失败：%1")).arg(issue.configError);
+        if (!request.sample)
+        {
+            return sourceText(QStringLiteral("归档预置失败：%1\n%2")).arg(request.path, error);
+        }
+        const auto& sample = *request.sample; // 显示请求身份，不能取当前目录选择。
+        if (issue.error.isEmpty())
+        {
+            return sourceText(QStringLiteral("本次核验范围缩小，保留上次报告。%1")).arg(FormatPresetVerifiedPrefix(issue));
+        }
+        const auto detail = issue.firstUnverifiedSegment // 无合法前缀时仍显示已知的失败段。
+            ? QStringLiteral("%1 · raw/%2").arg(error).arg(issue.firstUnverifiedSegment) : error;
+        return sourceText(QStringLiteral("采样 %1 回放失败（%2）。请在项目与采样中重试。"))
+            .arg(sample.sample.id, detail) + QLatin1Char('\n') + request.path;
     }
 
     // 更新当前文件会话。读取和写入失败都原位保留草稿、路径和最近回放结果。
@@ -856,8 +818,13 @@ namespace
 }
 
 // 返回工作台可以直接挂载的真实页签控件。
-QWidget* CreateBehaviorRulesPage(QWidget* parent)
+QWidget* CreateBehaviorRulesPage(QWidget* parent, ReplaySamplePresets& replay, std::function<void(bool)> busyChanged)
 {
-    return new BehaviorRulesPage(parent);
+    auto* page = new BehaviorRulesPage(parent, std::move(busyChanged)); // 工作台拥有子页和入口的生命周期。
+    replay = [guard = QPointer<BehaviorRulesPage>(page)](const SampleRequest& sample)
+    {
+        return guard && guard->replaySample(sample);
+    };
+    return page;
 }
 }

@@ -17,6 +17,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -421,8 +423,10 @@ void ActionAnalyzeBreakpointPage::createList()
     ks::ui::StylePrimaryToolbar(toolbar);
     m_edit = IconButton(toolbar, QStringLiteral(":/Icon/rxpf_write.svg"));
     m_remove = IconButton(toolbar, QStringLiteral(":/Icon/log_clear.svg"), ks::ui::FlatButtonTone::Danger);
+    m_prepareLive = IconButton(toolbar, QStringLiteral(":/Icon/process_start.svg"));
     tools->addWidget(m_edit);
     tools->addWidget(m_remove);
+    tools->addWidget(m_prepareLive);
     tools->addStretch();
     m_openPending = IconButton(toolbar, QStringLiteral(":/Icon/process_refresh.svg"));
     m_save = IconButton(toolbar, QStringLiteral(":/Icon/disk_save.svg"), ks::ui::FlatButtonTone::Accent);
@@ -465,8 +469,50 @@ void ActionAnalyzeBreakpointPage::createList()
     connect(m_table, &QTableView::doubleClicked, this, &ActionAnalyzeBreakpointPage::editSelection);
     connect(m_edit, &QPushButton::clicked, this, &ActionAnalyzeBreakpointPage::editSelection);
     connect(m_remove, &QPushButton::clicked, this, &ActionAnalyzeBreakpointPage::removeSelection);
+    connect(m_prepareLive, &QPushButton::clicked, this, &ActionAnalyzeBreakpointPage::prepareLiveSelection);
     connect(m_openPending, &QPushButton::clicked, this, &ActionAnalyzeBreakpointPage::openPendingProject);
     connect(m_save, &QPushButton::clicked, this, &ActionAnalyzeBreakpointPage::saveProject);
+}
+
+// 输入原控制页的草稿端口；刷新按钮资格，不启动查询、调试器或第二份常驻会话。
+void ActionAnalyzeBreakpointPage::setLivePreparation(
+    std::function<bool(const QString&, std::uint32_t, const QString&)> prepare)
+{
+    m_livePreparation = std::move(prepare);
+    updateControls();
+}
+
+// 输入当前列表单选，冻结定义再打开选择器；成功后控制页继续收集真实PID与创建时间。
+void ActionAnalyzeBreakpointPage::prepareLiveSelection()
+{
+    const auto rows = m_table->selectionModel()->selectedRows(); // 不使用仍未提交的表单输入。
+    const auto* selected = rows.size() == 1 ? m_drafts->draftAt(rows.front().row()) : nullptr;
+    if (!selected || m_saving || !m_livePreparation || selected->module.imageSha256 || !selected->enabled ||
+        selected->breakpointDefinitionId.empty() ||
+        std::find(m_project.definitions.begin(), m_project.definitions.end(), *selected) == m_project.definitions.end())
+    {
+        return;
+    }
+    const auto definition = *selected; // 文件选择器会进入事件循环，不能跨越它持有模型行指针。
+    const auto* location = std::get_if<BreakpointRva>(&definition.location); // 调试符号不冒充PE导出。
+    if (!location || !location->rva)
+    {
+        return;
+    }
+    const auto path = QFileDialog::getOpenFileName(this, sourceText(QStringLiteral("选择已加载模块")),
+        QString::fromStdString(definition.module.name), sourceText(QStringLiteral("Windows 模块 (*.exe *.dll)")));
+    if (path.isEmpty())
+    {
+        return;
+    }
+    // 文件名是定义的模块选择条件；实际是否装载及RVA是否可执行由原native准入判断。
+    if (QFileInfo(path).fileName().compare(QString::fromStdString(definition.module.name), Qt::CaseInsensitive) != 0)
+    {
+        ks::ui::OpenThemedTextMessage(this, QMessageBox::Warning, sourceText(QStringLiteral("模块选择不匹配")),
+            sourceText(QStringLiteral("所选文件名与断点定义的模块名不同，请重新选择。")));
+        return;
+    }
+    m_livePreparation(path, location->rva, QString::fromStdString(definition.breakpointDefinitionId));
 }
 
 void ActionAnalyzeBreakpointPage::changeEvent(QEvent* event)
@@ -687,6 +733,7 @@ void ActionAnalyzeBreakpointPage::retranslate()
     m_enabled->setToolTip(sourceText(QStringLiteral("只记录定义的启用状态。")));
     m_edit->setAccessibleName(sourceText(QStringLiteral("编辑所选断点")));
     m_remove->setAccessibleName(sourceText(QStringLiteral("删除所选断点")));
+    m_prepareLive->setAccessibleName(sourceText(QStringLiteral("在实时控制页准备所选RVA断点")));
     m_clear->setAccessibleName(sourceText(QStringLiteral("放弃表单编辑")));
     m_save->setAccessibleName(sourceText(QStringLiteral("保存项目断点")));
     m_openPending->setAccessibleName(sourceText(QStringLiteral("载入项目断点")));
@@ -726,6 +773,14 @@ void ActionAnalyzeBreakpointPage::updateControls()
     m_clear->setEnabled(editable && (editing || hasFormChanges()));
     m_edit->setEnabled(editable && selected);
     m_remove->setEnabled(editable && selected);
+    const auto* liveDefinition = selected ? m_drafts->draftAt(selection.front().row()) : nullptr;
+    const auto* liveRva = liveDefinition ? std::get_if<BreakpointRva>(&liveDefinition->location) : nullptr;
+    m_prepareLive->setEnabled(!m_saving && m_livePreparation && liveRva && liveRva->rva &&
+        !liveDefinition->module.imageSha256 && liveDefinition->enabled && !liveDefinition->breakpointDefinitionId.empty() &&
+        std::find(m_project.definitions.begin(), m_project.definitions.end(), *liveDefinition) != m_project.definitions.end());
+    m_prepareLive->setToolTip(m_prepareLive->isEnabled()
+        ? sourceText(QStringLiteral("选择同名模块后带入实时控制页，再填写目标实例并显式附加。"))
+        : sourceText(QStringLiteral("请选择已保存并启用的非零RVA定义。调试符号及固定映像散列定义尚不支持此入口。")));
     m_edit->setToolTip(selected ? m_edit->accessibleName() : sourceText(QStringLiteral("请先选择一条草稿。")));
     m_remove->setToolTip(selected ? m_remove->accessibleName() : sourceText(QStringLiteral("请先选择一条草稿。")));
 

@@ -8,16 +8,29 @@ namespace ks::ui { struct FieldDocument; }
 
 namespace ks::action_analyze
 {
-    enum class SensitiveApiFamily { MemoryWrite, SectionMap, ThreadCreate, ThreadContext, ApcQueue, Count };
+    // 既有值保持顺序；末尾追加生命周期类别供原分类详情计数与定位。
+    enum class SensitiveApiFamily
+    {
+        MemoryWrite, // 内存写入调用。
+        SectionMap, // 节映射调用。
+        ThreadCreate, // 线程创建请求。
+        ThreadContext, // 线程上下文请求。
+        ApcQueue, // APC入队请求。
+        MemoryAllocate, // 私有内存分配请求与返回。
+        MemoryProtect, // 内存保护变更请求与返回。
+        MemoryFreeRequest, // 释放请求，不等于已知释放范围。
+        Count // 分类计数数组的容量。
+    };
 
-    // 每条线索保留原始行号和实际归档位置，报头 PID 不用于推断目标。
+    // 每条线索保留原始序号、序号口径和实际归档位置，报头 PID 不用于推断目标。
     struct SampleSensitiveClue
     {
         QString api; // 已核验原包的导出名。
         SensitiveApiFamily family{}; // 共用来源分类器返回的类别。
         quint64 segment = 0; // 采样内的 raw 段号。
         quint64 sequence = 0; // Stored 记录序号。
-        quint64 sourceSequence = 0; // 源文件行号。
+        quint64 sourceSequence = 0; // JSONL 行号或合作来源流水号。
+        std::optional<Ksword::Evidence::ApiMonitorArchiveSource> archiveSource{}; // 归档尾记声明的输入方式。
         bool operator==(const SampleSensitiveClue&) const = default;
     };
 
@@ -34,6 +47,8 @@ namespace ks::action_analyze
         qsizetype etwRows = 0; // 已识别的 ETW 头数。
         qsizetype networkRows = 0; // 已识别的网络观测数。
         qsizetype processRows = 0; // 已识别的进程区间数。
+        std::optional<SegmentCallbackBatch> callbackBatch; // 有值即整批已核验，观测数取窗口行数。
+        std::optional<MixedArchiveReadback> mixed; // 同一采样的独立 ETW 通道与 API 回放状态。
         std::array<qsizetype, static_cast<std::size_t>(SensitiveApiFamily::Count)> familyCounts{}; // 窗口内逐类计数。
         QList<SampleSensitiveClue> recentClues; // 有界的最近线索，顺序与原归档一致。
     };
@@ -45,6 +60,8 @@ namespace ks::action_analyze
     void AppendArchivedSampleAnalysis(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis);
     // 单独追加最近失败或部分读取状态，用于继续展示同一样本的上次分类。
     void AppendArchivedSampleAnalysisStatus(ks::ui::FieldDocument& document, const ArchivedSampleAnalysis& analysis);
+    // 将两路终态及段号格式化为同一文本，供总览状态和采样详情使用。
+    QString MixedArchiveStatus(const MixedArchiveReadback& mixed, quint64 apiLast, quint64 apiFailed);
     // 根据已核验线索生成当前语言的选择器标签，保留原 API 名称与记录坐标。
     QString ArchivedClueLabel(const SampleSensitiveClue& clue);
 }

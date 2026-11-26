@@ -58,6 +58,12 @@
         <file alias="process_terminate.svg">Resource/Icon/system/close_circle_line.svg</file>
         <file alias="process_suspend.svg">Resource/Icon/media/pause_circle_line.svg</file>
         <file alias="process_resume.svg">Resource/Icon/media/play_circle_line.svg</file>
+        <file alias="action_analyze_step.svg">Resource/Icon/arrow/arrow_to_right_line.svg</file>
+        <file alias="action_analyze_step_over.svg">Resource/Icon/arrow/corner_down_right_line.svg</file>
+        <file alias="action_analyze_step_into.svg">Resource/Icon/arrow/arrow_down_line.svg</file>
+        <file alias="action_analyze_step_out.svg">Resource/Icon/arrow/arrow_up_line.svg</file>
+        <file alias="action_analyze_cancel_step.svg">Resource/Icon/system/close_line.svg</file>
+        <file alias="action_analyze_memory_dump.svg">Resource/Icon/media/camera_line.svg</file>
         <file alias="service_apply.svg">Resource/Icon/system/check_line.svg</file>
         <file alias="startup_hidden.svg">Resource/Icon/system/eye_close_line.svg</file>
         <file alias="startup_image_hijack.svg">Resource/Icon/file/file_security_line.svg</file>
@@ -98,6 +104,7 @@
         <file alias="memwb_mode_staged.svg">Resource/Icon/file/inbox_line.svg</file>
         <file alias="memwb_bookmarks.svg">Resource/Icon/education/bookmarks_line.svg</file>
         <file alias="memwb_bookmark_add.svg">Resource/Icon/education/bookmark_add_line.svg</file>
+        <file alias="action_analyze_add_range.svg">Resource/Icon/system/add_circle_line.svg</file>
         <file alias="memwb_restore.svg">Resource/Icon/system/restore_line.svg</file>
         <file alias="memwb_restore_all.svg">Resource/Icon/system/history_anticlockwise_line.svg</file>
         <file alias="memwb_assemble.svg">Resource/Icon/development/terminal_box_line.svg</file>
