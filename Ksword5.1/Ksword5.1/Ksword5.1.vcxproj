@@ -1693,6 +1693,11 @@
     <Exec Command="&quot;$(KswordThemeTokenPythonExe)&quot; &quot;$(KswordThemeTokenAuditScript)&quot; --self-test --theme-header &quot;$(MSBuildProjectDirectory)\theme.h&quot;" />
     <Exec Command="&quot;$(KswordThemeTokenPythonExe)&quot; &quot;$(KswordThemeTokenAuditScript)&quot; --source-root &quot;$(MSBuildProjectDirectory)&quot;" />
   </Target>
+  <!-- 行为分析从 EXE 同目录的 profiles 读取原始 JSON。 -->
+  <Target Name="CopyActionAnalyzeApiRules" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\profiles\action_analyze_api_rules.json"
+          DestinationFolder="$(TargetDir)profiles\" SkipUnchangedFiles="true" />
+  </Target>
   <Target Name="CopyKswordLanguagePacks" AfterTargets="Build">
     <Copy SourceFiles="$(MSBuildProjectDirectory)\forensics\kswordobjects.py;$(MSBuildProjectDirectory)\forensics\kswordbitmap.py" DestinationFolder="$(TargetDir)forensics\" SkipUnchangedFiles="true" />
     <ItemGroup>

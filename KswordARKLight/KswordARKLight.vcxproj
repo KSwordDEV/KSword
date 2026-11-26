@@ -1281,6 +1281,11 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <!-- 单独构建 Light 时也要发布三端共用的规则文件。 -->
+  <Target Name="CopyActionAnalyzeApiRules" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\action_analyze_api_rules.json"
+          DestinationFolder="$(TargetDir)profiles\" SkipUnchangedFiles="true" />
+  </Target>
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\KswordArkServiceMode.h" />
   </ItemGroup>

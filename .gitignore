@@ -45,6 +45,7 @@ Directory.Build.props
 
 # 其它运行时生成资产仍留在本地；精确结构布局和版本目录必须随源码交付。
 /Ksword5.1/Ksword5.1/profiles/*
+!/Ksword5.1/Ksword5.1/profiles/action_analyze_api_rules.json
 !/Ksword5.1/Ksword5.1/profiles/thread_layouts/
 !/Ksword5.1/Ksword5.1/profiles/process_layouts/
 /Ksword5.1/Ksword5.1/profiles/thread_layouts/*

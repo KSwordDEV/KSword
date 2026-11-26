@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "presetSet": "ksword.api.behavior-presets.v1",
+  "profiles": {
+    "grouped": [
+      {
+        "ruleId": "ksword.api.memory-operation-observed.v1",
+        "predicate": "api.family == \"memory-write\" || api.family == \"section-map\"",
+        "summary": "Observed a memory write or section mapping API.",
+        "summaryZh": "观察到内存写入或节映射 API"
+      },
+      {
+        "ruleId": "ksword.api.thread-control-observed.v1",
+        "predicate": "api.family == \"thread-create\" || api.family == \"thread-context\" || api.family == \"apc-queue\"",
+        "summary": "Observed a thread creation, thread context, or APC queueing API.",
+        "summaryZh": "观察到线程创建、线程上下文或 APC 排队 API"
+      }
+    ],
+    "by-category": [
+      {
+        "ruleId": "ksword.api.memory-write-observed.v1",
+        "predicate": "api.family == \"memory-write\"",
+        "summary": "Observed a memory write API.",
+        "summaryZh": "观察到内存写入 API"
+      },
+      {
+        "ruleId": "ksword.api.section-map-observed.v1",
+        "predicate": "api.family == \"section-map\"",
+        "summary": "Observed a section mapping API.",
+        "summaryZh": "观察到节映射 API"
+      },
+      {
+        "ruleId": "ksword.api.thread-create-observed.v1",
+        "predicate": "api.family == \"thread-create\"",
+        "summary": "Observed a thread creation API.",
+        "summaryZh": "观察到线程创建 API"
+      },
+      {
+        "ruleId": "ksword.api.thread-context-observed.v1",
+        "predicate": "api.family == \"thread-context\"",
+        "summary": "Observed a thread context API.",
+        "summaryZh": "观察到线程上下文 API"
+      },
+      {
+        "ruleId": "ksword.api.apc-queue-observed.v1",
+        "predicate": "api.family == \"apc-queue\"",
+        "summary": "Observed an APC queueing API.",
+        "summaryZh": "观察到 APC 排队 API"
+      }
+    ]
+  },
+  "behaviorRules": [
+    {
+      "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+      "predicate": "api.family == \"memory-write\" && api.name == \"WriteProcessMemory\" && !result.returned && result.win32Status == 5u64",
+      "summary": "Memory write request returned access denied.",
+      "summaryZh": "内存写入请求返回访问被拒绝"
+    }
+  ]
+}

@@ -821,6 +821,11 @@
     <ClCompile Include="R0ProcessTokenCopy.cpp" />
   </ItemGroup>
   <Import Project="..\shared\usermode\ThreadLayoutPack.targets" />
+  <!-- 所有 CLI 配置均使用同一原始规则文件，包含单独构建的 Win32 目标。 -->
+  <Target Name="CopyActionAnalyzeApiRules" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles\action_analyze_api_rules.json"
+          DestinationFolder="$(TargetDir)profiles\" SkipUnchangedFiles="true" />
+  </Target>
   <Target Name="CopyCliLayoutProfiles" AfterTargets="Build" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <PropertyGroup>
       <CliLayoutProfileRoot>$(MSBuildProjectDirectory)\..\Ksword5.1\Ksword5.1\profiles</CliLayoutProfileRoot>
