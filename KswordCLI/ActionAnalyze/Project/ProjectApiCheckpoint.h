@@ -26,6 +26,7 @@ struct ProjectApiCheckpoint {
     std::string rawSha256; // 实际读回的 raw 前缀摘要。
     std::uint64_t planRawSequence = 0; // 段首计划的 Stored 序号。
     std::string planJson; // 冻结计划原文，后续段必须逐字节一致。
+    std::string rulePresetSet; // 采集计划声明的规则版本，旧档为空。
     Evidence::ApiMonitorArchiveSource source = Evidence::ApiMonitorArchiveSource::LegacyUnspecified; // 旧跟随档沿用原来源标识。
     std::uint64_t previousSourceSequence = 0; // 本段之前最后提交的源行号。
     std::uint64_t lastSourceSequence = 0; // 原包为零时与上一段相同。

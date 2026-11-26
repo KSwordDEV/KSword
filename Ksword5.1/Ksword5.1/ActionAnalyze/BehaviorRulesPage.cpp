@@ -139,7 +139,8 @@ namespace
                 {api.constData(), static_cast<std::size_t>(api.size())},
                 {family.constData(), static_cast<std::size_t>(family.size())}});
         }
-        result.report = rule::AnalyzeArchivedApiPresets(observations, segment.verifiedRows, rule::ApiPresetProfile::ByCategory);
+        const auto database = rule::LoadApiPresetDatabase(); // 本次单段回放使用冻结的规则。
+        result.report = rule::AnalyzeArchivedApiPresets(database, observations, segment.verifiedRows, rule::ApiPresetProfile::ByCategory);
         if (result.report.error != rule::ApiPresetError::None)
         {
             result.error = result.report.error == rule::ApiPresetError::InvalidPreset

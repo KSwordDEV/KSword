@@ -169,12 +169,22 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze sysmon-thread-create follow` | `KswordCLI.exe analyze sysmon-thread-create follow --target-guid GUID [--input repl 或 jsonl]` | 持续订阅指定目标的未来 Sysmon Event 8。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
+| `analyze api-rule-catalog` | `KswordCLI.exe analyze api-rule-catalog [--json]` | 列出 `profiles/action_analyze_api_rules.json` 中的 API 行为预置、条件、字段及证据口径。 |
+| `analyze replay-api-rules` | `KswordCLI.exe analyze replay-api-rules --project PATH --sample UUID [--profile grouped\|by-category] [--offset N] [--limit N] [--json]` | 对指定项目和采样的已核验 API 线索应用外置规则文件中的预置，返回规则 ID 和原包坐标。 |
 
 入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供持续或显式限时的被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
 
 `api-evidence import` 接受主程序「监控 → WinAPI」生成的 `events.jsonl`，输入上限 32 MiB。导入从 `packetBase64` 重新判定五类线索：内存写、线程创建、APC 排队、线程上下文和节映射。原始行号与 Stored 记录序号分别保存。文件完整、线索非空时创建新采样。源文件损坏退出 `4`，项目或写入错误退出 `3`，输入没有匹配项时返回 `no-clues`。`replay` 仅在完整段和导入收尾记录均通过校验后输出结果。把 `nextAfter` 传给下一次的 `--after`。每页默认 25 条，上限 100 条。`--packet 1` 返回完整原包的十六进制。源覆盖、目标进程身份、实际写入范围、执行与归因保持未知。
 
 导入后的采样可在 Qt「监控 → 行为分析 → 项目与采样」和 Light「监控 → ActionAnalyze」中打开。Qt 总览可勾选 `API` 筛选并查看来源坐标。CLI 的 `--packet 1` 可取回完整包，桌面详情提供有界前缀。
+
+`api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。当前文件只包含已验证的小型 API 预置，KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
+
+文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。
+
+`replay-api-rules` 支持单段导入及最多 128 个连续已提交的 API 跟随段。默认使用 `grouped` 两组预置，可用 `by-category` 切为五类细分。`--offset` 是从零开始的线索偏移，`--limit` 默认为 25，范围 1–100。使用上一页的 `nextOffset` 继续。返回段号、块号、原始序号、记录及原包偏移。后续段无法核验时返回 `verified-prefix-only` 和退出码 `6`。报告将采集覆盖标为 `unknown`。 `presetSet` 表示实际求值版本；`recordedPresetSet` 表示采集计划声明的版本，旧档可以为空。
+
+匹配行可附带 `behavior`（规则 ID、证据级别和释义），沿用该行原包坐标。例如明确记录 `WriteProcessMemory` 返回失败且状态为 `ERROR_ACCESS_DENIED` 时，证据级别为 `reported-api-return`，仅解释 API 报告的访问拒绝，不确认目标实例、写入量或调用意图。缺返回字段或状态不匹配时省略 `behavior`。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 

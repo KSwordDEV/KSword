@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Project/ProjectApiCheckpoint.h"
+#include "../Rules/BehaviorPresets.h"
 #include "../../../shared/evidence/PassiveApiArchiveTail.h"
 #include "../../../shared/evidence/PassiveApiSourceDiagnosis.h"
 
@@ -8,9 +9,6 @@
 #include <memory>
 
 namespace ks::cli::action_analyze {
-
-// 写入冻结采样计划的版本号。实际求值复用同版本的细分回放预置。
-inline constexpr std::string_view kPassiveApiPresetSet = "ksword.api.behavior-presets.v1";
 
 enum class PassiveApiStartStage { Project, Source, Session, Sample };
 
@@ -90,8 +88,8 @@ private:
     std::optional<RawPosition> firstRaw_; // 候选所在段发布检查点后才记录的原包坐标。
     std::uint64_t ruleMatches_ = 0; // 成功求值的已提交分类线索数。
     std::optional<RawPosition> latestRuleRaw_; // 最近一次规则匹配的已提交原始位置。
-    std::string_view latestRuleId_; // 共享预置表中具有静态生命周期的 ID。
-    std::string_view latestBehaviorRuleId_, latestBehaviorEvidence_; // 末次匹配可选释义及证据，空则省略。
+    Ksword::ActionAnalyze::Rules::ApiPresetDatabase ruleDatabase_; // 从开始到收尾冻结同一份外置规则。
+    std::optional<Ksword::ActionAnalyze::Rules::ApiPresetMatch> latestRule_; // 自持有的末次匹配与可选释义。
     bool ruleFailed_ = false; // 保留首次规则失败前的有效计数和匹配。
     bool ended_ = false; // 本端已完成跟随并清退只读句柄。
 };

@@ -4,6 +4,7 @@
 #include "../../../KswordCLI/ActionAnalyze/Archive/RawEvidenceArchive.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
 
+#include <fstream>
 #include <iostream>
 #include <limits>
 
@@ -268,7 +269,57 @@ void TestDraft()
 }
 
 // 预置覆盖五类归档线索。队列顺序和两套证据编号必须保持原值。
-void TestPresets()
+void TestPresetFile(const std::filesystem::path& scratch)
+{
+    const auto path = scratch / "test-api-presets.json";
+    if (std::filesystem::exists(path)) {
+        Check(false, "preset fixture file already exists");
+        return;
+    }
+    const auto missing = rule::LoadApiPresetDatabase(path);
+    Check(missing.error == "rules-profile-unavailable" && missing.presetSet.empty(), "missing preset file");
+
+    {
+        std::ofstream file(path, std::ios::binary);
+        file << '{';
+        file.close();
+        Check(file.good(), "write malformed preset file");
+    }
+    const auto malformed = rule::LoadApiPresetDatabase(path);
+    Check(malformed.error.starts_with("rules-profile-json/") && malformed.profiles[0].empty(), "malformed preset file");
+
+    const auto writePreset = [&path](std::string_view version, std::string_view summaryZh) {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << R"({"schemaVersion":1,"presetSet":")" << version << R"(","profiles":{
+            "grouped":[{"ruleId":"test.group","predicate":"true","summary":"Group"}],
+            "by-category":[{"ruleId":"test.category","predicate":"true","summary":"Category"}]},
+            "behaviorRules":[{"ruleId":"test.behavior","predicate":"!result.returned",
+              "summary":"Fixture result","summaryZh":")" << summaryZh << R"("}]})";
+        file.close();
+        Check(file.good(), "write valid preset file");
+    };
+    writePreset("test.v1", "旧释义");
+    const auto first = rule::LoadApiPresetDatabase(path);
+    writePreset("test.v2", "新释义");
+    const auto second = rule::LoadApiPresetDatabase(path);
+    Check(std::filesystem::remove(path), "remove preset fixture file");
+    Check(first.error.empty() && first.presetSet == "test.v1" && second.error.empty() && second.presetSet == "test.v2",
+        "new profile load reads replacement version");
+
+    const rule::ArchivedApiObservation row{17, 23, "WriteProcessMemory", "memory-write",
+        rule::ArchivedApiMemoryWriteReturn{false, ERROR_ACCESS_DENIED}};
+    const auto checkMatch = [&row](const rule::ApiPresetDatabase& database, std::string_view summaryZh) {
+        const auto report = rule::AnalyzeVerifiedApiPresetPage(database, std::span(&row, 1), 1);
+        Check(report.error == rule::ApiPresetError::None && report.matches.size() == 1 &&
+            report.matches.front().behavior && report.matches.front().behavior->summaryZh == summaryZh &&
+            report.matches.front().rawSequence == 17 && report.matches.front().sourceSequence == 23,
+            "preset snapshot keeps its own summary and evidence coordinate");
+    };
+    checkMatch(first, "旧释义");
+    checkMatch(second, "新释义");
+}
+
+void TestPresets(const rule::ApiPresetDatabase& database)
 {
     constexpr rule::ArchivedApiObservation rows[] = { // 模拟已验证的最近五条 Stored 记录。
         {10, 31, "WriteProcessMemory", "memory-write"},
@@ -277,7 +328,7 @@ void TestPresets()
         {13, 41, "SetThreadContext", "thread-context"},
         {14, 43, "QueueUserAPC", "apc-queue"},
     };
-    const auto report = rule::AnalyzeArchivedApiPresets(rows, 14); // 尾记总量大于分析窗口。
+    const auto report = rule::AnalyzeArchivedApiPresets(database, rows, 14); // 尾记总量大于分析窗口。
     Check(report.error == rule::ApiPresetError::None && report.importedRows == 14 &&
         report.analyzedRows == 5 && report.matches.size() == 5, "preset suffix and hit count");
     for (std::size_t index = 0; index < report.matches.size() && index < std::size(rows); ++index) {
@@ -286,26 +337,26 @@ void TestPresets()
         const auto id = index < 2 ? "ksword.api.memory-operation-observed.v1"
             : "ksword.api.thread-control-observed.v1"; // 不同类别的预置 ID。
         Check(hit.ruleId == id && hit.rawSequence == row.rawSequence && hit.sourceSequence == row.sourceSequence &&
-            hit.api == row.api, "preset evidence identity");
+            hit.api == row.api && !hit.behavior, "preset evidence identity without return evidence");
     }
 
-    const auto empty = rule::AnalyzeArchivedApiPresets({}, 0); // 已验证尾记的有效空采样。
+    const auto empty = rule::AnalyzeArchivedApiPresets(database, {}, 0); // 已验证尾记的有效空采样。
     Check(empty.error == rule::ApiPresetError::None && empty.matches.empty(), "preset empty import");
-    const auto missing = rule::AnalyzeArchivedApiPresets({}, 1); // 尾记和实际投影矛盾。
+    const auto missing = rule::AnalyzeArchivedApiPresets(database, {}, 1); // 尾记和实际投影矛盾。
     Check(missing.error == rule::ApiPresetError::InvalidInput, "preset missing projection");
-    const auto wrongTail = rule::AnalyzeArchivedApiPresets(rows, 15); // 输入并非实际最近窗口。
+    const auto wrongTail = rule::AnalyzeArchivedApiPresets(database, rows, 15); // 输入并非实际最近窗口。
     Check(wrongTail.error == rule::ApiPresetError::InvalidInput && wrongTail.matches.empty(), "preset wrong raw cutoff");
     rule::ArchivedApiObservation broken[] = {rows[0], rows[1]}; // 构建一批已命中后才失败的输入。
     broken[1].sourceSequence = broken[0].sourceSequence;
-    const auto ambiguous = rule::AnalyzeArchivedApiPresets(broken, 11); // 旧命中不得进入失败回执。
+    const auto ambiguous = rule::AnalyzeArchivedApiPresets(database, broken, 11); // 旧命中不得进入失败回执。
     Check(ambiguous.error == rule::ApiPresetError::InvalidInput && ambiguous.matches.empty(), "preset duplicate source identity");
     broken[1] = rows[1];
     broken[1].family = "unknown-family";
-    const auto unknown = rule::AnalyzeArchivedApiPresets(broken, 11); // 未登记分类显示为输入失败。
+    const auto unknown = rule::AnalyzeArchivedApiPresets(database, broken, 11); // 未登记分类显示为输入失败。
     Check(unknown.error == rule::ApiPresetError::InvalidInput && unknown.matches.empty(), "preset unknown family");
 
     // 新的细分预置保留相同顺序和证据坐标，每条记录仍只匹配一次。
-    const auto detailed = rule::AnalyzeArchivedApiPresets(rows, 14, rule::ApiPresetProfile::ByCategory);
+    const auto detailed = rule::AnalyzeArchivedApiPresets(database, rows, 14, rule::ApiPresetProfile::ByCategory);
     constexpr std::string_view ids[] = {
         "ksword.api.memory-write-observed.v1", "ksword.api.section-map-observed.v1",
         "ksword.api.thread-create-observed.v1", "ksword.api.thread-context-observed.v1",
@@ -318,13 +369,85 @@ void TestPresets()
         Check(hit.ruleId == ids[i] && hit.rawSequence == rows[i].rawSequence &&
             hit.sourceSequence == rows[i].sourceSequence && hit.api == rows[i].api, "category preset evidence identity");
     }
-    const auto detailedInvalid = rule::AnalyzeArchivedApiPresets(broken, 11, rule::ApiPresetProfile::ByCategory);
+    const auto detailedInvalid = rule::AnalyzeArchivedApiPresets(database, broken, 11, rule::ApiPresetProfile::ByCategory);
     Check(detailedInvalid.error == rule::ApiPresetError::InvalidInput && detailedInvalid.matches.empty(),
         "category preset invalid projection discards prior hits");
 }
 
+// 仅构造离线协议包，不执行包中的 API，也不访问注册表或其它进程。
+void TestBehaviorPreset(const rule::ApiPresetDatabase& database)
+{
+    apiMonitor::ApiMonitorEventPacket denied;
+    denied.category = static_cast<std::uint32_t>(apiMonitor::EventCategory::Memory);
+    denied.snapshotIndex = apiMonitor::kApiCallReturnValueMarker;
+    denied.resultCode = static_cast<std::int32_t>(ERROR_ACCESS_DENIED);
+    wcscpy_s(denied.moduleName, L"KernelBase");
+    wcscpy_s(denied.apiName, L"WriteProcessMemory");
+
+    const auto verify = [&database](const apiMonitor::ApiMonitorEventPacket& packet, bool hasReturn, bool hasBehavior,
+        std::string_view name) {
+        const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(packet);
+        Check(returned.has_value() == hasReturn, name);
+        rule::ArchivedApiObservation row{17, 23, "WriteProcessMemory", "memory-write"};
+        if (returned) {
+            row.memoryWriteReturn = rule::ArchivedApiMemoryWriteReturn{returned->returned, returned->statusCode};
+        }
+        for (const auto profile : {rule::ApiPresetProfile::Grouped, rule::ApiPresetProfile::ByCategory}) {
+            const auto report = rule::AnalyzeVerifiedApiPresetPage(database, std::span(&row, 1), 31, profile);
+            Check(report.error == rule::ApiPresetError::None && report.matches.size() == 1, name);
+            if (report.matches.size() == 1) {
+                const auto& hit = report.matches.front();
+                Check(hit.rawSequence == 17 && hit.sourceSequence == 23 && hit.behavior.has_value() == hasBehavior, name);
+                if (hit.behavior) {
+                    Check(hit.behavior->ruleId == "ksword.behavior.memory-write-access-denied-return.v1" &&
+                        hit.behavior->evidence == "reported-api-return", name);
+                }
+            }
+        }
+    };
+    verify(denied, true, true, "behavior: explicit FALSE and access denied");
+    auto other = denied;
+    other.resultCode = static_cast<std::int32_t>(ERROR_INVALID_HANDLE);
+    verify(other, true, false, "behavior: other failure is not access denied");
+    other = denied;
+    other.hookAddress = TRUE;
+    verify(other, true, false, "behavior: nonzero BOOL cannot be an access denial");
+    other = denied;
+    other.snapshotIndex = 0;
+    wcscpy_s(other.detailText, L"return=FALSE status=ERROR_ACCESS_DENIED");
+    verify(other, false, false, "behavior: summary text and status do not replace return marker");
+    other = denied;
+    other.resultKind = static_cast<std::uint32_t>(apiMonitor::EventResultKind::EntryOnly);
+    verify(other, false, false, "behavior: entry observation has no return");
+    other.resultKind = static_cast<std::uint32_t>(apiMonitor::EventResultKind::StatusUnknown);
+    verify(other, false, false, "behavior: unknown status cannot establish access denial");
+    other = denied;
+    other.hookKind = static_cast<std::uint32_t>(apiMonitor::HookKind::Fake);
+    verify(other, false, false, "behavior: simulated return is not an original call result");
+    other = denied;
+    other.hookAddress = 1ULL << 32;
+    verify(other, false, false, "behavior: malformed BOOL return bits");
+    other = denied;
+    wcscpy_s(other.moduleName, L"fixture.dll");
+    verify(other, false, false, "behavior: wrong module cannot supply return evidence");
+
+    const rule::ArchivedApiObservation native{17, 23, "NtWriteVirtualMemory", "memory-write",
+        rule::ArchivedApiMemoryWriteReturn{false, ERROR_ACCESS_DENIED}};
+    const auto mismatched = rule::AnalyzeVerifiedApiPresetPage(database, std::span(&native, 1), 31);
+    Check(mismatched.error == rule::ApiPresetError::None && mismatched.matches.size() == 1 &&
+        !mismatched.matches.front().behavior, "behavior: Win32 return evidence cannot label a native memory write");
+
+    other = denied;
+    other.category = static_cast<std::uint32_t>(apiMonitor::EventCategory::Registry);
+    wcscpy_s(other.moduleName, L"Advapi32");
+    wcscpy_s(other.apiName, L"RegQueryValueExW");
+    wcscpy_s(other.detailText, L"value=KSwordFixtureMarker");
+    Check(!evidence::ClassifyApiMonitorClue(other), "behavior: registry summary is not structured environment evidence");
+    Check(!evidence::ReadApiMonitorMemoryWriteReturn(other), "behavior: registry summary supplies no write return evidence");
+}
+
 // 用生产 Stored 读写器和原包校验器重开实际文件，再把已验证观测交给预置规则。
-void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
+void TestStoredPreset(const rule::ApiPresetDatabase& database, const std::filesystem::path& scratch, bool withEnd)
 {
     const auto path = scratch / (withEnd ? L"preset-complete.ksaseg" : L"preset-no-end.ksaseg"); // 固定夹具文件。
     archive::SegmentHeader header{{archive::StreamKind::Raw, 1, {0x11}, {0x22}}, 1}; // 隔离的合成身份。
@@ -333,6 +456,8 @@ void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
     packet.tid = 42;
     packet.sessionIdentity = 43;
     packet.category = static_cast<std::uint32_t>(apiMonitor::EventCategory::Memory);
+    packet.snapshotIndex = apiMonitor::kApiCallReturnValueMarker;
+    packet.resultCode = static_cast<std::int32_t>(ERROR_ACCESS_DENIED);
     wcscpy_s(packet.moduleName, L"kernelbase.dll");
     wcscpy_s(packet.apiName, L"WriteProcessMemory");
     const archive::RawEvidenceInput inputs[] = {
@@ -375,7 +500,11 @@ void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
                 for (const auto ch : clue->clue->api) { // 生产分类表仅含 ASCII 导出名。
                     api.push_back(static_cast<char>(ch));
                 }
-                observed.push_back({record.recordSequence, clue->sourceSequence, api, clue->clue->family});
+                rule::ArchivedApiObservation row{record.recordSequence, clue->sourceSequence, api, clue->clue->family};
+                if (const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(clue->packet)) {
+                    row.memoryWriteReturn = rule::ArchivedApiMemoryWriteReturn{returned->returned, returned->statusCode};
+                }
+                observed.push_back(row);
             }
         }
         return true;
@@ -384,15 +513,18 @@ void TestStoredPreset(const std::filesystem::path& scratch, bool withEnd)
     Check(checked.VerifiedBoundary(*finished.flushed) && readback.ended == withEnd && observed.size() == 1,
         "validate Stored framing and independent API import tail");
     if (readback.ended && checked.VerifiedBoundary(*finished.flushed)) {
-        const auto result = rule::AnalyzeArchivedApiPresets(observed, readback.clues); // 同一个类型化预置入口。
+        const auto result = rule::AnalyzeArchivedApiPresets(database, observed, readback.clues); // 同一个类型化预置入口。
         Check(result.error == rule::ApiPresetError::None && result.matches.size() == 1 &&
             result.matches.front().rawSequence == 1 && result.matches.front().sourceSequence == 7 &&
             result.matches.front().api == "WriteProcessMemory", "Stored preset evidence receipt");
-        const auto detailed = rule::AnalyzeArchivedApiPresets(observed, readback.clues, rule::ApiPresetProfile::ByCategory);
+        const auto detailed = rule::AnalyzeArchivedApiPresets(database, observed, readback.clues, rule::ApiPresetProfile::ByCategory);
         Check(detailed.error == rule::ApiPresetError::None && detailed.matches.size() == 1 &&
             detailed.matches.front().ruleId == "ksword.api.memory-write-observed.v1" &&
-            detailed.matches.front().rawSequence == 1 && detailed.matches.front().sourceSequence == 7,
-            "Stored category preset evidence receipt");
+            detailed.matches.front().rawSequence == 1 && detailed.matches.front().sourceSequence == 7 &&
+            detailed.matches.front().behavior &&
+            detailed.matches.front().behavior->ruleId == "ksword.behavior.memory-write-access-denied-return.v1" &&
+            detailed.matches.front().behavior->evidence == "reported-api-return",
+            "Stored category and behavior share the original evidence coordinate");
     }
 }
 } // namespace
@@ -412,9 +544,16 @@ int wmain(int argc, wchar_t** argv)
     }
     TestQualityConditions();
     TestQualityReplay();
-    TestPresets();
-    TestStoredPreset(argv[1], true);
-    TestStoredPreset(argv[1], false);
+    const auto database = rule::LoadApiPresetDatabase(); // 本次离线断言共用同一份已装载的规则。
+    if (!database.error.empty()) {
+        std::cerr << "API preset load failed: " << database.error << '\n';
+        return 1;
+    }
+    TestPresets(database);
+    TestBehaviorPreset(database);
+    TestPresetFile(argv[1]);
+    TestStoredPreset(database, argv[1], true);
+    TestStoredPreset(database, argv[1], false);
     std::cout << "ActionAnalyze rule expression: " << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

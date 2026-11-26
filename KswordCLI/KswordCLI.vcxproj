@@ -193,6 +193,7 @@
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.cpp" />
+    <ClCompile Include="ActionAnalyze\Cli\ApiRuleReplayCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Rules\BehaviorPresets.cpp" />
     <ClCompile Include="ActionAnalyze\Rules\RuleExpression.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\MemoryWatch.cpp" />
@@ -235,6 +236,7 @@
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h" />
     <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h" />
+    <ClInclude Include="ActionAnalyze\Cli\ApiRuleReplayCommand.h" />
     <ClInclude Include="ActionAnalyze\Rules\BehaviorPresets.h" />
     <ClInclude Include="ActionAnalyze\Rules\RuleExpression.h" />
     <ClInclude Include="..\shared\evidence\ApiMonitorClue.h" />

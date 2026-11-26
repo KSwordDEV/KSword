@@ -201,6 +201,13 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                     }
                     if (const auto* mixed = doc.value.find("mixedEtw");
                         mixed && (!mixed->tryGetBool(draft.mixedEtw) || !draft.mixedEtw)) return false;
+                    // 规则版本独立于归档原包格式。旧档可缺字段，未知版本仍可读原包。
+                    if (const auto* preset = doc.value.find("rulePresetSet"); preset &&
+                        (!preset->tryGetString(draft.rulePresetSet) || draft.rulePresetSet.empty() ||
+                         draft.rulePresetSet.size() > 128 || draft.rulePresetSet.find_first_not_of(
+                             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._") != std::string::npos)) {
+                        return false;
+                    }
                     if (source.cooperative) {
                         draft.source = Evidence::ApiMonitorArchiveSource::CooperativePipe;
                     }

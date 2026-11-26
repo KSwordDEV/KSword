@@ -187,6 +187,8 @@ ProjectResult PassiveApiCapture::BeginProject(ProjectDocument& project, const Pa
         return created;
     }
 
+    ruleDatabase_ = Rules::LoadApiPresetDatabase(); // 规则不可用时仍保留独立的原始采集。
+    ruleFailed_ = !ruleDatabase_.error.empty();
     // 只归档固定的来源身份；授权文件路径不落入证据计划。
     JsonObject plan{{"kind", Text(kApiFollowPlanKind)}, {"projectId", Text(request.projectId)},
         {"session", Object({{"id", Text(frozen.sampleId)}, {"epoch", Text(newEpoch)}})},
@@ -195,7 +197,10 @@ ProjectResult PassiveApiCapture::BeginProject(ProjectDocument& project, const Pa
         {"sourceEpoch", Text(newEpoch)}, {"file", FileIdentity()}, {"readerPid", V::makeUInt(request.source.readerPid)},
         {"readerCreation100ns", Number(request.source.readerCreation)}, {"sessionIdentity", Number(request.source.sessionIdentity)},
         {"durationMs", V::makeUInt(request.durationMs)}, {"identity", Text("archive-consistency-only")},
-        {"checkpointRequired", V::makeBool(true)}, {"rulePresetSet", Text(kPassiveApiPresetSet)}};
+        {"checkpointRequired", V::makeBool(true)}};
+    if (!ruleDatabase_.presetSet.empty()) {
+        plan.emplace_back("rulePresetSet", Text(ruleDatabase_.presetSet));
+    }
     if (request.mixedEtw) plan.emplace_back("mixedEtw", V::makeBool(true));
     plan_ = Object(std::move(plan));
     sample = std::move(frozen);
@@ -361,18 +366,19 @@ V PassiveApiCapture::RulesReport() const
 {
     // 位置在归档发布后一次写入。终段和读失败保留最后一次有效位置。
     V latest = V::makeNull(); // 本次没有规则命中时保留显式空值。
-    if (latestRuleRaw_) {
+    if (latestRuleRaw_ && latestRule_) {
         const auto& position = *latestRuleRaw_; // 已提交检查点内的原包位置。
-        Ksword::Evidence::JsonObject fields{{"ruleId", Text(latestRuleId_)},
+        Ksword::Evidence::JsonObject fields{{"ruleId", Text(latestRule_->ruleId)},
             {"segmentOrdinal", Number(position.segmentOrdinal)}, {"rawSequence", Number(position.rawSequence)},
             {"sourceSequence", Number(position.sourceSequence)}};
-        if (!latestBehaviorRuleId_.empty()) { // 与末条分类命中共享原始坐标。
-            fields.emplace_back("behavior", Object({{"ruleId", Text(latestBehaviorRuleId_)},
-                {"evidence", Text(latestBehaviorEvidence_)}, {"summary", Text("Memory write request returned access denied.")}}));
+        if (const auto& behavior = latestRule_->behavior) { // 与末条分类命中共享原始坐标。
+            fields.emplace_back("behavior", Object({{"ruleId", Text(behavior->ruleId)}, {"evidence", Text(behavior->evidence)},
+                {"summary", Text(behavior->summary)}, {"summaryZh", behavior->summaryZh.empty() ? V::makeNull() : Text(behavior->summaryZh)}}));
         }
         latest = V::makeObject(std::move(fields));
     }
-    return Object({{"presetSet", Text(kPassiveApiPresetSet)}, {"profile", Text("by-category")},
+    return Object({{"presetSet", ruleDatabase_.presetSet.empty() ? V::makeNull() : Text(ruleDatabase_.presetSet)},
+        {"configError", ruleDatabase_.error.empty() ? V::makeNull() : Text(ruleDatabase_.error)}, {"profile", Text("by-category")},
         {"coverage", Text("unknown")}, {"state", Text(ruleFailed_ ? "evaluation-failed" : "ready")},
         {"matchedRows", Number(ruleMatches_)}, {"latest", std::move(latest)}});
 }
@@ -382,45 +388,17 @@ void PassiveApiCapture::ObserveCommittedRules(const ProjectApiCheckpoint& commit
     if (ruleFailed_ || pending_.empty()) {
         return;
     }
-    try {
-        // 本地字符串持有各导出名，确保求值器的借用视图在整个批次有效。
-        std::vector<std::string> names; // 已核验目录内的 ASCII 导出名。
-        std::vector<Rules::ArchivedApiObservation> observations; // 本段已提交的分类输入。
-        names.reserve(pending_.size());
-        observations.reserve(pending_.size());
-        for (const auto& row : pending_) {
-            if (!row.clue) {
-                continue;
-            }
-            auto& name = names.emplace_back(); // 按目录内容构造本轮规则使用的导出名。
-            for (const auto character : row.clue->api) {
-                name.push_back(static_cast<char>(character));
-            }
-            const auto offset = row.sourceSequence - committed.previousSourceSequence; // 本段计划之后的包序偏移。
-            const auto sequence = committed.planRawSequence + offset; // 已回读校验的全局原始序号。
-            const auto outcome = Ksword::Evidence::ReadApiMonitorMemoryWriteReturn(row.packet); // 已提交同一原包的返回字段。
-            observations.push_back({sequence, row.sourceSequence, name, row.clue->family,
-                outcome ? std::optional{Rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
-        }
-        if (observations.empty()) {
-            return;
-        }
-        const auto report = Rules::AnalyzeVerifiedApiPresetPage(observations, observations.size(),
-            Rules::ApiPresetProfile::ByCategory); // 与正式项目的细分回放使用同一求值器。
-        if (report.error != Rules::ApiPresetError::None) {
-            ruleFailed_ = true;
-            return;
-        }
-        if (!report.matches.empty()) {
-            const auto& last = report.matches.back(); // 同一检查点内按源归档顺序的最后一次命中。
-            ruleMatches_ += report.matches.size();
-            latestRuleRaw_ = RawPosition{committed.ordinal, last.rawSequence, last.sourceSequence};
-            latestRuleId_ = last.ruleId;
-            latestBehaviorRuleId_ = last.behavior ? last.behavior->ruleId : std::string_view{};
-            latestBehaviorEvidence_ = last.behavior ? last.behavior->evidence : std::string_view{};
-        }
-    } catch (...) {
-        ruleFailed_ = true; // 求值分配失败时保留原证据，并让采集继续。
+    auto report = Rules::AnalyzeCommittedApiPresetBatch(ruleDatabase_, pending_, committed.planRawSequence,
+        committed.previousSourceSequence);
+    if (report.error != Rules::ApiPresetError::None) {
+        ruleFailed_ = true;
+        return;
+    }
+    if (!report.matches.empty()) {
+        const auto& last = report.matches.back(); // 同一检查点内按源归档顺序的最后一次命中。
+        ruleMatches_ += report.matches.size();
+        latestRuleRaw_ = RawPosition{committed.ordinal, last.rawSequence, last.sourceSequence};
+        latestRule_ = std::move(report.matches.back());
     }
 }
 

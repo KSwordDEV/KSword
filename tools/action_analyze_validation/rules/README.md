@@ -75,6 +75,8 @@ if ($cl -notmatch '\\Hostx64\\x64\\cl\.exe$') { throw "Expected HostX64 compiler
 $intDir = Join-Path (Get-Location).Path 'tools\action_analyze_validation\rules\x64\Release\RuleExpressionValidation'
 $outDir = (Resolve-Path -LiteralPath 'Ksword5.1\x64\Release').Path
 $exe = Join-Path $outDir 'ActionAnalyzeRuleExpressionValidation.exe'
+$profile = Join-Path $outDir 'profiles\action_analyze_api_rules.json'
+if (!(Test-Path -LiteralPath $profile -PathType Leaf)) { throw 'Build the product to deploy its rule profile first' }
 if ((Test-Path -LiteralPath $intDir) -or (Test-Path -LiteralPath $exe)) { throw 'Fixture output is occupied' }
 [IO.Directory]::CreateDirectory($intDir) | Out-Null
 $env:TEMP = $intDir
@@ -103,6 +105,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe $intDir
 exit $LASTEXITCODE
 ```
+
+夹具基线读取 Release 中已部署的规则。缺失、损坏和重新装载用例只读写 `IntDir/test-api-presets.json`，并核对两次加载分别保留自己的版本、释义和原包坐标。
 
 2026-11-25 使用 BelowNormal 和 MSVC 14.44 HostX64 运行 v1 基线，得到 `ActionAnalyze rule expression: 113 checks, 0 failures`。夹具写入和只读重开两个真实 Stored 文件，验证原包与两种序号。缺尾记的文件通过 Stored 封装验证，归档语义门禁拒绝将其交给预置。夹具 EXE 的 SHA-256 为 `455D717B9515F3A6471899DD01998B0A6A7B4CF30231297175CC2DA9994A108B`。已核对进程退出和 Git 跟踪状态，清理本次中间文件、两个段及 EXE。规则页通过 HostX64 `/Zs` 源码检查以及语言包和主题门禁。正式 Qt 构建和真实窗口验收独立进行。
 
