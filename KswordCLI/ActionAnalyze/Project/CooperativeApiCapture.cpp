@@ -510,7 +510,6 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         }
         // 先停止并排空各子来源，最后一批仍经同一acceptPacket归档，随后才能封原API终段。
         handoff->Close();
-        out.capture.elapsedMs = GetTickCount64() - captureStarted;
         out.capture.cancelled = out.capture.cancelled || cancel.load();
         out.transferHandoff = handoff->Describe();
         if (handoff->Incomplete())
@@ -583,6 +582,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             etw.source = etwSource->status();
         }
     }
+    out.capture.elapsedMs = GetTickCount64() - captureStarted; // 包含网络与ETW实际清退/封段；Ready区间仍用intervalElapsedMs。
     return out;
 }
 
