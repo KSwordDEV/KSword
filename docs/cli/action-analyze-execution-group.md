@@ -18,6 +18,14 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 模块 RVA 站点可再指定可选 `definitionId`（规范 UUID）。必须同时配置项目；启动时读取本轮新采样冻结配置中的同 ID 启用 RVA 定义，并核对模块文件名及填写的 RVA。定义中的映像 SHA256 自动继承；手填散列与冻结散列冲突时拒绝。全部成员解析成功才开始附加，任一失败不附加任何成员，详情保留 `executionArchive.setupError`，可清退空集合后修改草稿重试。精确导出和私有站点不接受定义 ID；此入口不解析 PDB、不自动枚举全系统实例。
 
+## 自动保存执行观察
+
+可选 `--auto-save-execution`（Qt／Light：开始前勾选“自动保存新的执行观察”）必须同时提供项目目录，Start 冻结策略。正常查询完成条件处理后，以及步进／取消步进回读后，原 worker 将尚未写入的真实执行观察保存到本轮 `raw-native`；仍使用原 writer、原事件去重和统一递增段号。进入尝试与真实单条指令完成分别保存，主动暂停、普通写入停点、CALL 返回和跳出边界不补造执行证据；假条件已继续的事件不保存，未知条件仍持有的执行事件可保存。
+
+`executionArchive.autoSaveExecution` 报告本轮策略，`automatic` 保留最近一次非空自动批次中逐成员的原事件、段号、散列和 written／flushed／verified（最多16条），`verifiedExecutionSaves` 是本采样手动＋自动新写核验通过的总数，不计重复事件。手动 `saved`／`duplicate` 保持独立；自动已保存事件再手动保存返回原段，不重复写。完整历史仍通过 `analyze execution history/read` 查看。
+
+首次自动保存失败或异常后 `autoSaveStopped=true`，`automaticError` 保留失败阶段，停止自动尝试；实际写段失败同时沿原 `appendBlocked`／`firstFailure` 保留坏尾，不跳段、不重建 writer、不自动 Continue。控制、内存与手动保存入口仍按各自真实资格处理。采集 API、读取／保存内存及关闭的无条件查询不顺带自动保存；清退不会为归档继续挂住目标。本扩展仅源码完成，尚未构建或实测。
+
 ## 配置文件
 
 集合的 `recovery-required` 同时保留成员原回执中的断点、步进、主动暂停、范围回滚与不确定事件继续责任；不能只看顶层状态而把完整 Held 数量当作已可恢复运行。首次恢复失败在成功清退后仍保留为历史诊断，`clean=true` 后不因此阻止集合进入 Closed。集合只呈现责任，实际恢复仍由各成员原 owner 的 Close 执行。

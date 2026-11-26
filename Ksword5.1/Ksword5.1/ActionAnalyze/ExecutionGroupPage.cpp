@@ -124,6 +124,10 @@ namespace ks::action_analyze
         language.bindText(m_holdPeersOnHit, {}, QStringLiteral("成员命中后暂停其他成员"));
         language.bindToolTip(m_holdPeersOnHit, {}, QStringLiteral("开始时冻结。新断点经条件处理后仍持有时，逐成员请求暂停；未知条件保留，假条件继续。主动暂停与步进不触发；同一事件只请求一次。"));
         workspace->parameters()->addWidget(m_holdPeersOnHit);
+        m_autoSaveExecution = new QCheckBox(workspace); // 同一参数滚动正文，标准主题提供控件状态和自然高度。
+        language.bindText(m_autoSaveExecution, {}, QStringLiteral("自动保存新的执行观察"));
+        language.bindToolTip(m_autoSaveExecution, {}, QStringLiteral("开始时冻结，须填写项目目录。正常查询和步进回读后保存真实执行事件；同一事件只写一次，主动暂停不计执行。首次失败停止自动保存，不自动继续目标。"));
+        workspace->parameters()->addWidget(m_autoSaveExecution);
         m_rangeTarget = new QLabel(workspace); // 目标随明确单选展示，编辑范围不改变原成员或站点草稿。
         m_rangeTarget->setTextFormat(Qt::PlainText);
         m_rangeTarget->setWordWrap(true);
@@ -246,6 +250,8 @@ namespace ks::action_analyze
             }
         });
         connect(m_authorized, &QCheckBox::toggled, this, [this] { Render(); });
+        connect(m_autoSaveExecution, &QCheckBox::toggled, this, [this] { Render(); });
+        connect(m_projectDirectory, &QLineEdit::textChanged, this, [this] { Render(); });
         connect(m_members->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { Render(); Detail(); });
         m_poll = new QTimer(this); // 该定时器只展示已公布值，隐藏页不停止后台条件处理。
         m_poll->setInterval(200);

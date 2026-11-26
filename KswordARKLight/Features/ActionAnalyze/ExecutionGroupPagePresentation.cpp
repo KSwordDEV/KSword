@@ -437,6 +437,7 @@ void Refresh(Page& page)
     ::EnableWindow(page.projectDirectory, controls && page.shown.canStart); // 活writer不跟随路径草稿变化。
     ::EnableWindow(page.openProject, controls && page.shown.canStart);
     ::EnableWindow(page.holdPeersOnHit, controls && page.shown.canStart); // 运行中只显示Start冻结的策略。
+    ::EnableWindow(page.autoSaveExecution, controls && page.shown.canStart); // 后续参数编辑不得热改自动保存。
     ::EnableWindow(page.query, !page.retiring && (!page.shown.active || (ready && !page.shown.canStart)));
     const auto queryTitle = page.shown.active ? L"刷新原集合" : L"重试后台会话";
     if (InputText(page.query) != queryTitle) ::SetWindowTextW(page.query, queryTitle);
@@ -484,6 +485,10 @@ void Refresh(Page& page)
     {
         const auto& failure = *page.shown.archive.memberSetup; // 与旧成员保存失败分开，不释放旧writer。
         status += L"\r\n追加表单目标到本轮集合 / " + Widen(failure.detail) + L" / Win32 " + std::to_wstring(failure.nativeError);
+    }
+    if (page.shown.archive.autoSaveStopped)
+    {
+        status += L"\r\n自动保存已停止；原控制状态不变，请查看归档回执。";
     }
     if (InputText(page.status) != status) ::SetWindowTextW(page.status, status.c_str());
     RefreshText(page);

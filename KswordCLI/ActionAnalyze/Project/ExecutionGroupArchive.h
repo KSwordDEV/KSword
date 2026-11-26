@@ -46,6 +46,11 @@ struct ExecutionGroupArchiveView {
     bool writerHeld = false; // 原租约仍被本worker持有，只有clean后调用Close才能归还。
     bool duplicate = false; // 同一backend/serial返回原段坐标，没有重新写入。
     bool appendBlocked = false; // 一次真实写入失败后不跳段或覆盖坏尾。
+    bool autoSaveExecution = false; // Start冻结的自动保存策略，默认不改变显式保存行为。
+    bool autoSaveStopped = false; // 本策略首次失败后停止自动尝试，控制及手动保存仍独立可用。
+    ProjectResult automaticStatus; // 自动保存本身的失败/中断，不污染手动saved和原生控制状态。
+    std::uint64_t verifiedExecutionSaves = 0; // 本writer实际新写并核验通过的执行事件总数，不计重放。
+    std::vector<std::shared_ptr<const ExecutionGroupExecutionSave>> automatic; // 最近非空自动批次，最多16个原成员回执。
 };
 
 // 输入原worker纯值投影，输出同一规范JSON；三端正文、复制、导出与CLI响应共用字段。
@@ -55,7 +60,7 @@ Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveVie
 class ExecutionGroupArchive final {
 public:
     // 输入显式目录及新建/打开方式，输出准备结果；已有项目也只创建本轮新sample。
-    bool Prepare(const std::wstring& directory, bool openExisting);
+    bool Prepare(const std::wstring& directory, bool openExisting, bool autoSaveExecution = false);
     // 在任何成员附加前核对全部可选冻结定义；成功继承约束，失败保留原草稿并归还未使用writer。
     bool ResolveSites(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites);
     // 输入新站点、授权及原集合ID，复用本轮冻结配置解析后追加；失败不关闭已有writer或成员。
@@ -77,12 +82,19 @@ public:
     // 输入完整原成员owner/control；先无条件回读，匹配精确事件后写raw-native，不Continue。
     void Save(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed);
+    // 原worker在正常Query/Step回读后调用；只保存新的真实执行事件，不求条件、不Continue。
+    void Observe(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
+        const ks::cli::action_analyze::control::ExecutionGroupResult& observed);
     // 返回不可变值投影供原详情与JSON响应使用；不访问目标，也不读取项目文件。
     const ExecutionGroupArchiveView& View() const noexcept { return view_; }
     // 仅在原集合确认clean后调用；归还项目租约，保留全部历史结果投影。
     void Close();
 
 private:
+    // 共用唯一事件去重和写入链；published在写前发布，异常时保留真实中断回执，duplicate返回原段重用状态。
+    void SaveEvent(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
+        const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed,
+        std::shared_ptr<const ExecutionGroupExecutionSave>& published, bool& duplicate);
     bool ResolveSitesForSample(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites,
         ProjectResult& status); // 事务式解析同一采样中的定义，输出独立状态，不关闭项目。
     std::optional<ProjectDocument> project_; // 原worker独占的项目写租约。

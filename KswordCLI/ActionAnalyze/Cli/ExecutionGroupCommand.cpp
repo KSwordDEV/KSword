@@ -36,15 +36,16 @@ bool RangeNumber(std::string_view text, std::uint64_t& number)
 class ExecutionGroupSession final {
 public:
     ExecutionGroupSession(bool jsonl, n::OwnerIdentity identity, std::vector<n::ExecutionGroupSite> sites,
-        std::wstring projectDirectory, bool openExisting, bool holdPeersOnHit)
+        std::wstring projectDirectory, bool openExisting, bool holdPeersOnHit, bool autoSaveExecution)
         : jsonl_(jsonl), identity_(std::move(identity)), sites_(std::move(sites)),
-          projectDirectory_(std::move(projectDirectory)), openExisting_(openExisting), holdPeersOnHit_(holdPeersOnHit) {}
+          projectDirectory_(std::move(projectDirectory)), openExisting_(openExisting), holdPeersOnHit_(holdPeersOnHit),
+          autoSaveExecution_(autoSaveExecution) {}
 
     int Run()
     {
         if (const auto fault = transport_.Start(jsonl_)) { std::cerr << fault.message << '\n'; return fault.code; }
         try {
-            if (!archive_.Prepare(projectDirectory_, openExisting_) || !archive_.ResolveSites(sites_))
+            if (!archive_.Prepare(projectDirectory_, openExisting_, autoSaveExecution_) || !archive_.ResolveSites(sites_))
             {
                 // 项目或采样失败在任何附加前报告，原集合仍为空，不创建隐式替代项目。
                 (void)Emit("error", {}, Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
@@ -80,6 +81,17 @@ public:
 
 private:
     struct Saved { std::string signature; V result; };
+
+    // 正常查询处理条件与联停后再沿原writer归档；调查入口仍保留QueryWithoutCondition无自动保存语义。
+    n::ExecutionGroupResult Query()
+    {
+        auto result = group_.Query(); // 原会话唯一事件推进者，不启动额外轮询。
+        if (!cleanupOnly_)
+        {
+            archive_.Observe(group_, result); // 清退阶段只恢复原责任，不因状态查询继续写入。
+        }
+        return result;
+    }
 
     // 原集合投影追加同一writer的归档值；不改变控制令牌形状或成员原owner身份。
     V Report(const n::ExecutionGroupResult& result) const
@@ -344,7 +356,7 @@ private:
         const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
             "status | members-append execution/N SITES_PATH confirm COLLECTION_ID | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
-        if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(group_.Query()));
+        if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
             const auto result = group_.Close();
@@ -480,6 +492,10 @@ private:
                     mode == "over-call" ? n::NativeStepMode::OverCall : n::NativeStepMode::Out; // 已校验的三种单成员步进。
                 result = group_.Step(stops.front(), stepMode);
             }
+            if (step || cancel)
+            {
+                archive_.Observe(group_, result); // 真实步进回执可能已完成，返回给调用方前先保存新事件。
+            }
             return Report(result);
         });
     }
@@ -513,7 +529,7 @@ private:
             const auto input = transport_.Next();
             if (input.kind == InputKind::Tick)
             {
-                (void)group_.Query(); // 原串行会话推进条件和主动暂停回读，不创建第二个查询执行者。
+                (void)Query(); // 原串行会话推进条件、联停及可选归档，不创建第二个查询执行者。
                 continue;
             }
             if (input.kind != InputKind::Line) return End(input.kind == InputKind::Eof ? "eof" :
@@ -537,6 +553,7 @@ private:
     std::wstring projectDirectory_; // 启动时冻结的明确项目目录。
     bool openExisting_ = false; // 不从文件是否存在推断项目模式。
     bool holdPeersOnHit_ = false; // 命中联停仅由启动参数授权，默认不影响原独立成员行为。
+    bool autoSaveExecution_ = false; // 仅Start冻结，正常Query/步进新事件自动保存，不自动Continue。
     std::string collectionId_; // 本活集合固定包络身份，不参与成员owner替换。
     bool cleanupOnly_ = false;
     std::uint64_t sequence_ = 0, highWater_ = 0;
@@ -555,8 +572,11 @@ int Run(const Args& args)
     if (!NewId(identity.sampleId) || !NewId(identity.sessionId) || !NewId(identity.epoch) || !NewId(identity.backendInstanceId)) return 3;
     if (args.has(L"--open-project") && !args.has(L"--project"))
         throw std::invalid_argument("--open-project requires --project PATH");
+    if (args.has(L"--auto-save-execution") && args.get(L"--project").empty())
+        throw std::invalid_argument("--auto-save-execution requires --project PATH");
     return ExecutionGroupSession(input == L"jsonl", std::move(identity), std::move(sites),
-        args.get(L"--project"), args.has(L"--open-project"), args.has(L"--hold-peers-on-hit")).Run();
+        args.get(L"--project"), args.has(L"--open-project"), args.has(L"--hold-peers-on-hit"),
+        args.has(L"--auto-save-execution")).Run();
 }
 } // namespace
 
@@ -564,7 +584,7 @@ void RegisterExecutionGroupCommand()
 {
     Command command;
     command.path = L"analyze execution-group session";
-    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project]] [--hold-peers-on-hit]";
+    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project] [--auto-save-execution]] [--hold-peers-on-hit]";
     command.summary = L"Attach one frozen execution site per explicit process instance, with independent native owners and conditions.";
     command.options = L"--sites is a UTF-8 JSON disk file without BOM, at most 128 KiB: {schemaVersion:1,sites:[...]}. "
         L"1-16 distinct PIDs; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
@@ -577,7 +597,10 @@ void RegisterExecutionGroupCommand()
         L"--hold-peers-on-hit freezes a per-session policy: after a new retained breakpoint, query requests Pause on each eligible running peer once. "
         L"False conditions continue normally; unknown conditions remain held and trigger peer hold. Manual pauses and step stops do not trigger it. "
         L"peerHold retains the trigger owner/event and per-member original receipts separately from operation; acceptance is not simultaneous freeze. "
-        L"Explicit selected Continue is respected: querying the same trigger does not pause peers again. Use Pause all to retry unavailable members.";
+        L"Explicit selected Continue is respected: querying the same trigger does not pause peers again. Use Pause all to retry unavailable members. "
+        L"--auto-save-execution requires --project and freezes automatic archival of new retained execution observations after normal query or step readback. "
+        L"It reuses the original writer, event journal and raw-native ordinal; manual pauses never produce execution evidence. "
+        L"executionArchive.automatic retains the last nonempty batch (max 16), verifiedExecutionSaves counts unique verified writes, autoSaveStopped reports the first automatic failure. No automatic Continue or retry; manual saved remains independent.";
     command.notes = L"over-call steps over decoded CALLs at their return boundary and performs one TF step for supported non-CALL instructions, retaining the original requested mode and destination:null. "
         L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"members-append execution/N SITES_PATH confirm COLLECTION_ID; step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "

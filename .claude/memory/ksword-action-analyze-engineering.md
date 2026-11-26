@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第6/9项可选自动执行归档源码。** ExecutionGroupArchive::Prepare冻结autoSaveExecution，空目录在附加前拒绝；Observe只在原worker正常Query与Step/CancelStep结果后调用，NativeExecutionFromOwnedStop筛真实执行，沿原SaveEvent/journal/raw-native唯一writer去重写段。最近非空automatic批次最多16回执，verifiedExecutionSaves只计手动+自动唯一核验成功写段；手动saved/duplicate不被后台覆盖。首次自动失败/异常停止策略、独立automaticError，不抛成主会话Close或Continue，真实写失败仍保留原appendBlocked/firstFailure。CLI接--auto-save-execution/help及原Tick，Qt/Light原参数正文同名开关、Start冻结、运行禁改、原字段/文本详情，Capture/Memory/Close无隐式自动保存。导航监控→行为分析→执行断点集合，参数执行+None清单+同源详情；对照DataWriteWatchPage/ProcessGroupMemoryPane与ParameterWorkspace。双语4键正确放source_translations，无新增文件/线程/轮询/工程项。仅源码，不构建/测试/GUI/派发/推送。追加CodeBuddy自动返回正式CLI构建和6组138检查PASS，但i18n448项FAIL；该产物不覆盖后续联停/范围/自动保存，语言包分区修复另批进行。
+
 - **2026-11-26 第4/9项内存实际范围→执行关联源码。** AssociateNativeMemoryRange在既有NativeSectionMapAssociation模块中独立核对AAIM1成功Allocate/Protect、源/目标创建身份、目标稳定位、实际输出及实际指令半开范围；Free/Unmap不匹配，不推定仍分配、MEM_PRIVATE、版本、先后或因果。CLI新增analyze execution memory-range及完整help，复用原Map分页/双链读取，旧execution map保持只节映射。共享ApiTransferCandidateWindow原Maps窗口扩为最近128条映射/分配/保护原包，事务CommitSegment填摘要；ApiNativeExecutionProjection调用共享核心，kind3沿原范围根，sourceDocument精确candidateType=memory-range并保留AAIM1实际/请求/有效位。Qt/Light仅换第四一致性根标签与空写入释义，旧节点编码、历史根、坐标/散列选区和原异步读任务不变；两条双语及CLI文档同步，无新增文件/工程项/owner/轮询。受影响导航为监控→行为分析→项目与采样→归档关系，主树+同源字段详情，参考原API/原生历史树与PrivateExecutionCandidatesPane。不构建/测试/GUI/验收落盘/新派发/推送；追加测试的结果不得覆盖这批新增关联。
 
 - **2026-11-26 新3项测试额度已用完。** 第3项为635626206活集合追加的正式CLI本机focused验收，最多6组，只它构建完整CLI一次并做本次文本i18n门禁。前两项为条件文本比较和历史线程恢复。三个任务通过CodeBuddy skill直接派发，禁止新增派发/续接/外部重试，自动等回执。所有测试及记录由执行者落盘，主代理继续写功能；不得凭派发成功标运行通过。

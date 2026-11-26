@@ -162,6 +162,7 @@ namespace ks::action_analyze
         request.projectDirectory = m_projectDirectory->text().toStdWString(); // 参数冻结后交原worker持唯一写租约。
         request.openExistingProject = m_openProject->isChecked();
         request.holdPeersOnHit = m_holdPeersOnHit->isChecked(); // Start后只读核心冻结策略，不热改会话。
+        request.autoSaveExecution = m_autoSaveExecution->isChecked(); // 与目录一起冻结，原worker附加前核验。
         m_session = std::make_unique<ExecutionGroupSession>(); // 唯一本端会话，项目准备完成后才附加。
         m_shown = {};
         m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
@@ -436,13 +437,15 @@ namespace ks::action_analyze
         m_editor->setEnabled(editable || appendable); // 活集合只允许编辑待追加表单，原成员不被重配。
         m_projectSection->setEnabled(editable); // 目录编辑不重定向已产生的结果或writer。
         m_holdPeersOnHit->setEnabled(editable); // 联停策略只在Start冻结，不给活集合暗中换策略。
+        m_autoSaveExecution->setEnabled(editable); // 策略属于本轮采样，不热更新writer或结果身份。
         m_authorized->setEnabled(editable || appendable);
         m_append->setEnabled(appendable && m_authorized->isChecked());
         m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);
         m_replace->setEnabled(editable && selected.size() == 1);
         m_load->setEnabled(editable && selected.size() == 1);
         m_remove->setEnabled(editable && !selected.empty());
-        m_start->setEnabled(m_registered && editable && !m_model->sites.empty() && m_authorized->isChecked());
+        const bool archiveReady = !m_autoSaveExecution->isChecked() || !m_projectDirectory->text().isEmpty(); // 自动归档须有明确目录。
+        m_start->setEnabled(m_registered && editable && !m_model->sites.empty() && m_authorized->isChecked() && archiveReady);
         m_newDraft->setEnabled(m_session && m_shown.retired);
         m_pauseAll->setEnabled(ready && pause(Selected(true)));
         m_pauseSelected->setEnabled(ready && pause(selected));
@@ -504,6 +507,14 @@ namespace ks::action_analyze
             const auto& failure = *m_shown.archive.memberSetup; // 新成员定义失败单列，不掩盖已有成员状态。
             status += QLatin1Char('\n') + sourceText(QStringLiteral("追加表单目标到本轮集合")) + QStringLiteral(" / %1 / Win32 %2")
                 .arg(QString::fromLatin1(failure.detail)).arg(failure.nativeError);
+        }
+        if (m_shown.archive.autoSaveStopped)
+        {
+            status += QLatin1Char('\n') + sourceText(QStringLiteral("自动保存已停止；原控制状态不变，请查看归档回执。"));
+        }
+        else if (editable && !archiveReady)
+        {
+            status += QLatin1Char('\n') + sourceText(QStringLiteral("自动保存执行观察需要项目目录。"));
         }
         if (!m_registered)
         {

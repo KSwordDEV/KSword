@@ -111,7 +111,7 @@ namespace ks::action_analyze
                         {
                         case ExecutionGroupCommand::Start:
                             started = true;
-                            if (archive.Prepare(request.projectDirectory, request.openExistingProject) && archive.ResolveSites(request.sites))
+                            if (archive.Prepare(request.projectDirectory, request.openExistingProject, request.autoSaveExecution) && archive.ResolveSites(request.sites))
                             {
                                 // 先创建本轮采样，再给全部原成员同一真实sample；失败不附加任何目标。
                                 result = group->Start(std::move(request.sites), request.authorized,
@@ -183,6 +183,11 @@ namespace ks::action_analyze
                         }
                     }
 
+                    if (!closing && (request.command == ExecutionGroupCommand::Query ||
+                        request.command == ExecutionGroupCommand::Step || request.command == ExecutionGroupCommand::CancelStep))
+                    {
+                        archive.Observe(*group, result); // 原worker串行保存真实事件；不改变无条件调查或显式保存回执。
+                    }
                     FILETIME observed{}; // 真实回读完成时间，未声称跨进程同时采样。
                     ::GetSystemTimeAsFileTime(&observed);
                     const bool retired = closing && result.clean;

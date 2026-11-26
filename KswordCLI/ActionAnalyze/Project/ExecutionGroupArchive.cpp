@@ -84,6 +84,11 @@ V Saved(const std::shared_ptr<const ExecutionGroupExecutionSave>& saved)
 // 同一份文档服务三端历史回执；路径严格转UTF-8，数字保持无损字符串。
 Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveView& view)
 {
+    Evidence::JsonArray automatic; // 仅投影最近非空自动批次，完整历史仍读raw-native而非不断膨胀响应。
+    for (const auto& saved : view.automatic)
+    {
+        automatic.push_back(Saved(saved));
+    }
     return V::makeObject({{"configured", V::makeBool(view.configured)},
         {"directory", Path(view.directory)},
         {"projectId", V::makeString(view.projectId)}, {"sampleId", V::makeString(view.sampleId)},
@@ -95,7 +100,11 @@ Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveVie
         {"apiAdmissionError", view.api ? Issue(view.api->admission) : V::makeNull()},
         {"stream", V::makeString("raw-native")}, {"duplicate", V::makeBool(view.duplicate)},
         {"appendBlocked", V::makeBool(view.appendBlocked)}, {"saved", Saved(view.saved)},
-        {"firstFailure", Saved(view.firstFailure)}});
+        {"firstFailure", Saved(view.firstFailure)},
+        {"autoSaveExecution", V::makeBool(view.autoSaveExecution)}, {"autoSaveStopped", V::makeBool(view.autoSaveStopped)},
+        {"automaticError", Issue(view.automaticStatus)},
+        {"verifiedExecutionSaves", ProjectStorage::Number(view.verifiedExecutionSaves)},
+        {"automatic", V::makeArray(std::move(automatic))}});
 }
 
 // 输入内存读取/归档纯值，输出统一正文；最多64页，每页只预览32个原字节，完整字节仍在原快照和归档。
@@ -172,7 +181,7 @@ Evidence::JsonValue DescribeExecutionGroupMemory(const ExecutionGroupMemoryView&
 }
 
 // 准备只在集合Start前执行；失败没有原生责任，不保留无用writer租约。
-bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExisting)
+bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExisting, bool autoSaveExecution)
 {
     if (project_ || view_.configured)
     {
@@ -181,9 +190,10 @@ bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExis
     }
     view_.directory = directory;
     view_.configured = !directory.empty();
+    view_.autoSaveExecution = autoSaveExecution;
     if (directory.empty())
     {
-        view_.setup = openExisting
+        view_.setup = (openExisting || autoSaveExecution)
             ? ProjectResult{ProjectError::InvalidArgument, 0, "executionGroupProjectDirectoryRequired"} : ProjectResult{};
         return static_cast<bool>(view_.setup);
     }
@@ -408,10 +418,60 @@ void ExecutionGroupArchive::SaveMemory(const std::shared_ptr<const native::Proce
 void ExecutionGroupArchive::Save(native::OwnedExecutionGroup& group,
     const native::ExecutionGroupSessionEntry& displayed)
 {
+    SaveEvent(group, displayed, view_.saved, view_.duplicate); // 手动保存不被后台自动批次覆盖。
+}
+
+// 输入正常条件处理后的集合快照，只写当前新执行事件；不在Capture/Memory的无条件读侧隐式调用。
+void ExecutionGroupArchive::Observe(native::OwnedExecutionGroup& group, const native::ExecutionGroupResult& observed)
+{
+    if (!view_.autoSaveExecution || view_.autoSaveStopped || !view_.writerHeld || !view_.setup)
+    {
+        return;
+    }
+    try
+    {
+        bool startedBatch = false; // 无新事件时保留上次自动回执，而不是每250ms抹成空成功。
+        for (const auto& member : observed.members)
+        {
+            const auto execution = native::NativeExecutionFromOwnedStop(member.control); // ManualPause/写停点没有执行证据。
+            if (!execution || journal_.contains({execution->event.backendInstanceId, execution->event.serial}))
+            {
+                continue;
+            }
+            if (!startedBatch)
+            {
+                view_.automatic.clear();
+                startedBatch = true;
+            }
+            view_.automatic.emplace_back(); // 先保留发布位置，写入异常也不会仅显示旧成功。
+            bool duplicate = false; // 共用保存器二次回读时仍以完整事件核验，不依赖上次GUI投影。
+            view_.autoSaveStopped = true; // 仅当本次完整成功后复位；异常及存储失败不循环重试。
+            SaveEvent(group, {member.owner, member.control}, view_.automatic.back(), duplicate);
+            view_.automaticStatus = view_.automatic.back()->status;
+            if (!view_.automaticStatus)
+            {
+                return; // 不Continue、不重建writer；原成员的停止和恢复责任保持原样。
+            }
+            view_.autoSaveStopped = false;
+        }
+    }
+    catch (...)
+    {
+        view_.autoSaveStopped = true;
+        view_.automaticStatus = {ProjectError::IoError, 0, "executionGroupAutomaticSaveInterrupted"};
+        // 可选归档失败不传播成主会话Close；写入器已有appendBlocked及firstFailure仍保留原坏尾责任。
+    }
+}
+
+// 手动与自动保存共用原写入链和原生核验；published指向各自回执，不相互覆盖最近操作。
+void ExecutionGroupArchive::SaveEvent(native::OwnedExecutionGroup& group,
+    const native::ExecutionGroupSessionEntry& displayed,
+    std::shared_ptr<const ExecutionGroupExecutionSave>& published, bool& duplicate)
+{
     auto saved = std::make_shared<ExecutionGroupExecutionSave>(); // 本次所有失败路径均有独立回执。
     saved->owner = displayed.owner;
-    view_.saved = saved;
-    view_.duplicate = false;
+    published = saved;
+    duplicate = false;
     if (!project_ || !view_.writerHeld || !view_.setup || view_.sampleId.empty())
     {
         saved->status = {ProjectError::NotOpen, 0, "executionGroupArchiveRequired"};
@@ -439,8 +499,8 @@ void ExecutionGroupArchive::Save(native::OwnedExecutionGroup& group,
     const auto key = std::make_pair(event.backendInstanceId, event.serial); // 原成员事件唯一键。
     if (const auto found = journal_.find(key); found != journal_.end())
     {
-        view_.saved = found->second;
-        view_.duplicate = true;
+        published = found->second;
+        duplicate = true;
         return;
     }
     if (view_.appendBlocked)
@@ -467,6 +527,7 @@ void ExecutionGroupArchive::Save(native::OwnedExecutionGroup& group,
     }
     previousSequence_ = saved->receipt->raw.flushed->lastSequence;
     ++ordinal_;
+    ++view_.verifiedExecutionSaves;
     view_.appendBlocked = false;
     view_.firstFailure.reset();
 }

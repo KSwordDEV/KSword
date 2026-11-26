@@ -309,6 +309,7 @@ namespace ks::action_analyze
                 .field(QStringLiteral("项目 ID"), QString::fromStdString(snapshot.archive.projectId))
                 .field(QStringLiteral("采样 ID"), QString::fromStdString(snapshot.archive.sampleId))
                 .field(QStringLiteral("项目目录"), QString::fromStdWString(snapshot.archive.directory))
+                .field(QStringLiteral("自动保存新的执行观察"), snapshot.archive.autoSaveExecution ? QStringLiteral("是") : QStringLiteral("否"), true)
                 .field(QStringLiteral("归档结果 JSON"), QString::fromStdString(Ksword::Evidence::WriteJson(archive)));
         }
         if (snapshot.archive.api)

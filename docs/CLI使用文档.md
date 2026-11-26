@@ -2,6 +2,8 @@
 
 本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖既有 R0 命令及逐项接入的 R3 命令（2026-10-10）。R0 命令通常需要管理员权限及已加载的 KswordARK 驱动；纯 R3 命令按各项文档说明所需权限，不要求驱动。构建与发行目录见 [构建与发布](构建与发布.md)。
 
+`analyze execution-group session --project PATH [--open-project] --auto-save-execution` 在Start冻结自动保存策略，Qt／Light提供同名开关。沿原查询worker、writer与事件去重，正常查询完成条件处理后及步进回读后保存新的执行观察；不自动Continue。`executionArchive.automatic` 保留最近非空批次的原成员回执，`verifiedExecutionSaves` 计唯一成功写段；手动saved独立。首次失败以`autoSaveStopped/automaticError`报告并停止自动尝试，实际写入失败仍保留原坏尾；原控制责任不变。详见[执行集合](cli/action-analyze-execution-group.md#自动保存执行观察)。本扩展源码待验。
+
 ## Help 查询
 
 设备打开返回 `win32=2` 或 `3` 时会提示启动已安装的 `KswordARK` 服务（`sc start KswordARK`），或以管理员身份运行配套 `Launcher.exe` / `Ksword5.1.exe` 加载驱动；原始错误码保留。仅复制 CLI 文件并不自动安装驱动服务。

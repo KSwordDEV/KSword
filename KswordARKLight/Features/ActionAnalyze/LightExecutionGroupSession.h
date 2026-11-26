@@ -26,6 +26,7 @@ struct LightExecutionGroupRequest {
     std::wstring projectDirectory; // Start冻结的可选项目路径，空值只控制不归档。
     bool openExistingProject = false; // 明确打开已有项目，仍新建一轮sample。
     bool holdPeersOnHit = false; // 本次Start冻结的联停策略，追加成员不更换策略。
+    bool autoSaveExecution = false; // Start冻结自动保存策略，复用本轮项目writer。
     Ksword::ActionAnalyze::NativeBoundApiRequest api; // CaptureApi冻结的另一明确来源，原worker复用同采样writer。
     std::shared_ptr<const execution_native::ProcessMemorySnapshotResult> memorySource; // 保存时冻结已读字节，不以当前选区重读。
 };

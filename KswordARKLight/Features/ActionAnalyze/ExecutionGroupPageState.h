@@ -12,7 +12,8 @@ enum : int {
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
     kPauseAll, kPauseSelected, kAddRange, kImageSha256, kProjectDirectory, kOpenProject, kSaveExecution, kDefinitionId,
-    kApiPid, kApiCreation, kApiDuration, kCaptureApi, kMemoryAddress, kMemoryBytes, kReadMemory, kSaveMemory, kAppendMembers, kHoldPeersOnHit
+    kApiPid, kApiCreation, kApiDuration, kCaptureApi, kMemoryAddress, kMemoryBytes, kReadMemory, kSaveMemory, kAppendMembers, kHoldPeersOnHit,
+    kAutoSaveExecution
 };
 // 末尾增加输入字段，保留既有控件ID与字段顺序；散列使用独立kImageSha256标识。
 enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, ImageSha256, DefinitionId, FieldCount };
@@ -27,6 +28,7 @@ struct Page {
     HWND projectLabel = nullptr, projectDirectory = nullptr, openProject = nullptr; // 独立项目草稿，Start时冻结。
     HWND saveExecution = nullptr; // 保存单选成员当前原事件，权限与Continue分开。
     HWND holdPeersOnHit = nullptr; // Start冻结的命中联停开关，生命周期属于原参数正文。
+    HWND autoSaveExecution = nullptr; // 自动保存属于下一轮策略草稿，不在运行中替换采样writer。
     std::array<HWND, 3> apiLabels{}, apiInputs{}; // 来源PID、创建时间和有限区间，与成员站点草稿分开。
     HWND captureApi = nullptr; // 原固定动作栏的同采样API入口。
     std::array<HWND, 2> memoryLabels{}, memoryInputs{}; // 独立只读范围，不与启动或追加NX范围共用草稿。

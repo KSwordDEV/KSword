@@ -57,6 +57,13 @@ struct LightExecutionGroupSession::Shared {
     {
         std::unique_ptr<execution_native::OwnedExecutionGroup> group;
         std::unique_ptr<Ksword::ActionAnalyze::ExecutionGroupArchive> archive; // 每次显式Start新建，clean之前不替换。
+        const auto publishObserved = [&](execution_native::ExecutionGroupResult result, bool explicitOperation = false) {
+            if (group && archive)
+            {
+                archive->Observe(*group, result); // 只在正常查询/步进回读使用；调查和关闭不隐式归档。
+            }
+            Publish(std::move(result), explicitOperation, archive ? &archive->View() : nullptr);
+        }; // 原worker同回合发布控制和自动保存回执，没有新增后台执行者。
         for (;;) {
             std::optional<LightExecutionGroupRequest> request;
             bool close = false;
@@ -98,7 +105,7 @@ struct LightExecutionGroupSession::Shared {
                         if (!group) {
                             group = std::make_unique<execution_native::OwnedExecutionGroup>();
                             archive = std::make_unique<Ksword::ActionAnalyze::ExecutionGroupArchive>();
-                            if (archive->Prepare(request->projectDirectory, request->openExistingProject) && archive->ResolveSites(request->sites))
+                            if (archive->Prepare(request->projectDirectory, request->openExistingProject, request->autoSaveExecution) && archive->ResolveSites(request->sites))
                             {
                                 // 真实sample在附加前创建，全部成员共享身份而不共享调试owner。
                                 Publish(group->Start(std::move(request->sites), request->authorized,
@@ -114,7 +121,7 @@ struct LightExecutionGroupSession::Shared {
                         break;
                     }
                     case LightExecutionGroupCommand::Query:
-                        if (group) Publish(group->Query());
+                        if (group) publishObserved(group->Query());
                         break;
                     case LightExecutionGroupCommand::AppendMembers:
                         if (group && archive)
@@ -133,11 +140,11 @@ struct LightExecutionGroupSession::Shared {
                         break;
                     case LightExecutionGroupCommand::Step:
                         if (group && request->stops.size() == 1)
-                            Publish(group->Step(request->stops.front(), request->stepMode), true);
+                            publishObserved(group->Step(request->stops.front(), request->stepMode), true);
                         break;
                     case LightExecutionGroupCommand::CancelStep:
                         if (group && request->stops.size() == 1)
-                            Publish(group->CancelStep(request->stops.front()), true);
+                            publishObserved(group->CancelStep(request->stops.front()), true);
                         break;
                     case LightExecutionGroupCommand::AddRange:
                         // 只调用原集合、原成员；追加不Continue，也不创建新的调试owner。
@@ -201,7 +208,7 @@ struct LightExecutionGroupSession::Shared {
                     }
                 } else if (group) {
                     // 事件推进复用同一worker，不新增定时查询任务或目标所有者。
-                    Publish(group->Query());
+                    publishObserved(group->Query());
                 }
             } catch (...) {
                 std::lock_guard lock(mutex);
