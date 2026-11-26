@@ -18,6 +18,8 @@ struct ArchivedNativeExecution {
     Evidence::JsonValue document;
     ks::cli::action_analyze::archive::RawEvidenceBoundary end;
     std::string sha256;
+    std::uint64_t recordOffset = 0; // 核验回调取得的真实记录头偏移，不以段末端点代替。
+    std::uint64_t blockOrdinal = 0; // 真实记录所属 Stored 块。
 };
 
 // 调用者持项目写租约，在原生会话的串行控制线程显式保存当前停点。

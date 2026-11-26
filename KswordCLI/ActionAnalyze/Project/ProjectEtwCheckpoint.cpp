@@ -3,6 +3,7 @@
 #include "ProjectRawEvidence.h"
 #include "ProjectStorage.h"
 #include "../Archive/SegmentInspection.h"
+#include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 
 namespace Ksword::ActionAnalyze {
@@ -58,7 +59,7 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                         ProjectEtwCheckpoint& checkpoint, ProjectEvidenceLane lane) {
     auto& prefix = checkpoint.raw; // 已刷盘端点与同一文件句柄读回的摘要。
     if (!coverage.rawSegmentOrdinal || !coverage.planRawSequence ||
-        (lane == ProjectEvidenceLane::MixedEtw && coverage.providerId != kMixedEtwProviderId) ||
+        (lane == ProjectEvidenceLane::MixedEtw && coverage.providerId != ks::action_analyze::etw::kProviderId) ||
         (coverage.rawSegmentOrdinal == 1 && coverage.planRawSequence != 1) ||
         coverage.endRawSequence != prefix.end.lastSequence || coverage.endRawSequence <= coverage.planRawSequence ||
         coverage.observationCount != coverage.endRawSequence - coverage.planRawSequence - 1) {

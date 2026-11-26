@@ -155,6 +155,10 @@ GraphEventInput ApiContext(const SampleScope& scope, const Evidence::ArchivedApi
         coordinate.contextOutcome = Evidence::ApiContextCallOutcome(clue.packet); // 不把请求IP解释成实际RIP。
     }
     coordinate.apiSectionMap = Evidence::ReadApiSectionMapFields(clue.packet);
+    coordinate.apiMemoryLifecycle = Evidence::ReadApiMemoryLifecycleFields(clue.packet);
+    if (coordinate.apiMemoryLifecycle) {
+        coordinate.apiSourceSession = clue.packet.sessionIdentity; // 保留原包会话，不迁移控制权。
+    }
     if (coordinate.apiSectionMap) {
         coordinate.sectionMapOutcome = Evidence::ApiSectionMapCallOutcome(clue.packet); // 成功映射不表示写入或执行。
     }
@@ -198,6 +202,9 @@ GraphEventInput ApiContext(const SampleScope& scope, const Evidence::ArchivedApi
     }
     if (clue.packet.coverageState == Evidence::kApiSectionMapFieldsMarker && !coordinate.apiSectionMap) {
         input.event.gaps.push_back(Issue::InvalidNativeRecord);
+    }
+    if (clue.packet.coverageState == Evidence::kApiMemoryLifecycleMarker && !coordinate.apiMemoryLifecycle) {
+        input.event.gaps.push_back(Issue::InvalidNativeRecord); // 坏AAIM1仍保留原包，不按摘要猜范围。
     }
     return input;
 }

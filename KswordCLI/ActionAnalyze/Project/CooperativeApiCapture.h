@@ -11,7 +11,7 @@ namespace Ksword::ActionAnalyze {
 struct ProjectApiCheckpoint;
 enum class ApiCaptureMode { CooperativeResident, ExplicitAttachment };
 
-// 只描述已授权的合作目标和本轮采样，不接受 Agent 路径、注入或行为修改选项。
+// 描述已授权的合作目标或显式附加实例；不接受 Agent 路径、注入策略或行为修改选项。
 struct CooperativeApiRequest {
     DWORD pid = 0; // 与创建时间一起标识目标实例。
     std::uint64_t creationFileTime = 0; // 必须非零，后端不允许退回普通采集入口。
@@ -19,7 +19,7 @@ struct CooperativeApiRequest {
     std::string_view title; // 调用期间借用的 UTF-8 采样标题。
     std::string_view revisionId; // 冻结的项目配置修订。
     bool captureAgentEtw = false; // 订阅同一目标的 KSword Agent 生命周期事件。
-    ApiCaptureMode mode = ApiCaptureMode::CooperativeResident; // 末尾默认值保持桌面和合作调用契约。
+    ApiCaptureMode mode = ApiCaptureMode::CooperativeResident; // 默认保持合作准入；显式附加由调用端确认授权。
     std::string_view boundSampleId = {}; // 非空时借用原项目写租约与冻结采样；只允许首次写入空的 API 流。
 };
 

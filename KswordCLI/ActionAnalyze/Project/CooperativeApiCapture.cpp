@@ -117,7 +117,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         return out;
     }
 
-    Monitor::CaptureRequest request; // 不配置 R0、远程装载、子进程或行为改写。
+    Monitor::CaptureRequest request; // 显式附加仅用原 R3 装载器，不配置 R0、子进程或行为改写。
     request.agentPath = ResidentAgentPath();
     out.agentPathAvailable = !request.agentPath.empty();
     if (!out.agentPathAvailable) {

@@ -91,13 +91,15 @@ ProjectResult ReadNativeExecution(const ProjectDocument& project, std::string_vi
     ArchivedNativeExecution staged;
     std::size_t count = 0;
     bool valid = true;
-    const auto visit = [&](const auto&, const auto&, const std::vector<archive::DecodedRecord>& records) {
+    const auto visit = [&](const auto&, const auto& block, const std::vector<archive::DecodedRecord>& records) {
         for (const auto& record : records) {
             const auto* body = std::get_if<archive::RawRecordV1>(&record.body);
             if (++count != 1 || !body || !body->inlineRawData.empty()) { valid = false; return false; }
             const auto parsed = Evidence::ParseJson(body->metadataJson);
             if (!parsed.ok() || !ValidDocument(parsed.value, info->projectId, sampleId)) { valid = false; return false; }
             staged.document = parsed.value;
+            staged.recordOffset = record.recordOffset; // 只随整段身份、正文及散列核验成功发布。
+            staged.blockOrdinal = block.ordinal;
         }
         return true;
     };

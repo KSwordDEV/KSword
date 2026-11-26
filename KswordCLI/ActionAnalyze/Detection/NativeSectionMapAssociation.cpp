@@ -17,7 +17,7 @@ std::optional<NativeSectionMapAssociation> AssociateNativeSectionMap(
     std::uint64_t nativeSegmentOrdinal)
 {
     namespace storage = ProjectStorage;
-    if (!HasEvidenceLocation(scope, evidence) || !evidence.raw || evidence.sourceId.empty() ||
+    if (!HasArchivedApiLocation(scope, evidence) || !evidence.raw || evidence.sourceId.empty() ||
         evidence.sourceEpoch.empty() || !mapping.segmentOrdinal || !mapping.recordSequence ||
         evidence.raw->segmentOrdinal != mapping.segmentOrdinal ||
         evidence.raw->sequence != mapping.recordSequence || !storage::IsHash(mappingSha256) ||

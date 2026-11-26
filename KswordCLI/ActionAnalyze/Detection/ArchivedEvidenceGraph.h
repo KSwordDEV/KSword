@@ -5,6 +5,7 @@
 #include "../Project/ProjectCallbackEvidence.h"
 #include "../../../shared/evidence/ApiContextFields.h"
 #include "../../../shared/evidence/ApiSectionMapFields.h"
+#include "../../../shared/evidence/ApiMemoryLifecycleFields.h"
 
 namespace Ksword::ActionAnalyze::Detection {
 
@@ -14,6 +15,16 @@ inline constexpr std::size_t kArchivedGraphDefaultRows = 100;
 inline constexpr std::uint64_t kArchivedGraphMaxApiSegments = 128; // 与 CLI 历史查询的链核验预算一致。
 
 enum class ArchivedGraphSource { ImportedApi, CommittedEtw, CommittedApiFollow, CallbackBatch };
+
+// 已核验历史 API 的来源坐标不声明机器/启动身份；不能调用强对象证据的 machine/boot 门禁。
+// 输入项目采样范围和原包引用，输出能否在该范围内精确回查；不授予来源认证或因果结论。
+inline bool HasArchivedApiLocation(const SampleScope& scope, const EvidenceRef& evidence) noexcept
+{
+    return !scope.projectId.empty() && !scope.sampleId.empty() &&
+        evidence.projectId == scope.projectId && evidence.sampleId == scope.sampleId &&
+        !evidence.sourceId.empty() && !evidence.sourceEpoch.empty() && evidence.raw &&
+        evidence.raw->segmentOrdinal != 0 && evidence.raw->sequence != 0;
+}
 
 // 游标使用本段的 raw 记录序号，有效观察序号为正数，首次读取传 0。
 // 恢复页时可传上次回执的散列复核同一前缀。
@@ -60,6 +71,8 @@ struct ArchivedGraphRecord {
     Evidence::ApiContextOutcome contextOutcome = Evidence::ApiContextOutcome::Unknown; // 原接口是否接受请求。
     std::optional<Evidence::ApiSectionMapFieldsV1> apiSectionMap; // 原映射请求和可读的成功输出。
     Evidence::ApiSectionMapOutcome sectionMapOutcome = Evidence::ApiSectionMapOutcome::Unknown; // 仅映射调用返回。
+    std::optional<Evidence::ApiMemoryLifecycleFieldsV1> apiMemoryLifecycle; // AAIM1原请求/成功输出，非执行或region代次。
+    std::optional<std::uint64_t> apiSourceSession; // 生命周期原包声明的会话，不补造认证身份。
 };
 
 struct ArchivedApiGraphCheckpoint {

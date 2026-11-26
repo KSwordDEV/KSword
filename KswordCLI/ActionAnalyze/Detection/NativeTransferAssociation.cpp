@@ -20,7 +20,7 @@ std::optional<NativeTransferAssociation> AssociateNativeTransfer(const SampleSco
     const ApiTransferLink& transfer, const ArchivedGraphRecord& creation,
     const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal)
 {
-    if (!HasEvidenceLocation(scope, transfer.write) || !HasEvidenceLocation(scope, transfer.threadCreate) ||
+    if (!HasArchivedApiLocation(scope, transfer.write) || !HasArchivedApiLocation(scope, transfer.threadCreate) ||
         !transfer.threadCreate.raw || transfer.threadCreate.raw->segmentOrdinal != creation.segmentOrdinal ||
         transfer.threadCreate.raw->sequence != creation.recordSequence || !creation.apiInjection ||
         creation.apiOutcome != Evidence::ApiInjectionOutcome::Succeeded || !nativeSegmentOrdinal ||
@@ -71,7 +71,7 @@ std::optional<NativeApcTransferAssociation> AssociateNativeApcTransfer(const Sam
     const ApiApcTransferLink& transfer, const ArchivedGraphRecord& queue,
     const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal)
 {
-    if (!HasEvidenceLocation(scope, transfer.write) || !HasEvidenceLocation(scope, transfer.queue) ||
+    if (!HasArchivedApiLocation(scope, transfer.write) || !HasArchivedApiLocation(scope, transfer.queue) ||
         !transfer.queue.raw || transfer.queue.raw->segmentOrdinal != queue.segmentOrdinal ||
         transfer.queue.raw->sequence != queue.recordSequence || !queue.apiApc || queue.apiFamily != "apc-queue" ||
         queue.apcOutcome != Evidence::ApiApcQueueOutcome::Accepted || !nativeSegmentOrdinal ||
@@ -130,7 +130,7 @@ std::optional<NativeContextTransferAssociation> AssociateNativeContextTransfer(c
     const ApiContextTransferLink& transfer, const ArchivedGraphRecord& context,
     const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal)
 {
-    if (!HasEvidenceLocation(scope, transfer.write) || !HasEvidenceLocation(scope, transfer.context) ||
+    if (!HasArchivedApiLocation(scope, transfer.write) || !HasArchivedApiLocation(scope, transfer.context) ||
         !transfer.context.raw || transfer.context.raw->segmentOrdinal != context.segmentOrdinal ||
         transfer.context.raw->sequence != context.recordSequence || !context.apiContext ||
         context.apiFamily != "thread-context" || context.contextOutcome != Evidence::ApiContextOutcome::Accepted ||

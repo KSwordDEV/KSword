@@ -174,6 +174,7 @@ public:
 private:
     friend struct ProjectApiCheckpointAccess; // 供独立 API 检查点实现借用已固定的项目目录。
     friend struct ProjectNetworkEvidenceAccess; // 供网络写入器使用本项目已固定的目录。
+    friend struct ProjectNativeExecutionAccess; // 供历史原生读侧枚举本项目固定目录，不公开目录句柄。
     const ProjectStorage::Directory* RootForRead() const noexcept;
     struct State;
     std::unique_ptr<State> state_;
