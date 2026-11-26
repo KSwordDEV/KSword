@@ -100,15 +100,20 @@ namespace ks::action_analyze
                     .field(QStringLiteral("断点诊断"), QString::fromLatin1(binding.stage))
                     .field(QStringLiteral("断点 Win32"), QString::number(binding.win32Error));
                 document.field(QStringLiteral("已纳入执行范围"), QString::number(binding.executionRanges.size()));
+                std::uint64_t totalRangeBytes = 0; // 成功范围目录总量独立于初始站点，不计失败回滚中的页。
                 for (const auto& range : binding.executionRanges)
                 {
                     document.field(QStringLiteral("范围起点 / 字节数 / 分配基址"),
                         QStringLiteral("%1 / %2 / %3").arg(Hex(range.base)).arg(range.bytes).arg(Hex(range.allocationBase)));
+                    totalRangeBytes += range.bytes;
                 }
+                document.field(QStringLiteral("已纳入范围总字节数"), QString::number(totalRangeBytes))
+                    .field(QStringLiteral("已纳入范围总页数"), QString::number(totalRangeBytes / 4096));
             }
             if (state.executionRange)
             {
                 const auto& receipt = *state.executionRange; // 本次范围事务回执，独立于初始站点及当前范围目录。
+                const auto& stop = receipt.request.stop; // 保存提交时的完整授权坐标，不借当前选中成员补字段。
                 document.field(QStringLiteral("执行范围纳入回执"), QString::fromLatin1(receipt.stage))
                     .field(QStringLiteral("新范围起点"), Hex(receipt.request.address))
                     .field(QStringLiteral("范围字节数"), QString::number(receipt.request.bytes))
@@ -116,6 +121,15 @@ namespace ks::action_analyze
                     .field(QStringLiteral("新增范围回滚完整"), receipt.rollbackComplete ? QStringLiteral("是") : QStringLiteral("否"), true)
                     .field(QStringLiteral("请求 ID"), QString::fromStdString(receipt.request.stop.requestId))
                     .field(QStringLiteral("状态修订"), QString::number(receipt.stateRevision))
+                    .field(QStringLiteral("范围请求状态修订"), QString::number(stop.expectedStateRevision))
+                    .field(QStringLiteral("范围请求停止组"), QString::fromStdString(stop.groupId))
+                    .field(QStringLiteral("范围请求停点"), QString::fromStdString(stop.stopId))
+                    .field(QStringLiteral("范围请求事件"), QStringLiteral("%1 / %2")
+                        .arg(QString::fromStdString(stop.event.backendInstanceId)).arg(stop.event.serial))
+                    .field(QStringLiteral("范围请求采样"), QString::fromStdString(stop.owner.sampleId))
+                    .field(QStringLiteral("范围请求会话"), QString::fromStdString(stop.owner.sessionId))
+                    .field(QStringLiteral("范围请求代次"), QString::fromStdString(stop.owner.epoch))
+                    .field(QStringLiteral("范围请求后端"), QString::fromStdString(stop.owner.backendInstanceId))
                     .field(QStringLiteral("Win32"), QString::number(receipt.win32Error));
             }
             if (state.registers)

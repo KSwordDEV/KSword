@@ -72,6 +72,7 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 - `sessionToken`：`{owner,control}` 完整成员表项，其中 control 是同一原始显示快照；Held、Armed 运行以及失败状态分别保留，不从裸 PID 补票。
 - `canPause`／`canContinue`：该成员在混合批次中的显示资格，包含 `already-held`／`already-running`；不代表原生动作已经执行。
 - `canAddRange`：该成员持有完整 NX 停点且符合本事件条件，可显式追加范围；ManualPause 同样允许。
+- `control.breakpoint.totalRangeBytes/totalRangePages`：实际成功范围目录的总量，与保留初始站点身份的 `rangeBytes` 分开；失败回滚中的页不作为已纳入范围。`control.executionRange.owner/event/groupId/stopId/expectedStateRevision` 是提交时的原停点坐标，`stateRevision` 是本次实际核验修订。
 - `replSessionToken`：仅 REPL 输出，完整 `sessionToken` 的 UTF-8 小写十六进制字节。顶层 `control.sessions` 是固定全集同顺序的完整表，可直接作为混合 all 请求输入。
 
 `held-complete` 仅表示逐成员查询时每个固定成员都持有停止事件。集合明示 `simultaneousFreeze:false` 与 `observation:"sequential-member-readback"`，不证明所有进程在同一时刻冻结。组当前 `state/members` 与最近 `operation` 分开：操作的 `outcomes` 保存全部请求成员，每项有 `actionAttempted` 和 `disposition`。实际调用原 session 时为 `true`／`action-attempted`，不等于原生动作成功；无动作项分别为 `false`／`already-held` 或 `false`／`already-running`，control 保留原停点或运行快照，不生成新释放回执。后续查询不改写原操作结论。拒绝批次没有原生调用，`admitted:false` 且 `outcomes:[]`。

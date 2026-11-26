@@ -100,8 +100,13 @@ V ControlReport(const n::NativeControlResult& s)
     if (s.breakpoint) {
         const auto& b = *s.breakpoint;
         JsonArray ranges;
-        for (const auto& r : b.executionRanges) ranges.push_back(V::makeObject({{"base", Count(r.base)},
-            {"bytes", Count(r.bytes)}, {"allocationBase", Count(r.allocationBase)}}));
+        std::uint64_t totalRangeBytes = 0; // 当前已成功纳入的真实范围，初始rangeBytes不是动态范围总量。
+        for (const auto& r : b.executionRanges)
+        {
+            ranges.push_back(V::makeObject({{"base", Count(r.base)}, {"bytes", Count(r.bytes)},
+                {"pages", Count(r.bytes / 4096)}, {"allocationBase", Count(r.allocationBase)}}));
+            totalRangeBytes += r.bytes;
+        }
         fields.emplace_back("breakpoint", V::makeObject({{"requestId", Text(b.requestId)},
             {"state", V::makeUInt(static_cast<unsigned>(b.state))}, {"stage", Text(b.stage)}, {"win32Error", V::makeUInt(b.win32Error)},
             {"address", Count(b.address)}, {"moduleBase", Count(b.moduleBase)}, {"rva", V::makeUInt(b.rva)},
@@ -109,6 +114,7 @@ V ControlReport(const n::NativeControlResult& s)
             {"allocationBase", Count(b.allocationBase)}, {"regionBase", Count(b.regionBase)}, {"regionBytes", Count(b.regionBytes)},
             {"regionProtection", V::makeUInt(b.regionProtection)}, {"explicitPrivateAddress", V::makeBool(b.explicitPrivateAddress)},
             {"executionRanges", V::makeArray(std::move(ranges))}, {"allocationGenerationVerified", V::makeBool(false)},
+            {"totalRangeBytes", Count(totalRangeBytes)}, {"totalRangePages", Count(totalRangeBytes / 4096)},
             {"imageSha256", b.imageSha256 ? Text(*b.imageSha256) : V::makeNull()}})); // 与单目标一致，实测值归属breakpoint。
     }
     if (s.breakpointHit) fields.emplace_back("hit", V::makeObject({{"requestId", Text(s.breakpointHit->requestId)},
@@ -121,6 +127,7 @@ V ControlReport(const n::NativeControlResult& s)
             {"added", V::makeBool(range.added)}, {"rollbackComplete", V::makeBool(range.rollbackComplete)},
             {"stateRevision", Count(range.stateRevision)}, {"event", Event(range.request.stop.event)},
             {"groupId", Text(range.request.stop.groupId)}, {"stopId", Text(range.request.stop.stopId)},
+            {"owner", Owner(range.request.stop.owner)}, {"expectedStateRevision", Count(range.request.stop.expectedStateRevision)},
             {"stage", Text(range.stage)}, {"win32Error", V::makeUInt(range.win32Error)}}));
     }
     if (s.registers) {

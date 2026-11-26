@@ -126,7 +126,11 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
                 L" pages=" + std::to_wstring(range.bytes / 4096) + L" allocationBase=" + Hex(range.allocationBase);
             totalRangeBytes += range.bytes;
         }
-        if (!binding.executionRanges.empty()) text += L"\r\n已纳入范围合计=" + std::to_wstring(totalRangeBytes) + L" 字节";
+        if (!binding.executionRanges.empty())
+        {
+            text += L"\r\n已纳入范围合计=" + std::to_wstring(totalRangeBytes) + L" 字节 / " +
+                std::to_wstring(totalRangeBytes / 4096) + L" 页"; // 与CLI/Qt相同，汇总实际成功目录。
+        }
     }
     if (state.executionRange) {
         const auto& range = *state.executionRange;
