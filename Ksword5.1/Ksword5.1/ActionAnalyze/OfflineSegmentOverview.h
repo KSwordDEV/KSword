@@ -194,6 +194,7 @@ namespace ks::action_analyze
         std::shared_ptr<const SegmentSnapshot> m_snapshot; // 最后发布的段。
         SegmentEnd m_latestEnd = SegmentEnd::Unavailable; // 最新读取结尾；可与保留结果不同。
         bool m_latestLegacyApi = false; // 最新请求的旧跟随档缺少持久检查点。
+        QString m_latestNativeFailure; // 最新原生读失败独立于保留的旧树，首次失败也可显示精确原因。
         quint64 m_latestOffset = 0; // 最新问题发生的位置。
         quint64 m_latestVerifiedOrdinal = 0; // 最新请求核验通过的最后一段，独立于仍显示的旧结果。
         quint64 m_latestFailedOrdinal = 0; // 最新请求遇到的第一个坏段。

@@ -197,7 +197,7 @@
     "API 与原生执行一致性候选": "API and native execution consistency candidate",
     "上下文请求": "Context request",
     "候选不证明注入、因果、区域版本或跨来源时序；进入尝试与指令完成按原记录分别呈现。": "Candidates do not establish injection, causality, region versions, or ordering across sources. Entry attempts and completed instructions retain their original observation types.",
-    "原生历史读取失败：段 %1；%2；Win32 %3。API 来源树仍可使用。": "Native history read failed: segment %1; %2; Win32 %3. The API source tree remains available.",
+    "原生历史读取失败：段 %1；%2；Win32 %3。已发布的其他来源结果仍保留。": "Native history read failed: segment %1; %2; Win32 %3. Previously published results from other sources are retained.",
     "原生历史读取已取消。": "Native history read canceled.",
     "原生历史：已核验 %1 条，执行候选保留 %2 / 匹配 %3；映射输入淘汰 %4。": "Native history: %1 verified records; %2 execution candidates retained / %3 matches; %4 mapping inputs evicted.",
     "已达到原生历史 4096 段读取上限。": "The native history read limit of 4096 segments was reached.",

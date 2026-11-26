@@ -53,7 +53,7 @@ QString NativeExecutionStatus(const Ksword::Evidence::ApiNativeExecutionProjecti
     }
     if (projection.state == NativeHistoryState::Failed)
     {
-        return sourceText(QStringLiteral("原生历史读取失败：段 %1；%2；Win32 %3。API 来源树仍可使用。"))
+        return sourceText(QStringLiteral("原生历史读取失败：段 %1；%2；Win32 %3。已发布的其他来源结果仍保留。"))
             .arg(projection.failedOrdinal).arg(QString::fromLatin1(projection.problem.detail)).arg(projection.problem.nativeError);
     }
     if (projection.state == NativeHistoryState::Canceled)

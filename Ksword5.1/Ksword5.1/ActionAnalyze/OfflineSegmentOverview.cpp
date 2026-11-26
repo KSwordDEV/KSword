@@ -1249,6 +1249,10 @@ void OfflineSegmentOverview::updateText()
     }
     if (!live && !m_reading && !m_lastPath.isEmpty())
     {
+        if (!m_latestPublished && !m_latestNativeFailure.isEmpty())
+        {
+            status += u' ' + m_latestNativeFailure; // 失败不发布空历史，但仍呈现这次原生链的真实问题。
+        }
         // 失败回执使用当前读取的段号，即使表格继续显示上一份完整结果。
         if (!m_latestMixed && m_latestVerifiedOrdinal)
         {

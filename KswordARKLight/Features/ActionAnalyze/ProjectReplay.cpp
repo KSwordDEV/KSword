@@ -591,6 +591,13 @@ ProjectReplayEvidence ReadProjectReplay(const ProjectReplayRequest& request, Pro
         const auto native = Ksword::Evidence::ReadNativeExecutionHistory(project, request.sampleId); // 无API流也读原生历史。
         result.raw.nativeExecution = Ksword::Evidence::ProjectApiNativeExecution<EvidenceRecord>(
             {request.projectId, request.sampleId, {}, {}}, native, {}, {}, {}, {}, 0);
+        if (native.state == Ksword::Evidence::NativeHistoryState::Failed)
+        {
+            // 首次打开和重读都沿原失败入口展示；坏链没有identity，不发布空成功树或旧字节。
+            result.raw.diagnostic = ReplayDiagnostic(native.problem) + "/raw-native/" + std::to_string(native.failedOrdinal);
+            result.raw.systemError = native.problem.nativeError;
+            return result;
+        }
         if (!result.raw.nativeExecution.observations.empty())
         {
             result.raw.nativeHistoryOnly = true;

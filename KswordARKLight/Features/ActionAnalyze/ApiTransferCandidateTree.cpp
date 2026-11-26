@@ -277,7 +277,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
             const auto detail = std::string_view(native.problem.detail); // 项目错误阶段是静态 ASCII 文本。
             status = L"原生历史读取失败：段 " + std::to_wstring(native.failedOrdinal) + L"；" +
                 std::wstring(detail.begin(), detail.end()) + L"；Win32 " +
-                std::to_wstring(native.problem.nativeError) + L"。API 来源树仍可使用。";
+                std::to_wstring(native.problem.nativeError) + L"。已发布的其他来源结果仍保留。";
         }
         else if (native.state == Ksword::Evidence::NativeHistoryState::Limited)
         {

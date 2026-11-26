@@ -1,4 +1,5 @@
 #include "OfflineSegmentOverview.h"
+#include "NativeExecutionPresentation.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
@@ -134,6 +135,8 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
     m_latestVerifiedOrdinal = result.lastVerifiedOrdinal;
     m_latestFailedOrdinal = result.failedOrdinal;
     m_latestMixed = result.mixed;
+    m_latestNativeFailure = result.nativeExecution.state == Ksword::Evidence::NativeHistoryState::Failed
+        ? NativeExecutionStatus(result.nativeExecution) : QString(); // 当前请求的错误，不借用旧完整快照。
     // 现有读取槽空闲后再补读在途期间到达的新段，避免嵌套提交覆盖当前代次。
     if (m_allowApiPrefixFollow)
     {
@@ -141,7 +144,9 @@ void OfflineSegmentOverview::publish(const SegmentSnapshot& result)
     }
     // 重读同一文件失败时，旧结果保留原范围并附加本次失败回执。
     const bool keepComplete = m_snapshot && m_snapshot->path == result.path
-        && m_snapshot->end == SegmentEnd::Complete && result.end != SegmentEnd::Complete;
+        && m_snapshot->end == SegmentEnd::Complete && result.end != SegmentEnd::Complete
+        && !(result.nativeHistoryOnly && result.nativeExecution.state == Ksword::Evidence::NativeHistoryState::Limited);
+    // 已连续核验到上限的原生窗口可以替换旧历史；失败和取消继续保留上次完整结果。
     m_latestPublished = result.end == SegmentEnd::Complete ||
         (!keepComplete && result.end != SegmentEnd::Canceled && result.ordinal &&
             (!result.rows.isEmpty() || result.nativeHistoryOnly)); // 原生链达到上限时仍可浏览已核验历史。
