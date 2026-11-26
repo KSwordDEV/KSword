@@ -1,22 +1,137 @@
 {
   "schemaVersion": 1,
-  "presetSet": "ksword.api.behavior-presets.v1",
+  "presetSet": "ksword.api.behavior-presets.v3",
+  "expressionProfile": "predicate-expr-v3",
   "profiles": {
     "grouped": [
       {
         "ruleId": "ksword.api.memory-operation-observed.v1",
-        "predicate": "api.family == \"memory-write\" || api.family == \"section-map\"",
-        "summary": "Observed a memory write or section mapping API.",
-        "summaryZh": "观察到内存写入或节映射 API"
+        "predicate": "api.family == \"memory-write\" || api.family == \"section-map\" || api.family == \"memory-allocation\" || api.family == \"memory-protection\" || api.family == \"memory-free-request\"",
+        "summary": "Observed a memory write, mapping, allocation, protection or release request API.",
+        "summaryZh": "观察到内存写入、映射、分配、保护或释放请求 API"
       },
       {
         "ruleId": "ksword.api.thread-control-observed.v1",
         "predicate": "api.family == \"thread-create\" || api.family == \"thread-context\" || api.family == \"apc-queue\"",
         "summary": "Observed a thread creation, thread context, or APC queueing API.",
         "summaryZh": "观察到线程创建、线程上下文或 APC 排队 API"
+      },
+      {
+        "ruleId": "ksword.api.registry-operation-observed.v1",
+        "predicate": "api.family == \"registry-query\" || api.family == \"registry-write\"",
+        "summary": "Observed a registry query or value write API.",
+        "summaryZh": "观察到注册表查询或值写入 API"
+      },
+      {
+        "ruleId": "ksword.api.environment-query-observed.v1",
+        "predicate": "api.family == \"process-enumeration\" || api.family == \"module-query\" || api.family == \"system-query\"",
+        "summary": "Observed a process, module or system information query API.",
+        "summaryZh": "观察到进程、模块或系统信息查询 API"
+      },
+      {
+        "ruleId": "ksword.api.process-start-observed.v1",
+        "predicate": "api.family == \"process-start\"",
+        "summary": "Observed a process creation API.",
+        "summaryZh": "观察到进程创建 API"
+      },
+      {
+        "ruleId": "ksword.api.file-operation-observed.v1",
+        "predicate": "api.family == \"file-open\" || api.family == \"file-copy\" || api.family == \"file-write\"",
+        "summary": "Observed a file open, copy or write API.",
+        "summaryZh": "观察到文件打开、复制或写入 API"
+      },
+      {
+        "ruleId": "ksword.api.service-operation-observed.v1",
+        "predicate": "api.family == \"service-control\"",
+        "summary": "Observed a service manager API.",
+        "summaryZh": "观察到服务管理 API"
+      },
+      {
+        "ruleId": "ksword.api.network-operation-observed.v1",
+        "predicate": "api.family == \"network-name-query\" || api.family == \"network-session\" || api.family == \"network-request\"",
+        "summary": "Observed a name resolution, network session or HTTP request API.",
+        "summaryZh": "观察到名称解析、网络会话或 HTTP 请求 API"
       }
     ],
     "by-category": [
+      {
+        "ruleId": "ksword.api.registry-query-observed.v1",
+        "predicate": "api.family == \"registry-query\"",
+        "summary": "Observed a registry query API; returned data is separate evidence.",
+        "summaryZh": "观察到注册表查询 API；返回数据须另有证据"
+      },
+      {
+        "ruleId": "ksword.api.registry-write-observed.v1",
+        "predicate": "api.family == \"registry-write\"",
+        "summary": "Observed a registry value write API.",
+        "summaryZh": "观察到注册表值写入 API"
+      },
+      {
+        "ruleId": "ksword.api.process-enumeration-observed.v1",
+        "predicate": "api.family == \"process-enumeration\"",
+        "summary": "Observed a process enumeration API.",
+        "summaryZh": "观察到进程枚举 API"
+      },
+      {
+        "ruleId": "ksword.api.module-query-observed.v1",
+        "predicate": "api.family == \"module-query\"",
+        "summary": "Observed a module query API.",
+        "summaryZh": "观察到模块查询 API"
+      },
+      {
+        "ruleId": "ksword.api.system-query-observed.v1",
+        "predicate": "api.family == \"system-query\"",
+        "summary": "Observed a system information query API.",
+        "summaryZh": "观察到系统信息查询 API"
+      },
+      {
+        "ruleId": "ksword.api.process-start-category.v1",
+        "predicate": "api.family == \"process-start\"",
+        "summary": "Observed a process creation API; success requires a return marker.",
+        "summaryZh": "观察到进程创建 API；成功须有返回标记"
+      },
+      {
+        "ruleId": "ksword.api.file-open-observed.v1",
+        "predicate": "api.family == \"file-open\"",
+        "summary": "Observed a file handle open API; this alone does not prove a write.",
+        "summaryZh": "观察到文件句柄打开 API；单独不能证明写入"
+      },
+      {
+        "ruleId": "ksword.api.file-copy-observed.v1",
+        "predicate": "api.family == \"file-copy\"",
+        "summary": "Observed a file copy API.",
+        "summaryZh": "观察到文件复制 API"
+      },
+      {
+        "ruleId": "ksword.api.file-write-observed.v1",
+        "predicate": "api.family == \"file-write\"",
+        "summary": "Observed a file write API; pending and completed writes differ.",
+        "summaryZh": "观察到文件写入 API；挂起与完成分别判断"
+      },
+      {
+        "ruleId": "ksword.api.service-control-observed.v1",
+        "predicate": "api.family == \"service-control\"",
+        "summary": "Observed a service manager operation API.",
+        "summaryZh": "观察到服务管理操作 API"
+      },
+      {
+        "ruleId": "ksword.api.network-name-query-observed.v1",
+        "predicate": "api.family == \"network-name-query\"",
+        "summary": "Observed a name resolution API; no DNS wire exchange is implied.",
+        "summaryZh": "观察到名称解析 API；不表示已发生 DNS 网络交互"
+      },
+      {
+        "ruleId": "ksword.api.network-session-observed.v1",
+        "predicate": "api.family == \"network-session\"",
+        "summary": "Observed a network session handle API; no transport connection is implied.",
+        "summaryZh": "观察到网络会话句柄 API；不表示传输连接已建立"
+      },
+      {
+        "ruleId": "ksword.api.network-request-observed.v1",
+        "predicate": "api.family == \"network-request\"",
+        "summary": "Observed an HTTP request construction or send API.",
+        "summaryZh": "观察到 HTTP 请求构造或发送 API"
+      },
       {
         "ruleId": "ksword.api.memory-write-observed.v1",
         "predicate": "api.family == \"memory-write\"",
@@ -28,6 +143,24 @@
         "predicate": "api.family == \"section-map\"",
         "summary": "Observed a section mapping API.",
         "summaryZh": "观察到节映射 API"
+      },
+      {
+        "ruleId": "ksword.api.memory-allocation-observed.v1",
+        "predicate": "api.family == \"memory-allocation\"",
+        "summary": "Observed a memory allocation API; success and output require separate return evidence.",
+        "summaryZh": "观察到内存分配 API；成功和输出范围须另有返回证据"
+      },
+      {
+        "ruleId": "ksword.api.memory-protection-observed.v1",
+        "predicate": "api.family == \"memory-protection\"",
+        "summary": "Observed a memory protection API; execution remains unknown.",
+        "summaryZh": "观察到内存保护 API；实际执行仍未知"
+      },
+      {
+        "ruleId": "ksword.api.memory-free-request-observed.v1",
+        "predicate": "api.family == \"memory-free-request\"",
+        "summary": "Observed a memory release request API; the released extent remains unknown.",
+        "summaryZh": "观察到内存释放请求 API；实际释放全区仍未知"
       },
       {
         "ruleId": "ksword.api.thread-create-observed.v1",
@@ -51,10 +184,279 @@
   },
   "behaviorRules": [
     {
+      "ruleId": "ksword.behavior.vm-software-registry-query-returned.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hklm\\software\\vmware, inc.\\vmware tools\" || registry.pathLower == @\"hklm\\software\\oracle\\virtualbox guest additions\" || registry.pathLower == @\"hklm\\software\\microsoft\\virtual machine\\guest\\parameters\")",
+      "summary": "A query/open of a virtualization guest software registry key reported success. This is an environment probing clue, not proof that the caller identified a sandbox or read a vendor value.",
+      "summaryZh": "虚拟化来宾软件相关注册表项查询或打开报告成功；属于环境探测线索，不证明调用方已判定沙箱或读到厂商值"
+    },
+    {
+      "ruleId": "ksword.behavior.vm-software-registry-query-rejected.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.statusDomain == \"lstatus\" && result.status != 0u64 && (registry.pathLower == @\"hklm\\software\\vmware, inc.\\vmware tools\" || registry.pathLower == @\"hklm\\software\\oracle\\virtualbox guest additions\" || registry.pathLower == @\"hklm\\software\\microsoft\\virtual machine\\guest\\parameters\")",
+      "summary": "A query/open targeting a virtualization guest software registry key reported a nonzero status. Failure does not prove the artifact is absent or that a sandbox was identified.",
+      "summaryZh": "针对虚拟化来宾软件注册表项的查询或打开报告非零状态；失败不证明痕迹不存在，也不证明已判定沙箱"
+    },
+    {
+      "ruleId": "ksword.behavior.vm-service-registry-query-returned.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vmtools\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vmmouse\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vboxguest\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vboxservice\")",
+      "summary": "A query/open of a virtualization related service registry key reported success; environment probing only, with the caller's conclusion unknown.",
+      "summaryZh": "虚拟化相关服务注册表项查询或打开报告成功；仅为环境探测线索，调用方结论未知"
+    },
+    {
+      "ruleId": "ksword.behavior.vm-service-registry-query-rejected.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.statusDomain == \"lstatus\" && result.status != 0u64 && (registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vmtools\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vmmouse\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vboxguest\" || registry.pathLower == @\"hklm\\system\\currentcontrolset\\services\\vboxservice\")",
+      "summary": "A virtualization related service registry query/open reported failure. The key's absence and the caller's environment decision remain unknown.",
+      "summaryZh": "虚拟化相关服务注册表项查询或打开报告失败；键是否不存在及调用方环境判断仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.vm-acpi-registry-query-returned.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hklm\\hardware\\acpi\\dsdt\\vbox__\" || registry.pathLower == @\"hklm\\hardware\\acpi\\fadt\\vbox__\" || registry.pathLower == @\"hklm\\hardware\\acpi\\rsdt\\vbox__\")",
+      "summary": "An open/query of an ACPI registry key associated with a virtualization vendor reported success; no firmware contents or sandbox decision were collected.",
+      "summaryZh": "虚拟化厂商相关 ACPI 注册表项打开或查询报告成功；未采集固件内容或沙箱判断结果"
+    },
+    {
+      "ruleId": "ksword.behavior.vm-acpi-registry-query-rejected.v1",
+      "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.statusDomain == \"lstatus\" && result.status != 0u64 && (registry.pathLower == @\"hklm\\hardware\\acpi\\dsdt\\vbox__\" || registry.pathLower == @\"hklm\\hardware\\acpi\\fadt\\vbox__\" || registry.pathLower == @\"hklm\\hardware\\acpi\\rsdt\\vbox__\")",
+      "summary": "An open/query targeting a virtualization associated ACPI registry key reported failure; neither vendor presence nor absence is established.",
+      "summaryZh": "针对虚拟化相关 ACPI 注册表项的打开或查询报告失败；不能据此确定厂商痕迹存在或不存在"
+    },
+    {
+      "ruleId": "ksword.behavior.instrumentation-module-query-present.v1",
+      "predicate": "(api.name == \"GetModuleHandleW\" || api.name == \"GetModuleHandleA\") && api.family == \"module-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (module.nameLower == \"sbiedll.dll\" || module.nameLower == \"vboxhook.dll\")",
+      "summary": "An exact query for an instrumentation/virtualization related module name returned a module handle; this does not establish malicious intent or a sandbox decision.",
+      "summaryZh": "按精确名称查询隔离或虚拟化相关模块并返回模块句柄；不证明恶意意图或已判定沙箱"
+    },
+    {
+      "ruleId": "ksword.behavior.instrumentation-module-query-null.v1",
+      "predicate": "(api.name == \"GetModuleHandleW\" || api.name == \"GetModuleHandleA\") && api.family == \"module-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && (module.nameLower == \"sbiedll.dll\" || module.nameLower == \"vboxhook.dll\")",
+      "summary": "An exact query for an instrumentation/virtualization related module name returned null; the reason and the caller's conclusion remain unknown.",
+      "summaryZh": "按精确名称查询隔离或虚拟化相关模块并返回空句柄；原因及调用方结论仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.virtualization-service-open-returned.v1",
+      "predicate": "(api.name == \"OpenServiceW\" || api.name == \"OpenServiceA\") && api.family == \"service-control\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (service.nameLower == \"vmtools\" || service.nameLower == \"vboxservice\")",
+      "summary": "An open of an exact virtualization guest service name returned a service handle; the service state and the caller's environment decision remain unknown.",
+      "summaryZh": "打开精确虚拟化来宾服务名并返回服务句柄；服务运行状态及调用方环境判断仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.virtualization-service-open-rejected.v1",
+      "predicate": "(api.name == \"OpenServiceW\" || api.name == \"OpenServiceA\") && api.family == \"service-control\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.status != 0u64 && (service.nameLower == \"vmtools\" || service.nameLower == \"vboxservice\")",
+      "summary": "An open of an exact virtualization guest service name failed; failure alone does not establish that the service is absent.",
+      "summaryZh": "打开精确虚拟化来宾服务名失败；失败本身不能证明服务不存在"
+    },
+    {
+      "ruleId": "ksword.behavior.process-enumeration-returned.v1",
+      "predicate": "api.family == \"process-enumeration\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "A process enumeration step reported success. The complete process list, any search target and an anti-analysis decision remain unknown.",
+      "summaryZh": "一次进程枚举步骤报告成功；完整进程清单、查找目标及反分析判断仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.module-enumeration-returned.v1",
+      "predicate": "api.family == \"module-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && startsWith(api.name, \"Module32\") && module.name != \"\"",
+      "summary": "A module enumeration step reported success with a decoded module name; this is a single observation, not a complete module inventory.",
+      "summaryZh": "一次模块枚举步骤报告成功且解码到模块名；只是单条观察，不是完整模块清单"
+    },
+    {
+      "ruleId": "ksword.behavior.system-basic-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && system.informationClass == 0u64",
+      "summary": "A SystemBasicInformation query reported NT success; returned processor/memory values and the caller's conclusion were not collected.",
+      "summaryZh": "SystemBasicInformation 查询报告 NT 成功；未采集返回的处理器、内存值及调用方结论"
+    },
+    {
+      "ruleId": "ksword.behavior.system-process-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && system.informationClass == 5u64",
+      "summary": "A SystemProcessInformation query reported NT success; the returned process list is not projected by this rule.",
+      "summaryZh": "SystemProcessInformation 查询报告 NT 成功；此规则未投影返回进程清单"
+    },
+    {
+      "ruleId": "ksword.behavior.system-module-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && system.informationClass == 11u64",
+      "summary": "A SystemModuleInformation query reported NT success; returned module contents and anti-analysis intent remain unknown.",
+      "summaryZh": "SystemModuleInformation 查询报告 NT 成功；返回模块内容及反分析意图仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.system-firmware-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && system.informationClass == 76u64",
+      "summary": "A SystemFirmwareTableInformation query reported NT success; firmware bytes, vendor identity and any sandbox conclusion remain unknown.",
+      "summaryZh": "SystemFirmwareTableInformation 查询报告 NT 成功；固件字节、厂商身份及沙箱结论仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.autorun-registry-write-returned.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\runonce\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\runonce\") && registry.valueName != \"\"",
+      "summary": "A value write to an exact Run/RunOnce key reported success. Startup persistence configuration is a candidate; the value data, payload execution and persistence effectiveness remain unknown.",
+      "summaryZh": "向精确 Run／RunOnce 键写值报告成功，属于启动持久化配置候选；值数据、载荷执行及持久化生效仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.autorun-registry-write-rejected.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.status != 0u64 && (registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\runonce\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\runonce\") && registry.valueName != \"\"",
+      "summary": "A value write targeting an exact Run/RunOnce key reported failure; no persistence change is established.",
+      "summaryZh": "针对精确 Run／RunOnce 键的值写入报告失败；不能确认持久化配置已改变"
+    },
+    {
+      "ruleId": "ksword.behavior.winlogon-startup-value-write.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hklm\\software\\microsoft\\windows nt\\currentversion\\winlogon\" || registry.pathLower == @\"hkcu\\software\\microsoft\\windows nt\\currentversion\\winlogon\") && (registry.valueNameLower == \"shell\" || registry.valueNameLower == \"userinit\")",
+      "summary": "A write to the Winlogon Shell/Userinit value reported success; the new data and any logon execution remain unknown.",
+      "summaryZh": "写入 Winlogon Shell／Userinit 值报告成功；新数据及登录时执行仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.appinit-value-write.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && registry.pathLower == @\"hklm\\software\\microsoft\\windows nt\\currentversion\\windows\" && (registry.valueNameLower == \"appinit_dlls\" || registry.valueNameLower == \"loadappinit_dlls\")",
+      "summary": "An AppInit DLL configuration value write reported success; data, policy requirements and DLL loading are not established.",
+      "summaryZh": "AppInit DLL 配置值写入报告成功；数据、策略前提及 DLL 加载均未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.service-image-registry-write.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && startsWith(registry.pathLower, @\"hklm\\system\\currentcontrolset\\services\\\") && registry.valueNameLower == \"imagepath\"",
+      "summary": "An ImagePath value write below the services registry branch reported success; whether it configures a service, the binary contents and execution remain unknown.",
+      "summaryZh": "服务注册表分支下的 ImagePath 值写入报告成功；是否构成服务配置、二进制内容及执行仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.taskcache-registry-write.v1",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (startsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tree\\\") || startsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tasks\\\")) && registry.valueName != \"\"",
+      "summary": "A write below a TaskCache registry branch reported success; this alone does not prove that a scheduled task was registered or executed.",
+      "summaryZh": "TaskCache 注册表分支下的值写入报告成功；单独不能证明计划任务已注册或执行"
+    },
+    {
+      "ruleId": "ksword.behavior.automatic-service-create-returned.v1",
+      "predicate": "(api.name == \"CreateServiceW\" || api.name == \"CreateServiceA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && service.startType == 2u64 && service.name != \"\" && service.binaryPath != \"\"",
+      "summary": "Creation of an automatically started service reported a service handle with a decoded name and binary path; future startup and binary execution remain unknown.",
+      "summaryZh": "创建自动启动服务返回服务句柄，并解码到名称和二进制路径；未来启动及二进制执行仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.service-create-returned.v1",
+      "predicate": "(api.name == \"CreateServiceW\" || api.name == \"CreateServiceA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && service.name != \"\" && service.binaryPath != \"\"",
+      "summary": "Service creation returned a service handle with a decoded name and binary path; no service execution is established.",
+      "summaryZh": "创建服务返回服务句柄，并解码到名称和二进制路径；未确认服务执行"
+    },
+    {
+      "ruleId": "ksword.behavior.service-start-request-returned.v1",
+      "predicate": "(api.name == \"StartServiceW\" || api.name == \"StartServiceA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "A service start request reported success; the service name, running state and payload execution were not collected by this event.",
+      "summaryZh": "服务启动请求报告成功；本事件未采集服务名称、运行状态或载荷执行"
+    },
+    {
+      "ruleId": "ksword.behavior.service-delete-request-returned.v1",
+      "predicate": "api.name == \"DeleteService\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "DeleteService reported success; the service may only be marked for deletion, with final removal unconfirmed.",
+      "summaryZh": "DeleteService 报告成功；服务可能只是被标记删除，最终移除尚未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.service-config-change-returned.v1",
+      "predicate": "(api.name == \"ChangeServiceConfigW\" || api.name == \"ChangeServiceConfigA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "A service configuration change reported success; this rule does not project the new configuration or infer execution.",
+      "summaryZh": "服务配置修改报告成功；此规则不投影新配置，也不推断执行"
+    },
+    {
+      "ruleId": "ksword.behavior.task-tool-process-created.v1",
+      "predicate": "api.family == \"process-start\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && process.applicationBaseLower == \"schtasks.exe\"",
+      "summary": "CreateProcess reported success for an application argument named schtasks.exe; task registration, command success and task execution remain unknown.",
+      "summaryZh": "CreateProcess 对应用参数名为 schtasks.exe 的请求报告成功；任务注册、命令成功及任务执行仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.script-host-process-created.v1",
+      "predicate": "api.family == \"process-start\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (process.applicationBaseLower == \"powershell.exe\" || process.applicationBaseLower == \"pwsh.exe\" || process.applicationBaseLower == \"wscript.exe\" || process.applicationBaseLower == \"cscript.exe\")",
+      "summary": "CreateProcess reported success for an application argument named as a script host; executable identity, script content and script execution are unconfirmed.",
+      "summaryZh": "CreateProcess 对应用参数名为脚本宿主的请求报告成功；可执行文件身份、脚本内容及脚本执行均未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.process-create-returned.v1",
+      "predicate": "api.family == \"process-start\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && process.application != \"\"",
+      "summary": "Process creation reported success with a decoded application argument; the new process may be suspended, and image identity or execution is not established.",
+      "summaryZh": "进程创建报告成功且解码到应用参数；新进程可能挂起，映像身份或执行尚未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.file-create-or-truncate-handle.v1",
+      "predicate": "api.family == \"file-open\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && file.path != \"\" && (file.creationDisposition == 1u64 || file.creationDisposition == 2u64 || file.creationDisposition == 4u64 || file.creationDisposition == 5u64)",
+      "summary": "A file open with a create/open-always/truncate disposition returned a handle and a decoded path. New file creation, payload contents and durable writes are not established.",
+      "summaryZh": "带创建、始终打开或截断方式的文件打开返回句柄并解码到路径；未确认新建文件、载荷内容或持久落盘"
+    },
+    {
+      "ruleId": "ksword.behavior.file-copy-returned.v1",
+      "predicate": "api.family == \"file-copy\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && file.sourcePath != \"\" && file.path != \"\"",
+      "summary": "File copy reported success with decoded source and destination arguments; file identity, malicious content and physical durability are unconfirmed.",
+      "summaryZh": "文件复制报告成功且解码到源、目标参数；文件身份、恶意内容及物理持久性未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.file-write-returned.v1",
+      "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "WriteFile returned true; the file path, exact completed byte count, payload content and durable storage are not established by this rule.",
+      "summaryZh": "WriteFile 返回真；此规则不确认文件路径、精确完成字节数、载荷内容或持久存储"
+    },
+    {
+      "ruleId": "ksword.behavior.domain-resolution-returned.v1",
+      "predicate": "api.family == \"network-name-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && network.domainLower != \"\"",
+      "summary": "Name resolution for a decoded DNS-shaped host name reported success; DNS traffic, returned addresses and any later connection are unconfirmed.",
+      "summaryZh": "针对已解码 DNS 形态主机名的名称解析报告成功；DNS 流量、返回地址及后续连接均未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.domain-resolution-rejected.v1",
+      "predicate": "api.family == \"network-name-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.status != 0u64 && network.domainLower != \"\"",
+      "summary": "Name resolution for a decoded DNS-shaped host name reported failure; this does not establish that the domain is nonexistent.",
+      "summaryZh": "针对已解码 DNS 形态主机名的名称解析报告失败；不能据此确认域名不存在"
+    },
+    {
+      "ruleId": "ksword.behavior.network-host-session-handle.v1",
+      "predicate": "api.family == \"network-session\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && network.host != \"\" && network.port <= 65535u64",
+      "summary": "A network session handle for a decoded host/port request was returned; WinHTTP/WinINet handle creation alone does not prove a transport connection.",
+      "summaryZh": "针对已解码主机、端口请求返回网络会话句柄；WinHTTP／WinINet 句柄创建本身不证明传输连接已建立"
+    },
+    {
+      "ruleId": "ksword.behavior.http-request-handle.v1",
+      "predicate": "api.family == \"network-request\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && network.method != \"\" && network.object != \"\"",
+      "summary": "HTTP request construction returned a handle with a decoded method and object; the host, request transmission and server response remain unknown.",
+      "summaryZh": "构造 HTTP 请求返回句柄且解码到方法和对象；主机、请求发送及服务器响应仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.http-send-returned.v1",
+      "predicate": "(api.name == \"WinHttpSendRequest\" || api.name == \"HttpSendRequestW\" || api.name == \"HttpSendRequestA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "An HTTP send API returned true; this rule does not infer host attribution, HTTP status, application success or exfiltration.",
+      "summaryZh": "HTTP 发送 API 返回真；此规则不推断主机归因、HTTP 状态、业务成功或数据外传"
+    },
+    {
+      "ruleId": "ksword.behavior.http-send-rejected.v1",
+      "predicate": "(api.name == \"WinHttpSendRequest\" || api.name == \"HttpSendRequestW\" || api.name == \"HttpSendRequestA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.status != 0u64 && result.status != 997u64",
+      "summary": "An HTTP send API returned false with a nonpending error; no successful request or data transfer is established.",
+      "summaryZh": "HTTP 发送 API 返回假并报告非挂起错误；未确认请求成功或数据传输"
+    },
+    {
       "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
       "predicate": "api.family == \"memory-write\" && api.name == \"WriteProcessMemory\" && !result.returned && result.win32Status == 5u64",
       "summary": "Memory write request returned access denied.",
       "summaryZh": "内存写入请求返回访问被拒绝"
+    },
+    {
+      "ruleId": "ksword.behavior.executable-allocation-return-candidate.v1",
+      "evidence": "reported-executable-memory-candidate",
+      "predicate": "api.family == \"memory-allocation\" && evidence.format == \"AAIM1\" && evidence.phase == \"return\" && result.succeeded && isKnown(memory.outputBase) && memory.outputBytes > 0u64 && ((memory.newProtection & 0xffu64) == 0x10u64 || (memory.newProtection & 0xffu64) == 0x20u64 || (memory.newProtection & 0xffu64) == 0x40u64 || (memory.newProtection & 0xffu64) == 0x80u64)",
+      "summary": "Reported successful allocation with an executable protection and a collected output range; candidate memory only, with execution and allocation generation unknown.",
+      "summaryZh": "原包报告按可执行保护成功分配且采到输出范围；仅为可执行内存候选，执行和分配代次未知"
+    },
+    {
+      "ruleId": "ksword.behavior.executable-protection-return-candidate.v1",
+      "evidence": "reported-executable-memory-candidate",
+      "predicate": "api.family == \"memory-protection\" && evidence.format == \"AAIM1\" && evidence.phase == \"return\" && result.succeeded && isKnown(memory.outputBase) && memory.outputBytes > 0u64 && ((memory.newProtection & 0xffu64) == 0x10u64 || (memory.newProtection & 0xffu64) == 0x20u64 || (memory.newProtection & 0xffu64) == 0x40u64 || (memory.newProtection & 0xffu64) == 0x80u64)",
+      "summary": "Reported successful executable protection change with a collected output range; subsequent instruction fetch and content provenance remain unknown.",
+      "summaryZh": "原包报告改为可执行保护成功且采到输出范围；后续取指和内容来源仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.cross-process-apc-accepted-request.v1",
+      "evidence": "reported-cross-process-request",
+      "predicate": "api.family == \"apc-queue\" && evidence.format == \"AAAP1\" && evidence.phase == \"return\" && result.succeeded && target.stable && isKnown(actor.creationFileTime) && isKnown(target.creationFileTime) && isKnown(target.threadCreationFileTime) && actor.pid != target.pid && apc.requestedRoutine != 0u64",
+      "summary": "Reported acceptance of an APC request for a stable, separately identified process and thread; delivery, execution and injection success are unknown.",
+      "summaryZh": "原包报告接受面向另一已核对进程及线程的 APC 请求；投递、执行和注入成功均未知"
+    },
+    {
+      "ruleId": "ksword.behavior.cross-process-context-accepted-request.v1",
+      "evidence": "reported-cross-process-request",
+      "predicate": "api.family == \"thread-context\" && evidence.format == \"AACT1\" && evidence.phase == \"return\" && result.succeeded && target.stable && isKnown(actor.creationFileTime) && isKnown(target.creationFileTime) && isKnown(target.threadCreationFileTime) && actor.pid != target.pid && context.requestedIp != 0u64",
+      "summary": "Reported acceptance of another process thread's context request with a collected requested IP; applied register state and execution are unknown.",
+      "summaryZh": "原包报告接受另一进程线程的上下文请求并采到请求 IP；寄存器实际生效和执行均未知"
+    },
+    {
+      "ruleId": "ksword.behavior.cross-process-executable-map-return-candidate.v1",
+      "evidence": "reported-cross-process-request",
+      "predicate": "api.family == \"section-map\" && evidence.format == \"AASM1\" && evidence.phase == \"return\" && result.succeeded && target.stable && isKnown(actor.creationFileTime) && isKnown(target.creationFileTime) && actor.pid != target.pid && isKnown(map.outputBase) && map.outputBytes > 0u64 && ((map.requestedProtection & 0xffu64) == 0x10u64 || (map.requestedProtection & 0xffu64) == 0x20u64 || (map.requestedProtection & 0xffu64) == 0x40u64 || (map.requestedProtection & 0xffu64) == 0x80u64)",
+      "summary": "Reported successful mapping into another stable process with requested executable protection and a collected mapped range; writes, aliases and execution are unknown.",
+      "summaryZh": "原包报告向另一稳定进程按可执行保护请求映射成功且采到范围；写入、别名传播和执行均未知"
     }
   ]
 }

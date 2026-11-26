@@ -8,7 +8,7 @@ namespace ks::ui { struct FieldDocument; }
 
 namespace ks::action_analyze
 {
-    // 既有值保持顺序；末尾追加生命周期类别供原分类详情计数与定位。
+    // 既有值保持顺序；新增类别只追加，用于同一原包的详情计数与定位。
     enum class SensitiveApiFamily
     {
         MemoryWrite, // 内存写入调用。
@@ -19,6 +19,19 @@ namespace ks::action_analyze
         MemoryAllocate, // 私有内存分配请求与返回。
         MemoryProtect, // 内存保护变更请求与返回。
         MemoryFreeRequest, // 释放请求，不等于已知释放范围。
+        RegistryQuery, // 注册表打开与查询。
+        RegistryWrite, // 注册表值写入。
+        ProcessEnumeration, // 单次进程枚举步骤。
+        ModuleQuery, // 模块名称查询或枚举步骤。
+        SystemQuery, // 系统信息查询。
+        ProcessStart, // 进程创建请求与返回。
+        FileOpen, // 文件句柄打开。
+        FileCopy, // 文件复制请求与返回。
+        FileWrite, // 文件写入请求与返回。
+        ServiceControl, // 服务管理调用。
+        NetworkNameQuery, // 名称解析调用。
+        NetworkSession, // 网络会话句柄调用。
+        NetworkRequest, // HTTP 请求构造或发送。
         Count // 分类计数数组的容量。
     };
 

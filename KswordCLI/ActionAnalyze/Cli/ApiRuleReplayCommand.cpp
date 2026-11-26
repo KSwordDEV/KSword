@@ -358,7 +358,10 @@ Json DescribePresets(std::span<const rules::ApiPresetDefinition> definitions, bo
         const auto type = field.type == rules::FieldType::U64 ? L"u64" :
             field.type == rules::FieldType::Bool ? L"bool" : L"text";
         typedFields.push_back(Json::object({{L"id", Json::string(Wide(field.id))},
-            {L"type", Json::string(type)}, {L"phase", Json::string(L"observation")}}));
+            {L"type", Json::string(type)}, {L"phase", Json::string(L"observation")},
+            {L"source", Json::string(Wide(rules::ApiPresetFieldSource(field.id)))},
+            {L"missingQuality", Json::string(L"not-collected")},
+            {L"comparisonQuality", Json::string(L"known")}}));
     }
     return Json::object({{L"fields", Json::strings(fields)}, {L"typedFields", Json::array(typedFields)},
         {L"rules", Json::array(entries)}});
@@ -390,7 +393,7 @@ void RegisterApiRuleReplayCommand()
     catalog.path = L"analyze api-rule-catalog";
     catalog.syntax = L"KswordCLI.exe analyze api-rule-catalog [--json]";
     catalog.summary = L"List the API behavior presets from profiles/action_analyze_api_rules.json.";
-    catalog.notes = L"Lists rule IDs, predicates, available fields, evidence scope and sourceSha256 of the parsed file bytes. No project or live source is opened.";
+    catalog.notes = L"Lists rule IDs, predicates, fields, typedFields with types/sources/missing quality, expressionProfile, evidence scope and sourceSha256 of the parsed file bytes. No project or live source is opened.";
     catalog.defaultBackend = L"offline";
     catalog.supportsR3 = false;
     catalog.run = RunCatalog;

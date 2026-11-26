@@ -127,6 +127,7 @@ ReplayIssue IssueFor(const Evaluation& evaluation)
     switch (evaluation.fault) {
     case EvaluationFault::Budget: return ReplayIssue::Budget;
     case EvaluationFault::InvalidInput: return ReplayIssue::PredicateInvalid;
+    case EvaluationFault::DivisionByZero: return ReplayIssue::PredicateInvalid;
     case EvaluationFault::None:
         return evaluation.truth == Truth::Unknown ? ReplayIssue::PredicateUnknown : ReplayIssue::None;
     }

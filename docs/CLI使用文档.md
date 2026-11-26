@@ -211,7 +211,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 规则目录、合作采集和 JSONL 跟随的规则回执另有 `sourceSha256`，对应本轮实际解析的文件原始字节。采集计划保存 `ruleSourceSha256`，后续各段沿用同一冻结计划。`replay-api-rules` 返回当前 `sourceSha256`、归档中的 `recordedSourceSha256` 和 `matchesRecordedRules`；相同版本名但内容改变时匹配值为 `false`，旧档没有摘要时后两者为 `null`。规则加载失败时摘要为空，不中止独立的原包归档；文件修改仅影响下一轮加载。
 
-`api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。当前文件只包含已验证的小型 API 预置，KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
+`api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。目录同时给出 `expressionProfile`、兼容字段名列表 `fields` 及字段类型、来源、缺值质量的 `typedFields`。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。自有规则包括虚拟化相关注册表查询线索、环境查询、启动配置写入、服务／任务相关请求、文件操作、进程创建、域名解析与 HTTP 请求；精确字段和证据限制见[规则模块说明](../KswordCLI/ActionAnalyze/Rules/README.md)。KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
 
 文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，合作采集和 JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。
 

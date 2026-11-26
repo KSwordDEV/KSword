@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RuleExpression.h"
+#include "BehaviorPresetFields.h"
 
 #include <array>
 #include <filesystem>
@@ -26,6 +27,7 @@ struct ArchivedApiObservation {
     std::string_view family; // 经校验的 API 线索类别。
     // 仅授权输入且有明确返回标记时，从同一原包投影。缺失时保留分类，不补造返回结论。
     std::optional<ArchivedApiMemoryWriteReturn> memoryWriteReturn = std::nullopt;
+    ApiPresetEvidence evidence{}; // 同一原包的独立协议及有效位，旧调用方缺省为未知。
 };
 
 struct ApiPresetBehavior {
@@ -44,7 +46,7 @@ struct ApiPresetMatch {
 };
 
 enum class ApiPresetError { None, InvalidInput, InvalidPreset, EvaluationFailed };
-enum class ApiPresetProfile { Grouped, ByCategory }; // 兼容汇总或细分到五类单事件线索。
+enum class ApiPresetProfile { Grouped, ByCategory }; // 汇总或按实际配置目录细分单事件线索。
 
 struct ApiPresetDefinition {
     ApiPresetBehavior description; // 目录和命中共用的规则说明。
@@ -58,6 +60,7 @@ struct ApiPresetDatabase {
     std::string error; // 加载失败的诊断；成功时为空。
     std::array<std::vector<ApiPresetDefinition>, 2> profiles; // 汇总、细分两个回放配置。
     std::vector<ApiPresetDefinition> behaviorRules; // 同一观测按文件顺序选首条命中释义。
+    std::string expressionProfile = "predicate-expr-v2"; // 旧规则文件未声明时保持原准入。
 };
 
 // 读取应用目录下的规则文件，输出可在一次采样或回放期间冻结的已准备数据库。
@@ -87,7 +90,7 @@ ApiPresetReport AnalyzeVerifiedApiPresetPage(const ApiPresetDatabase& database, 
 
 // 仅在检查点发布成功后传入原样回读的一批连续原包，含非线索包，不含计划和尾记。
 // 两套序号从检查点的 planRawSequence 和 previousSourceSequence 各加 1 开始；段号由调用方保留。
-// 使用实时跟随的五类预置；无命中是成功，失败不发布部分匹配，也不改变已提交原包。
+// 使用实时跟随的已加载分类；无命中是成功，失败不发布部分匹配，也不改变已提交原包。
 ApiPresetReport AnalyzeCommittedApiPresetBatch(const ApiPresetDatabase& database,
     std::span<const ks::winapi_monitor::ApiMonitorEventPacket> packets,
     std::uint64_t planRawSequence, std::uint64_t previousSourceSequence) noexcept;

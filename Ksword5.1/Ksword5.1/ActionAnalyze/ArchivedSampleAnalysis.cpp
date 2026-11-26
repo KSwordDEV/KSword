@@ -32,6 +32,20 @@ namespace
             {"memory-allocation", QStringLiteral("内存分配")},
             {"memory-protection", QStringLiteral("内存保护变更")},
             {"memory-free-request", QStringLiteral("内存释放请求")},
+            // 与正式分类器的新增类别逐项一致；只表示 API 观察，不推断业务效果。
+            {"registry-query", QStringLiteral("注册表查询")},
+            {"registry-write", QStringLiteral("注册表值写入")},
+            {"process-enumeration", QStringLiteral("进程枚举")},
+            {"module-query", QStringLiteral("模块查询")},
+            {"system-query", QStringLiteral("系统信息查询")},
+            {"process-start", QStringLiteral("进程创建请求")},
+            {"file-open", QStringLiteral("文件句柄打开")},
+            {"file-copy", QStringLiteral("文件复制")},
+            {"file-write", QStringLiteral("文件写入")},
+            {"service-control", QStringLiteral("服务管理调用")},
+            {"network-name-query", QStringLiteral("名称解析调用")},
+            {"network-session", QStringLiteral("网络会话句柄")},
+            {"network-request", QStringLiteral("HTTP 请求调用")},
         }};
         return categories;
     }

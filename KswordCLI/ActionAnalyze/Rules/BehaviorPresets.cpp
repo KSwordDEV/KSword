@@ -18,13 +18,6 @@ namespace Ksword::ActionAnalyze::Rules {
 namespace {
 
 constexpr FieldBinding Catalog[] = {{"api.family", FieldType::Text, Phase::Observation}};
-// 字段来自已核验原包。返回字段缺失时保留 NotCollected。
-constexpr FieldBinding BehaviorCatalog[] = {
-    {"api.family", FieldType::Text, Phase::Observation},
-    {"api.name", FieldType::Text, Phase::Observation},
-    {"result.returned", FieldType::Bool, Phase::Observation},
-    {"result.win32Status", FieldType::U64, Phase::Observation},
-};
 
 constexpr std::size_t kMaxProfileBytes = 1024 * 1024; // 限制本地规则数据读入量。
 
@@ -69,7 +62,7 @@ bool ValidId(std::string_view value)
 
 // 校验数组及表达式，任一错误均由调用方丢弃整份数据库。
 std::string ReadPresets(const Evidence::JsonValue* value, bool behavior,
-    std::set<std::string>& ids, std::vector<ApiPresetDefinition>& definitions)
+    std::set<std::string>& ids, std::vector<ApiPresetDefinition>& definitions, std::string_view profile)
 {
     const auto* rows = value ? value->asArray() : nullptr; // 文件顺序用于选择行为释义。
     if (!rows || rows->size() > 128 || (!behavior && rows->empty())) {
@@ -86,8 +79,16 @@ std::string ReadPresets(const Evidence::JsonValue* value, bool behavior,
             return "rules-profile-invalid-entry";
         }
         text.evidence = behavior ? "reported-api-return" : "classified-api-observation";
+        if (row.find("evidence")) {
+            // 外置数据只可选择已登记的证据层级，不开放“注入成功”等效果声明。
+            if (!behavior || !ReadText(row, "evidence", text.evidence) ||
+                (text.evidence != "reported-api-return" && text.evidence != "reported-executable-memory-candidate" &&
+                 text.evidence != "reported-cross-process-request")) {
+                return "rules-profile-invalid-evidence";
+            }
+        }
         auto result = PreparePredicateExpression(rule.predicate, Phase::Observation, behavior ?
-            std::span<const FieldBinding>(BehaviorCatalog) : std::span<const FieldBinding>(Catalog));
+            ApiPresetBehaviorFields() : std::span<const FieldBinding>(Catalog), profile);
         if (result.error != ExpressionError::None) {
             return std::string("rules-profile-invalid-predicate/") + text.ruleId + "/" + std::string(ExpressionErrorId(result.error));
         }
@@ -146,21 +147,26 @@ ApiPresetReport AnalyzePresetRows(const ApiPresetDatabase& database, std::span<c
             return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
         }
         std::optional<ApiPresetBehavior> behavior;
-        if (const auto& returned = row.memoryWriteReturn) {
-            const FieldSample fields[] = {
-                field, {"api.name", Quality::Known, row.api},
-                {"result.returned", Quality::Known, returned->returned},
-                {"result.win32Status", Quality::Known, static_cast<std::uint64_t>(returned->statusCode)},
-            };
-            for (const auto& preset : database.behaviorRules) {
-                const auto evaluation = EvaluatePredicate(preset.prepared, Phase::Observation, fields);
-                if (evaluation.fault != EvaluationFault::None) {
-                    return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
-                }
-                if (evaluation.truth == Truth::True) {
-                    behavior = preset.description;
-                    break;
-                }
+        const auto returned = row.memoryWriteReturn ? std::optional{Evidence::ApiMonitorMemoryWriteReturn{
+            row.memoryWriteReturn->returned, row.memoryWriteReturn->statusCode}} : std::nullopt;
+        const auto fields = ProjectApiPresetFields(row.api, row.family, returned, row.evidence); // 未采字段不补零。
+        const bool hasReturnEvidence = returned.has_value() || std::ranges::any_of(fields,
+            [](const FieldSample& sample) { return sample.id == "evidence.phase"; }); // 协议核对后才有此字段。
+        for (const auto& preset : database.behaviorRules) {
+            // 旧规则集原先只对 WPM 显式返回求值，读取旧 profile 时保留这个准入范围。
+            if ((database.expressionProfile == "predicate-expr-v1" || database.expressionProfile == "predicate-expr-v2") && !returned) {
+                break;
+            }
+            if (!hasReturnEvidence) {
+                break; // 纯分类原包不能因外置谓词为 true 被升级为返回证据。
+            }
+            const auto evaluation = EvaluatePredicate(preset.prepared, Phase::Observation, fields);
+            if (evaluation.fault != EvaluationFault::None) {
+                return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
+            }
+            if (evaluation.truth == Truth::True) {
+                behavior = preset.description;
+                break;
             }
         }
         report.matches.push_back({std::string(ruleId), row.rawSequence, row.sourceSequence, std::string(row.api), std::move(behavior)});
@@ -198,7 +204,8 @@ ApiPresetReport AnalyzeCommittedPackets(const ApiPresetDatabase& database, const
             }
             const auto outcome = Evidence::ReadApiMonitorMemoryWriteReturn(packet);
             observations.push_back({rawSequence, sourceSequence, name, clue->family,
-                outcome ? std::optional{ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
+                outcome ? std::optional{ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt,
+                ReadApiPresetEvidence(packet)});
         }
         return AnalyzeVerifiedApiPresetPage(database, observations, observations.size(), ApiPresetProfile::ByCategory);
     } catch (...) {
@@ -249,13 +256,19 @@ ApiPresetDatabase LoadApiPresetDatabase(const std::filesystem::path& path)
             return ProfileError("rules-profile-invalid-header");
         }
         std::set<std::string> ids; // 分类及释义共用规则 ID 空间。
+        if (json.value.find("expressionProfile") &&
+            (!ReadText(json.value, "expressionProfile", database.expressionProfile) ||
+             !IsSupportedPredicateExpressionProfile(database.expressionProfile))) {
+            return ProfileError("rules-profile-unsupported-expression-profile");
+        }
         for (const auto& [profile, target] : {std::pair{"grouped", &database.profiles[0]},
                  std::pair{"by-category", &database.profiles[1]}}) {
-            if (auto error = ReadPresets(profiles->find(profile), false, ids, *target); !error.empty()) {
+            if (auto error = ReadPresets(profiles->find(profile), false, ids, *target, database.expressionProfile); !error.empty()) {
                 return ProfileError(std::move(error));
             }
         }
-        if (auto error = ReadPresets(json.value.find("behaviorRules"), true, ids, database.behaviorRules); !error.empty()) {
+        if (auto error = ReadPresets(json.value.find("behaviorRules"), true, ids, database.behaviorRules,
+            database.expressionProfile); !error.empty()) {
             return ProfileError(std::move(error));
         }
         database.sourceSha256 = SourceSha256(bytes); // 解析与摘要使用同一份原字节，只在完整成功后发布身份。
@@ -270,7 +283,7 @@ ApiPresetDatabase LoadApiPresetDatabase(const std::filesystem::path& path)
 
 std::span<const FieldBinding> ApiPresetFields(bool behavior)
 {
-    return behavior ? std::span<const FieldBinding>(BehaviorCatalog) : std::span<const FieldBinding>(Catalog);
+    return behavior ? ApiPresetBehaviorFields() : std::span<const FieldBinding>(Catalog);
 }
 
 std::span<const ApiPresetDefinition> ApiClassificationPresets(const ApiPresetDatabase& database, ApiPresetProfile profile)

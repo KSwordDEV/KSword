@@ -68,3 +68,7 @@ Light 独立验证器使用仓库的 Stored v1 字节向量。本次正式 Relea
 网络归档沿用 Stored v1 的 `RawRecord`。记录内最多保留 1,536 字节元数据和 65,536 字节实际捕获内容。旧 R3 `PacketRecord` 来源最多提供 4,096 字节。来源有截断证据时保留截断状态，ETW 计数按仅元数据处理。出站链接需要同一采样的规范事件、原始记录、来源代次和强进程身份。检查点还须覆盖两条流及其依赖。参见[网络证据契约](network-evidence-draft.schema.json)和[正反向量](vectors/network-evidence-draft.json)。
 
 用 `python -B schemas/action_analyze/check_network_evidence.py` 校验向量中的 JSON 结构、长度、队列边界和出站引用。原生读写、真实采集和检查点恢复分别验收。
+
+## 条件与 API 规则预置
+
+[`api-rule-presets.schema.json`](api-rule-presets.schema.json) 描述生产规则配置的版本和条目。`expressionProfile` 接受 `predicate-expr-v1`、`predicate-expr-v2`、`predicate-expr-v3`；省略时保留旧 v2 准入。v1/v2 由旧字段常量句法解析，v3 才允许有限 u64 运算及字段间比较。具体字段、三值语义、预算和原包证据边界见[规则模块说明](../../KswordCLI/ActionAnalyze/Rules/README.md)。新词条为自有单条 API 观察规则，不代表跨事件注入链或执行确认。

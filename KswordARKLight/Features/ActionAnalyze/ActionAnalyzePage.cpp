@@ -281,6 +281,29 @@ std::wstring ApiFamilyLabel(std::wstring_view family) {
     {
         return L"内存释放请求";
     }
+    // 新类别沿用原分类展示入口，名称不宣称执行、连接或持久化已生效。
+    const std::pair<std::wstring_view, std::wstring_view> labels[] = {
+        {L"registry-query", L"注册表查询"},
+        {L"registry-write", L"注册表值写入"},
+        {L"process-enumeration", L"进程枚举"},
+        {L"module-query", L"模块查询"},
+        {L"system-query", L"系统信息查询"},
+        {L"process-start", L"进程创建请求"},
+        {L"file-open", L"文件句柄打开"},
+        {L"file-copy", L"文件复制"},
+        {L"file-write", L"文件写入"},
+        {L"service-control", L"服务管理调用"},
+        {L"network-name-query", L"名称解析调用"},
+        {L"network-session", L"网络会话句柄"},
+        {L"network-request", L"HTTP 请求调用"},
+    }; // 已核验分类键与用户可见名称的固定映射，不改变现有页面结构。
+    for (const auto& [key, label] : labels)
+    {
+        if (family == key)
+        {
+            return std::wstring(label);
+        }
+    }
     return std::wstring(family);
 }
 
