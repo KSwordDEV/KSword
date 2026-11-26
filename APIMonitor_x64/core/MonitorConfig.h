@@ -109,6 +109,14 @@ namespace apimon
         ClipboardPolicyAction clipboardEnumAction = ClipboardPolicyAction::Allow;
     };
 
-    bool LoadMonitorConfigForCurrentProcess(MonitorConfig* configOut, std::wstring* errorTextOut);
+    struct CooperativeSessionFiles
+    {
+        std::wstring configPath;
+        std::wstring stopPath;
+        std::wstring userSid;
+    };
+
+    bool LoadMonitorConfigForCurrentProcess(MonitorConfig* configOut, std::wstring* errorTextOut,
+        const CooperativeSessionFiles* cooperative = nullptr);
     bool IsStopFlagPresent(const MonitorConfig& configValue);
 }

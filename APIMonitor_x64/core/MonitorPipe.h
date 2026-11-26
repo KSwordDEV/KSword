@@ -16,6 +16,8 @@ namespace apimon
     bool StartMonitorPipeServer(const MonitorConfig& configValue, std::wstring* errorTextOut);
     void StopMonitorPipeServer();
     bool DrainMonitorPipeServer(DWORD timeoutMs = 2000);
+    // HooksInstalled carries the coverage revision published for the installation.
+    bool SendHooksInstalledEvent(const std::wstring& detail);
     // HooksRemoved carries the final coverage revision in snapshotRevision.
     bool SendHooksRemovedEvent(const std::wstring& detail);
     bool SendMonitorEvent(

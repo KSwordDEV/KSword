@@ -587,7 +587,7 @@ namespace apimon
         const wchar_t* detailText,
         const ks::winapi_monitor::EventResultKind resultKind,
         const ks::winapi_monitor::EventKind eventKind, const std::uint64_t operationId, const std::uint32_t apiId,
-        const std::uint64_t finalCoverageRevision,
+        const std::uint64_t coverageRevision,
         const bool hasReturnValue = false, const std::uint64_t returnBits = 0,
         const bool hasDuration = false, const std::uint64_t duration100ns = 0)
     {
@@ -602,7 +602,7 @@ namespace apimon
         packetValue.eventKind = static_cast<std::uint32_t>(eventKind);
         packetValue.apiId = apiId ? apiId : FindApiDefinitionId(moduleName, apiName);
         packetValue.operationId = operationId;
-        packetValue.snapshotRevision = finalCoverageRevision;
+        packetValue.snapshotRevision = coverageRevision;
         if (hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
             && categoryValue != ks::winapi_monitor::EventCategory::Internal)
         {
@@ -673,6 +673,14 @@ namespace apimon
             resultKind,
             ks::winapi_monitor::EventKind::ApiCall, operationId, apiId, 0,
             hasReturnValue, returnBits, hasDuration, duration100ns);
+    }
+
+    bool SendHooksInstalledEvent(const std::wstring& detail)
+    {
+        const auto snapshot = LatestCoverageSnapshot();
+        return QueueMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal, L"Agent", L"HooksInstalled", 0,
+            detail.c_str(), ks::winapi_monitor::EventResultKind::StatusCode, ks::winapi_monitor::EventKind::ApiCall,
+            0, 0, snapshot ? snapshot->revision : 0);
     }
 
     bool SendHooksRemovedEvent(const std::wstring& detail)

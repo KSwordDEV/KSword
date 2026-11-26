@@ -268,7 +268,8 @@ namespace apimon
         }
     }
 
-    bool LoadMonitorConfigForCurrentProcess(MonitorConfig* configOut, std::wstring* errorTextOut)
+    bool LoadMonitorConfigForCurrentProcess(MonitorConfig* configOut, std::wstring* errorTextOut,
+        const CooperativeSessionFiles* cooperative)
     {
         if (errorTextOut != nullptr)
         {
@@ -285,10 +286,12 @@ namespace apimon
 
         MonitorConfig configValue;
         configValue.targetPid = static_cast<std::uint32_t>(::GetCurrentProcessId());
-        configValue.configPath = ks::winapi_monitor::buildConfigPathForPid(configValue.targetPid);
+        configValue.configPath = cooperative ? cooperative->configPath :
+            ks::winapi_monitor::buildConfigPathForPid(configValue.targetPid);
 
         const DWORD fileAttributes = ::GetFileAttributesW(configValue.configPath.c_str());
-        if (fileAttributes == INVALID_FILE_ATTRIBUTES || (fileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        if (fileAttributes == INVALID_FILE_ATTRIBUTES || (fileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+            || (cooperative && (fileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0))
         {
             if (errorTextOut != nullptr)
             {
@@ -377,6 +380,20 @@ namespace apimon
             rawDetailLimit,
             64,
             static_cast<int>(ks::winapi_monitor::kMaxDetailChars - 1)));
+
+        if (cooperative && (configValue.sessionId.empty()
+            || configValue.sessionId.find_first_not_of(L"abcdefghijklmnopqrstuvwxyz0123456789_") != std::wstring::npos
+            || configValue.pipeName != ks::winapi_monitor::buildPipeNameForPid(configValue.targetPid) + L"_" + configValue.sessionId
+            || configValue.controllerSid != cooperative->userSid || configValue.stopFlagPath != cooperative->stopPath
+            || configValue.rootStopFlagPath != cooperative->stopPath || !configValue.pauseEventName.empty()
+            || configValue.autoInjectChild || configValue.fakeSuccessEnabled || configValue.fakeSuccessRawFallback
+            || configValue.clipboardReadAction != ClipboardPolicyAction::Allow
+            || configValue.clipboardWriteAction != ClipboardPolicyAction::Allow
+            || configValue.clipboardEnumAction != ClipboardPolicyAction::Allow))
+        {
+            if (errorTextOut) *errorTextOut = L"Invalid cooperative diagnostic session configuration.";
+            return false;
+        }
 
         configValue.valid = !configValue.pipeName.empty() && !configValue.stopFlagPath.empty();
         if (!configValue.valid)

@@ -399,6 +399,114 @@ namespace ks::winapi_monitor
         return converted;
     }
 
+    // Explicit same-user cooperative transport. No fallback when selected but
+    // invalid; the legacy machine-wide session directory is a different transport.
+    class CooperativeSessionDirectory
+    {
+    public:
+        enum class Selection { Unset, Opened, Rejected };
+        CooperativeSessionDirectory() = default;
+        ~CooperativeSessionDirectory() { if (m_handle != INVALID_HANDLE_VALUE) ::CloseHandle(m_handle); }
+        CooperativeSessionDirectory(const CooperativeSessionDirectory&) = delete;
+        CooperativeSessionDirectory& operator=(const CooperativeSessionDirectory&) = delete;
+
+        Selection open(DWORD& error)
+        {
+            wchar_t path[4096]{};
+            ::SetLastError(ERROR_SUCCESS);
+            const DWORD length = ::GetEnvironmentVariableW(L"KSWORD_APIMON_COOPERATIVE_SESSION_V1", path,
+                static_cast<DWORD>(std::size(path)));
+            error = ::GetLastError();
+            if (!length && error == ERROR_ENVVAR_NOT_FOUND) return Selection::Unset;
+            // Accept only an ordinary absolute drive path. The final-name check
+            // rejects aliases, relative segments and intermediate redirection.
+            if (length < 4 || length >= std::size(path) || path[1] != L':' || path[2] != L'\\') {
+                error = ERROR_INVALID_NAME;
+                return Selection::Rejected;
+            }
+            const std::wstring requested(path, length);
+            if (requested.substr(requested.find_last_of(L'\\') + 1) != L"KswordApiMonCooperative") {
+                error = ERROR_INVALID_NAME;
+                return Selection::Rejected;
+            }
+            m_handle = ::CreateFileW(path, READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            if (m_handle == INVALID_HANDLE_VALUE) { error = ::GetLastError(); return Selection::Rejected; }
+            FILE_ATTRIBUTE_TAG_INFO info{};
+            wchar_t finalPath[4096]{};
+            const DWORD finalLength = ::GetFinalPathNameByHandleW(m_handle, finalPath,
+                static_cast<DWORD>(std::size(finalPath)), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+            if (!::GetFileInformationByHandleEx(m_handle, FileAttributeTagInfo, &info, sizeof(info))
+                || !(info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                || finalLength != length + 4 || finalLength >= std::size(finalPath)
+                || ::CompareStringOrdinal(finalPath + 4, static_cast<int>(length), path,
+                    static_cast<int>(length), TRUE) != CSTR_EQUAL) {
+                error = ERROR_INVALID_NAME;
+                return Selection::Rejected;
+            }
+            if (!queryProcessUserSid(::GetCurrentProcessId(), &m_userSid)) {
+                error = ::GetLastError();
+                return Selection::Rejected;
+            }
+            if (!hasPrivateAcl(error)) return Selection::Rejected;
+            m_path = requested;
+            error = ERROR_SUCCESS;
+            return Selection::Opened;
+        }
+
+        bool selected() const { return !m_path.empty(); }
+        bool matchesUser(DWORD pid) const
+        {
+            std::vector<unsigned char> sid;
+            return selected() && queryProcessUserSid(pid, &sid) && ::EqualSid(sid.data(), userSid());
+        }
+        std::wstring configPath(DWORD pid, std::uint64_t creation) const
+        { return joinPath(m_path, L"config_" + instance(pid, creation) + L".ini"); }
+        std::wstring stopPath(DWORD pid, std::uint64_t creation) const
+        { return joinPath(m_path, L"stop_" + instance(pid, creation) + L".flag"); }
+
+    private:
+        static std::wstring instance(DWORD pid, std::uint64_t creation)
+        { return std::to_wstring(pid) + L"_" + std::to_wstring(creation); }
+        PSID userSid() const { return const_cast<unsigned char*>(m_userSid.data()); }
+
+        bool hasPrivateAcl(DWORD& error) const
+        {
+            PSID owner = nullptr;
+            PACL dacl = nullptr;
+            PSECURITY_DESCRIPTOR descriptor = nullptr;
+            error = ::GetSecurityInfo(m_handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                &owner, nullptr, &dacl, nullptr, &descriptor);
+            if (error != ERROR_SUCCESS) return false;
+            SECURITY_DESCRIPTOR_CONTROL control{};
+            DWORD revision = 0;
+            bool valid = owner && ::EqualSid(owner, userSid()) && dacl && dacl->AceCount == 2
+                && ::GetSecurityDescriptorControl(descriptor, &control, &revision) && (control & SE_DACL_PROTECTED);
+            bool sawUser = false, sawSystem = false;
+            for (DWORD index = 0; valid && index < dacl->AceCount; ++index) {
+                void* raw = nullptr;
+                valid = ::GetAce(dacl, index, &raw) && raw;
+                if (!valid) break;
+                const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+                valid = ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE
+                    && ace->Header.AceFlags == (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)
+                    && ace->Mask == FILE_ALL_ACCESS;
+                if (!valid) break;
+                auto* sid = const_cast<DWORD*>(&ace->SidStart);
+                if (::EqualSid(sid, userSid()) && !sawUser) sawUser = true;
+                else if (::IsWellKnownSid(sid, WinLocalSystemSid) && !sawSystem) sawSystem = true;
+                else valid = false;
+            }
+            ::LocalFree(descriptor);
+            if (!valid || !sawUser || !sawSystem) { error = ERROR_ACCESS_DENIED; return false; }
+            return true;
+        }
+
+        HANDLE m_handle = INVALID_HANDLE_VALUE;
+        std::wstring m_path;
+        std::vector<unsigned char> m_userSid;
+    };
+
     inline bool addSessionDirectoryReader(const std::uint32_t pidValue, std::wstring* const errorTextOut = nullptr)
     {
         std::vector<unsigned char> sid;
