@@ -45,3 +45,41 @@
 从仓库根目录运行 `pwsh -NoProfile -File KswordCLI/ActionAnalyze/Control/tests/Invoke-NativeDebugOwnerValidation.ps1 -RecoveryOnly`，只构建并运行独立合作双目标夹具。用例覆盖开门前取消、目标正常退出，以及可重试的断点恢复冲突。
 
 2026-11-26 CodeBuddy：原生 `1072 PASS`；正式 CLI `--cooperative-pair` 主动关闭双脱离、自然退出双回执，进程句柄读回退出码 `0 / 0`。日志位于 `.codex-build-logs/behavior-planning/`，分别以 `action-analyze-native-debug-owner-20261126-054714` 和 `action-analyze-product-breakpoint-long-20261126-055730` 开头。
+
+## 原生停点步进控制接口
+
+`NativeStep.h` 定义本端内部请求和回执，`NativeStepRuntime` 只在原 `NativeDebugOwner` 调试线程上管理 TF、DR1 与线程挂起债务。没有第二个 debug owner，也不依赖目标线程执行清理代码。CLI、Qt、Light 的控制工程均登记这些源；各端实际入口及运行验收分别记录。
+
+| 接口 | 语义 |
+| --- | --- |
+| `Step(NativeStepRequest)` | `release` 携带完整 owner、group、stop、原生事件和预期状态修订，`thread`、`tid`、`threadCreationTime` 必须是当前事件的精确强线程实例。`release.requestId` 使用 `continue/N`，和普通继续共用内部单调序列。 |
+| `QueryStep(requestId)` | 返回该内部请求的回执；最多保留 128 条。Running 仅表示原事件已释放并等待步进事件；Completed、Interrupted、Cancelled 等状态须结合 `resourcesRestored`、`stopGroupId` 和当前恢复状态解释。历史回执不授予新的控制权。 |
+| `CancelStep(requestId)` | 在原调试 owner 中请求中断，随后在实际原生事件上恢复资源并形成新停点。调用返回不等于已清退或已恢复执行。 |
+
+`Into` 只执行保守白名单可精确解码的 AMD64 单指令；`OverCall` 仅接受精确解码的 `E8` 或 `FF /2` CALL，在当前调用的返回边界用选中线程 DR1 停止。`Out` 仅接受实际 `C3` 返回边界，或本 owner 刚以真实 CALL 单步捕获、RIP/RSP/栈上返回地址仍一致的入口帧。未知指令、未知调用帧、用户 INT3 冲突及竞争 TF/DR 状态明确拒绝，不猜指令长度或任意栈槽。
+
+步进期间其余已登记线程增加且仅恢复本端一次挂起计数；新线程在其创建事件继续前先门控。完成或应用异常中断形成新停止组，旧组保留已继续回执。普通步进停点没有 `breakpointHit`；提前命中原有 DR0 用户停点时保留原命中语义。调用方只能在实际 `breakpointHit` 上执行断点条件自动继续，不能把前一次条件带到新的步进停点。应用异常的继续保持原生异常分发，未证明为本端事件时不吞异常。
+
+本批原生实测与未覆盖范围由作者派发的 CodeBuddy 写入 `docs/action-analyze-planning/native-stop-stepping.md`；本段接口说明本身不代表测试通过，不改变 owner 死亡恢复、普通 R0 或 GUI 的既有边界。
+
+## 私有执行位置绑定接口
+
+`NativeBreakpointRequest::executePointerExport=true` 选择映像中的 AMD64 指针数据导出；同时要求 `writeWatchBytes=0`、`writeWatchPointerExport=false`、没有 RVA 且导出名非空。该模式保持执行 DR0 与 `ExecutionEnterAttempt`，不产生数据变化掩码。`NativeBreakpointBinding::executePointerExport` 区别间接执行与间接写关注；`address` 是实际执行地址，`rva` 是选择器数据导出的 RVA，`pointerExportAddress` 是选择器地址。
+
+`NativePrivateExecutionSite.h` 提供 `ResolveNativePrivateExecutionSite` 与 `VerifyNativePrivateExecutionSite`。前者复用同一 AMD64 PE 导出解析器，允许可读的非执行映像数据（含只读数据），读取完整且对齐的 64 位指针。目标必须为已提交的 `MEM_PRIVATE` 区域，保护为 `PAGE_EXECUTE`、`PAGE_EXECUTE_READ` 或 `PAGE_EXECUTE_READWRITE`，排除空指针、非执行和 Guard。它冻结选择器区域、指针值、目标分配基址、区域边界及保护属性，不修改内存或页面保护。
+
+安装期间、每个新线程登记前、每次命中及步进新停点接纳前、原生事件放行前核对这些属性。发现变化时清退原绑定及本端调试资源，不重新解析并跟随新地址。复核来自停止期间的原生观察；外部进程并发改写仍可能发生，不能将属性相同当成分配代次相同，也不证明代码字节未改变。选择器所在模块卸载沿用原模块卸载清退路径。
+
+合作目标沿用调用方的 Ready/Gate：先完成私有代码初始化并公开指针，等待绑定实际 `Armed` 后再运行；EOF 取消由原合作入口处理。本 owner 不另建目标控制管道或调试所有者。支持的私有指令 Into 继续使用原 TF 白名单和 StopLedger；`PAGE_EXECUTE` 绑定不保证调试器有权读取指令，解码不可用时必须明确拒绝。
+
+用户已暂时禁止 CodeBuddy 新派发、续接和失败重试。本批只完成核心实现及工程依赖登记，没有替代测试、GUI 或产品构建；RX/RWX 正例、负控、新线程、旧停点与清退的真实运行证据仍待恢复 CodeBuddy 后验收，并由其写入 `docs/action-analyze-planning/private-execution-watch.md`。原生步进先前失败记录也尚不能由此实现声明关闭。
+
+## 停点调查与项目证据
+
+`CaptureNativeStopMemory` 借用断点／步进会话的原 `NativeDebugOwner`，在同一调用方串行控制线程执行。请求必须带当前会话采样及用户显示时冻结的目标、完整停止令牌和明确读取范围，且只能使用 `HeldEvent`。读取前后分别查询原 owner；不申请暂停，不提交继续，也不创建第二个调试所有者。旧修订、事件、会话或目标不一致时拒绝，不回退实时读取。
+
+读取复用 `SelectedMemorySnapshot`，成功页保留实际字节，失败页保留原错误，不填零。结果中的 `completeRange` 只描述范围字节；`heldAtBothChecks` 独立描述前后两次精确停点核对，不能声称其它进程的外部写入者也已冻结。`WriteProcessGroupMemorySnapshot` 把读取模式及两个停点随字节写入独立 `raw-memory` 段。
+
+`OwnedDataWatchSession::Start` 可接受项目已登记的 `sampleId`；省略时沿用独立采样身份。绑定必须在启动前确定，保存不能事后将旧结果改写为另一采样。`CaptureMemory` 复用原 owner 及上述读取路径，`SaveExecution` 则从原 owner 重新查询精确当前事件后调用 `WriteNativeExecution`。两者都不执行写入条件的自动继续；普通写入停点不会因保存操作生成执行事实。执行观测保存到独立 `raw-native`，历史读取不构造活继续请求。
+
+调用方保留同一项目写租约、各流的已核验前序和写入失败回执，继续及清退仍归原会话。桌面接线和正式 CLI 命令由各端独立组织；本节记录源码接口，不替代真实运行回执。

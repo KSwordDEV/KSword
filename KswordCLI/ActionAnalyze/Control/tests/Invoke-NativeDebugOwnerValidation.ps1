@@ -30,7 +30,7 @@ try {
         Tee-Object -FilePath "$prefix-build.log"
 
     $build = ('call "{0}" >nul && "{1}" /nologo /std:c++20 /permissive- /EHsc /W4 /WX /O2 /MT /utf-8 ' +
-        '/Fo"{2}\\" /Fd"{2}\compile.pdb" /Fe"{3}" "{4}\NativeDebugOwner.cpp" "{4}\NativeBreakpointImage.cpp" "{4}\StopLedger.cpp" ' +
+        '/Fo"{2}\\" /Fd"{2}\compile.pdb" /Fe"{3}" "{4}\NativeDebugOwner.cpp" "{4}\NativeStepRuntime.cpp" "{4}\NativeBreakpointImage.cpp" "{4}\NativePrivateExecutionSite.cpp" "{4}\StopLedger.cpp" ' +
         '"{4}\OwnedBreakpointGroup.cpp" "{4}\..\Project\ProjectStorage.cpp" "{6}\shared\evidence\EvidenceJson.cpp" ' +
         '"{6}\shared\evidence\LosslessValue.cpp" "{6}\shared\usermode\backend\Common.cpp" ' +
         '"{6}\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" "{6}\Ksword5.1\Ksword5.1\ksword\string\string.cpp" ' +

@@ -99,7 +99,8 @@ DWORD ReadExport(const ImageReader& image, IMAGE_DATA_DIRECTORY entry, std::stri
 } // namespace
 
 DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
-    std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site, std::uint32_t dataBytes) {
+    std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site, std::uint32_t dataBytes,
+    bool allowReadOnlyData) {
     std::uintptr_t base = 0;
     DWORD size = 0;
     if (const auto error = GetImage(pid, path, base, size)) { return error; }
@@ -132,14 +133,15 @@ DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
         if (addressRva >= section.VirtualAddress && width <= section.Misc.VirtualSize &&
             addressRva - section.VirtualAddress <= section.Misc.VirtualSize - width) {
             const bool executable = (section.Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0; // PE 节属性。
-            eligibleSection = dataBytes ? !executable && (section.Characteristics & IMAGE_SCN_MEM_WRITE) != 0 : executable;
+            eligibleSection = dataBytes ? !executable &&
+                (section.Characteristics & (allowReadOnlyData ? IMAGE_SCN_MEM_READ : IMAGE_SCN_MEM_WRITE)) != 0 : executable;
             break;
         }
     }
     MEMORY_BASIC_INFORMATION memory{};
     const auto address = base + addressRva;
     // 同一地址还必须被当前进程映射为对应的内存类型。
-    const DWORD eligibleProtection = dataBytes ? PAGE_READWRITE | PAGE_WRITECOPY :
+    const DWORD eligibleProtection = dataBytes ? PAGE_READWRITE | PAGE_WRITECOPY | (allowReadOnlyData ? PAGE_READONLY : 0) :
         PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
     if (!eligibleSection || (dataBytes && address % dataBytes) ||
         !VirtualQueryEx(process, reinterpret_cast<void*>(address), &memory, sizeof(memory)) ||
@@ -151,6 +153,72 @@ DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
     }
     site = {base, address, addressRva};
     return ERROR_SUCCESS;
+}
+
+namespace {
+
+DWORD ReadPointerRegion(HANDLE process, std::uintptr_t address, std::uint32_t width,
+    MEMORY_BASIC_INFORMATION& memory) {
+    if ((width != 1 && width != 2 && width != 4 && width != 8) || !address || address % width ||
+        width - 1 > std::numeric_limits<std::uintptr_t>::max() - address) return ERROR_INVALID_ADDRESS;
+    if (!VirtualQueryEx(process, reinterpret_cast<void*>(address), &memory, sizeof(memory))) return GetLastError();
+    const auto region = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
+    const auto protection = memory.Protect & 0xff;
+    if (memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE || !memory.AllocationBase ||
+        (memory.Protect & PAGE_GUARD) || (protection != PAGE_READWRITE && protection != PAGE_EXECUTE_READWRITE) ||
+        region > address || memory.RegionSize < width || address - region > memory.RegionSize - width) {
+        return ERROR_INVALID_ADDRESS;
+    }
+    return ERROR_SUCCESS;
+}
+
+DWORD ReadPointerExport(HANDLE process, std::uintptr_t moduleBase, std::uintptr_t selector, std::uintptr_t& value) {
+    MEMORY_BASIC_INFORMATION memory{};
+    if (!VirtualQueryEx(process, reinterpret_cast<void*>(selector), &memory, sizeof(memory))) return GetLastError();
+    const auto region = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
+    if (memory.State != MEM_COMMIT || memory.Type != MEM_IMAGE ||
+        reinterpret_cast<std::uintptr_t>(memory.AllocationBase) != moduleBase || (memory.Protect & PAGE_GUARD) ||
+        region > selector || memory.RegionSize < sizeof(std::uint64_t) ||
+        selector - region > memory.RegionSize - sizeof(std::uint64_t)) return ERROR_INVALID_ADDRESS;
+    std::uint64_t pointer = 0;
+    SIZE_T got = 0;
+    if (!ReadProcessMemory(process, reinterpret_cast<void*>(selector), &pointer, sizeof(pointer), &got)) return GetLastError();
+    if (got != sizeof(pointer)) return ERROR_PARTIAL_COPY;
+    if (!pointer || pointer > std::numeric_limits<std::uintptr_t>::max()) return ERROR_INVALID_ADDRESS;
+    value = static_cast<std::uintptr_t>(pointer);
+    return ERROR_SUCCESS;
+}
+
+} // namespace
+
+DWORD ResolveNativePointerDataSite(HANDLE process, DWORD pid, std::wstring_view path,
+    std::string_view exportName, std::uint32_t dataBytes, NativeImageSite& site) {
+    NativeImageSite selector;
+    // 选择器自身必须是完整、对齐的可写数据导出，不把代码或转发器当作指针。
+    if (const auto error = ResolveNativeImageSite(process, pid, path, std::nullopt, exportName, selector, 8)) return error;
+    std::uintptr_t address = 0;
+    if (const auto error = ReadPointerExport(process, selector.base, selector.address, address)) return error;
+    MEMORY_BASIC_INFORMATION memory{};
+    if (const auto error = ReadPointerRegion(process, address, dataBytes, memory)) return error;
+    site = selector;
+    site.pointerExportAddress = selector.address;
+    site.address = address;
+    site.allocationBase = reinterpret_cast<std::uintptr_t>(memory.AllocationBase);
+    site.regionBase = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
+    site.regionBytes = memory.RegionSize;
+    site.regionProtection = memory.Protect;
+    return ERROR_SUCCESS;
+}
+
+DWORD VerifyNativePointerDataSite(HANDLE process, const NativeImageSite& site, std::uint32_t dataBytes) {
+    std::uintptr_t address = 0;
+    if (const auto error = ReadPointerExport(process, site.base, site.pointerExportAddress, address)) return error;
+    if (address != site.address) return ERROR_INVALID_ADDRESS;
+    MEMORY_BASIC_INFORMATION memory{};
+    if (const auto error = ReadPointerRegion(process, address, dataBytes, memory)) return error;
+    return reinterpret_cast<std::uintptr_t>(memory.AllocationBase) == site.allocationBase &&
+        reinterpret_cast<std::uintptr_t>(memory.BaseAddress) == site.regionBase && memory.RegionSize == site.regionBytes &&
+        memory.Protect == site.regionProtection ? ERROR_SUCCESS : ERROR_INVALID_ADDRESS;
 }
 
 } // namespace ks::cli::action_analyze::control
