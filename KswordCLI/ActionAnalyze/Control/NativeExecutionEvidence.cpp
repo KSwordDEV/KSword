@@ -54,6 +54,7 @@ std::optional<NativeExecutionEvidence> NativeExecutionFromOwnedStop(const Native
     result.stateRevision = state.group->stateRevision;
     result.observedQpc = state.timing.eventObservedQpc;
     result.qpcFrequency = state.timing.qpcFrequency;
+    result.binding = state.breakpoint; // 冻结成功纳入的当前范围，不从后续Query或参数草稿回填历史。
     if (state.registers && state.registers->thread == thread->identity)
     {
         result.registers = state.registers; // 与实际执行阶段一起保存，Query不会补读现场。

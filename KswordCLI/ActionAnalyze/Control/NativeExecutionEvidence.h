@@ -24,6 +24,7 @@ struct NativeExecutionEvidence {
     std::optional<std::uint64_t> observedQpc; // 所有者观察本事件的时刻，不伪造 CPU 精确取指时刻。
     std::uint64_t qpcFrequency = 0;
     std::optional<NativeStopRegisters> registers; // 同一事件线程的冻结值；失败保持空，不由历史字节重建。
+    std::optional<NativeBreakpointBinding> binding; // 同一事件原绑定的值副本，记录当时实际NX范围和实测文件散列。
 };
 
 // 内部原生边界：输入必须是同一活 NativeDebugOwner 的 Query/Step 回执，禁止用于外来 JSON 解码。

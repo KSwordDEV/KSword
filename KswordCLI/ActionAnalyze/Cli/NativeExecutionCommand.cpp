@@ -402,7 +402,7 @@ void RegisterNativeExecutionCommands()
     read.syntax = L"KswordCLI.exe analyze execution read --project PATH --sample UUID [--ordinal N] [--json]";
     read.summary = L"Read a verified historical native execution observation from a project sample.";
     read.options = L"Requires --project and --sample. --ordinal defaults to 1 and must be a positive uint64.";
-    read.notes = L"Verifies every raw-native segment from 1 through the requested ordinal. Accepts legacy native-execution-v1 and current native-execution-v2 with full event-thread registers, or null when collection failed. Returns the historical document, SHA-256 and raw-native boundary. Archived registers are event-stop values; instruction-completed registers describe the state after the instruction. Historical stop IDs cannot grant live control.";
+    read.notes = L"Verifies every raw-native segment from 1 through the requested ordinal. Accepts legacy native-execution-v1/v2 and current native-execution-v3 with full event-thread registers and the original event binding. The binding retains admitted NX ranges and any measured image SHA256; missing legacy fields remain unknown. Returns the historical document, SHA-256 and raw-native boundary. Archived registers are event-stop values; instruction-completed registers describe the state after the instruction. Historical binding and stop IDs cannot grant live control.";
     read.run = Read;
     addCommand(std::move(read));
     Command correlate;

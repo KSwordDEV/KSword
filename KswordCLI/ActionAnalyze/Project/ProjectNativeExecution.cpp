@@ -9,7 +9,7 @@ namespace archive = ks::cli::action_analyze::archive;
 using namespace ProjectStorage;
 using V = Evidence::JsonValue;
 
-// 将实际事件的完整寄存器按稳定目录写入v2；失败保持null，不使用全零对象替代。
+// 将实际事件的完整寄存器按稳定目录写入当前版本；失败保持null，不使用全零对象替代。
 V Registers(const native::NativeExecutionEvidence& observed)
 {
     if (!observed.registers)
@@ -24,10 +24,32 @@ V Registers(const native::NativeExecutionEvidence& observed)
     return Object({{"threadId", Text(observed.registers->thread.threadId)}, {"values", Object(std::move(values))}});
 }
 
+// 输入执行事件的原绑定副本，输出纯历史定位字段；不序列化停止票据或恢复责任。
+V Binding(const native::NativeExecutionEvidence& observed)
+{
+    if (!observed.binding)
+    {
+        return V::makeNull();
+    }
+    const auto& binding = *observed.binding; // 同一事件被冻结的原owner绑定，不是下轮草稿。
+    JsonArray ranges; // 按原接纳顺序保存初始范围和后续追加范围。
+    for (const auto& range : binding.executionRanges)
+    {
+        ranges.push_back(Object({{"base", Number(range.base)}, {"bytes", Number(range.bytes)},
+            {"allocationBase", Number(range.allocationBase)}}));
+    }
+    return Object({{"requestId", Text(binding.requestId)}, {"address", Number(binding.address)},
+        {"rangeBytes", Number(binding.rangeBytes)}, {"moduleBase", Number(binding.moduleBase)},
+        {"rva", Number(binding.rva)}, {"writeWatchBytes", V::makeUInt(binding.writeWatchBytes)},
+        {"imageSha256", binding.imageSha256 ? Text(*binding.imageSha256) : V::makeNull()},
+        {"executionRanges", V::makeArray(std::move(ranges))}});
+}
+
+// 输入项目身份、原owner身份和已提取的执行事件，输出v3历史文档，不产生新控制能力。
 V Document(const ProjectInfo& project, const native::OwnerIdentity& owner,
     const native::NativeExecutionEvidence& observed)
 {
-    return Object({{"kind", Text("native-execution-v2")}, {"projectId", Text(project.projectId)},
+    return Object({{"kind", Text("native-execution-v3")}, {"projectId", Text(project.projectId)},
         {"sampleId", Text(owner.sampleId)}, {"sessionId", Text(owner.sessionId)}, {"epoch", Text(owner.epoch)},
         {"source", Text("native-debug-owner")}, {"historical", V::makeBool(true)},
         {"observation", Text(observed.kind == native::NativeExecutionKind::InstructionCompleted ?
@@ -41,7 +63,8 @@ V Document(const ProjectInfo& project, const native::OwnerIdentity& owner,
         {"instructionAddress", Number(observed.instructionAddress)},
         {"nextInstructionAddress", observed.nextInstructionAddress ? Number(*observed.nextInstructionAddress) : V::makeNull()},
         {"observedQpc", observed.observedQpc ? Number(*observed.observedQpc) : V::makeNull()},
-        {"qpcFrequency", Number(observed.qpcFrequency)}, {"registers", Registers(observed)}});
+        {"qpcFrequency", Number(observed.qpcFrequency)}, {"registers", Registers(observed)},
+        {"binding", Binding(observed)}});
 }
 
 // v2寄存器必须全部存在且来自文档的实际线程；v1没有该字段，不补造未知寄存器。
@@ -92,10 +115,76 @@ bool Identifier(const V& object, std::string_view key)
     return GetString(object, key, value) && IsText(value, 1024) && !value.empty();
 }
 
+// 输入v3归档绑定，核对字段与页预算；只验证历史自洽，不回读目标进程或重新授予设防资格。
+bool ValidBinding(const V& doc)
+{
+    const auto* binding = doc.find("binding"); // v3固定具有该字段，未知原绑定显式为null。
+    if (!binding)
+    {
+        return false;
+    }
+    if (binding->isNull())
+    {
+        return !IsString(doc, "observation", "execution-enter-attempt");
+    }
+    std::uint64_t address = 0, bytes = 0, module = 0, rva = 0, width = 0; // 原绑定的定位与模式。
+    const auto* widthField = binding->find("writeWatchBytes"); // 宽度沿原数值字段类型读取。
+    if (!Fields(*binding, {"requestId", "address", "rangeBytes", "moduleBase", "rva", "writeWatchBytes", "imageSha256", "executionRanges"}) ||
+        !Identifier(*binding, "requestId") || !Positive(*binding, "address", &address) ||
+        !GetNumber(*binding, "rangeBytes", bytes) || !GetNumber(*binding, "moduleBase", module) ||
+        !GetNumber(*binding, "rva", rva) || rva > MAXDWORD || !widthField ||
+        widthField->type() != Evidence::JsonType::UInt || !widthField->tryGetU64(width) ||
+        (width != 0 && width != 1 && width != 2 && width != 4 && width != 8))
+    {
+        return false;
+    }
+    const auto* hash = binding->find("imageSha256"); // 仅实测成功值，不把配置中的期望值当作测量。
+    std::string measured; // 规范小写SHA256；无约束或未取得时为null。
+    if (!hash || (!hash->isNull() && (!module || !GetString(*binding, "imageSha256", measured) || !IsHash(measured))))
+    {
+        return false;
+    }
+
+    const auto* ranges = binding->find("executionRanges"); // 原接纳成功的完整NX范围目录。
+    const auto* list = ranges ? ranges->asArray() : nullptr;
+    if (!list || list->size() > 64 || (!bytes && !list->empty()) ||
+        (bytes && width))
+    {
+        return false;
+    }
+    std::uint64_t totalPages = 0, instruction = 0; // 当前总页数及被保存的实际执行地址。
+    if (!Positive(doc, "instructionAddress", &instruction))
+    {
+        return false;
+    }
+    bool includesInstruction = !bytes && instruction == address; // DR0进入只接受精确原地址。
+    for (std::size_t i = 0; i < list->size(); ++i)
+    {
+        const auto& range = (*list)[i]; // 每个范围保持原分配基址，不能用句柄替代区域身份。
+        std::uint64_t base = 0, length = 0, allocation = 0; // 无损半开区间与原分配定位。
+        if (!Fields(range, {"base", "bytes", "allocationBase"}) || !Positive(range, "base", &base) ||
+            !Positive(range, "bytes", &length) || !Positive(range, "allocationBase", &allocation) ||
+            base % 4096 || length % 4096 || allocation > base || length > UINT64_MAX - base ||
+            length / 4096 > 64 - totalPages || (i == 0 && (base != address || length != bytes)))
+        {
+            return false;
+        }
+        totalPages += length / 4096;
+        includesInstruction = includesInstruction || (instruction >= base && instruction - base < length);
+    }
+    // Into的指令可已离开原绑定；进入尝试必须落在保存的当时已纳入范围。
+    return (!bytes || !list->empty()) &&
+        (!IsString(doc, "observation", "execution-enter-attempt") || (!width && includesInstruction));
+}
+
 bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sampleId)
 {
+    const bool version3 = IsString(doc, "kind", "native-execution-v3"); // v3保存事件时绑定，旧v1/v2不补字段。
     const bool version2 = IsString(doc, "kind", "native-execution-v2"); // 版本严格分开，旧v1仍按原字段集合读取。
-    const bool fieldsValid = version2 ? Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
+    const bool fieldsValid = version3 ? Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
+            "target", "thread", "event", "groupId", "stopId", "stateRevision", "instructionAddress",
+            "nextInstructionAddress", "observedQpc", "qpcFrequency", "registers", "binding"}) :
+        version2 ? Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
             "target", "thread", "event", "groupId", "stopId", "stateRevision", "instructionAddress",
             "nextInstructionAddress", "observedQpc", "qpcFrequency", "registers"}) :
         Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
@@ -126,7 +215,8 @@ bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sa
     if (!pid || pid->type() != Evidence::JsonType::UInt || !pid->tryGetU64(processId) || !processId || processId > MAXDWORD ||
         !tid || tid->type() != Evidence::JsonType::UInt || !tid->tryGetU64(threadId) || !threadId || threadId > MAXDWORD ||
         !Positive(*target, "creationFileTime", &processTime) || !Positive(*thread, "creationFileTime", &threadTime) ||
-        threadTime < processTime || (version2 && !ValidRegisters(doc, *thread))) return false;
+        threadTime < processTime || ((version2 || version3) && !ValidRegisters(doc, *thread)) ||
+        (version3 && !ValidBinding(doc))) return false;
     std::uint64_t frequency = 0;
     if (!GetNumber(doc, "qpcFrequency", frequency) ||
         (!IsNull(doc, "observedQpc") && (!frequency || !Positive(doc, "observedQpc")))) return false;
@@ -137,7 +227,8 @@ bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sa
 
 bool IsNativeExecutionDocument(const Evidence::JsonValue& document)
 {
-    return IsString(document, "kind", "native-execution-v1") || IsString(document, "kind", "native-execution-v2");
+    return IsString(document, "kind", "native-execution-v1") || IsString(document, "kind", "native-execution-v2") ||
+        IsString(document, "kind", "native-execution-v3");
 }
 
 ProjectResult ReadNativeExecution(const ProjectDocument& project, std::string_view sampleId,

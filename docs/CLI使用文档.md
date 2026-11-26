@@ -300,6 +300,8 @@ REPL 使用 `execution-save STOP_ID STATE_REVISION` 显式保存当前仍持有�
 
 项目单目标会话提供 REPL `api-capture PID FILETIME DURATION confirm`，或 JSONL `control.api.capture`：携带当前 `session`，不带 `expected`，`params` 只含 `sourcePid`（UInt）、`sourceCreationFileTime`（规范正十进制字符串）、`durationMs`（UInt，1000..10000）、`confirm:true`。显式来源必须是另一进程实例，不得使用当前原生目标；调用前从原 owner 的 Query 实读目标 PID，来源 PID＋FILETIME 再由既有显式 R3 附加控制器核对。不从关联候选自动选进程，也不默换采样。
 
+当前新写入升级为 `native-execution-v3`，在v2寄存器之外增加 `binding`：同一事件时的原请求ID、绑定地址、初始范围、模块基址、RVA、关注宽度、实测文件 `imageSha256` 及已纳入 `executionRanges`。动态NX追加后保存实际范围列表，旧事件保持旧范围；进入尝试必须落在当时已纳入范围或精确DR0地址，Into完成可已离开初始站点。v1/v2仍按原字段读取，不用当前绑定补旧档；历史绑定不授予活控制权，也不证明区域代次、因果或运行时页面散列。三端复用原历史文档消费；新增v3尚未构建或运行。
+
 该命令在原 CLI 控制线程同步完成有限采集，**采集区间最长 10 秒，启动与停止排空超时另计**，期间其他控制指令等待完成后处理；不支持 duration=0。原 debug 线程独立保留已有停点，API 清退只停止 API，不 Continue/Close 原生 owner。复用同一个项目 writer 和实际 sample 的冻结修订，不创建第二 writer、项目、采样或 owner，不订阅 Agent ETW。只允许首次使用 primary API lane：`raw` 或 `checkpoints` 目录已存在时（含空目录、坏尾、缺标记）由核心以 `apiCaptureLaneAlreadyUsed` 拒绝，不覆盖、补写或跳段。
 
 实际采集尝试用 response 返回独立 `exitCode/status`、来源与原 capture、`archive.archivedPackets/committedSegments`、已提交前缀、规则文件 SHA、三类 transfer 累计计数和清退状态；参数/会话拒绝为 error。归档前缀成功不代表原采集完整，部分结果保留真实原码，错误不锁死 native/memory lane。API 回调不隐式保存原生证据，完成后需另显式 `execution-save`。同采样只表示存储作用域一致，四项来源/区域版本/因果/共同钟保证仍为 false；本入口仅完成源码接入，旧验收不覆盖，未构建、未测试。
