@@ -20,7 +20,6 @@ constexpr std::string_view kOptInExport = "KSwordActionAnalyzeDataWatchV1";
 
 // 写入变化与执行进入尝试均属观测；字段目录按键排序，未采集字段保持未知。
 constexpr auto kConditionPhase = rules::Phase::Observation;
-constexpr auto kConditionFields = NativeStopConditionFields(kConditionPhase);
 
 // 将本端拒绝原因附在已有快照上，避免把先前的继续回执归给本次请求。
 NativeControlResult Reject(NativeControlResult result, const char* stage, DWORD error, LedgerResult reason)
@@ -147,7 +146,7 @@ DataWatchConditionPreparation PrepareDataWatchCondition(std::wstring_view source
     if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, source.data(), length, text.data(), bytes, nullptr, nullptr) != bytes) {
         return {{}, "expression-invalid-unicode", std::nullopt};
     }
-    auto prepared = rules::PreparePredicateExpression(text, kConditionPhase, kConditionFields); // 复用 CLI 的类型、位置和预算校验。
+    auto prepared = PrepareNativeStopCondition(text, kConditionPhase); // 原生目录、类型、位置和预算由同一入口核对。
     if (prepared.error == rules::ExpressionError::None) {
         return {std::move(prepared.predicate), nullptr, std::nullopt};
     }
@@ -156,7 +155,13 @@ DataWatchConditionPreparation PrepareDataWatchCondition(std::wstring_view source
     switch (prepared.preparationError) {
     case rules::PrepareError::UnknownField: diagnostic = "unknown-field"; break;
     case rules::PrepareError::FieldNotInPhase: diagnostic = "field-not-in-phase"; break;
-    case rules::PrepareError::TypeMismatch: diagnostic = "type-mismatch"; break;
+    case rules::PrepareError::TypeMismatch:
+        // 三元条件与分支错误保留各自诊断 ID，避免丢失 bool/u64 不兼容的具体原因。
+        if (prepared.error != rules::ExpressionError::ExpectedBooleanCondition &&
+            prepared.error != rules::ExpressionError::ConditionalBranchTypeMismatch) {
+            diagnostic = "type-mismatch";
+        }
+        break;
     case rules::PrepareError::UnsupportedOperator: diagnostic = "unsupported-operator"; break;
     default: break;
     }
@@ -509,8 +514,7 @@ bool CanFollowDataWatchPrivateExecution(const NativeControlResult& state) noexce
 // 输入同owner的冻结命中快照和谓词，输出三值判断；执行事件的数据变化字段保持NotCollected。
 static rules::Evaluation EvaluateWrite(const rules::PreparedPredicate& condition, const NativeControlResult& state)
 {
-    const auto samples = NativeStopConditionSamples(state);
-    return rules::EvaluatePredicate(condition, kConditionPhase, samples);
+    return EvaluateNativeStopCondition(condition, kConditionPhase, state);
 }
 
 NativeControlResult OwnedDataWatchSession::ApplyCondition(NativeControlResult state)

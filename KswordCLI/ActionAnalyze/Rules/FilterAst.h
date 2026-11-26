@@ -57,8 +57,15 @@ struct NumericComparison {
     std::size_t left; // 左侧 u64 子树的后序索引。
     std::size_t right; // 右侧 u64 子树的后序索引。
 };
+// 条件必须为布尔谓词，两个分支必须同为 bool 或同为 u64。
+// 未知条件不会求值任何分支，也不会通过比较两个分支推断结果。
+struct Conditional {
+    std::size_t condition; // 先求值的布尔条件。
+    std::size_t whenTrue; // 条件已知为真时唯一求值的分支。
+    std::size_t whenFalse; // 条件已知为假时唯一求值的分支。
+};
 using AstNode = std::variant<bool, Not, Logical, FieldTest, NumericLiteral,
-    NumericField, NumericUnary, NumericBinary, NumericComparison>;
+    NumericField, NumericUnary, NumericBinary, NumericComparison, Conditional>;
 
 // 准备错误定位到节点，运行错误另外附在 Unknown 上。
 enum class PrepareError {
@@ -99,12 +106,13 @@ struct Preparation {
 };
 
 // 只接受已结构化的后序树，根为最后一项。每个节点只属一个父节点。
-// 根必须为布尔谓词；数值子树同样计入节点、深度和唯一父节点限制。
+// 根必须为布尔谓词；数值及条件子树同样计入节点、深度和唯一父节点限制。
 Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
                              std::span<const AstNode> nodes);
 
 // 字段视图在调用期间有效，按 ID 递增且唯一。未投影字段的质量为 NotCollected。
-// 短路保留左到右语义。实际读到的坏字段或耗尽预算独立报告，结果为 Unknown。
+// 短路保留左到右语义；条件节点只读取已选分支，未知条件不读取分支字段。
+// 实际读到的坏字段或耗尽预算独立报告，结果为 Unknown。
 Evaluation EvaluatePredicate(const PreparedPredicate& predicate, Phase phase,
                              std::span<const FieldSample> fields,
                              std::size_t workLimit = MaxPredicateWork);

@@ -4,7 +4,7 @@
 
 namespace Ksword::ActionAnalyze::Rules {
 
-// v3 增补有限数值运算，旧表达式与 JSON 字段谓词保持兼容。
+// v3 增补有限数值运算和条件运算符，旧表达式与 JSON 字段谓词保持兼容。
 inline constexpr std::string_view PredicateExpressionProfile = "predicate-expr-v3";
 inline constexpr bool IsSupportedPredicateExpressionProfile(std::string_view profile) noexcept
 {
@@ -26,7 +26,8 @@ enum class ExpressionError {
     ExpectedComma, UnexpectedToken, InvalidFieldPath, UnsupportedCall,
     InvalidNumber, NumericOverflow, InvalidString, UnsupportedEscape,
     NestingLimit, NodeLimit, PreparationFailed, ExpectedQualityComparison, InvalidQuality,
-    ExpectedU64Operands, BitwiseComparisonPrecedence, UnsupportedProfile
+    ExpectedU64Operands, BitwiseComparisonPrecedence, UnsupportedProfile,
+    ExpectedConditionalColon, ExpectedBooleanCondition, ConditionalBranchTypeMismatch
 };
 
 struct ExpressionPreparation {
@@ -37,7 +38,9 @@ struct ExpressionPreparation {
 };
 
 // 解析纯表达式并按调用方明确提供的字段目录及阶段验证。完整消耗输入后才返回谓词。
-// 数值优先级从高到低为 +/~、*/%、+/-、<< >>、关系、相等、&、^、|、&&、||。
+// 优先级从高到低为 !、~、一元+；*/%；+/-；<< >>；关系；相等；&；^；|；&&；||；?:。
+// ?: 右结合，条件必须为 bool，两分支必须同为 bool 或同为 u64；根仍须为 bool。
+// 已知条件只求值所选分支；未知条件直接返回 Unknown，不求值或合并分支。
 // u64 加减乘环绕；无符号右移，位移计数取低六位；除零返回 Unknown 和故障码。
 // 不支持一元负号（与 C# ulong 一致）、隐式类型转换、赋值或用户函数。
 // 数值叶子为目录中 U64 字段或十进制／0x 十六进制 u64 常量；括号可包任意子表达式。
@@ -46,7 +49,7 @@ struct ExpressionPreparation {
 ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
     std::span<const FieldBinding> catalog);
 
-// 读取归档中的显式语义版本；v1/v2 按原句法准入，不开放 v3 数值运算。
+// 读取归档中的显式语义版本；v1/v2 按原句法准入，不开放 v3 数值运算或 ?:。
 // v1 也不开放 v2 才引入的 isKnown/quality；未知版本拒绝而不猜测。
 ExpressionPreparation PreparePredicateExpression(std::string_view source, Phase phase,
     std::span<const FieldBinding> catalog, std::string_view profile);

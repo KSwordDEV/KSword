@@ -355,6 +355,7 @@ void AppendConditionReceipt(std::wstring& text, const LightDataWatchSnapshot& re
         (!report.last || report.last->event != result.displayedStop->pending->event))
         text += L"\r\n当前停点来自只读native回读，尚无本事件条件求值；下列历史条件判断不能代表当前事件。";
     text += L"\r\n数值/位运算按C#优先级；例如 (stop.thread.rax & 0xffu64)==0u64、stop.thread.rip>=stop.address。";
+    text += L"\r\nv3三元条件 condition ? trueBranch : falseBranch：两分支须同为bool或u64，仅求值选中分支；未知条件返回未知。";
     text += L"\r\n真／假／未知次数：" + std::to_wstring(report.trueCount) + L" / " +
         std::to_wstring(report.falseCount) + L" / " + std::to_wstring(report.unknownCount);
     if (!report.last) {
@@ -1007,6 +1008,12 @@ void CaptureSessionApi(Page& page) {
 // 纯值选择必须仍属于原worker发布目录及同一NX会话；不读取工程或查询目标。
 bool PrepareCandidateRange(Page& page, const LightPrivateExecutionCandidateSelection& selection) {
     if (page.preparingRange || !selection.page || selection.row >= selection.page->rows.size()) return false;
+    const auto& fields = selection.page->rows[selection.row].origin.record.apiMemoryLifecycle; // 回调入口也核对原操作，不依赖按钮状态。
+    if (!fields || (fields->operation != Ksword::Evidence::ApiMemoryOperation::Allocate &&
+        fields->operation != Ksword::Evidence::ApiMemoryOperation::Protect))
+    {
+        return false; // Free和Unmap只保留历史请求，不能借手填地址载入NX草稿。
+    }
     private_execution::PrivateExecutionRangeDraft draft;
     if (!private_execution::PreparePrivateExecutionRangeDraft(selection.page->rows[selection.row], selection.address, selection.bytes, draft)) return false;
     const auto matches = [&] {
@@ -1372,6 +1379,7 @@ bool CreateControls(Page& page) {
         L"stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、"
         L"stop.thread 下的 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。数值与位运算按C#优先级，用括号明确组合："
         L"(stop.thread.rax & 0xffu64)==0u64、stop.thread.rip>=stop.address。除零单列故障并返回未知。"
+        L"v3还支持 condition ? trueBranch : falseBranch，分支须同类型，未知条件不读取分支。"
         L"RIP、RAX、RSP 来自同一命中线程的冻结寄存器，采集失败时为未知。");
     if (page.tooltip) {
         ::SendMessageW(page.tooltip, TTM_SETMAXTIPWIDTH, 0, Scale(460)); // 字段说明由系统折行。

@@ -215,6 +215,10 @@ private:
             }
             return Truth::Unknown;
         }
+        if (const auto* conditional = std::get_if<Conditional>(&node)) {
+            const auto selected = SelectBranch(*conditional);
+            return selected ? Node(*selected) : Truth::Unknown;
+        }
         if (const auto* comparison = std::get_if<NumericComparison>(&node)) {
             const auto left = Number(comparison->left);
             const auto right = Number(comparison->right);
@@ -238,6 +242,16 @@ private:
         return Truth::Unknown;
     }
 
+    // 条件只求值一次。Unknown 不访问任何分支，包含两个分支恰好相同的情况。
+    std::optional<std::size_t> SelectBranch(const Conditional& conditional)
+    {
+        const auto condition = Node(conditional.condition);
+        if (condition == Truth::Unknown) {
+            return std::nullopt;
+        }
+        return condition == Truth::True ? conditional.whenTrue : conditional.whenFalse;
+    }
+
     // 递归读取已验证的数值子树；空 optional 表示未知，不表示数值零。
     std::optional<std::uint64_t> Number(std::size_t index)
     {
@@ -245,6 +259,10 @@ private:
             return std::nullopt;
         }
         const auto& node = nodes_[index]; // 当前实际消费预算的数值节点。
+        if (const auto* conditional = std::get_if<Conditional>(&node)) {
+            const auto selected = SelectBranch(*conditional);
+            return selected ? Number(*selected) : std::nullopt;
+        }
         if (const auto* literal = std::get_if<NumericLiteral>(&node)) {
             return literal->value;
         }
@@ -480,6 +498,19 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             if (outputs[logical->left] != FieldType::Bool || outputs[logical->right] != FieldType::Bool) {
                 return {{}, PrepareError::TypeMismatch, i};
             }
+        } else if (const auto* conditional = std::get_if<Conditional>(&node)) {
+            // 所有分支均在准备时绑定和检查；运行时才按条件选择其中一个。
+            if (!attach(conditional->condition) || !attach(conditional->whenTrue) ||
+                !attach(conditional->whenFalse)) {
+                return {{}, PrepareError::InvalidTree, i};
+            }
+            const auto branchType = outputs[conditional->whenTrue];
+            if (outputs[conditional->condition] != FieldType::Bool ||
+                branchType != outputs[conditional->whenFalse] ||
+                (branchType != FieldType::Bool && branchType != FieldType::U64)) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+            outputs[i] = branchType;
         } else if (std::holds_alternative<NumericLiteral>(node)) {
             outputs[i] = FieldType::U64;
         } else if (const auto* reference = std::get_if<NumericField>(&node)) {

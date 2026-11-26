@@ -30,6 +30,16 @@ inline constexpr auto NativeStopConditionFields(Ksword::ActionAnalyze::Rules::Ph
     return fields;
 }
 
+// 原生条件只绑定原生停点目录；普通 API 文本规则不能通过此入口取得额外字段。
+// 新草稿使用 v3，读取冻结条件时由调用方明确传入保存的 v1/v2/v3 profile。
+[[nodiscard]] inline Ksword::ActionAnalyze::Rules::ExpressionPreparation PrepareNativeStopCondition(
+    std::string_view source, Ksword::ActionAnalyze::Rules::Phase phase,
+    std::string_view profile = Ksword::ActionAnalyze::Rules::PredicateExpressionProfile)
+{
+    const auto fields = NativeStopConditionFields(phase);
+    return Ksword::ActionAnalyze::Rules::PreparePredicateExpression(source, phase, fields, profile);
+}
+
 // 输入原生冻结快照，输出拥有固定字段名的值数组。调用者负责控制资格；不查询线程或执行Continue。
 inline auto NativeStopConditionSamples(const NativeControlResult& state)
 {
@@ -92,6 +102,17 @@ inline auto NativeStopConditionSamples(const NativeControlResult& state)
         }
     }
     return samples;
+}
+
+// 仅消费调用方已取得的冻结快照；条件分支沿用已准备 AST 的三值和短路语义。
+// 这不是停点资格检查，不查询目标、不读指针，也不提交继续或其它原生控制请求。
+[[nodiscard]] inline Ksword::ActionAnalyze::Rules::Evaluation EvaluateNativeStopCondition(
+    const Ksword::ActionAnalyze::Rules::PreparedPredicate& predicate,
+    Ksword::ActionAnalyze::Rules::Phase phase, const NativeControlResult& state,
+    std::size_t workLimit = Ksword::ActionAnalyze::Rules::MaxPredicateWork)
+{
+    const auto samples = NativeStopConditionSamples(state);
+    return Ksword::ActionAnalyze::Rules::EvaluatePredicate(predicate, phase, samples, workLimit);
 }
 
 } // namespace ks::cli::action_analyze::control

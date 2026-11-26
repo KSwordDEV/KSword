@@ -8,7 +8,7 @@ namespace Ksword::ActionAnalyze::Rules {
 namespace {
 
 constexpr std::size_t MaxNodes = 512; // 与现有 AST 的准备上限一致。
-constexpr std::size_t MaxNesting = 32; // 独立限制括号和前缀操作符的解析栈。
+constexpr std::size_t MaxNesting = 32; // 独立限制括号、前缀和条件分支的解析栈。
 
 struct TokenRange {
     std::size_t begin;
@@ -134,11 +134,7 @@ public:
                 error = ExpressionError::NodeLimit;
             }
             if (checked.error == PrepareError::TypeMismatch && checked.node + 1 == nodes_.size() &&
-                (std::holds_alternative<NumericField>(nodes_[checked.node]) ||
-                 std::holds_alternative<NumericLiteral>(nodes_[checked.node]) ||
-                 ((std::holds_alternative<NumericBinary>(nodes_[checked.node]) ||
-                   std::holds_alternative<NumericUnary>(nodes_[checked.node])) &&
-                  HasNumericOperands(checked.node)))) {
+                HasNumericOperands(checked.node)) {
                 error = ExpressionError::ExpectedPredicate;
             }
             if (numericType) {
@@ -152,8 +148,22 @@ public:
                     error = ExpressionError::BitwiseComparisonPrecedence;
                 }
             }
-            Fail(error,
-                global ? TokenRange{0, 0} : ranges_.at(checked.node));
+            auto range = global ? TokenRange{0, 0} : ranges_.at(checked.node);
+            if (checked.error == PrepareError::TypeMismatch) {
+                if (const auto* conditional = std::get_if<Conditional>(&nodes_[checked.node])) {
+                    // 条件节点保存从 ? 到配对 : 的范围，分别精确指向错误的操作符。
+                    if (HasNumericOperands(conditional->condition)) {
+                        error = ExpressionError::ExpectedBooleanCondition;
+                        range.end = range.begin + 1;
+                    } else if (error == ExpressionError::ExpectedPredicate) {
+                        range.end = range.begin + 1;
+                    } else {
+                        error = ExpressionError::ConditionalBranchTypeMismatch;
+                        range.begin = range.end - 1;
+                    }
+                }
+            }
+            Fail(error, range);
             result_.preparationError = checked.error;
         } else {
             result_.predicate = std::move(checked.predicate);
@@ -162,7 +172,7 @@ public:
     }
 
 private:
-    // 只在准备器报告根类型不符时区分裸数值与非法混合运算。
+    // 准备器已检查子节点，按现有节点区分 u64 输出，用于根类型和条件类型诊断。
     bool HasNumericOperands(std::size_t index) const
     {
         const auto& node = nodes_[index]; // 子节点已按后序生成，无环或越界引用。
@@ -174,6 +184,10 @@ private:
         }
         if (const auto* binary = std::get_if<NumericBinary>(&node)) {
             return HasNumericOperands(binary->left) && HasNumericOperands(binary->right);
+        }
+        if (const auto* conditional = std::get_if<Conditional>(&node)) {
+            return !HasNumericOperands(conditional->condition) &&
+                HasNumericOperands(conditional->whenTrue) && HasNumericOperands(conditional->whenFalse);
         }
         return false;
     }
@@ -230,7 +244,36 @@ private:
 
     bool Disjunction(std::size_t nesting)
     {
-        return version_ < 3 ? LegacyBinary(nesting, false) : Expression(nesting, 1);
+        return version_ < 3 ? LegacyBinary(nesting, false) : ConditionalExpression(nesting);
+    }
+
+    // 条件运算低于 ||。两个分支递归读取完整条件表达式，因此 ?: 自然右结合。
+    bool ConditionalExpression(std::size_t nesting)
+    {
+        SkipSpace();
+        if (nesting > MaxNesting) {
+            return Fail(ExpressionError::NestingLimit, Here());
+        }
+        if (!Expression(nesting, 1)) {
+            return false;
+        }
+        if (!Take("?")) {
+            return true;
+        }
+        const auto question = position_ - 1; // 与稍后配对的冒号共同保存诊断范围。
+        const auto condition = nodes_.size() - 1;
+        if (!ConditionalExpression(nesting + 1)) {
+            return false;
+        }
+        const auto whenTrue = nodes_.size() - 1;
+        if (!Take(":")) {
+            return Fail(ExpressionError::ExpectedConditionalColon, Here());
+        }
+        const TokenRange range{question, position_};
+        if (!ConditionalExpression(nesting + 1)) {
+            return false;
+        }
+        return Emit(Conditional{condition, whenTrue, nodes_.size() - 1}, range);
     }
 
     // v1/v2 保留原先的字段对显式常量句法，不借用 v3 放宽数值或括号准入。
@@ -784,6 +827,9 @@ std::string_view ExpressionErrorId(ExpressionError error) noexcept
     case ExpressionError::ExpectedU64Operands: return "expression-expected-u64-operands";
     case ExpressionError::BitwiseComparisonPrecedence: return "expression-parenthesize-bitwise-before-comparison";
     case ExpressionError::UnsupportedProfile: return "expression-unsupported-profile";
+    case ExpressionError::ExpectedConditionalColon: return "expression-expected-conditional-colon";
+    case ExpressionError::ExpectedBooleanCondition: return "expression-expected-boolean-condition";
+    case ExpressionError::ConditionalBranchTypeMismatch: return "expression-conditional-branch-type-mismatch";
     }
     return "expression-invalid";
 }
