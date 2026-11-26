@@ -1,4 +1,5 @@
 #include "OwnedDataWatchSession.h"
+#include "NativeStopCondition.h"
 #include "CooperativeBreakpointGate.h"
 #include "NativeExecutionEvidence.h"
 
@@ -19,20 +20,7 @@ constexpr std::string_view kOptInExport = "KSwordActionAnalyzeDataWatchV1";
 
 // 写入变化与执行进入尝试均属观测；字段目录按键排序，未采集字段保持未知。
 constexpr auto kConditionPhase = rules::Phase::Observation;
-constexpr rules::FieldBinding kConditionFields[] = {
-    {"stop.address", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.changedByteMask", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.enrolledAfterStop", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.watchedBytes", rules::FieldType::U64, kConditionPhase},
-    {"stop.exceptionCode", rules::FieldType::U64, kConditionPhase},
-    {"stop.firstChance", rules::FieldType::Bool, kConditionPhase},
-    {"stop.pid", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.creationFileTime", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rax", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rip", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rsp", rules::FieldType::U64, kConditionPhase},
-    {"stop.tid", rules::FieldType::U64, kConditionPhase},
-};
+constexpr auto kConditionFields = NativeStopConditionFields(kConditionPhase);
 
 // 将本端拒绝原因附在已有快照上，避免把先前的继续回执归给本次请求。
 NativeControlResult Reject(NativeControlResult result, const char* stage, DWORD error, LedgerResult reason)
@@ -518,50 +506,9 @@ bool CanFollowDataWatchPrivateExecution(const NativeControlResult& state) noexce
 }
 
 // 输入同owner的冻结命中快照和谓词，输出三值判断；执行事件的数据变化字段保持NotCollected。
-static rules::Evaluation EvaluateWrite(const rules::PreparedPredicate& condition, const NativeControlResult& state,
-    const EventResponsibility& stop)
+static rules::Evaluation EvaluateWrite(const rules::PreparedPredicate& condition, const NativeControlResult& state)
 {
-    const auto& event = *state.pending; // 与当前停止组互相核验过的原生事件。
-    const auto& hit = *state.breakpointHit; // 同次硬件命中的写入地址或执行入口。
-    const auto& data = hit.dataChange; // 仅写入事件存在，不给执行入口捏造宽度或变化掩码。
-    const auto thread = std::find_if(state.frozenThreads.begin(), state.frozenThreads.end(), [&](const auto& member) {
-        return member.identity == stop.actualEventThread && member.tid == event.tid && member.creationTime != 0;
-    });
-    using enum rules::Quality;
-    rules::FieldSample samples[] = {
-        {"stop.address", Known, hit.address},
-        {"stop.data.changedByteMask", NotCollected, std::monostate{}},
-        {"stop.data.enrolledAfterStop", NotCollected, std::monostate{}},
-        {"stop.data.watchedBytes", NotCollected, std::monostate{}},
-        {"stop.exceptionCode", NotCollected, std::monostate{}},
-        {"stop.firstChance", NotCollected, std::monostate{}},
-        {"stop.pid", Known, std::uint64_t{event.pid}},
-        {"stop.thread.creationFileTime", NotCollected, std::monostate{}},
-        {"stop.thread.rax", NotCollected, std::monostate{}},
-        {"stop.thread.rip", NotCollected, std::monostate{}},
-        {"stop.thread.rsp", NotCollected, std::monostate{}},
-        {"stop.tid", Known, std::uint64_t{event.tid}},
-    };
-    if (data) {
-        samples[1] = {"stop.data.changedByteMask", Known, std::uint64_t{data->changedByteMask}};
-        samples[2] = {"stop.data.enrolledAfterStop", Known, data->enrolledAfterStop};
-        samples[3] = {"stop.data.watchedBytes", Known, std::uint64_t{data->watchedBytes}};
-    }
-    if (event.exceptionCode) {
-        samples[4] = {"stop.exceptionCode", Known, std::uint64_t{*event.exceptionCode}};
-    }
-    if (event.exceptionFirstChance.has_value()) {
-        samples[5] = {"stop.firstChance", Known, *event.exceptionFirstChance};
-    }
-    if (thread != state.frozenThreads.end()) {
-        samples[7] = {"stop.thread.creationFileTime", Known, thread->creationTime};
-        if (state.registers && state.registers->thread == thread->identity) {
-            // 使用本次事件暂停时的快照；值为零仍是已采集，而非缺失。
-            samples[8] = {"stop.thread.rax", Known, state.registers->rax};
-            samples[9] = {"stop.thread.rip", Known, state.registers->rip};
-            samples[10] = {"stop.thread.rsp", Known, state.registers->rsp};
-        }
-    }
+    const auto samples = NativeStopConditionSamples(state);
     return rules::EvaluatePredicate(condition, kConditionPhase, samples);
 }
 
@@ -593,7 +540,7 @@ NativeControlResult OwnedDataWatchSession::ApplyCondition(NativeControlResult st
         return state; // 同一事件的回读不重复求值，也不重复计数。
     }
 
-    const auto evaluation = EvaluateWrite(condition_, state, *stop); // 保留真假未知及求值故障。
+    const auto evaluation = EvaluateWrite(condition_, state); // 保留真假未知及求值故障。
     last = DataWatchConditionDecision{stop->event, stop->groupId, state.group->stateRevision, evaluation, std::nullopt};
     if (evaluation.truth == rules::Truth::True) {
         ++conditionReport_.trueCount;

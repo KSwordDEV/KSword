@@ -183,6 +183,7 @@
     <ClInclude Include="ActionAnalyze\Detection\NativeSectionMapAssociation.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\NativeExecutionMemory.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeDebugOwner.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Control\NativeStopCondition.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeStep.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeStepRuntime.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativePrivateExecutionSite.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

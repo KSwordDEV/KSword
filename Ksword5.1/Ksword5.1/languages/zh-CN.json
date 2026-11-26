@@ -8886,7 +8886,7 @@
     "请求创建 FILETIME": "请求创建 FILETIME",
     "命中线程寄存器": "命中线程寄存器",
     "条件仅作用于执行入口尝试；普通步进停点不重复求值。执行事件不提供 stop.data 字段；假或未知自动继续。": "条件仅作用于执行入口尝试；普通步进停点不重复求值。执行事件不提供 stop.data 字段；假或未知自动继续。",
-    "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、stop.thread.rip、stop.thread.rax、stop.thread.rsp。寄存器取自命中线程的冻结快照，采集失败为未知。": "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、stop.thread.rip、stop.thread.rax、stop.thread.rsp。寄存器取自命中线程的冻结快照，采集失败为未知。",
+    "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime。stop.thread 下支持 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。寄存器取自命中线程的冻结快照，采集失败为未知。": "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime。stop.thread 下支持 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。寄存器取自命中线程的冻结快照，采集失败为未知。",
     "已有私有地址写关注": "已有私有地址写关注",
     "已有私有地址执行关注": "已有私有地址执行关注",
     "私有地址": "私有地址",

@@ -719,6 +719,7 @@
     <ClInclude Include="Features\ActionAnalyze\LightProcessGroupMemory.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Ui\ParameterWorkspace.h"><Filter>Ui</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStopCondition.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStep.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStepRuntime.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionSite.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

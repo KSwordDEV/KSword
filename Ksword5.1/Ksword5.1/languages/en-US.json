@@ -8886,7 +8886,7 @@
     "请求创建 FILETIME": "Requested creation FILETIME",
     "命中线程寄存器": "Stopped thread registers",
     "条件仅作用于执行入口尝试；普通步进停点不重复求值。执行事件不提供 stop.data 字段；假或未知自动继续。": "The condition applies to execution entry attempts. Step stops are not evaluated again. Execution events do not provide stop.data fields; false or unknown results continue automatically.",
-    "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、stop.thread.rip、stop.thread.rax、stop.thread.rsp。寄存器取自命中线程的冻结快照，采集失败为未知。": "Fields: stop.address, stop.data.changedByteMask, stop.data.watchedBytes, stop.data.enrolledAfterStop, stop.exceptionCode, stop.firstChance, stop.pid, stop.tid, stop.thread.creationFileTime, stop.thread.rip, stop.thread.rax, stop.thread.rsp. Registers come from the stopped thread's frozen snapshot; collection failures remain unknown.",
+    "可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime。stop.thread 下支持 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。寄存器取自命中线程的冻结快照，采集失败为未知。": "Fields: stop.address, stop.data.changedByteMask, stop.data.watchedBytes, stop.data.enrolledAfterStop, stop.exceptionCode, stop.firstChance, stop.pid, stop.tid, stop.thread.creationFileTime. Under stop.thread: rip, rax, rbx, rcx, rdx, rbp, rsi, rdi, rsp, r8 through r15, eflags. Registers come from the stopped thread's frozen snapshot; collection failures remain unknown.",
     "已有私有地址写关注": "Write watch at a private address",
     "已有私有地址执行关注": "Execution watch at a private address",
     "私有地址": "Private address",

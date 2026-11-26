@@ -138,7 +138,16 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
             L" event=" + std::to_wstring(step.request.release.event.serial) + L" thread=" + Widen(step.request.thread.threadId) +
             L" startIP=" + Hex(step.startIp) + L" startSP=" + Hex(step.startSp);
     }
-    if (state.registers) text += L"\r\nRIP=" + Hex(state.registers->rip) + L" RSP=" + Hex(state.registers->rsp) + L" RAX=" + Hex(state.registers->rax);
+    if (state.registers) {
+        // 成员详情直接消费共用冻结字段目录；不再只投影三个寄存器。
+        for (const auto& field : execution_native::NativeStopRegisterFields) {
+            std::wstring label(field.name, field.name + std::char_traits<char>::length(field.name));
+            for (auto& character : label) {
+                if (character >= L'a' && character <= L'z') character -= L'a' - L'A';
+            }
+            text += L"\r\n" + label + L"=" + Hex((*state.registers).*(field.value));
+        }
+    }
     if (state.releaseRequestId) text += L"\r\ncontinue request=" + Widen(*state.releaseRequestId);
     if (state.firstRecoveryFailure) text += L"\r\n首次未决恢复=" + Widen(state.firstRecoveryFailure->stage ? state.firstRecoveryFailure->stage : "") +
         L" Win32=" + std::to_wstring(state.firstRecoveryFailure->win32Error);

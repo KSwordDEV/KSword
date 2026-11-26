@@ -6,6 +6,7 @@
 #include "NativeExecutionJournal.h"
 
 #include "../Control/NativeDebugOwner.h"
+#include "../Control/NativeStopCondition.h"
 #include "../Control/NativeExecutionEvidence.h"
 #include "../Control/CooperativeBreakpointGate.h"
 #include "../Control/OwnedBreakpointGroup.h"
@@ -32,20 +33,7 @@ constexpr std::size_t kReleaseReplayEntries = 128;
 
 // 条件在原生断点停止时求值，执行/写入字段按实际事件提供，缺失保持未知。
 constexpr auto kConditionPhase = rules::Phase::Entry;
-constexpr rules::FieldBinding kConditionFields[] = {
-    {"stop.address", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.changedByteMask", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.enrolledAfterStop", rules::FieldType::U64, kConditionPhase},
-    {"stop.data.watchedBytes", rules::FieldType::U64, kConditionPhase},
-    {"stop.exceptionCode", rules::FieldType::U64, kConditionPhase},
-    {"stop.firstChance", rules::FieldType::Bool, kConditionPhase},
-    {"stop.pid", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.creationFileTime", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rax", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rip", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rsp", rules::FieldType::U64, kConditionPhase},
-    {"stop.tid", rules::FieldType::U64, kConditionPhase},
-};
+constexpr auto kConditionFields = native::NativeStopConditionFields(kConditionPhase);
 
 struct BreakpointCondition {
     std::string expression;
@@ -315,8 +303,13 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
     }
     if (const auto& registers = result.registers) {
         // 只投影原生事件冻结的寄存器，不在输出时查询运行中的线程。
-        body.emplace_back("registers", V::makeObject({{"threadId", Text(registers->thread.threadId)},
-            {"rip", Address(registers->rip)}, {"rax", Count(registers->rax)}, {"rsp", Address(registers->rsp)}}));
+        std::vector<std::pair<std::string, V>> values{{"threadId", Text(registers->thread.threadId)}};
+        for (const auto& field : native::NativeStopRegisterFields) {
+            const auto value = (*registers).*(field.value); // 同一冻结快照，地址字段保留原十六进制表示。
+            values.emplace_back(field.name, field.value == &native::NativeStopRegisters::rip ||
+                field.value == &native::NativeStopRegisters::rsp ? Address(value) : Count(value));
+        }
+        body.emplace_back("registers", V::makeObject(std::move(values)));
     }
     if (result.executionRange)
     {
@@ -583,39 +576,7 @@ private:
     // 调用方先核验真实停点；输出保留三值，不把缺少的寄存器补成零。
     rules::Evaluation EvaluateCondition(const native::NativeControlResult& observed) const
     {
-        const auto& event = *observed.pending;
-        using enum rules::Quality;
-        const auto* thread = FrozenOriginThread(observed); // 从同一停点快照确认创建时间。
-        rules::FieldSample threadCreated{"stop.thread.creationFileTime", NotCollected, std::monostate{}};
-        if (thread && thread->tid == event.tid && thread->creationTime) {
-            threadCreated = {"stop.thread.creationFileTime", Known, thread->creationTime};
-        }
-        rules::FieldSample samples[] = {
-            {"stop.address", Known, observed.breakpointHit->address},
-            {"stop.data.changedByteMask", NotCollected, std::monostate{}},
-            {"stop.data.enrolledAfterStop", NotCollected, std::monostate{}},
-            {"stop.data.watchedBytes", NotCollected, std::monostate{}},
-            {"stop.exceptionCode", NotCollected, std::monostate{}},
-            {"stop.firstChance", NotCollected, std::monostate{}},
-            {"stop.pid", Known, std::uint64_t{event.pid}},
-            threadCreated,
-            {"stop.thread.rax", NotCollected, std::monostate{}},
-            {"stop.thread.rip", NotCollected, std::monostate{}},
-            {"stop.thread.rsp", NotCollected, std::monostate{}},
-            {"stop.tid", Known, std::uint64_t{event.tid}},
-        };
-        if (const auto& data = observed.breakpointHit->dataChange) {
-            samples[1] = {"stop.data.changedByteMask", Known, std::uint64_t{data->changedByteMask}};
-            samples[2] = {"stop.data.enrolledAfterStop", Known, data->enrolledAfterStop};
-            samples[3] = {"stop.data.watchedBytes", Known, std::uint64_t{data->watchedBytes}};
-        }
-        if (event.exceptionCode) samples[4] = {"stop.exceptionCode", Known, std::uint64_t{*event.exceptionCode}};
-        if (event.exceptionFirstChance.has_value()) samples[5] = {"stop.firstChance", Known, *event.exceptionFirstChance};
-        if (thread && observed.registers && observed.registers->thread == thread->identity) {
-            samples[8] = {"stop.thread.rax", Known, observed.registers->rax};
-            samples[9] = {"stop.thread.rip", Known, observed.registers->rip};
-            samples[10] = {"stop.thread.rsp", Known, observed.registers->rsp};
-        }
+        const auto samples = native::NativeStopConditionSamples(observed);
         return rules::EvaluatePredicate(condition_->predicate, kConditionPhase, samples);
     }
 
@@ -1191,6 +1152,7 @@ void RegisterBreakpointCommand()
     command.summary = L"Control execution or write breakpoints in an explicitly selected AMD64 process instance.";
     command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA. --watch-pointer-export resolves an aligned AMD64 pointer data export to one committed writable private interval; the child must acknowledge inherited --ksword-breakpoint-ready and --ksword-breakpoint-gate handles after initializing the pointer and wait for byte '1'. Pointer/region changes retire the binding, with no automatic rebinding or verified allocation generation. Optional --condition uses predicate-expr-v3 at execution entry or data-write observation. Fields: stop.address, stop.exceptionCode, stop.pid, stop.tid, stop.thread.creationFileTime, stop.thread.rip, stop.thread.rax and stop.thread.rsp (u64), stop.firstChance (bool). Registers come from the actual event thread's frozen context; failed collection remains unknown. Write observations also provide stop.data.changedByteMask, stop.data.enrolledAfterStop and stop.data.watchedBytes (u64); execution events leave data fields unknown.";
     command.options += L" Numeric conditions support field-to-field comparisons, parentheses, unary ~ and +, multiplication/division/remainder, addition/subtraction, shifts and bitwise &, ^, | with C# precedence. Parenthesize bitwise expressions before comparison, for example (stop.thread.rax & 0xffu64) == 0u64 and stop.thread.rip >= stop.address. Unsigned overflow wraps; shift counts use their low six bits. Division or remainder by zero returns Unknown with evaluationFault=division-by-zero. Unknown fields are never treated as zero. Legacy v1/v2 profiles remain readable.";
+    command.options += L" Full frozen AMD64 register fields under stop.thread are eflags, rax, rbx, rcx, rdx, rbp, rsi, rdi, rsp, rip and r8 through r15 (all u64). control.registers reports the same event snapshot; zero is a known value. Manual pause does not collect registers or evaluate breakpoint conditions. Example: (stop.thread.eflags & 0x40u64) != 0u64 && stop.thread.rcx == stop.thread.rdx.";
     command.options += L" Add private execution ranges at the current complete NX stop: REPL execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION; JSONL control.execution.range.add requires params:{address,bytes} as positive decimal strings, exact expected:{stopId,stateRevision}, the live session and consecutive range/N IDs starting at range/1. The original owner retains 128 receipts independently of Continue/Step. New ranges may be disjoint or belong to different allocations; each range must cover committed executable private pages within one allocation. Total pages across all ranges cannot exceed 64; overlaps are rejected. No Continue occurs and the original event and initial binding.address/rangeBytes remain unchanged. binding.executionRanges lists successful ranges; control.executionRange separates added, rollbackComplete, stage and error. Cleanup retains unresolved protection responsibilities.";
     command.options += L" --execute-pointer-export uses the EXE's aligned AMD64 pointer data export to select one committed MEM_PRIVATE EXECUTE/RX/RWX destination. It requires the same Ready/Gate handshake and is exclusive with data watch, module, RVA and pair. The selector is image data; DR0 watches its frozen destination without changing page protection. Pointer or region changes retire the binding without rebinding. Single-target condition, step and project evidence commands remain available.";
     command.options += L" To attach to an existing AMD64 process, use --pid PID --creation-filetime FILETIME --address ADDR instead of --exe/module/export/rva/pointer/pair selectors. The selected address must be committed private memory: EXECUTE/RX/RWX for execution, or aligned RW/RWX for --watch-write-bytes. The default single-address mode uses DR0 without changing protection. No cooperative gate is needed. The original owner enrolls new threads, retains stop tokens and retires the binding if the frozen region changes. Addresses accept decimal or 0x notation. An existing target may execute before the armed receipt; this mode does not claim earliest-start coverage.";

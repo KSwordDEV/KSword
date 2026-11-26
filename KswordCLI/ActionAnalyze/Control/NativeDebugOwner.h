@@ -4,6 +4,7 @@
 #include "NativeStep.h"
 
 #include <memory>
+#include <array>
 
 namespace ks::cli::action_analyze::control {
 
@@ -123,7 +124,50 @@ struct NativeStopRegisters {
     std::uint64_t rip = 0;
     std::uint64_t rax = 0;
     std::uint64_t rsp = 0;
+    std::uint64_t rbx = 0;
+    std::uint64_t rcx = 0;
+    std::uint64_t rdx = 0;
+    std::uint64_t rbp = 0;
+    std::uint64_t rsi = 0;
+    std::uint64_t rdi = 0;
+    std::uint64_t r8 = 0;
+    std::uint64_t r9 = 0;
+    std::uint64_t r10 = 0;
+    std::uint64_t r11 = 0;
+    std::uint64_t r12 = 0;
+    std::uint64_t r13 = 0;
+    std::uint64_t r14 = 0;
+    std::uint64_t r15 = 0;
+    std::uint64_t eflags = 0; // 原CONTEXT的32位EFlags零扩展，不读写目标标志。
 };
+
+struct NativeStopRegisterField {
+    const char* name; // 三端回执共用的小写寄存器名。
+    const char* conditionField; // 条件编译器使用的完整稳定字段ID。
+    std::uint64_t NativeStopRegisters::* value; // 只读取原冻结快照中的对应成员。
+};
+
+// 名称按ASCII排序；条件、CLI及两端字段详情消费同一份冻结寄存器目录。
+inline constexpr std::array<NativeStopRegisterField, 18> NativeStopRegisterFields{{
+    {"eflags", "stop.thread.eflags", &NativeStopRegisters::eflags},
+    {"r10", "stop.thread.r10", &NativeStopRegisters::r10},
+    {"r11", "stop.thread.r11", &NativeStopRegisters::r11},
+    {"r12", "stop.thread.r12", &NativeStopRegisters::r12},
+    {"r13", "stop.thread.r13", &NativeStopRegisters::r13},
+    {"r14", "stop.thread.r14", &NativeStopRegisters::r14},
+    {"r15", "stop.thread.r15", &NativeStopRegisters::r15},
+    {"r8", "stop.thread.r8", &NativeStopRegisters::r8},
+    {"r9", "stop.thread.r9", &NativeStopRegisters::r9},
+    {"rax", "stop.thread.rax", &NativeStopRegisters::rax},
+    {"rbp", "stop.thread.rbp", &NativeStopRegisters::rbp},
+    {"rbx", "stop.thread.rbx", &NativeStopRegisters::rbx},
+    {"rcx", "stop.thread.rcx", &NativeStopRegisters::rcx},
+    {"rdi", "stop.thread.rdi", &NativeStopRegisters::rdi},
+    {"rdx", "stop.thread.rdx", &NativeStopRegisters::rdx},
+    {"rip", "stop.thread.rip", &NativeStopRegisters::rip},
+    {"rsi", "stop.thread.rsi", &NativeStopRegisters::rsi},
+    {"rsp", "stop.thread.rsp", &NativeStopRegisters::rsp},
+}};
 
 struct NativeStopTiming {
     std::uint64_t qpcFrequency = 0;

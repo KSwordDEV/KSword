@@ -295,6 +295,7 @@
     <ClInclude Include="ActionAnalyze\Detection\NativeSectionMapAssociation.h" />
     <ClInclude Include="ActionAnalyze\Detection\NativeExecutionMemory.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeDebugOwner.h" />
+    <ClInclude Include="ActionAnalyze\Control\NativeStopCondition.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeStep.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeStepRuntime.h" />
     <ClInclude Include="ActionAnalyze\Control\NativePrivateExecutionSite.h" />

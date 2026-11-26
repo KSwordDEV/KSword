@@ -927,7 +927,7 @@ namespace
         m_condition->setToolTip((executionDraft
             ? sourceText(QStringLiteral("条件仅作用于执行入口尝试；普通步进停点不重复求值。执行事件不提供 stop.data 字段；假或未知自动继续。"))
             : sourceText(QStringLiteral("留空时在每次字节变化时停下。条件在启动时生效；假或未知时自动继续。"))) +
-            QLatin1Char('\n') + sourceText(QStringLiteral("可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、stop.thread.rip、stop.thread.rax、stop.thread.rsp。寄存器取自命中线程的冻结快照，采集失败为未知。")));
+            QLatin1Char('\n') + sourceText(QStringLiteral("可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime。stop.thread 下支持 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。寄存器取自命中线程的冻结快照，采集失败为未知。")));
         m_condition->setToolTip(m_condition->toolTip() + QLatin1Char('\n') + sourceText(QStringLiteral("数值条件示例：(stop.thread.rax & 0xffu64) == 0u64、stop.thread.rip >= stop.address。位运算比较请加括号；无符号运算溢出环绕，除零为未知。")));
         if (m_conditionFailure.diagnostic)
         {
@@ -1155,10 +1155,13 @@ namespace
         {
             // 同一次原生事件的寄存器保留原线程身份，编辑草稿不会刷新现场。
             document.section(QStringLiteral("命中线程寄存器"))
-                .field(QStringLiteral("线程实例 ID"), QString::fromStdString(registers->thread.threadId))
-                .field(QStringLiteral("RIP"), QStringLiteral("0x%1").arg(registers->rip, 0, 16))
-                .field(QStringLiteral("RAX"), QStringLiteral("0x%1").arg(registers->rax, 0, 16))
-                .field(QStringLiteral("RSP"), QStringLiteral("0x%1").arg(registers->rsp, 0, 16));
+                .field(QStringLiteral("线程实例 ID"), QString::fromStdString(registers->thread.threadId));
+            for (const auto& field : native::NativeStopRegisterFields)
+            {
+                // 原规范文档同时供搜索、复制和导出；不另建只读输入框。
+                document.field(QString::fromLatin1(field.name).toUpper(),
+                    QStringLiteral("0x%1").arg((*registers).*(field.value), 16, 16, QLatin1Char('0')));
+            }
         }
         if (!m_runCondition.isEmpty())
         {

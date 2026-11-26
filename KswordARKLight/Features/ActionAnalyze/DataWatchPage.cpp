@@ -408,6 +408,18 @@ void AppendStopRegisters(std::wstring& text, const LightDataWatchSnapshot& resul
         static_cast<unsigned long long>(registers->rip), static_cast<unsigned long long>(registers->rax),
         static_cast<unsigned long long>(registers->rsp));
     text += values;
+    // 其余通用寄存器与标志继续显示同一事件值，保留旧RIP/RAX/RSP的阅读顺序。
+    for (const auto& field : native::NativeStopRegisterFields) {
+        if (field.value == &native::NativeStopRegisters::rip || field.value == &native::NativeStopRegisters::rax ||
+            field.value == &native::NativeStopRegisters::rsp) continue;
+        std::wstring label(field.name, field.name + std::char_traits<char>::length(field.name));
+        for (auto& character : label) {
+            if (character >= L'a' && character <= L'z') character -= L'a' - L'A';
+        }
+        swprintf_s(values, L"\r\n%s：0x%016llX", label.c_str(),
+            static_cast<unsigned long long>((*registers).*(field.value)));
+        text += values;
+    }
 }
 
 // 从原页面草稿和显示停点组装同一读取计划，供只读按钮及相机共用；不查询目标。
@@ -1353,7 +1365,7 @@ bool CreateControls(Page& page) {
         L"执行事件的stop.data字段未知，可使用stop.tid != 0u64；"
         L"支持 stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、"
         L"stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime、"
-        L"stop.thread.rip、stop.thread.rax、stop.thread.rsp。数值与位运算按C#优先级，用括号明确组合："
+        L"stop.thread 下的 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。数值与位运算按C#优先级，用括号明确组合："
         L"(stop.thread.rax & 0xffu64)==0u64、stop.thread.rip>=stop.address。除零单列故障并返回未知。"
         L"RIP、RAX、RSP 来自同一命中线程的冻结寄存器，采集失败时为未知。");
     if (page.tooltip) {

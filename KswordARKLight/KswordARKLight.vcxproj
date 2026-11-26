@@ -474,6 +474,7 @@
     <ClInclude Include="Features\ActionAnalyze\LightProcessGroupMemory.h" />
     <ClInclude Include="Ui\ParameterWorkspace.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStopCondition.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStep.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeStepRuntime.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionSite.h" />

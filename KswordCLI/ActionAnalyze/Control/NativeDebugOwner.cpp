@@ -1103,8 +1103,12 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataC
             if (!manualPause) {
                 CONTEXT registers{}; // 只读取这次真实event的精确线程，零值不是失败标志。
                 registers.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-                if (GetThreadContext(slot->second.thread.Get(), &registers))
-                    record.registers = NativeStopRegisters{origin, registers.Rip, registers.Rax, registers.Rsp};
+                if (GetThreadContext(slot->second.thread.Get(), &registers)) {
+                    record.registers = NativeStopRegisters{origin, registers.Rip, registers.Rax, registers.Rsp,
+                        registers.Rbx, registers.Rcx, registers.Rdx, registers.Rbp, registers.Rsi, registers.Rdi,
+                        registers.R8, registers.R9, registers.R10, registers.R11, registers.R12, registers.R13,
+                        registers.R14, registers.R15, registers.EFlags};
+                }
             }
 #endif
         }

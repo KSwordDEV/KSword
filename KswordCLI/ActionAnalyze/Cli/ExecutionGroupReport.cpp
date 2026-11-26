@@ -111,8 +111,13 @@ V ControlReport(const n::NativeControlResult& s)
     }
     if (s.breakpointHit) fields.emplace_back("hit", V::makeObject({{"requestId", Text(s.breakpointHit->requestId)},
         {"address", Count(s.breakpointHit->address)}}));
-    if (s.registers) fields.emplace_back("registers", V::makeObject({{"threadId", Text(s.registers->thread.threadId)},
-        {"rip", Count(s.registers->rip)}, {"rax", Count(s.registers->rax)}, {"rsp", Count(s.registers->rsp)}}));
+    if (s.registers) {
+        std::vector<std::pair<std::string, V>> values{{"threadId", Text(s.registers->thread.threadId)}};
+        for (const auto& field : control::NativeStopRegisterFields) {
+            values.emplace_back(field.name, Count((*s.registers).*(field.value)));
+        }
+        fields.emplace_back("registers", V::makeObject(std::move(values))); // 64位数值仍以十进制字符串保真。
+    }
     if (s.step) {
         const auto& step = *s.step;
         const auto token = StopToken(s);

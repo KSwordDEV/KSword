@@ -276,7 +276,7 @@ JSONL方法为 `control.execution.range.add`，请求带当前session、独立�
 
 `--range-bytes` 显式选择私有NX执行范围，与写关注互斥；起点及长度必须按4096字节对齐，并由原生owner接纳实际范围。示例4096表示整页关注。该机制临时撤去执行权限，保留原读写权限，关闭时恢复原保护；不占用DR0。绑定返回 `siteKind=private-page-execution`、`rangeBytes` 与范围起点，命中返回实际页内RIP，二者不必相等。Continue沿原生TF推进并重新设防后再释放同伴；推进不支持或恢复失败时保留真实停止责任及诊断。NX命中可保存为执行进入尝试，内部重新设防TF不会冒充用户单条指令完成。新增范围入口未构建、未实测。
 
-单目标写入关注也接受 `--condition`，例如 `stop.data.changedByteMask != 0u64 && stop.thread.rax == 0u64`。写入字段仅在实际写入观测中存在；`stop.thread.rip`、`stop.thread.rax`、`stop.thread.rsp` 来自原生 owner 在该事件暂停时采集的同一命中线程快照，并在 `control.registers` 分别投影为 RIP 地址、RAX 无符号十进制字符串与 RSP 地址；线程身份同时保留。采集失败为未知，已采集的零值仍为已知。假或未知走原自动继续，普通单步停点不重新求值；执行入口条件引用写入字段时也保持未知。新增寄存器与写入条件接线尚未实测，旧“RAX 未采集”的用例不代表本次采集行为。
+单目标写入关注也接受 `--condition`，例如 `stop.data.changedByteMask != 0u64 && stop.thread.rax == 0u64`。写入字段仅在实际写入观测中存在；`stop.thread` 下的 `rip`、`rax`、`rbx`、`rcx`、`rdx`、`rbp`、`rsi`、`rdi`、`rsp`、`r8` 至 `r15` 及 `eflags` 均为 `u64`，来自原生 owner 在该事件暂停时采集的同一命中线程快照。`control.registers` 保留同一线程身份；RIP／RSP 沿用地址表示，其余为无符号十进制字符串。示例：`(stop.thread.eflags & 0x40u64) != 0u64 && stop.thread.rcx == stop.thread.rdx`。采集失败为未知，已采集的零值仍为已知。假或未知走原自动继续，普通单步停点不重新求值；执行入口条件引用写入字段时也保持未知。主动暂停不采寄存器、不套断点条件。新增寄存器与写入条件接线尚未实测，旧“RAX 未采集”的用例不代表本次采集行为。
 
 单目标执行或写入停点可带 `--project PATH` 打开已有项目，整个会话持有独占项目写租约。没有 `--sample` 时从当前已提交配置新建真实采样；指定 `--sample UUID` 时复用项目内已登记的采样，该采样成为原生 owner 的 `sampleId`。启动或附加前核对 `raw-native` 实际目录和全部已有段，缺段、坏尾、散列或序号失败均拒绝启动，不能抢占其他 writer。`hello.executionArchive` 返回项目、采样、下一段号和上限。写入停点可读写内存归档，但只有实际执行观测才能执行 `execution-save`；合作双目标模式暂不接受此参数。不带项目时继续保留一次性会话行为。
 
@@ -338,7 +338,7 @@ JSONL 使用 `control.step`，`params` 必须正好包含 `mode`（`into`、`ove
 
 回执的 `stopGroup` 提供冻结成员的修订和散列、持有与待恢复状态、线程计数及附带集合质量。`held-complete` 表示当前合作子进程中已知的冻结成员均受本次停点覆盖。继续仍使用活 `stop` 中的 ID 和修订，已结束的组保留为历史回执。
 
-`--condition EXPR` 在启动子进程前编译 C# 风格表达式。整数常量使用 `u64` 后缀，例如 `--condition 'stop.tid > 0u64 && stop.thread.creationFileTime > 0u64'`。条件匹配后保留真实停点及原继续令牌。结果为 `false` 或 `unknown` 时自动继续。可用字段包括 `stop.address`、`stop.exceptionCode`、`stop.firstChance`、`stop.pid`、`stop.tid`、`stop.thread.rip` 和 `stop.thread.creationFileTime`。异常信息取决于停点快照；线程 RIP 和创建 FILETIME 来自同一冻结停点，类型均为 `u64`。创建时间无法核验时保持未采集。`stop.thread.rax` 仍未采集。`status`、`control.query` 和结束回执提供表达式、判定计数及最近一次判定和释放结果。自动继续不消耗调用方的 `continue/N` 请求序号。
+`--condition EXPR` 在启动子进程前编译 C# 风格表达式。整数常量使用 `u64` 后缀，例如 `--condition 'stop.tid > 0u64 && stop.thread.creationFileTime > 0u64'`。条件匹配后保留真实停点及原继续令牌。结果为 `false` 或 `unknown` 时自动继续。可用字段包括 `stop.address`、`stop.exceptionCode`、`stop.firstChance`、`stop.pid`、`stop.tid`、`stop.thread.creationFileTime`，以及前文列出的完整通用寄存器和 `eflags` 字段。异常信息取决于停点快照；寄存器和创建 FILETIME 来自同一冻结停点，类型均为 `u64`。无法核验或采集失败保持未知。`status`、`control.query` 和结束回执提供表达式、判定计数及最近一次判定和释放结果。自动继续不消耗调用方的 `continue/N` 请求序号。
 
 ActionAnalyze 不使用 Sysmon 作为数据源。原 `analyze sysmon-thread-create` 及其 `follow`、`archive`、`replay` 子命令已移除，不再查询、订阅、归档或专用回放 Sysmon 事件。旧项目文件按原样保留，可查看通用项目描述和 Stored 封装；对完整的旧 Sysmon 段执行 `archive inspect SAMPLE_ID raw ORDINAL graph` 返回 `project-unsupported`（`graphArchiveSource`），不返回证据行。
 

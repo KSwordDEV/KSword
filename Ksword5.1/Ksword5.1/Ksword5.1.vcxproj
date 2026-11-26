@@ -1103,6 +1103,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStopCondition.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStep.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeStepRuntime.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativePrivateExecutionSite.h" />

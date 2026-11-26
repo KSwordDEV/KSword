@@ -102,9 +102,10 @@ namespace ks::action_analyze
             }
             if (state.registers)
             {
-                document.field(QStringLiteral("RIP"), Hex(state.registers->rip))
-                    .field(QStringLiteral("RSP"), Hex(state.registers->rsp))
-                    .field(QStringLiteral("RAX"), Hex(state.registers->rax));
+                for (const auto& field : native::NativeStopRegisterFields)
+                {
+                    document.field(QString::fromLatin1(field.name).toUpper(), Hex((*state.registers).*(field.value)));
+                }
             }
             if (state.step)
             {
