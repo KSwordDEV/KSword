@@ -1,5 +1,6 @@
 #include "BehaviorPresets.h"
 
+#include <ranges>
 #include <utility>
 
 namespace Ksword::ActionAnalyze::Rules {
@@ -119,6 +120,46 @@ ApiPresetReport AnalyzePresetRows(std::span<const ArchivedApiObservation> rows,
     return report;
 }
 
+template<class PacketRange>
+ApiPresetReport AnalyzeCommittedPackets(const PacketRange& packets, std::uint64_t planRawSequence,
+    std::uint64_t previousSourceSequence) noexcept
+{
+    if (!planRawSequence || packets.size() > MaxApiPresetRows ||
+        packets.size() > UINT64_MAX - planRawSequence || packets.size() > UINT64_MAX - previousSourceSequence) {
+        return {ApiPresetError::InvalidInput, 0, 0, {}};
+    }
+
+    try {
+        std::vector<std::string> names;
+        std::vector<ArchivedApiObservation> observations;
+        names.reserve(packets.size());
+        observations.reserve(packets.size());
+        auto rawSequence = planRawSequence;
+        auto sourceSequence = previousSourceSequence;
+        for (const auto& packet : packets) {
+            ++rawSequence;
+            ++sourceSequence;
+            const auto* clue = Evidence::ClassifyApiMonitorClue(packet);
+            if (!clue) {
+                continue;
+            }
+            auto& name = names.emplace_back(); // 目录名均为 ASCII；保留存储供观测视图借用。
+            for (const auto character : clue->api) {
+                name.push_back(static_cast<char>(character));
+            }
+            const auto outcome = Evidence::ReadApiMonitorMemoryWriteReturn(packet);
+            observations.push_back({rawSequence, sourceSequence, name, clue->family,
+                outcome ? std::optional{ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
+        }
+        if (observations.empty()) {
+            return {};
+        }
+        return AnalyzeVerifiedApiPresetPage(observations, observations.size(), ApiPresetProfile::ByCategory);
+    } catch (...) {
+        return {ApiPresetError::EvaluationFailed, 0, 0, {}};
+    }
+}
+
 } // namespace
 
 ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation> rows,
@@ -134,6 +175,19 @@ ApiPresetReport AnalyzeVerifiedApiPresetPage(std::span<const ArchivedApiObservat
     std::uint64_t verifiedClueRows, ApiPresetProfile profile)
 {
     return AnalyzePresetRows(rows, verifiedClueRows, profile, std::nullopt);
+}
+
+ApiPresetReport AnalyzeCommittedApiPresetBatch(std::span<const ks::winapi_monitor::ApiMonitorEventPacket> packets,
+    std::uint64_t planRawSequence, std::uint64_t previousSourceSequence) noexcept
+{
+    return AnalyzeCommittedPackets(packets, planRawSequence, previousSourceSequence);
+}
+
+ApiPresetReport AnalyzeCommittedApiPresetBatch(std::span<const Evidence::ArchivedApiMonitorClue> rows,
+    std::uint64_t planRawSequence, std::uint64_t previousSourceSequence) noexcept
+{
+    const auto packets = rows | std::views::transform(&Evidence::ArchivedApiMonitorClue::packet);
+    return AnalyzeCommittedPackets(packets, planRawSequence, previousSourceSequence);
 }
 
 } // namespace Ksword::ActionAnalyze::Rules

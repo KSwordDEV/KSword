@@ -4,9 +4,12 @@
 
 #include <optional>
 
+#include "../../../shared/evidence/ApiMonitorClue.h"
+
 namespace Ksword::ActionAnalyze::Rules {
 
 inline constexpr std::size_t MaxApiPresetRows = 4096; // 与归档读侧的最近线索窗口相同。
+inline constexpr std::string_view ApiBehaviorPresetSet = "ksword.api.behavior-presets.v1";
 
 struct ArchivedApiMemoryWriteReturn {
     bool returned;
@@ -36,7 +39,7 @@ struct ApiPresetMatch {
     std::optional<ApiPresetBehavior> behavior = std::nullopt; // 释义引用同一原包坐标。
 };
 
-enum class ApiPresetError { None, InvalidInput, InvalidPreset };
+enum class ApiPresetError { None, InvalidInput, InvalidPreset, EvaluationFailed };
 enum class ApiPresetProfile { Grouped, ByCategory }; // 兼容汇总或细分到五类单事件线索。
 
 struct ApiPresetReport {
@@ -56,5 +59,13 @@ ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation
 // 页为空时仍可返回成功。verifiedClueRows 仅表示此次归档扫描确认的线索总数。
 ApiPresetReport AnalyzeVerifiedApiPresetPage(std::span<const ArchivedApiObservation> rows,
     std::uint64_t verifiedClueRows, ApiPresetProfile profile = ApiPresetProfile::Grouped);
+
+// 仅在检查点发布成功后传入原样回读的一批连续原包，含非线索包，不含计划和尾记。
+// 两套序号从检查点的 planRawSequence 和 previousSourceSequence 各加 1 开始；段号由调用方保留。
+// 使用实时跟随的五类预置；无命中是成功，失败不发布部分匹配，也不改变已提交原包。
+ApiPresetReport AnalyzeCommittedApiPresetBatch(std::span<const ks::winapi_monitor::ApiMonitorEventPacket> packets,
+    std::uint64_t planRawSequence, std::uint64_t previousSourceSequence) noexcept;
+ApiPresetReport AnalyzeCommittedApiPresetBatch(std::span<const Evidence::ArchivedApiMonitorClue> rows,
+    std::uint64_t planRawSequence, std::uint64_t previousSourceSequence) noexcept;
 
 } // namespace Ksword::ActionAnalyze::Rules

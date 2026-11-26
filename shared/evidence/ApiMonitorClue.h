@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <string_view>
 
 namespace Ksword::Evidence {
