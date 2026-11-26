@@ -612,6 +612,33 @@ NativeStepError NativeStepRuntime::ReleaseHold(HANDLE thread, bool& debt, bool& 
     return {};
 }
 
+// 输入原线程对象及该对象暂停债；仅已退出时结清，失败写入首个错误，存活对象不放行。
+void NativeStepRuntime::DischargeExitedHold(HANDLE thread, bool& debt, bool& conflicted, NativeStepError& first)
+{
+    if (!debt)
+    {
+        return;
+    }
+    const auto wait = WaitForSingleObject(thread, 0); // 只使用持有句柄对应对象的退出证据，不按TID重开。
+    if (wait == WAIT_OBJECT_0)
+    {
+        // 对象已退出：暂停计数随线程对象消亡，不存在可归还的暂停，无需也无法Resume。
+        debt = false;
+        conflicted = false;
+        return;
+    }
+    if (wait == WAIT_FAILED)
+    {
+        const auto error = Error("step-check-held-thread-lifetime"); // 不覆盖较早的上下文恢复错误。
+        if (!first)
+        {
+            first = error;
+        }
+        return;
+    }
+    // WAIT_TIMEOUT：对象仍存活。恢复失败期间保留债务，等待恢复路径逐项重试；不猜测放行，不批量清账。
+}
+
 NativeStepError NativeStepRuntime::RestoreSelectedContext() {
     if (selectedSuspendConflict_) return {"step-selected-suspend-count-conflict", ERROR_INVALID_DATA};
     const bool temporary = receipt_.destination.has_value();
@@ -697,18 +724,40 @@ NativeStepError NativeStepRuntime::Restore(bool processExited, const DEBUG_EVENT
     }
     NativeStepError first;
     const auto remember = [&](NativeStepError error) { if (error && !first) first = error; };
+    // 上下文恢复失败时contextPending为真：暂停债仍须逐对象结清，不能被单个对象的失败整体阻断。
+    bool contextPending = false;
     if (contextOwned_) {
         const auto wait = processExited || selectedExited_ ? WAIT_OBJECT_0 : WaitForSingleObject(selected_, 0);
         if (wait == WAIT_OBJECT_0) { contextOwned_ = false; pageTrapOwned_ = false; }
-        else if (wait == WAIT_TIMEOUT) remember(RestoreSelectedContext());
-        else remember(Error("step-check-selected-lifetime"));
+        else if (wait == WAIT_TIMEOUT)
+        {
+            if (const auto error = RestoreSelectedContext()) // 上下文未恢复时保留所有存活对象的暂停责任。
+            {
+                remember(error);
+                contextPending = true;
+            }
+        }
+        else
+        {
+            remember(Error("step-check-selected-lifetime"));
+            contextPending = true;
+        }
     }
-    // 精确所选线程退出只免除其上下文/自身暂停；存活peer仍逐个移除本端一次暂停。
-    if (!contextOwned_) {
+    if (!contextPending) {
+        // 精确所选线程退出只免除其上下文/自身暂停；存活peer仍逐个移除本端一次暂停。
         remember(ReleaseHold(selected_, selectedSuspendDebt_, selectedSuspendConflict_,
             processExited || selectedExited_, "step-resume-selected"));
         for (auto& hold : peers_)
             remember(ReleaseHold(hold.thread, hold.debt, hold.conflicted, processExited, "step-resume-peer"));
+    } else {
+        // 恢复失败路径的逐对象兜底：每个真实线程对象按自身signaled退出证据独立处理。
+        // 已退出对象免除债务（不存在可归还的暂停）；存活对象的暂停债原样保留等待恢复重试。
+        // 不猜测放行全部线程，不批量清账，也不跳过恢复状态。
+        DischargeExitedHold(selected_, selectedSuspendDebt_, selectedSuspendConflict_, first);
+        for (auto& hold : peers_) // 每笔债均以原线程句柄判断，不合并为一次全体释放。
+        {
+            DischargeExitedHold(hold.thread, hold.debt, hold.conflicted, first);
+        }
     }
     receipt_.resourcesRestored = !HasResources();
     if (first) MarkFailure(first);

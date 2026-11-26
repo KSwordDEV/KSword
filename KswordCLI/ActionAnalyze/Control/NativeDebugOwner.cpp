@@ -671,7 +671,9 @@ void NativeDebugOwner::Impl::SaveStepReceipt() {
 }
 
 NativeError NativeDebugOwner::Impl::RestoreStep(bool exited) {
-    if (!step_.HasResources()) return {};
+    // NX保护回关先于HasResources短路：页保护责任独立于step资源，
+    // 资源已结清但页仍开放时（如CREATE_THREAD事件不经过页回关路径）不能把开放页泄漏给目标。
+    // 同伴放行与TF/DR/暂停债归还在其后，保证"先恢复保护，再归还TF/DR/暂停债"的顺序。
     if (breakpoint_ && breakpoint_->executionPage && breakpoint_->pageAdvancing && !exited) {
         // 同伴放行之前必须先关回NX；失败继续保留TF、同伴债务与原debug事件。
         const auto error = breakpoint_->retire ? breakpoint_->executionPage->Restore(process_.Get()) :
@@ -680,6 +682,7 @@ NativeError NativeDebugOwner::Impl::RestoreStep(bool exited) {
             return {"page-rearm-before-step-restore", error};
         breakpoint_->pageAdvancing = false;
     }
+    if (!step_.HasResources()) return {};
     const auto error = step_.Restore(exited, event_ ? &*event_ : nullptr);
     SaveStepReceipt();
     return {error.stage, error.code};

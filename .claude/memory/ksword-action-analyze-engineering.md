@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第5/6项线程恢复源码整合。** 接收CodeBuddy原限定任务的两处改动：`NativeStepRuntime::Restore`在上下文失败时仍逐真实线程对象结清已signaled退出对象的暂停债，存活债保留；`NativeDebugOwner::RestoreStep`在step资源为空的返回之前先处理仍开放的NX页。主代理只整理新增注释和代码排版，没有重复完整审查或执行验收。历史线程退出/取消后Continue异常保持待验，未构建/测试/GUI/推送。
+
 - **2026-11-26 第5/6项执行集合成员内存源码。** 原`OwnedExecutionGroup::CaptureMemory`核对原owner/完整Held后复用该成员`OwnedDataWatchSession::CaptureMemory`；不求同伴条件、不Continue、不改为实时读取。`ExecutionGroupArchive`保留最新读取和独立保存来源，复用原writer/sample的`raw-memory`，独立段号/前序、同读取去重、真实写入失败阻止后续追加。CLI接`memory-read/control.memory.read`及`memory-save/control.memory.save`，原execution/N重放；保存按trackingEpoch指定当前原字节。Qt复用ProcessGroupMemoryPane参数及新AppendCapture字段入口，隐藏重复项目；Light沿原参数正文及唯一worker；两端Close置已有取消位、读取收尾后原集合清退。导航仍为监控→行为分析→执行断点集合，页面类型参数执行＋None清单＋共享字段详情，对照写入停点与原停止组内存页。本批无构建、测试、GUI、验收记录或推送，产物未更新。
 - **2026-11-26 两项CodeBuddy恢复任务结束。** 长宿主自动回执两项ok，布尔245004ms、线程恢复170694ms；均只源码。布尔作者确认已有v3 &/^/|的bool/u64路径闭合，仅修正FilterAst.h契约注释，指出RuleExpression.h旧说明需同步。线程作者新增DischargeExitedHold，仅按真实线程对象signaled证明免除退出对象暂停债，存活债务保留；RestoreStep先回关NX再判断step资源。不得推断历史CountPeerTicks=0或取消后0xC0000005已运行修复。限定两次授权已结束，继续禁止新派发/续接/重试，自动回执位置仍在.codex-build-logs/codebuddy-two-dispatch。
 

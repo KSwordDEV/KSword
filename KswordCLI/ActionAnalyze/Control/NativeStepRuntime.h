@@ -99,6 +99,8 @@ private:
     NativeStepError HoldPeer(HANDLE thread, bool preparing);
     NativeStepError RestoreSelectedContext();
     NativeStepError ReleaseHold(HANDLE thread, bool& debt, bool& conflicted, bool processExited, const char* stage);
+    // 上下文恢复失败时的逐对象兜底：只按对象自身signaled退出证据免除债务，存活对象保留债务。
+    static void DischargeExitedHold(HANDLE thread, bool& debt, bool& conflicted, NativeStepError& first);
     NativeStepError Arm(CONTEXT context, std::optional<std::uint64_t> destination);
     NativeStepError Read(std::uint64_t address, void* bytes, std::size_t count) const;
     NativeStepError Destination(const CONTEXT& context, std::optional<std::uint64_t>& destination);
