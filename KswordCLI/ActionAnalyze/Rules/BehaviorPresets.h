@@ -54,6 +54,7 @@ struct ApiPresetDefinition {
 
 struct ApiPresetDatabase {
     std::string presetSet; // 本次加载的规则版本。
+    std::string sourceSha256; // 实际解析文件字节的 SHA-256（小写十六进制）；加载失败为空，本轮冻结。
     std::string error; // 加载失败的诊断；成功时为空。
     std::array<std::vector<ApiPresetDefinition>, 2> profiles; // 汇总、细分两个回放配置。
     std::vector<ApiPresetDefinition> behaviorRules; // 同一观测按文件顺序选首条命中释义。

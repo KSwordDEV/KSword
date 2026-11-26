@@ -4,9 +4,17 @@
 #include "../../../KswordCLI/ActionAnalyze/Archive/RawEvidenceArchive.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
 
+#include <Windows.h>
+#include <bcrypt.h>
+
+#include <array>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 namespace rule = Ksword::ActionAnalyze::Rules;
@@ -34,6 +42,75 @@ void Check(bool ok, std::string_view name)
         ++failures;
         std::cerr << "FAIL " << name << '\n';
     }
+}
+
+// 用 Windows CNG 的一次性 BCryptHash 对实际字节求 SHA-256，输出小写十六进制。失败时返回空串。
+std::string Sha256Hex(std::string_view bytes)
+{
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        return {};
+    }
+    std::array<UCHAR, 32> digest{}; // SHA-256 固定 32 字节，不依赖 SDK 宏。
+    const auto status = BCryptHash(algorithm, nullptr, 0,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())), static_cast<ULONG>(bytes.size()),
+        digest.data(), static_cast<ULONG>(digest.size()));
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (status < 0) {
+        return {};
+    }
+    constexpr std::string_view hex = "0123456789abcdef";
+    std::string result;
+    result.reserve(digest.size() * 2);
+    for (const auto byte : digest) {
+        result.push_back(hex[byte >> 4]);
+        result.push_back(hex[byte & 0x0F]);
+    }
+    return result;
+}
+
+// 以二进制方式写出确切字节，不追加换行或编码标记。
+bool WriteAllBytes(const std::filesystem::path& path, std::string_view bytes)
+{
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) {
+        return false;
+    }
+    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    file.close();
+    return file.good();
+}
+
+// 读回落盘字节，用于核对实际写出的内容。
+std::string ReadAllBytes(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return {};
+    }
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
+// 小写十六进制 SHA-256 文本的形状检查。
+bool IsLowerHex64(std::string_view text)
+{
+    if (text.size() != 64) {
+        return false;
+    }
+    for (const auto character : text) {
+        const bool digit = character >= '0' && character <= '9';
+        const bool lower = character >= 'a' && character <= 'f';
+        if (!digit && !lower) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 产品库已正式提供 sourceSha256：身份断言直接访问该字段，不再兼容探测或跳过。
+void CheckPresetIdentity(const rule::ApiPresetDatabase& database, std::string_view expected, std::string_view name)
+{
+    Check(std::string_view(database.sourceSha256) == expected, name);
 }
 
 // 用真实生产解释器运行已准备的谓词。返回值包含真假未知以及独立故障。
@@ -268,6 +345,9 @@ void TestDraft()
         invalid.expressionLocation->byteColumn == 2 && !invalid.replay, "draft expression offset and no replay");
 }
 
+// 规则身份契约由下面的独立用例覆盖，共用同一个固定夹具文件。
+void TestPresetIdentity(const std::filesystem::path& path);
+
 // 预置覆盖五类归档线索。队列顺序和两套证据编号必须保持原值。
 void TestPresetFile(const std::filesystem::path& scratch)
 {
@@ -317,6 +397,99 @@ void TestPresetFile(const std::filesystem::path& scratch)
     };
     checkMatch(first, "旧释义");
     checkMatch(second, "新释义");
+    TestPresetIdentity(path); // 身份契约复用同一固定夹具文件。
+}
+
+// 规则身份契约：同一 presetSet 的不同释义、同一字节重载、仅外部空白、失败为空与旧对象冻结。
+// 三个测试向量的摘要常量由 PowerShell 的 .NET SHA256 独立预先计算，夹具不复用产品实现。
+void TestPresetIdentity(const std::filesystem::path& path)
+{
+    constexpr std::string_view base = R"JSON({"schemaVersion":1,"presetSet":"test.v1","profiles":{"grouped":[{"ruleId":"test.group","predicate":"true","summary":"Group"}],"by-category":[{"ruleId":"test.category","predicate":"true","summary":"Category"}]},"behaviorRules":[{"ruleId":"test.behavior","predicate":"!result.returned","summary":"Fixture result","summaryZh":"old-summary"}]})JSON";
+    constexpr std::string_view revised = R"JSON({"schemaVersion":1,"presetSet":"test.v1","profiles":{"grouped":[{"ruleId":"test.group","predicate":"true","summary":"Group"}],"by-category":[{"ruleId":"test.category","predicate":"true","summary":"Category"}]},"behaviorRules":[{"ruleId":"test.behavior","predicate":"!result.returned","summary":"Fixture result","summaryZh":"new-summary"}]})JSON";
+    constexpr std::string_view badHeader = R"JSON({"schemaVersion":2,"presetSet":"test.v1","profiles":{"grouped":[{"ruleId":"test.group","predicate":"true","summary":"Group"}],"by-category":[{"ruleId":"test.category","predicate":"true","summary":"Category"}]},"behaviorRules":[{"ruleId":"test.behavior","predicate":"!result.returned","summary":"Fixture result","summaryZh":"old-summary"}]})JSON";
+    constexpr std::string_view badPredicate = R"JSON({"schemaVersion":1,"presetSet":"test.v1","profiles":{"grouped":[{"ruleId":"test.group","predicate":"true","summary":"Group"}],"by-category":[{"ruleId":"test.category","predicate":"true","summary":"Category"}]},"behaviorRules":[{"ruleId":"test.behavior","predicate":"true &&","summary":"Fixture result","summaryZh":"old-summary"}]})JSON";
+    constexpr std::string_view baseDigest = "c554271721e6882e242951cd02e543517cfd44feff2b4f30574927569a24c8cf"sv;
+    constexpr std::string_view revisedDigest = "3fcdaed50e333d84bc1b26f3d4ec502963fcd5a0e44a53fe8fd9dfd9780240b2"sv;
+    constexpr std::string_view spacedDigest = "26ddee915e7cb21ef95f64a64c958f3f07ffa2f66f0e66a1f4870823b0b25657"sv;
+    const std::string spaced = "\n" + std::string(base) + "\n"; // 只在 JSON 文档外部增加空白。
+
+    Check(base.size() == 339 && revised.size() == 339 && spaced.size() == 341, "identity vector sizes");
+    Check(Sha256Hex(base) == baseDigest, "identity vector base digest");
+    Check(Sha256Hex(revised) == revisedDigest, "identity vector revised digest");
+    Check(Sha256Hex(spaced) == spacedDigest, "identity vector spaced digest");
+    Check(baseDigest != revisedDigest && baseDigest != spacedDigest, "identity vectors differ by bytes");
+
+    Check(WriteAllBytes(path, base), "write identity base file");
+    Check(ReadAllBytes(path) == base, "identity base file keeps the exact bytes");
+    Check(Sha256Hex(ReadAllBytes(path)) == baseDigest, "identity digest of the written bytes");
+    const auto first = rule::LoadApiPresetDatabase(path);
+    Check(first.error.empty() && first.presetSet == "test.v1", "identity base load");
+    CheckPresetIdentity(first, baseDigest, "identity base matches the independent digest");
+    Check(IsLowerHex64(first.sourceSha256), "identity base is lower-case hex");
+
+    const auto firstAgain = rule::LoadApiPresetDatabase(path); // 同一字节再次加载。
+    Check(firstAgain.error.empty() && firstAgain.presetSet == "test.v1", "identity reload of identical bytes");
+    CheckPresetIdentity(firstAgain, baseDigest, "identity is stable for identical bytes");
+    CheckPresetIdentity(first, baseDigest, "identity of the first object stays frozen");
+
+    Check(WriteAllBytes(path, revised), "write identity revised file");
+    const auto second = rule::LoadApiPresetDatabase(path); // 同一 presetSet 只改释义。
+    Check(second.error.empty() && second.presetSet == "test.v1", "identity revised load keeps the preset set");
+    CheckPresetIdentity(second, revisedDigest, "identity revised matches the independent digest");
+    CheckPresetIdentity(first, baseDigest, "identity of the first object survives the overwrite");
+
+    const rule::ArchivedApiObservation row{17, 23, "WriteProcessMemory", "memory-write",
+        rule::ArchivedApiMemoryWriteReturn{false, ERROR_ACCESS_DENIED}};
+    const auto summaryOf = [&row](const rule::ApiPresetDatabase& database) {
+        const auto report = rule::AnalyzeVerifiedApiPresetPage(database, std::span(&row, 1), 1);
+        if (report.error != rule::ApiPresetError::None || report.matches.size() != 1 ||
+            !report.matches.front().behavior) {
+            return std::string{};
+        }
+        return report.matches.front().behavior->summaryZh;
+    };
+    Check(summaryOf(first) == "old-summary", "frozen object keeps its own summary");
+    Check(summaryOf(second) == "new-summary", "revised object exposes the new summary");
+
+    Check(WriteAllBytes(path, spaced), "write identity spaced file");
+    const auto third = rule::LoadApiPresetDatabase(path); // 仅外部空白变化。
+    Check(third.error.empty() && third.presetSet == "test.v1", "identity spaced load still parses");
+    CheckPresetIdentity(third, spacedDigest, "identity spaced matches the independent digest");
+    Check(summaryOf(third) == "old-summary", "spaced object keeps the same rules");
+
+    Check(std::filesystem::remove(path), "remove identity fixture file");
+    CheckPresetIdentity(first, baseDigest, "identity survives the file removal");
+    Check(summaryOf(first) == "old-summary", "frozen rules survive the file removal");
+
+    const auto missing = rule::LoadApiPresetDatabase(path); // 文件已删除。
+    Check(missing.error == "rules-profile-unavailable" && missing.presetSet.empty(), "identity missing file error");
+    CheckPresetIdentity(missing, ""sv, "identity missing file stays empty");
+    Check(missing.profiles[0].empty() && missing.profiles[1].empty() && missing.behaviorRules.empty(),
+        "identity missing file has no partial rules");
+
+    Check(WriteAllBytes(path, "{"), "write malformed identity file");
+    const auto malformed = rule::LoadApiPresetDatabase(path);
+    Check(malformed.error.starts_with("rules-profile-json/") && malformed.presetSet.empty(), "identity malformed json error");
+    CheckPresetIdentity(malformed, ""sv, "identity malformed json stays empty");
+    Check(malformed.profiles[0].empty() && malformed.profiles[1].empty() && malformed.behaviorRules.empty(),
+        "identity malformed json has no partial rules");
+
+    Check(WriteAllBytes(path, badHeader), "write invalid header identity file");
+    const auto invalidHeader = rule::LoadApiPresetDatabase(path);
+    Check(invalidHeader.error == "rules-profile-invalid-header" && invalidHeader.presetSet.empty(),
+        "identity invalid header error");
+    CheckPresetIdentity(invalidHeader, ""sv, "identity invalid header stays empty");
+    Check(invalidHeader.profiles[0].empty() && invalidHeader.profiles[1].empty() &&
+        invalidHeader.behaviorRules.empty(), "identity invalid header has no partial rules");
+
+    Check(WriteAllBytes(path, badPredicate), "write invalid predicate identity file");
+    const auto invalidPredicate = rule::LoadApiPresetDatabase(path);
+    Check(invalidPredicate.error == "rules-profile-invalid-predicate/test.behavior/expression-expected-predicate",
+        "identity invalid predicate error");
+    CheckPresetIdentity(invalidPredicate, ""sv, "identity invalid predicate stays empty");
+    Check(invalidPredicate.profiles[0].empty() && invalidPredicate.profiles[1].empty() &&
+        invalidPredicate.behaviorRules.empty(), "identity invalid predicate has no partial rules");
+    Check(std::filesystem::remove(path), "remove identity fixture file after failures");
 }
 
 void TestPresets(const rule::ApiPresetDatabase& database)
@@ -481,43 +654,57 @@ void TestStoredPreset(const rule::ApiPresetDatabase& database, const std::filesy
         return;
     }
 
-    evidence::ApiMonitorClueReadback readback; // 产品使用的原始归档线索与尾记校验。
-    std::string api; // 持有本夹具唯一观测的 UTF-8 导出名。
-    std::vector<rule::ArchivedApiObservation> observed; // 原包字段及两套身份坐标。
-    const auto visitor = [&](const archive::SegmentIdentity&, const archive::BlockInfo&,
-        const std::vector<archive::DecodedRecord>& records) {
-        for (const auto& record : records) {
-            const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 共享 Stored 解封的记录正文。
-            if (!raw) {
-                return false;
-            }
-            const auto metadata = evidence::ParseJson(raw->metadataJson); // 真实的严格 JSON 解码。
-            std::optional<evidence::ArchivedApiMonitorClue> clue; // 合法尾记没有线索。
-            if (!metadata.ok() || !readback.Accept(metadata.value, raw->inlineRawData, clue)) {
-                return false;
-            }
-            if (clue) {
-                for (const auto ch : clue->clue->api) { // 生产分类表仅含 ASCII 导出名。
-                    api.push_back(static_cast<char>(ch));
-                }
-                rule::ArchivedApiObservation row{record.recordSequence, clue->sourceSequence, api, clue->clue->family};
-                if (const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(clue->packet)) {
-                    row.memoryWriteReturn = rule::ArchivedApiMemoryWriteReturn{returned->returned, returned->statusCode};
-                }
-                observed.push_back(row);
-            }
-        }
-        return true;
+    struct ScanOutcome {
+        bool boundaryVerified = false; // Stored 封装边界是否与写端回执一致。
+        bool ended = false; // 是否见到合法导入尾记。
+        std::uint64_t clues = 0; // 已核对的线索总数。
+        std::vector<rule::ArchivedApiObservation> observed; // 原包字段及两套身份坐标。
     };
-    const auto checked = archive::ScanOpenRawEvidence(file.value, header.identity, std::nullopt, 0, visitor);
-    Check(checked.VerifiedBoundary(*finished.flushed) && readback.ended == withEnd && observed.size() == 1,
+    const auto scan = [&]() {
+        evidence::ApiMonitorClueReadback readback; // 产品使用的原始归档线索与尾记校验。
+        std::vector<rule::ArchivedApiObservation> observed; // 原包字段及两套身份坐标。
+        const auto visitor = [&](const archive::SegmentIdentity&, const archive::BlockInfo&,
+            const std::vector<archive::DecodedRecord>& records) {
+            for (const auto& record : records) {
+                const auto* raw = std::get_if<archive::RawRecordV1>(&record.body); // 共享 Stored 解封的记录正文。
+                if (!raw) {
+                    return false;
+                }
+                const auto metadata = evidence::ParseJson(raw->metadataJson); // 真实的严格 JSON 解码。
+                std::optional<evidence::ArchivedApiMonitorClue> clue; // 合法尾记没有线索。
+                if (!metadata.ok() || !readback.Accept(metadata.value, raw->inlineRawData, clue)) {
+                    return false;
+                }
+                if (clue) {
+                    // 本夹具只有一个固定包；名字必须是静态存储，不能用离开作用域即销毁的局部 string。
+                    constexpr std::string_view api = "WriteProcessMemory";
+                    rule::ArchivedApiObservation row{record.recordSequence, clue->sourceSequence, api, clue->clue->family};
+                    if (const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(clue->packet)) {
+                        row.memoryWriteReturn = rule::ArchivedApiMemoryWriteReturn{returned->returned, returned->statusCode};
+                    }
+                    observed.push_back(row);
+                }
+            }
+            return true;
+        };
+        const auto checked = archive::ScanOpenRawEvidence(file.value, header.identity, std::nullopt, 0, visitor);
+        ScanOutcome outcome;
+        outcome.boundaryVerified = checked.VerifiedBoundary(*finished.flushed);
+        outcome.ended = readback.ended;
+        outcome.clues = readback.clues;
+        outcome.observed = std::move(observed);
+        return outcome;
+    };
+
+    const auto first = scan();
+    Check(first.boundaryVerified && first.ended == withEnd && first.observed.size() == 1,
         "validate Stored framing and independent API import tail");
-    if (readback.ended && checked.VerifiedBoundary(*finished.flushed)) {
-        const auto result = rule::AnalyzeArchivedApiPresets(database, observed, readback.clues); // 同一个类型化预置入口。
+    if (first.ended && first.boundaryVerified) {
+        const auto result = rule::AnalyzeArchivedApiPresets(database, first.observed, first.clues); // 同一个类型化预置入口。
         Check(result.error == rule::ApiPresetError::None && result.matches.size() == 1 &&
             result.matches.front().rawSequence == 1 && result.matches.front().sourceSequence == 7 &&
             result.matches.front().api == "WriteProcessMemory", "Stored preset evidence receipt");
-        const auto detailed = rule::AnalyzeArchivedApiPresets(database, observed, readback.clues, rule::ApiPresetProfile::ByCategory);
+        const auto detailed = rule::AnalyzeArchivedApiPresets(database, first.observed, first.clues, rule::ApiPresetProfile::ByCategory);
         Check(detailed.error == rule::ApiPresetError::None && detailed.matches.size() == 1 &&
             detailed.matches.front().ruleId == "ksword.api.memory-write-observed.v1" &&
             detailed.matches.front().rawSequence == 1 && detailed.matches.front().sourceSequence == 7 &&
@@ -525,7 +712,38 @@ void TestStoredPreset(const rule::ApiPresetDatabase& database, const std::filesy
             detailed.matches.front().behavior->ruleId == "ksword.behavior.memory-write-access-denied-return.v1" &&
             detailed.matches.front().behavior->evidence == "reported-api-return",
             "Stored category and behavior share the original evidence coordinate");
+
+        // 错误规则数据库必须拒绝同一原包，且不改变已归档字节与边界。
+        const auto broken = rule::LoadApiPresetDatabase(scratch / L"absent-rule-profile.json");
+        Check(broken.error == "rules-profile-unavailable" && broken.profiles[0].empty() &&
+            broken.profiles[1].empty() && broken.behaviorRules.empty(), "Stored preset error database");
+        CheckPresetIdentity(broken, ""sv, "error database keeps an empty identity");
+        const auto rejected = rule::AnalyzeArchivedApiPresets(broken, first.observed, first.clues);
+        Check(rejected.error == rule::ApiPresetError::InvalidPreset && rejected.matches.empty(),
+            "Stored preset rejects an error rule database");
+
+        const auto again = scan(); // 归档必须仍可读，边界与原始字节不变。
+        Check(again.boundaryVerified && again.ended == withEnd && again.clues == first.clues &&
+            again.observed.size() == 1 && again.observed.front().rawSequence == 1 &&
+            again.observed.front().sourceSequence == 7 && again.observed.front().api == "WriteProcessMemory",
+            "Stored boundary and raw bytes stay readable after the rejected analysis");
     }
+}
+
+// 产品已部署规则配置的身份：产品报告值必须等于该文件原始字节的摘要。
+void TestDeployedProfileIdentity(const rule::ApiPresetDatabase& database)
+{
+    std::wstring image(32768, L'\0'); // 当前进程映像绝对路径。
+    const auto length = GetModuleFileNameW(nullptr, image.data(), static_cast<DWORD>(image.size()));
+    if (!length || length >= image.size()) {
+        Check(false, "deployed profile image path");
+        return;
+    }
+    image.resize(length);
+    const auto profile = std::filesystem::path(image).parent_path() / L"profiles" / L"action_analyze_api_rules.json";
+    const auto bytes = ReadAllBytes(profile);
+    Check(!bytes.empty(), "deployed profile bytes are readable");
+    Check(Sha256Hex(bytes) == database.sourceSha256, "deployed profile identity matches the file digest");
 }
 } // namespace
 
@@ -552,8 +770,10 @@ int wmain(int argc, wchar_t** argv)
     TestPresets(database);
     TestBehaviorPreset(database);
     TestPresetFile(argv[1]);
+    TestDeployedProfileIdentity(database);
     TestStoredPreset(database, argv[1], true);
     TestStoredPreset(database, argv[1], false);
+    std::cout << "ActionAnalyze preset identity contract: active\n";
     std::cout << "ActionAnalyze rule expression: " << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

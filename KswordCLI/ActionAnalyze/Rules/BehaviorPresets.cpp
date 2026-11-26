@@ -4,12 +4,15 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <bcrypt.h>
 
 #include <filesystem>
 #include <fstream>
 #include <ranges>
 #include <set>
 #include <utility>
+
+#pragma comment(lib, "bcrypt.lib")
 
 namespace Ksword::ActionAnalyze::Rules {
 namespace {
@@ -24,6 +27,31 @@ constexpr FieldBinding BehaviorCatalog[] = {
 };
 
 constexpr std::size_t kMaxProfileBytes = 1024 * 1024; // 限制本地规则数据读入量。
+
+// 对实际交给 JSON 解析器的有界缓冲求摘要，不重新打开可能已被替换的文件。
+std::string SourceSha256(std::string_view bytes)
+{
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        return {};
+    }
+    std::array<UCHAR, 32> digest{};
+    const auto status = BCryptHash(algorithm, nullptr, 0,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())), static_cast<ULONG>(bytes.size()),
+        digest.data(), static_cast<ULONG>(digest.size()));
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (status < 0) {
+        return {};
+    }
+    constexpr std::string_view hex = "0123456789abcdef";
+    std::string result;
+    result.reserve(digest.size() * 2);
+    for (const auto byte : digest) {
+        result.push_back(hex[byte >> 4]);
+        result.push_back(hex[byte & 15]);
+    }
+    return result;
+}
 
 // 从 JSON 对象读取必填且非空的文本。
 bool ReadText(const Evidence::JsonValue& object, std::string_view field, std::string& output)
@@ -229,6 +257,10 @@ ApiPresetDatabase LoadApiPresetDatabase(const std::filesystem::path& path)
         }
         if (auto error = ReadPresets(json.value.find("behaviorRules"), true, ids, database.behaviorRules); !error.empty()) {
             return ProfileError(std::move(error));
+        }
+        database.sourceSha256 = SourceSha256(bytes); // 解析与摘要使用同一份原字节，只在完整成功后发布身份。
+        if (database.sourceSha256.empty()) {
+            return ProfileError("rules-profile-sha256-failed");
         }
         return database;
     } catch (...) {
