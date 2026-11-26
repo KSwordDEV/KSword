@@ -8,6 +8,7 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "为唯一选中原成员采集集合以外的明确来源，沿用本轮项目和采样；不继续任何成员，关闭时取消采集。": "Capture an explicit source outside the execution group for the single selected original member, using this project's current sample. No member is continued. Closing cancels the capture.",
     "冻结断点定义 ID（可选）": "Frozen breakpoint definition ID (optional)",
     "冻结断点定义 ID 须为空或规范 UUID。": "The frozen breakpoint definition ID must be empty or a canonical UUID.",
     "冻结定义绑定": "Frozen definition binding",

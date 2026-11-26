@@ -1,5 +1,6 @@
 #include "../Framework.h"
 #include "ExecutionGroupFields.h"
+#include "NativeSessionApiPane.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QStringList>
@@ -297,6 +298,14 @@ namespace ks::action_analyze
                 .field(QStringLiteral("采样 ID"), QString::fromStdString(snapshot.archive.sampleId))
                 .field(QStringLiteral("项目目录"), QString::fromStdWString(snapshot.archive.directory))
                 .field(QStringLiteral("归档结果 JSON"), QString::fromStdString(Ksword::Evidence::WriteJson(archive)));
+        }
+        if (snapshot.archive.api)
+        {
+            NativeSessionApiPane::AppendFields(document, *snapshot.archive.api); // 不随当前成员选择改写采集时来源。
+        }
+        if (snapshot.apiStartup)
+        {
+            NativeSessionApiPane::AppendProgress(document, *snapshot.apiStartup); // 在途真实阶段，原字段视图保留搜索和导出。
         }
         for (const int row : selected)
         {

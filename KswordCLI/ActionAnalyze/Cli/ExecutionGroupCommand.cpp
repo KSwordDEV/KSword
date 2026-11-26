@@ -1,6 +1,7 @@
 #include "ExecutionGroupCommand.h"
 
 #include "ExecutionGroupProtocol.h"
+#include "NativeSessionApiCapture.h"
 #include "Transport.h"
 #include "../Project/ProjectStorage.h"
 #include "../Project/ExecutionGroupArchive.h"
@@ -64,6 +65,7 @@ public:
                      {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
                       {"rangeAdd", Text("control.execution.range.add params:{address,bytes} canonical decimal strings; expected:{collectionId,stops:[one complete current NX Held token]}; never Continue")},
                       {"executionSave", Text("control.execution.save params:{}; expected:{collectionId,stops:[one current execution stopToken]}; requires configured project; never Continue")},
+                      {"apiCapture", Text("control.api.capture requires one complete sessionToken in expected.sessions and a confirmed explicit source outside all members; shared sample writer, never Continue")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
             // 部分启动失败仍进入命令循环，保留成功附加者供状态、继续、步进及清退。
@@ -81,6 +83,11 @@ private:
         const auto report = p::Report(result, !jsonl_); // 控制回执与存储回执各自保留。
         auto fields = *report.asObject(); // JSON对象只提供只读视图，复制值字段后追加归档投影。
         fields.emplace_back("executionArchive", Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
+        const auto& view = archive_.View(); // API结果携带采集时冻结的成员身份，不随后来选择漂移。
+        fields.emplace_back("apiCapture", view.api ? DescribeNativeSessionApi(*view.api, view.apiBefore, view.apiAfter) : V::makeNull());
+        fields.emplace_back("apiOwner", view.api ? V::makeObject({{"sampleId", Text(view.apiOwner.sampleId)},
+            {"sessionId", Text(view.apiOwner.sessionId)}, {"epoch", Text(view.apiOwner.epoch)},
+            {"backendInstanceId", Text(view.apiOwner.backendInstanceId)}}) : V::makeNull());
         return V::makeObject(std::move(fields));
     }
 
@@ -137,11 +144,84 @@ private:
         return Emit("response", request.id, position->second.result);
     }
 
+    // 输入单个原成员sessionToken与有限来源草稿，在同一修改流水内采集；不创建第二writer或调试owner。
+    bool CaptureApi(const Request& request)
+    {
+        if (cleanupOnly_)
+        {
+            return Invalid(request, "cleanup-pending", "Original owners are closing");
+        }
+        Request parameters = request; // REPL只调整值参数供共用解析器，不修改原请求签名。
+        std::string id = request.id; // 所有修改仍使用execution/N递增和原128条回执窗口。
+        n::ExecutionGroupSessionEntry member; // 客户端必须复制原成员完整owner+control。
+        if (jsonl_)
+        {
+            const auto* expected = request.expected ? request.expected->asObject() : nullptr;
+            const auto* collection = request.expected ? request.expected->find("collectionId") : nullptr;
+            const auto* sessions = request.expected ? request.expected->find("sessions") : nullptr;
+            std::string collectionId; // 包络集合与成员owner分别核对，不以一个替代另一个。
+            if (!request.session || !expected || expected->size() != 2 || !collection ||
+                !collection->tryGetString(collectionId) || collectionId != collectionId_ || !sessions ||
+                !sessions->asArray() || sessions->asArray()->size() != 1 ||
+                !p::ParseSessionToken(sessions->asArray()->front(), member))
+            {
+                return Invalid(request, "invalid-api-member", "Require current session and expected:{collectionId,sessions:[one complete member.sessionToken]}");
+            }
+        }
+        else
+        {
+            const auto* args = request.params.asArray(); // 格式：流水 PID FILETIME 时长 confirm TOKENHEX [progress]。
+            std::string tokenText;
+            V token; // 完整sessionToken只从用户复制的字节解析，不补造现场字段。
+            if (request.expected || !args || (args->size() != 6 && args->size() != 7) ||
+                !(*args)[0].tryGetString(id) || !(*args)[5].tryGetString(tokenText) ||
+                !p::ParseTokenText(tokenText, token) || !p::ParseSessionToken(token, member))
+            {
+                return Invalid(request, "invalid-api-member", "Use api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]");
+            }
+            JsonArray values(args->begin() + 1, args->begin() + 5); // 去掉修改流水和目标令牌，复用来源参数语法。
+            if (args->size() == 7)
+            {
+                values.push_back(args->back());
+            }
+            parameters.params = V::makeArray(std::move(values));
+        }
+        const auto input = PrepareNativeSessionApi(parameters, jsonl_); // 与单目标入口使用完全相同的来源限制。
+        if (!input.capture)
+        {
+            return Emit("error", request.id, input.error);
+        }
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text("api-capture")},
+            {"params", request.params}, {"expected", request.expected ? *request.expected : V::makeNull()}})); // 令牌和来源均纳入重放冲突判定。
+        return Mutate(request, std::move(id), signature, [&] {
+            Ksword::ActionAnalyze::NativeBoundApiStartup onStartup; // 显式订阅时仅向stderr输出真实阶段。
+            if (input.startupProgress)
+            {
+                onStartup = [](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                    const auto value = V::makeObject({{"projectId", Text(progress.projectId)},
+                        {"sampleId", Text(progress.sampleId)}, {"sourcePid", V::makeUInt(progress.request.sourcePid)},
+                        {"sourceCreationFileTime", Count(progress.request.sourceCreationFileTime)},
+                        {"nativePid", V::makeUInt(progress.nativeTarget.pid)},
+                        {"nativeCreationFileTime", Count(progress.nativeTarget.creationFileTime)},
+                        {"startup", Ksword::ActionAnalyze::ApiCaptureStartupJson(progress.startup)}}); // 不生成stdout控制ACK。
+                    std::wcerr << Ksword::ActionAnalyze::ProjectStorage::WideAscii(Ksword::Evidence::WriteJson(value)) << L'\n';
+                };
+            }
+            const std::atomic_bool cancel{false}; // 原CLI串行有限采集；输入在返回后继续处理，不声称在途取消。
+            archive_.CaptureApi(group_, member, *input.capture, cancel, onStartup);
+            return Report(group_.QueryWithoutCondition()); // 不处理同伴条件，不Continue或自动保存执行观察。
+        });
+    }
+
     bool Dispatch(const Request& request, bool& closed)
     {
         if (request.session && (request.session->id != identity_.sessionId || request.session->epoch != identity_.epoch))
             return Invalid(request, "wrong-session", "Use the current hello session and epoch");
         const auto& method = request.method;
+        if (method == "api-capture" || method == "control.api.capture")
+        {
+            return CaptureApi(request); // 此路径仍受上方hello身份核对及原修改流水约束。
+        }
         const bool query = method == "status" || method == "control.query";
         const bool close = method == "quit" || method == "close" || method == "controller.shutdown";
         const bool resume = method == "continue" || method == "control.continue";
@@ -152,7 +232,7 @@ private:
         const bool range = method == "execution-range-add" || method == "control.execution.range.add"; // 原成员显式追加NX页。
         const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | quit"));
+            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
         if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(group_.Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
@@ -374,7 +454,8 @@ void RegisterExecutionGroupCommand()
         L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
     command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
-        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; quit. Copy full replToken bytes, never a member index. "
+        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
+        L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
         L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); control.execution.save params:{} with one complete current execution stop; controller.shutdown params:{}. Mutations require current hello session id/epoch, "
         L"execution/N request IDs, and expected:{collectionId,stops:[complete current member.pauseToken, stopToken or stepToken]}. "
@@ -387,6 +468,9 @@ void RegisterExecutionGroupCommand()
         L"It uses the original member owner, adds only explicit 4 KiB pages within the total 64-page budget, and never continues the target. "
         L"Execution-save writes the current original member event to the configured project's new sample raw-native stream, preserving registers and event-time binding. "
         L"ManualPause is not execution evidence. executionArchive reports saved/firstFailure, written/flushed/verified separately; duplicate events reuse the original ordinal. "
+        L"API capture uses control.api.capture params:{sourcePid:UInt,sourceCreationFileTime:decimal-string,durationMs:UInt,confirm:true,startupProgress?:bool}, expected:{collectionId,sessions:[one complete sessionToken]}. "
+        L"Source must be outside every execution group member; duration is 1000..10000 ms after Ready, with startup/drain time separate. The original writer/sample is reused. "
+        L"CLI handles queued control after the finite capture returns; progress is stderr JSONL, apiCapture reports independent admission/capture/archive/cleanup and before/after member state. "
         L"site retains initial configuration; control.breakpoint.executionRanges and control.executionRange show actual ranges and the native range/N receipt. "
         L"128 replay receipts, strictly increasing IDs; replay returns original result and does not repeat actions. "
         L"All stop identities/events/revisions are checked before any selected continue; actual calls remain sequential and may partly fail. "

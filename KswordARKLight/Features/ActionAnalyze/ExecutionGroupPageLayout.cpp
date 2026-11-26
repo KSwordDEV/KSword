@@ -60,7 +60,7 @@ void Layout(Page& page)
         ::MoveWindow(child, x, y, (std::max)(1, w), (std::max)(1, h), TRUE);
     };
     const std::array actions{page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.close};
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.close};
     const int actionsHeight = Ui::LayoutParameterActions(actions, edge, 0, width, Scale(136), row, gap, false);
     const int contentHeight = (std::max)(1, static_cast<int>(rect.bottom) - 2 * edge - actionsHeight - gap);
     const int parameterHeight = wide ? contentHeight : (std::max)(1, contentHeight / 3);
@@ -113,6 +113,14 @@ void Layout(Page& page)
     const int openHeight = TextHeight(page.openProject, bodyWidth) + gap; // 复选框保留完整新采样语义。
     move(page.openProject, 0, y, bodyWidth, openHeight);
     y += openHeight + gap;
+    for (std::size_t index = 0; index < page.apiInputs.size(); ++index)
+    {
+        const int labelHeight = TextHeight(page.apiLabels[index], bodyWidth); // 参数正文统一滚动，不把API字段挤到结果区。
+        move(page.apiLabels[index], 0, y, bodyWidth, labelHeight);
+        y += labelHeight;
+        move(page.apiInputs[index], 0, y, bodyWidth, row);
+        y += row + gap;
+    }
     const int authorizationHeight = TextHeight(page.authorized, bodyWidth) + gap;
     move(page.authorized, 0, y, bodyWidth, authorizationHeight);
     y += authorizationHeight + gap;
@@ -176,6 +184,16 @@ bool CreateControls(Page& page)
     page.openProject = ::CreateWindowExW(0, L"BUTTON", L"打开已有项目，创建新采样",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kOpenProject), ::GetModuleHandleW(nullptr), nullptr);
+    const std::array<const wchar_t*, 3> apiTitles{L"同采样API来源PID（集合以外）", L"API来源创建FILETIME（十进制）", L"API采集时长（1000–10000毫秒）"}; // 自然高度标签保留单位。
+    const std::array<int, 3> apiIds{kApiPid, kApiCreation, kApiDuration}; // 不改变已有站点字段ID。
+    for (std::size_t index = 0; index < page.apiInputs.size(); ++index)
+    {
+        page.apiLabels[index] = Ui::CreateText(body, 0, apiTitles[index], 0, 0, 1, 1);
+        Wrap(page.apiLabels[index]);
+        page.apiInputs[index] = Edit(body, apiIds[index]);
+        ::SendMessageW(page.apiInputs[index], EM_SETLIMITTEXT, index == 1 ? 20 : 10, 0); // 非法文本交原解析器拒绝。
+    }
+    ::SetWindowTextW(page.apiInputs[2], L"3000"); // 只设有限时长草稿，不默认选择来源PID。
     page.authorized = ::CreateWindowExW(0, L"BUTTON", L"我已获得对本次全部进程实例的明确授权",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kAuthorized), ::GetModuleHandleW(nullptr), nullptr);
@@ -191,6 +209,7 @@ bool CreateControls(Page& page)
     page.stepOut = Ui::CreateButton(page.hwnd, kStepOut, L"选中成员跳出", 0, 0, 1, 1);
     page.cancelStep = Ui::CreateButton(page.hwnd, kCancelStep, L"中止选中步进", 0, 0, 1, 1);
     page.saveExecution = Ui::CreateButton(page.hwnd, kSaveExecution, L"保存选中执行观察", 0, 0, 1, 1);
+    page.captureApi = Ui::CreateButton(page.hwnd, kCaptureApi, L"采集同采样API", 0, 0, 1, 1); // 范围为单选原成员，来源另填。
     page.close = Ui::CreateButton(page.hwnd, kClose, L"关闭并清退集合", 0, 0, 1, 1, Ui::ButtonRole::Danger);
     // 本表操作条为None；业务控制在固定底栏，完整文档操作在正文工具行。
     page.members = Ui::CreateReportListView(page.hwnd, kMembers, 0, 0, 1, 1);
@@ -210,14 +229,16 @@ bool CreateControls(Page& page)
     ::SendMessageW(page.text, EM_SETLIMITTEXT, 0, 0);
     Ui::AttachTextFindSupport(page.text);
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
+    controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 新来源字段参与原键盘导航，不另建窗口。
     for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
         page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
-        page.stepOut, page.cancelStep, page.saveExecution, page.close, page.members, page.preset, page.textMode, page.copy,
+        page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
     for (const auto control : controls)
         if (!control || !::SetWindowSubclass(control, Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     if (!::SetWindowSubclass(ListView_GetHeader(page.members), Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     for (const auto label : page.labels) if (!label) return false;
+    for (const auto label : page.apiLabels) if (!label) return false; // 创建失败不能交付缺标签输入。
     if (!page.hint || !page.identity || !page.rangeHint || !page.projectLabel) return false;
     page.tooltip = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
@@ -237,6 +258,11 @@ bool CreateControls(Page& page)
             Tip(page, button, L"只选一个当前断点或步进停点，命中条件须允许操作。主动暂停停点不支持步进。");
         Tip(page, page.cancelStep, L"只选一个仍在原生步进中的成员；中止复用该成员的原步进请求。");
         Tip(page, page.saveExecution, L"启动前须配置项目。单选当前执行进入或单指令完成事件后显式保存，保留寄存器和事件时绑定；不继续本成员或同伴。相同事件返回原段坐标，追加失败不跳段。");
+        Tip(page, page.captureApi, L"须配置本轮项目并单选仍附加的原成员。确认另一明确来源后采集1–10秒，写同一采样raw。集合全部成员不能作为来源；不Continue或自动保存执行事件，关闭时取消采集。");
+        for (const auto input : page.apiInputs)
+        {
+            Tip(page, input, L"API来源与上方站点草稿分开。填写集合以外的明确PID、创建FILETIME及1000–10000毫秒；实际采集前显示确认。");
+        }
         Tip(page, page.projectDirectory, L"默认新建项目；勾选打开已有项目时复用项目但创建新采样。项目或写租约失败会阻止本轮附加，不借用其它页面writer。");
         Tip(page, page.openProject, L"必须填写已有项目目录。每次Start均创建独立新采样，历史执行证据不恢复活控制权。");
         Tip(page, page.close, L"原集合清退未结清时保持存活，可再次点击重试；确认clean后才允许启动下一轮草稿。");

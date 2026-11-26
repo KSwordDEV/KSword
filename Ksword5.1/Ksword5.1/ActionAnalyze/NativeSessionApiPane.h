@@ -10,7 +10,7 @@ namespace ks::ui { struct FieldDocument; }
 
 namespace ks::action_analyze {
 
-// 挂载：行为分析→写入停点→原ParameterWorkspace参数区；不创建页、动作栏或worker。
+// 挂载：行为分析→写入停点/执行断点集合→原ParameterWorkspace参数区；不创建页、动作栏或worker。
 class NativeSessionApiPane final : public QWidget {
 public:
     // parent为原参数正文；仅创建自然高度分区，动作由原页面固定栏负责。

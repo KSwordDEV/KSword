@@ -2,6 +2,9 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第4/6项集合同采样API源码。** 原`ExecutionGroupArchive`借本轮唯一writer/sample和`CaptureNativeBoundApi`采另一明确来源，拒绝来源为任一集合成员；前后`QueryWithoutCondition`不求条件、不Continue、不自动保存执行事件。Qt复用`NativeSessionApiPane`、原worker和200ms投影，Light复用`NativeSessionApiFields`和原250ms快照；两端关闭立即置原取消位，排空后才Close成员及writer。CLI `api-capture execution/N ... REPLSESSIONTOKEN [progress]`／`control.api.capture`用唯一完整sessionToken、原128回执流水；解析/完整报告复用单目标入口，stdout响应、stderr可选进度。CLI有限同步采集期间控制排队，不能声称在途取消。本批仅源码，未构建、测试、GUI、验收落盘或推送。
+- **2026-11-26 两项CodeBuddy网络恢复授权。** 用户明确「网络环境炸了刚才，你可以继续跑那两个炸掉的」。原批次90秒首token超时退出1；首次恢复宿主误设后台120秒超时退出143，已确认无残留派发/CodeBuddy进程后，同两项改为30分钟宿主上限重跑，当前`sh_217ef3fbd001zM5SIntRv2cBgQ`。仍只允许条件布尔/线程恢复原限定源码，不测试/构建/GUI/验收/再派发，等自动最终通知，不轮询；本次恢复不开放其他CodeBuddy任务。
+
 - **2026-11-26 第6项集合冻结定义源码。** `ExecutionGroupArchive::ResolveSites`在首个成员附加前以副本解析全部模块RVA站点的可选`definitionId`，复用`ResolveSampleImageDefinition`读取本轮sample冻结启用定义，核对模块名/RVA并继承映像散列；冲突、缺项目或不支持定位在附加前失败并释放未使用writer。Qt/Light/CLI同入口，结果保留实际解析后站点和期望散列；隐藏模式保留草稿但不发送。项目失败沿原空集合清退再启动恢复。只是显式实例站点引用，不是完整全局定义自动激活，不解析PDB。本批未构建、测试、GUI、派发或推送。
 
 - **2026-11-26 执行集合显式保存三端源码。** `Project/ExecutionGroupArchive`在原worker准备可选新项目／打开项目及本轮新sample，全部原成员沿用真实sample；保存前`OwnedExecutionGroup::QueryWithoutCondition`回读原owner完整事件，不求同伴条件、不Continue。`native-execution-v3`原写入器保留18寄存器、事件绑定、NX范围及实测散列，backend/serial去重；真实追加失败阻止跳段，保留首次失败及written/flushed/verified。CLI `--project PATH [--open-project]`与`execution-save`／`control.execution.save`；Qt／Light原执行集合参数页、原worker、详情同步接入。导航为“监控→行为分析→执行断点集合”，类型为参数执行＋管理表（None）＋同源字段详情，沿用ParameterWorkspace；对照原DataWriteWatch及ProcessGroupMemoryPane。全部新增仅源码，无构建／测试／GUI／验收回执／推送。继续禁止新增CodeBuddy任务，已派两项仍等待自动最终消息，不轮询。

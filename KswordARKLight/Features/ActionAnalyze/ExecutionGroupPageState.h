@@ -11,7 +11,8 @@ enum : int {
     kIdentify, kAdd, kRemove, kDraft, kAuthorized, kStart, kQuery, kContinueAll,
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
-    kPauseAll, kPauseSelected, kAddRange, kImageSha256, kProjectDirectory, kOpenProject, kSaveExecution, kDefinitionId
+    kPauseAll, kPauseSelected, kAddRange, kImageSha256, kProjectDirectory, kOpenProject, kSaveExecution, kDefinitionId,
+    kApiPid, kApiCreation, kApiDuration, kCaptureApi
 };
 // 末尾增加输入字段，保留既有控件ID与字段顺序；散列使用独立kImageSha256标识。
 enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, ImageSha256, DefinitionId, FieldCount };
@@ -25,6 +26,8 @@ struct Page {
     HWND rangeHint = nullptr, addRange = nullptr;
     HWND projectLabel = nullptr, projectDirectory = nullptr, openProject = nullptr; // 独立项目草稿，Start时冻结。
     HWND saveExecution = nullptr; // 保存单选成员当前原事件，权限与Continue分开。
+    std::array<HWND, 3> apiLabels{}, apiInputs{}; // 来源PID、创建时间和有限区间，与成员站点草稿分开。
+    HWND captureApi = nullptr; // 原固定动作栏的同采样API入口。
     HWND draft = nullptr, add = nullptr, remove = nullptr, loadDraft = nullptr, authorized = nullptr;
     HWND start = nullptr, query = nullptr, continueAll = nullptr, continueSelected = nullptr;
     HWND pauseAll = nullptr, pauseSelected = nullptr;

@@ -23,6 +23,7 @@ namespace ks::action_analyze
         ks::ui::TaskCpuToken cpu; // 原任务管理器的纯值计量令牌，后台只读取本轮副本。
         bool closeRequested = false; // 一经设置不再接纳新操作。
         bool ended = false; // 原组已clean或线程创建前失败。
+        std::atomic_bool apiCancel = false; // 关闭准入时立即取消在途API，原调试清退仍由同一worker串行执行。
 
         // 异常只影响本轮任务；原owner始终留在同一worker，下一轮进入清退。
         void Fail(const std::exception_ptr& failure)
@@ -46,6 +47,7 @@ namespace ks::action_analyze
             snapshot.busy = false;
             snapshot.closing = true;
             closeRequested = true;
+            apiCancel.store(true);
             ++snapshot.revision;
         }
 
@@ -149,6 +151,19 @@ namespace ks::action_analyze
                             }
                             result = group->QueryWithoutCondition();
                             break;
+                        case ExecutionGroupCommand::CaptureApi:
+                            if (request.sessions.size() == 1)
+                            {
+                                archive.CaptureApi(*group, request.sessions.front(), request.api, apiCancel,
+                                    [this](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                                        auto value = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress); // 不可变进度只含纯值。
+                                        std::lock_guard lock(access); // 不持此锁执行采集或调试调用。
+                                        snapshot.apiStartup = std::move(value);
+                                        ++snapshot.revision;
+                                    });
+                            }
+                            result = group->QueryWithoutCondition(); // API结束不求同伴条件，不自动Continue。
+                            break;
                         }
                     }
 
@@ -204,6 +219,7 @@ namespace ks::action_analyze
                 {
                     std::lock_guard lock(owner->access); // 退出只请求关闭，不在GUI线程调原生API。
                     owner->closeRequested = true;
+                    owner->apiCancel.store(true); // 程序退出和用户关闭使用同一个在途取消位。
                     owner->snapshot.closing = true;
                     owner->changed.notify_one();
                 }
@@ -240,6 +256,11 @@ namespace ks::action_analyze
         {
             return false;
         }
+        if (request.command == ExecutionGroupCommand::CaptureApi)
+        {
+            m_shared->apiCancel.store(false); // 在关闭检查之后清零，仅属于本次已受理请求。
+            m_shared->snapshot.apiStartup.reset();
+        }
         m_shared->pending = std::move(request);
         m_shared->snapshot.busy = true;
         m_shared->changed.notify_one();
@@ -256,6 +277,7 @@ namespace ks::action_analyze
     {
         std::lock_guard lock(m_shared->access); // 关闭请求可以在任何显式操作在途时提交。
         m_shared->closeRequested = true;
+        m_shared->apiCancel.store(true); // 不等待采集线程持锁，附加/排空按共享服务取消语义收尾。
         m_shared->snapshot.closing = true;
         m_shared->changed.notify_one();
     }

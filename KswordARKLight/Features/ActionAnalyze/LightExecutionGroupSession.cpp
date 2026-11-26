@@ -25,6 +25,7 @@ struct LightExecutionGroupSession::Shared {
     std::uint64_t closeRequested = 0, closeTaken = 0, closeConclusions = 0;
     bool released = true;
     bool stopping = false;
+    std::atomic_bool apiCancel = false; // 原会话关闭立即取消API；清退仍等原worker串行完成。
 
     void Publish(execution_native::ExecutionGroupResult result, bool explicitOperation = false,
         const Ksword::ActionAnalyze::ExecutionGroupArchiveView* archive = nullptr)
@@ -46,6 +47,7 @@ struct LightExecutionGroupSession::Shared {
         const auto baseline = closeConclusions;
         ++closeRequested;
         status.closing = true;
+        apiCancel.store(true); // 退出登记等待前先通知正在采集的唯一服务。
         changed.notify_all();
         changed.wait(lock, [&] { return released || closeConclusions > baseline || !status.active; });
         return released;
@@ -141,6 +143,19 @@ struct LightExecutionGroupSession::Shared {
                             Publish(group->QueryWithoutCondition(), true, &archive->View());
                         }
                         break;
+                    case LightExecutionGroupCommand::CaptureApi:
+                        if (group && archive && request->sessions.size() == 1)
+                        {
+                            archive->CaptureApi(*group, request->sessions.front(), request->api, apiCancel,
+                                [this](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                                    auto value = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress); // 阶段只传纯值。
+                                    std::lock_guard lock(mutex); // 不持状态锁执行采集或原生回读。
+                                    status.apiStartup = std::move(value);
+                                    ++status.revision;
+                                });
+                            Publish(group->QueryWithoutCondition(), true, &archive->View()); // 不求值同伴条件或Continue。
+                        }
+                        break;
                     case LightExecutionGroupCommand::Identify: {
                         FILETIME created{}, exited{}, kernel{}, user{};
                         std::uint64_t creation = 0;
@@ -220,6 +235,12 @@ bool LightExecutionGroupSession::Submit(LightExecutionGroupRequest request)
         shared_->released = false;
         shared_->status.closedClean = false;
         shared_->status.canStart = false;
+        shared_->status.apiStartup.reset(); // 新采样不沿用上轮采集阶段。
+    }
+    if (request.command == LightExecutionGroupCommand::CaptureApi)
+    {
+        shared_->apiCancel.store(false); // 已通过关闭/单在途准入后才归属本请求。
+        shared_->status.apiStartup.reset();
     }
     shared_->pending = std::move(request);
     shared_->status.busy = true;
@@ -235,6 +256,7 @@ void LightExecutionGroupSession::Close()
         std::lock_guard lock(state->mutex);
         if (state->released) return;
         state->status.closing = true;
+        state->apiCancel.store(true); // 用户清退入口不等待采集或后台登记后再取消。
     }
     // 失败登记保留原state；再次清退重试同一登记，不转移或丢弃owner。
     const auto previous = state->retirement.lock();
@@ -273,6 +295,7 @@ void LightExecutionGroupSession::CancelRetirement()
             std::lock_guard lock(shared_->mutex);
             shared_->status.result = previous.result;
             shared_->status.archive = previous.archive; // 重建已clean的展示worker也保留历史保存坐标。
+            shared_->status.apiStartup = previous.apiStartup;
             shared_->status.observedFileTime = previous.observedFileTime;
             shared_->status.operationFileTime = previous.operationFileTime;
             shared_->status.revision = previous.revision + 1;

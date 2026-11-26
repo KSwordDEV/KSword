@@ -88,6 +88,10 @@ Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveVie
         {"directory", Path(view.directory)},
         {"projectId", V::makeString(view.projectId)}, {"sampleId", V::makeString(view.sampleId)},
         {"setupError", Issue(view.setup)}, {"writerLeaseHeld", V::makeBool(view.writerHeld)},
+        {"apiOwner", view.api ? V::makeObject({{"sampleId", V::makeString(view.apiOwner.sampleId)},
+            {"sessionId", V::makeString(view.apiOwner.sessionId)}, {"epoch", V::makeString(view.apiOwner.epoch)},
+            {"backendInstanceId", V::makeString(view.apiOwner.backendInstanceId)}}) : V::makeNull()},
+        {"apiAdmissionError", view.api ? Issue(view.api->admission) : V::makeNull()},
         {"stream", V::makeString("raw-native")}, {"duplicate", V::makeBool(view.duplicate)},
         {"appendBlocked", V::makeBool(view.appendBlocked)}, {"saved", Saved(view.saved)},
         {"firstFailure", Saved(view.firstFailure)}});
@@ -174,7 +178,62 @@ bool ExecutionGroupArchive::ResolveSites(std::vector<native::ExecutionGroupSite>
     return true;
 }
 
-// 显式保存只回读已有owner；不会自动求值条件、暂停其它成员或保存上一次事件。
+// 输入本次原成员和明确来源请求，输出独立API回执；原调试线程继续持有全部停止责任。
+void ExecutionGroupArchive::CaptureApi(native::OwnedExecutionGroup& group,
+    const native::ExecutionGroupSessionEntry& displayed, const NativeBoundApiRequest& request,
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup)
+{
+    auto result = std::make_shared<NativeBoundApiResult>(); // 先公布本次身份，任何拒绝不能沿用上轮成功。
+    result->request = request;
+    result->sampleId = view_.sampleId;
+    result->projectId = view_.projectId;
+    view_.api = result;
+    view_.apiOwner = displayed.owner;
+    view_.apiBefore = {};
+    view_.apiAfter = {};
+    if (!project_ || !view_.writerHeld || !view_.setup)
+    {
+        result->rejection = NativeBoundApiRejection::ProjectUnavailable;
+        result->admission = {ProjectError::NotOpen, 0, "executionGroupApiProjectRequired"};
+        return;
+    }
+    const auto before = group.QueryWithoutCondition(); // 无条件回读全部成员，不自动释放同伴假条件。
+    const auto member = std::find_if(before.members.begin(), before.members.end(), [&](const auto& item) {
+        return item.owner == displayed.owner;
+    }); // 只认本集合原owner，不从PID草稿或列表首行生成目标。
+    if (member == before.members.end() || member->owner.sampleId != view_.sampleId ||
+        member->control.pid != displayed.control.pid ||
+        member->control.processCreationTime != displayed.control.processCreationTime ||
+        !member->control.attached || !displayed.control.attached)
+    {
+        result->rejection = NativeBoundApiRejection::NativeUnavailable;
+        result->admission = {ProjectError::InvalidArgument, 0, "executionGroupApiMemberChanged"};
+        return;
+    }
+    view_.apiBefore = member->control;
+    result->nativeTarget = {member->control.pid, member->control.processCreationTime, member->control.attached};
+    const bool sourceIsMember = std::any_of(before.members.begin(), before.members.end(), [&](const auto& item) {
+        return item.site.pid == request.sourcePid;
+    }); // 任一集合目标都不能成为本次装载来源，避免在另一个已暂停owner内等待Agent。
+    if (sourceIsMember)
+    {
+        result->rejection = NativeBoundApiRejection::SourceIsNativeTarget;
+        result->admission = {ProjectError::InvalidArgument, 0, "executionGroupApiSourceIsMember"};
+        return;
+    }
+    result->admission = {ProjectError::IoError, 0, "executionGroupApiCaptureInterrupted"}; // 异常路径不留下默认成功诊断。
+    *result = CaptureNativeBoundApi(*project_, view_.sampleId, request, result->nativeTarget, cancel, onStartup);
+    const auto after = group.QueryWithoutCondition(); // API清退后只回读，不Continue、不保存成员执行事件。
+    const auto current = std::find_if(after.members.begin(), after.members.end(), [&](const auto& item) {
+        return item.owner == displayed.owner;
+    }); // 后置丢失保持空值，不能把前置快照当作仍持有的确认。
+    if (current != after.members.end())
+    {
+        view_.apiAfter = current->control;
+    }
+}
+
+// 输入唯一成员的完整显示停点，保存原事件；无执行证据时返回拒绝，不影响原调试责任。
 void ExecutionGroupArchive::Save(native::OwnedExecutionGroup& group,
     const native::ExecutionGroupSessionEntry& displayed)
 {

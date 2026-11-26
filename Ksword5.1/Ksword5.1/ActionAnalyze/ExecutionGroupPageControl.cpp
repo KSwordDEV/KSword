@@ -3,6 +3,7 @@
 #include "ExecutionGroupFields.h"
 #include "ExecutionGroupSiteEditor.h"
 #include "PrivateExecutionRangePane.h"
+#include "NativeSessionApiPane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/ResultTableHost.h"
@@ -173,6 +174,43 @@ namespace ks::action_analyze
         Poll(); // 只投影已公布状态，不在GUI线程查询目标。
     }
 
+    // 输入当前单选和来源草稿，输出冻结请求；模态确认期间清退或换集合后不派发旧请求。
+    void ExecutionGroupPage::CaptureApi()
+    {
+        if (!m_captureApi->isEnabled() || !m_session)
+        {
+            return;
+        }
+        const auto rows = Selected(); // 参数确认前固定目标身份，确认后不会换成后来选择的成员。
+        if (rows.size() != 1)
+        {
+            return;
+        }
+        const auto& site = m_model->sites.at(rows.front()); // 仅以强实例从显示回执定位原成员。
+        const auto member = std::find_if(m_shown.result.members.begin(), m_shown.result.members.end(), [&](const auto& item) {
+            return item.site.pid == site.pid && item.site.creationFileTime == site.creationFileTime;
+        });
+        if (member == m_shown.result.members.end())
+        {
+            return;
+        }
+        ExecutionGroupRequest request; // 所有输入值在显示确认前冻结，不向worker传控件。
+        request.command = ExecutionGroupCommand::CaptureApi;
+        request.sessions.push_back({member->owner, member->control});
+        const auto collection = m_shown.result.collectionId; // 模态期间发生清退或新集合时拒绝旧请求。
+        if (!m_apiPane->Prepare({member->control.pid, member->control.processCreationTime, member->control.attached}, request.api) ||
+            !m_apiPane->Confirm(request.api))
+        {
+            return;
+        }
+        if (!m_session || m_shown.result.collectionId != collection || m_shown.closing || m_shown.retired)
+        {
+            return;
+        }
+        m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
+        Poll(); // 实际owner/来源及全集排除由共享服务在原worker再核对。
+    }
+
     // 输入动作和明确范围，复制当前显示的完整NativeControlResult vector；不重造stop token。
     void ExecutionGroupPage::Submit(ExecutionGroupCommand command, bool all, native::NativeStepMode mode)
     {
@@ -289,6 +327,7 @@ namespace ks::action_analyze
         bool stepAllowed = false; // 手动暂停只允许Continue，本批不开放ManualPause步进。
         bool rangeAllowed = false; // 完整NX Held支持独立追加，ManualPause无需步进资格。
         bool saveAllowed = false; // 执行事件保存与Continue资格分开，ManualPause没有执行证据。
+        bool apiAllowed = false; // 来源采集不依赖精确停点，必须有本轮writer和仍附加的原成员。
         QString rangeTarget; // 明确当前追加目标；未单选时不沿用上一成员身份。
         if (selected.size() == 1)
         {
@@ -311,6 +350,7 @@ namespace ks::action_analyze
             {
                 rangeAllowed = native::OwnedExecutionGroup::CanAddRangeMember(*member);
                 saveAllowed = m_shown.archive.writerHeld && native::NativeExecutionFromOwnedStop(member->control).has_value();
+                apiAllowed = m_shown.archive.writerHeld && member->control.attached;
                 rangeTarget = sourceText(QStringLiteral("追加目标：PID %1 / 创建 FILETIME %2 / 停点 %3"))
                     .arg(site.pid).arg(site.creationFileTime)
                     .arg(member->control.responsibility ? QString::fromStdString(member->control.responsibility->stopId) : QStringLiteral("—"));
@@ -347,6 +387,8 @@ namespace ks::action_analyze
         }
         m_cancel->setEnabled(ready && cancellable);
         m_save->setEnabled(ready && saveAllowed); // 允许同事件重放，原归档器返回旧段坐标不重复写。
+        m_captureApi->setEnabled(ready && apiAllowed);
+        m_apiPane->setEnabled(ready && apiAllowed); // 编辑仅形成草稿，不改写旧采集来源。
         m_query->setEnabled(ready);
         m_close->setEnabled(m_session && !m_shown.retired); // 在途动作时仍允许请求清退。
         m_rangeTarget->setVisible(m_session && !m_shown.retired);

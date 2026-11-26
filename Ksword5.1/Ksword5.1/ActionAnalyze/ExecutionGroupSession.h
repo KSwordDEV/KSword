@@ -12,7 +12,7 @@ namespace ks::action_analyze
     namespace execution_group_native = ks::cli::action_analyze::control;
 
     // 请求完全按值进入原串行线程，界面行索引和控件不进入后台。
-    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution };
+    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution, CaptureApi };
 
     struct ExecutionGroupRequest
     {
@@ -28,12 +28,14 @@ namespace ks::action_analyze
         std::uint64_t rangeBytes = 0; // AddRange明确新增字节数，原owner核验总页数预算。
         bool all = false; // Pause/Continue显式区分固定全集与所选子集。
         bool authorized = false; // Start时冻结的用户授权。
+        Ksword::ActionAnalyze::NativeBoundApiRequest api; // 显式来源身份与有限时长，只用于CaptureApi。
     };
 
     struct ExecutionGroupSessionSnapshot
     {
         execution_group_native::ExecutionGroupResult result; // 本次逐成员真实回读。
         Ksword::ActionAnalyze::ExecutionGroupArchiveView archive; // 原worker的项目与保存回执纯值。
+        std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> apiStartup; // 在途身份与真实阶段，原200ms投影读取。
         std::uint64_t revision = 0; // 供UI避免重复投影。
         std::uint64_t observedFileTime = 0; // 完成本轮查询的UTC时间，不是同时冻结时间。
         bool busy = false; // 单项显式操作或查询在途。

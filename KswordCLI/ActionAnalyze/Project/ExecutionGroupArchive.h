@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProjectNativeExecution.h"
+#include "NativeBoundApiCapture.h"
 #include "../Control/OwnedExecutionGroup.h"
 
 #include <map>
@@ -24,6 +25,9 @@ struct ExecutionGroupArchiveView {
     ProjectResult setup; // 项目和采样准备结果，未配置目录时不创建项目。
     std::shared_ptr<const ExecutionGroupExecutionSave> saved; // 最近一次显式保存回执。
     std::shared_ptr<const ExecutionGroupExecutionSave> firstFailure; // 首次追加失败，旧成功重放不覆盖。
+    std::shared_ptr<const NativeBoundApiResult> api; // 本轮原writer的另一明确来源实例采集，不自动保存执行事件。
+    ks::cli::action_analyze::control::OwnerIdentity apiOwner; // 此次API关联的原集合成员owner，选择变化不改写。
+    ks::cli::action_analyze::control::NativeControlResult apiBefore, apiAfter; // 采集前后无条件回读，不能授予旧停点控制权。
     bool configured = false; // 用户明确要求写项目，不从其它页面借用writer。
     bool writerHeld = false; // 原租约仍被本worker持有，只有clean后调用Close才能归还。
     bool duplicate = false; // 同一backend/serial返回原段坐标，没有重新写入。
@@ -40,6 +44,11 @@ public:
     bool Prepare(const std::wstring& directory, bool openExisting);
     // 在任何成员附加前核对全部可选冻结定义；成功继承约束，失败保留原草稿并归还未使用writer。
     bool ResolveSites(std::vector<ks::cli::action_analyze::control::ExecutionGroupSite>& sites);
+    // 在原worker借唯一writer采集另一明确来源，拒绝来源属于集合；前后回读不求条件或Continue。
+    void CaptureApi(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
+        const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed,
+        const NativeBoundApiRequest& request, const std::atomic_bool& cancel,
+        const NativeBoundApiStartup& onStartup = {});
     // 输入完整原成员owner/control；先无条件回读，匹配精确事件后写raw-native，不Continue。
     void Save(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed);

@@ -1,4 +1,5 @@
 #include "ExecutionGroupPageState.h"
+#include "NativeSessionApiFields.h"
 #include "../../Ui/Dpi.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/MenuUtil.h"
@@ -274,6 +275,19 @@ void RefreshText(Page& page)
         const auto archive = Ksword::ActionAnalyze::DescribeExecutionGroupArchive(page.shown.archive); // 不访问当前PID或路径草稿。
         text += L"\r\n\r\n[执行观察归档]\r\n" + Widen(Ksword::Evidence::WriteJson(archive));
     }
+    if (page.shown.archive.api)
+    {
+        text += FormatLightNativeSessionApi(*page.shown.archive.api); // 完整正文沿用现有源/覆盖/归档/清退字段。
+        text += L"\r\nAPI目标原owner=" + Widen(page.shown.archive.apiOwner.backendInstanceId);
+        text += L"\r\n[API采集前原成员]";
+        NativeText(text, page.shown.archive.apiBefore);
+        text += L"\r\n[API采集后原成员]";
+        NativeText(text, page.shown.archive.apiAfter); // 后置回读缺失保持空值，不以旧Held冒充。
+    }
+    if (page.shown.apiStartup)
+    {
+        text += FormatLightNativeSessionApiProgress(*page.shown.apiStartup); // 同一250ms展示周期读取在途进度。
+    }
     const bool fields = ::SendMessageW(page.textMode, CB_GETCURSEL, 0, 0) == 0;
     if (fields) {
         // 草稿选择与右侧活成员分开显示；用户编辑输入不会改写此处已经保存的站点来源。
@@ -418,6 +432,12 @@ void Refresh(Page& page)
     ::EnableWindow(page.cancelStep, controls && state && state->step && state->step->state == execution_native::NativeStepState::Running);
     ::EnableWindow(page.saveExecution, controls && state && page.shown.archive.writerHeld &&
         execution_native::NativeExecutionFromOwnedStop(*state).has_value()); // 不借用Continue资格伪造执行证据。
+    const bool apiAllowed = controls && state && page.shown.archive.writerHeld && state->attached; // 不要求目标继续或命中条件通过。
+    ::EnableWindow(page.captureApi, apiAllowed);
+    for (const auto input : page.apiInputs)
+    {
+        ::EnableWindow(input, apiAllowed); // 草稿编辑不改变已经开始的采集身份。
+    }
     ::EnableWindow(page.close, page.shown.active && !page.shown.closedClean);
     auto status = GroupStateText(page.shown.result.state) + L" / 成员 " + std::to_wstring(page.shown.result.members.size()) +
         L" / 草稿 " + std::to_wstring(page.sites.size()) + (page.shown.busy ? L" / 后台处理中" : L"") +

@@ -104,6 +104,9 @@ V Report(const project::NativeBoundApiResult& result, const control::NativeContr
         });
     };
     return V::makeObject({
+        {"accepted", V::makeBool(result.accepted)},
+        {"admissionError", Issue(result.admission)},
+        {"rejection", V::makeUInt(static_cast<unsigned>(result.rejection))},
         {"projectId", Text(projectId)},
         {"sampleId", Text(sampleId)},
         {"captureSampleId", run.sample.sampleId.empty() ? V::makeNull() : Text(run.sample.sampleId)},
@@ -206,57 +209,83 @@ V Report(const project::NativeBoundApiResult& result, const control::NativeContr
 }
 } // namespace
 
-NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document,
-    std::string_view sampleId, const Request& request, bool jsonl,
-    const control::OwnerIdentity& identity, control::NativeDebugOwner& owner)
+// 输入REPL或JSONL参数，返回相同强实例草稿；此层不接管控制包络与原owner。
+NativeSessionApiInput PrepareNativeSessionApi(const Request& request, bool jsonl)
 {
     std::uint64_t pid = 0, creation = 0, duration = 0; // 显式来源身份及有限采集时长。
     bool confirmed = false;
     bool startupProgress = false; // 显式选择才向stderr输出本次启动阶段，stdout仍是原命令响应。
+    const auto invalid = [](const char* id, const char* message) {
+        return NativeSessionApiInput{std::nullopt, false, Invalid(id, message).result};
+    }; // 参数错误沿用原协议结构，不为不同控制页面复制一套解析规则。
     if (jsonl) {
         const auto* params = request.params.asObject();
         const auto* confirm = request.params.find("confirm");
         const auto* progress = request.params.find("startupProgress"); // 可选bool，不接受未知第五字段。
-        if (!request.session || request.session->id != identity.sessionId || request.session->epoch != identity.epoch ||
-            request.expected || !params || params->size() != (progress ? 5u : 4u) ||
+        if (!params || params->size() != (progress ? 5u : 4u) ||
             (progress && !progress->tryGetBool(startupProgress)) ||
             !UIntField(request.params.find("sourcePid"), pid) ||
             !DecimalField(request.params.find("sourceCreationFileTime"), creation) ||
             !UIntField(request.params.find("durationMs"), duration) || !confirm ||
             !confirm->tryGetBool(confirmed) || !confirmed) {
-            return Invalid("invalid-api-capture", "Require current session and sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true, optional startupProgress:bool; omit expected");
+            return invalid("invalid-api-capture", "Require sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true, optional startupProgress:bool");
         }
     } else {
         const auto* args = request.params.asArray();
         std::string pidText, creationText, durationText, confirmText;
         std::string progressText; // REPL第五参数只接受字面progress，原四参数形式继续兼容。
-        if (request.expected || !args || (args->size() != 4 && args->size() != 5) ||
+        if (!args || (args->size() != 4 && args->size() != 5) ||
             (args->size() == 5 && (!(*args)[4].tryGetString(progressText) || progressText != "progress")) ||
             !(*args)[0].tryGetString(pidText) ||
             !(*args)[1].tryGetString(creationText) || !(*args)[2].tryGetString(durationText) ||
             !(*args)[3].tryGetString(confirmText) || confirmText != "confirm" ||
             !Decimal(pidText, pid) || !Decimal(creationText, creation) || !Decimal(durationText, duration)) {
-            return Invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm [progress] (positive decimal numbers)");
+            return invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm [progress] (positive decimal numbers)");
         }
         confirmed = true; // REPL字面confirm与JSONL confirm:true具有相同授权语义。
         startupProgress = args->size() == 5;
     }
     if (pid <= 4 || pid > MAXDWORD || pid == GetCurrentProcessId() || !creation || duration < 1000 || duration > 10000) {
-        return Invalid("invalid-api-source", "Select another explicit process instance and durationMs 1000..10000; zero or continuous capture is not supported");
+        return invalid("invalid-api-source", "Select another explicit process instance and durationMs 1000..10000; zero or continuous capture is not supported");
+    }
+    project::NativeBoundApiRequest capture; // 所有端复用同一宽度与区间限制，错误时不交付半份参数。
+    capture.sourcePid = static_cast<DWORD>(pid);
+    capture.sourceCreationFileTime = creation;
+    capture.durationMs = static_cast<DWORD>(duration);
+    capture.confirmed = confirmed;
+    return {capture, startupProgress, V::makeNull()};
+}
+
+// 输入共享完整回执及前后原owner快照，输出原JSON结构，保持单目标和集合字段一致。
+JsonValue DescribeNativeSessionApi(const project::NativeBoundApiResult& result,
+    const control::NativeControlResult& before, const control::NativeControlResult& after)
+{
+    return Report(result, before, after);
+}
+
+NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document,
+    std::string_view sampleId, const Request& request, bool jsonl,
+    const control::OwnerIdentity& identity, control::NativeDebugOwner& owner)
+{
+    if (request.expected || (jsonl && (!request.session || request.session->id != identity.sessionId ||
+        request.session->epoch != identity.epoch)))
+    {
+        return Invalid("invalid-api-capture", "Require current session and omit expected");
+    }
+    const auto input = PrepareNativeSessionApi(request, jsonl); // 原单目标入口复用同一参数解析。
+    if (!input.capture)
+    {
+        return {false, input.error};
     }
     if (identity.sampleId != sampleId) {
         return Invalid("api-capture-unavailable", "Require this native session's existing writable project and sample");
     }
     const auto before = owner.Query(); // 必须从活owner读取目标PID，不采用调用者或候选的目标值。
-    project::NativeBoundApiRequest capture; // CLI只解析协议，writer/sample及采集均由共享服务复用。
-    capture.sourcePid = static_cast<DWORD>(pid);
-    capture.sourceCreationFileTime = creation;
-    capture.durationMs = static_cast<DWORD>(duration);
-    capture.confirmed = confirmed;
+    const auto& capture = *input.capture; // CLI只解析协议，writer/sample及采集均由共享服务复用。
     const project::NativeBoundApiTarget nativeTarget{before.pid, before.processCreationTime, before.attached}; // 活owner纯值。
     const std::atomic_bool cancel{false}; // 有限同步区间，不在回调中接管控制指令或保存执行事件。
     project::NativeBoundApiStartup onStartup; // 未订阅时不输出阶段，不改变原JSONL请求响应次序。
-    if (startupProgress)
+    if (input.startupProgress)
     {
         onStartup = [](const project::NativeBoundApiProgress& progress) {
             // 每行包括原项目/采样身份；同一控制线程串行输出，不制造stdout响应或控制ACK。

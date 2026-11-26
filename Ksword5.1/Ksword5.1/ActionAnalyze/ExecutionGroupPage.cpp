@@ -2,6 +2,7 @@
 #include "ExecutionGroupPage.h"
 #include "ExecutionGroupFields.h"
 #include "ExecutionGroupSiteEditor.h"
+#include "NativeSessionApiPane.h"
 #include "PrivateExecutionRangePane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
@@ -124,6 +125,8 @@ namespace ks::action_analyze
         workspace->parameters()->addWidget(m_rangeTarget);
         m_rangePane = new PrivateExecutionRangePane(workspace); // 参数正文沿用唯一滚动责任和统一范围输入。
         workspace->parameters()->addWidget(m_rangePane);
+        m_apiPane = new NativeSessionApiPane(workspace); // 沿用写入停点页的同采样来源分区和唯一参数滚动。
+        workspace->parameters()->addWidget(m_apiPane);
         m_rangePane->addRange = [this](std::uint64_t address, std::uint64_t bytes)
         {
             AddRange(address, bytes); // 点击时再冻结显示停点，worker不读取控件或行索引。
@@ -146,12 +149,14 @@ namespace ks::action_analyze
         m_cancel = Action(controls, "execution_group_cancel", QStringLiteral("取消选中步进"), QStringLiteral("只取消唯一选中成员显示的原步进请求；旧请求不能中止后来的步进。"));
         m_save = Action(controls, "execution_group_save", QStringLiteral("保存选中执行观察"),
             QStringLiteral("将唯一选中成员的当前执行进入或单指令完成事件保存到本轮项目；保留原停点，不继续任何成员。"));
+        m_captureApi = Action(controls, "execution_group_api", QStringLiteral("采集同采样 API"),
+            QStringLiteral("为唯一选中原成员采集集合以外的明确来源，沿用本轮项目和采样；不继续任何成员，关闭时取消采集。"));
         m_query = Action(controls, "execution_group_query", {}, QStringLiteral("重新回读原集合的每个成员状态。"));
         m_query->setAccessibleName(ks::i18n::sourceText(QStringLiteral("刷新状态")));
         KswordTheme::ApplyStandardIconButtonMetrics(m_query);
         ks::ui::SetThemeButtonIcon(m_query, QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
         m_close = Action(controls, "execution_group_close", QStringLiteral("关闭并清退集合"), QStringLiteral("由原所有者恢复并脱离；未确认清退时保留该会话。"));
-        for (auto* button : {m_pauseAll, m_pauseSelected, m_continueAll, m_continueSelected, m_into, m_over, m_out, m_cancel, m_save, m_query, m_close})
+        for (auto* button : {m_pauseAll, m_pauseSelected, m_continueAll, m_continueSelected, m_into, m_over, m_out, m_cancel, m_save, m_captureApi, m_query, m_close})
         {
             flow->addWidget(button);
         }
@@ -217,6 +222,7 @@ namespace ks::action_analyze
         connect(m_out, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::Step, false, execution_group_native::NativeStepMode::Out); });
         connect(m_cancel, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::CancelStep); });
         connect(m_save, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::SaveExecution); });
+        connect(m_captureApi, &QPushButton::clicked, this, [this] { CaptureApi(); });
         connect(m_query, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::Query); });
         connect(m_close, &QPushButton::clicked, this, [this]
         {

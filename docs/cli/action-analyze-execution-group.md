@@ -178,6 +178,24 @@ expected: {"collectionId":"<current collectionId>","stops":[<complete current me
 
 每次控制响应中的 `executionArchive` 独立给出项目/采样、写租约、最近保存、首次追加失败及 `appendBlocked`。`saved` 包含实际事件、段号、written/flushed 边界、段散列和 `segmentVerified`，写成功不代表目标已继续或全流程采集完成。相同 backend/serial 再次保存返回原段坐标及 `duplicate:true`；保存日志最多4096个事件。真实追加失败后保留原失败并阻止越过坏尾；可以继续控制和清退，不能以旧成功重放掩盖 `firstFailure`。Qt 字段详情和 Light 完整正文消费同一规范文档，搜索/复制/导出保留这些字段。本批仅源码接线，尚未构建或实测。
 
+### 同采样 API 来源采集
+
+配置项目后，可为一个仍附加的成员选择集合以外的来源实例，复用当前 sample 的冻结修订和原 writer：
+
+```text
+method: "control.api.capture"
+requestId: "execution/6"
+params: {"sourcePid":6132,"sourceCreationFileTime":"134085000000000000","durationMs":3000,"confirm":true,"startupProgress":true}
+session: {"id":"<hello.session.id>","epoch":"<hello.session.epoch>"}
+expected: {"collectionId":"<current collectionId>","sessions":[<one complete member.sessionToken>]}
+```
+
+REPL 为 `api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]`，最后的目标票据来自 `member.replSessionToken`，不同于执行保存的 stopToken。全部参数及目标身份进入原 `execution/N` 重放签名，同 ID 返回原结果，不再装载 Agent。
+
+来源 PID 不得是集合任何成员，实际装载前由共享采集器核对来源 PID＋创建 FILETIME。采集区间为 Ready 后 1000–10000 毫秒，启动与清退另计；CLI 在同步采集返回后处理排队控制，不承诺在途命令取消。Qt／Light 复用原参数区、worker 及展示周期，关闭入口立即取消在途 API，原采集排空后才清退原调试成员和归还项目 writer。原调试事件仍由各成员自身 debug owner 持有。
+
+`apiCapture` 独立给出来源、准入、启动阶段、覆盖、普通包、段坐标、规则、清退及目标前后状态；`apiOwner` 给出本次冻结的原成员身份。可选进度只写 stderr JSONL；stdout 保留原响应。服务前后采用无条件查询，不求同伴条件、不调用 Continue、不自动保存执行事件，也不自动将 API 候选归因为真实执行。已有 `raw/checkpoints` 时沿原采集链拒绝重写；`raw-native` 执行段仍是独立流。本批只有源码，未构建或实测。
+
 退出：
 
 ```text
@@ -204,6 +222,7 @@ step execution/7 out TOKENHEX
 step-cancel execution/8 TOKENHEX
 execution-range-add execution/9 ADDRESS BYTES TOKENHEX
 execution-save execution/10 TOKENHEX
+api-capture execution/11 SOURCE_PID SOURCE_FILETIME 3000 confirm REPLSESSIONTOKEN progress
 quit
 ```
 

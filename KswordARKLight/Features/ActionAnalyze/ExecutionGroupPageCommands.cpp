@@ -1,4 +1,5 @@
 #include "ExecutionGroupPageState.h"
+#include "NativeSessionApiFields.h"
 #include "../../../KswordCLI/ActionAnalyze/Control/NativeBreakpointImageIdentity.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectStorage.h"
 #include "../../Ui/ExportUtil.h"
@@ -205,6 +206,27 @@ void Command(Page& page, int id)
             if (request.sites.empty() || !request.authorized) {
                 page.error = L"请加入1–16个站点并明确授权整个集合。";
                 submit = false;
+            }
+        } else if (id == kCaptureApi) {
+            request.command = LightExecutionGroupCommand::CaptureApi;
+            const auto rows = SelectedRows(page); // 确认前固定原成员，不能在模态返回后按新选区换目标。
+            if (rows.size() != 1 || !page.shown.archive.writerHeld)
+            {
+                page.error = L"同采样API须配置本轮项目并单选仍附加的原成员。";
+                submit = false;
+            }
+            else
+            {
+                const auto member = page.shown.result.members[static_cast<std::size_t>(rows.front())]; // 跨模态保留完整纯值。
+                const auto collection = page.shown.result.collectionId; // 集合变更后不提交旧确认。
+                request.sessions.push_back({member.owner, member.control});
+                submit = CollectLightNativeSessionApi(page.hwnd, page.apiInputs[0], page.apiInputs[1], page.apiInputs[2],
+                    {member.control.pid, member.control.processCreationTime, member.control.attached}, request.api, page.error);
+                if (submit && collection != page.shown.result.collectionId)
+                {
+                    page.error = L"确认期间集合已变更，请重新选择来源和原成员。";
+                    submit = false;
+                }
             }
         } else if (id == kSaveExecution) {
             request.command = LightExecutionGroupCommand::SaveExecution;
