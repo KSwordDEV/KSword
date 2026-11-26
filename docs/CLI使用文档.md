@@ -258,6 +258,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `analyze execution-group session --hold-peers-on-hit` 在Start冻结“成员命中后暂停其他成员”。新断点经条件处理仍持有时，原查询逐项请求其它运行成员暂停；假条件继续，未知条件保持。主动暂停和步进停止不触发，同一事件只请求一次；所选继续不被同一旧事件撤销。`peerHold` 独立保留触发身份和逐成员暂停回执，当前Held须另读成员状态；不保证同时冻结。Qt／Light复用原执行集合参数页同名开关，默认关闭。源码已接，运行待验。
 
+`analyze execution memory-range --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` 关联同采样AAIM1分配／保护成功输出与独立原生指令观察。两路从首段核验，API最多128段、原生最多4096段；API观察分页默认100、最多4096，零匹配仍保留原`nextAfter`。要求源创建时间、稳定目标PID＋创建FILETIME及完整实际输出范围，实际指令起点落入该半开范围；Free／Unmap、失败及缺输出不匹配。输出保留两路坐标、散列和各自原时钟，不宣称调用导致执行、区域/内容版本、当前仍分配或MEM_PRIVATE。Qt／Light原生一致性树的“内存范围（映射／分配／保护）”使用同一核心，最近128条范围输入共享窗口、最多512个匹配结果；独立原生历史不受是否匹配影响。原`analyze execution map`仍只查询节映射；本扩展源码待验。
+
 执行集合可用 `--project PATH` 新建项目，或 `--project PATH --open-project` 打开已有项目；两者都在附加前创建本轮新采样。REPL `execution-save execution/N TOKENHEX`、JSONL `control.execution.save`（空 params，expected 携 collectionId 和唯一完整 stopToken）显式保存当前成员执行观察到同采样 `raw-native`，不继续任何成员。`executionArchive` 分别报告真实项目/采样、事件、段号、written/flushed/verified、去重和首次追加失败；ManualPause 不构成执行证据。Qt 和 Light 执行集合入口同步提供项目草稿、保存动作及同源详情。新增接线尚未构建或实测。
 
 执行集合的模块 RVA 站点支持可选 `definitionId`。它引用本轮采样冻结的启用 RVA 定义，要求项目、模块名及 RVA 一致，并继承定义的映像 SHA256；冲突或缺失在任何附加前拒绝。Qt/Light 提供相同字段；手工导出和私有站点不发送隐藏定义草稿。完整全局定义自动激活及 PDB 符号解析仍未实现。

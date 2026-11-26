@@ -28,7 +28,7 @@ struct NativeExecutionEvidence {
 };
 
 // 内部原生边界：输入必须是同一活 NativeDebugOwner 的 Query/Step 回执，禁止用于外来 JSON 解码。
-// 仅确认精确当前执行DR0或Into模式完成的单指令TF；步过/跳出完成不升级成入口指令已执行。
+// 仅确认精确当前执行DR0/NX或Into、非CALL Over完成的单指令TF；CALL返回/跳出不升级成指令已执行。
 std::optional<NativeExecutionEvidence> NativeExecutionFromOwnedStop(const NativeControlResult& state);
 
 } // namespace ks::cli::action_analyze::control

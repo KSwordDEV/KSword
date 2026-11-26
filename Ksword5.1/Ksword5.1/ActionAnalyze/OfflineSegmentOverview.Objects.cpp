@@ -309,7 +309,7 @@ public:
         if ((index.internalId() == 0 && index.row() >= 5) || index.internalId() >= 100000)
         {
             const QStringList types{QStringLiteral("线程创建"), QStringLiteral("APC 入队"),
-                QStringLiteral("上下文请求"), QStringLiteral("节映射")}; // 分类只用于 UI，不改变匹配核心。
+                QStringLiteral("上下文请求"), QStringLiteral("内存范围（映射／分配／保护）")}; // 共用第四范围根，不改变旧节点编码。
             if (!index.internalId())
             {
                 return sourceText(QStringLiteral("%1 → 原生执行一致性候选（%2）"))
@@ -335,7 +335,7 @@ public:
             }
             if (index.row() == 0)
             {
-                return sourceText(QStringLiteral("节映射无写入前置条件。"));
+                return sourceText(QStringLiteral("范围关联不要求写入前置条件。"));
             }
             const auto* native = candidate->sourceDocument.find("native"); // 真实原生观察，不从请求地址填补。
             const auto* observation = native ? native->find("observation") : nullptr;

@@ -40,4 +40,22 @@ std::optional<NativeSectionMapAssociation> AssociateNativeSectionMap(
     const ArchivedNativeExecution& execution,
     std::uint64_t nativeSegmentOrdinal);
 
+// AAIM1成功Allocate/Protect的实际范围与独立执行观察；不宣称MEM_PRIVATE、仍存活或调用导致执行。
+struct NativeMemoryRangeAssociation {
+    EvidenceRef request; // 原内存生命周期请求的来源坐标。
+    std::string requestSha256; // 已核验API段摘要。
+    Evidence::ApiMemoryLifecycleFieldsV1 fields; // 请求与实际输出均保留，不用请求范围填补输出。
+    std::uint64_t nativeSegmentOrdinal = 0; // 独立原生段号。
+    std::uint64_t instructionAddress = 0; // 实际观察的指令起点，不使用下一RIP。
+    std::uint32_t tid = 0; // 原生真实执行线程编号。
+    std::uint64_t threadCreationFileTime = 0; // 同一线程的创建代次。
+    std::string observation; // execution-enter-attempt或instruction-completed原值。
+};
+
+// 输入同采样已核验原请求及原生段；仅匹配成功实际输出、稳定强实例和实际指令半开区间。
+// Free/Unmap、失败、缺输出或代次不匹配返回空；不比较跨源QPC、不访问目标、不生成控制权。
+std::optional<NativeMemoryRangeAssociation> AssociateNativeMemoryRange(const SampleScope& scope,
+    const EvidenceRef& evidence, const ArchivedGraphRecord& request, std::string_view requestSha256,
+    const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal);
+
 } // namespace Ksword::ActionAnalyze::Detection

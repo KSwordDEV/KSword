@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第4/9项内存实际范围→执行关联源码。** AssociateNativeMemoryRange在既有NativeSectionMapAssociation模块中独立核对AAIM1成功Allocate/Protect、源/目标创建身份、目标稳定位、实际输出及实际指令半开范围；Free/Unmap不匹配，不推定仍分配、MEM_PRIVATE、版本、先后或因果。CLI新增analyze execution memory-range及完整help，复用原Map分页/双链读取，旧execution map保持只节映射。共享ApiTransferCandidateWindow原Maps窗口扩为最近128条映射/分配/保护原包，事务CommitSegment填摘要；ApiNativeExecutionProjection调用共享核心，kind3沿原范围根，sourceDocument精确candidateType=memory-range并保留AAIM1实际/请求/有效位。Qt/Light仅换第四一致性根标签与空写入释义，旧节点编码、历史根、坐标/散列选区和原异步读任务不变；两条双语及CLI文档同步，无新增文件/工程项/owner/轮询。受影响导航为监控→行为分析→项目与采样→归档关系，主树+同源字段详情，参考原API/原生历史树与PrivateExecutionCandidatesPane。不构建/测试/GUI/验收落盘/新派发/推送；追加测试的结果不得覆盖这批新增关联。
+
 - **2026-11-26 新3项测试额度已用完。** 第3项为635626206活集合追加的正式CLI本机focused验收，最多6组，只它构建完整CLI一次并做本次文本i18n门禁。前两项为条件文本比较和历史线程恢复。三个任务通过CodeBuddy skill直接派发，禁止新增派发/续接/外部重试，自动等回执。所有测试及记录由执行者落盘，主代理继续写功能；不得凭派发成功标运行通过。
 
 - **2026-11-26 新授权最多3项测试。** 用户原话「我再批3个测试的额度，可继续调用codebuddy。」条件文本字段最多8组（sh_21812235f001qocCy95j8uXwn2）、历史线程恢复最多2场景（sh_21813eecb001fKXDq9hTcc2QML）、635626206集合追加正式CLI最多6组（sh_21816cae30014PdK8OQBHgJUIE）均已派出，已用3/3。只允许第三项构建完整CLI一次，前两项编译独立小夹具，固定IntDir/统一Release。禁止整批重跑、GUI、额外子派发、轮询和擅自续接；最新goal重激活不撤销本次数量边界。主代理仍写功能，测试及记录由CodeBuddy独立落盘。

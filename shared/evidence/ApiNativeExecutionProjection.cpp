@@ -198,9 +198,25 @@ JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection
 {
     const auto count = [](std::uint64_t value) { return JsonValue::makeString(std::to_string(value)); }; // 无损计数。
     const char* kinds[]{"thread-create", "apc-queue", "thread-context", "section-map"}; // 稳定候选分类。
+    const bool memoryRange = kind == 3 && requestRecord.apiMemoryLifecycle.has_value(); // kind3共用范围树，来源类型仍精确区分。
+    JsonValue memory = JsonValue::makeNull(); // 非AAIM1关联不添加假输出。
+    if (memoryRange)
+    {
+        const auto& fields = *requestRecord.apiMemoryLifecycle; // 核心已核对成功输出，仍保留请求和有效位供回查。
+        memory = JsonValue::makeObject({{"operation", JsonValue::makeString(fields.operation == ApiMemoryOperation::Allocate ? "allocate" : "protect")},
+            {"flags", count(fields.flags)}, {"targetPid", count(fields.targetPid)}, {"targetCreationFileTime", count(fields.targetCreationFileTime)},
+            {"outputBase", count(fields.outputBase)}, {"outputBytes", count(fields.outputBytes)},
+            {"requestedBase", (fields.flags & ApiMemoryRequestedBase) ? count(fields.requestedBase) : JsonValue{}},
+            {"requestedBytes", (fields.flags & ApiMemoryRequestedBytes) ? count(fields.requestedBytes) : JsonValue{}},
+            {"actorCreationFileTime", count(fields.actorCreationFileTime)}, {"pointerBits", count(fields.pointerBits)},
+            {"inputProcessHandle", count(fields.inputProcessHandle)}, {"allocationType", count(fields.allocationType)},
+            {"oldProtection", (fields.flags & ApiMemoryOldProtection) ? count(fields.oldProtection) : JsonValue{}},
+            {"newProtection", count(fields.newProtection)}, {"enterQpc", count(fields.enterQpc)}, {"returnQpc", count(fields.returnQpc)}});
+    }
     return JsonValue::makeObject({
         {"kind", JsonValue::makeString("api-native-consistency-candidate")},
-        {"candidateType", JsonValue::makeString(kinds[kind])},
+        {"candidateType", JsonValue::makeString(memoryRange ? "memory-range" : kinds[kind])},
+        {"memoryRange", std::move(memory)},
         {"write", write ? Reference(*write) : JsonValue{}},
         {"writeRecordOffset", writeOffset ? count(*writeOffset) : JsonValue{}},
         {"request", Reference(request)},

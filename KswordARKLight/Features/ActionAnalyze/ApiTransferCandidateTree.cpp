@@ -27,7 +27,7 @@ Key Coordinate(const EvidenceRecord& row)
 // 输入双方原行与角色，输出同一 TreeView 中可定位的叶项标题。
 std::wstring LeafText(const EvidenceRecord& row, bool write, int kind)
 {
-    const wchar_t* role = write ? L"写入：raw/" : kind == 2 ? L"上下文请求：raw/"
+    const wchar_t* role = write ? L"写入：raw/" : kind == 3 ? L"范围请求：raw/" : kind == 2 ? L"上下文请求：raw/"
         : kind == 1 ? L"APC 入队：raw/" : L"线程创建：raw/"; // kind 是候选类型，请求不冒充执行。
     return std::wstring(role) + std::to_wstring(row.segmentOrdinal) + L" #" +
         std::to_wstring(row.sequence) + L" · " + row.apiClue;
@@ -193,7 +193,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
                 ? L"（不证明投递或执行）" : L"（不证明实际执行或强归因）"); // 根摘要只报告来源候选。
         if (kind >= 3)
         {
-            const wchar_t* names[]{L"线程创建", L"APC 入队", L"上下文请求", L"节映射"}; // 独立执行分类。
+            const wchar_t* names[]{L"线程创建", L"APC 入队", L"上下文请求", L"内存范围（映射／分配／保护）"}; // 保留稳定根编号。
             title = std::wstring(names[kind - 3]) + L" → 原生执行一致性候选（" + std::to_wstring(retained) + L"）";
         }
         const auto group = Insert(hwnd_, TVI_ROOT, title, -kind - 1); // 分类根身份不依赖创建顺序。
@@ -239,7 +239,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
                 }
                 if (pair.execution && side == 0 && !pair.execution->write)
                 {
-                    text = L"节映射无写入前置条件。";
+                    text = L"范围关联不要求写入前置条件。";
                 }
                 const auto leaf = Insert(hwnd_, node, text,
                     static_cast<LPARAM>(index * 3 + side + 1)); // 三种角色分开编码，不保存行指针。

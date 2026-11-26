@@ -118,7 +118,7 @@ Json Association(const detection::NativeSectionMapAssociation& match,
 
 // Map：args 明确选择项目、采样及两路段号；完整核验两条链后才输出本 API 观察页中的候选。
 // 没有匹配返回成功空页；读链/坐标失败整体退出 3，不返回部分候选，不访问任何目标进程。
-Result Map(const Args& args)
+Result Map(const Args& args, bool memoryRange = false)
 {
     const auto sample = Sample(args); // 本次明确选择的采样 UUID。
     const auto apiOrdinal = args.integer(L"--api-ordinal"); // API 链目标段号。
@@ -157,20 +157,60 @@ Result Map(const Args& args)
     std::vector<Json> candidates; // 只暂存当前有界页的候选，所有读链成功后才能发布。
     for (std::size_t index = 0; index < page.records.size(); ++index) { // 当前 API 观察的同行索引。
         const auto& mapping = page.records[index]; // 当前页的原映射记录或其它 API 记录。
-        if (!mapping.apiSectionMap) {
+        if (memoryRange ? !mapping.apiMemoryLifecycle : !mapping.apiSectionMap) {
             continue;
         }
         const auto& observation = page.graph.observations[index]; // 与原记录严格同行的来源定位。
         if (!observation.evidence || !observation.evidence->raw ||
-            !detection::HasEvidenceLocation(page.graph.scope, *observation.evidence) ||
+            !detection::HasArchivedApiLocation(page.graph.scope, *observation.evidence) ||
             observation.evidence->raw->segmentOrdinal != mapping.segmentOrdinal ||
             observation.evidence->raw->sequence != mapping.recordSequence) {
             return Failed(storage::Failure(project::ProjectError::Corrupt, "nativeSectionMapMappingCoordinate"));
         }
-        const auto match = detection::AssociateNativeSectionMap(
-            page.graph.scope, *observation.evidence, mapping, page.sha256, execution, nativeOrdinal); // 独立范围一致性结果。
-        if (match) {
-            candidates.push_back(Association(*match, mapping, execution));
+        if (memoryRange)
+        {
+            const auto match = detection::AssociateNativeMemoryRange(page.graph.scope, *observation.evidence,
+                mapping, page.sha256, execution, nativeOrdinal); // AAIM1独立核对，不改写原节映射命令语义。
+            if (!match)
+            {
+                continue;
+            }
+            const auto& fields = match->fields; // 已核验的实际输出及有效位，所有64位数仍使用无损字符串。
+            std::uint64_t nativeQpc = 0, nativeFrequency = 0; // 原生时钟只按原值保存，不与API时钟排序。
+            const bool hasQpc = storage::GetNumber(execution.document, "observedQpc", nativeQpc);
+            const bool hasFrequency = storage::GetNumber(execution.document, "qpcFrequency", nativeFrequency);
+            candidates.push_back(Json::object({
+                {L"kind", Json::string(L"native-memory-range-consistency-candidate")},
+                {L"operation", Json::string(fields.operation == Ksword::Evidence::ApiMemoryOperation::Allocate ? L"allocate" : L"protect")},
+                {L"request", Reference(match->request, match->requestSha256, mapping)},
+                {L"nativeSegmentOrdinal", Json::count(nativeOrdinal)}, {L"nativeRecordSequence", Json::count(execution.end.lastSequence)},
+                {L"nativeRecordOffset", Json::count(execution.recordOffset)}, {L"nativeSha256", Json::string(storage::WideAscii(execution.sha256))},
+                {L"targetPid", Json::number(static_cast<std::uint32_t>(fields.targetPid))},
+                {L"targetCreationFileTime", Json::count(fields.targetCreationFileTime)},
+                {L"tid", Json::number(match->tid)}, {L"threadCreationFileTime", Json::count(match->threadCreationFileTime)},
+                {L"outputBase", Json::count(fields.outputBase)}, {L"outputBytes", Json::count(fields.outputBytes)},
+                {L"requestedBase", (fields.flags & Ksword::Evidence::ApiMemoryRequestedBase) ? Json::count(fields.requestedBase) : Json{}},
+                {L"requestedBytes", (fields.flags & Ksword::Evidence::ApiMemoryRequestedBytes) ? Json::count(fields.requestedBytes) : Json{}},
+                {L"flags", Json::count(fields.flags)}, {L"newProtection", Json::count(fields.newProtection)},
+                {L"actorPid", Json::number(*mapping.headerPid)}, {L"actorCreationFileTime", Json::count(fields.actorCreationFileTime)},
+                {L"pointerBits", Json::count(fields.pointerBits)}, {L"inputProcessHandle", Json::count(fields.inputProcessHandle)},
+                {L"allocationType", Json::count(fields.allocationType)},
+                {L"oldProtection", (fields.flags & Ksword::Evidence::ApiMemoryOldProtection) ? Json::count(fields.oldProtection) : Json{}},
+                {L"instructionAddress", Json::count(match->instructionAddress)}, {L"observation", Json::string(storage::WideAscii(match->observation))},
+                {L"apiEnterQpc", Json::count(fields.enterQpc)}, {L"apiReturnQpc", Json::count(fields.returnQpc)},
+                {L"nativeObservedQpc", hasQpc ? Json::count(nativeQpc) : Json{}},
+                {L"nativeQpcFrequency", hasFrequency ? Json::count(nativeFrequency) : Json{}},
+                {L"sourceAuthenticated", Json::boolean(false)}, {L"regionVersionVerified", Json::boolean(false)},
+                {L"causalityConfirmed", Json::boolean(false)}, {L"commonClockVerified", Json::boolean(false)}, {L"writeObserved", Json::boolean(false)}}));
+        }
+        else
+        {
+            const auto match = detection::AssociateNativeSectionMap(
+                page.graph.scope, *observation.evidence, mapping, page.sha256, execution, nativeOrdinal); // 原映射路径保持原条件。
+            if (match)
+            {
+                candidates.push_back(Association(*match, mapping, execution));
+            }
         }
     }
     return {0, Json::object({
@@ -196,7 +236,9 @@ Result Map(const Args& args)
         {L"commonClockVerified", Json::boolean(false)},
         {L"writeObserved", Json::boolean(false)},
         {L"aliasPropagationVerified", Json::boolean(false)},
-        {L"limitations", Json::string(L"Historical mapping-range/instruction consistency only; no write is required or established. Section handle bits do not identify a section object or aliases. API/native clocks are preserved separately, without cross-source ordering or strong execution causality.")}
+        {L"limitations", Json::string(memoryRange
+            ? L"Historical successful Allocate/Protect output-range/instruction consistency only. No current allocation, MEM_PRIVATE, region/content version, ordering, write or causality is established; Free/Unmap never yield candidates."
+            : L"Historical mapping-range/instruction consistency only; no write is required or established. Section handle bits do not identify a section object or aliases. API/native clocks are preserved separately, without cross-source ordering or strong execution causality.")}
     }), {}};
 }
 } // namespace
@@ -210,8 +252,17 @@ void RegisterNativeSectionMapCommands()
     command.summary = L"Compare one verified native instruction observation with archived accepted section mappings.";
     command.options = L"Requires --project, --sample, --api-ordinal (1..128) and --native-ordinal (1..4096). --after defaults to 0; --limit defaults to 100 (max 4096 API observations).";
     command.notes = L"Verifies both chains from ordinal 1. Accepts only NtMapViewOfSection Accepted records with actor/target creation identity, target stability and actual mapped base/bytes. Matches target PID/creation FILETIME and actual instructionAddress in the overflow-checked half-open mapping range. Preserves mapping/native coordinates, hashes, observation and separate original clocks. Does not require or establish writes, section aliases, common clock, region version, source authentication or execution causality; all six corresponding flags remain false. Empty matches return a successful empty candidates page and the original API nextAfter cursor. Any chain read failure fails the entire query without partial candidates. Reads archives only; no process access or live control.";
-    command.run = Map;
+    command.run = [](const Args& args) { return Map(args); }; // 旧命令只查询节映射，不因新增AAIM1范围改变输出集合。
     addCommand(std::move(command));
+
+    Command memory; // 新增入口复用同一分页及链读取，只切换共享AAIM1关联核心。
+    memory.path = L"analyze execution memory-range";
+    memory.syntax = L"KswordCLI.exe analyze execution memory-range --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]";
+    memory.summary = L"Compare a verified native instruction observation with successful Allocate/Protect output ranges.";
+    memory.options = L"Requires --project, --sample, --api-ordinal (1..128), --native-ordinal (1..4096). --after defaults to 0; --limit defaults to 100 (max 4096 API observations).";
+    memory.notes = L"Verifies both chains from ordinal 1. Requires AAIM1 success, actor identity, stable target PID/creation FILETIME, actual output base/bytes, and native instructionAddress inside that half-open range. Free/Unmap and failed or incomplete output do not match. Keeps both source coordinates, hashes and original clocks; does not prove ordering, writes, current allocation, MEM_PRIVATE, region version or causality. Empty matches retain the original API nextAfter cursor. Archive-only; no process access or live control. Qt/Light expose the same matcher in the memory-range execution tree.";
+    memory.run = [](const Args& args) { return Map(args, true); };
+    addCommand(std::move(memory));
 }
 
 } // namespace ks::cli::action_analyze

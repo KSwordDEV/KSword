@@ -8,6 +8,8 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "内存范围（映射／分配／保护）": "Memory range (map / allocate / protect)",
+    "范围关联不要求写入前置条件。": "Range consistency does not require a preceding write.",
     "成员命中后暂停其他成员": "Pause other members when a member hits a breakpoint",
     "开始时冻结。新断点经条件处理后仍持有时，逐成员请求暂停；未知条件保留，假条件继续。主动暂停与步进不触发；同一事件只请求一次。": "Frozen at start. If a new breakpoint remains held after condition evaluation, request each running peer to pause. Unknown conditions stay held; false conditions continue. Manual pauses and step stops do not trigger this. Each event triggers at most once.",
     "命中联停策略": "Pause peers on breakpoint",

@@ -55,7 +55,7 @@ inline bool SameNativeExecutionHistory(const NativeExecutionHistoryEntry& left,
 
 template<typename Row>
 struct ApiNativeExecutionCandidate {
-    int kind = 0; // 0 创建，1 APC，2 上下文，3 节映射。
+    int kind = 0; // 0 创建，1 APC，2 上下文，3 内存范围（映射/分配/保护）。
     std::optional<Row> write; // 映射没有写入前置条件，其余保留真实写入原行。
     Row request; // 实际 API 请求原行，支持主表窗口之外定位。
     std::uint64_t nativeOrdinal = 0; // 独立 raw-native 的真实段号。
@@ -154,11 +154,12 @@ ApiNativeExecutionProjection<Row> ProjectApiNativeExecution(
                 append(2, &pair.write, pair.context, &pair.link.write, pair.link.context, pair.requestRecord, native, ordinal);
             }
         }
-        // 映射独立消费成功输出的实际范围，不凭节句柄或请求地址补造写入。
+        // 三种范围请求共用独立输入窗口；核心各自核对成功实际输出，不凭句柄或请求地址补造写入。
         for (const auto& mapping : maps)
         {
             if (detection::AssociateNativeSectionMap(scope, mapping.evidence, mapping.record,
-                mapping.sha256, native, ordinal))
+                mapping.sha256, native, ordinal) || detection::AssociateNativeMemoryRange(scope, mapping.evidence,
+                    mapping.record, mapping.sha256, native, ordinal))
             {
                 append(3, nullptr, mapping.row, nullptr, mapping.evidence, mapping.record, native, ordinal, mapping.sha256);
             }

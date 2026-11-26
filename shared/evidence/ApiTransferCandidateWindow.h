@@ -42,7 +42,7 @@ struct ApiContextCandidateRows {
     ActionAnalyze::Detection::ArchivedGraphRecord requestRecord; // 同一原包解析的匹配输入。
 };
 
-// 映射无需先有写入；保留独立的请求窗口和实际原包，不从主表截断窗口补造。
+// 映射及AAIM1分配/保护无需先有写入；共用有界范围请求窗口，不从主表截断窗口补造。
 template<typename Row>
 struct ApiSectionMapCandidateRow {
     ActionAnalyze::Detection::EvidenceRef evidence; // 实际项目、采样、来源及 raw 坐标。
@@ -87,6 +87,11 @@ inline ActionAnalyze::Detection::ArchivedGraphRecord ApiExecutionRequestRecord(
     {
         record.sectionMapOutcome = ApiSectionMapCallOutcome(clue.packet);
     }
+    record.apiMemoryLifecycle = ReadApiMemoryLifecycleFields(clue.packet); // 原AAIM1有效位及实际输出，不解析摘要。
+    if (record.apiMemoryLifecycle)
+    {
+        record.apiSourceSession = clue.packet.sessionIdentity; // 只保留原声明，不升级来源认证。
+    }
     return record;
 }
 
@@ -124,7 +129,9 @@ public:
         const auto evidence = ApiTransferEvidence(scope_, clue, segment, sequence, followEpoch); // 实际原包锚点。
         auto request = ApiExecutionRequestRecord(clue, segment, sequence); // 同次读取的共享匹配字段。
         request.recordOffset = row.offset; // 原记录头偏移，不使用表格行号。
-        if (request.apiSectionMap)
+        if (request.apiSectionMap || (request.apiMemoryLifecycle &&
+            (request.apiMemoryLifecycle->operation == ApiMemoryOperation::Allocate ||
+                request.apiMemoryLifecycle->operation == ApiMemoryOperation::Protect)))
         {
             if (maps_.size() == kApiContextCandidateRows)
             {
@@ -228,7 +235,7 @@ public:
         return contextCandidateCount_;
     }
 
-    // 后台整段核验后调用；只把该段的真实摘要赋给保留的映射请求。
+    // 后台整段核验后调用；只把该段的真实摘要赋给保留的映射/分配/保护请求。
     void CommitSegment(std::uint64_t ordinal, const std::string& sha256)
     {
         for (auto& mapping : maps_) // 当前有界映射窗口中的已读原行。
@@ -239,7 +246,7 @@ public:
             }
         }
     }
-    // 无输入，返回独立映射窗口和容量淘汰数；不执行新的采集或读取。
+    // 无输入，返回共用范围窗口和容量淘汰数；保留Maps接口兼容原调用，不执行新的采集或读取。
     const std::deque<ApiSectionMapCandidateRow<Row>>& Maps() const noexcept { return maps_; }
     std::uint64_t EvictedMaps() const noexcept { return evictedMaps_; }
 
@@ -275,7 +282,7 @@ private:
     std::uint64_t apcCandidateCount_ = 0; // 不随 APC 候选窗口裁剪回退。
     std::deque<ApiContextCandidateRows<Row>> contextCandidates_; // 最近 128 对 write/context 原行值。
     std::uint64_t contextCandidateCount_ = 0; // 已核验前缀累计上下文候选数。
-    std::deque<ApiSectionMapCandidateRow<Row>> maps_; // 最近 128 条节映射请求及原始坐标。
+    std::deque<ApiSectionMapCandidateRow<Row>> maps_; // 最近128条映射/分配/保护范围请求及原始坐标。
     std::uint64_t evictedMaps_ = 0; // 映射窗口裁剪数，不能把未覆盖旧请求解释为无关联。
 };
 
