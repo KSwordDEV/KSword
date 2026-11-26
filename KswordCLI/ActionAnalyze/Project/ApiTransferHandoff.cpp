@@ -621,19 +621,24 @@ void ApiTransferHandoff::Close()
     for (auto& transfer : self.transfers)
         if (transfer.stage != Impl::Admission::Done) self.Finish(transfer, ERROR_OPERATION_ABORTED);
     for (auto& [pid, source] : self.sources) source.capture->Stop();
-    // 先停止所有Agent并排空队列，最后才撤NX/调试owner，避免后代管道尾记落在writer关闭之后。
+    // 先保存已持有的停点，再撤本轮NX/调试owner；Held事件会冻结目标的卸钩线程，不能先等Agent退出。
+    self.Observe();
+    if (!self.current.collectionId.empty())
+    {
+        self.current = self.group.Close(); // 显式结束沿原恢复账释放停点；原API writer此时仍保持打开。
+    }
+    // owner已收到恢复请求后，所有来源尾包仍由同一worker排空，最后才交还原writer封API终段。
     while (std::any_of(self.sources.begin(), self.sources.end(), [](const auto& entry) {
         return !entry.second.capture->Finished();
     })) {
         self.DrainSources();
-        self.Observe();
+        if (!self.current.collectionId.empty() && !self.current.clean)
+            self.current = self.group.QueryWithoutCondition(); // 推进已请求的清退，不再自动继续业务执行。
         Sleep(5); // 原capture自身启动/清退有界；此处不重发装载或Stop。
     }
     self.DrainSources();
-    self.Observe();
     if (!self.current.collectionId.empty())
     {
-        self.current = self.group.Close(); // 先提交原owner恢复，再等真实clean；取消位不能跳过清退责任。
         const auto deadline = GetTickCount64() + 10000; // 有限等待本次集合排空，不无限重发Close。
         while (!self.current.clean && GetTickCount64() < deadline)
         {
