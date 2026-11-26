@@ -1,7 +1,7 @@
 {
   "capabilityMethod": {
     "method": "archive.inspect", "repl": "archive inspect",
-    "summary": "Inspect Stored segment framing or read a verified raw evidence graph page in the open project."
+    "summary": "Inspect Stored framing, a raw evidence graph page, or one archived network record in the open project."
   },
   "params": {
     "projectId": "12345678-9abc-4def-8123-456789abcdef",
@@ -47,7 +47,12 @@
     { "id": "graph-requires-raw", "set": { "view": "graph", "stream": "records" }, "outcome": "invalid-params" },
     { "id": "graph-rejects-unverified-byte-boundary", "set": { "view": "graph", "endOffset": "96" }, "outcome": "invalid-params" },
     { "id": "graph-continuation-requires-prefix", "set": { "view": "graph", "afterSequence": "1" }, "outcome": "invalid-params" },
-    { "id": "graph-continuation", "set": { "view": "graph", "afterSequence": "1", "expectedSha256": "36346bf029c8152ba5f9cb2e21d207d4d39f3a64534a74cc448b2b694d17f4c0" }, "outcome": "accept" }
+    { "id": "graph-continuation", "set": { "view": "graph", "afterSequence": "1", "expectedSha256": "36346bf029c8152ba5f9cb2e21d207d4d39f3a64534a74cc448b2b694d17f4c0" }, "outcome": "accept" },
+    { "id": "network-first-record", "set": { "view": "network", "recordSequence": "1", "recordOffset": "176" }, "outcome": "accept" },
+    { "id": "network-missing-offset", "set": { "view": "network", "recordSequence": "1" }, "outcome": "invalid-params" },
+    { "id": "network-offset-before-records", "set": { "view": "network", "recordSequence": "1", "recordOffset": "175" }, "outcome": "invalid-params" },
+    { "id": "network-offset-after-record-space", "set": { "view": "network", "recordSequence": "1", "recordOffset": "1073741793" }, "outcome": "invalid-params" },
+    { "id": "network-sequence-overflow", "set": { "view": "network", "recordSequence": "18446744073709551616", "recordOffset": "176" }, "outcome": "invalid-params" }
   ],
   "results": [
     { "id": "complete-framing", "set": {}, "valid": true },
@@ -97,6 +102,8 @@
   "graphResults": [
     { "id": "verified-import-classification", "valid": true },
     { "id": "api-import-not-mixed-etw", "set": { "stream": "raw-etw" }, "valid": false },
+    { "id": "cooperative-packet-sequence", "set": { "apiInputKind": "cooperative-pipe" }, "valid": true },
+    { "id": "import-cannot-claim-follow-input", "set": { "apiInputKind": "jsonl-follow" }, "valid": false },
     { "id": "apc-thread-classification", "row": { "operation": "NtQueueApcThread", "apiFamily": "apc-queue", "apiCategory": "thread" }, "valid": true },
     { "id": "api-classification-pair-required", "row": { "apiFamily": null, "apiCategory": null }, "valid": false },
     { "id": "classification-field-required", "remove": "apiCategory", "valid": false },
@@ -110,7 +117,8 @@
       "row": { "operation": "etw-observation-v1", "apiFamily": null, "apiCategory": null, "sourceId": "etw:fixture",
         "sourceEpoch": "etw-fixture", "sourceGroup": "etw:fixture", "sourceSequence": null, "gaps": ["etw-context-only"] }, "valid": true },
     { "id": "etw-cannot-claim-api-classification", "set": { "archiveSource": "etw-checkpoint", "finalSegment": true }, "valid": false },
-    { "id": "api-follow-verified-running-segment", "set": { "archiveSource": "api-follow-checkpoint", "finalSegment": false }, "valid": true },
+    { "id": "api-follow-verified-running-segment", "set": { "archiveSource": "api-follow-checkpoint", "apiInputKind": "jsonl-follow", "finalSegment": false }, "valid": true },
+    { "id": "cooperative-pipe-verified-running-segment", "set": { "archiveSource": "api-follow-checkpoint", "apiInputKind": "cooperative-pipe", "finalSegment": false }, "valid": true },
     { "id": "api-follow-terminal-state-required", "set": { "archiveSource": "api-follow-checkpoint" }, "valid": false }
   ],
   "errors": [

@@ -56,6 +56,10 @@ def admission(request, methods, envelope, params, limits, profile='shell'):
         if (int(arguments['ordinal']) > U64_MAX or int(arguments.get('afterSequence', '0')) > U64_MAX
                 or int(arguments.get('endOffset', '0')) > ARCHIVE_LIMIT):
             return 'invalid-params'
+        if arguments.get('view') == 'network':
+            record_offset = int(arguments['recordOffset'])  # Stored 记录头的位置。
+            if not 176 <= record_offset <= ARCHIVE_LIMIT - 32 or int(arguments['recordSequence']) > U64_MAX:
+                return 'invalid-params'
     return 'accept'
 
 
@@ -353,7 +357,8 @@ def check_archive_vectors(vectors, project_vectors, shell_vectors, registry, met
 
 def main():
     schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json',
-                                       'archive-inspect-method.schema.json', 'live-etw-session.schema.json')]
+                                       'archive-inspect-method.schema.json', 'network-evidence-draft.schema.json',
+                                       'live-etw-session.schema.json')]
     for schema in schemas:
         Draft202012Validator.check_schema(schema)
     registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in schemas)

@@ -11,7 +11,24 @@
     },
     "nullableOffset": { "anyOf": [{ "$ref": "#/$defs/offset" }, { "type": "null" }] },
     "nullableU64": { "anyOf": [{ "$ref": "value.schema.json#/$defs/u64" }, { "type": "null" }] },
-    "params": { "oneOf": [{ "$ref": "#/$defs/framingParams" }, { "$ref": "#/$defs/graphParams" }] },
+    "networkRecordOffset": {
+      "$comment": "Stored v1 record header offsets are 176 through 1073741792 inclusive. Check the semantic range after validating the decimal string.",
+      "$ref": "#/$defs/offset"
+    },
+    "params": { "oneOf": [{ "$ref": "#/$defs/framingParams" }, { "$ref": "#/$defs/graphParams" }, { "$ref": "#/$defs/networkParams" }] },
+    "networkParams": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "sampleId", "stream", "ordinal", "view", "recordSequence", "recordOffset"],
+      "properties": {
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "stream": { "const": "raw" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "view": { "const": "network" },
+        "recordSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordOffset": { "$ref": "#/$defs/networkRecordOffset" }
+      }
+    },
     "framingParams": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "sampleId", "stream", "ordinal"],
@@ -73,7 +90,24 @@
         "win32Error": { "anyOf": [{ "allOf": [{ "$ref": "value.schema.json#/$defs/u32" }, { "minimum": 1 }] }, { "type": "null" }] }
       }
     },
-    "result": { "oneOf": [{ "$ref": "#/$defs/framingResult" }, { "$ref": "#/$defs/graphResult" }] },
+    "result": { "oneOf": [{ "$ref": "#/$defs/framingResult" }, { "$ref": "#/$defs/graphResult" }, { "$ref": "#/$defs/networkResult" }] },
+    "networkResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["view", "projectId", "sampleId", "stream", "ordinal", "recordSequence", "recordOffset", "verifiedBlockEnd", "sourceTrust", "metadata", "bytesHex"],
+      "properties": {
+        "view": { "const": "network" },
+        "projectId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "sampleId": { "$ref": "request.schema.json#/$defs/projectUuid" },
+        "stream": { "const": "raw" },
+        "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordOffset": { "$ref": "#/$defs/networkRecordOffset" },
+        "verifiedBlockEnd": { "$ref": "#/$defs/offset" },
+        "sourceTrust": { "const": "recorded-declaration" },
+        "metadata": { "$ref": "network-evidence-draft.schema.json", "properties": { "record": { "const": "flow" } } },
+        "bytesHex": { "type": "string", "maxLength": 131072, "pattern": "^(?:[0-9a-f]{2})*(?![\\s\\S])" }
+      }
+    },
     "framingResult": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "sampleId", "generation", "stream", "ordinal", "createdUtc100ns", "framingStatus", "framingError", "framingCoverage", "requiredRecordCount", "unsupportedOptionalRecords", "unsupportedRequiredRecords", "interpretedBytes", "durableBytes"],
@@ -147,13 +181,209 @@
         "sourceGroup": { "type": "string", "minLength": 1, "maxLength": 64 },
         "sourceSequence": { "$ref": "#/$defs/nullableU64" },
         "eventOrdinal": { "type": "null" },
-        "raw": { "$ref": "#/$defs/graphRaw" }
+        "raw": { "$ref": "#/$defs/graphRaw" },
+        "apiTransfer": { "$ref": "#/$defs/apiTransferFields" },
+        "apiApc": { "$ref": "#/$defs/apiApcFields" },
+        "apiContext": { "$ref": "#/$defs/apiContextFields" },
+        "apiSectionMap": { "$ref": "#/$defs/apiSectionMapFields" }
       },
       "oneOf": [
         { "properties": { "apiFamily": { "enum": ["memory-write", "section-map"] }, "apiCategory": { "const": "memory" } } },
         { "properties": { "apiFamily": { "enum": ["thread-create", "apc-queue", "thread-context"] }, "apiCategory": { "const": "thread" } } },
         { "properties": { "apiFamily": { "type": "null" }, "apiCategory": { "type": "null" } } }
       ]
+    },
+    "apiTransferFields": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetStable", "targetTid", "targetThreadCreationFileTime", "address", "requestedBytes", "completedBytes", "requestedStartAddress", "enterQpc", "returnQpc", "inputHandle", "outcome"],
+      "properties": {
+        "schema": { "const": "api-injection-fields-v1" },
+        "actorCreationFileTime": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "targetPid": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "targetCreationFileTime": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "targetStable": { "type": "boolean" },
+        "targetTid": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "targetThreadCreationFileTime": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "address": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "requestedBytes": { "$ref": "value.schema.json#/$defs/u64" },
+        "completedBytes": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "requestedStartAddress": { "$ref": "value.schema.json#/$defs/nullableU64" },
+        "enterQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "returnQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "inputHandle": { "$ref": "value.schema.json#/$defs/u64" },
+        "outcome": { "enum": ["succeeded", "failed", "partial", "unknown"] }
+      }
+    },
+    "apiApcFields": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetTid", "targetThreadCreationFileTime", "targetStable", "requestedRoutineAddress", "enterQpc", "returnQpc", "inputThreadHandle", "argument1", "argument2", "argument3", "queueOutcome", "delivery", "execution"],
+      "properties": {
+        "schema": { "const": "api-apc-fields-v1" },
+        "actorCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetPid": { "$ref": "#/$defs/nullableU64" },
+        "targetCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetTid": { "$ref": "#/$defs/nullableU64" },
+        "targetThreadCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetStable": { "type": "boolean" },
+        "requestedRoutineAddress": { "$ref": "#/$defs/nullableU64" },
+        "enterQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "returnQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "inputThreadHandle": { "$ref": "value.schema.json#/$defs/u64" },
+        "argument1": { "$ref": "value.schema.json#/$defs/u64" },
+        "argument2": { "$ref": "value.schema.json#/$defs/u64" },
+        "argument3": { "$ref": "value.schema.json#/$defs/u64" },
+        "queueOutcome": { "enum": ["accepted", "failed", "unknown"] },
+        "delivery": { "type": "null" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiContextFields": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetTid", "targetThreadCreationFileTime", "targetStable", "contextFlags", "requestedIp", "requestedSp", "contextArchitecture", "enterQpc", "returnQpc", "inputThreadHandle", "inputContextAddress", "requestOutcome", "contextApplied", "execution"],
+      "properties": {
+        "schema": { "const": "api-context-fields-v1" },
+        "actorCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetPid": { "$ref": "#/$defs/nullableU64" },
+        "targetCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetTid": { "$ref": "#/$defs/nullableU64" },
+        "targetThreadCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetStable": { "type": "boolean" },
+        "contextFlags": { "$ref": "#/$defs/nullableU64" },
+        "requestedIp": { "$ref": "#/$defs/nullableU64" },
+        "requestedSp": { "$ref": "#/$defs/nullableU64" },
+        "contextArchitecture": { "enum": ["32", "64"] },
+        "enterQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "returnQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "inputThreadHandle": { "$ref": "value.schema.json#/$defs/u64" },
+        "inputContextAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestOutcome": { "enum": ["accepted", "failed", "unknown"] },
+        "contextApplied": { "type": "null" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiSectionMapFields": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetStable", "requestedBase", "requestedBytes", "mappedBase", "mappedBytes", "sectionOffset", "inputSectionHandle", "inputProcessHandle", "requestedProtection", "enterQpc", "returnQpc", "mapOutcome", "sectionIdentity", "aliasPropagation", "execution"],
+      "properties": {
+        "schema": { "const": "api-section-map-fields-v1" },
+        "actorCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetPid": { "$ref": "#/$defs/nullableU64" },
+        "targetCreationFileTime": { "$ref": "#/$defs/nullableU64" },
+        "targetStable": { "type": "boolean" },
+        "requestedBase": { "$ref": "#/$defs/nullableU64" },
+        "requestedBytes": { "$ref": "#/$defs/nullableU64" },
+        "mappedBase": { "$ref": "#/$defs/nullableU64" },
+        "mappedBytes": { "$ref": "#/$defs/nullableU64" },
+        "sectionOffset": { "$ref": "#/$defs/nullableU64" },
+        "inputSectionHandle": { "$ref": "value.schema.json#/$defs/u64" },
+        "inputProcessHandle": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestedProtection": { "$ref": "value.schema.json#/$defs/u64" },
+        "enterQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "returnQpc": { "$ref": "value.schema.json#/$defs/u64" },
+        "mapOutcome": { "enum": ["accepted", "failed", "unknown"] },
+        "sectionIdentity": { "type": "null" },
+        "aliasPropagation": { "type": "null" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiTransferLink": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "write", "threadCreate", "actorPid", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "writtenAddress", "writtenBytes", "requestedStartAddress", "execution"],
+      "properties": {
+        "kind": { "const": "write-to-requested-thread-entry" },
+        "write": { "$ref": "#/$defs/apiTransferRaw" },
+        "threadCreate": { "$ref": "#/$defs/apiTransferRaw" },
+        "actorPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "actorCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "targetPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "targetCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenBytes": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestedStartAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiApcTransferLink": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "write", "apcQueue", "actorPid", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetTid", "targetThreadCreationFileTime", "writtenAddress", "writtenBytes", "requestedRoutineAddress", "queueOutcome", "delivery", "execution"],
+      "properties": {
+        "kind": { "const": "write-to-requested-apc-routine" },
+        "write": { "$ref": "#/$defs/apiTransferRaw" },
+        "apcQueue": { "$ref": "#/$defs/apiTransferRaw" },
+        "actorPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "actorCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "targetPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "targetCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "targetTid": { "$ref": "value.schema.json#/$defs/u32" },
+        "targetThreadCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenBytes": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestedRoutineAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "queueOutcome": { "const": "accepted" },
+        "delivery": { "type": "null" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiContextTransferLink": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "write", "context", "actorPid", "actorCreationFileTime", "targetPid", "targetCreationFileTime", "targetTid", "targetThreadCreationFileTime", "writtenAddress", "writtenBytes", "requestedIp", "requestedSp", "contextArchitecture", "requestOutcome", "contextApplied", "execution"],
+      "properties": {
+        "kind": { "const": "write-to-requested-context-ip" },
+        "write": { "$ref": "#/$defs/apiTransferRaw" },
+        "context": { "$ref": "#/$defs/apiTransferRaw" },
+        "actorPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "actorCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "targetPid": { "$ref": "value.schema.json#/$defs/u32" },
+        "targetCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "targetTid": { "$ref": "value.schema.json#/$defs/u32" },
+        "targetThreadCreationFileTime": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenAddress": { "$ref": "value.schema.json#/$defs/u64" },
+        "writtenBytes": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestedIp": { "$ref": "value.schema.json#/$defs/u64" },
+        "requestedSp": { "$ref": "value.schema.json#/$defs/u64" },
+        "contextArchitecture": { "enum": ["32", "64"] },
+        "requestOutcome": { "const": "accepted" },
+        "contextApplied": { "type": "null" },
+        "execution": { "type": "null" }
+      }
+    },
+    "apiTransferRaw": {
+      "type": "object", "additionalProperties": false,
+      "required": ["segmentOrdinal", "recordSequence"],
+      "properties": {
+        "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+        "recordSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+      }
+    },
+    "apiTransferCandidates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "evictedWrites", "truncated", "links"],
+      "properties": {
+        "count": { "$ref": "value.schema.json#/$defs/u64" },
+        "evictedWrites": { "$ref": "value.schema.json#/$defs/u64" },
+        "truncated": { "type": "boolean" },
+        "links": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/apiTransferLink" } }
+      }
+    },
+    "apiApcTransferCandidates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "evictedWrites", "truncated", "links"],
+      "properties": {
+        "count": { "$ref": "value.schema.json#/$defs/u64" },
+        "evictedWrites": { "$ref": "value.schema.json#/$defs/u64" },
+        "truncated": { "type": "boolean" },
+        "links": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/apiApcTransferLink" } }
+      }
+    },
+    "apiContextTransferCandidates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "evictedWrites", "truncated", "links"],
+      "properties": {
+        "count": { "$ref": "value.schema.json#/$defs/u64" },
+        "evictedWrites": { "$ref": "value.schema.json#/$defs/u64" },
+        "truncated": { "type": "boolean" },
+        "links": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/apiContextTransferLink" } }
+      }
     },
     "callbackBatch": {
       "type": "object", "additionalProperties": false,
@@ -182,6 +412,7 @@
         "ordinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
         "descriptionHash": { "$ref": "#/$defs/hash" },
         "archiveSource": { "enum": ["api-import", "api-follow-checkpoint", "etw-checkpoint", "ksword-callback-batch"] },
+        "apiInputKind": { "enum": ["closed-jsonl", "cooperative-pipe", "legacy-unspecified", "jsonl-follow"] },
         "callbackBatch": { "$ref": "#/$defs/callbackBatch" },
         "sourceCoverage": { "const": "unknown" },
         "machineId": { "type": "null" },
@@ -209,35 +440,49 @@
         },
         "nodes": { "const": [] },
         "relations": { "const": [] },
-        "observations": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/graphObservation" } }
+        "observations": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/graphObservation" } },
+        "apiTransferCandidates": { "$ref": "#/$defs/apiTransferCandidates" },
+        "apiApcTransferCandidates": { "$ref": "#/$defs/apiApcTransferCandidates" },
+        "apiContextTransferCandidates": { "$ref": "#/$defs/apiContextTransferCandidates" }
       },
-      "if": { "properties": { "archiveSource": { "const": "ksword-callback-batch" } } },
-      "then": {
-        "required": ["callbackBatch"],
-        "properties": {
-          "stream": { "const": "raw" }, "ordinal": { "const": "1" }, "finalSegment": { "type": "null" },
+      "if": { "properties": { "archiveSource": { "const": "etw-checkpoint" } } },
+         "then": { "properties": {
+          "apiInputKind": false,
+           "callbackBatch": false,
+           "apiTransferCandidates": false,
+           "apiApcTransferCandidates": false,
+           "apiContextTransferCandidates": false,
+         "finalSegment": { "type": "boolean" },
+         "observations": { "items": { "properties": { "apiFamily": { "type": "null" }, "callbackHints": false, "apiTransfer": false, "apiApc": false, "apiContext": false, "apiSectionMap": false } } }
+      } },
+      "else": {
+        "properties": { "stream": { "const": "raw" } },
+        "if": { "properties": { "archiveSource": { "const": "ksword-callback-batch" } } },
+         "then": { "required": ["callbackBatch"], "properties": {
+           "apiInputKind": false,
+           "apiTransferCandidates": false,
+           "apiApcTransferCandidates": false,
+           "apiContextTransferCandidates": false,
+           "ordinal": { "const": "1" }, "finalSegment": { "type": "null" },
           "observations": { "items": {
             "required": ["callbackHints"], "properties": {
               "operation": { "const": "callback.thread.create.v1" },
               "sourceId": { "const": "kswordark.callback" }, "sourceGroup": { "const": "kswordark.callback" },
               "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
-              "apiFamily": { "type": "null" }, "headerPid": { "type": "null" }, "headerTid": { "type": "null" }
+              "apiFamily": { "type": "null" }, "headerPid": { "type": "null" }, "headerTid": { "type": "null" },
+               "apiTransfer": false,
+               "apiApc": false,
+               "apiContext": false,
+               "apiSectionMap": false
             }
           } }
-        }
-      },
-      "else": {
-        "properties": { "callbackBatch": false, "observations": { "items": { "properties": { "callbackHints": false } } } },
-        "if": { "properties": { "archiveSource": { "const": "etw-checkpoint" } } },
-        "then": { "properties": {
-          "finalSegment": { "type": "boolean" },
-          "observations": { "items": { "properties": { "apiFamily": { "type": "null" } } } }
         } },
         "else": {
-          "properties": { "stream": { "const": "raw" }, "observations": { "items": { "properties": { "apiFamily": { "type": "string" } } } } },
+           "properties": { "callbackBatch": false, "observations": { "items": { "properties": { "apiFamily": { "type": "string" }, "callbackHints": false } } } },
           "if": { "properties": { "archiveSource": { "const": "api-follow-checkpoint" } } },
-          "then": { "properties": { "finalSegment": { "type": "boolean" } } },
-          "else": { "properties": { "finalSegment": { "type": "null" } } }
+            "then": { "properties": { "finalSegment": { "type": "boolean" }, "apiInputKind": { "enum": ["jsonl-follow", "cooperative-pipe"] } } },
+           "else": { "properties": { "finalSegment": { "type": "null" },
+             "apiInputKind": { "enum": ["closed-jsonl", "cooperative-pipe", "legacy-unspecified"] } } }
         }
       }
     },
