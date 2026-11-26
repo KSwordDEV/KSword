@@ -1,7 +1,9 @@
 #include "../NativeDebugOwner.h"
 
 #include <Windows.h>
+#include <winternl.h>
 
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
@@ -186,6 +188,16 @@ public:
             "fixture-exited");
         DWORD code = 0;
         Require(GetExitCodeProcess(process_.Get(), &code) && code == 0, "fixture-normal-exit-code");
+    }
+
+    ULONG ProcessObjectHandleCount() const {
+        // Count references to this fixture's process object, not all handles in the debug host.
+        const auto queryObject = std::bit_cast<decltype(&NtQueryObject)>(
+            GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryObject"));
+        PUBLIC_OBJECT_BASIC_INFORMATION info{};
+        Require(queryObject && NT_SUCCESS(queryObject(process_.Get(), ObjectBasicInformation, &info, sizeof(info), nullptr)),
+            "read-fixture-process-object-handle-count");
+        return info.HandleCount;
     }
 
     DWORD pid = 0;
@@ -382,15 +394,37 @@ void TestBreakpoints(wchar_t* executable, const OwnerIdentity& owner) {
     Require(badSite.clean && badSite.breakpoint->win32Error == ERROR_INVALID_ADDRESS, "reject-nonexecutable-image-site-and-detach");
     fixture.CheckAttached(false);
 
-    NativeDebugOwner exiting(owner);
     request.target.requestId = "native-breakpoint-target-exit";
     request.rva = rva;
-    Require(exiting.ArmBreakpoint(request).status == NativeControlStatus::Accepted, "exit-fixture-attach-accepted");
-    (void)WaitForBreakpoint(exiting, NativeBreakpointState::Armed);
-    fixture.Exit();
-    const auto ended = WaitForBreakpoint(exiting, NativeBreakpointState::Retired);
-    Require(ended.status == NativeControlStatus::Ended && ended.clean && !ended.attached &&
-        ended.breakpoint->enrolledThreads == 0 && !ended.pending, "continued-process-exit-retires-all-slot-responsibilities");
+    ULONG handlesBeforeOwnerClose = 0;
+    {
+        NativeDebugOwner exiting(owner);
+        Require(exiting.ArmBreakpoint(request).status == NativeControlStatus::Accepted, "exit-fixture-attach-accepted");
+        (void)WaitForBreakpoint(exiting, NativeBreakpointState::Armed);
+        fixture.Signal(0);
+        const auto exitStop = WaitForBreakpoint(exiting, NativeBreakpointState::Held);
+        const auto exitRelease = ToRelease(owner, exitStop, "continue/1");
+        const auto beforeExit = exiting.Continue(exitRelease);
+        Require(beforeExit.attached && beforeExit.release && beforeExit.release->receipt &&
+            beforeExit.release->receipt->result == ReleaseResult::Continued, "exit-fixture-releases-its-last-stop");
+        fixture.Response(1, kDeadlineMs, WAIT_OBJECT_0);
+        fixture.Exit();
+        const auto ended = WaitForBreakpoint(exiting, NativeBreakpointState::Retired);
+        Require(ended.status == NativeControlStatus::Ended && ended.clean && !ended.attached &&
+            ended.breakpoint->enrolledThreads == 0 && !ended.pending && !ended.responsibility,
+            "continued-process-exit-retires-all-slot-responsibilities");
+        const auto recovered = exiting.Recover(exitRelease);
+        Require(recovered.ledgerResult == LedgerResult::Duplicate && recovered.clean && !recovered.attached &&
+            !recovered.pending && !recovered.responsibility && recovered.group && recovered.group->historical &&
+            recovered.group->nativeEventState == EventState::Released && recovered.releaseRequestId == exitRelease.requestId &&
+            recovered.release && recovered.release->receipt == beforeExit.release->receipt &&
+            recovered.release->issuedRevision == beforeExit.release->issuedRevision && !recovered.release->eventRetiredOnExit,
+            "normal-target-exit-preserves-the-original-continue-receipt");
+        handlesBeforeOwnerClose = fixture.ProcessObjectHandleCount();
+        Require(exiting.Close().status == NativeControlStatus::Closed, "retired-exit-owner-closes-without-native-work");
+    }
+    Require(fixture.ProcessObjectHandleCount() == handlesBeforeOwnerClose,
+        "terminal-breakpoint-releases-target-handle-before-owner-close");
 }
 
 } // namespace

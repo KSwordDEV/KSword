@@ -1364,6 +1364,8 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
         binding.stage = outcome.stage;
         binding.win32Error = outcome.code;
         binding.enrolledThreads = 0;
+        // A retired breakpoint binding cannot reattach. Its historical queries need no process handle.
+        process_.Reset();
     }
     members_.clear();
     if (!ledger_.CanRetireLedger()) {
