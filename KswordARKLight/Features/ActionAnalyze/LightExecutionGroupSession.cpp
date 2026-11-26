@@ -102,7 +102,8 @@ struct LightExecutionGroupSession::Shared {
                             {
                                 // 真实sample在附加前创建，全部成员共享身份而不共享调试owner。
                                 Publish(group->Start(std::move(request->sites), request->authorized,
-                                    execution_native::NativeTargetDisposition::ResumeAndDetach, archive->View().sampleId),
+                                    execution_native::NativeTargetDisposition::ResumeAndDetach, archive->View().sampleId,
+                                    request->holdPeersOnHit),
                                     true, &archive->View());
                             }
                             else

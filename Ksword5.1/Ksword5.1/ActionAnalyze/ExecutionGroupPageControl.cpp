@@ -161,6 +161,7 @@ namespace ks::action_analyze
         request.sampleId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
         request.projectDirectory = m_projectDirectory->text().toStdWString(); // 参数冻结后交原worker持唯一写租约。
         request.openExistingProject = m_openProject->isChecked();
+        request.holdPeersOnHit = m_holdPeersOnHit->isChecked(); // Start后只读核心冻结策略，不热改会话。
         m_session = std::make_unique<ExecutionGroupSession>(); // 唯一本端会话，项目准备完成后才附加。
         m_shown = {};
         m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
@@ -434,6 +435,7 @@ namespace ks::action_analyze
         const bool appendable = ready && native::OwnedExecutionGroup::CanAppendMembers(m_shown.result); // 核心与界面共用资格。
         m_editor->setEnabled(editable || appendable); // 活集合只允许编辑待追加表单，原成员不被重配。
         m_projectSection->setEnabled(editable); // 目录编辑不重定向已产生的结果或writer。
+        m_holdPeersOnHit->setEnabled(editable); // 联停策略只在Start冻结，不给活集合暗中换策略。
         m_authorized->setEnabled(editable || appendable);
         m_append->setEnabled(appendable && m_authorized->isChecked());
         m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);

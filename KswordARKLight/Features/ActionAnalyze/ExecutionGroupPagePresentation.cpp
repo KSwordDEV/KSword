@@ -275,6 +275,19 @@ void RefreshText(Page& page)
         const auto archive = Ksword::ActionAnalyze::DescribeExecutionGroupArchive(page.shown.archive); // 不访问当前PID或路径草稿。
         text += L"\r\n\r\n[执行观察归档]\r\n" + Widen(Ksword::Evidence::WriteJson(archive));
     }
+    text += L"\r\n命中联停策略=" + std::wstring(result.holdPeersOnHit ? L"已启用" : L"未启用");
+    if (result.peerHold)
+    {
+        const auto& hold = *result.peerHold; // 原触发者与每项初始Pause回执；当前是否Held仍读上方成员状态。
+        text += L"\r\n\r\n[最近命中联停回执]\r\n触发owner=" + Widen(hold.triggerOwner.backendInstanceId) +
+            L"\r\n触发事件=" + Widen(hold.triggerEvent.backendInstanceId) + L"/" + std::to_wstring(hold.triggerEvent.serial);
+        for (const auto& outcome : hold.outcomes)
+        {
+            text += L"\r\n成员=" + std::to_wstring(outcome.pid) + L"/" + std::to_wstring(outcome.creationFileTime) +
+                L" 分类=" + Widen(outcome.disposition) + L" 实际调用=" + std::to_wstring(outcome.actionAttempted);
+            NativeText(text, outcome.control); // 保留每项原生错误、暂停责任和绑定，不以第一项代表全集。
+        }
+    }
     if (page.shown.archive.api)
     {
         text += FormatLightNativeSessionApi(*page.shown.archive.api); // 完整正文沿用现有源/覆盖/归档/清退字段。
@@ -423,6 +436,7 @@ void Refresh(Page& page)
     ::EnableWindow(page.identify, controls);
     ::EnableWindow(page.projectDirectory, controls && page.shown.canStart); // 活writer不跟随路径草稿变化。
     ::EnableWindow(page.openProject, controls && page.shown.canStart);
+    ::EnableWindow(page.holdPeersOnHit, controls && page.shown.canStart); // 运行中只显示Start冻结的策略。
     ::EnableWindow(page.query, !page.retiring && (!page.shown.active || (ready && !page.shown.canStart)));
     const auto queryTitle = page.shown.active ? L"刷新原集合" : L"重试后台会话";
     if (InputText(page.query) != queryTitle) ::SetWindowTextW(page.query, queryTitle);

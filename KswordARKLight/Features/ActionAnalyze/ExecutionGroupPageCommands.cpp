@@ -226,6 +226,7 @@ void Command(Page& page, int id)
             request.authorized = ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED;
             request.projectDirectory = InputText(page.projectDirectory); // 原样冻结目录，不随稍后编辑重定向写入。
             request.openExistingProject = ::SendMessageW(page.openProject, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            request.holdPeersOnHit = ::SendMessageW(page.holdPeersOnHit, BM_GETCHECK, 0, 0) == BST_CHECKED; // 冻结本轮策略。
             if (request.sites.empty() || !request.authorized) {
                 page.error = L"请加入1–16个站点并明确授权整个集合。";
                 submit = false;

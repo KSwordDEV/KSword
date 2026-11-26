@@ -20,7 +20,7 @@ std::vector<HWND> Navigation(const Page& page)
     controls.insert(controls.begin() + 2, page.identify);
     controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 来源字段由原参数正文参与Tab遍历。
     controls.insert(controls.end(), page.memoryInputs.begin(), page.memoryInputs.end()); // 独立内存范围使用同一键盘导航。
-    for (const auto control : {page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
+    for (const auto control : {page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.holdPeersOnHit, page.authorized,
         page.start, page.appendMembers, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
         page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi,
         page.readMemory, page.saveMemory, page.close, page.preset,

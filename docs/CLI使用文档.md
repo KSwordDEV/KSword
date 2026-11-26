@@ -256,6 +256,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 活执行集合新增 `members-append execution/N SITES_PATH confirm COLLECTION_ID`／JSONL `control.members.append`。JSONL携带当前session、`params:{sites:PATH,confirm:true}` 与 `expected:{collectionId}`；新文件使用原站点schema，追加后最多16个不同PID，同一采样内保留原成员、停点和writer。新成员附加部分失败逐项保留，不替换已有PID或自动接纳后代；原128条重放流水也覆盖本命令。Qt／Light对应“追加表单目标到本轮集合”，详见上述专项文档。
 
+`analyze execution-group session --hold-peers-on-hit` 在Start冻结“成员命中后暂停其他成员”。新断点经条件处理仍持有时，原查询逐项请求其它运行成员暂停；假条件继续，未知条件保持。主动暂停和步进停止不触发，同一事件只请求一次；所选继续不被同一旧事件撤销。`peerHold` 独立保留触发身份和逐成员暂停回执，当前Held须另读成员状态；不保证同时冻结。Qt／Light复用原执行集合参数页同名开关，默认关闭。源码已接，运行待验。
+
 执行集合可用 `--project PATH` 新建项目，或 `--project PATH --open-project` 打开已有项目；两者都在附加前创建本轮新采样。REPL `execution-save execution/N TOKENHEX`、JSONL `control.execution.save`（空 params，expected 携 collectionId 和唯一完整 stopToken）显式保存当前成员执行观察到同采样 `raw-native`，不继续任何成员。`executionArchive` 分别报告真实项目/采样、事件、段号、written/flushed/verified、去重和首次追加失败；ManualPause 不构成执行证据。Qt 和 Light 执行集合入口同步提供项目草稿、保存动作及同源详情。新增接线尚未构建或实测。
 
 执行集合的模块 RVA 站点支持可选 `definitionId`。它引用本轮采样冻结的启用 RVA 定义，要求项目、模块名及 RVA 一致，并继承定义的映像 SHA256；冲突或缺失在任何附加前拒绝。Qt/Light 提供相同字段；手工导出和私有站点不发送隐藏定义草稿。完整全局定义自动激活及 PDB 符号解析仍未实现。

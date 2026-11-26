@@ -110,6 +110,7 @@ public:
         std::unique_ptr<OwnedDataWatchSession> session;
         NativeControlResult current;
         bool accepted = false;
+        std::optional<NativeEventKey> peerHoldEvent; // 本成员已触发联停的事件；重复Query不重复Pause。
     };
     std::vector<Member> members;
     std::string collectionId;
@@ -117,6 +118,55 @@ public:
     bool started = false;
     bool closing = false;
     std::optional<ExecutionGroupOperation> operation;
+    bool holdPeersOnHit = false; // 显式Start策略，追加成员不能热改本轮行为。
+    std::optional<ExecutionGroupPeerHold> peerHold; // 独立保留联停回执，不覆盖用户操作回执。
+
+    // 由普通Query在条件处理之后调用；只对新保留的断点发起一次逐成员Pause，不重试或Continue。
+    void HoldPeers()
+    {
+        if (!holdPeersOnHit || closing)
+        {
+            return;
+        }
+        Member* trigger = nullptr; // 本轮首个新断点作为回执关联源，其它新命中也在此轮登记。
+        for (auto& member : members)
+        {
+            const auto* stop = DataWatchHeldStop(member.current); // 假条件已由原session继续，未知条件仍保持。
+            if (member.current.stopReason != NativeStopReason::Breakpoint || !stop ||
+                !OwnedExecutionGroup::Matches(member.current, member.current) ||
+                member.peerHoldEvent == std::optional<NativeEventKey>{stop->event})
+            {
+                continue;
+            }
+            member.peerHoldEvent = stop->event;
+            if (!trigger)
+            {
+                trigger = &member;
+            }
+        }
+        if (!trigger)
+        {
+            return;
+        }
+        ExecutionGroupPeerHold receipt; // 先分配完整结果目录，再请求任何原生暂停。
+        receipt.triggerOwner = trigger->session->Identity();
+        receipt.triggerEvent = DataWatchHeldStop(trigger->current)->event;
+        receipt.outcomes.reserve(members.size());
+        for (auto& member : members)
+        {
+            const auto& state = member.current; // Observe已回读本轮原会话；Pause仍会核验实际绑定。
+            const bool held = OwnedExecutionGroup::Matches(state, state); // 不替换已经持有的原始事件。
+            if (held || state.clean || !OwnedExecutionGroup::MatchesPause(state, state))
+            {
+                receipt.outcomes.push_back({member.site.pid, member.site.creationFileTime, state, false,
+                    held ? "already-held" : state.clean ? "member-clean" : "pause-unavailable"});
+                continue;
+            }
+            member.current = member.session->Pause(state); // 唯一原owner登记pause/N；接纳后仍等后续Query确认Held。
+            receipt.outcomes.push_back({member.site.pid, member.site.creationFileTime, member.current, true, "pause-requested"});
+        }
+        peerHold = std::move(receipt);
+    }
 
     Member* Find(const NativeControlResult& state)
     {
@@ -150,6 +200,8 @@ public:
         ExecutionGroupResult result;
         result.collectionId = collectionId;
         result.operation = operation;
+        result.holdPeersOnHit = holdPeersOnHit;
+        result.peerHold = peerHold;
         std::size_t held = 0;
         bool failure = false, recovery = false;
         for (const auto& member : members) {
@@ -229,7 +281,7 @@ ExecutionGroupResult OwnedExecutionGroup::QueryWithoutCondition()
 }
 
 ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
-    NativeTargetDisposition disposition, std::string_view sampleId)
+    NativeTargetDisposition disposition, std::string_view sampleId, bool holdPeersOnHit)
 {
     auto& self = *impl_;
     if (self.started || self.closing)
@@ -250,8 +302,9 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     // 先完成全部配置及会话的分配，再进行任何附加；启动失败也不覆盖既有成功 owner。
     std::vector<Impl::Member> frozen;
     frozen.reserve(sites.size());
-    for (auto& site : sites) frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false});
+    for (auto& site : sites) frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false, {}});
     self.members = std::move(frozen);
+    self.holdPeersOnHit = holdPeersOnHit;
     self.started = true;
     self.operation = ExecutionGroupOperation{ExecutionGroupAction::Start, true, "execution-group-start-submitted", 0, {}};
     for (auto& member : self.members) {
@@ -298,7 +351,7 @@ ExecutionGroupResult OwnedExecutionGroup::AppendMembers(std::vector<ExecutionGro
     frozen.reserve(sites.size());
     for (auto& site : sites)
     {
-        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false});
+        frozen.push_back({std::move(site), std::make_unique<OwnedDataWatchSession>(), {}, false, {}});
     }
     const auto first = self.members.size(); // 原目录索引保持稳定，新成员仅追加到末尾。
     self.members.reserve(first + frozen.size());
@@ -318,6 +371,7 @@ ExecutionGroupResult OwnedExecutionGroup::AppendMembers(std::vector<ExecutionGro
 ExecutionGroupResult OwnedExecutionGroup::Query()
 {
     impl_->Observe();
+    impl_->HoldPeers(); // 只由正常监控回读推进显式联停；保存/调查的QueryWithoutCondition不产生控制副作用。
     return impl_->Result();
 }
 

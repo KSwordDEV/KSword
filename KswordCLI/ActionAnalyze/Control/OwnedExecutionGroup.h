@@ -56,12 +56,21 @@ struct ExecutionGroupOperation {
     std::vector<ExecutionGroupOutcome> outcomes; // 全部请求成员，分别标明实际动作与already状态。
 };
 
+// 命中联停保留触发事件与逐成员原始暂停回执；与用户最近一次显式操作分开。
+struct ExecutionGroupPeerHold {
+    OwnerIdentity triggerOwner; // 原命中成员身份，不以集合ID替代原生owner。
+    NativeEventKey triggerEvent; // 原断点事件，只用于本轮关联，不授予释放资格。
+    std::vector<ExecutionGroupOutcome> outcomes; // 接纳、已持有、不可暂停及已清退分别报告。
+};
+
 struct ExecutionGroupResult {
     std::string collectionId; // 本集合身份，与各成员 stop groupId 完全独立。
     ExecutionGroupState state = ExecutionGroupState::Idle;
     bool clean = true;
     std::vector<ExecutionGroupMember> members; // 原成员顺序不变，显式追加只加到末尾，不隐式增加后代。
     std::optional<ExecutionGroupOperation> operation; // 最近一次操作回执，与当前状态分别报告。
+    bool holdPeersOnHit = false; // Start冻结的显式联停策略，默认保持各成员独立命中。
+    std::optional<ExecutionGroupPeerHold> peerHold; // 最近一次新断点触发的联停请求，不代表同时冻结。
 };
 
 // 全部方法和销毁均由调用方同一串行 worker 执行。每成员一份原 OwnedDataWatchSession。
@@ -74,7 +83,7 @@ public:
     OwnedExecutionGroup& operator=(const OwnedExecutionGroup&) = delete;
 
     [[nodiscard]] ExecutionGroupResult Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
-        NativeTargetDisposition disposition, std::string_view sampleId = {});
+        NativeTargetDisposition disposition, std::string_view sampleId = {}, bool holdPeersOnHit = false);
     // 输入新实例站点、显式授权及原集合ID；沿本轮sample追加独立owner，不释放或替换原成员。
     [[nodiscard]] ExecutionGroupResult AppendMembers(std::vector<ExecutionGroupSite> sites,
         bool explicitlyAuthorized, std::string_view collectionId);

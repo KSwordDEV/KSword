@@ -59,6 +59,7 @@ namespace ks::action_analyze
         QGroupBox* m_projectSection = nullptr; // Start之前可编辑，原结果使用worker中的真实项目身份。
         QLineEdit* m_projectDirectory = nullptr; // 可选项目路径草稿；空值不创建项目。
         QCheckBox* m_openProject = nullptr; // 明确打开已有项目并创建新sample，不猜目录用途。
+        QCheckBox* m_holdPeersOnHit = nullptr; // 下一轮Start策略草稿，活集合使用已冻结值。
         QLabel* m_status = nullptr; // 草稿错误、回读时间、清退责任分层显示。
         QPushButton* m_add = nullptr; // 加入下一站点。
         QPushButton* m_replace = nullptr; // 用完整输入替换选中草稿行。

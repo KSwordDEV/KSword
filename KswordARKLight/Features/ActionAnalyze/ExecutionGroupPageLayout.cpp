@@ -114,6 +114,9 @@ void Layout(Page& page)
     const int openHeight = TextHeight(page.openProject, bodyWidth) + gap; // 复选框保留完整新采样语义。
     move(page.openProject, 0, y, bodyWidth, openHeight);
     y += openHeight + gap;
+    const int peerHeight = TextHeight(page.holdPeersOnHit, bodyWidth) + gap; // 长文本复选框自然折行，复用原参数滚动。
+    move(page.holdPeersOnHit, 0, y, bodyWidth, peerHeight);
+    y += peerHeight + gap;
     for (std::size_t index = 0; index < page.apiInputs.size(); ++index)
     {
         const int labelHeight = TextHeight(page.apiLabels[index], bodyWidth); // 参数正文统一滚动，不把API字段挤到结果区。
@@ -193,6 +196,9 @@ bool CreateControls(Page& page)
     page.openProject = ::CreateWindowExW(0, L"BUTTON", L"打开已有项目，创建新采样",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kOpenProject), ::GetModuleHandleW(nullptr), nullptr);
+    page.holdPeersOnHit = ::CreateWindowExW(0, L"BUTTON", L"成员命中后暂停其他成员",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
+        reinterpret_cast<HMENU>(kHoldPeersOnHit), ::GetModuleHandleW(nullptr), nullptr); // 默认未选，活集合中禁用编辑。
     const std::array<const wchar_t*, 3> apiTitles{L"同采样API来源PID（集合以外）", L"API来源创建FILETIME（十进制）", L"API采集时长（1000–10000毫秒）"}; // 自然高度标签保留单位。
     const std::array<int, 3> apiIds{kApiPid, kApiCreation, kApiDuration}; // 不改变已有站点字段ID。
     for (std::size_t index = 0; index < page.apiInputs.size(); ++index)
@@ -252,7 +258,7 @@ bool CreateControls(Page& page)
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
     controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 新来源字段参与原键盘导航，不另建窗口。
     controls.insert(controls.end(), page.memoryInputs.begin(), page.memoryInputs.end()); // 原键盘路由覆盖内存范围输入。
-    for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
+    for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.holdPeersOnHit, page.authorized,
         page.start, page.appendMembers, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
         page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.readMemory, page.saveMemory, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
@@ -295,6 +301,7 @@ bool CreateControls(Page& page)
         }
         Tip(page, page.projectDirectory, L"默认新建项目；勾选打开已有项目时复用项目但创建新采样。项目或写租约失败会阻止本轮附加，不借用其它页面writer。");
         Tip(page, page.openProject, L"必须填写已有项目目录。每次Start均创建独立新采样，历史执行证据不恢复活控制权。");
+        Tip(page, page.holdPeersOnHit, L"开始时冻结。新断点经条件处理仍持有时逐成员请求暂停；未知条件保留，假条件继续。主动暂停和步进不触发，同一事件只请求一次。");
         Tip(page, page.close, L"原集合清退未结清时保持存活，可再次点击重试；确认clean后才允许启动下一轮草稿。");
         Tip(page, page.query, L"回读原集合及真实成员状态；后台会话首次创建失败时可在此重试。");
         Tip(page, page.identify, L"在集合的同一个后台会话读取PID创建时间，不附加、不暂停；已有创建时间草稿不被覆盖。");

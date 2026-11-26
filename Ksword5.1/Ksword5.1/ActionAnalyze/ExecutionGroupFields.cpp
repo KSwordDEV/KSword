@@ -295,6 +295,7 @@ namespace ks::action_analyze
             .field(QStringLiteral("集合 ID"), QString::fromStdString(snapshot.result.collectionId))
             .field(QStringLiteral("成员数量"), QString::number(sites.size()))
             .field(QStringLiteral("回读 FILETIME"), QString::number(snapshot.observedFileTime))
+            .field(QStringLiteral("命中联停策略"), snapshot.result.holdPeersOnHit ? QStringLiteral("是") : QStringLiteral("否"), true)
             .note(QStringLiteral("逐成员回读，不保证跨进程同时冻结。"));
         if (!snapshot.diagnostic.empty())
         {
@@ -377,6 +378,24 @@ namespace ks::action_analyze
                         .field(QStringLiteral("条件求值故障码"), QString::number(static_cast<int>(decision.evaluation.fault)))
                         .field(QStringLiteral("条件自动继续错误"), QString::number(decision.releaseError));
                 }
+            }
+        }
+        if (snapshot.result.peerHold)
+        {
+            const auto& hold = *snapshot.result.peerHold; // 联停回执独立于手动操作，不随后来成员选择改写关联源。
+            document.section(QStringLiteral("最近命中联停回执"))
+                .field(QStringLiteral("后端实例"), QString::fromStdString(hold.triggerOwner.backendInstanceId))
+                .field(QStringLiteral("采样 ID"), QString::fromStdString(hold.triggerOwner.sampleId))
+                .field(QStringLiteral("会话 ID"), QString::fromStdString(hold.triggerOwner.sessionId))
+                .field(QStringLiteral("事件序号"), QString::number(hold.triggerEvent.serial));
+            for (const auto& outcome : hold.outcomes)
+            {
+                document.section(QStringLiteral("成员操作回执"))
+                    .field(QStringLiteral("PID"), QString::number(outcome.pid))
+                    .field(QStringLiteral("创建 FILETIME"), QString::number(outcome.creationFileTime))
+                    .field(QStringLiteral("实际调用原会话"), outcome.actionAttempted ? QStringLiteral("是") : QStringLiteral("否"), true)
+                    .field(QStringLiteral("成员操作分类"), QString::fromLatin1(outcome.disposition));
+                AppendControl(document, outcome.control); // 接纳不等于已停止；完整回执用于查明部分拒绝。
             }
         }
         if (snapshot.result.operation)

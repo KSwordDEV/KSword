@@ -222,7 +222,21 @@ V Report(const n::ExecutionGroupResult& result, bool repl)
             {"stage", Text(result.operation->stage)}, {"win32Error", V::makeUInt(result.operation->win32Error)},
             {"outcomes", V::makeArray(std::move(outcomes))}});
     }
+    V peerHold = V::makeNull(); // 与手动operation分开，始终保留触发者和本次真实暂停请求。
+    if (result.peerHold)
+    {
+        JsonArray outcomes; // 原生接纳与当前成员是否已Held分别读取，不据回执推断同时停止。
+        for (const auto& outcome : result.peerHold->outcomes)
+        {
+            outcomes.push_back(V::makeObject({{"pid", V::makeUInt(outcome.pid)},
+                {"creationFileTime", Count(outcome.creationFileTime)}, {"actionAttempted", V::makeBool(outcome.actionAttempted)},
+                {"disposition", Text(outcome.disposition)}, {"control", ControlReport(outcome.control)}}));
+        }
+        peerHold = V::makeObject({{"triggerOwner", Owner(result.peerHold->triggerOwner)},
+            {"triggerEvent", Event(result.peerHold->triggerEvent)}, {"outcomes", V::makeArray(std::move(outcomes))}});
+    }
     return V::makeObject({{"collectionId", Text(result.collectionId)}, {"state", Text(State(result.state))}, {"clean", V::makeBool(result.clean)},
+        {"holdPeersOnHit", V::makeBool(result.holdPeersOnHit)}, {"peerHold", std::move(peerHold)},
         {"simultaneousFreeze", V::makeBool(false)}, {"observation", Text("sequential-member-readback")},
         {"members", V::makeArray(std::move(members))}, {"sessions", V::makeArray(std::move(sessions))}, {"operation", std::move(operation)}});
 }

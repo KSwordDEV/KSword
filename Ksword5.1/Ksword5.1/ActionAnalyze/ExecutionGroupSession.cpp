@@ -116,7 +116,8 @@ namespace ks::action_analyze
                                 // 先创建本轮采样，再给全部原成员同一真实sample；失败不附加任何目标。
                                 result = group->Start(std::move(request.sites), request.authorized,
                                     native::NativeTargetDisposition::ResumeAndDetach,
-                                    archive.View().sampleId.empty() ? request.sampleId : archive.View().sampleId);
+                                    archive.View().sampleId.empty() ? request.sampleId : archive.View().sampleId,
+                                    request.holdPeersOnHit); // 原Query执行联停，不新增后台任务或owner。
                             }
                             else
                             {

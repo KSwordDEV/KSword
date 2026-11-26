@@ -36,9 +36,9 @@ bool RangeNumber(std::string_view text, std::uint64_t& number)
 class ExecutionGroupSession final {
 public:
     ExecutionGroupSession(bool jsonl, n::OwnerIdentity identity, std::vector<n::ExecutionGroupSite> sites,
-        std::wstring projectDirectory, bool openExisting)
+        std::wstring projectDirectory, bool openExisting, bool holdPeersOnHit)
         : jsonl_(jsonl), identity_(std::move(identity)), sites_(std::move(sites)),
-          projectDirectory_(std::move(projectDirectory)), openExisting_(openExisting) {}
+          projectDirectory_(std::move(projectDirectory)), openExisting_(openExisting), holdPeersOnHit_(holdPeersOnHit) {}
 
     int Run()
     {
@@ -54,7 +54,8 @@ public:
             {
                 identity_.sampleId = archive_.View().sampleId; // 全体原成员沿用本轮真实新采样。
             }
-            const auto started = group_.Start(std::move(sites_), true, n::NativeTargetDisposition::ResumeAndDetach, identity_.sampleId);
+            const auto started = group_.Start(std::move(sites_), true, n::NativeTargetDisposition::ResumeAndDetach,
+                identity_.sampleId, holdPeersOnHit_); // 显式启动策略沿整个会话冻结，重放不重配。
             collectionId_ = started.collectionId; // 仅校验包络用，不因校验或请求重放触发条件Query。
             if (!Emit("hello", {}, V::makeObject({{"sampleId", Text(identity_.sampleId)}, {"control", Report(started)},
                 {"protocol", V::makeObject({{"maxMembers", V::makeUInt(n::kOwnedExecutionGroupLimit)},
@@ -535,6 +536,7 @@ private:
     Ksword::ActionAnalyze::ExecutionGroupArchive archive_; // 与原集合共用控制线程，clean后关闭。
     std::wstring projectDirectory_; // 启动时冻结的明确项目目录。
     bool openExisting_ = false; // 不从文件是否存在推断项目模式。
+    bool holdPeersOnHit_ = false; // 命中联停仅由启动参数授权，默认不影响原独立成员行为。
     std::string collectionId_; // 本活集合固定包络身份，不参与成员owner替换。
     bool cleanupOnly_ = false;
     std::uint64_t sequence_ = 0, highWater_ = 0;
@@ -554,7 +556,7 @@ int Run(const Args& args)
     if (args.has(L"--open-project") && !args.has(L"--project"))
         throw std::invalid_argument("--open-project requires --project PATH");
     return ExecutionGroupSession(input == L"jsonl", std::move(identity), std::move(sites),
-        args.get(L"--project"), args.has(L"--open-project")).Run();
+        args.get(L"--project"), args.has(L"--open-project"), args.has(L"--hold-peers-on-hit")).Run();
 }
 } // namespace
 
@@ -562,7 +564,7 @@ void RegisterExecutionGroupCommand()
 {
     Command command;
     command.path = L"analyze execution-group session";
-    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project]]";
+    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project]] [--hold-peers-on-hit]";
     command.summary = L"Attach one frozen execution site per explicit process instance, with independent native owners and conditions.";
     command.options = L"--sites is a UTF-8 JSON disk file without BOM, at most 128 KiB: {schemaVersion:1,sites:[...]}. "
         L"1-16 distinct PIDs; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
@@ -571,7 +573,11 @@ void RegisterExecutionGroupCommand()
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
         L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
-        L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
+        L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival. "
+        L"--hold-peers-on-hit freezes a per-session policy: after a new retained breakpoint, query requests Pause on each eligible running peer once. "
+        L"False conditions continue normally; unknown conditions remain held and trigger peer hold. Manual pauses and step stops do not trigger it. "
+        L"peerHold retains the trigger owner/event and per-member original receipts separately from operation; acceptance is not simultaneous freeze. "
+        L"Explicit selected Continue is respected: querying the same trigger does not pause peers again. Use Pause all to retry unavailable members.";
     command.notes = L"over-call steps over decoded CALLs at their return boundary and performs one TF step for supported non-CALL instructions, retaining the original requested mode and destination:null. "
         L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"members-append execution/N SITES_PATH confirm COLLECTION_ID; step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "

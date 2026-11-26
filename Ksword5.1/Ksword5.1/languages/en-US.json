@@ -8,6 +8,11 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "成员命中后暂停其他成员": "Pause other members when a member hits a breakpoint",
+    "开始时冻结。新断点经条件处理后仍持有时，逐成员请求暂停；未知条件保留，假条件继续。主动暂停与步进不触发；同一事件只请求一次。": "Frozen at start. If a new breakpoint remains held after condition evaluation, request each running peer to pause. Unknown conditions stay held; false conditions continue. Manual pauses and step stops do not trigger this. Each event triggers at most once.",
+    "命中联停策略": "Pause peers on breakpoint",
+    "最近命中联停回执": "Latest peer pause receipt",
+    "后端实例": "Backend instance",
     "我明确授权控制列表及本次追加的进程实例": "I explicitly authorize control of the listed process instances and the instances added by this request",
     "追加表单目标到本轮集合": "Add form target to current group",
     "冻结当前表单中的新进程实例与条件，沿同一采样追加成员；保留已有停点，不替换原成员。最多 16 个不同 PID。": "Freeze the new process instance and condition from this form, then add it to the same sample. Preserve existing stops and members. Maximum 16 distinct PIDs.",

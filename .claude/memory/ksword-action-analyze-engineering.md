@@ -2,7 +2,11 @@
 
 ## 持续推进与交接
 
-- **2026-11-26 新授权最多3项测试。** 用户原话「我再批3个测试的额度，可继续调用codebuddy。」计划按条件解析、历史线程恢复失败、集合追加成员各一项，限制focused场景，禁止整批重跑、GUI或额外子派发。主代理仍负责功能源码；所有测试改动、执行、结果落盘归CodeBuddy。已用2/3：条件文本字段最多8组（sh_21812235f001qocCy95j8uXwn2）、历史线程恢复最多2场景（sh_21813eecb001fKXDq9hTcc2QML）已直接派出；剩余1项在集合追加源码提交后派发。只允许第三项构建完整CLI一次，前两项编译独立小夹具，固定IntDir/统一Release。自动等回执，不轮询、不擅自续接。最新goal重激活不撤销本次数量边界。
+- **2026-11-26 新3项测试额度已用完。** 第3项为635626206活集合追加的正式CLI本机focused验收，最多6组，只它构建完整CLI一次并做本次文本i18n门禁。前两项为条件文本比较和历史线程恢复。三个任务通过CodeBuddy skill直接派发，禁止新增派发/续接/外部重试，自动等回执。所有测试及记录由执行者落盘，主代理继续写功能；不得凭派发成功标运行通过。
+
+- **2026-11-26 新授权最多3项测试。** 用户原话「我再批3个测试的额度，可继续调用codebuddy。」条件文本字段最多8组（sh_21812235f001qocCy95j8uXwn2）、历史线程恢复最多2场景（sh_21813eecb001fKXDq9hTcc2QML）、635626206集合追加正式CLI最多6组（sh_21816cae30014PdK8OQBHgJUIE）均已派出，已用3/3。只允许第三项构建完整CLI一次，前两项编译独立小夹具，固定IntDir/统一Release。禁止整批重跑、GUI、额外子派发、轮询和擅自续接；最新goal重激活不撤销本次数量边界。主代理仍写功能，测试及记录由CodeBuddy独立落盘。
+
+- **2026-11-26 第6项显式命中联停源码。** OwnedExecutionGroup::Start新增默认false的holdPeersOnHit；正常Query先沿原session求条件，再对新保留断点向可暂停运行成员逐项Pause，未知条件保留、假条件继续。逐成员NativeEventKey去重，手动暂停/步进不触发，同一旧事件不撤销用户显式子集Continue。QueryWithoutCondition仍不产生联停副作用；peerHold独立保留触发owner/event和原始逐项暂停回执，不覆盖最近显式operation，后续Held仍看真实成员状态。CLI接--hold-peers-on-hit及帮助，Qt/Light原参数正文接同名开关、Start冻结、活集合禁改、原worker处理，字段详情复用原文档/文本。导航仍为监控→行为分析→执行断点集合，参数执行+None管理表+同源详情，参考DataWriteWatchPage/ProcessGroupMemoryPane与ParameterWorkspace/StructuredFieldView；无新后台任务、轮询、布局框架、驱动协议或源码文件。双语定点同步；仅源码，主代理未构建/测试/GUI/写验收回执，不推送，不增加第4项测试。
 
 - **2026-11-26 第4/6项运行中追加实例源码。** OwnedExecutionGroup::AppendMembers按显式授权+原collectionId接收新站点，总计16个不同PID；先统一校验和分配，逐新成员独立Attach，原成员仅QueryWithoutCondition、不Continue/重建。Start无项目也只生成一个sample，后续沿用。ExecutionGroupArchive使用原sample冻结定义解析，追加失败独立memberSetupError，保留旧setup/writer。CLI新增members-append/control.members.append及原execution/N重放；Qt/Light原worker与固定动作栏接当前完整表单，Qt模型末尾insert不reset。导航为监控→行为分析→执行断点集合，参数执行+None管理清单+共享字段详情，复用ParameterWorkspace/FlowLayout/原生适配；对照DataWriteWatchPage与ProcessGroupMemoryPane及其共享实现。没有新增轮询、驱动协议、页面或源码文件；双语及CLI帮助文档同步。主代理未执行构建/测试/GUI，运行交第三项CodeBuddy，尚未通过；不自动后代或全系统激活。
 

@@ -120,6 +120,10 @@ namespace ks::action_analyze
         m_authorized = new QCheckBox(workspace); // 授权在Start请求时冻结，不随后续UI变化重配。
         language.bindText(m_authorized, {}, QStringLiteral("我明确授权控制列表及本次追加的进程实例"));
         workspace->parameters()->addWidget(m_authorized);
+        m_holdPeersOnHit = new QCheckBox(workspace); // 独立策略位放在原参数滚动区，沿标准主题和自然高度。
+        language.bindText(m_holdPeersOnHit, {}, QStringLiteral("成员命中后暂停其他成员"));
+        language.bindToolTip(m_holdPeersOnHit, {}, QStringLiteral("开始时冻结。新断点经条件处理后仍持有时，逐成员请求暂停；未知条件保留，假条件继续。主动暂停与步进不触发；同一事件只请求一次。"));
+        workspace->parameters()->addWidget(m_holdPeersOnHit);
         m_rangeTarget = new QLabel(workspace); // 目标随明确单选展示，编辑范围不改变原成员或站点草稿。
         m_rangeTarget->setTextFormat(Qt::PlainText);
         m_rangeTarget->setWordWrap(true);
