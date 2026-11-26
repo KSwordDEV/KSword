@@ -1,0 +1,198 @@
+#include "ExecutionGroupPageState.h"
+#include "../../Ui/ExportUtil.h"
+#include "../../../shared/evidence/NumericTextParse.h"
+#include <algorithm>
+#include <cwchar>
+#include <limits>
+
+namespace Ksword::Features::ActionAnalyze::execution_group_page {
+namespace {
+bool Number(HWND control, std::uint64_t& value, int radix, bool optional = false)
+{
+    auto text = InputText(control);
+    if (text.empty()) { value = 0; return optional; }
+    std::string ascii;
+    for (const auto ch : text) {
+        if (ch > 127) return false;
+        ascii.push_back(static_cast<char>(ch));
+    }
+    auto input = ksword::evidence::NumericTextTrim(ascii);
+    if (radix == 16 && input.size() > 2 && input[0] == '0' && (input[1] == 'x' || input[1] == 'X')) input.remove_prefix(2);
+    return ksword::evidence::NumericTextParseDigits(input, radix, value);
+}
+
+bool Site(Page& page, execution_native::ExecutionGroupSite& site)
+{
+    std::uint64_t pid = 0, rva = 0;
+    if (!Number(page.inputs[Pid], pid, 10) || !pid || pid > UINT32_MAX ||
+        !Number(page.inputs[Creation], site.creationFileTime, 10) || !site.creationFileTime) {
+        page.error = L"PID及创建FILETIME必须是非零十进制数；可先读取PID身份。";
+        return false;
+    }
+    site.pid = static_cast<std::uint32_t>(pid);
+    site.modulePath = InputText(page.inputs[Module]);
+    const auto exportName = InputText(page.inputs[Export]);
+    if (!exportName.empty()) {
+        const int bytes = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, exportName.data(),
+            static_cast<int>(exportName.size()), nullptr, 0, nullptr, nullptr);
+        if (!bytes || bytes > 4096) { page.error = L"导出名不是有效的UTF-8文本或超过4096字节。"; return false; }
+        site.exactExport.resize(bytes);
+        ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, exportName.data(), static_cast<int>(exportName.size()),
+            site.exactExport.data(), bytes, nullptr, nullptr);
+    }
+    const bool hasRva = !InputText(page.inputs[Rva]).empty();
+    if (hasRva) {
+        if (!Number(page.inputs[Rva], rva, 16) || !rva || rva > UINT32_MAX) {
+            page.error = L"RVA必须是非零32位十六进制数，并由操作者确认是指令边界。";
+            return false;
+        }
+        site.rva = static_cast<std::uint32_t>(rva);
+    }
+    const bool hasAddress = !InputText(page.inputs[Address]).empty();
+    if (!Number(page.inputs[Address], site.address, 16, true) || (hasAddress && !site.address) ||
+        !Number(page.inputs[Range], site.rangeBytes, 10, true)) {
+        page.error = L"私有地址按十六进制、范围字节数按十进制填写；私有地址不得为0。";
+        return false;
+    }
+    if (site.address) {
+        if (!site.modulePath.empty() || hasRva || !exportName.empty() ||
+            (site.rangeBytes && (site.address % 4096 || site.rangeBytes % 4096 ||
+                site.rangeBytes > 64ull * 4096 || site.address > UINT64_MAX - site.rangeBytes))) {
+            page.error = L"私有站点不能同时填写模块。范围非零时起点及长度须4KiB对齐，最大256KiB且不能溢出。";
+            return false;
+        }
+    } else {
+        const auto& path = site.modulePath;
+        if (site.rangeBytes || path.size() <= 3 || path.size() > 32767 ||
+            !((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')) ||
+            path[1] != L':' || path[2] != L'\\' || path.find_first_of(L"\"\r\n") != std::wstring::npos ||
+            hasRva == !site.exactExport.empty()) {
+            page.error = L"模块站点需填写绝对DOS路径及RVA或精确导出名之一；不能填写私有范围。";
+            return false;
+        }
+    }
+    site.conditionSource = InputText(page.inputs[Condition]);
+    const auto prepared = execution_native::PrepareDataWatchCondition(site.conditionSource);
+    if (prepared.diagnostic) {
+        page.error = L"条件未通过编译：" + Widen(prepared.diagnostic);
+        return false;
+    }
+    site.condition = prepared.predicate;
+    return true;
+}
+
+void LoadDraft(Page& page)
+{
+    const auto index = ::SendMessageW(page.draft, CB_GETCURSEL, 0, 0);
+    if (index < 0 || static_cast<std::size_t>(index) >= page.sites.size()) return;
+    const auto& site = page.sites[static_cast<std::size_t>(index)];
+    const auto hex = [](std::uint64_t value) {
+        wchar_t buffer[24]{};
+        swprintf_s(buffer, L"0x%llX", static_cast<unsigned long long>(value));
+        return std::wstring(buffer);
+    };
+    const std::array<std::wstring, FieldCount> values{std::to_wstring(site.pid), std::to_wstring(site.creationFileTime),
+        site.modulePath, site.rva ? hex(*site.rva) : L"", Widen(site.exactExport), site.address ? hex(site.address) : L"",
+        site.rangeBytes ? std::to_wstring(site.rangeBytes) : L"", site.conditionSource};
+    for (std::size_t i = 0; i < FieldCount; ++i) ::SetWindowTextW(page.inputs[i], values[i].c_str());
+    // 载入只改变编辑草稿；旧集合来源和成员选择保持不变。
+}
+}
+
+void RefreshDraft(Page& page)
+{
+    const auto previous = ::SendMessageW(page.draft, CB_GETCURSEL, 0, 0);
+    ::SendMessageW(page.draft, CB_RESETCONTENT, 0, 0);
+    for (const auto& site : page.sites) {
+        const auto title = std::to_wstring(site.pid) + L" / " + std::to_wstring(site.creationFileTime) + L" / " + SiteText(site);
+        ::SendMessageW(page.draft, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
+    }
+    if (!page.sites.empty()) ::SendMessageW(page.draft, CB_SETCURSEL,
+        previous < 0 ? 0 : (std::min)(static_cast<std::size_t>(previous), page.sites.size() - 1), 0);
+}
+
+void Command(Page& page, int id)
+{
+    page.error.clear();
+    if (id == kAdd) {
+        execution_native::ExecutionGroupSite site;
+        if (page.sites.size() >= execution_native::kOwnedExecutionGroupLimit) page.error = L"草稿最多16个进程站点。";
+        else if (Site(page, site)) {
+            if (std::any_of(page.sites.begin(), page.sites.end(), [&](const auto& prior) { return prior.pid == site.pid; }))
+                page.error = L"每个PID只能登记一个站点；请先移除原草稿项。";
+            else { page.sites.push_back(std::move(site)); RefreshDraft(page); }
+        }
+    } else if (id == kRemove) {
+        const auto index = ::SendMessageW(page.draft, CB_GETCURSEL, 0, 0);
+        if (index >= 0 && static_cast<std::size_t>(index) < page.sites.size()) {
+            page.sites.erase(page.sites.begin() + index);
+            RefreshDraft(page);
+        }
+    } else if (id == kLoadDraft) {
+        LoadDraft(page);
+    } else if (id == kClose) {
+        page.session.Close();
+    } else if (id == kCopy) {
+        const auto document = page.document;
+        if (!Ui::CopyTextToClipboard(page.hwnd, document, L"执行集合正文")) page.error = L"正文复制失败。";
+    } else if (id == kExportText) {
+        std::wstring error;
+        const auto document = page.document; // 文件选择器可泵送计时消息，导出必须保留点击时的同一正文。
+        const auto result = Ui::SaveUtf8TextFileWithDialog(page.hwnd, L"execution-group.txt", L"导出执行集合正文",
+            L"文本文件 (*.txt)\0*.txt\0", L"txt", document, &error);
+        if (result == Ui::SaveTextFileResult::Failed) page.error = L"正文导出失败：" + error;
+    } else if (id == kQuery && !page.shown.active) {
+        const auto error = page.session.StartWorker();
+        if (error) page.error = L"执行集合后台会话未启动，Win32=" + std::to_wstring(error);
+    } else {
+        LightExecutionGroupRequest request;
+        bool submit = true;
+        if (id == kStart) {
+            request.command = LightExecutionGroupCommand::Start;
+            request.sites = page.sites; // 冻结全部身份、站点、原条件及编译谓词。
+            request.authorized = ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            if (request.sites.empty() || !request.authorized) {
+                page.error = L"请加入1–16个站点并明确授权整个集合。";
+                submit = false;
+            }
+        } else if (id == kIdentify) {
+            std::uint64_t pid = 0;
+            request.command = LightExecutionGroupCommand::Identify;
+            if (!Number(page.inputs[Pid], pid, 10) || !pid || pid > UINT32_MAX) {
+                page.error = L"请填写有效的十进制PID。";
+                submit = false;
+            } else request.identityPid = static_cast<std::uint32_t>(pid);
+        } else if (id == kQuery) {
+            request.command = LightExecutionGroupCommand::Query;
+        } else {
+            const auto rows = SelectedRows(page);
+            request.all = id == kContinueAll || id == kPauseAll;
+            const bool groupAction = id == kPauseAll || id == kPauseSelected || id == kContinueAll || id == kContinueSelected;
+            const auto freeze = [&](const execution_native::ExecutionGroupMember& member) {
+                if (groupAction) request.sessions.push_back({member.owner, member.control});
+                else request.stops.push_back(member.control); // 步进仍只使用选中原成员的完整停点。
+            };
+            if (request.all) {
+                // 固定全集原样提交，包含已达目标及失败成员；由原group整批核对和决定实际动作。
+                for (const auto& member : page.shown.result.members) freeze(member);
+            } else {
+                for (const auto row : rows) freeze(page.shown.result.members[static_cast<std::size_t>(row)]);
+            }
+            if (groupAction ? request.sessions.empty() : request.stops.empty()) {
+                page.error = L"没有可操作的成员，请选择当前集合成员。";
+                submit = false;
+            }
+            if (id == kPauseAll || id == kPauseSelected) request.command = LightExecutionGroupCommand::Pause;
+            else if (id == kContinueAll || id == kContinueSelected) request.command = LightExecutionGroupCommand::Continue;
+            else {
+                if (request.stops.size() != 1) { page.error = L"步进和中止步进必须只选一个原成员。"; submit = false; }
+                request.command = id == kCancelStep ? LightExecutionGroupCommand::CancelStep : LightExecutionGroupCommand::Step;
+                request.stepMode = id == kStepOut ? execution_native::NativeStepMode::Out :
+                    id == kStepOver ? execution_native::NativeStepMode::OverCall : execution_native::NativeStepMode::Into;
+            }
+        }
+        if (submit && !page.session.Submit(std::move(request))) page.error = L"会话忙、正在清退或尚未完成上次清退；草稿和原结果已保留。";
+    }
+    Refresh(page);
+}
+}
