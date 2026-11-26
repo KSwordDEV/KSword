@@ -81,6 +81,8 @@
 
 `NativeStopRegisters` 在实际命中／步进停止时一次采集 AMD64 的全部通用寄存器、RIP 和 EFlags；`NativeStopRegisterFields` 为三端详情及条件的唯一目录。`NativeStopCondition` 按调用者原阶段生成有序字段绑定，投影时核对实际事件线程，不对运行线程补读。新增字段使用 `stop.thread.<小写寄存器名>`，均为 u64；EFlags 零扩展。Query 不重新采集，主动暂停仍不形成寄存器或执行证据。本批仅源码接线，构建与运行待验。
 
+已保存RVA定义的可选 `imageSha256` 沿冻结sample传入 `AttachImageExecution`／`NativeBreakpointRequest`。`NativeBreakpointImageIdentity` 保留原调试装载事件文件，用实际模块基址选择，再通过原文件对象的独立读句柄流式计算SHA256，全部相符后才安装DR0。不会重开同名路径替代原装载文件；不能取得事件文件或散列不符则拒绝并由原owner清退。绑定只发布实测成功值，不认证目标映像页的运行时内容。三端接线及工程登记已补，尚未构建／运行；PDB定位仍未实现。
+
 读取复用 `SelectedMemorySnapshot`，成功页保留实际字节，失败页保留原错误，不填零。结果中的 `completeRange` 只描述范围字节；`heldAtBothChecks` 独立描述前后两次精确停点核对，不能声称其它进程的外部写入者也已冻结。`WriteProcessGroupMemorySnapshot` 把读取模式及两个停点随字节写入独立 `raw-memory` 段。
 
 `OwnedDataWatchSession::Start` 可接受项目已登记的 `sampleId`；省略时沿用独立采样身份。绑定必须在启动前确定，保存不能事后将旧结果改写为另一采样。`CaptureMemory` 复用原 owner 及上述读取路径，`SaveExecution` 则从原 owner 重新查询精确当前事件后调用 `WriteNativeExecution`。两者都不执行写入条件的自动继续；普通写入停点不会因保存操作生成执行事实。执行观测保存到独立 `raw-native`，历史读取不构造活继续请求。

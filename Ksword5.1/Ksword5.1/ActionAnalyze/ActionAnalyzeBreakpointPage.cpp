@@ -487,7 +487,7 @@ void ActionAnalyzeBreakpointPage::prepareLiveSelection()
 {
     const auto rows = m_table->selectionModel()->selectedRows(); // 不使用仍未提交的表单输入。
     const auto* selected = rows.size() == 1 ? m_drafts->draftAt(rows.front().row()) : nullptr;
-    if (!selected || m_saving || !m_livePreparation || selected->module.imageSha256 || !selected->enabled ||
+    if (!selected || m_saving || !m_livePreparation || !selected->enabled ||
         selected->breakpointDefinitionId.empty() ||
         std::find(m_project.definitions.begin(), m_project.definitions.end(), *selected) == m_project.definitions.end())
     {
@@ -786,11 +786,11 @@ void ActionAnalyzeBreakpointPage::updateControls()
     const auto* liveDefinition = selected ? m_drafts->draftAt(selection.front().row()) : nullptr;
     const auto* liveRva = liveDefinition ? std::get_if<BreakpointRva>(&liveDefinition->location) : nullptr;
     m_prepareLive->setEnabled(!m_saving && m_livePreparation && liveRva && liveRva->rva &&
-        !liveDefinition->module.imageSha256 && liveDefinition->enabled && !liveDefinition->breakpointDefinitionId.empty() &&
+        liveDefinition->enabled && !liveDefinition->breakpointDefinitionId.empty() &&
         std::find(m_project.definitions.begin(), m_project.definitions.end(), *liveDefinition) != m_project.definitions.end());
     m_prepareLive->setToolTip(m_prepareLive->isEnabled()
-        ? sourceText(QStringLiteral("选择同名模块后带入实时控制页，再填写目标实例并显式附加。"))
-        : sourceText(QStringLiteral("请选择已保存并启用的非零RVA定义。调试符号及固定映像散列定义尚不支持此入口。")));
+        ? sourceText(QStringLiteral("选择同名模块后带入实时控制页；固定映像散列由原生附加核对实际装载文件，再武装断点。"))
+        : sourceText(QStringLiteral("请选择已保存并启用的非零RVA定义。调试符号尚不支持此入口。")));
     m_edit->setToolTip(selected ? m_edit->accessibleName() : sourceText(QStringLiteral("请先选择一条草稿。")));
     m_remove->setToolTip(selected ? m_remove->accessibleName() : sourceText(QStringLiteral("请先选择一条草稿。")));
 

@@ -715,7 +715,7 @@ namespace
                     {
                         result = imageAttachment
                             ? owner->session.AttachImageExecution(privateTarget.pid, privateTarget.creation, path,
-                                imageRva, imageRva ? std::string{} : symbol, condition, owner->memory.SampleId())
+                                imageRva, imageRva ? std::string{} : symbol, condition, owner->memory.SampleId(), owner->memory.ImageSha256())
                             : privateTarget.pid
                             ? owner->session.AttachPrivateAddress(privateTarget.pid, privateTarget.creation,
                                 privateTarget.address, width, condition, owner->memory.SampleId(), privateTarget.rangeBytes)
@@ -1131,6 +1131,10 @@ namespace
             {
                 document.field(QStringLiteral("模块基址"), QStringLiteral("0x%1").arg(binding->moduleBase, 0, 16))
                     .field(QStringLiteral("模块 RVA"), QStringLiteral("0x%1").arg(binding->rva, 0, 16));
+                if (binding->imageSha256)
+                {
+                    document.field(QStringLiteral("已核验装载文件 SHA-256"), QString::fromStdString(*binding->imageSha256));
+                }
             }
             if (binding->rangeBytes)
             {

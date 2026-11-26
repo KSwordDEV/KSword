@@ -355,7 +355,7 @@ NativeControlResult OwnedDataWatchSession::StartBound(const std::wstring& reques
 // 输入已有实例和模块内位置，提交原owner的执行DR0绑定；不启动目标，不创建合作Gate。
 NativeControlResult OwnedDataWatchSession::AttachImageExecution(std::uint32_t pid, std::uint64_t creationFileTime,
     const std::wstring& modulePath, std::optional<std::uint32_t> rva, const std::string& exportName,
-    rules::PreparedPredicate condition, std::string_view sampleId)
+    rules::PreparedPredicate condition, std::string_view sampleId, std::optional<std::string> imageSha256)
 {
     if (owner_ || aborted_ || closing_)
     {
@@ -383,6 +383,7 @@ NativeControlResult OwnedDataWatchSession::AttachImageExecution(std::uint32_t pi
     request.target.explicitlyAuthorized = true;
     request.target.disposition = NativeTargetDisposition::ResumeAndDetach;
     request.explicitImageAttachment = true;
+    request.imageSha256 = std::move(imageSha256); // 保留原sample约束，不在桌面端按同名路径伪造核验结果。
     request.modulePath = modulePath;
     std::replace(request.modulePath.begin(), request.modulePath.end(), L'/', L'\\');
     request.rva = rva;

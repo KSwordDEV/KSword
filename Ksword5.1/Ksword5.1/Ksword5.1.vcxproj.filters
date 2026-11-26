@@ -917,6 +917,7 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\usermode\backend\Common.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -2969,6 +2970,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h"><Filter>Header Files</Filter></ClInclude>

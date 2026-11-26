@@ -127,6 +127,7 @@
     <ClCompile Include="ActionAnalyze\Control\NativeWriteExecutionTransition.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\OwnedBreakpointGroup.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImageIdentity.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\NativeExecutionEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\CooperativeBreakpointGate.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\StopLedger.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -193,6 +194,7 @@
     <ClInclude Include="ActionAnalyze\Control\NativeWriteExecutionTransition.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\OwnedBreakpointGroup.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImage.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImageIdentity.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeExecutionEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\CooperativeBreakpointGate.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\StopLedger.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

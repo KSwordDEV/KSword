@@ -80,7 +80,8 @@ public:
     // 调用方冻结PID/创建时间、绝对模块路径与条件，结果仍由同一个NativeDebugOwner回读。
     [[nodiscard]] NativeControlResult AttachImageExecution(std::uint32_t pid, std::uint64_t creationFileTime,
         const std::wstring& modulePath, std::optional<std::uint32_t> rva, const std::string& exportName,
-        Ksword::ActionAnalyze::Rules::PreparedPredicate condition = {}, std::string_view sampleId = {});
+        Ksword::ActionAnalyze::Rules::PreparedPredicate condition = {}, std::string_view sampleId = {},
+        std::optional<std::string> imageSha256 = std::nullopt); // 约束由原owner验证实际装载文件后才武装。
     // 回读原生状态。结果按值跨线程传递，诊断字符串具有静态存储期。
     [[nodiscard]] NativeControlResult Query();
     // 为同采样API等只读准入回读原owner；不应用条件、打开合作Gate或提交自动Continue。

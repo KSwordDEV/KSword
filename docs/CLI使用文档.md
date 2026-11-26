@@ -262,7 +262,7 @@ KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME 
 
 `--attach-image` 用于已有进程的普通模块执行断点：提供绝对 `--module` 路径，以及二选一的 `--export` 精确PE导出或非零 `--rva`。该模式核验实际实例和已加载映像位置，不创建目标或合作Gate，不修改页保护，不能与私有地址、NX范围或写关注混用。命中后沿原owner执行条件、继续、步进、内存及执行归档，`targetMode=attached-image-execution`；没有PDB符号解析。Qt／Light写入停点页的“已有模块导出执行关注／已有模块RVA执行关注”使用同一路径。
 
-已保存定义可使用 `--attach-image --module PATH --definition UUID --project PATH`，与 `--rva`、`--export` 互斥。定义来自本轮真实采样的冻结配置，须已启用、使用非零 RVA，且模块文件名匹配；当前不接调试符号或固定映像散列定义。`hello.executionArchive.breakpointDefinitionId` 保留实际定义来源。读取旧项目定义只准备新活会话，不导入历史停止令牌。
+已保存定义可使用 `--attach-image --module PATH --definition UUID --project PATH`，与 `--rva`、`--export` 互斥。定义来自本轮真实采样的冻结配置，须已启用、使用非零 RVA，且模块文件名匹配。可选 `imageSha256` 传给原生owner，在DR0武装前核对实际解析模块基址对应的 `CREATE_PROCESS`／`LOAD_DLL` 调试事件文件；缺文件、不能完整读取或散列不符均拒绝。新回执 `control.breakpoint.imageSha256` 是实测文件散列，不能据此证明目标映像内存页未被改写。当前仍不接PDB调试符号。`hello.executionArchive.breakpointDefinitionId` 保留实际定义来源。Qt与Light同样从原sample解析约束，并显示实测散列；读取旧项目定义只准备新活会话，不导入历史停止令牌。固定映像散列新增接线尚未构建或实测。
 
 已经武装且正在运行的单目标会话支持 `pause PID CREATION_FILETIME`；JSONL 使用 `control.pause`，带当前 `session`、独立连续 `pause/1` 起的 `requestId` 和 `params:{"targetPid":123,"targetCreationFileTime":"..."}`，不带 `expected`。沿同一个原生 owner 请求中断，不创建第二个调试附加。接受请求只表示等待事件；`armedPause.state` 区分 `pending`、`held`、`preempted`、拒绝和恢复失败。`pause-status pause/N` 或 `control.pause.query` 的 `params:{"requestId":"pause/N"}` 查询原暂停回执。该查询使用普通查询ID，不占 `pause/` 空间。
 

@@ -700,6 +700,11 @@ void Refresh(Page& page) {
             text += L"\r\n实际模块基址：" + std::wstring(address);
             swprintf_s(address, L"0x%08X", static_cast<unsigned int>(binding.rva));
             text += L"\r\n实际模块RVA：" + std::wstring(address);
+            if (binding.imageSha256)
+            {
+                // 只展示原owner实际事件文件实测值，不把冻结定义中的请求散列当作核验通过。
+                text += L"\r\n已核验装载文件SHA-256：" + std::wstring(binding.imageSha256->begin(), binding.imageSha256->end());
+            }
         }
         text += binding.rangeBytes ? L"\r\nNX初始范围：" + std::to_wstring(binding.rangeBytes) + L" B / " + std::to_wstring(binding.rangeBytes / 4096) + L"页" :
             binding.writeWatchBytes == 0 ? L"\r\n当前实际关注：执行入口（无写入宽度）" :

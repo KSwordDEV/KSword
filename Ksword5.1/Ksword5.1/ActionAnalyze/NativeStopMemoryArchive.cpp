@@ -8,6 +8,7 @@ namespace ks::action_analyze
     // 目录方式由用户在启动时冻结，打开已有项目也总是创建独立新采样。
     bool NativeStopMemoryArchive::PrepareProject(const std::wstring& directory, bool openExisting)
     {
+        m_imageSha256.reset(); // 新一轮项目准备不沿用前一轮已核验定义的约束。
         if (directory.empty())
         {
             if (openExisting)
@@ -49,17 +50,23 @@ namespace ks::action_analyze
     bool NativeStopMemoryArchive::ValidateImageDefinition(std::string_view definitionId,
         const std::wstring& modulePath, std::uint32_t rva)
     {
+        m_imageSha256.reset(); // 每次启动重新从sample读取，不让手工站点沿用旧定义约束。
         if (definitionId.empty())
         {
             return true; // 手工位置不声明来自已保存的项目定义。
         }
         std::uint32_t resolved = 0; // 由当前sample冻结配置解析出的唯一RVA。
+        std::optional<std::string> imageSha256; // 全部定义/RVA核对完成后才发布给原native。
         m_view.projectResult = m_project
-            ? Ksword::ActionAnalyze::ResolveSampleImageDefinition(*m_project, m_view.sampleId, definitionId, modulePath, resolved)
+            ? Ksword::ActionAnalyze::ResolveSampleImageDefinition(*m_project, m_view.sampleId, definitionId, modulePath, resolved, &imageSha256)
             : Ksword::ActionAnalyze::ProjectResult{Ksword::ActionAnalyze::ProjectError::NotOpen, 0, "sampleBreakpointProjectRequired"};
         if (m_view.projectResult && resolved != rva)
         {
             m_view.projectResult = {Ksword::ActionAnalyze::ProjectError::InvalidArgument, 0, "sampleBreakpointRvaMismatch"};
+        }
+        if (m_view.projectResult)
+        {
+            m_imageSha256 = std::move(imageSha256);
         }
         return static_cast<bool>(m_view.projectResult);
     }

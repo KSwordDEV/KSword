@@ -466,6 +466,7 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.cpp" />
     <ClCompile Include="..\..\shared\usermode\backend\Common.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.cpp" />
@@ -1100,6 +1101,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\OwnedProcessGroup.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\NativeDebugOwner.h" />

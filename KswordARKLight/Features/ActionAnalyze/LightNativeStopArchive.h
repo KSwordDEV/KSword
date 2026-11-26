@@ -5,6 +5,8 @@
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectNativeExecution.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/NativeBoundApiCapture.h"
 #include "LightPrivateExecutionCandidatesFields.h"
+#include <optional>
+#include <string>
 #include <unordered_map>
 
 namespace Ksword::Features::ActionAnalyze {
@@ -27,6 +29,8 @@ public:
     // 在本轮真实sample冻结配置核验定义；成功才允许原owner附加，手工无ID时直接通过。
     bool ValidateImageDefinition(std::string_view definitionId, std::string_view definitionProjectId,
         const std::wstring& modulePath, std::optional<std::uint32_t> draftRva);
+    // 同一worker读取本轮sample核验成功后冻结的可选散列；只传给原生映像准入，不在UI计算。
+    const std::optional<std::string>& ImageSha256() const;
     // 返回Start实际使用的sample；不得在采集后修改旧Plan来源。
     const std::string& SampleId() const;
     // 原session确认clean后由同一worker调用；释放项目租约，保留冻结回执供查看。
@@ -55,6 +59,7 @@ public:
 
 private:
     std::optional<project::ProjectDocument> project_; // 本worker独占的项目写租约。
+    std::optional<std::string> imageSha256_; // 仅属于最近成功核验的sample定义，手工位置不沿用旧值。
     std::shared_ptr<const project::NativeBoundApiResult> api_; // API与内存/执行归档分开保存结果。
     std::shared_ptr<const LightPrivateExecutionCandidatesView> candidates_;
     LightProcessGroupMemoryProjectView view_; // 内存流身份与坏尾回执。

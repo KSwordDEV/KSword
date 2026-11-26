@@ -6,6 +6,7 @@ namespace Ksword::Features::ActionAnalyze {
 
 bool LightNativeStopArchive::Prepare(const std::wstring& directory, bool openExisting)
 {
+    imageSha256_.reset(); // 新一轮sample不得继承上次定义的映像约束。
     if (directory.empty()) {
         if (openExisting) {
             view_.projectResult = {project::ProjectError::InvalidArgument, 0, "lightNativeExistingProjectRequired"};
@@ -44,6 +45,7 @@ const std::string& LightNativeStopArchive::SampleId() const
 bool LightNativeStopArchive::ValidateImageDefinition(std::string_view definitionId, std::string_view definitionProjectId,
     const std::wstring& modulePath, std::optional<std::uint32_t> draftRva)
 {
+    imageSha256_.reset(); // 手工定义和核验失败都不得留下此前成功定义的散列。
     if (definitionId.empty()) {
         return true; // 手工输入模块位置不借用历史定义权限。
     }
@@ -54,14 +56,25 @@ bool LightNativeStopArchive::ValidateImageDefinition(std::string_view definition
     }
     try {
         std::uint32_t frozenRva = 0; // 仅采用本轮sample的共享解析结果，不以UI旧值代替。
-        view_.projectResult = project::ResolveSampleImageDefinition(*project_, SampleId(), definitionId, modulePath, frozenRva);
+        std::optional<std::string> frozenImageSha256;
+        view_.projectResult = project::ResolveSampleImageDefinition(*project_, SampleId(), definitionId,
+            modulePath, frozenRva, &frozenImageSha256);
         if (view_.projectResult && frozenRva != *draftRva) {
             view_.projectResult = {project::ProjectError::StaleRevision, 0, "lightNativeSampleDefinitionRva"};
+        }
+        if (view_.projectResult)
+        {
+            imageSha256_ = std::move(frozenImageSha256); // 项目身份、冻结定义和RVA全部通过后才发布。
         }
     } catch (...) {
         view_.projectResult = {project::ProjectError::IoError, 0, "lightNativeSampleDefinitionException"};
     }
     return static_cast<bool>(view_.projectResult);
+}
+
+const std::optional<std::string>& LightNativeStopArchive::ImageSha256() const
+{
+    return imageSha256_;
 }
 
 std::string LightNativeStopArchive::ProjectId() const {

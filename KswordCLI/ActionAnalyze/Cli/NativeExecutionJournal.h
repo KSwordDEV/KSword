@@ -24,7 +24,7 @@ public:
     JsonValue Describe() const;
     // 输入原采样冻结定义ID及所选绝对模块，输出匹配的非零RVA；不使用项目后来修订或历史停止票据。
     Ksword::ActionAnalyze::ProjectResult ResolveImageDefinition(std::string_view definitionId,
-        const std::wstring& modulePath, std::uint32_t& rva);
+        const std::wstring& modulePath, std::uint32_t& rva, std::optional<std::string>& imageSha256);
     NativeExecutionSaveReply Save(const Request& request, bool jsonl,
         const control::OwnerIdentity& identity, control::NativeDebugOwner& owner);
     NativeStopMemoryReply CaptureMemory(const Request& request, bool jsonl,

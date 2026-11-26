@@ -239,6 +239,7 @@
     <ClCompile Include="ActionAnalyze\Control\NativeWriteExecutionTransition.cpp" />
     <ClCompile Include="ActionAnalyze\Control\OwnedBreakpointGroup.cpp" />
     <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImage.cpp" />
+    <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImageIdentity.cpp" />
     <ClCompile Include="ActionAnalyze\Control\NativeExecutionEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Control\CooperativeBreakpointGate.cpp" />
     <ClCompile Include="ActionAnalyze\Control\StopLedger.cpp" />
@@ -305,6 +306,7 @@
     <ClInclude Include="ActionAnalyze\Control\NativeWriteExecutionTransition.h" />
     <ClInclude Include="ActionAnalyze\Control\OwnedBreakpointGroup.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImage.h" />
+    <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImageIdentity.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeExecutionEvidence.h" />
     <ClInclude Include="ActionAnalyze\Control\CooperativeBreakpointGate.h" />
     <ClInclude Include="ActionAnalyze\Control\StopLedger.h" />

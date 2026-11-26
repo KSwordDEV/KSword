@@ -141,9 +141,9 @@ V NativeExecutionJournal::Describe() const
 
 // 从原sample的冻结配置查找定义，明确限制当前已支持的RVA入口，不把调试符号当PE导出。
 project::ProjectResult NativeExecutionJournal::ResolveImageDefinition(std::string_view definitionId,
-    const std::wstring& modulePath, std::uint32_t& rva)
+    const std::wstring& modulePath, std::uint32_t& rva, std::optional<std::string>& imageSha256)
 {
-    if (const auto status = project::ResolveSampleImageDefinition(project_, sampleId_, definitionId, modulePath, rva); !status)
+    if (const auto status = project::ResolveSampleImageDefinition(project_, sampleId_, definitionId, modulePath, rva, &imageSha256); !status)
     {
         return status;
     }

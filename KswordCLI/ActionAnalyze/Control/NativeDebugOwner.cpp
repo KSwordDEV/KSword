@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include "NativeBreakpointImage.h"
+#include "NativeBreakpointImageIdentity.h"
 #include "NativePrivateExecutionSite.h"
 #include "NativeExplicitMemorySite.h"
 #include "NativePrivateExecutionPage.h"
@@ -127,6 +128,7 @@ private:
         NativeBreakpointBinding binding;
         NativeImageSite systemBreak;
         NativeImageSite systemBreakThread;
+        NativeBreakpointImageIdentity imageIdentity; // 有固定散列约束时持有实际装载文件，不按路径替代身份。
         std::optional<NativePrivateExecutionSite> privateExecution;
         std::optional<NativeExplicitMemorySite> explicitSite; // 冻结原明确地址和映射属性，转换后仍复用此记录。
         std::optional<NativePrivateExecutionPage> executionPage; // 真实NX责任，和单地址DR0互斥。
@@ -398,6 +400,7 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
     if (target.requestId.empty() || target.requestId.size() > 128 || target.requestId.starts_with(kClosePrefix) ||
         !target.pid || target.pid == GetCurrentProcessId() || !target.processCreationTime || !target.explicitlyAuthorized ||
         target.disposition != NativeTargetDisposition::ResumeAndDetach || !validSite ||
+        (request.imageSha256 && (!request.explicitImageAttachment || !ValidNativeImageSha256(*request.imageSha256))) ||
         (request.explicitImageAttachment && (explicitAddress || pageMode || request.writeWatchBytes ||
             request.writeWatchPointerExport || request.executePointerExport)) ||
         !control || (pageMode && (!explicitAddress || request.writeWatchBytes ||
@@ -848,17 +851,25 @@ void NativeDebugOwner::Impl::Pump() {
 void NativeDebugOwner::Impl::Receive(const DEBUG_EVENT& event) {
     event_ = event;
     ++eventSerial_;
-    // The debugger closes image file handles. Windows owns the event's process and thread handles.
+    // 调试文件句柄保持到本轮Receive结束；约束身份须在原句柄关闭前登记，OS仍拥有线程/进程句柄。
+    Handle imageFile; // 同一作用域释放实际装载事件文件，不能在进入ReceiveBreakpoint之前提前关闭。
     if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
-        const Handle imageFile(event.u.CreateProcessInfo.hFile);
+        imageFile.Reset(event.u.CreateProcessInfo.hFile);
     } else if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) {
-        const Handle imageFile(event.u.LoadDll.hFile);
+        imageFile.Reset(event.u.LoadDll.hFile);
     }
     if (event.dwProcessId != latest_->request.pid) {
         RequireRecovery({"unexpected-native-event-process", ERROR_INVALID_DATA});
         return;
     }
     if (breakpoint_) {
+        if (breakpoint_->request.imageSha256 && !breakpoint_->binding.imageSha256 && !breakpoint_->retire)
+        {
+            if (const auto error = breakpoint_->imageIdentity.Observe(event); error)
+            {
+                RetireBreakpoint(error); // 身份登记失败不武装站点，原附加清退仍由下面统一事件路径负责。
+            }
+        }
         ReceiveBreakpoint(event);
         return;
     }
@@ -963,6 +974,15 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
         : ResolveNativeImageSite(process_.Get(), pid, bp.request.modulePath, bp.request.rva,
             bp.request.exportName, site, bp.request.writeWatchBytes);
     if (error) { return {bp.request.privateAddress ? "resolve-explicit-private-address" : "resolve-requested-image-site", error}; }
+    if (bp.request.imageSha256)
+    {
+        std::string observed; // 在任何DR0写入之前核对实际装载文件，不将请求值当作测量结果。
+        if (const auto failure = bp.imageIdentity.Verify(site.base, *bp.request.imageSha256, observed); failure)
+        {
+            return failure;
+        }
+        bp.binding.imageSha256 = std::move(observed);
+    }
     bp.binding.moduleBase = site.base;
     bp.binding.address = site.address;
     bp.binding.rva = site.rva;
@@ -1907,6 +1927,7 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
         // Detach is gated on an empty slot and interrupt set. A continued process exit also retires them.
         if (breakpoint_->executionPage && status == NativeControlStatus::Ended) breakpoint_->executionPage->ProcessExited();
         breakpoint_->slots.clear();
+        breakpoint_->imageIdentity.Reset(); // 真实绑定已清退，历史查询只保留实测散列，不锁住映像文件。
         breakpoint_->awaitingAttachBreak = false;
         breakpoint_->interruptTid = 0;
         breakpoint_->interruptThread.Reset();

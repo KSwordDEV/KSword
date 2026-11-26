@@ -8,10 +8,15 @@ namespace Ksword::ActionAnalyze
 {
     // 三端在启动实际绑定前调用，只读取本轮sample的冻结定义，不跟随项目后来修订。
     ProjectResult ResolveSampleImageDefinition(const ProjectDocument& document, std::string_view sampleId,
-        std::string_view definitionId, const std::wstring& modulePath, std::uint32_t& rva)
+        std::string_view definitionId, const std::wstring& modulePath, std::uint32_t& rva,
+        std::optional<std::string>* imageSha256)
     {
         namespace storage = ProjectStorage;
         rva = 0;
+        if (imageSha256)
+        {
+            imageSha256->reset(); // 失败不遗留上次定义约束。
+        }
         if (!document.Info() || !storage::IsUuid(sampleId) || !storage::IsUuid(definitionId))
         {
             return storage::Failure(ProjectError::InvalidArgument, "sampleBreakpointDefinitionIdentity");
@@ -34,7 +39,7 @@ namespace Ksword::ActionAnalyze
             return storage::Failure(ProjectError::NotFound, "sampleBreakpointDefinition");
         }
         const auto* location = std::get_if<BreakpointRva>(&found->location); // 不将符号名解释为精确PE导出。
-        if (!found->enabled || !location || !location->rva || found->module.imageSha256)
+        if (!found->enabled || !location || !location->rva || (found->module.imageSha256 && !imageSha256))
         {
             return storage::Failure(ProjectError::InvalidArgument, "sampleBreakpointDefinitionUnsupported");
         }
@@ -50,6 +55,10 @@ namespace Ksword::ActionAnalyze
             return storage::Failure(ProjectError::InvalidArgument, "sampleBreakpointModuleMismatch");
         }
         rva = location->rva; // 输出只在全部准入通过后设置，失败不会遗留上一次RVA。
+        if (imageSha256)
+        {
+            *imageSha256 = found->module.imageSha256; // 这是冻结约束，实测值由原native装载事件文件提供。
+        }
         return {};
     }
 }

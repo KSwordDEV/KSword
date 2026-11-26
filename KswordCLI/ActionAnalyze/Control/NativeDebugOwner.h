@@ -35,6 +35,7 @@ struct NativeBreakpointRequest {
     std::uint64_t privateAddress = 0; // 非零时与映像/导出/RVA/指针模式互斥；0宽度执行，1/2/4/8宽度写。
     std::uint64_t privateRangeBytes = 0; // 非零仅配privateAddress且writeWatchBytes=0；4096整数倍，最多64页，同私有分配。
     bool explicitImageAttachment = false; // 仅普通映像执行允许附加既有目标，仍须完整显式进程授权和准入。
+    std::optional<std::string> imageSha256; // 冻结定义约束；必须核对实际装载事件文件，不能仅检查同名盘上文件。
     bool operator==(const NativeBreakpointRequest&) const = default;
 };
 
@@ -67,6 +68,7 @@ struct NativeBreakpointBinding {
     bool explicitPrivateAddress = false; // 明确私有地址入口，无映像指针选择器，不证明分配代次。
     std::uint64_t rangeBytes = 0; // 0为单地址DR0；非零为整个NX范围字节数，address是4KiB对齐起点。
     std::vector<NativeExecutionRange> executionRanges; // 初始及成功新增范围；address/rangeBytes始终保留初始值。
+    std::optional<std::string> imageSha256; // 原装载事件文件核验通过后的散列，不认证运行时页内容。
 };
 
 // 一次写入停点时读到的变化区间，供三端对账。掩码第 n 位对应起点后第 n 字节。

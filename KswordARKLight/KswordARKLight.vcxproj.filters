@@ -242,6 +242,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -728,6 +729,7 @@
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeDebugAdmission.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeWriteExecutionTransition.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImage.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeBreakpointImageIdentity.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\NativeExecutionEvidence.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\CooperativeBreakpointGate.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Control\StopLedger.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

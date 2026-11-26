@@ -27,6 +27,7 @@ namespace ks::action_analyze
         bool PrepareProject(const std::wstring& directory, bool openExisting = false);
         // 真实启动前核对本次sample的已保存定义，拒绝错误项目或不同RVA，失败不附加目标。
         bool ValidateImageDefinition(std::string_view definitionId, const std::wstring& modulePath, std::uint32_t rva);
+        const std::optional<std::string>& ImageSha256() const { return m_imageSha256; } // 原sample核验后的约束，供同worker原native附加。
         // Start末尾传入该真实sample；空值保留原会话默认采样，不改写任何已采集Plan。
         const std::string& SampleId() const;
         // 使用原会话与点击时的完整控制回执读取，不查询条件、不创建第二owner。
@@ -57,6 +58,7 @@ namespace ks::action_analyze
 
     private:
         std::optional<Ksword::ActionAnalyze::ProjectDocument> m_project; // 原worker独占的新项目写租约。
+        std::optional<std::string> m_imageSha256; // 冻结定义散列；手工站点及失败时保持空。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> m_api; // 最近API请求及完整独立回执。
         std::shared_ptr<const NativeExecutionCandidatesResult> m_candidates; // 最近候选请求的独立只读快照。
         ProcessGroupSessionSnapshot m_view; // 内存结果、原项目身份及失败归档回执。

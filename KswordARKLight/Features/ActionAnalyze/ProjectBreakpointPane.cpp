@@ -44,7 +44,6 @@ std::wstring Unsupported(const Ksword::ActionAnalyze::BreakpointDefinition* row)
     if (!row) return L"打开项目后选择已保存断点定义；这里只载入实时草稿，不设置断点。";
     if (row->breakpointDefinitionId.empty()) return L"所选定义没有已保存的稳定ID，不能载入。";
     if (!row->enabled) return L"所选定义已禁用；请先在定义来源中启用并重新打开项目。";
-    if (row->module.imageSha256) return L"固定imageSha256定义暂不支持实时载入；不会忽略映像散列约束。";
     const auto* rva = std::get_if<Ksword::ActionAnalyze::BreakpointRva>(&row->location);
     if (!rva) return L"符号/PDB位置暂不支持实时载入；调试符号不会当成PE导出名。";
     if (!rva->rva) return L"仅支持非零32位RVA定义；RVA 0不能载入。";
@@ -55,8 +54,13 @@ void Refresh(Pane& pane) {
     const auto* row = Selected(pane);
     const auto unavailable = Unsupported(row);
     ::EnableWindow(pane.prepareButton, !pane.preparing && !pane.retiring && unavailable.empty());
-    auto text = unavailable.empty()
+    std::wstring text = unavailable.empty()
         ? L"选择目标中已加载的同名模块文件后载入原页；PID、创建时间和条件保留，用户点开始才附加。" : unavailable;
+    if (row && unavailable.empty() && row->module.imageSha256)
+    {
+        text += L"\r\n开始时从本轮sample冻结定义读取imageSha256，由原生准入核对CREATE_PROCESS/LOAD_DLL调试事件中的真实映像文件SHA-256，通过后才武装。文件散列核对不证明内存页未被修改。";
+        text += L"\r\n定义imageSha256：" + std::wstring(row->module.imageSha256->begin(), row->module.imageSha256->end());
+    }
     if (row) text += L"\r\n定义ID：" + std::wstring(row->breakpointDefinitionId.begin(), row->breakpointDefinitionId.end());
     if (!pane.catalog.projectId.empty()) text += L"\r\n项目：" + std::wstring(pane.catalog.projectId.begin(), pane.catalog.projectId.end());
     ::SetWindowTextW(pane.reason, text.c_str());
@@ -207,6 +211,7 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             selectedId = previous->breakpointDefinitionId;
         pane->catalog.projectId = incoming.projectId;
         pane->catalog.revisionId = incoming.revisionId;
+        pane->catalog.manifestPath = incoming.manifestPath; // 载入草稿必须携带同一次发布的原项目路径。
         pane->catalog.breakpointDefinitions = incoming.breakpointDefinitions; // 只复制后台定义，不复制整份采样目录或证据。
         ::SendMessageW(pane->choice, CB_RESETCONTENT, 0, 0);
         if (pane->catalog.breakpointDefinitions) for (const auto& row : *pane->catalog.breakpointDefinitions) {

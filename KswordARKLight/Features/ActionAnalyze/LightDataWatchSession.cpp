@@ -230,7 +230,8 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                         // 模块附加优先于旧启动分支，沿用本worker、项目采样及唯一原生所有者。
                         result = request.imageExecutionAttachment
                             ? backend->AttachImageExecution(request.targetPid, request.targetCreationFileTime,
-                                request.executable, request.imageRva, request.exportName, std::move(condition), archive.SampleId())
+                                request.executable, request.imageRva, request.exportName, std::move(condition),
+                                archive.SampleId(), archive.ImageSha256()) // 原生按真实调试事件文件核对冻结散列后武装。
                             : request.privateAddress
                             ? backend->AttachPrivateAddress(request.targetPid, request.targetCreationFileTime,
                                 request.privateAddress, request.bytes, std::move(condition), archive.SampleId(), request.privateRangeBytes)
