@@ -11,9 +11,14 @@
       "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "连续采样", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107" }
     },
     {
-      "schemaVersion": 1, "requestId": "start-with-sysmon", "method": "session.open",
+      "schemaVersion": 1, "requestId": "start-api-archive", "method": "session.open",
       "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
-      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "连续采样", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "sysmonTargetGuid": "00000000-0000-0000-0000-000000000005" }
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "API archive", "pid": 42, "creationFileTime": "134400565183024188", "apiArchive": { "path": "C:\\Cases\\events.jsonl", "sessionIdentity": "10", "authorized": true } }
+    },
+    {
+      "schemaVersion": 1, "requestId": "start-api-and-ksword-etw", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "API and ETW", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "apiArchive": { "path": "C:\\Cases\\events.jsonl", "sessionIdentity": "10", "authorized": true } }
     },
     {
       "schemaVersion": 1, "requestId": "read", "method": "session.query",
@@ -58,9 +63,24 @@
       "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "Sample", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "durationMs": 120001 }
     },
     {
+      "schemaVersion": 1, "requestId": "start-with-sysmon", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "Sample", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "sysmonTargetGuid": "00000000-0000-0000-0000-000000000005" }
+    },
+    {
       "schemaVersion": 1, "requestId": "timed-with-sysmon", "method": "session.open",
       "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
       "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "Sample", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "d4a71ada-81b0-4b15-a173-417f33bc8107", "durationMs": 1000, "sysmonTargetGuid": "00000000-0000-0000-0000-000000000005" }
+    },
+    {
+      "schemaVersion": 1, "requestId": "sysmon-as-etw-provider", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "Sample", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "5770385f-c22a-43e0-bf4c-06f5698ffbd9" }
+    },
+    {
+      "schemaVersion": 1, "requestId": "api-mixed-with-external-provider", "method": "session.open",
+      "expected": { "revisionId": "00000000-0000-0000-0000-000000000001" },
+      "params": { "projectId": "00000000-0000-0000-0000-000000000002", "title": "API and ETW", "pid": 42, "creationFileTime": "134400565183024188", "providerId": "00000000-0000-0000-0000-000000000005", "apiArchive": { "path": "C:\\Cases\\events.jsonl", "sessionIdentity": "10", "authorized": true } }
     }
   ]
 }

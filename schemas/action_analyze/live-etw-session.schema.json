@@ -15,15 +15,13 @@
     "openParams": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "title", "pid", "creationFileTime", "providerId"],
-      "not": { "required": ["durationMs", "sysmonTargetGuid"] },
       "properties": {
         "projectId": { "$ref": "#/$defs/uuid" },
         "title": { "$ref": "request.schema.json#/$defs/projectTitle" },
         "pid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
         "creationFileTime": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
-        "providerId": { "$ref": "#/$defs/uuid" },
-        "durationMs": { "type": "integer", "minimum": 1000, "maximum": 120000 },
-        "sysmonTargetGuid": { "$ref": "#/$defs/uuid" }
+        "providerId": { "$ref": "#/$defs/uuid", "not": { "const": "5770385f-c22a-43e0-bf4c-06f5698ffbd9" } },
+        "durationMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
       }
     },
     "openApiArchiveParams": {
@@ -35,6 +33,7 @@
         "pid": { "$ref": "#/$defs/openParams/properties/pid" },
         "creationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
         "durationMs": { "$ref": "#/$defs/openParams/properties/durationMs" },
+        "providerId": { "const": "d4a71ada-81b0-4b15-a173-417f33bc8107" },
         "apiArchive": {
           "type": "object", "additionalProperties": false,
           "required": ["path", "sessionIdentity", "authorized"],
@@ -101,11 +100,75 @@
         "stopReason": { "type": ["string", "null"] },
         "plan": { "oneOf": [{ "$ref": "#/$defs/plan" }, { "$ref": "#/$defs/apiArchivePlan" }] },
         "source": {},
-        "archive": {}
+        "archive": {},
+        "readiness": { "$ref": "#/$defs/apiArchiveReadiness" },
+        "rules": { "$ref": "#/$defs/apiArchiveRules" },
+        "etw": {
+          "type": "object", "additionalProperties": false, "required": ["rawStream", "plan", "source", "archive"],
+          "properties": {
+            "rawStream": { "const": "raw-etw" },
+            "plan": { "$ref": "#/$defs/plan", "required": ["mixedEtw"] },
+            "source": { "$ref": "#/$defs/source" },
+            "archive": { "$ref": "#/$defs/archive" }
+          }
+        }
       },
+      "dependentRequired": { "etw": ["readiness", "rules"] },
+      "allOf": [{
+        "if": { "properties": { "plan": { "required": ["mixedEtw"] } } },
+        "then": { "required": ["etw"] },
+        "else": { "properties": { "etw": false } }
+      }],
       "if": { "properties": { "plan": { "properties": { "kind": { "const": "api-archive-follow-plan-v1" } } } } },
       "then": { "properties": { "source": { "$ref": "#/$defs/apiArchiveSource" }, "archive": { "$ref": "#/$defs/apiArchiveReport" } } },
-      "else": { "properties": { "source": { "$ref": "#/$defs/source" }, "archive": { "$ref": "#/$defs/archive" } } }
+      "else": { "properties": { "source": { "$ref": "#/$defs/source" }, "archive": { "$ref": "#/$defs/archive" }, "readiness": false, "rules": false } }
+    },
+    "apiArchiveReadiness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "hooksInstalledSourceSequence", "firstRaw"],
+      "properties": {
+        "state": { "enum": ["awaiting-attach", "attached", "observed", "stopped-no-match", "source-interrupted", "archive-interrupted"] },
+        "hooksInstalledSourceSequence": { "$ref": "#/$defs/apiArchiveSourceDiagnosis/$defs/sequence" },
+        "firstRaw": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["segmentOrdinal", "rawSequence", "sourceSequence"],
+          "properties": {
+            "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "rawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+          }
+        }
+      }
+    },
+    "apiArchiveRules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["presetSet", "profile", "coverage", "state", "matchedRows", "latest"],
+      "properties": {
+        "presetSet": { "const": "ksword.api.behavior-presets.v1" },
+        "profile": { "const": "by-category" },
+        "coverage": { "const": "unknown" },
+        "state": { "enum": ["ready", "evaluation-failed"] },
+        "matchedRows": { "$ref": "#/$defs/u64" },
+        "latest": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["ruleId", "segmentOrdinal", "rawSequence", "sourceSequence"],
+          "properties": {
+            "ruleId": { "type": "string" },
+            "behavior": {
+              "type": "object", "additionalProperties": false,
+              "required": ["ruleId", "evidence", "summary"],
+              "properties": {
+                "ruleId": { "const": "ksword.behavior.memory-write-access-denied-return.v1" },
+                "evidence": { "const": "reported-api-return" },
+                "summary": { "type": "string", "minLength": 1 }
+              }
+            },
+            "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "rawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+          }
+        }
+      }
     },
     "apiArchivePlan": {
       "type": "object", "additionalProperties": false,
@@ -122,6 +185,8 @@
         "durationMs": { "$ref": "#/$defs/plan/properties/durationMs" },
         "identity": { "const": "archive-consistency-only" },
         "checkpointRequired": { "const": true },
+        "mixedEtw": { "const": true },
+        "rulePresetSet": { "const": "ksword.api.behavior-presets.v1" },
         "file": {
           "type": "object", "additionalProperties": false,
           "required": ["volumeSerial", "fileId", "initialVisibleBytes"],
@@ -208,10 +273,14 @@
       "required": ["session", "sampleId", "state", "source", "observations", "latest"],
       "properties": {
         "session": { "$ref": "#/$defs/session" }, "sampleId": { "$ref": "#/$defs/uuid" },
-        "state": { "enum": ["requested", "not-configured"] },
+        "state": { "enum": ["not-configured", "ready", "evaluation-failed"] },
         "observations": { "$ref": "#/$defs/u64" },
-        "source": { "type": ["object", "null"] }, "latest": { "type": ["object", "null"] }
-      }
+        "source": { "enum": [null, "api-archive-follow"] },
+        "latest": { "$ref": "#/$defs/apiArchiveRules/properties/latest" }
+      },
+      "if": { "properties": { "source": { "type": "null" } } },
+      "then": { "properties": { "state": { "const": "not-configured" }, "observations": { "const": "0" }, "latest": { "type": "null" } } },
+      "else": { "properties": { "state": { "enum": ["ready", "evaluation-failed"] } } }
     },
     "archive": {
       "type": "object", "additionalProperties": false,
@@ -234,6 +303,15 @@
     "archivedCapture": {
       "oneOf": [
         { "$ref": "#/$defs/archivedApiFollow" },
+        {
+          "type": "object", "additionalProperties": false, "required": ["kind", "requestedOrdinal", "api", "etw"],
+          "properties": {
+            "kind": { "const": "mixed-api-etw" },
+            "requestedOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "api": { "$ref": "#/$defs/mixedReadbackSource", "properties": { "stream": { "const": "raw" } } },
+            "etw": { "$ref": "#/$defs/mixedReadbackSource", "properties": { "stream": { "const": "raw-etw" } } }
+          }
+        },
         {
           "type": "object", "additionalProperties": false, "required": ["status"],
           "properties": { "status": { "enum": ["missing", "unavailable", "limit-exceeded", "unrecognized", "invalid"] } }
@@ -271,6 +349,20 @@
           }
         }
       ]
+    },
+    "mixedReadbackSource": {
+      "type": "object", "required": ["stream", "status"],
+      "properties": {
+        "status": { "enum": ["readback-verified", "pending", "missing", "unavailable", "limit-exceeded", "unrecognized", "invalid"] },
+        "firstObservation": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["segmentOrdinal", "rawSequence"],
+          "properties": {
+            "segmentOrdinal": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "rawSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" },
+            "sourceSequence": { "$ref": "value.schema.json#/$defs/nonzeroU64" }
+          }
+        }
+      }
     },
     "archivedApiFollow": {
       "oneOf": [
@@ -333,7 +425,8 @@
         "processCreationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
         "durationMs": { "oneOf": [{ "const": 0 }, { "$ref": "#/$defs/openParams/properties/durationMs" }] },
         "headerRole": { "const": "record-context" }, "sourceClock": { "const": "filetime-100ns" },
-        "receiveClock": { "const": "local-qpc" }, "maxRecords": { "const": 512 }, "maxPayloadBytes": { "const": 4096 }
+        "receiveClock": { "const": "local-qpc" }, "maxRecords": { "const": 512 }, "maxPayloadBytes": { "const": 4096 },
+        "mixedEtw": { "const": true }
       }
     },
     "source": {

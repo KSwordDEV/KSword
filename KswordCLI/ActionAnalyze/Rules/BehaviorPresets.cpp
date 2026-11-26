@@ -25,6 +25,18 @@ constexpr PresetDefinition CategoryPresets[] = {
 };
 constexpr FieldBinding Catalog[] = {{"api.family", FieldType::Text, Phase::Observation}};
 
+// BOOL 为 FALSE 且同包 Win32 状态为 ERROR_ACCESS_DENIED (5)。不读取 detailText，也不据此判断写入量或目标。
+constexpr PresetDefinition MemoryWriteAccessDenied{
+    "ksword.behavior.memory-write-access-denied-return.v1",
+    R"(api.family == "memory-write" && api.name == "WriteProcessMemory" && !result.returned && result.win32Status == 5u64)"
+};
+constexpr FieldBinding BehaviorCatalog[] = {
+    {"api.family", FieldType::Text, Phase::Observation},
+    {"api.name", FieldType::Text, Phase::Observation},
+    {"result.returned", FieldType::Bool, Phase::Observation},
+    {"result.win32Status", FieldType::U64, Phase::Observation},
+};
+
 // 按显式选择返回固定预置表，未经登记的模式返回空视图。
 std::span<const PresetDefinition> SelectPresets(ApiPresetProfile profile)
 {
@@ -35,36 +47,38 @@ std::span<const PresetDefinition> SelectPresets(ApiPresetProfile profile)
     return {};
 }
 
-} // namespace
-
-ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation> rows,
-    std::uint64_t importedRows, ApiPresetProfile profile)
+ApiPresetReport AnalyzePresetRows(std::span<const ArchivedApiObservation> rows,
+    std::uint64_t verifiedClueRows, ApiPresetProfile profile, std::optional<std::uint64_t> contiguousAfter)
 {
-    if (rows.size() > MaxApiPresetRows || rows.size() > importedRows || (rows.empty() && importedRows != 0)) {
-        return {ApiPresetError::InvalidInput, importedRows, 0, {}};
+    if (rows.size() > MaxApiPresetRows || rows.size() > verifiedClueRows) {
+        return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
     }
     const auto presets = SelectPresets(profile); // 本次分析显式选定的预置表。
     if (presets.empty()) {
-        return {ApiPresetError::InvalidPreset, importedRows, 0, {}};
+        return {ApiPresetError::InvalidPreset, verifiedClueRows, 0, {}};
     }
     std::vector<PreparedPredicate> compiled; // 回放期间冻结已校验的预置。
     compiled.reserve(presets.size());
     for (const auto& preset : presets) {
         auto prepared = PreparePredicateExpression(preset.predicate, Phase::Observation, Catalog); // 静态阶段和类型检查。
         if (prepared.error != ExpressionError::None) {
-            return {ApiPresetError::InvalidPreset, importedRows, 0, {}};
+            return {ApiPresetError::InvalidPreset, verifiedClueRows, 0, {}};
         }
         compiled.push_back(std::move(prepared.predicate));
     }
+    const auto behaviorPredicate = PreparePredicateExpression(MemoryWriteAccessDenied.predicate, Phase::Observation, BehaviorCatalog);
+    if (behaviorPredicate.error != ExpressionError::None) {
+        return {ApiPresetError::InvalidPreset, verifiedClueRows, 0, {}};
+    }
 
-    ApiPresetReport report{ApiPresetError::None, importedRows, rows.size(), {}}; // 只在确定时返回窗口结果。
+    ApiPresetReport report{ApiPresetError::None, verifiedClueRows, rows.size(), {}}; // 只在确定时返回窗口结果。
     report.matches.reserve(rows.size());
-    std::uint64_t lastRaw = importedRows - rows.size(); // 最近窗口之前的 Stored 线索条数。
+    std::uint64_t lastRaw = contiguousAfter.value_or(0); // 旧归档按线索连续编号，检查点页允许有空隙。
     std::uint64_t lastSource = 0; // 原始归档按行的严格递增位置，可以跳号。
     for (const auto& row : rows) {
-        if (row.rawSequence <= lastRaw || row.rawSequence - lastRaw != 1 || row.sourceSequence <= lastSource ||
+        if (row.rawSequence <= lastRaw || (contiguousAfter && row.rawSequence - lastRaw != 1) || row.sourceSequence <= lastSource ||
             row.api.empty() || row.api.size() > MaxKeyBytes || row.family.empty() || row.family.size() > MaxKeyBytes) {
-            return {ApiPresetError::InvalidInput, importedRows, 0, {}};
+            return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
         }
         lastRaw = row.rawSequence;
         lastSource = row.sourceSequence;
@@ -73,21 +87,53 @@ ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation
         for (std::size_t index = 0; index < compiled.size(); ++index) {
             const auto evaluation = EvaluatePredicate(compiled[index], Phase::Observation, std::span(&field, 1));
             if (evaluation.fault != EvaluationFault::None || evaluation.truth == Truth::Unknown) {
-                return {ApiPresetError::InvalidInput, importedRows, 0, {}};
+                return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
             }
             if (evaluation.truth == Truth::True) {
                 if (!ruleId.empty()) {
-                    return {ApiPresetError::InvalidPreset, importedRows, 0, {}};
+                    return {ApiPresetError::InvalidPreset, verifiedClueRows, 0, {}};
                 }
                 ruleId = presets[index].id;
             }
         }
         if (ruleId.empty()) { // 新分类需显式登记后才能进入预置包。
-            return {ApiPresetError::InvalidInput, importedRows, 0, {}};
+            return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
         }
-        report.matches.push_back({ruleId, row.rawSequence, row.sourceSequence, std::string(row.api)});
+        std::optional<ApiPresetBehavior> behavior;
+        if (const auto& returned = row.memoryWriteReturn) {
+            const FieldSample fields[] = {
+                field, {"api.name", Quality::Known, row.api},
+                {"result.returned", Quality::Known, returned->returned},
+                {"result.win32Status", Quality::Known, static_cast<std::uint64_t>(returned->statusCode)},
+            };
+            const auto evaluation = EvaluatePredicate(behaviorPredicate.predicate, Phase::Observation, fields);
+            if (evaluation.fault != EvaluationFault::None) {
+                return {ApiPresetError::InvalidInput, verifiedClueRows, 0, {}};
+            }
+            if (evaluation.truth == Truth::True) {
+                behavior = ApiPresetBehavior{MemoryWriteAccessDenied.id, "reported-api-return"};
+            }
+        }
+        report.matches.push_back({ruleId, row.rawSequence, row.sourceSequence, std::string(row.api), behavior});
     }
     return report;
+}
+
+} // namespace
+
+ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation> rows,
+    std::uint64_t importedRows, ApiPresetProfile profile)
+{
+    if (rows.size() > importedRows || (rows.empty() && importedRows != 0)) {
+        return {ApiPresetError::InvalidInput, importedRows, 0, {}};
+    }
+    return AnalyzePresetRows(rows, importedRows, profile, importedRows - rows.size());
+}
+
+ApiPresetReport AnalyzeVerifiedApiPresetPage(std::span<const ArchivedApiObservation> rows,
+    std::uint64_t verifiedClueRows, ApiPresetProfile profile)
+{
+    return AnalyzePresetRows(rows, verifiedClueRows, profile, std::nullopt);
 }
 
 } // namespace Ksword::ActionAnalyze::Rules

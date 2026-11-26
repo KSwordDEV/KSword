@@ -2,9 +2,16 @@
 
 #include "RuleExpression.h"
 
+#include <optional>
+
 namespace Ksword::ActionAnalyze::Rules {
 
 inline constexpr std::size_t MaxApiPresetRows = 4096; // 与归档读侧的最近线索窗口相同。
+
+struct ArchivedApiMemoryWriteReturn {
+    bool returned;
+    std::uint32_t statusCode;
+};
 
 // 调用方须先验证 Stored 封装、原包分类和导入尾记。此投影不读文件或调用目标。
 struct ArchivedApiObservation {
@@ -12,6 +19,13 @@ struct ArchivedApiObservation {
     std::uint64_t sourceSequence; // API Monitor 原始归档行号。
     std::string_view api; // 经校验的精确导出名。
     std::string_view family; // 经校验的 API 线索类别。
+    // 仅授权输入且有明确返回标记时，从同一原包投影。缺失时保留分类，不补造返回结论。
+    std::optional<ArchivedApiMemoryWriteReturn> memoryWriteReturn = std::nullopt;
+};
+
+struct ApiPresetBehavior {
+    std::string_view ruleId; // 行为规则版本；独立于原分类规则。
+    std::string_view evidence; // 证据强度，而非目标身份、效果、意图或覆盖结论。
 };
 
 struct ApiPresetMatch {
@@ -19,6 +33,7 @@ struct ApiPresetMatch {
     std::uint64_t rawSequence;
     std::uint64_t sourceSequence;
     std::string api; // 结果拥有数据，不引用下一次扫描的输入。
+    std::optional<ApiPresetBehavior> behavior = std::nullopt; // 释义引用同一原包坐标。
 };
 
 enum class ApiPresetError { None, InvalidInput, InvalidPreset };
@@ -26,14 +41,20 @@ enum class ApiPresetProfile { Grouped, ByCategory }; // 兼容汇总或细分到
 
 struct ApiPresetReport {
     ApiPresetError error = ApiPresetError::None;
-    std::uint64_t importedRows = 0; // 尾记及扫描确认的总数，不代表采集覆盖。
-    std::size_t analyzedRows = 0; // 此次实际分析的最近窗口。
+    std::uint64_t importedRows = 0; // 归档读端核对的线索总数，不代表采集覆盖。
+    std::size_t analyzedRows = 0; // 此次实际分析的窗口。
     std::vector<ApiPresetMatch> matches;
 };
 
-// 仅归类单条已归档观测。默认按内存操作和线程控制汇总，也可按线索类别细分。
+// 按单条已归档观测分类，有经验证返回证据时可附加行为释义。
+// 默认按内存操作和线程控制汇总，也可按线索类别细分。
 // 每条线索保留原始输入顺序及两套序号，坏输入不会发布部分命中。
 ApiPresetReport AnalyzeArchivedApiPresets(std::span<const ArchivedApiObservation> rows,
     std::uint64_t importedRows, ApiPresetProfile profile = ApiPresetProfile::Grouped);
+
+// 已获严格读回的一页。采样内两套序号均须递增，但计划、非线索原包或分页可能造成跳号。
+// 页为空时仍可返回成功。verifiedClueRows 仅表示此次归档扫描确认的线索总数。
+ApiPresetReport AnalyzeVerifiedApiPresetPage(std::span<const ArchivedApiObservation> rows,
+    std::uint64_t verifiedClueRows, ApiPresetProfile profile = ApiPresetProfile::Grouped);
 
 } // namespace Ksword::ActionAnalyze::Rules

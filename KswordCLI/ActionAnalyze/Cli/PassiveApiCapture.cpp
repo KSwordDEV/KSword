@@ -1,6 +1,7 @@
 #include "PassiveApiCapture.h"
 
 #include "../Project/ProjectStorage.h"
+#include "../Rules/BehaviorPresets.h"
 
 #include <algorithm>
 #include <utility>
@@ -10,6 +11,7 @@ namespace {
 using namespace Ksword::ActionAnalyze;
 using namespace Ksword::ActionAnalyze::ProjectStorage;
 using Ksword::Evidence::PassiveApiTailState;
+namespace Monitor = ks::winapi_monitor;
 using Tail = Ksword::Evidence::PassiveApiArchiveTail;
 using V = Ksword::Evidence::JsonValue;
 using Clock = std::chrono::steady_clock;
@@ -67,6 +69,35 @@ std::string_view PacketBytes(const Ksword::Evidence::ArchivedApiMonitorClue& row
 {
     return {reinterpret_cast<const char*>(&row.packet), sizeof(row.packet)};
 }
+
+// 只从尾读器已验证的行取身份。创建时间来自原归档字段，不能用请求值或 PID 补填。
+bool MatchesFrozenSource(const Ksword::Evidence::ArchivedApiMonitorClue& row,
+    const Ksword::Evidence::PassiveApiSource& source) noexcept
+{
+    return row.readerCreation != 0 && row.readerCreation == source.readerCreation &&
+        row.packet.pid == source.readerPid && row.packet.sessionIdentity == source.sessionIdentity;
+}
+
+// 识别生产方的安装声明。控制包的零返回码只用于确认声明类型。
+bool IsHooksInstalledNotice(const Monitor::ApiMonitorEventPacket& packet) noexcept
+{
+    using Ksword::Evidence::ApiMonitorPacketText;
+    return packet.eventKind == static_cast<std::uint32_t>(Monitor::EventKind::ApiCall) &&
+        packet.category == static_cast<std::uint32_t>(Monitor::EventCategory::Internal) &&
+        packet.resultKind == static_cast<std::uint32_t>(Monitor::EventResultKind::StatusCode) &&
+        packet.resultCode == 0 && ApiMonitorPacketText(packet.moduleName) == L"Agent" &&
+        ApiMonitorPacketText(packet.apiName) == L"HooksInstalled";
+}
+
+// 判断已验原包是否为普通 API 行。业务返回值不影响归档观察，异步阶段和覆盖包另有类型。
+bool IsOrdinaryApiCall(const Monitor::ApiMonitorEventPacket& packet) noexcept
+{
+    using Ksword::Evidence::ApiMonitorPacketText;
+    const auto module = ApiMonitorPacketText(packet.moduleName); // 仅接受非空且在包内终止的模块名。
+    return packet.eventKind == static_cast<std::uint32_t>(Monitor::EventKind::ApiCall) &&
+        packet.category != static_cast<std::uint32_t>(Monitor::EventCategory::Internal) &&
+        !module.empty() && module != L"Agent" && !ApiMonitorPacketText(packet.apiName).empty();
+}
 } // namespace
 
 using namespace Ksword::ActionAnalyze;
@@ -122,9 +153,54 @@ ProjectResult PassiveApiCapture::Open(std::string_view path, Ksword::Evidence::P
     return {};
 }
 
-void PassiveApiCapture::SetPlan(V plan)
+ProjectResult PassiveApiCapture::BeginProject(ProjectDocument& project, const PassiveApiStartRequest& request,
+    SampleInfo& sample, std::string& epoch, PassiveApiStartStage& failedStage)
 {
-    plan_ = std::move(plan);
+    failedStage = PassiveApiStartStage::Project;
+    const auto* info = project.Info(); // 只在登记新目录行前借用当前快照。
+    if (!info || info->access != ProjectAccess::ReadWrite) {
+        return Failure(info ? ProjectError::ReadOnly : ProjectError::NotOpen, "apiArchiveProject");
+    }
+    if (info->projectId != request.projectId || info->revisionId != request.revisionId) {
+        return Failure(ProjectError::StaleRevision, "apiArchiveRevision");
+    }
+
+    failedStage = PassiveApiStartStage::Source;
+    if (reader_ || ended_) {
+        return Failure(ProjectError::AlreadyOpen, "apiArchiveAlreadyStarted");
+    }
+    if (const auto opened = Open(request.path, request.source); !opened) {
+        return opened;
+    }
+
+    failedStage = PassiveApiStartStage::Session;
+    std::string newEpoch; // 新会话仅在采样登记完成后发布给调用方。
+    if (const auto created = NewId(newEpoch); !created) {
+        return created;
+    }
+    const auto revisionHash = info->revisionHash; // 采样登记可能刷新项目快照。
+    const auto semanticHash = info->configSemanticHash;
+
+    failedStage = PassiveApiStartStage::Sample;
+    SampleInfo frozen; // 新登记的真实采样与配置修订。
+    if (const auto created = project.CreateSample(request.title, frozen, request.revisionId); !created) {
+        return created;
+    }
+
+    // 只归档固定的来源身份；授权文件路径不落入证据计划。
+    JsonObject plan{{"kind", Text(kApiFollowPlanKind)}, {"projectId", Text(request.projectId)},
+        {"session", Object({{"id", Text(frozen.sampleId)}, {"epoch", Text(newEpoch)}})},
+        {"revisionId", Text(frozen.revisionId)}, {"snapshotId", Text(frozen.snapshotId)},
+        {"revisionHash", Text(revisionHash)}, {"configSemanticHash", Text(semanticHash)},
+        {"sourceEpoch", Text(newEpoch)}, {"file", FileIdentity()}, {"readerPid", V::makeUInt(request.source.readerPid)},
+        {"readerCreation100ns", Number(request.source.readerCreation)}, {"sessionIdentity", Number(request.source.sessionIdentity)},
+        {"durationMs", V::makeUInt(request.durationMs)}, {"identity", Text("archive-consistency-only")},
+        {"checkpointRequired", V::makeBool(true)}, {"rulePresetSet", Text(kPassiveApiPresetSet)}};
+    if (request.mixedEtw) plan.emplace_back("mixedEtw", V::makeBool(true));
+    plan_ = Object(std::move(plan));
+    sample = std::move(frozen);
+    epoch = std::move(newEpoch);
+    return {};
 }
 
 bool PassiveApiCapture::Tick(ProjectDocument& project, std::string_view sampleId)
@@ -152,6 +228,15 @@ void PassiveApiCapture::ReadBatch()
     }
     for (auto& row : rows) {
         diagnosis_.Observe(row); // 只读取尾读器已验过的行，包括同批坏行前的有效前缀。
+        // 声明和普通原包各自保留第一条。同一批次可能同时包含两种证据。
+        if ((!hooksInstalledSequence_ || !firstApiSequence_) && MatchesFrozenSource(row, status_.source)) {
+            if (!hooksInstalledSequence_ && IsHooksInstalledNotice(row.packet)) {
+                hooksInstalledSequence_ = row.sourceSequence;
+            }
+            if (!firstApiSequence_ && IsOrdinaryApiCall(row.packet)) {
+                firstApiSequence_ = row.sourceSequence;
+            }
+        }
         if (row.clue) {
             latestClue_ = row.clue;
             latestClueSequence_ = row.sourceSequence;
@@ -243,6 +328,102 @@ V PassiveApiCapture::ArchiveReport() const
         {"win32Error", V::makeUInt(writeResult_.nativeError)}});
 }
 
+std::string_view PassiveApiCapture::ReadinessState() const noexcept
+{
+    if (!writeResult_) {
+        return "archive-interrupted";
+    }
+    // 正常停止需要读完冻结边界且恰好结束在完整行后。损坏或未排空时不报告无匹配。
+    const bool inputComplete = status_.state == PassiveApiTailState::Cutoff && status_.partialLineBytes == 0;
+    if ((ended_ && !inputComplete) || (!ended_ && !reader_->CanPoll())) {
+        return "source-interrupted";
+    }
+    if (firstRaw_) {
+        return "observed";
+    }
+    if (ended_) {
+        return "stopped-no-match";
+    }
+    return hooksInstalledSequence_ ? "attached" : "awaiting-attach";
+}
+
+V PassiveApiCapture::ReadinessReport() const
+{
+    // 停止或中断后仍保留历史声明及已提交坐标。实际连接状态由既有诊断单独描述。
+    return Object({{"state", Text(ReadinessState())},
+        {"hooksInstalledSourceSequence", hooksInstalledSequence_ ? Number(hooksInstalledSequence_) : V::makeNull()},
+        {"firstRaw", firstRaw_ ? Object({{"segmentOrdinal", Number(firstRaw_->segmentOrdinal)},
+            {"rawSequence", Number(firstRaw_->rawSequence)}, {"sourceSequence", Number(firstRaw_->sourceSequence)}})
+            : V::makeNull()}});
+}
+
+V PassiveApiCapture::RulesReport() const
+{
+    // 位置在归档发布后一次写入。终段和读失败保留最后一次有效位置。
+    V latest = V::makeNull(); // 本次没有规则命中时保留显式空值。
+    if (latestRuleRaw_) {
+        const auto& position = *latestRuleRaw_; // 已提交检查点内的原包位置。
+        Ksword::Evidence::JsonObject fields{{"ruleId", Text(latestRuleId_)},
+            {"segmentOrdinal", Number(position.segmentOrdinal)}, {"rawSequence", Number(position.rawSequence)},
+            {"sourceSequence", Number(position.sourceSequence)}};
+        if (!latestBehaviorRuleId_.empty()) { // 与末条分类命中共享原始坐标。
+            fields.emplace_back("behavior", Object({{"ruleId", Text(latestBehaviorRuleId_)},
+                {"evidence", Text(latestBehaviorEvidence_)}, {"summary", Text("Memory write request returned access denied.")}}));
+        }
+        latest = V::makeObject(std::move(fields));
+    }
+    return Object({{"presetSet", Text(kPassiveApiPresetSet)}, {"profile", Text("by-category")},
+        {"coverage", Text("unknown")}, {"state", Text(ruleFailed_ ? "evaluation-failed" : "ready")},
+        {"matchedRows", Number(ruleMatches_)}, {"latest", std::move(latest)}});
+}
+
+void PassiveApiCapture::ObserveCommittedRules(const ProjectApiCheckpoint& committed) noexcept
+{
+    if (ruleFailed_ || pending_.empty()) {
+        return;
+    }
+    try {
+        // 本地字符串持有各导出名，确保求值器的借用视图在整个批次有效。
+        std::vector<std::string> names; // 已核验目录内的 ASCII 导出名。
+        std::vector<Rules::ArchivedApiObservation> observations; // 本段已提交的分类输入。
+        names.reserve(pending_.size());
+        observations.reserve(pending_.size());
+        for (const auto& row : pending_) {
+            if (!row.clue) {
+                continue;
+            }
+            auto& name = names.emplace_back(); // 按目录内容构造本轮规则使用的导出名。
+            for (const auto character : row.clue->api) {
+                name.push_back(static_cast<char>(character));
+            }
+            const auto offset = row.sourceSequence - committed.previousSourceSequence; // 本段计划之后的包序偏移。
+            const auto sequence = committed.planRawSequence + offset; // 已回读校验的全局原始序号。
+            const auto outcome = Ksword::Evidence::ReadApiMonitorMemoryWriteReturn(row.packet); // 已提交同一原包的返回字段。
+            observations.push_back({sequence, row.sourceSequence, name, row.clue->family,
+                outcome ? std::optional{Rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
+        }
+        if (observations.empty()) {
+            return;
+        }
+        const auto report = Rules::AnalyzeVerifiedApiPresetPage(observations, observations.size(),
+            Rules::ApiPresetProfile::ByCategory); // 与正式项目的细分回放使用同一求值器。
+        if (report.error != Rules::ApiPresetError::None) {
+            ruleFailed_ = true;
+            return;
+        }
+        if (!report.matches.empty()) {
+            const auto& last = report.matches.back(); // 同一检查点内按源归档顺序的最后一次命中。
+            ruleMatches_ += report.matches.size();
+            latestRuleRaw_ = RawPosition{committed.ordinal, last.rawSequence, last.sourceSequence};
+            latestRuleId_ = last.ruleId;
+            latestBehaviorRuleId_ = last.behavior ? last.behavior->ruleId : std::string_view{};
+            latestBehaviorEvidence_ = last.behavior ? last.behavior->evidence : std::string_view{};
+        }
+    } catch (...) {
+        ruleFailed_ = true; // 求值分配失败时保留原证据，并让采集继续。
+    }
+}
+
 bool PassiveApiCapture::Incomplete() const noexcept
 {
     return ended_ && (!writeResult_ || status_.state != PassiveApiTailState::Cutoff || status_.partialLineBytes != 0);
@@ -309,7 +490,14 @@ bool PassiveApiCapture::Commit(ProjectDocument& project, std::string_view sample
     if (!writeResult_) {
         return false;
     }
+    // 回读已逐条比对本段原包和元数据。计划记录在首位，连续的包在其后按源行号排列。
+    if (!firstRaw_ && firstApiSequence_ > committed.previousSourceSequence &&
+        firstApiSequence_ <= committed.lastSourceSequence) {
+        const auto offset = firstApiSequence_ - committed.previousSourceSequence; // 计划记录后的包序偏移。
+        firstRaw_ = RawPosition{committed.ordinal, committed.planRawSequence + offset, firstApiSequence_};
+    }
     recordedRows_ = committed.lastSourceSequence;
+    ObserveCommittedRules(committed);
     checkpoint_ = std::move(committed);
     pending_.clear();
     return true;

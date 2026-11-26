@@ -9,13 +9,28 @@
 
 namespace ks::cli::action_analyze {
 
-// CLI 本端的归档队列和项目回执。所有方法由活会话请求线程串行调用。
+// 写入冻结采样计划的版本号。实际求值复用同版本的细分回放预置。
+inline constexpr std::string_view kPassiveApiPresetSet = "ksword.api.behavior-presets.v1";
+
+enum class PassiveApiStartStage { Project, Source, Session, Sample };
+
+struct PassiveApiStartRequest {
+    std::string_view path; // 用户明确授权的本地 JSONL 绝对路径，调用期间借用。
+    std::string_view projectId, revisionId, title; // 本轮冻结的项目目录行与标题。
+    Ksword::Evidence::PassiveApiSource source; // 归档声明中的 PID、创建时间和来源会话 ID。
+    std::uint32_t durationMs = 0; // 0 表示由本端显式停止。
+    bool mixedEtw = false;
+};
+
+// 各端独立持有的归档队列和项目回执。所有方法由同一采集工作线程串行调用。
 class PassiveApiCapture final {
 public:
-    // 打开调用方明确授权的本地文件，校验后固定句柄和文件身份。返回首次错误的阶段和系统码。
-    Ksword::ActionAnalyze::ProjectResult Open(std::string_view path, Ksword::Evidence::PassiveApiSource source);
-    // 冻结样本计划，写入与对外状态查询共用此描述。
-    void SetPlan(Ksword::Evidence::JsonValue plan);
+    // 调用方已确认授权并打开项目写租约。成功设置采样和代次；失败阶段区分源与存储。
+    Ksword::ActionAnalyze::ProjectResult BeginProject(Ksword::ActionAnalyze::ProjectDocument& project,
+        const PassiveApiStartRequest& request, Ksword::ActionAnalyze::SampleInfo& sample,
+        std::string& epoch, PassiveApiStartStage& failedStage);
+    // 所有水位写入同一计划；引用仅在本对象存活期间有效。
+    const Ksword::Evidence::JsonValue& Plan() const noexcept { return plan_; }
     // 处理一轮读取及必要的分段提交。返回 false 时会话进入停止流程。
     bool Tick(Ksword::ActionAnalyze::ProjectDocument& project, std::string_view sampleId);
     // 冻结可见边界、限额排空、提交终态并释放本端句柄。
@@ -24,19 +39,35 @@ public:
     Ksword::Evidence::JsonValue FileIdentity() const;
     Ksword::Evidence::JsonValue SourceReport() const;
     Ksword::Evidence::JsonValue ArchiveReport() const;
+    // 独立报告本次 API 入口的声明、已提交原包坐标和停止状态。
+    Ksword::Evidence::JsonValue ReadinessReport() const;
+    // 返回已提交线索的即时规则回执。查询不执行规则或推进归档。
+    Ksword::Evidence::JsonValue RulesReport() const;
     // 本端是否在一个完整边界结束且已经读回所选前缀。用于退出码。
     bool Incomplete() const noexcept;
     // 为来源故障或项目失败选择稳定终止原因。
     std::string_view FailureReason() const noexcept;
 
 private:
+    // 校验并固定来源文件句柄，不提交项目采样。
+    Ksword::ActionAnalyze::ProjectResult Open(std::string_view path, Ksword::Evidence::PassiveApiSource source);
+    struct RawPosition {
+        std::uint64_t segmentOrdinal; // 当前采样的 raw 段号。
+        std::uint64_t rawSequence; // Stored 内实际记录序号。
+        std::uint64_t sourceSequence; // 原始 JSONL 行号。
+    };
+
     // 返回终段可持久化的原有字段。实时查询在这份字段上追加诊断和线索预览。
     Ksword::Evidence::JsonObject SourceReportFields() const;
+    // 将读取健康、停止结果及已提交证据转换为入口状态。
+    std::string_view ReadinessState() const noexcept;
     // 接纳一个有界读取批次。调用方先确认队列空间足以容纳整批。
     void ReadBatch();
     // 写独立 raw 段，只有刷盘、回读并发布检查点才推进水位。
     bool Commit(Ksword::ActionAnalyze::ProjectDocument& project, std::string_view sampleId,
         std::optional<std::string_view> reason = std::nullopt);
+    // 检查点发布后求值本段的分类线索。规则求值失败不会撤销已提交档案。
+    void ObserveCommittedRules(const Ksword::ActionAnalyze::ProjectApiCheckpoint& committed) noexcept;
 
     std::unique_ptr<Ksword::Evidence::PassiveApiArchiveTail> reader_; // 本端只读游标。
     Ksword::Evidence::PassiveApiTailStatus status_; // 保留句柄释放后的来源回执。
@@ -54,6 +85,14 @@ private:
     std::uint64_t clueRows_ = 0; // 通过输入校验且命中线索目录的累计包数。
     std::uint64_t latestClueSequence_ = 0; // 最近一条线索的原文件位置。
     const Ksword::Evidence::ApiMonitorClue* latestClue_ = nullptr; // 静态目录条目。
+    std::uint64_t hooksInstalledSequence_ = 0; // 第一次核对通过的生产方安装声明行。
+    std::uint64_t firstApiSequence_ = 0; // 第一条普通 API 原包候选的源行号。
+    std::optional<RawPosition> firstRaw_; // 候选所在段发布检查点后才记录的原包坐标。
+    std::uint64_t ruleMatches_ = 0; // 成功求值的已提交分类线索数。
+    std::optional<RawPosition> latestRuleRaw_; // 最近一次规则匹配的已提交原始位置。
+    std::string_view latestRuleId_; // 共享预置表中具有静态生命周期的 ID。
+    std::string_view latestBehaviorRuleId_, latestBehaviorEvidence_; // 末次匹配可选释义及证据，空则省略。
+    bool ruleFailed_ = false; // 保留首次规则失败前的有效计数和匹配。
     bool ended_ = false; // 本端已完成跟随并清退只读句柄。
 };
 

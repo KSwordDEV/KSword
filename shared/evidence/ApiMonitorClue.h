@@ -74,16 +74,74 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
     return nullptr;
 }
 
+struct ApiMonitorMemoryWriteReturn {
+    bool returned; // WriteProcessMemory 的 BOOL 返回值。
+    std::uint32_t statusCode; // 同一包中报告的 Win32 状态；失败时来自 GetLastError。
+};
+
+// 仅投影已校验来源的结构字段。不能用摘要文字、原始入口槽位或单独的状态码补造返回值。
+inline std::optional<ApiMonitorMemoryWriteReturn> ReadApiMonitorMemoryWriteReturn(
+    const ks::winapi_monitor::ApiMonitorEventPacket& packet) noexcept
+{
+    using namespace ks::winapi_monitor;
+    if (packet.hookKind != static_cast<std::uint32_t>(HookKind::Strong) ||
+        packet.resultKind != static_cast<std::uint32_t>(EventResultKind::StatusCode) ||
+        packet.snapshotIndex != kApiCallReturnValueMarker || (packet.hookAddress >> 32) != 0) {
+        return std::nullopt;
+    }
+    const auto* clue = ClassifyApiMonitorClue(packet);
+    if (!clue || clue->api != L"WriteProcessMemory") {
+        return std::nullopt;
+    }
+    return ApiMonitorMemoryWriteReturn{packet.hookAddress != 0, static_cast<std::uint32_t>(packet.resultCode)};
+}
+
 // 从 Stored raw 读取线索及源归档坐标。readerCreation 是文件声明，不能充当已认证的现场身份。
 struct ArchivedApiMonitorClue {
     ks::winapi_monitor::ApiMonitorEventPacket packet; // 已核对大小及分类的原始协议包。
     const ApiMonitorClue* clue = nullptr; // 重新从包计算的静态类别。
-    std::uint64_t sourceSequence = 0; // events.jsonl 中的原始行序号。
+    std::uint64_t sourceSequence = 0; // 源序号的语义由整段尾记说明。
     std::uint64_t readerCreation = 0; // 源归档声明的调用方创建时间，缺失为零。
 };
 
 inline constexpr std::string_view kApiMonitorClueRecord = "api-monitor-clue-v1"; // RawRecord 内的来源类型。
 inline constexpr std::string_view kApiMonitorClueEnd = "api-monitor-clue-import-end-v1"; // 导入尾部回执。
+
+// 尾记声明输入方式，不代表已重新认证历史生产者。
+enum class ApiMonitorArchiveSource { LegacyUnspecified, ClosedJsonl, CooperativePipe };
+
+// 返回写端及三个读端共用的稳定来源标识。
+constexpr std::string_view ApiMonitorArchiveSourceName(ApiMonitorArchiveSource source) noexcept
+{
+    switch (source) {
+    case ApiMonitorArchiveSource::ClosedJsonl:
+        return "closed-jsonl";
+    case ApiMonitorArchiveSource::CooperativePipe:
+        return "cooperative-pipe";
+    case ApiMonitorArchiveSource::LegacyUnspecified:
+        return "legacy-unspecified";
+    }
+    return "legacy-unspecified";
+}
+
+// 只读已解封的尾记；省略字段兼容旧档，显式无效值产生空返回。
+inline std::optional<ApiMonitorArchiveSource> ReadApiMonitorArchiveSource(const JsonValue& terminal)
+{
+    const auto* field = terminal.find("archiveSource"); // 来源方式只由尾记声明。
+    if (!field) {
+        return ApiMonitorArchiveSource::LegacyUnspecified;
+    }
+    std::string name; // 字符串以外的 JSON 类型不兼容。
+    if (field->tryGetString(name)) {
+        if (name == ApiMonitorArchiveSourceName(ApiMonitorArchiveSource::ClosedJsonl)) {
+            return ApiMonitorArchiveSource::ClosedJsonl;
+        }
+        if (name == ApiMonitorArchiveSourceName(ApiMonitorArchiveSource::CooperativePipe)) {
+            return ApiMonitorArchiveSource::CooperativePipe;
+        }
+    }
+    return std::nullopt;
+}
 
 // 用明确的版本类型识别导入段，即使首条线索的数据已损坏也进入严格校验。
 inline bool IsApiMonitorClueImport(const JsonValue& metadata)
@@ -120,10 +178,11 @@ inline std::optional<ArchivedApiMonitorClue> ReadArchivedApiMonitorClue(const Js
 
 // 对单个导入段验证原始行顺序和尾记。调用方仍需独立验证 Stored 封装及实际扫描边界。
 struct ApiMonitorClueReadback {
-    std::uint64_t sourceSequence = 0; // 最后见到的源文件行号。
-    std::uint64_t sourceRows = 0; // 仅尾记出现时提供的源文件总行数。
+    std::uint64_t sourceSequence = 0; // 最后见到的源序号。
+    std::uint64_t sourceRows = 0; // 尾记声明的篇幅，包括未保留的源项。
     std::uint64_t clues = 0; // 已核对的线索数。
     bool ended = false; // 最后一条必须是计数匹配的导入尾记。
+    ApiMonitorArchiveSource source = ApiMonitorArchiveSource::LegacyUnspecified; // 只有合法尾记才更新。
 
     // 从已解码的 RawRecord 读取一条记录。合法尾记返回 true 且 row 为空。
     bool Accept(const JsonValue& metadata, std::string_view bytes, std::optional<ArchivedApiMonitorClue>& row)
@@ -147,9 +206,13 @@ struct ApiMonitorClueReadback {
         const auto* retained = metadata.find("clueRows"); // 导入者计数声明。
         std::string type; // 解码后的尾记类型名。
         std::uint64_t count = 0; // 与本次核对的线索数比较。
-        ended = clues > 0 && bytes.empty() && kind && kind->tryGetString(type) && type == kApiMonitorClueEnd &&
+        const auto declaredSource = ReadApiMonitorArchiveSource(metadata); // 可选的原始输入方式。
+        ended = declaredSource && clues > 0 && bytes.empty() && kind && kind->tryGetString(type) && type == kApiMonitorClueEnd &&
             scanned && scanned->tryGetU64(sourceRows) && sourceRows >= sourceSequence && retained &&
             retained->tryGetU64(count) && count == clues;
+        if (ended) {
+            source = *declaredSource;
+        }
         return ended;
     }
 };
