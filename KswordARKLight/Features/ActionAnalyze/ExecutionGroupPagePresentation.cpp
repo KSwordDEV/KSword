@@ -426,11 +426,16 @@ void Refresh(Page& page)
     }
     const bool ready = page.shown.active && !page.shown.busy && !page.retiring;
     const bool controls = ready && !page.shown.closing;
+    const bool autoSave = ::SendMessageW(page.autoSaveExecution, BM_GETCHECK, 0, 0) == BST_CHECKED; // Start前的自动归档草稿。
+    const bool openProject = ::SendMessageW(page.openProject, BM_GETCHECK, 0, 0) == BST_CHECKED; // 显式已有项目模式，不能猜测路径存在性。
+    const bool directoryMissing = InputText(page.projectDirectory).empty(); // 草稿目录为空时不允许依赖项目的启动。
+    const bool archiveReady = !(autoSave || openProject) || !directoryMissing; // 与原worker附加前的Prepare约束一致。
     const auto rows = SelectedRows(page);
     BatchEligibility all, subset;
     for (const auto& member : page.shown.result.members) all.Include(member);
     for (const auto row : rows) subset.Include(page.shown.result.members[static_cast<std::size_t>(row)]);
-    ::EnableWindow(page.start, controls && page.shown.canStart && !page.sites.empty() && ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    ::EnableWindow(page.start, controls && page.shown.canStart && archiveReady && !page.sites.empty() &&
+        ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED);
     ::EnableWindow(page.appendMembers, controls && execution_native::OwnedExecutionGroup::CanAppendMembers(page.shown.result) &&
         ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED); // 原核心资格，失败清退时不扩张责任。
     ::EnableWindow(page.identify, controls);
@@ -475,6 +480,11 @@ void Refresh(Page& page)
         L" / 草稿 " + std::to_wstring(page.sites.size()) + (page.shown.busy ? L" / 后台处理中" : L"") +
         (page.shown.closing ? L" / 清退未结清，可再次清退" : L"");
     if (!page.error.empty()) status += L"\r\n" + page.error;
+    if (page.shown.canStart && !archiveReady)
+    {
+        // 明确禁用原因，不把尚未执行的归档配置错误呈现为目标控制失败。
+        status += autoSave ? L"\r\n自动保存执行观察需要项目目录。" : L"\r\n打开项目并新建采样需要项目目录。";
+    }
     if (!page.shown.diagnostic.empty()) status += L"\r\n" + page.shown.diagnostic;
     if (!page.shown.archive.setup || (page.shown.archive.saved && !page.shown.archive.saved->status))
     {

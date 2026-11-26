@@ -91,7 +91,12 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
                 Layout(*page); // 地址切到私有机制时隐藏散列行，保留其文本和原集合结果。
             }
         }
-        else if (id == kAuthorized && code == BN_CLICKED) Refresh(*page);
+        else if (((id == kAuthorized || id == kAutoSaveExecution || id == kOpenProject) && code == BN_CLICKED) ||
+            (id == kProjectDirectory && code == EN_CHANGE))
+        {
+            // 开始资格取当前参数草稿；路径/自动保存改变时立即更新，不等待后台状态修订。
+            Refresh(*page);
+        }
         else if (code == BN_CLICKED && (id == kIdentify || id == kAdd || id == kRemove || id == kLoadDraft ||
             id == kStart || id == kAppendMembers || id == kQuery || id == kPauseAll || id == kPauseSelected || id == kContinueAll ||
             id == kContinueSelected || id == kStepInto || id == kStepOver || id == kStepOut || id == kCancelStep ||
