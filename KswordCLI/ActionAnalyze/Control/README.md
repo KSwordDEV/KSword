@@ -83,6 +83,8 @@
 
 已保存RVA定义的可选 `imageSha256` 沿冻结sample传入 `AttachImageExecution`／`NativeBreakpointRequest`。`NativeBreakpointImageIdentity` 保留原调试装载事件文件，用实际模块基址选择，再通过原文件对象的独立读句柄流式计算SHA256，全部相符后才安装DR0。不会重开同名路径替代原装载文件；不能取得事件文件或散列不符则拒绝并由原owner清退。绑定只发布实测成功值，不认证目标映像页的运行时内容。三端接线及工程登记已补，尚未构建／运行；PDB定位仍未实现。
 
+原生步进的新线程和冻结枚举统一使用 `NativeStepRuntime::HoldPeer`，按保留句柄对象及PID／TID／创建时间登记，同一对象不重复Suspend。CREATE_THREAD由 `EnrollCreated` 核对真实事件；枚举先发现的线程仍可在当前事件中经 `Enroll` 纳入。EXIT_THREAD在原owner移除槽位前提供强句柄，只免除对应对象自己的暂停／上下文责任，不能用所选线程退出抵消其它peer债务。进程级免除要求真实退出事件或原强进程句柄终止。重复DR0登记回读实际槽位；NX异常线程尚未登记时，在当前异常事件内补齐真实线程覆盖后再判定命中。此批只更新共享原生路径，Qt／Light／CLI沿同一owner消费，未构建或运行。
+
 读取复用 `SelectedMemorySnapshot`，成功页保留实际字节，失败页保留原错误，不填零。结果中的 `completeRange` 只描述范围字节；`heldAtBothChecks` 独立描述前后两次精确停点核对，不能声称其它进程的外部写入者也已冻结。`WriteProcessGroupMemorySnapshot` 把读取模式及两个停点随字节写入独立 `raw-memory` 段。
 
 `OwnedDataWatchSession::Start` 可接受项目已登记的 `sampleId`；省略时沿用独立采样身份。绑定必须在启动前确定，保存不能事后将旧结果改写为另一采样。`CaptureMemory` 复用原 owner 及上述读取路径，`SaveExecution` 则从原 owner 重新查询精确当前事件后调用 `WriteNativeExecution`。两者都不执行写入条件的自动继续；普通写入停点不会因保存操作生成执行事实。执行观测保存到独立 `raw-native`，历史读取不构造活继续请求。

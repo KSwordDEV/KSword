@@ -108,7 +108,29 @@ NativeDebugError EnrollNativeBreakpointThread(NativeDebugSlots& slots, DWORD pid
     std::uint64_t address, DWORD64 control, std::uint64_t revision, bool pageMode) {
     constexpr DWORD64 mask = 0x000f0003;
     if (const auto old = slots.find(tid); old != slots.end()) {
-        if (!eventThread || CompareObjectHandles(old->second.thread.Get(), eventThread)) return {};
+        if (!eventThread)
+        {
+            return {"breakpoint-thread-object-required", ERROR_INVALID_HANDLE};
+        }
+        if (CompareObjectHandles(old->second.thread.Get(), eventThread))
+        {
+            // 已登记不等于目前仍武装；安装失败或目标改写DR0后，不能让旧槽位掩盖覆盖缺口。
+            if (pageMode)
+            {
+                return {}; // NX登记只保留线程对象，页保护由原owner统一核验。
+            }
+            CONTEXT observed{}; // 只读硬件槽位，不重写目标已有TF、RIP或其它调试槽。
+            observed.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+            if (!GetThreadContext(old->second.thread.Get(), &observed))
+            {
+                return WinError("read-enrolled-breakpoint-thread");
+            }
+            if (observed.Dr0 != address || (observed.Dr7 & mask) != control)
+            {
+                return {"enrolled-breakpoint-thread-no-longer-armed", ERROR_INVALID_DATA};
+            }
+            return {}; // 同一强对象且实际槽位仍与当前绑定一致，重复登记没有写入副作用。
+        }
         if (WaitForSingleObject(old->second.thread.Get(), 0) != WAIT_OBJECT_0)
             return {"breakpoint-thread-object-conflict", ERROR_INVALID_DATA};
         slots.erase(old); // 精确旧对象退出后才允许登记复用的TID。
@@ -117,7 +139,8 @@ NativeDebugError EnrollNativeBreakpointThread(NativeDebugSlots& slots, DWORD pid
     NativeDebugHandle thread(OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION |
         THREAD_SUSPEND_RESUME | SYNCHRONIZE, FALSE, tid));
     if (!thread) return WinError("open-breakpoint-thread");
-    if (GetProcessIdOfThread(thread.Get()) != pid || (eventThread && !CompareObjectHandles(thread.Get(), eventThread)))
+    if (GetProcessIdOfThread(thread.Get()) != pid || GetThreadId(thread.Get()) != tid ||
+        !eventThread || !CompareObjectHandles(thread.Get(), eventThread))
         return {"breakpoint-thread-object-mismatch", ERROR_INVALID_DATA};
     FILETIME created{}, exited{}, kernel{}, user{};
     if (!GetThreadTimes(thread.Get(), &created, &exited, &kernel, &user) || !FileTime(created))

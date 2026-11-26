@@ -55,8 +55,12 @@ public:
     // 原owner已先重设NX；仅消费所选线程本端BS，onlyAdvance表示用户步进尚未到DR1终点。
     [[nodiscard]] NativeStepError FinishPageTrap(const DEBUG_EVENT& event, bool& onlyAdvance);
     [[nodiscard]] bool PageTrapOwned() const noexcept { return pageTrapOwned_; }
+    // 原owner在当前持有事件中枚举冻结对象；允许早于该对象CREATE_THREAD事件分派。
     [[nodiscard]] NativeStepError Enroll(HANDLE thread);
-    [[nodiscard]] NativeStepError RetireExitedThread(const DEBUG_EVENT& event);
+    // 原owner当前尚未Continue的CREATE_THREAD事件，核验事件与强句柄后复用同套登记。
+    [[nodiscard]] NativeStepError EnrollCreated(const DEBUG_EVENT& event);
+    // eventThread为原owner按当前退出事件保留的强句柄；省略时在事件仍待处理期间解析。
+    [[nodiscard]] NativeStepError RetireExitedThread(const DEBUG_EVENT& event, HANDLE eventThread = nullptr);
     [[nodiscard]] NativeStepError Restore(bool processExited = false, const DEBUG_EVENT* heldEvent = nullptr);
     // Called while the event is pending, before deciding its continuation.
     // A true return requires a new stop ledger entry (except process exit).
@@ -79,11 +83,20 @@ public:
 private:
     NativeStepError PrepareImpl(HANDLE process, HANDLE selected, const NativeStepRequest& request,
         const std::vector<HANDLE>& peers, bool tfOnly, const NativePrivateExecutionPage* executionRange);
+    struct ThreadObjectIdentity {
+        DWORD processId = 0; // 强句柄查询的所属进程，不接受外部传入的TID作为身份。
+        DWORD threadId = 0;
+        std::uint64_t creationTime = 0;
+        bool operator==(const ThreadObjectIdentity&) const = default;
+    };
     struct Hold {
         HANDLE thread;
         bool debt;
         bool conflicted = false; // Resume返回0：本端暂停已不在可证明状态，不再盲目重减其它人的计数。
+        ThreadObjectIdentity identity; // 与保留句柄绑定；TID复用不覆盖旧对象和旧债务。
     };
+    static NativeStepError ReadThreadIdentity(HANDLE thread, ThreadObjectIdentity& identity);
+    NativeStepError HoldPeer(HANDLE thread, bool preparing);
     NativeStepError RestoreSelectedContext();
     NativeStepError ReleaseHold(HANDLE thread, bool& debt, bool& conflicted, bool processExited, const char* stage);
     NativeStepError Arm(CONTEXT context, std::optional<std::uint64_t> destination);
@@ -95,6 +108,7 @@ private:
     HANDLE process_ = nullptr; // borrowed from owner; attachment outlives all step resources
     const NativePrivateExecutionPage* executionRange_ = nullptr; // 同owner冻结范围，寿命长于本次step。
     HANDLE selected_ = nullptr; // duplicate of the exact strong thread object
+    ThreadObjectIdentity selectedIdentity_;
     std::vector<Hold> peers_;
     DWORD64 originalDr1_ = 0;
     DWORD64 originalDr7_ = 0;

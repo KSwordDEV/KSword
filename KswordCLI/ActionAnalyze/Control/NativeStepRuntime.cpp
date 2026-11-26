@@ -289,14 +289,96 @@ NativeStepError NativeStepRuntime::Destination(const CONTEXT& context, std::opti
     return {};
 }
 
-NativeStepError NativeStepRuntime::Enroll(HANDLE thread) {
-    if (CompareObjectHandles(thread, selected_)) return {};
-    for (const auto& hold : peers_) if (CompareObjectHandles(hold.thread, thread)) return {};
-    if (peers_.size() >= 1024) return {"step-peer-capacity", ERROR_BUFFER_OVERFLOW};
+NativeStepError NativeStepRuntime::ReadThreadIdentity(HANDLE thread, ThreadObjectIdentity& identity)
+{
+    ThreadObjectIdentity observed; // 先完整读取再发布，失败不覆盖已保存的对象身份。
+    observed.processId = GetProcessIdOfThread(thread);
+    if (!observed.processId) {
+        return Error("step-query-thread-process");
+    }
+    observed.threadId = GetThreadId(thread);
+    if (!observed.threadId) {
+        return Error("step-query-thread-id");
+    }
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetThreadTimes(thread, &created, &exited, &kernel, &user)) {
+        return Error("step-query-thread-times");
+    }
+    observed.creationTime = Time(created);
+    if (!observed.creationTime) {
+        return {"step-thread-creation-time-missing", ERROR_INVALID_DATA};
+    }
+    identity = observed;
+    return {};
+}
+
+NativeStepError NativeStepRuntime::Enroll(HANDLE thread)
+{
+    return HoldPeer(thread, false);
+}
+
+NativeStepError NativeStepRuntime::EnrollCreated(const DEBUG_EVENT& event)
+{
+    if (!running_ || event.dwDebugEventCode != CREATE_THREAD_DEBUG_EVENT) {
+        return {"step-new-peer-requires-create-event", ERROR_INVALID_STATE};
+    }
+    ThreadObjectIdentity identity; // 创建事件直接携带的线程句柄必须属于当前进程和当前事件TID。
+    if (const auto error = ReadThreadIdentity(event.u.CreateThread.hThread, identity); error) {
+        return error;
+    }
+    if (!process_ || event.dwProcessId != GetProcessId(process_) || event.dwProcessId != identity.processId ||
+        event.dwThreadId != identity.threadId) {
+        return {"step-create-event-thread-mismatch", ERROR_INVALID_DATA};
+    }
+    return HoldPeer(event.u.CreateThread.hThread, false);
+}
+
+NativeStepError NativeStepRuntime::HoldPeer(HANDLE thread, bool preparing)
+{
+    ThreadObjectIdentity identity; // 只从调用方持有的强线程对象读取身份，不按TID重开后替换。
+    if (const auto error = ReadThreadIdentity(thread, identity); error) {
+        return error;
+    }
+    if (!process_ || identity.processId != GetProcessId(process_)) {
+        return {"step-peer-process-mismatch", ERROR_INVALID_DATA};
+    }
+    if (CompareObjectHandles(thread, selected_)) {
+        return identity == selectedIdentity_ ? NativeStepError{} :
+            NativeStepError{"step-selected-object-identity-mismatch", ERROR_INVALID_DATA};
+    }
+    for (const auto& hold : peers_) {
+        if (!CompareObjectHandles(hold.thread, thread)) {
+            continue;
+        }
+        if (!(identity == hold.identity)) {
+            return {"step-peer-object-identity-mismatch", ERROR_INVALID_DATA};
+        }
+        if (hold.conflicted) {
+            return {"step-suspend-count-conflict", ERROR_INVALID_DATA};
+        }
+        if (hold.debt) {
+            return {}; // 同一强对象只取得一次暂停，重复登记不再增加计数。
+        }
+        const auto wait = WaitForSingleObject(hold.thread, 0);
+        if (wait == WAIT_OBJECT_0) {
+            return {}; // 已确认退出的同一对象不产生新债务。
+        }
+        if (wait != WAIT_TIMEOUT) {
+            return Error("step-check-enrolled-thread-lifetime");
+        }
+        return {"step-peer-hold-not-established", ERROR_INVALID_STATE};
+    }
+    if (!preparing && !running_) {
+        return {"step-new-peer-requires-active-step", ERROR_INVALID_STATE};
+    }
+    if (peers_.size() >= 1024) {
+        return {"step-peer-capacity", ERROR_BUFFER_OVERFLOW};
+    }
     HANDLE duplicate = nullptr;
-    if (!DuplicateHandle(GetCurrentProcess(), thread, GetCurrentProcess(), &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+    if (!DuplicateHandle(GetCurrentProcess(), thread, GetCurrentProcess(), &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
         return Error("step-hold-peer");
-    peers_.push_back({duplicate, false});
+    }
+    peers_.push_back({duplicate, false, false, identity});
     const auto previous = SuspendThread(duplicate);
     if (previous == static_cast<DWORD>(-1)) {
         const auto error = Error("step-suspend-peer");
@@ -307,18 +389,59 @@ NativeStepError NativeStepRuntime::Enroll(HANDLE thread) {
     return {};
 }
 
-NativeStepError NativeStepRuntime::RetireExitedThread(const DEBUG_EVENT& event) {
-    if (event.dwDebugEventCode != EXIT_THREAD_DEBUG_EVENT) return {};
-    if (event.dwProcessId != GetProcessId(process_)) return {"step-exit-event-process-mismatch", ERROR_INVALID_DATA};
+NativeStepError NativeStepRuntime::RetireExitedThread(const DEBUG_EVENT& event, HANDLE eventThread)
+{
+    if (event.dwDebugEventCode != EXIT_THREAD_DEBUG_EVENT) {
+        return {};
+    }
+    if (!process_ || event.dwProcessId != GetProcessId(process_)) {
+        return {"step-exit-event-process-mismatch", ERROR_INVALID_DATA};
+    }
+    const bool selectedCandidate = selected_ && !selectedExited_ && selectedIdentity_.threadId == event.dwThreadId;
+    const bool peerCandidate = std::any_of(peers_.begin(), peers_.end(), [&](const auto& hold) {
+        return hold.debt && hold.identity.threadId == event.dwThreadId;
+    });
+    if (!selectedCandidate && !peerCandidate) {
+        return {}; // 与本轮对象无关的退出事件，不触碰任何同伴责任。
+    }
+    HANDLE resolved = nullptr; // 退出事件没有hThread；仅在原owner仍持有该事件时解析当前对象。
+    if (!eventThread) {
+        resolved = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, event.dwThreadId);
+        if (!resolved) {
+            return Error("step-open-exit-event-thread");
+        }
+        eventThread = resolved;
+    }
+    ThreadObjectIdentity identity;
+    const auto identityError = ReadThreadIdentity(eventThread, identity);
+    const bool selectedMatch = selectedCandidate && !identityError && identity == selectedIdentity_ &&
+        CompareObjectHandles(selected_, eventThread);
+    auto peer = peers_.end();
+    if (!identityError) {
+        peer = std::find_if(peers_.begin(), peers_.end(), [&](const auto& hold) {
+            return identity == hold.identity && CompareObjectHandles(hold.thread, eventThread);
+        });
+    }
+    if (resolved) {
+        CloseHandle(resolved);
+    }
+    if (identityError) {
+        return identityError;
+    }
+    if (identity.processId != event.dwProcessId || identity.threadId != event.dwThreadId ||
+        (!selectedMatch && peer == peers_.end())) {
+        return {"step-exit-thread-instance-mismatch", ERROR_INVALID_DATA};
+    }
     // EXIT_THREAD交付时句柄未必已signaled，精确原生退出事件本身可免除该线程自己的暂停债。
     // 绝不能把selected退出当作整个进程退出，从而清掉其它仍存在线程的计数。
-    if (selected_ && GetThreadId(selected_) == event.dwThreadId) {
+    if (selectedMatch) {
         selectedExited_ = true;
         contextOwned_ = pageTrapOwned_ = false;
         selectedSuspendDebt_ = selectedSuspendConflict_ = false;
     }
-    for (auto& hold : peers_) {
-        if (GetThreadId(hold.thread) == event.dwThreadId) hold.debt = hold.conflicted = false;
+    if (peer != peers_.end()) {
+        peer->debt = false;
+        peer->conflicted = false;
     }
     receipt_.resourcesRestored = !HasResources();
     return {};
@@ -339,6 +462,7 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     for (const auto& hold : peers_) CloseHandle(hold.thread);
     peers_.clear();
     if (selected_) CloseHandle(std::exchange(selected_, nullptr));
+    selectedIdentity_ = {};
     process_ = process;
     executionRange_ = executionRange;
     receipt_ = {};
@@ -359,6 +483,9 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
         return {"step-thread-instance-mismatch", ERROR_INVALID_DATA};
     if (!DuplicateHandle(GetCurrentProcess(), selected, GetCurrentProcess(), &selected_, 0, FALSE, DUPLICATE_SAME_ACCESS))
         return Error("step-hold-selected");
+    if (const auto error = ReadThreadIdentity(selected_, selectedIdentity_); error) {
+        return error;
+    }
     CONTEXT context{};
     context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS;
     if (!GetThreadContext(selected_, &context)) return Error("step-read-selected-context");
@@ -378,7 +505,11 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     originalDr1_ = context.Dr1;
     originalDr7_ = context.Dr7 & kSlot1Control;
     originalFlags_ = context.EFlags;
-    for (const auto peer : peers) if (const auto error = Enroll(peer); error) return error;
+    for (const auto peer : peers) {
+        if (const auto error = HoldPeer(peer, true); error) {
+            return error;
+        }
+    }
     if (executionRange_ && executionRange_->Instruction()) {
         if (const auto error = executionRange_->VerifyInstruction(process_, Ip(context))) return {"page-step-frozen-instruction-changed", error};
         if (const auto error = CheckPageTrapInstruction(Ip(context)); error) return error;
@@ -535,10 +666,34 @@ NativeStepError NativeStepRuntime::RestoreSelectedContext() {
 }
 
 NativeStepError NativeStepRuntime::Restore(bool processExited, const DEBUG_EVENT* heldEvent) {
+    const auto reject = [&](NativeStepError error) {
+        MarkFailure(error); // 身份或退出证明失败也进入恢复状态，已有句柄及每一笔债务保持原样。
+        receipt_.resourcesRestored = !HasResources();
+        return error;
+    };
     if (heldEvent) {
-        if (heldEvent->dwProcessId != GetProcessId(process_)) return {"step-restore-event-process-mismatch", ERROR_INVALID_DATA};
+        if (!process_ || heldEvent->dwProcessId != GetProcessId(process_)) {
+            return reject({"step-restore-event-process-mismatch", ERROR_INVALID_DATA});
+        }
+    }
+    if (processExited) {
+        // 调用方布尔值不是免除全部债务的证据；须有同一强进程的退出事件或终止信号。
+        const bool exitEvent = heldEvent && heldEvent->dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT;
+        if (!exitEvent) {
+            const auto wait = WaitForSingleObject(process_, 0);
+            if (wait == WAIT_FAILED) {
+                return reject(Error("step-check-process-exit"));
+            }
+            if (wait != WAIT_OBJECT_0) {
+                return reject({"step-process-exit-unconfirmed", ERROR_INVALID_STATE});
+            }
+        }
+    }
+    if (heldEvent) {
         selectedEventStopped_ = heldEvent->dwThreadId == receipt_.request.tid;
-        if (const auto error = RetireExitedThread(*heldEvent); error) return error;
+        if (const auto error = RetireExitedThread(*heldEvent); error) {
+            return reject(error);
+        }
     }
     NativeStepError first;
     const auto remember = [&](NativeStepError error) { if (error && !first) first = error; };
@@ -578,10 +733,14 @@ bool NativeStepRuntime::Observe(const DEBUG_EVENT& event, bool cancellationBreak
         MarkFailure({"step-event-process-mismatch", ERROR_INVALID_DATA}); return true;
     }
     const bool exit = event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT;
-    const bool selectedExit = event.dwDebugEventCode == EXIT_THREAD_DEBUG_EVENT && event.dwThreadId == receipt_.request.tid;
+    if (const auto error = RetireExitedThread(event); error) {
+        MarkFailure(error);
+        return true;
+    }
+    const bool selectedExit = event.dwDebugEventCode == EXIT_THREAD_DEBUG_EVENT && selectedExited_ &&
+        event.dwThreadId == selectedIdentity_.threadId;
     if (!exit && !selectedExit && event.dwDebugEventCode != EXCEPTION_DEBUG_EVENT) return false;
     selectedEventStopped_ = event.dwThreadId == receipt_.request.tid;
-    if (const auto error = RetireExitedThread(event); error) { MarkFailure(error); return true; }
     bool completed = false;
     disposition_ = DBG_EXCEPTION_NOT_HANDLED;
     eventKind_ = NativeStepEventKind::None;
@@ -635,13 +794,10 @@ bool NativeStepRuntime::Observe(const DEBUG_EVENT& event, bool cancellationBreak
     if (exit || selectedExit) {
         // 精确退出事件免除所选线程上下文恢复；同伴仍通过统一可重试路径清账。
         // Resume失败时保留债务和RecoveryRequired，不能先清账再丢弃原生错误。
-        contextOwned_ = false;
-        pageTrapOwned_ = false;
-        selectedExited_ = true;
-        (void)Restore(exit); // 整进程退出免除所有债务，单线程退出只恢复存活同伴。
+        (void)Restore(exit, &event); // 整进程退出免除所有债务，单线程退出只恢复存活同伴。
         return true;
     }
-    (void)Restore(exit);
+    (void)Restore(false, &event);
     return true;
 }
 

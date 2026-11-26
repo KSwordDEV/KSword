@@ -1273,13 +1273,33 @@ bool NativeDebugOwner::Impl::ReceivePageEvent(const DEBUG_EVENT& event) {
     if (!bp.executionPage || (!bp.executionPage->OwnsProtection() && !bp.pageAdvancing &&
         !step_.PageTrapOwned() && !bp.internalPageAdvance)) return false;
     auto& page = *bp.executionPage;
-    const auto slot = bp.slots.find(event.dwThreadId);
+    auto slot = bp.slots.find(event.dwThreadId); // 缺少CREATE_THREAD投影时，先补真实对象覆盖，再判定NX异常归属。
     CONTEXT context{};
     context.ContextFlags = CONTEXT_CONTROL;
     const bool executeAv = event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT && event.u.Exception.dwFirstChance &&
         event.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
         event.u.Exception.ExceptionRecord.NumberParameters >= 2 && event.u.Exception.ExceptionRecord.ExceptionInformation[0] == 8 &&
         page.Contains(event.u.Exception.ExceptionRecord.ExceptionInformation[1]);
+    if (executeAv && slot == bp.slots.end() && bp.installed && !bp.retire)
+    {
+        std::vector<FrozenThread> current; // 当前原生异常仍持有，补齐同进程真实线程，不按裸TID伪造来源。
+        if (const auto error = CaptureThreads(bp.request.target.pid, latest_->processInstanceId, threadIds_, current); error)
+        {
+            RequireRecovery(error);
+            return true;
+        }
+        if (const auto error = CoverBreakpointThreads(current); error)
+        {
+            RequireRecovery(error);
+            return true;
+        }
+        slot = bp.slots.find(event.dwThreadId);
+        if (slot == bp.slots.end())
+        {
+            RequireRecovery({"page-fault-thread-not-in-live-members", ERROR_INVALID_DATA});
+            return true; // 未证明本端NX前不消费异常，也不把潜在自有NX交回目标导致崩溃。
+        }
+    }
     if (executeAv && slot != bp.slots.end()) {
         if (!GetThreadContext(slot->second.thread.Get(), &context)) {
             RequireRecovery(WinError("page-read-fault-thread-context")); return true;
@@ -1437,7 +1457,9 @@ void NativeDebugOwner::Impl::FinishBreakpointEvent(DWORD disposition) {
 void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     auto& bp = *breakpoint_;
     if (event.dwDebugEventCode == EXIT_THREAD_DEBUG_EVENT && (step_.Running() || step_.HasResources())) {
-        if (const auto error = step_.RetireExitedThread(event); error) {
+        const auto exiting = bp.slots.find(event.dwThreadId); // 槽位尚未移除，保留原线程对象供退出责任逐项核验。
+        const auto eventThread = exiting == bp.slots.end() ? nullptr : exiting->second.thread.Get();
+        if (const auto error = step_.RetireExitedThread(event, eventThread); error) {
             RequireRecovery({error.stage, error.code}); return;
         }
     }
@@ -1448,7 +1470,7 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
         if (event.dwDebugEventCode == CREATE_THREAD_DEBUG_EVENT &&
             !(bp.interruptRequested && reinterpret_cast<std::uintptr_t>(event.u.CreateThread.lpStartAddress) ==
                 bp.systemBreakThread.address)) {
-            if (const auto error = step_.Enroll(event.u.CreateThread.hThread); error) {
+            if (const auto error = step_.EnrollCreated(event); error) {
                 step_.MarkFailure(error);
                 bp.cleanupDisposition = DBG_CONTINUE;
                 RequireRecovery({error.stage, error.code});
