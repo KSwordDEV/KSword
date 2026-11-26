@@ -54,6 +54,15 @@ void NativeSessionApiPane::AppendFields(ks::ui::FieldDocument& document, const p
     document.field(QStringLiteral("已尝试装载 Agent"), YesNo(capture.agentLoadAttempted), true);
     document.field(QStringLiteral("Agent 模块已核验"), YesNo(capture.agentModuleVerified), true);
     document.field(QStringLiteral("附加实例已核验"), YesNo(capture.attachmentIdentityVerified), true);
+    if (capture.startup)
+    {
+        // 同采样详情使用原采集器最后阶段，不从当前native停点或已保存包数推导Ready。
+        const auto stage = ks::winapi_monitor::CaptureStartupStageName(capture.startup->stage); // 稳定阶段ID，便于与CLI原回执核对。
+        document.field(QStringLiteral("最后确认的启动阶段"), QString::fromLatin1(stage));
+        document.field(QStringLiteral("启动阶段耗时（毫秒）"), QString::number(capture.startup->elapsedMs));
+    }
+    document.field(QStringLiteral("就绪覆盖修订"), capture.readyCoverageRevision
+        ? QString::number(*capture.readyCoverageRevision) : QStringLiteral("—"));
     // Ready、有限区间及丢失单独列出，成功归档不覆盖这些采集状态。
     document.field(QStringLiteral("已发布配置"), YesNo(capture.configPublished), true);
     document.field(QStringLiteral("采集已就绪"), YesNo(capture.started), true);

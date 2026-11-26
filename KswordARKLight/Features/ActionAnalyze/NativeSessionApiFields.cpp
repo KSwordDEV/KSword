@@ -159,6 +159,17 @@ std::wstring FormatLightNativeSessionApi(const project::NativeBoundApiResult& re
     boolean(L"已尝试装载 Agent", capture.agentLoadAttempted);
     boolean(L"Agent 模块已核验", capture.agentModuleVerified);
     boolean(L"附加实例已核验", capture.attachmentIdentityVerified);
+    if (capture.startup)
+    {
+        // 仅沿原采集器快照展示最后阶段，失败清退不因晚到安装包补成Ready。
+        const auto stage = ks::winapi_monitor::CaptureStartupStageName(capture.startup->stage); // 后端稳定ASCII阶段ID。
+        text += L"\r\n最后确认的启动阶段：" + Wide(stage);
+        number(L"启动阶段耗时（毫秒）", capture.startup->elapsedMs);
+    }
+    if (capture.readyCoverageRevision)
+    {
+        number(L"就绪覆盖修订", *capture.readyCoverageRevision);
+    }
     boolean(L"采集已就绪", capture.started);
     boolean(L"完整有限区间", capture.completedInterval);
     boolean(L"已取消", capture.cancelled);
