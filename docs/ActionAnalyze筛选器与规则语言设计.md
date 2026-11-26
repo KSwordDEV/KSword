@@ -70,6 +70,8 @@ Qt旧模块caseFold与CLI ordinal-ignore-case、NUL及版本宽松解析存在�
 
 ## 5. 有限C#风格表达式
 
+当前产品实现为 `predicate-expr-v3`，具体范围以 [Rules 模块说明](../KswordCLI/ActionAnalyze/Rules/README.md)为准：有限 u64 算术、位运算、移位和字段间比较；加减乘按 unchecked u64 环绕，除零／余零为 Unknown 并附稳定故障码，未知值不视为零。显式读取 v1/v2 时保留原字段对常量准入，不开放 v3 语法。下方 checked 及扩展类型内容仍为后续设计，不能视为当前能力。
+
 正文是唯一语义源，typed AST为编译产物，保存语义版本及规范AST hash，不同时维护两份可独立编辑的语义。JSON定义event selector／scope／window／actions等结构，`predicate`内放纯表达式。可视编辑器生成同一正文；无法无损回到简易模式时保留高级原文。
 
 首版语法轮廓如下，词法／优先级在A0形成正式EBNF与向量：

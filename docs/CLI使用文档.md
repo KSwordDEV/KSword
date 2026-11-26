@@ -164,20 +164,32 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
 | `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，可选附加只读线程观察。 |
 | `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text 或 jsonl] [--backend r3]` | 持续逐轮跟踪明确授权的自有进程，可选附加只读线程观察，接受 `stop`。 |
-| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR] [--watch-write-bytes N 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程。可使用单目标执行或写入停点，以及两个合作实例的执行停点组。 |
+| `analyze memory snapshot` | `KswordCLI.exe analyze memory snapshot --project PATH [--sample UUID] --pid PID --creation-filetime N --base ADDR --bytes N --confirm [--title TEXT] [--json]` | 对选中范围执行单轮真实字节采样，在项目采样的独立 `raw-memory/N` 归档成功页、失败页及收尾。 |
+| `analyze memory read` | `KswordCLI.exe analyze memory read --project PATH --sample UUID --ordinal N [--json]` | 核对内存段链、页字节散列和收尾，显示实际坐标、有效长度、采样时钟及缺口。 |
+| `analyze memory export` | `KswordCLI.exe analyze memory export --project PATH --sample UUID --ordinal N --out PATH [--base ADDR --bytes N] [--json]` | 导出已核验内存档的全部范围或完整子范围，缺口、坏段和已有输出文件均拒绝。 |
+| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session (--exe PATH [--module PATH] (--export NAME 或 --rva RVA) 或 --pid PID --creation-filetime N --address ADDR [--range-bytes N]) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR] [--project PATH [--sample UUID]] [--watch-write-bytes N [--watch-pointer-export] 或 --execute-pointer-export 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程，或显式附加到已有实例的私有地址。单目标执行、写入停点共用停止、继续、步进及项目内存归档；真实执行观测可显式保存。 |
+| `analyze execution read` | `KswordCLI.exe analyze execution read --project PATH --sample UUID [--ordinal N] [--json]` | 从第 1 段依次核验至指定 `raw-native` 段，返回历史执行文档、SHA-256 和归档端点；段号默认 1，须为正 uint64。 |
+| `analyze execution correlate` | `KswordCLI.exe analyze execution correlate --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` | 核验 API 图页与原生段链，按目标进程、线程代次及实际写入半开范围输出一致性候选；APC 另要求实际指令起点等于请求例程入口。API 段号最多 128，原生最多 4096；分页默认 100、最多 4096 行。 |
+| `analyze execution memory` | `KswordCLI.exe analyze execution memory --project PATH --sample UUID --native-ordinal N --memory-ordinal N [--bytes N] [--json]` | 分别核验原生执行与内存段链，匹配同一历史停点后，取执行指令起点处已归档的字节。两个段号均为 1..4096，字节数默认 1、范围 1..15。 |
+| `analyze execution map` | `KswordCLI.exe analyze execution map --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` | 核验 API 与原生两路链，按目标 PID＋创建 FILETIME 及实际映射半开范围输出指令一致性候选，不要求写入。API 段最多 128、原生段最多 4096；分页默认 100、最多 4096 条 API 观察。 |
+| `analyze process-group session` | `KswordCLI.exe analyze process-group session --targets PID:CREATION,PID:CREATION --confirm --disposition resume-detach [--input repl\|jsonl] [--project PATH [--sample UUID]]` | 固定 1–16 个明确授权的 AMD64 进程实例，按全集或明确子集控制；可绑定项目，显式读取并保存已显示的内存快照。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
 | `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
+| `analyze api-evidence attach` | `KswordCLI.exe analyze api-evidence attach --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 显式为精确进程实例装载或复用同目录正式 Agent，并复用项目分段归档。只支持 R3。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
-| `analyze api-rule-catalog` | `KswordCLI.exe analyze api-rule-catalog [--json]` | 列出 `profiles/action_analyze_api_rules.json` 中的 API 行为预置、条件、字段及证据口径。 |
-| `analyze replay-api-rules` | `KswordCLI.exe analyze replay-api-rules --project PATH --sample UUID [--profile grouped\|by-category] [--offset N] [--limit N] [--json]` | 对指定项目和采样的已核验 API 线索应用外置规则文件中的预置，返回规则 ID 和原包坐标。 |
+| `analyze api-rule-catalog` | `KswordCLI.exe analyze api-rule-catalog [--json]` | 列出 `profiles/action_analyze_api_rules.json` 中的 API 行为预置、条件、字段及证据口径，并给出本次实际解析文件原始字节的 `sourceSha256`。 |
+| `analyze replay-api-rules` | `KswordCLI.exe analyze replay-api-rules --project PATH --sample UUID [--profile grouped\|by-category] [--offset N] [--limit N] [--json]` | 对指定项目和采样的已核验 API 线索应用外置规则文件中的预置，返回规则 ID 和原包坐标；`sourceSha256` 为当前规则字节摘要，`recordedSourceSha256` 为采集计划摘要，`matchesRecordedRules` 表明两者是否一致，旧档没有记录摘要时后两者为 `null`。 |
+| `analyze network-capture` | `KswordCLI.exe analyze network-capture --project PATH --pid PID --create-time FILETIME --duration-ms MS --authorize-loopback yes [--json]` | 采集一个授权进程的回环网络元数据，写入项目的新采样并回查记录坐标。 |
 
 入口帮助可用 `KswordCLI.exe help analyze`、`KswordCLI.exe help analyze session` 或 `KswordCLI.exe analyze session --help`。两个后端均支持协议协商、项目读写、采样描述和 Stored 归档段检查。`--backend r3` 另提供持续或显式限时的被动 ETW 采样。调用方进程监视状态为 `not-monitored`。
 
 `api-evidence import` 接受主程序「监控 → WinAPI」生成的 `events.jsonl`，输入上限 32 MiB。导入从 `packetBase64` 重新判定五类线索：内存写、线程创建、APC 排队、线程上下文和节映射。原始行号与 Stored 记录序号分别保存。文件完整、线索非空时创建新采样。源文件损坏退出 `4`，项目或写入错误退出 `3`，输入没有匹配项时返回 `no-clues`。`replay` 仅在完整段和导入收尾记录均通过校验后输出结果。把 `nextAfter` 传给下一次的 `--after`。每页默认 25 条，上限 100 条。`--packet 1` 返回完整原包的十六进制。源覆盖、目标进程身份、实际写入范围、执行与归因保持未知。
 
+`api-evidence attach` 不要求目标预先合作装载 Agent。先核对 PID 与创建 FILETIME，再用 `--confirm` 明确确认本轮附加；控制器只从正式 CLI 同目录选择匹配位数的 `APIMonitor_x64.dll`／`APIMonitor_x86.dll`。只观察原 API 调用，不启用 Fake Success、剪贴板改写或自动附加后代。`--backend r0`、R0 注入参数均拒绝，不回退后端。`attachmentIdentityVerified`、`agentLoadAttempted`、`agentModuleVerified` 分别报告实例准入、装载尝试和模块核验；`agentReady` 还要求同会话的 `SessionReady`、成功 `HooksInstalled` 以及对应或更新的完整覆盖快照内存在活动观察 Hook。完整快照不表示所有 API 均已安装，实际缺口由 `partialHooks`、覆盖及丢失字段分别报告。时长、持续模式、分段回放和清退与合作入口相同。`hooksRemoved`、`cleanPipeEof`、`cleanupComplete` 独立报告；Agent 使用既有 PIN 常驻策略，停止不等于 DLL 卸载。归档仍使用既有 `cooperative-pipe` 管道封装，冻结计划另存 `captureMode=explicit-r3-attachment` 区分准入方式。
+
 导入后的采样可在 Qt「监控 → 行为分析 → 项目与采样」和 Light「监控 → ActionAnalyze」中打开。Qt 总览可勾选 `API` 筛选并查看来源坐标。CLI 的 `--packet 1` 可取回完整包，桌面详情提供有界前缀。
 
-`api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒。退出码 `6` 表示部分采样或取消。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。
+`api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒；`--duration-ms 0` 持续到控制台取消（Ctrl+C／Ctrl+Break）或该目标实例退出，启动就绪及停止清退仍受各自超时约束。持续模式的 `completedInterval` 始终为 `false`，明确停止或目标退出沿用部分采样退出码 `6`，分别以 `cancelled`、`targetExited` 和独立清退回执说明实际结果。普通 `monitor api capture` 仍只接受原有有限时范围。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。
 
 目标和 CLI 须通过 `KSWORD_APIMON_COOPERATIVE_SESSION_V1` 使用同一个绝对路径，目录名为 `KswordApiMonCooperative`。该目录由本轮发起者准备，访问仅限当前用户和 SYSTEM；目录不合格时拒绝发布配置，不回退到共享目录。`configPublished`、`sessionReady`、`hooksInstalled` 分别表示配置已发布、收到同会话就绪回执、收到安装回执。收到安装回执不代表全部 Hook 成功，仍须看 `partialHooks`。
 
@@ -187,17 +199,27 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 清退时，`stopMarkerWritten` 表示控制端已发布停止标记。`hooksRemoved` 表示收到本会话的停钩回执，`cleanPipeEof` 表示管道在原包边界正常结束。未建立连接时后两项为 `null`。目标退出后，CLI 仍会在清退时限内读取已连接的管道，并保留异常读取或截断末包的 `pipeError`。不能单凭 `cleanupComplete` 判定 Agent 确认停钩。`coverageRevision` 是最近完整读回的覆盖快照修订，`requiredFinalCoverageRevision` 仅在停钩回执声明时有值；`coverageSnapshotCurrent` 为真也不意味着所有 Hook 均安装成功。
 
-`api-evidence replay` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采样（`cooperative-pipe`）以及未声明来源的旧档（`legacy-unspecified`）。合作管道的 `sourceSequence` 为普通包流水号，分页用 Stored 的 `rawSequence`，每条线索另有 `rawSegment`。正在提交的采样返回已核验的连续前缀，后续段损坏时保留前缀、退出 `4` 并返回 `failedSegment`。采集覆盖保持 `unknown`。
+`api-evidence replay` 和 `replay-api-rules` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采集（`cooperative-pipe`）及未记录来源的旧档（`legacy-unspecified`）；规则回放的文件跟随为 `jsonl-follow`。合作管道的 `sourceSequence` 是普通 API 包流水号。合作分段归档按全采样的 `rawSequence` 分页，每条线索另有 `rawSegment`。未见终段时返回 `readback-prefix`；后续段损坏时保留此前已核验的页，退出 `4` 并返回 `failedSegment`。来源字段来自已核验的归档声明，覆盖范围仍为 `unknown`。
 
 合作采集在每段检查点发布后运行五类基础预置。`capture` 结束回执的 `rules` 给出预置版本、累计 `matchedRows` 和最近命中的 `segmentOrdinal`、`rawSequence`、`sourceSequence`。没有检查点时 `rules` 为空；规则求值失败时保留此前的匹配和已提交原包。`replay-api-rules` 的 `presetSet` 是实际回放版本，`recordedPresetSet` 是已核验的采集计划版本，旧档未声明时为空。规则命中只解释同一已核验原包的字段，来源覆盖仍为 `unknown`。
+
+合作采集同时持续计算 `apiTransfers`，仅消费逐字节回读并发布检查点后的原包。四种专用 API 的结构字段用于关联同一来源会话、源/目标创建代次、稳定目标句柄身份及严格先写后创建的 QPC 顺序；请求线程入口须落在来源报告的实际成功写入半开区间内。`candidateCount` 为累计候选数，`recent` 保留最近 32 条、各自的写入与创建请求 `raw` 坐标及普通包流水号。`windowTruncated` 表示候选显示窗口已滚动，`evictedWrites` 独立报告至多 1,024 次最近写入的状态淘汰数。失败归档批次不产生候选，规则配置失败不影响此独立关联。`execution` 保持 `unknown`，创建请求和范围重合不证明实际执行或跨事件因果归因。Qt、Light 活采详情使用同一已提交回执，归档重开通过 `archive inspect ... graph` 回查各段的 `apiTransferCandidates`。
+
+`apiApcTransfers` 使用同一已提交写入窗口，独立累计 `QueueUserAPC`／`NtQueueApcThread` 的 AAAP1 请求返回。只有同来源会话、源／目标创建代次、稳定目标线程代次一致、写入返回 QPC 严格早于入队调用，且请求例程落在实际完成写入的半开范围，才保留候选。其 `recent` 同样最多 32 条，不挤占线程创建候选；`queueOutcome=accepted` 仅表示原接口接受入队，`delivery`、`execution` 均为 `null`。归档图页以 `apiApc` 显示原字段，以 `apiApcTransferCandidates` 显示分页中的候选及双方 raw 坐标；该新增源码尚未构建或实测。
+
+`apiContextTransfers` 同样只消费已提交原包，并与前两类共用 1,024 次实际写入状态，独立保留最近 32 条上下文请求候选。`SetThreadContext`／`NtSetContextThread` 的 AACT1 必须报告完整目标线程代次、安全读取的 CONTROL 请求和接受返回；同来源写入严格早于设置请求，且请求 IP 落在实际完成写入范围，才记录双方 raw 坐标。`contextApplied`、`execution` 均为 `null`。归档图页的 `apiContext` 保留请求 IP／SP／flags／ABI，以 `apiContextTransferCandidates` 输出独立候选窗口；`apiSectionMap` 则分列请求与实际映射范围、原节偏移和输入句柄，不以句柄原位关联共享别名。新增部分均仅源码接入，待构建与实测。
+
+规则目录、合作采集和 JSONL 跟随的规则回执另有 `sourceSha256`，对应本轮实际解析的文件原始字节。采集计划保存 `ruleSourceSha256`，后续各段沿用同一冻结计划。`replay-api-rules` 返回当前 `sourceSha256`、归档中的 `recordedSourceSha256` 和 `matchesRecordedRules`；相同版本名但内容改变时匹配值为 `false`，旧档没有摘要时后两者为 `null`。规则加载失败时摘要为空，不中止独立的原包归档；文件修改仅影响下一轮加载。
 
 `api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。当前文件只包含已验证的小型 API 预置，KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
 
 文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，合作采集和 JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。
 
-`replay-api-rules` 支持单段导入及最多 128 个连续已提交的 API 跟随段。默认使用 `grouped` 两组预置，可用 `by-category` 切为五类细分。`--offset` 是从零开始的线索偏移，`--limit` 默认为 25，范围 1–100。使用上一页的 `nextOffset` 继续。返回段号、块号、原始序号、记录及原包偏移。后续段无法核验时返回 `verified-prefix-only` 和退出码 `6`。报告将采集覆盖标为 `unknown`。 `presetSet` 表示实际求值版本；`recordedPresetSet` 表示采集计划声明的版本，旧档可以为空。
+`replay-api-rules` 支持单段导入及最多 128 个连续已提交的 API 跟随段。默认使用 `grouped` 两组预置，可用 `by-category` 切为五类细分。`--offset` 是从零开始的线索偏移，`--limit` 默认为 25，范围 1–100。使用上一页的 `nextOffset` 继续。返回段号、块号、原始序号、记录及原包偏移。后续段无法核验时返回 `verified-prefix-only` 和退出码 `6`。报告将采集覆盖标为 `unknown`。
 
 匹配行可附带 `behavior`（规则 ID、证据级别和释义），沿用该行原包坐标。例如明确记录 `WriteProcessMemory` 返回失败且状态为 `ERROR_ACCESS_DENIED` 时，证据级别为 `reported-api-return`，仅解释 API 报告的访问拒绝，不确认目标实例、写入量或调用意图。缺返回字段或状态不匹配时省略 `behavior`。
+
+`network-capture` 用 `process identity query --pid PID --json` 返回的创建 FILETIME 锁定已授权的本机进程。采样时长为 100–60,000 毫秒，最多保存 256 条回环流元数据。系统必须接受指定 PID 和事件的 ETW 筛选。归档核验完成后，用 `records` 返回的 `recordSequence`、`recordOffset` 及采样 ID 调用 `archive inspect SAMPLE_ID raw 1 network SEQUENCE RECORD_OFFSET`。记录的 `payloadState` 为 `metadata-only`，`bytesHex` 为空，采集覆盖为 `unknown`。
 
 `memory watch` 单次运行只持有目标进程的查询、读取和等待权限。请用 `process detail basic query --pid PID --json` 核对 `creation-time`。单次可读 1–65536 字节、2–64 份快照。相邻读取至少间隔 10–1000 毫秒，默认采样 20 次、间隔 100 毫秒。身份不匹配、读取失败或发现映射变化时结束观测。返回的区间为相对起始地址的字节偏移，未显示的区间另计数量。写入来源与执行状态为未知。同属性重建或在两次读取之间写入并复原的内容可能漏过。命令无需驱动或目标 Agent。
 
@@ -207,11 +229,82 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `memory stream` 使用同一只读范围和身份检查持续交付结果。`stop`、输入结束、目标退出或来源错误都会结束采样。`summary.inputIssue` 保存输入诊断和可用的字节偏移。输出暂时阻塞时保留一帧，并继续接收停止指令。stdout 断开或写入超时会停止采样，并在 stderr 输出 `memory-stream-output-unavailable`，进程退出码为 `3`。`--interval-ms` 设定两轮之间的最短等待，归档由调用方负责。
 
+`memory snapshot` 要求已有项目，使用 PID 与 `--creation-filetime` 冻结同一真实进程句柄，最多覆盖 64 页，只读一次，不暂停目标。没有 `--sample` 时按项目当前修订新建采样；指定已有采样时只追加新的 `raw-memory` 段，不覆盖 API/ETW 的 `raw` 主流。`--title` 只用于新采样。各页保存读前后映射、QPC 窗口、实际成功原字节及 SHA-256；失败或取消保留部分结果，缺失范围不填零。完整范围退出 `0`，部分范围退出 `6`，身份或存储错误退出 `3`。`plan.target.machineId/bootId` 为单次采集 UUID 作用域标签，不表示跨采集验证的系统身份。读取属于 live 非原子快照，不表示停点或完整进程 Dump。
+
+`memory read` 在安全项目路径内从第一段到指定段核对连续序号、完整段封装、计划、页次序、字节散列及尾记，返回 `raw-memory` 段号与每页 `recordSequence/recordOffset`、`validLength`、失败页数量、QPC、整段 `sha256` 和 `completeRange`。`memory export` 只从同样已核验的归档取字节；默认导出完整所选范围，也可同时提供 `--base/--bytes` 导出被完整覆盖的子范围。跨不可读页或尚未访问页的范围直接拒绝，且不创建输出。输出父目录必须已存在，文件以新建方式打开，已有文件不覆盖；结果给出有效长度、导出文件 SHA-256 及来源段 SHA-256。
+
+这里的 CRC／SHA-256 核验只证明归档内容完整及本次读取一致，不能认证外来文件的历史生产者。历史 `plan` 中的身份仅作证据说明，不能据此取得活进程句柄、停点令牌或控制权。存储格式见 [显式选中内存采样 v1](../schemas/action_analyze/selected-memory-v1.md)。
+
+回读同时兼容原始计划与带可选 `readContext` 的计划，原样保留读取来源、阶段、错误及前后停点历史身份。`heldAtBothChecks` 与字节范围的 `completeRange` 分别报告；历史持有停点失效不会被改写成实时读取。带上下文的实时读取不允许携带停点令牌；声明两次均持有时，前后完整令牌必须相同且目标匹配计划。
+
 两条命令的 `--observe-threads` 默认关闭。`track` 的 `data` 以及 `stream` 的 `start.data`、`summary.data` 用 `threadObservationEnabled` 报告是否启用。启用后，一轮内至少有一个页产生已核验的 `content`，才会使用原进程句柄附加 `round.threadObservation`（JSONL 中为 `round` 帧的 `data.threadObservation`）。部分读取、读后映射变化或散列失败时，`returnedBytes` 仍可用于诊断，不能代替 `content`。线程观察字段与 `watch` 相同。关闭、无已核验内容或轮次被终止时该字段为 `null`；正常完成的末轮仍按采样处理。停止、取消、退出和背压期间仅检查状态时，不补采线程。线程快照有独立时间窗，可能漏掉短命线程；不装载驱动、不修改或挂起目标，也不证明谁写入、哪个线程曾执行或命中停点。
 
 `round.previousThreadObservationRound` 是前一次实际尝试线程快照的内存轮号，与 `ordinal` 编码一致。首次、关闭或本轮未尝试时为 `null`。前一次快照可能有读取缺口，须查看所指轮次的 `snapshotStatus`；跳过的内存轮不更新这个编号。枚举失败而目标仍在运行时，保留已有线程句柄供后续确认退出，但失败轮不作为判断新线程的完整基准。
 
-`breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。单目标模式接受明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内。两种模式均不支持 WOW64、PDB 或 R0，异常退出后不保证恢复。
+`breakpoint session` 是独立活会话。启动模式接受明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。附加模式接受已运行目标的精确 PID、创建 FILETIME 与明确私有地址。最初的 `hello` 只报告启动或附加提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止目标。武装前的执行不在覆盖内。均不支持 WOW64、PDB 或 R0，异常退出后不保证恢复。
+
+已有进程的私有地址及模块执行入口：
+
+多实例执行集合的正式命令、站点格式和完整成员票据见[执行断点集合](cli/action-analyze-execution-group.md)。AAIM1 内存生命周期的只读范围目录、分页和显式草稿见[私有执行范围候选](cli/action-analyze-execution-candidates.md)。
+
+执行集合另支持 `pause execution/N all|selected TOKENHEX[,TOKENHEX...]`／JSONL `control.pause`：在各成员原执行 owner 内主动暂停，冻结完整 `pauseToken`，全部预核对后逐项提交；独立保留暂停回执。精确 `ManualPause` Held 可继续，本批拒绝步进，不能以创建执行绑定冒充主动暂停。参数及完整包络见上述执行集合文档。
+
+执行集合的全体／所选暂停和继续支持 Held／Armed 混合状态。新 JSONL `expected.sessions` 携带完整 `{owner,control}` 成员表，兼容旧 `expected.stops` 完整令牌列表；REPL新增可回传的 `replSessionToken`。全批身份先核验，Pause保留精确Held并记`already-held`，Continue跳过明确运行成员并记`already-running`；每项单列 `actionAttempted`／`disposition` 和原回执，未知或恢复失败拒绝且不清账。
+
+```text
+KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME --address 0xADDRESS --confirm --disposition resume-detach --input repl
+KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME --address 0xPAGEBASE --range-bytes 4096 --confirm --disposition resume-detach --input repl
+KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME --attach-image --module C:\Target\module.dll --rva 0xRVA --confirm --disposition resume-detach --input repl
+KswordCLI.exe analyze breakpoint session --pid PID --creation-filetime FILETIME --address 0xADDRESS --watch-write-bytes 8 --project PROJECT --confirm --disposition resume-detach --input jsonl
+```
+
+`--attach-image` 用于已有进程的普通模块执行断点：提供绝对 `--module` 路径，以及二选一的 `--export` 精确PE导出或非零 `--rva`。该模式核验实际实例和已加载映像位置，不创建目标或合作Gate，不修改页保护，不能与私有地址、NX范围或写关注混用。命中后沿原owner执行条件、继续、步进、内存及执行归档，`targetMode=attached-image-execution`；没有PDB符号解析。Qt／Light写入停点页的“已有模块导出执行关注／已有模块RVA执行关注”使用同一路径。
+
+已保存定义可使用 `--attach-image --module PATH --definition UUID --project PATH`，与 `--rva`、`--export` 互斥。定义来自本轮真实采样的冻结配置，须已启用、使用非零 RVA，且模块文件名匹配；当前不接调试符号或固定映像散列定义。`hello.executionArchive.breakpointDefinitionId` 保留实际定义来源。读取旧项目定义只准备新活会话，不导入历史停止令牌。
+
+已经武装且正在运行的单目标会话支持 `pause PID CREATION_FILETIME`；JSONL 使用 `control.pause`，带当前 `session`、独立连续 `pause/1` 起的 `requestId` 和 `params:{"targetPid":123,"targetCreationFileTime":"..."}`，不带 `expected`。沿同一个原生 owner 请求中断，不创建第二个调试附加。接受请求只表示等待事件；`armedPause.state` 区分 `pending`、`held`、`preempted`、拒绝和恢复失败。`pause-status pause/N` 或 `control.pause.query` 的 `params:{"requestId":"pause/N"}` 查询原暂停回执。该查询使用普通查询ID，不占 `pause/` 空间。
+
+实际主动停止显示 `stopReason=manual-pause`，保留当前停止组和完整票据，用原 `continue STOP_ID STATE_REVISION` 恢复。手动暂停不应用断点条件、不生成执行证据，本批不提供在中断线程上的单步；完整 Held 可读内存，关闭仍清退原绑定。真实断点抢先时保留真实命中及暂停请求的独立状态，不将它改名为手动暂停。该新增链路未构建、未实测。
+
+NX执行会话持有当前完整停点后，可用 `execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION` 显式纳入新范围。四项均冻结于请求，地址、长度及修订使用规范正十进制；地址与长度按4096字节对齐，单段来自同一已提交私有分配，允许多段不连续或属于不同分配，全部范围合计最多64页，重叠拒绝。操作保留原停点，不自动继续，也不改写初始 `binding.address/rangeBytes`。`binding.executionRanges` 列出成功范围，`control.executionRange` 保留新增、回滚、阶段和错误回执。
+
+JSONL方法为 `control.execution.range.add`，请求带当前session、独立连续 `range/1` 起的requestId、`params:{"address":"...","bytes":"..."}` 与 `expected:{"stopId":"...","stateRevision":"..."}`。重放窗口128条，冲突及过期请求拒绝，不占Continue或Step序号。新增失败只回滚新增页，恢复未确认仍由原Close保留责任。
+
+数值条件使用 `predicate-expr-v3`，旧v1/v2仍可读取。支持字段间比较、括号、`~`、一元 `+`、`* / % + - << >> & ^ |`，按C#优先级解析。例：`(stop.thread.rax & 0xffu64) == 0u64`、`stop.thread.rip >= stop.address`。位运算与比较请明确加括号；无符号加减乘溢出环绕，移位计数取低6位，除零或余零产生 `Unknown` 及 `division-by-zero`，未知寄存器不视为零。原条件假或未知自动继续的策略保持一致。
+
+省略 `--watch-write-bytes` 时设执行关注，地址必须位于已提交的私有 EXECUTE／RX／RWX 区域；提供 1／2／4／8 时设对应宽度的写入关注，地址必须自然对齐且完全落在同一私有 RW／RWX 区域。附加不依赖导出符号、目标握手或父子关系；`--exe`、`--module`、`--export`、`--rva`、两种指针导出参数和双目标模式不能与附加选择器混用。回执 `targetMode=attached-private-address`，默认单地址绑定 `siteKind=private-address-execution` 或 `private-address-write`，冻结地址与区域属性。两种单目标模式均支持原条件和单步；写入模式可在真实停点读取、保存内存并采集同采样 API，Into 真正完成后的执行观测也可保存。新线程通过同一原生 owner 登记，关闭使用原恢复账本；默认单地址DR0不修改区域保护，检测到映射属性变化会清退，不自动重绑；同址同属性的分配代次仍未知。此新增入口尚未实测。
+
+`--range-bytes` 显式选择私有NX执行范围，与写关注互斥；起点及长度必须按4096字节对齐，并由原生owner接纳实际范围。示例4096表示整页关注。该机制临时撤去执行权限，保留原读写权限，关闭时恢复原保护；不占用DR0。绑定返回 `siteKind=private-page-execution`、`rangeBytes` 与范围起点，命中返回实际页内RIP，二者不必相等。Continue沿原生TF推进并重新设防后再释放同伴；推进不支持或恢复失败时保留真实停止责任及诊断。NX命中可保存为执行进入尝试，内部重新设防TF不会冒充用户单条指令完成。新增范围入口未构建、未实测。
+
+单目标写入关注也接受 `--condition`，例如 `stop.data.changedByteMask != 0u64 && stop.thread.rax == 0u64`。写入字段仅在实际写入观测中存在；`stop.thread.rip`、`stop.thread.rax`、`stop.thread.rsp` 来自原生 owner 在该事件暂停时采集的同一命中线程快照，并在 `control.registers` 分别投影为 RIP 地址、RAX 无符号十进制字符串与 RSP 地址；线程身份同时保留。采集失败为未知，已采集的零值仍为已知。假或未知走原自动继续，普通单步停点不重新求值；执行入口条件引用写入字段时也保持未知。新增寄存器与写入条件接线尚未实测，旧“RAX 未采集”的用例不代表本次采集行为。
+
+单目标执行或写入停点可带 `--project PATH` 打开已有项目，整个会话持有独占项目写租约。没有 `--sample` 时从当前已提交配置新建真实采样；指定 `--sample UUID` 时复用项目内已登记的采样，该采样成为原生 owner 的 `sampleId`。启动或附加前核对 `raw-native` 实际目录和全部已有段，缺段、坏尾、散列或序号失败均拒绝启动，不能抢占其他 writer。`hello.executionArchive` 返回项目、采样、下一段号和上限。写入停点可读写内存归档，但只有实际执行观测才能执行 `execution-save`；合作双目标模式暂不接受此参数。不带项目时继续保留一次性会话行为。
+
+REPL 使用 `execution-save STOP_ID STATE_REVISION` 显式保存当前仍持有的原生执行观测，不自动继续。JSONL 使用 `control.execution.save`，`params` 必须为空对象，并携带当前会话 `session:{id,epoch}` 和精确 `expected:{stopId,stateRevision}`；修订以规范正十进制字符串表示。保存时在同一 CLI 串行控制线程重新查询活 owner，仅接当前执行进入尝试或原生 Into TF 单指令完成观测。相同原生事件重复保存返回原归档坐标，不新建段。每会话最多保存 4096 个事件，去重内存保持有界，后续会话可核验旧段后继续追加；失败返回原始 `raw.written/raw.flushed`、状态和错误，阻止该会话后续追加，不跳段掩盖部分写失败。
+
+项目单目标会话提供 REPL `api-capture PID FILETIME DURATION confirm`，或 JSONL `control.api.capture`：携带当前 `session`，不带 `expected`，`params` 只含 `sourcePid`（UInt）、`sourceCreationFileTime`（规范正十进制字符串）、`durationMs`（UInt，1000..10000）、`confirm:true`。显式来源必须是另一进程实例，不得使用当前原生目标；调用前从原 owner 的 Query 实读目标 PID，来源 PID＋FILETIME 再由既有显式 R3 附加控制器核对。不从关联候选自动选进程，也不默换采样。
+
+该命令在原 CLI 控制线程同步完成有限采集，**采集区间最长 10 秒，启动与停止排空超时另计**，期间其他控制指令等待完成后处理；不支持 duration=0。原 debug 线程独立保留已有停点，API 清退只停止 API，不 Continue/Close 原生 owner。复用同一个项目 writer 和实际 sample 的冻结修订，不创建第二 writer、项目、采样或 owner，不订阅 Agent ETW。只允许首次使用 primary API lane：`raw` 或 `checkpoints` 目录已存在时（含空目录、坏尾、缺标记）由核心以 `apiCaptureLaneAlreadyUsed` 拒绝，不覆盖、补写或跳段。
+
+实际采集尝试用 response 返回独立 `exitCode/status`、来源与原 capture、`archive.archivedPackets/committedSegments`、已提交前缀、规则文件 SHA、三类 transfer 累计计数和清退状态；参数/会话拒绝为 error。归档前缀成功不代表原采集完整，部分结果保留真实原码，错误不锁死 native/memory lane。API 回调不隐式保存原生证据，完成后需另显式 `execution-save`。同采样只表示存储作用域一致，四项来源/区域版本/因果/共同钟保证仍为 false；本入口仅完成源码接入，旧验收不覆盖，未构建、未测试。
+
+`analyze execution read` 返回核验后的历史 `document`、`sha256`、`endOffset/blockOrdinal/lastSequence` 和 `raw-native` 段坐标；按链从第 1 段读至请求段。不将历史文档反序列化成活控制对象，归档中的停止 ID 不授予继续或步进权限。
+
+`analyze execution map` 分别从首段核验 API 与原生链，只接受精确 `NtMapViewOfSection` 的 Accepted 记录，要求 Actor/Target/Stable/MappedBase/MappedBytes 有效且实际范围无溢出；实际 `instructionAddress` 必须落在同目标进程代次的 `[mappedBase, mappedBase+mappedBytes)` 中。输出 `mapping/native` 原坐标、两段 SHA、原 observation、实际/请求范围、可选 sectionOffset、句柄原位及各自原时钟；缺失请求有效位时对应值为 null，不用请求范围代替实际输出。`sourceAuthenticated/regionVersionVerified/causalityConfirmed/commonClockVerified/writeObserved/aliasPropagationVerified` 均为 false：不要求写入、不凭节句柄推定别名身份、不跨 QPC 排序、不建立强执行因果，也不访问进程。零匹配为成功空页，`nextAfter` 仍沿 API 观察分页；任一链读取失败整个查询失败，不发布部分候选。
+
+上述项目单目标会话还支持 `memory-snapshot BASE BYTES STOP_ID STATE_REVISION`；JSONL 为 `control.memory.snapshot`，`params:{base,bytes}` 两值均为规范正十进制字符串，携带当前 `session` 与精确 `expected:{stopId,stateRevision}`。先核对界面显示的停止 ID 和修订，再冻结该活 owner 的完整事件令牌，读取核心在读前/读后再次查询同一个 owner，要求完整停止组；不创建第二个 owner，不继续或暂停目标。复用当前项目独占写租约和实际采样，不创建第二个 project writer。
+
+启动时同步核验一次完整 `raw-memory` 前链，后续每次显式读取用已核验游标追加新段，最多每采样 4096 段、每次范围最多覆盖 64 页。同一原生事件内可重复读取不同时间或范围，不按执行事件去重。响应保留完整 `readContext`、实际归档字节数、页元数据/散列、整段 SHA-256、原始写入/刷盘回执及页坐标；缺页不填零，结果 `exitCode:6` 表示范围不完整或停止状态改变，会话继续保留，等待调用方决定下一步。写入、刷盘或回读失败保留首次回执并只阻断 `raw-memory`，不误阻断 `raw-native` 保存。历史字节读取和导出复用 `analyze memory read/export`，停点上下文仍只是历史证据。
+
+`analyze execution correlate` 复用已核验的 API 图页及指定原生历史段，逐个把创建候选的原始坐标对应到该页创建记录，再比较目标 PID＋创建 FILETIME、创建返回线程 TID＋创建 FILETIME，以及原生实际指令地址是否位于实际完成写入的 `[writtenAddress, writtenAddress+writtenBytes)` 范围。返回 `candidates`、写入/创建/原生三份原坐标、原生与 API SHA-256、原生实际观测种类、各自原始时钟及截断/淘汰限制；`nextAfter` 沿用 API 原始观察分页游标，空候选页也可能有下一页。任一链核验失败时整个查询失败，不发布部分成功关联。`sourceAuthenticated/regionVersionVerified/causalityConfirmed/commonClockVerified` 均保持 `false`：没有共同启动期时钟证明，不比较两路 QPC 的先后，也不据此反推整条注入已确认；此命令只读归档，不访问进程。
+
+APC 对应的输出单列为 `apcCandidates`／`apcCandidateCount`，输入窗口用 `apcTransferCandidateCount`、`retainedApcTransferCandidates`、`apcTransferCandidatesTruncated` 报告。核对请求目标线程 TID＋创建 FILETIME，并额外要求实际 `instructionAddress` 等于 `requestedRoutineAddress`；进入尝试和 Into 完成观测保持原阶段，不用下一 RIP 代替例程入口。每项保留写入／入队／原生三份坐标、原生 SHA 和两路原时钟。`queueOutcome` 仍只为接受，`delivery=null`，上述四项声明仍为 `false`；即使同线程在例程入口实际停住，也不能据此确认通过 APC 投递到达。新增关联尚未构建或实测。
+
+上下文一致性结果独立输出为 `contextCandidates`／`contextCandidateCount`，窗口计数使用 `contextTransferCandidateCount`、`retainedContextTransferCandidates`、`contextTransferCandidatesTruncated`，沿用同一 API 页的 `after/limit/nextAfter`。请求端按原始坐标精确定位本页已核验上下文记录，再交核心匹配；每项保留 write/context/native 三份原坐标、原生 SHA、请求 IP/SP/架构及两路原时钟，四项声明仍为 `false`，`contextApplied=null`。请求 IP 和 API 接受结果不自动代表实际执行、上下文已应用或活控制资格；不访问目标、不比较跨源 QPC，任何读链失败均不发布部分候选。新增上下文关联仅源码接入，未构建、未测试。
+
+`analyze execution memory` 分别从第 1 段核验 `raw-native` 和 `raw-memory` 到请求段号，再由共享核心核对项目/采样、进程 PID＋创建 FILETIME＋processInstanceId，以及内存 `readContext` 的 held-event 读前/读后完整令牌与原生执行的 event/group/stop/revision。只取 `instructionAddress` 起请求字节，不使用 `nextInstructionAddress`；不回退到旧 live-read 或 changed-held 结果，不访问目标进程。
+
+成功回执包含 `observation`、`instructionAddress`、`bytesHex`，以及两条 lane 的段号、段 SHA-256、端点、执行记录 sequence 和参与字节提取的内存页 sequences；保留原始执行 `document` 和内存 `plan` 身份。`heldAtBothChecks` 为 true，`bytesAtExecutionVerified/allocationGenerationVerified/sourceAuthenticated/instructionDecoded` 均为 false。这仅说明同一历史停点持有期间读取到了这些内存字节，不证明 CPU 取指当时的字节，也不表示已解码完整指令；两路 QPC 不比较。任一链或匹配失败均退出 3，不返回部分 `bytesHex`。
 
 `--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，保留原始 `endReason`（`requested`、`failed` 或 `member-ended`）和已经取得的继续回执。`members[].exitCode` 来自启动时取得的进程句柄；未观察到退出时为 `null`，即使调试清退已确认。
 
@@ -221,15 +314,67 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 JSONL 输入沿用 `schemaVersion`、`requestId`、`method`、`params` 包络，支持 `control.query`、`control.continue`、`controller.shutdown`，三者的 `params` 均为空对象。继续须提供 `hello` 的 `session` 和 `expected` 中的 `stopId`、`stateRevision`，后者为十进制字符串。继续请求 ID 从 `continue/1` 逐次递增，最近 128 个继续 ID 可重放，窗口外返回 `release-replay-expired`。后端滚动保留至多 64 个停点，不淘汰未清退责任。两种输入均输出独立的 JSON 行，`hello`、`response`、`error` 或 `summary` 保存会话和传输序号；有原生清退责任时不会报告 `clean=true`。
 
+单目标执行停点会话另提供原生步进。`originThread` 给出当前冻结触发线程的 `threadId`、数值 `tid` 和十进制字符串 `creationFileTime`。REPL 使用 `step into|over-call|out STOP_ID STATE_REVISION THREAD_ID TID CREATION_FILETIME`；原停点被继续后，由原生所有者在完成或中断处登记新停止组。必须查询新令牌后才能再次步进或继续。原执行断点的条件不自动放行普通步进停点；若提前再次命中原断点，则仍按该断点条件判断。合作双目标组和数据写入停点不提供本轮步进入口。
+
+单目标 `--watch-write-bytes`＋`--watch-pointer-export` 会话另提供显式同址转执行：REPL `execution-follow ADDRESS STOP_ID STATE_REVISION`，地址与修订均为规范正十进制；JSONL `control.execution.follow` 携带当前 `session`、仅有 `address`（规范正十进制字符串）的 `params` 和精确 `expected:{stopId,stateRevision}`。请求 ID 从 `follow/1` 连续递增，与 `continue/N`、`step/N` 分开，最近 128 条可重放；同 ID 改参数拒绝，窗口外不重新执行，通过形状和序号核验的过期停点请求也消费该 follow 序号。`hello.followProtocol` 说明协议，其他单目标模式该项为空。
+
+先 Query 核对 `breakpoint.privateExecutionFollowAvailable`、实际原地址与当前完整写入停点。协议重新核验同一活 owner、sample/session/epoch、HeldComplete 和精确 stop/revision/address，核心再核验最初冻结的 RWX 私有区域起点、各活线程强身份及 DR 状态并处理失败回滚；不从历史或候选补目标。操作只将同址硬件写关注改为执行关注，不改变页保护，不 Continue 或 Step，原写入命中和停止组仍保留写入语义。`control.executionFollow` 分别报告 `converted`、`rollbackComplete`、原 stop/revision、阶段和 Win32 错误，`continued` 固定 false；核对结果及当前停止令牌后由用户另显式继续，后续真实执行命中才属于执行观测。`executePointerExport` 沿用实际绑定字段，不因提交 follow 就将旧写入证据改成执行证据。本入口仅源码接入，旧 step/写关注验收不覆盖；本端未构建、未测试。
+
+JSONL 使用 `control.step`，`params` 必须正好包含 `mode`（`into`、`over-call` 或 `out`）、`threadId`、数值 `tid`、十进制字符串 `threadCreationFileTime`，并携带同一活会话 `session` 与 `expected:{stopId,stateRevision}`。请求 ID 从 `step/1` 连续递增，与人工继续的 `continue/N` 序列独立。相同 ID、相同参数返回原提交回执，参数冲突被拒绝；最近 128 次请求可重放，窗口外返回 `step-replay-expired`，不会重新执行。通过形状和序号校验后的过期停点请求也消耗该次 step 序号。查询与取消使用 `control.step.query`、`control.step.cancel`，均携带 `session` 和 `params:{requestId:"step/N"}`，不提供 `expected`；本次包络的请求 ID 使用普通独立 ID。REPL 对应 `step-status step/N`、`step-cancel step/N`。
+
+`control.step` 的提交响应不代表执行已完成。随后通过查询读取 `step.state`、`stage`、原生错误、起始和观察到的 IP/SP、目标地址、强线程身份、新停止组及 `resourcesRestored`。取消请求异步交给同一原生所有者，待 `cancelled` 或其他终态及新停点回执后再决定继续；退出和关闭同样先归还本次步进的寄存器及挂起责任。当前模式只接受原生实现支持的已知指令和帧：调用步过针对已识别的调用指令，跳出限可核验返回位置；未知指令或无法证明的帧会被拒绝并保留原停止责任，不作猜测式运行。`hello.stepProtocol` 为该入口的协议说明，数据写入模式为空。
+
+`status` 与 `control.query` 在真实持有原生事件时另给出 `execution` 执行观测，只能由同一原生所有者回读适配器生成。`kind=execution-enter-attempt` 表示 DR0 执行断点的进入尝试，`instructionAddress` 为该断点地址；`kind=instruction-completed` 表示一次 `into` 模式的单指令 TF 已完成，`instructionAddress` 是真实完成的那条指令起点，`nextInstructionAddress` 是回读到的下一 RIP。仅 `into` 完成、且 `resourcesRestored`、观测事件、新停止组和强线程身份与当前停点一致时才给出该结论；调用步过、跳出、取消、数据写入停点、线程创建 API 入口和旧步进票据都不产生该字段。`observedQpc` 是所有者观察到该事件的时刻，`qpcFrequency` 为其频率；该时刻不是 CPU 精确取指时刻。
+
 显式 `quit` 或 `controller.shutdown` 会停止自动条件求值，等待原生清退。当账本确认上次释放尚未调用 `ContinueDebugEvent` 时，本次关闭最多自动重试一次。清退成功后输出 `summary`。若责任仍未解除，CLI 返回带本次请求 ID 的 `response`，保留会话，可用 `status`／`control.query` 读取状态或重新请求关闭。
 
 写入停点使用 `--watch-write-bytes 1`、`2`、`4` 或 `8`，配合 `--export` 选择 EXE 中同宽对齐的可写数据导出。`breakpoint.watchedBytes` 给出已请求的硬件关注宽度。绑定时读取基线，收到原生写入事件后比较同一地址区间，存在实际变化时保留停点。`hit.changedByteMask` 第 0 位对应导出地址的首字节，表示本次快照与基线的差异。`hit.tid`、`threadId` 和 `threadCreationFileTime` 来自冻结的触发线程，继续后仍可核对。`enrolledAfterStop=0` 表示首次停点前已登记，大于 0 表示在相应停点之后登记。继续和关闭沿用同一原生账本。写入模式与 `--module`、`--rva`、`--condition` 互斥。
+
+追加 `--watch-pointer-export` 后，`--export` 指定完整、8 字节对齐的 AMD64 指针数据导出，实际关注其指向的 1／2／4／8 字节私有可写区间。目标先初始化指针，对继承参数 `--ksword-breakpoint-ready HANDLE` 调用 `SetEvent`，随后从 `--ksword-breakpoint-gate HANDLE` 读取一个字节；只在收到 `'1'` 后进入业务，EOF 表示启动已取消。宿主观察实际硬件绑定为 Armed 后才写入许可。Ready 只表示目标已初始化，不代表停点已武装。此模式与直接数据导出模式分别选择，不自动等待一个未声明的动态地址。
+
+间接绑定的 `breakpoint.siteKind` 为 `private-pointer-export`，`address` 为实际关注地址；另列 `pointerExportAddress`、`allocationBase`、`regionBase`、`regionBytes`、`regionProtection`。收到写入停点时核对指针、提交状态和区域属性；观察到改变便清退旧绑定，不静默重绑。`allocationGenerationVerified:false` 表示 Windows 区域查询不提供分配代次，不能排除同一地址在两次观察间释放后原样重用。当前仍是单个对齐硬件区间，不表示整页、任意长度、跨区范围或新分配自动传播已经完成。Qt／Light 写入停点页提供同一绑定方式选择，当前仅源码接入，桌面实测后置。
+
+`--execute-pointer-export` 显式选择私有可执行位置。`--export` 指定 EXE 的完整、8 字节对齐 AMD64 指针数据导出，指针目的地址必须位于已提交的 `MEM_PRIVATE` EXECUTE／RX／RWX 区域。目标沿用上述 Ready／Gate 初始化协议，宿主确认实际 Armed 后放行；不修改页保护。此开关与写入模式、`--module`、`--rva`、`--cooperative-pair` 互斥。回执 `siteKind=private-execution-pointer-export`、`executePointerExport=true`，`address` 是实际 DR0 执行位置，`pointerExportAddress` 是选择器。命中表示 `execution-enter-attempt`，不能直接当作该指令已完成；显式 Into 的完成回执另行记录。指针或冻结区域属性变化时清退，不自动重绑、不确认分配代次。单目标条件、步进及 `--project` 的原生执行／内存归档入口沿用同一 owner。此新增入口目前仅源码接入，尚未构建和运行验收。
 
 回执的 `stopGroup` 提供冻结成员的修订和散列、持有与待恢复状态、线程计数及附带集合质量。`held-complete` 表示当前合作子进程中已知的冻结成员均受本次停点覆盖。继续仍使用活 `stop` 中的 ID 和修订，已结束的组保留为历史回执。
 
 `--condition EXPR` 在启动子进程前编译 C# 风格表达式。整数常量使用 `u64` 后缀，例如 `--condition 'stop.tid > 0u64 && stop.thread.creationFileTime > 0u64'`。条件匹配后保留真实停点及原继续令牌。结果为 `false` 或 `unknown` 时自动继续。可用字段包括 `stop.address`、`stop.exceptionCode`、`stop.firstChance`、`stop.pid`、`stop.tid`、`stop.thread.rip` 和 `stop.thread.creationFileTime`。异常信息取决于停点快照；线程 RIP 和创建 FILETIME 来自同一冻结停点，类型均为 `u64`。创建时间无法核验时保持未采集。`stop.thread.rax` 仍未采集。`status`、`control.query` 和结束回执提供表达式、判定计数及最近一次判定和释放结果。自动继续不消耗调用方的 `continue/N` 请求序号。
 
 ActionAnalyze 不使用 Sysmon 作为数据源。原 `analyze sysmon-thread-create` 及其 `follow`、`archive`、`replay` 子命令已移除，不再查询、订阅、归档或专用回放 Sysmon 事件。旧项目文件按原样保留，可查看通用项目描述和 Stored 封装；对完整的旧 Sysmon 段执行 `archive inspect SAMPLE_ID raw ORDINAL graph` 返回 `project-unsupported`（`graphArchiveSource`），不返回证据行。
+
+#### 进程集合活会话
+
+`process-group session` 使用现有的精确 PID 和创建 FILETIME，以 `--confirm --disposition resume-detach` 确认本轮授权；创建时间取 `process detail basic query --pid PID --json`。仅支持 R3 的原生 AMD64 自有目标，不自动加入子进程或系统目标。配置阶段只核对并固定真实存活实例，不暂停；每次实际 Pause 再由原生所有者检查 AMD64、同用户／会话和其它原生准入条件。配置成功不代表后续附加一定获准。暂停按成员依次提交，集合状态不表示原子同时停止；查询实际 `members[].control` 与可继续的 `members[].stop`。
+
+可选启动参数 `--project PATH [--sample UUID]` 在创建原生控制组前打开已有项目并取得项目单写租约。指定 `--sample` 时固定该项目中已有采样及其原配置快照；省略时按项目当前已提交修订新建采样。仅提供 `--sample` 而没有项目会拒绝，不在活会话中切换项目或采样。`hello.result.sampleId` 是控制组与内存读取共用的真实采样 ID；`memoryArchive` 显示项目、采样、配置修订、归档通道及可保存 capture 的身份。不提供项目时，原控制与内存读取功能保留，但保存返回 `memory-project-not-bound`。
+
+REPL 支持 `status`／`query`、`pause group/N [all|PID:CREATION,...]`、`continue group/N PID:CREATION:GROUP_ID:STOP_ID:BACKEND_ID:SERIAL:REVISION,...`、`recover group/N`、`close`／`quit`。暂停省略选择或写 `all` 时使用配置全集；显式子集仍须提供原 PID 和创建时间。继续只提交明确列出的完整令牌，不以当前状态补齐字段。令牌的七项依次对应 `target.pid`、`target.creationFileTime`、`groupId`、`stopId`、`event.backendInstanceId`、`event.serial`、`stateRevision`。
+
+JSONL 复用活会话包络，变更须携带 `hello.session`。`control.pause` 的 `params:{}` 选择固定全集；明确子集使用 `params:{"targets":[{"pid":1234,"creationFileTime":"134000000000000000"}]}`。`control.continue` 使用 `params:{}`，并将查询到的完整 `members[].stop` 原值放入 `expected:{"stops":[...]}`；列表可为全集或明确子集。每个令牌包含 `target:{pid,creationFileTime}`、`groupId`、`stopId`、`event:{backendInstanceId,serial}`、`stateRevision`。PID 为 JSON 无符号数，其余 64 位字段为规范正十进制字符串。
+
+暂停和继续共享严格递增的 `requestId:"group/N"`；首个可用 ID 为 `group/1`，保留最近 128 个操作票据。格式合法并到达组层准入的 Pause／Continue 请求，即使因旧令牌、目标不符或状态不允许而拒绝，也固定原请求内容并占用 ID；纠正参数必须使用更大的新 `group/N`。相同 ID、相同动作及同顺序内容返回 `duplicate` 和原始 `operation`，同 ID 换内容返回 `conflict`，窗口外重放不会重新执行。`operation.ledgerResult`、`operation.stage`、`operation.win32Error` 保留首次准入结论，独立于顶层本次重放结论和当前集合状态。`members` 为本次独立回读，`operation.outcomes` 为原始不可变成员回执，两者可以不同；查询不产生动作票据。`control.recover` 用普通独立包络 ID、`params:{"requestId":"group/N"}` 指定原继续票据，不提交新停止令牌或新继续 ID；原 Continue 若被准入拒绝，Recover 返回原拒绝票据和 `readback-required`，不执行恢复。`control.query` 和 `controller.shutdown`／`control.close` 的 `params` 为空对象，无 `expected`。
+
+部分失败保留成功成员的持有状态和失败回执。Continue 在释放任何成员前核验全部所选令牌，旧令牌不会释放新代次。普通暂停的继续会恢复并脱离；下一次暂停使用新的原生所有者和令牌。显式关闭先停止新动作准入，只有 `clean:true` 才输出最终结束回执；未决时保留原会话，只接受查询、按原继续 ID 恢复或再次关闭。EOF、取消或输出断开同样先清退，未决责任仍保留原所有者和项目租约；输入仍可用时继续处理 Query／Recover／Close，实际 EOF 后不凭空建立新输入或所有者。不凭旧会话 ID 在新 CLI 中接管，不承诺所有者死亡恢复。实际验收范围见[进程集合 CLI 回执](action-analyze-planning/process-group-cli.md)，本批项目绑定与显式保存仅源码接入、待验，不扩展原回执范围。
+
+集合活会话另提供 `control.memory.snapshot`。请求必须带当前 `session`，并用普通独立请求 ID（不能使用暂停／继续专用的 `group/N`）：
+
+```json
+{"schemaVersion":1,"requestId":"memory-1","method":"control.memory.snapshot","session":{"id":"HELLO_ID","epoch":"HELLO_EPOCH"},"params":{"source":"live-read","target":{"pid":1234,"creationFileTime":"134000000000000000"},"range":{"base":"0x10000000","length":"4096"}}}
+```
+
+`source` 必须明确为 `live-read` 或 `held-event`。`target` 只能选择配置中的精确 PID／创建时间，`range.base` 接受正十进制或 `0x` 十六进制字符串，`range.length` 为正十进制字符串，单次范围最多涉及 64 页。可选 `params.sampleId` 只用于确认 `hello` 冻结的采样，传入其它采样拒绝，不能借此更换样本。`live-read` 不接受 `expected`；`held-event` 须额外提供 `expected:{"stops":[完整成员令牌]}`，数组恰好一项且目标相同。令牌必须仍是该成员完整持有事件的当前令牌；失败不会回退为实时读取。REPL 对应 `memory-snapshot live-read|held-event PID:CREATION BASE LENGTH [EXACT_STOP_TOKEN]`，令牌格式沿用上述七字段格式。
+
+读取与 Continue／Close 在同一个串行分发线程执行，持有事件方式在读取前后回读原停点，不释放或重建停点。响应保留冻结的 `target`、`range`、`source`、`sampleId` 与读取 `trackingEpoch`；`captureId` 等于本次 `trackingEpoch`，`captureAvailable:true` 表示存在可冻结的实际读取结果。`before`／`after`、`heldAtBothChecks` 和读取状态分别呈现。`snapshot` 返回实际核验的 `capturedBytes`、逐页 `validLength`、系统读取的 `returnedBytes`、失败阶段与错误、映射、SHA-256 及 QPC 时间窗。失败页不填零，不丢弃其它成功页；没有内容时散列为空。`bytesIncluded:false` 表示响应不回显原字节；读取不自动归档。`atomicProcessSnapshot:false` 始终说明这是逐页采样，前后持有停点也不证明外部写入者被冻结。
+
+绑定项目后，显式 `control.memory.save` 保存最近一次已输出的实际 capture。请求带当前 `session`，使用普通非 `group/N` 请求 ID，`params` 严格为 `captureId` 和 `sampleId` 两项，不接受 `expected` 或新的读取范围：
+
+```json
+{"schemaVersion":1,"requestId":"save-1","method":"control.memory.save","session":{"id":"HELLO_ID","epoch":"HELLO_EPOCH"},"params":{"captureId":"DISPLAYED_CAPTURE_UUID","sampleId":"HELLO_SAMPLE_UUID"}}
+```
+
+REPL 为 `memory-save CAPTURE_UUID SAMPLE_UUID`。两项须复制本次已显示读取结果的身份；错采样、旧 captureId 或未读取均拒绝。仅保留最近一次实际读取结果，被准入拒绝的旧令牌读取、参数草稿和 Query 不替换旧结果；成功输出下一次实际读取结果后，旧 captureId 不再可保存。输出进入有界传输队列不代表接收端 ACK；只有明确指认已输出 captureId 的保存请求才触发归档。
+
+保存复用 `WriteProcessGroupMemorySnapshot` 向独立 `raw-memory/N` 追加，完整保留读取时的 Live／Held `readContext`、原始 before／after、失败页和实际成功字节；随后由 `MemorySnapshotReader` 回读核验。保存只消费已冻结字节，不重新读取进程、不使用现在的参数／停点覆盖历史上下文，也不隐式 Continue。同一当前 capture 重复保存返回首次成功回执，不追加第二段；响应提供项目／采样、段号、SHA-256、端点及实际字节长度。写入或回读失败后，`memoryArchive.laneBlocked:true` 阻断本会话通道续写，并保留实际写入／刷盘端点，不覆盖坏尾；启动时发现既有坏尾同样只封锁内存归档，控制与清退仍可用。离线回查／导出继续使用独立 `analyze memory read`／`export` 命令，不能把历史停点当作活控制凭据。本批新增源码尚未构建或实测。
 
 #### 人工会话
 
@@ -258,6 +403,8 @@ quit
 | REPL | JSONL 方法 | 参数和前提 |
 | --- | --- | --- |
 | `open PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS] TITLE` | `session.open` | `params` 含 `projectId`、`pid`、`creationFileTime`、`providerId`、`title`，可选 `durationMs`。顶层填写 `expected.revisionId`，省略 `session`。 |
+| `open PID CREATION_FILETIME api=SESSION_ID ARCHIVE authorized [DURATION_MS] TITLE` | `session.open` | 跟随显式确认授权的本地 API 归档。路径或标题包含空白时用双引号引用。JSONL 通过 `params.apiArchive` 提供路径、源会话及授权。 |
+| `open PID CREATION_FILETIME api+etw=SESSION_ID ARCHIVE authorized [DURATION_MS] TITLE` | `session.open` | 在同一个新采样中跟随授权的 API 归档，并按同一 PID 和创建时间订阅 KSword 自有 ETW 提供程序。JSONL 同时提供 `apiArchive` 和 `providerId:"d4a71ada-81b0-4b15-a173-417f33bc8107"`。 |
 | `status` | `session.query` | 传入 `open` 返回的顶层 `session`（`id`、`epoch`），`params:{}`。用新请求 ID 查询最新状态。 |
 | `findings` | `session.findings` | 使用与 `session.query` 相同的会话包络。含 API 归档的会话只读返回已提交原包的规则累计匹配数及最近坐标（`source:"api-archive-follow"`）；纯 ETW 仍返回 `state:"not-configured"`，不代表检查后未发现。 |
 | `stop` | `session.stop` | 传入顶层 `session`、`expected.stateRevision` 和 `params:{}`。停止 ETW，写入并读回核对原始段。 |
@@ -265,7 +412,13 @@ quit
 
 `pid` 与显式 `durationMs` 是 JSON 整数。**不传 `durationMs` 时持续记录**，无须发送查询驱动采集，回执的计划用 `durationMs:0` 表示没有期限。传入期限时沿用 1,000–120,000 毫秒的有限抓取。`creationFileTime` 和 `stateRevision` 是十进制字符串，Provider 使用不带花括号的规范小写 UUID。`session.open` 冻结本次项目修订并创建新样本。对 stop 和 close 的比较依据是上次报告的 `stateRevision`。机器会话按方法、参数、会话身份和 `expected` 去重。普通请求占满账本后，有效的停止、会话关闭和项目关闭可用预留额度。持续模式的 `session.query` 是不占累计账本的只读状态查询，调用方仍应为每条请求分配新 ID。`controller.shutdown` 可用新请求 ID 直接发起收尾。
 
-`r3` 的 JSONL `session.open` 也可跟随已授权的本地 WinAPI 归档。使用 `apiArchive` 对象代替 `providerId`，提供 `path`（现有 `.jsonl` 的绝对路径）、`sessionIdentity`（非零十进制字符串）和 `authorized:true`。继续传入 `projectId`、`title`、`pid`、`creationFileTime` 和 `expected.revisionId`。可选的 `durationMs` 沿用相同范围。该来源仅提供文件与归档声明的一致性证据。`source.validatedRows` 是已校验的完整归档行数，`archive.recordedRows` 是已提交并回读的原包数，`source.coverage` 为 `unknown`。停止时固定可见文件边界，报告是否到达截止位置和未完成的尾部。 [方法契约](../schemas/action_analyze/live-etw-session.schema.json)
+`r3` 的 REPL 和 JSONL 均可跟随已授权的本地 WinAPI 归档。JSONL 使用 `apiArchive` 对象代替 `providerId`，提供 `path`（现有 `.jsonl` 的绝对路径）、`sessionIdentity`（非零十进制字符串）和 `authorized:true`。继续传入 `projectId`、`title`、`pid`、`creationFileTime` 和 `expected.revisionId`。可选的 `durationMs` 沿用相同范围。该来源仅提供文件与归档声明的一致性证据。`source.validatedRows` 是已校验的完整归档行数，`archive.recordedRows` 是已提交并回读的原包数，`source.coverage` 为 `unknown`。停止时固定可见文件边界，报告是否到达截止位置和未完成的尾部。 [方法契约](../schemas/action_analyze/live-etw-session.schema.json)
+
+混采的 `source`、`archive` 和 `rules` 仍描述 API；`etw.source`、`etw.archive` 单独报告原生统计、队列丢弃与已提交水位。API 保留 `raw`，ETW 写入 `raw-etw`、`records-etw` 和 `checkpoints-etw`，两路段号和原始序号各自递增。历史 `sample status SAMPLE_ID capture ORDINAL` 一次返回该段号在两路的独立校验结果，并不表示同号段覆盖同一时间。用 `archive inspect SAMPLE_ID raw-etw ORDINAL graph` 回查已提交的混采 ETW 观察；API 仍使用 `raw`。历史 API 行可能早于 ETW 订阅，两路共同归档不证明全量覆盖、时序对齐或因果关系。ETW 只有目标实际发出该提供程序的事件时才会有观察。
+
+被动 API 会话的 `readiness.state=attached` 对应同一冻结身份下的历史 `HooksInstalled` 声明。`observed` 对应至少一个匹配的普通 API 原包已经通过归档回读及检查点发布。`firstRaw` 给出段号、原始记录序号和源行号。`stopped-no-match` 表示正常读完停止边界且无匹配。读取或存储中断时分别报告 `source-interrupted` 和 `archive-interrupted`，保留此前发布的坐标。生产连接仍由 `source.diagnosis.producerConnection` 表示，被动来源为 `unknown`。
+
+开始跟随时，`plan.rulePresetSet` 冻结细分预置版本。每段回读并发布检查点后，自动对本段分类线索求值。`rules` 返回累计命中、末次命中的规则 ID 和原始坐标，采集覆盖为 `unknown`。求值失败单独报告 `evaluation-failed`，此前命中和已提交原包仍可回查。停止后使用 `analyze replay-api-rules --profile by-category` 对账。
 
 `source.state=running` 表示工作线程已提交 `ProcessTrace` 调用。`source.startupAbort` 记录快速停止时明确跳过的调用阶段。`source.tailDeliveryUnconfirmed=true` 表示无法确认收尾阶段的完整交付，采样状态为 `partial`。原生错误码、系统丢失和本地队列丢失分别报告。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
@@ -313,6 +466,7 @@ R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项�
 | `sample.create` | `projectId`、`expectedRevisionId`、`title` | `sample create TITLE` | 采样详情 |
 | `sample.list` | `projectId`，可选 `generation`、`start`、`limit` | `sample list [START GENERATION [LIMIT]]` | `projectId`、`generation`、`start`、`sampleCount`、`nextStart`、`samples` |
 | `sample.query` | `projectId`、`sampleId`，可选布尔值 `includeCapture`，启用时可选 `captureOrdinal` | `sample status SAMPLE_ID [capture [ORDINAL]]` | 采样详情，可按需核验 ETW 或被动 API 跟随归档 |
+| `api.detail` | `projectId`、`sampleId`、`ordinal`、`recordSequence`，可选 `expectedSha256` | `api detail SAMPLE_ID ORDINAL RECORD_SEQUENCE [EXPECTED_SHA256]` | 同一已核验原始段中的精确 API 记录详情 |
 
 `settings` 包含 `title` 和 `notes`。标题为 1–1024 个 UTF-8 字节。备注最多 64 KiB，可以为空，允许制表符和 LF。项目、修订及采样身份使用规范小写 UUID。`project.save` 与 `sample.create` 在写入前核对项目身份和已保存修订。身份不符返回 `project-id-mismatch`，修订过期返回 `stale-revision`。只读打开后写入返回 `project-read-only`。关闭当前项目、重新打开后使用新请求 ID 查询新快照。
 
@@ -346,11 +500,23 @@ project save settings 20000000-0000-4000-8000-000000000001 "{""title"":""调查�
 
 打开项目后，用 `archive inspect SAMPLE_ID raw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]` 读取指定段的一页证据。JSONL 使用 `archive.inspect`，参数为 `projectId`、`sampleId`、`stream:"raw"`、`ordinal` 和 `view:"graph"`。`limit` 是可选整数，范围 1–100，默认 100。`afterSequence` 默认 `"0"`。翻页时保留同一采样与段号，将 `nextAfterSequence` 和 `prefix.sha256` 分别传为 `afterSequence` 和 `expectedSha256`，并使用新的请求 ID。`nextAfterSequence:null` 表示本段没有剩余观察。前缀散列变化返回 `stale-revision`。图视图的读取端点由归档校验确定。
 
+API 图页用 `apiInputKind` 解释 `sourceSequence`：`cooperative-pipe` 是普通包流水号，`closed-jsonl` 和 `jsonl-follow` 是文件行号，`legacy-unspecified` 表示旧档未声明。此字段只在整段或检查点核验后公布，不认证历史生产者。`archiveSource` 的原有分组保持不变；ETW 和回调图页不返回此字段。
+
+`api detail SAMPLE_ID ORDINAL RECORD_SEQUENCE [EXPECTED_SHA256]` 精确读取 `raw` 通道中的一条 API 记录，复用图视图的来源和归档核验。段号与 `recordSequence` 使用正数十进制字符串；记录号来自 Stored 坐标，不能使用普通包流水号或 JSONL 行号替代。JSONL 方法为 `api.detail`，参数见项目方法表。返回 `record`、所选项目和采样、段号及实际前缀 `sha256`；指定 `expectedSha256` 后摘要变化返回 `stale-revision`，指定位置没有 API 记录返回 `project-data-not-found`。此命令只读历史记录。
+
+`api.detail` 的 `record.apiMemoryLifecycle`、`archive.inspect` 图页对应行的 `apiMemoryLifecycle`、API 归档回放和普通 monitor 输出共用 AAIM1 投影。`kind` 区分 `allocate`、`protect`、`free-request`；`eventType` 区分成功分配、成功可执行保护变更、普通保护变更和释放请求的真实返回结果。字段保留原 `sourceSessionIdentity`、源 ABI、源/目标创建 FILETIME、独立有效位、输入范围、Allocate/Protect 成功后的实际输出范围、原类型/保护参数、`oldProtectionValid`、`status` 与 `returnValid`。缺有效位的值为 `null`，不会从当前进程或输入范围回填。Free 不读回输出范围，`actualReleasedRange` 和 `allocationGeneration` 保持 `null`，不因 size=0 推断整区释放；执行和因果仍未知。旧摘要或损坏 AAIM1 不产生这些结构字段，原包继续保留。
+
 支持通过段尾计数校验的 API 导入段、通过连续检查点校验的被动 API 跟随段，以及通过双流检查点校验的 ETW 段。被动跟随读取从第 1 段校验至请求段，最多 128 段。`archiveSource` 为 `api-follow-checkpoint` 时，`finalSegment` 标记当前段是否为终段。`prefix` 标明已核验字节端点、末块、末序号和 SHA-256。每条 `observations[]` 保留来源标识、代次、原生序号及 `raw` 坐标。`recordOffset` 和 `inlineOffset` 分别指向记录头与内联数据。`tree.unresolvedCandidates` 与 `tree.contextObservations` 保存本页候选和上下文各自的 `raw.recordSequence`。`headerPid` 和 `headerTid` 是来源报头提示。实例、执行和 `finding` 为 `null`，`nodes` 与 `relations` 为空，`sourceCoverage` 为 `unknown`。`observationCount` 统计本段核验范围内的全部来源观察。损坏或缺失证据返回请求错误。[方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
 
 `archiveSource:"ksword-callback-batch"` 表示已核验 KSword 自有线程创建通知的完整 `raw/1`。`callbackHints` 区分通知上下文和目标 PID/TID；`notificationUtc100ns` 是归档中的原始通知采时，值为正时以十进制字符串返回，其余为 `null`，不作为线程创建时间。`sourceSequence` 是驱动源序号，`raw.recordSequence` 是归档记录号，`raw.recordOffset` 和 `raw.inlineOffset` 分别指向记录头和原包。回调只作为上下文，实例、结果和执行未知，`finalSegment` 为 `null`。该入口只读回放。
 
 `callbackBatch` 在首页、续页和完整空批次均返回同一份批次回执。`afterSequence`、`nextSequence`、`latestSequence` 是本次源游标，`returnedCount` 包含该批未归档的非线程创建记录。`lostBeforeFirst` 是源报告的覆盖数，`droppedCount` 是环的累计丢弃数；源未报告时为 `null`。即使状态为 `caught-up`，`sourceCoverage` 仍为 `unknown`。缺失或损坏的批次返回错误，完整空批次的 `observationCount` 为 `"0"`。
+
+#### 网络归档完整字节
+
+用 `archive inspect SAMPLE_ID raw ORDINAL network SEQUENCE RECORD_OFFSET` 回查指定网络流。JSONL 使用 `archive.inspect` 和 `view:"network"`，传入 `projectId`、`sampleId`、`stream:"raw"`、`ordinal`、`recordSequence`、`recordOffset`。段号、序号及记录头偏移使用十进制字符串。Qt 总览详情的「文件偏移（字节）」指向记录头。查询只接受项目已登记采样，读取上限为 64 MiB。
+
+`metadata` 保留归档的端点、方向、捕获层和各长度。`bytesHex` 包含全部已保存的内联字节，最多 65,536 字节。`verifiedBlockEnd` 是记录所在完整块的结束位置，`sourceTrust` 为 `recorded-declaration`。元数据档的 `bytesHex` 为空串。序号与偏移不对应时返回 `invalid-params`。目标块或前序块损坏时返回 `project-corrupt`。位于坏块之前的完整记录仍可读取。 [方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
 
 ### `log`
 
