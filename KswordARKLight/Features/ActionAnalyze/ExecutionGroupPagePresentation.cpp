@@ -120,8 +120,26 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
             L" stage=" + Widen(binding.stage ? binding.stage : "") + L" Win32=" + std::to_wstring(binding.win32Error) +
             L"\r\nmoduleBase=" + Hex(binding.moduleBase) + L" address=" + Hex(binding.address) + L" RVA=" + Hex(binding.rva) +
             L" rangeBytes=" + std::to_wstring(binding.rangeBytes) + L" enrolledThreads=" + std::to_wstring(binding.enrolledThreads);
-        for (const auto& range : binding.executionRanges)
-            text += L"\r\n执行范围 base=" + Hex(range.base) + L" bytes=" + std::to_wstring(range.bytes) + L" allocationBase=" + Hex(range.allocationBase);
+        std::uint64_t totalRangeBytes = 0;
+        for (const auto& range : binding.executionRanges) {
+            text += L"\r\n成功NX范围 base=" + Hex(range.base) + L" bytes=" + std::to_wstring(range.bytes) +
+                L" pages=" + std::to_wstring(range.bytes / 4096) + L" allocationBase=" + Hex(range.allocationBase);
+            totalRangeBytes += range.bytes;
+        }
+        if (!binding.executionRanges.empty()) text += L"\r\n已纳入范围合计=" + std::to_wstring(totalRangeBytes) + L" 字节";
+    }
+    if (state.executionRange) {
+        const auto& range = *state.executionRange;
+        const auto& stop = range.request.stop;
+        text += L"\r\n追加NX范围回执 stage=" + Widen(range.stage ? range.stage : "") +
+            L" Win32=" + std::to_wstring(range.win32Error) + L" added=" + std::to_wstring(range.added) +
+            L" rollbackComplete=" + std::to_wstring(range.rollbackComplete) +
+            L"\r\n请求范围 address=" + Hex(range.request.address) + L" bytes=" + std::to_wstring(range.request.bytes) +
+            L"\r\n范围事务 request=" + Widen(stop.requestId) + L" group=" + Widen(stop.groupId) + L" stop=" + Widen(stop.stopId) +
+            L"\r\n原事件=" + Widen(stop.event.backendInstanceId) + L"/" + std::to_wstring(stop.event.serial) +
+            L" 请求状态修订=" + std::to_wstring(stop.expectedStateRevision) + L" 核验状态修订=" + std::to_wstring(range.stateRevision) +
+            L"\r\n原owner sample=" + Widen(stop.owner.sampleId) + L" session=" + Widen(stop.owner.sessionId) +
+            L" epoch=" + Widen(stop.owner.epoch) + L" backend=" + Widen(stop.owner.backendInstanceId);
     }
     if (state.breakpointHit) text += L"\r\n真实命中地址=" + Hex(state.breakpointHit->address);
     if (state.armedPause) {
@@ -352,6 +370,8 @@ void Refresh(Page& page)
     ::EnableWindow(page.pauseAll, controls && all.Pause());
     ::EnableWindow(page.pauseSelected, controls && subset.Pause());
     const auto* state = rows.size() == 1 ? &page.shown.result.members[static_cast<std::size_t>(rows.front())].control : nullptr;
+    ::EnableWindow(page.addRange, controls && state && execution_native::OwnedExecutionGroup::CanAddRangeMember(
+        page.shown.result.members[static_cast<std::size_t>(rows.front())]));
     for (const auto button : {page.stepInto, page.stepOver, page.stepOut})
         ::EnableWindow(button, controls && state && Eligible(page.shown.result.members[static_cast<std::size_t>(rows.front())]) &&
             state->stopReason != execution_native::NativeStopReason::ManualPause);

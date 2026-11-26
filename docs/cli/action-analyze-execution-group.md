@@ -71,6 +71,7 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 - `replToken`：仅 REPL 输出；与完整票据 JSON 等价的 UTF-8 小写十六进制字节。
 - `sessionToken`：`{owner,control}` 完整成员表项，其中 control 是同一原始显示快照；Held、Armed 运行以及失败状态分别保留，不从裸 PID 补票。
 - `canPause`／`canContinue`：该成员在混合批次中的显示资格，包含 `already-held`／`already-running`；不代表原生动作已经执行。
+- `canAddRange`：该成员持有完整 NX 停点且符合本事件条件，可显式追加范围；ManualPause 同样允许。
 - `replSessionToken`：仅 REPL 输出，完整 `sessionToken` 的 UTF-8 小写十六进制字节。顶层 `control.sessions` 是固定全集同顺序的完整表，可直接作为混合 all 请求输入。
 
 `held-complete` 仅表示逐成员查询时每个固定成员都持有停止事件。集合明示 `simultaneousFreeze:false` 与 `observation:"sequential-member-readback"`，不证明所有进程在同一时刻冻结。组当前 `state/members` 与最近 `operation` 分开：操作的 `outcomes` 保存全部请求成员，每项有 `actionAttempted` 和 `disposition`。实际调用原 session 时为 `true`／`action-attempted`，不等于原生动作成功；无动作项分别为 `false`／`already-held` 或 `false`／`already-running`，control 保留原停点或运行快照，不生成新释放回执。后续查询不改写原操作结论。拒绝批次没有原生调用，`admitted:false` 且 `outcomes:[]`。
@@ -137,6 +138,18 @@ expected: {"collectionId":"...", "stops":[<complete current stepToken>]}
 
 取消核对完整原 `NativeStepRequest`，不会把旧取消请求迁移到成员后来发起的步进。
 
+单成员追加私有执行范围复用同一 `execution/N` 修改流水，必须提供一个完整当前 `stopToken`：
+
+```text
+method: "control.execution.range.add"
+requestId: "execution/4"
+params: {"address":"140698833657856","bytes":"4096"}
+session: {"id":"<hello.session.id>","epoch":"<hello.session.epoch>"}
+expected: {"collectionId":"<current collectionId>","stops":[<complete current NX Held stopToken>]}
+```
+
+`address/bytes` 为规范正十进制字符串，起点与长度均须 4096 对齐，不溢出，长度最多64页。原 owner 核验实际私有页、同一分配及所有范围合计64页预算。追加在成员原 `OwnedDataWatchSession` 内分配独立 `range/N`，不调用 Continue，不改变原停止事件、初始地址或 `site`。完整 ManualPause 可追加；运行、步进在途、恢复未决及旧范围快照均拒绝。核验采用无条件回读，不触发其它成员条件自动继续。实际范围见 `control.breakpoint.executionRanges`，该次范围与回滚结果见 `control.executionRange` 和 `operation.outcomes`；失败不能用请求已受理冒充范围已纳入。同ID重放沿原128回执窗口返回原结果，不重复追加。
+
 退出：
 
 ```text
@@ -161,10 +174,11 @@ step execution/5 into TOKENHEX
 step execution/6 over-call TOKENHEX
 step execution/7 out TOKENHEX
 step-cancel execution/8 TOKENHEX
+execution-range-add execution/9 ADDRESS BYTES TOKENHEX
 quit
 ```
 
-Pause/Continue 的 `TOKENHEX` 推荐复制同次当前成员输出的完整 `replSessionToken`，也兼容旧 `replToken` 列表；同一批次不能混用两种形状。多个票据使用逗号连接，不加空格。Step/Cancel仍复制完整 `replToken`。它们是完整 JSON 票据的 UTF-8 字节编码，不是历史索引；CLI 解码后核对与 JSONL 相同字段。旧 epoch、外来owner或旧事件不会因REPL位于当前CLI内而获得控制权。
+Pause/Continue 的 `TOKENHEX` 推荐复制同次当前成员输出的完整 `replSessionToken`，也兼容旧 `replToken` 列表；同一批次不能混用两种形状。多个票据使用逗号连接，不加空格。Step/Cancel/Range仍复制完整 `replToken`。Range的ADDRESS/BYTES与JSONL相同，使用规范正十进制整页范围。它们是完整 JSON 票据的 UTF-8 字节编码，不是历史索引；CLI 解码后核对与 JSONL 相同字段。旧 epoch、外来owner或旧事件不会因REPL位于当前CLI内而获得控制权。
 
 ## 清退与限制
 
@@ -190,7 +204,10 @@ auto paused = group.Pause(sessions, true); // 精确Held记already-held，只对
 auto result = group.Continue(displayedSessions, true); // Held才继续，明确运行者记already-running。
 auto stepped = group.Step(displayedFullStop, NativeStepMode::Into);
 auto cancelled = group.CancelStep(displayedFullStep);
+auto added = group.AddRange(displayedFullNxStop, explicitAddress, explicitBytes); // 原成员原owner，不继续。
 auto closing = group.Close(); // !closing.clean 时保留 group，继续 Query/Close。
 ```
 
 双端推荐按值传递 `ExecutionGroupSessionEntry{owner,control}`；原 `span<const NativeControlResult>` 重载仍兼容完整旧列表，不按裸PID补票。`CanPauseMember`／`CanContinueMember` 用于混合范围按钮资格，须遍历全部明确成员；`Matches`／`MatchesStep`／`MatchesPause` 分别用于精确停点、步进和可暂停运行绑定，不用首行代表全体。页面草稿、当前选择与冻结 `site/condition` 分开，结果及操作回执以真实实例归属展示。
+
+Qt「监控→行为分析→执行断点集合」在参数正文复用 `PrivateExecutionRangePane`，独立显示追加目标实例与停点；管理列表仍为 None 操作条，详情复用 `StructuredFieldView`。Light 同一集合页复用私有地址／范围字节草稿，由固定底栏“追加选中NX范围”提交；该动作只使用单选原成员control，不使用PID／模块／条件草稿来找目标。两端均走原串行worker，选择或查询不提交追加，失败保留草稿。新增集合范围追加当前为源码接线，未构建、运行或GUI验收。

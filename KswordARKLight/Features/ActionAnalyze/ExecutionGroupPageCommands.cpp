@@ -155,6 +155,24 @@ void Command(Page& page, int id)
                 page.error = L"请加入1–16个站点并明确授权整个集合。";
                 submit = false;
             }
+        } else if (id == kAddRange) {
+            request.command = LightExecutionGroupCommand::AddRange;
+            const auto rows = SelectedRows(page);
+            if (rows.size() != 1 || !execution_native::OwnedExecutionGroup::CanAddRangeMember(
+                    page.shown.result.members[static_cast<std::size_t>(rows.front())])) {
+                page.error = L"追加范围须单选当前原集合的完整Held NX成员，允许主动暂停；请刷新或重新选择。";
+                submit = false;
+            } else {
+                // 只冻结点击时选中成员的完整control；PID/模块/条件草稿不参与成员定位。
+                request.stops.push_back(page.shown.result.members[static_cast<std::size_t>(rows.front())].control);
+                if (!Number(page.inputs[Address], request.address, 16) || !request.address ||
+                    !Number(page.inputs[Range], request.bytes, 10) || !request.bytes ||
+                    request.address % 4096 || request.bytes % 4096 || request.bytes > 64ull * 4096 ||
+                    request.address > UINT64_MAX - request.bytes) {
+                    page.error = L"追加NX范围：起点按十六进制、长度按十进制字节填写；均须4KiB对齐，长度1–64页且地址不能溢出。";
+                    submit = false;
+                }
+            }
         } else if (id == kIdentify) {
             std::uint64_t pid = 0;
             request.command = LightExecutionGroupCommand::Identify;

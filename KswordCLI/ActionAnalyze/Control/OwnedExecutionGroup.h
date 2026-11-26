@@ -22,7 +22,7 @@ struct ExecutionGroupSite {
 };
 
 enum class ExecutionGroupState { Idle, Active, HeldPartial, HeldComplete, PartialFailure, RecoveryRequired, Closing, Closed };
-enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause };
+enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause, AddRange };
 
 struct ExecutionGroupMember {
     ExecutionGroupSite site;
@@ -84,6 +84,9 @@ public:
     [[nodiscard]] ExecutionGroupResult Continue(std::span<const ExecutionGroupSessionEntry> displayedSessions, bool all);
     [[nodiscard]] ExecutionGroupResult Step(const NativeControlResult& displayedStop, NativeStepMode mode);
     [[nodiscard]] ExecutionGroupResult CancelStep(const NativeControlResult& displayedStep);
+    // 输入唯一成员的完整Held快照及明确整页范围，沿原session追加NX页；不继续或改变初始站点。
+    [[nodiscard]] ExecutionGroupResult AddRange(const NativeControlResult& displayedStop,
+        std::uint64_t address, std::uint64_t bytes);
     [[nodiscard]] ExecutionGroupResult Close();
 
     // 端侧可用于资格显示；实际操作还会回读并再次核对，不接受单独 stopId 或历史索引。
@@ -92,6 +95,7 @@ public:
     [[nodiscard]] static bool MatchesPause(const NativeControlResult& displayed, const NativeControlResult& current);
     [[nodiscard]] static bool CanPauseMember(const ExecutionGroupMember& member); // 精确Held或可暂停运行，混合按钮按全部成员评估。
     [[nodiscard]] static bool CanContinueMember(const ExecutionGroupMember& member); // 有资格的精确Held或明确Armed运行。
+    [[nodiscard]] static bool CanAddRangeMember(const ExecutionGroupMember& member); // 完整Held的NX成员；手动暂停可追加。
 
 private:
     class Impl;

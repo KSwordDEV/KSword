@@ -60,7 +60,7 @@ void Layout(Page& page)
         ::MoveWindow(child, x, y, (std::max)(1, w), (std::max)(1, h), TRUE);
     };
     const std::array actions{page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.close};
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.close};
     const int actionsHeight = Ui::LayoutParameterActions(actions, edge, 0, width, Scale(136), row, gap, false);
     const int contentHeight = (std::max)(1, static_cast<int>(rect.bottom) - 2 * edge - actionsHeight - gap);
     const int parameterHeight = wide ? contentHeight : (std::max)(1, contentHeight / 3);
@@ -75,6 +75,11 @@ void Layout(Page& page)
         const int height = i == Condition ? 3 * row : row;
         move(page.inputs[i], 0, y, bodyWidth, height);
         y += height + gap;
+        if (i == Range) {
+            const int rangeHintHeight = TextHeight(page.rangeHint, bodyWidth);
+            move(page.rangeHint, 0, y, bodyWidth, rangeHintHeight);
+            y += rangeHintHeight + gap;
+        }
         if (i == Creation) {
             move(page.identify, 0, y, (std::min)(bodyWidth, Scale(136)), row);
             y += row + gap;
@@ -121,7 +126,7 @@ bool CreateControls(Page& page)
     Wrap(page.hint);
     constexpr std::array<const wchar_t*, FieldCount> names{L"PID（十进制）", L"创建 FILETIME（十进制）",
         L"普通模块绝对路径（与私有地址互斥）", L"模块 RVA（十六进制，与导出二选一）", L"精确导出名（区分大小写）",
-        L"私有执行地址（十六进制）", L"私有范围字节数（十进制，0为单地址）", L"命中条件（可空，启动时冻结）"};
+        L"私有地址 / 追加NX起点（十六进制）", L"私有范围 / 追加字节数（十进制）", L"命中条件（可空，启动时冻结）"};
     for (std::size_t i = 0; i < FieldCount; ++i) {
         page.labels[i] = Ui::CreateText(body, 0, names[i], 0, 0, 1, 1);
         Wrap(page.labels[i]);
@@ -130,6 +135,9 @@ bool CreateControls(Page& page)
         ::SendMessageW(page.inputs[i], EM_SETLIMITTEXT, i == Module ? 32767 : i == Condition ? 16384 : i == Export ? 4096 : 20, 0);
     }
     page.identify = Ui::CreateButton(body, kIdentify, L"读取 PID 身份", 0, 0, 1, 1);
+    page.rangeHint = Ui::CreateText(body, 0,
+        L"启动草稿：范围为0时使用单地址。追加范围：复用上方起点和字节数，点击底栏“追加选中NX范围”，仅追加到右侧单选的完整Held NX成员（允许主动暂停）。起点、长度须4KiB对齐，长度1–64页；不修改启动站点或条件，不继续目标。", 0, 0, 1, 1);
+    Wrap(page.rangeHint);
     page.identity = Ui::CreateText(body, 0, L"尚未读取身份；读取后显式加入草稿。", 0, 0, 1, 1);
     Wrap(page.identity);
     page.draft = Combo(body, kDraft);
@@ -145,6 +153,7 @@ bool CreateControls(Page& page)
     page.pauseSelected = Ui::CreateButton(page.hwnd, kPauseSelected, L"暂停选中成员", 0, 0, 1, 1);
     page.continueAll = Ui::CreateButton(page.hwnd, kContinueAll, L"继续全部成员", 0, 0, 1, 1);
     page.continueSelected = Ui::CreateButton(page.hwnd, kContinueSelected, L"继续选中成员", 0, 0, 1, 1);
+    page.addRange = Ui::CreateButton(page.hwnd, kAddRange, L"追加选中NX范围", 0, 0, 1, 1);
     page.stepInto = Ui::CreateButton(page.hwnd, kStepInto, L"选中成员步入", 0, 0, 1, 1);
     page.stepOver = Ui::CreateButton(page.hwnd, kStepOver, L"选中成员步过", 0, 0, 1, 1);
     page.stepOut = Ui::CreateButton(page.hwnd, kStepOut, L"选中成员跳出", 0, 0, 1, 1);
@@ -169,14 +178,14 @@ bool CreateControls(Page& page)
     Ui::AttachTextFindSupport(page.text);
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
     for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.authorized,
-        page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.stepInto, page.stepOver,
+        page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
         page.stepOut, page.cancelStep, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
     for (const auto control : controls)
         if (!control || !::SetWindowSubclass(control, Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     if (!::SetWindowSubclass(ListView_GetHeader(page.members), Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     for (const auto label : page.labels) if (!label) return false;
-    if (!page.hint || !page.identity) return false;
+    if (!page.hint || !page.identity || !page.rangeHint) return false;
     page.tooltip = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
     if (page.tooltip) {
@@ -186,6 +195,9 @@ bool CreateControls(Page& page)
         Tip(page, page.pauseSelected, L"所选成员须可暂停或已持有停点，且至少一个需要暂停。提交整个选区的完整快照；已停成员不重复请求暂停。");
         Tip(page, page.continueAll, L"全部成员须可继续或已运行，且至少一个需要继续。只继续精确Held停点；运行成员单列already-running回执，不伪造释放。");
         Tip(page, page.continueSelected, L"所选成员须可继续或已运行，且至少一个需要继续。提交整个选区的完整快照；运行成员不生成释放请求。");
+        Tip(page, page.addRange, L"须单选原集合的完整Held NX成员，允许主动暂停。只使用私有地址/范围字节草稿和点击时的完整停点，向原owner追加；不读取PID、模块或条件草稿，不修改启动站点，不继续。失败保留草稿、原集合和回执，可刷新后重试。");
+        Tip(page, page.inputs[Address], L"加入草稿时作为启动私有地址；追加选中NX范围时作为新增范围起点。追加目标由右侧单选成员的原停点决定，不由PID草稿决定。");
+        Tip(page, page.inputs[Range], L"启动时0表示单地址；追加时必须填写非零字节数，4KiB整数倍且不超过256KiB。编辑不会修改已保存草稿项或旧集合来源。");
         for (const auto button : {page.stepInto, page.stepOver, page.stepOut})
             Tip(page, button, L"只选一个当前断点或步进停点，命中条件须允许操作。主动暂停停点不支持步进。");
         Tip(page, page.cancelStep, L"只选一个仍在原生步进中的成员；中止复用该成员的原步进请求。");

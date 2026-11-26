@@ -302,6 +302,14 @@ bool OwnedExecutionGroup::CanContinueMember(const ExecutionGroupMember& member)
         (ReleaseEligible(member.site, member.control, member.condition) || MatchesPause(member.control, member.control));
 }
 
+// 输入同一成员的配置、条件和当前回执，返回完整NX停点的追加资格；不查询或改变页保护。
+bool OwnedExecutionGroup::CanAddRangeMember(const ExecutionGroupMember& member)
+{
+    const auto& state = member.control; // 显示值必须仍是原NX绑定，不能把普通DR0站点升级为页范围。
+    return state.breakpoint && state.breakpoint->rangeBytes && !state.breakpoint->writeWatchBytes &&
+        ReleaseEligible(member.site, state, member.condition);
+}
+
 // 新session表先核验全体原owner，不把裸PID转换为权威票据。后续旧接口再次回读并核对完整状态。
 ExecutionGroupResult OwnedExecutionGroup::ApplySessions(std::span<const ExecutionGroupSessionEntry> sessions, bool all, bool pause)
 {
@@ -421,6 +429,28 @@ ExecutionGroupResult OwnedExecutionGroup::CancelStep(const NativeControlResult& 
     self.operation = ExecutionGroupOperation{ExecutionGroupAction::CancelStep, true, "execution-group-step-cancel-submitted", 0, {}};
     self.Outcome(*member, member->session->CancelStep(displayedStep));
     return self.Result();
+}
+
+// 输入点击时冻结的完整单成员停点和新范围，输出原范围事务回执；其它成员只作无条件回读。
+ExecutionGroupResult OwnedExecutionGroup::AddRange(const NativeControlResult& displayedStop,
+    std::uint64_t address, std::uint64_t bytes)
+{
+    auto& self = *impl_; // 原集合的串行worker持有所有成员，不引入第二个owner。
+    self.Observe(false); // 准入失败不能触发其它成员条件自动Continue。
+    auto* member = self.Find(displayedStop); // 仅定位原成员，下面核对完整绑定、事件和修订。
+    if (self.closing || !member || !SameBinding(displayedStop, member->current) ||
+        !Matches(displayedStop, member->current) || !member->current.breakpoint ||
+        !member->current.breakpoint->rangeBytes || member->current.breakpoint->writeWatchBytes || !self.Eligible(*member))
+    {
+        return self.Reject(ExecutionGroupAction::AddRange, "execution-group-range-stale-stop", ERROR_INVALID_STATE);
+    }
+    if (!address || address % 4096 || !bytes || bytes % 4096 || bytes > 64ull * 4096 || address > UINT64_MAX - bytes)
+    {
+        return self.Reject(ExecutionGroupAction::AddRange, "execution-group-range-invalid-range", ERROR_INVALID_PARAMETER);
+    }
+    self.operation = ExecutionGroupOperation{ExecutionGroupAction::AddRange, true, "execution-group-range-submitted", 0, {}};
+    self.Outcome(*member, member->session->AddPrivateExecutionRange(displayedStop, address, bytes));
+    return self.Result(); // 原生层负责总64页预算与新增页回滚，site保留Start时初始配置。
 }
 
 ExecutionGroupResult OwnedExecutionGroup::Close()

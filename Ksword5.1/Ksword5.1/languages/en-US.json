@@ -137,6 +137,8 @@
     "执行范围纳入回执": "Execution range addition receipt",
     "范围已纳入": "Range added",
     "新增范围回滚完整": "New range rollback complete",
+    "追加目标：PID %1 / 创建 FILETIME %2 / 停点 %3": "Range target: PID %1 / creation FILETIME %2 / stop %3",
+    "请选择一个持有完整 NX 停点的成员；追加操作不继续目标。": "Select one member holding a complete NX stop. Adding a range keeps the target stopped.",
     "采集同采样 API": "Capture API calls in this sample",
     "确认另一来源实例，采集1至10秒并写入原项目与采样。": "Confirm another source instance, capture for 1 to 10 seconds, and save to the original project and sample.",
     "需要已附加的原生会话及本轮项目采样；控制操作期间不可采集。": "Requires an attached native session and its project sample. Capture is unavailable while a control operation is running.",

@@ -126,6 +126,12 @@ namespace ks::action_analyze
                         case ExecutionGroupCommand::CancelStep:
                             result = request.stops.size() == 1 ? group->CancelStep(request.stops.front()) : group->Query();
                             break;
+                        case ExecutionGroupCommand::AddRange:
+                            if (request.stops.size() == 1)
+                            {
+                                result = group->AddRange(request.stops.front(), request.rangeAddress, request.rangeBytes);
+                            }
+                            break;
                         }
                     }
 

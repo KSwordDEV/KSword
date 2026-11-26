@@ -115,6 +115,11 @@ struct LightExecutionGroupSession::Shared {
                         if (group && request->stops.size() == 1)
                             Publish(group->CancelStep(request->stops.front()), true);
                         break;
+                    case LightExecutionGroupCommand::AddRange:
+                        // 只调用原集合、原成员；追加不Continue，也不创建新的调试owner。
+                        if (group && request->stops.size() == 1)
+                            Publish(group->AddRange(request->stops.front(), request->address, request->bytes), true);
+                        break;
                     case LightExecutionGroupCommand::Identify: {
                         FILETIME created{}, exited{}, kernel{}, user{};
                         std::uint64_t creation = 0;

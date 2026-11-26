@@ -99,6 +99,24 @@ namespace ks::action_analyze
                     .field(QStringLiteral("断点状态码"), QString::number(static_cast<int>(binding.state)))
                     .field(QStringLiteral("断点诊断"), QString::fromLatin1(binding.stage))
                     .field(QStringLiteral("断点 Win32"), QString::number(binding.win32Error));
+                document.field(QStringLiteral("已纳入执行范围"), QString::number(binding.executionRanges.size()));
+                for (const auto& range : binding.executionRanges)
+                {
+                    document.field(QStringLiteral("范围起点 / 字节数 / 分配基址"),
+                        QStringLiteral("%1 / %2 / %3").arg(Hex(range.base)).arg(range.bytes).arg(Hex(range.allocationBase)));
+                }
+            }
+            if (state.executionRange)
+            {
+                const auto& receipt = *state.executionRange; // 本次范围事务回执，独立于初始站点及当前范围目录。
+                document.field(QStringLiteral("执行范围纳入回执"), QString::fromLatin1(receipt.stage))
+                    .field(QStringLiteral("新范围起点"), Hex(receipt.request.address))
+                    .field(QStringLiteral("范围字节数"), QString::number(receipt.request.bytes))
+                    .field(QStringLiteral("范围已纳入"), receipt.added ? QStringLiteral("是") : QStringLiteral("否"), true)
+                    .field(QStringLiteral("新增范围回滚完整"), receipt.rollbackComplete ? QStringLiteral("是") : QStringLiteral("否"), true)
+                    .field(QStringLiteral("请求 ID"), QString::fromStdString(receipt.request.stop.requestId))
+                    .field(QStringLiteral("状态修订"), QString::number(receipt.stateRevision))
+                    .field(QStringLiteral("Win32"), QString::number(receipt.win32Error));
             }
             if (state.registers)
             {

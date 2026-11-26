@@ -20,7 +20,7 @@ std::vector<HWND> Navigation(const Page& page)
     controls.insert(controls.begin() + 2, page.identify);
     for (const auto control : {page.draft, page.add, page.remove, page.loadDraft, page.authorized,
         page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.close, page.preset,
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.close, page.preset,
         page.members, page.textMode, page.copy, page.exportText, page.text}) controls.push_back(control);
     return controls;
 }
@@ -81,7 +81,7 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
         else if (code == BN_CLICKED && (id == kIdentify || id == kAdd || id == kRemove || id == kLoadDraft ||
             id == kStart || id == kQuery || id == kPauseAll || id == kPauseSelected || id == kContinueAll ||
             id == kContinueSelected || id == kStepInto || id == kStepOver || id == kStepOut || id == kCancelStep ||
-            id == kClose || id == kCopy || id == kExportText)) Command(*page, id);
+            id == kClose || id == kAddRange || id == kCopy || id == kExportText)) Command(*page, id);
         return 0;
     }
     case WM_NOTIFY: {

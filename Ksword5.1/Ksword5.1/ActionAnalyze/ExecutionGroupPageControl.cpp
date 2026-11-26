@@ -2,6 +2,7 @@
 #include "ExecutionGroupPage.h"
 #include "ExecutionGroupFields.h"
 #include "ExecutionGroupSiteEditor.h"
+#include "PrivateExecutionRangePane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/ResultTableHost.h"
@@ -125,6 +126,36 @@ namespace ks::action_analyze
         Poll();
     }
 
+    // 输入已解析范围，将唯一选中成员的完整当前停点按值交原worker；失败保留范围和站点草稿。
+    void ExecutionGroupPage::AddRange(std::uint64_t address, std::uint64_t bytes)
+    {
+        if (!m_session || m_shown.busy || m_shown.closing || m_shown.retired)
+        {
+            return;
+        }
+        const auto selected = Selected(); // 只在点击当下定位单成员，不在worker中保存行索引。
+        if (selected.size() != 1)
+        {
+            return;
+        }
+        const auto& site = m_model->sites.at(selected.front()); // PID和创建时间共同确定列表原成员。
+        const auto member = std::find_if(m_shown.result.members.begin(), m_shown.result.members.end(), [&](const auto& item)
+        {
+            return item.site.pid == site.pid && item.site.creationFileTime == site.creationFileTime;
+        });
+        if (member == m_shown.result.members.end() || !native::OwnedExecutionGroup::CanAddRangeMember(*member))
+        {
+            return;
+        }
+        ExecutionGroupRequest request; // 独立AddRange动作，不复用Start也不提交Continue。
+        request.command = ExecutionGroupCommand::AddRange;
+        request.stops.push_back(member->control);
+        request.rangeAddress = address;
+        request.rangeBytes = bytes;
+        m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
+        Poll(); // 只投影已公布状态，不在GUI线程查询目标。
+    }
+
     // 输入动作和明确范围，复制当前显示的完整NativeControlResult vector；不重造stop token。
     void ExecutionGroupPage::Submit(ExecutionGroupCommand command, bool all, native::NativeStepMode mode)
     {
@@ -233,6 +264,8 @@ namespace ks::action_analyze
         };
         bool cancellable = false; // 取消针对原步进请求，不能用当前普通停点替代。
         bool stepAllowed = false; // 手动暂停只允许Continue，本批不开放ManualPause步进。
+        bool rangeAllowed = false; // 完整NX Held支持独立追加，ManualPause无需步进资格。
+        QString rangeTarget; // 明确当前追加目标；未单选时不沿用上一成员身份。
         if (selected.size() == 1)
         {
             const auto& site = m_model->sites.at(selected.front());
@@ -246,6 +279,17 @@ namespace ks::action_analyze
                 return member.site.pid == site.pid && member.site.creationFileTime == site.creationFileTime &&
                     member.control.stopReason != native::NativeStopReason::ManualPause && ExecutionGroupCanRelease(member);
             });
+            const auto member = std::find_if(m_shown.result.members.begin(), m_shown.result.members.end(), [&](const auto& item)
+            {
+                return item.site.pid == site.pid && item.site.creationFileTime == site.creationFileTime;
+            });
+            if (member != m_shown.result.members.end())
+            {
+                rangeAllowed = native::OwnedExecutionGroup::CanAddRangeMember(*member);
+                rangeTarget = sourceText(QStringLiteral("追加目标：PID %1 / 创建 FILETIME %2 / 停点 %3"))
+                    .arg(site.pid).arg(site.creationFileTime)
+                    .arg(member->control.responsibility ? QString::fromStdString(member->control.responsibility->stopId) : QStringLiteral("—"));
+            }
         }
         const auto pause = [&](const std::vector<int>& rows) // 主动暂停核对活执行绑定，不要求旧stop。
         {
@@ -277,6 +321,11 @@ namespace ks::action_analyze
         m_cancel->setEnabled(ready && cancellable);
         m_query->setEnabled(ready);
         m_close->setEnabled(m_session && !m_shown.retired); // 在途动作时仍允许请求清退。
+        m_rangeTarget->setVisible(m_session && !m_shown.retired);
+        m_rangeTarget->setText(rangeTarget);
+        m_rangePane->setVisible(m_session && !m_shown.retired);
+        m_rangePane->SetAvailable(ready && rangeAllowed,
+            ready && rangeAllowed ? QString() : sourceText(QStringLiteral("请选择一个持有完整 NX 停点的成员；追加操作不继续目标。")));
         QString status = ExecutionGroupStateText(m_shown.result.state); // 状态依据完整组，未回读不显示成功。
         if (m_session && !m_shown.revision)
         {

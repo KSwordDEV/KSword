@@ -2,6 +2,7 @@
 #include "ExecutionGroupPage.h"
 #include "ExecutionGroupFields.h"
 #include "ExecutionGroupSiteEditor.h"
+#include "PrivateExecutionRangePane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/FlatButtonTheme.h"
@@ -76,6 +77,16 @@ namespace ks::action_analyze
         m_authorized = new QCheckBox(workspace); // 授权在Start请求时冻结，不随后续UI变化重配。
         language.bindText(m_authorized, {}, QStringLiteral("我明确授权控制列表中的全部进程实例"));
         workspace->parameters()->addWidget(m_authorized);
+        m_rangeTarget = new QLabel(workspace); // 目标随明确单选展示，编辑范围不改变原成员或站点草稿。
+        m_rangeTarget->setTextFormat(Qt::PlainText);
+        m_rangeTarget->setWordWrap(true);
+        workspace->parameters()->addWidget(m_rangeTarget);
+        m_rangePane = new PrivateExecutionRangePane(workspace); // 参数正文沿用唯一滚动责任和统一范围输入。
+        workspace->parameters()->addWidget(m_rangePane);
+        m_rangePane->addRange = [this](std::uint64_t address, std::uint64_t bytes)
+        {
+            AddRange(address, bytes); // 点击时再冻结显示停点，worker不读取控件或行索引。
+        };
         m_start = Action(workspace, "execution_group_start", QStringLiteral("开始执行集合"), QStringLiteral("在原后台线程冻结全部站点并逐成员附加，部分失败仍保留成功成员和恢复责任。"));
         m_newDraft = Action(workspace, "execution_group_new", QStringLiteral("返回站点草稿"), QStringLiteral("仅在原集合确认清退后返回原站点目录；新开始创建新的集合身份。"));
         workspace->actions()->addWidget(m_start);

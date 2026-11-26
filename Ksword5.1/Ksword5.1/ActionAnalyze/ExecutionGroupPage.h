@@ -14,6 +14,7 @@ namespace ks::action_analyze
 {
     class ExecutionGroupMemberModel;
     class ExecutionGroupSiteEditor;
+    class PrivateExecutionRangePane;
 
     // 独立执行集合参数/管理页；不借用暂停集合或旧档案的控制权。
     class ExecutionGroupPage final : public QWidget
@@ -29,6 +30,7 @@ namespace ks::action_analyze
         void AddSite(bool replace); // 冻结当前单站点表单，显式加入或替换草稿选中项。
         void RemoveSites(); // 仅从未启动目录移除点击时选中行。
         void Start(); // 在原worker上创建并启动唯一集合。
+        void AddRange(std::uint64_t address, std::uint64_t bytes); // 冻结单选成员的完整停点，将范围交原worker追加。
         void Submit(ExecutionGroupCommand command, bool all = false,
             execution_group_native::NativeStepMode mode = execution_group_native::NativeStepMode::Into); // 复制原生完整快照入队。
         void Poll(); // 只复制worker已公布值；不在UI执行Query。
@@ -37,6 +39,8 @@ namespace ks::action_analyze
         std::vector<int> Selected(bool all = false) const; // 返回完整所选行序列，不借首行代表批次。
 
         ExecutionGroupSiteEditor* m_editor = nullptr; // 独立单站点输入草稿。
+        PrivateExecutionRangePane* m_rangePane = nullptr; // 活集合独立范围草稿，复用单目标页面组件。
+        QLabel* m_rangeTarget = nullptr; // 明确本次追加动作的真实实例和停点，与Start草稿分开。
         ExecutionGroupMemberModel* m_model = nullptr; // Start冻结的1..16行目录。
         ks::ui::TableActionTableView* m_members = nullptr; // 多选管理表，操作条None。
         ks::ui::StructuredFieldView* m_fields = nullptr; // 所选成员和全部操作回执的唯一字段源。

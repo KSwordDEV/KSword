@@ -23,6 +23,13 @@ using V = JsonValue;
 V Text(std::string_view text) { return V::makeString(std::string(text)); }
 V Count(std::uint64_t number) { return Text(std::to_string(number)); }
 
+// 输入范围参数原文，输出规范正十进制u64；拒绝符号、溢出、前导零和尾随字符。
+bool RangeNumber(std::string_view text, std::uint64_t& number)
+{
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number); // 直接保留64位精度。
+    return number && parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && text == std::to_string(number);
+}
+
 class ExecutionGroupSession final {
 public:
     ExecutionGroupSession(bool jsonl, n::OwnerIdentity identity, std::vector<n::ExecutionGroupSite> sites)
@@ -40,7 +47,8 @@ public:
                      {"replayEntries", V::makeUInt(128)}, {"stopToken", Text("Mixed pause/continue copy complete member.sessionToken entries; legacy lists combine pauseToken for running members and stopToken for Held; step/cancel retain stopToken/stepToken")},
                     {"pauseScope", Text("all/selected validate every explicit session first; exact Held is already-held; Armed bindings call original Pause")},
                     {"continueScope", Text("all/selected validate every explicit session first; exact Held calls Continue; Armed running is already-running")},
-                    {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
+                     {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
+                     {"rangeAdd", Text("control.execution.range.add params:{address,bytes} canonical decimal strings; expected:{collectionId,stops:[one complete current NX Held token]}; never Continue")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
             // 部分启动失败仍进入命令循环，保留成功附加者供状态、继续、步进及清退。
@@ -117,8 +125,9 @@ private:
         const bool scoped = resume || pause;
         const bool step = method == "step" || method == "control.step";
         const bool cancel = method == "step-cancel" || method == "control.step.cancel";
+        const bool range = method == "execution-range-add" || method == "control.execution.range.add"; // 原成员显式追加NX页。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | quit"));
+            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | quit"));
         if (query && Empty(request) && !request.expected) return Emit("response", request.id, p::Report(group_.Query(), !jsonl_));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
@@ -127,9 +136,11 @@ private:
             closed = result.clean;
             return Emit("response", request.id, p::Report(result, !jsonl_));
         }
-        if (!pause && !resume && !step && !cancel) return Invalid(request, "unsupported-method", "Use status, pause, continue, step, step-cancel or quit");
+        if (!pause && !resume && !step && !cancel && !range) return Invalid(request, "unsupported-method", "Use status, pause, continue, step, step-cancel, execution-range-add or quit");
         if (cleanupOnly_) return Invalid(request, "cleanup-pending", "Original owners are closing; status and quit remain available");
         std::string id = request.id, scope, mode;
+        std::string addressText, bytesText; // 范围原文参与请求签名，不从当前绑定补造。
+        std::uint64_t address = 0, bytes = 0; // 解析后按值提交原成员，仍由native核对实际私有页。
         std::vector<n::NativeControlResult> stops;
         std::vector<n::ExecutionGroupSessionEntry> sessions; // 新混合格式显式携带每个原owner。
         JsonArray tokens;
@@ -149,12 +160,16 @@ private:
             sessionTable = sessionValues != nullptr;
             tokens = *(sessionTable ? sessionValues : stopValues)->asArray();
             if (!fields || (scoped ? fields->size() != 1 || !request.params.find("scope") || !request.params.find("scope")->tryGetString(scope) :
-                step ? fields->size() != 1 || !request.params.find("mode") || !request.params.find("mode")->tryGetString(mode) : !fields->empty()))
-                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; step-cancel requires empty params");
+                step ? fields->size() != 1 || !request.params.find("mode") || !request.params.find("mode")->tryGetString(mode) :
+                range ? fields->size() != 2 || !request.params.find("address") || !request.params.find("address")->tryGetString(addressText) ||
+                    !request.params.find("bytes") || !request.params.find("bytes")->tryGetString(bytesText) : !fields->empty()))
+                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; range-add requires address and bytes strings; step-cancel requires empty params");
         } else {
             std::string tokenText;
-            if (request.expected || !args || args->size() != (cancel ? 2 : 3) || !(*args)[0].tryGetString(id) ||
-                !args->back().tryGetString(tokenText) || (!cancel && !(*args)[1].tryGetString(scoped ? scope : mode)))
+            if (request.expected || !args || args->size() != (range ? 4 : cancel ? 2 : 3) || !(*args)[0].tryGetString(id) ||
+                !args->back().tryGetString(tokenText) ||
+                (range ? !(*args)[1].tryGetString(addressText) || !(*args)[2].tryGetString(bytesText) :
+                    !cancel && !(*args)[1].tryGetString(scoped ? scope : mode)))
                 return Invalid(request, "invalid-repl", "Use help; include execution/N and complete TOKENHEX");
             for (;;) {
                 const auto at = tokenText.find(',');
@@ -166,6 +181,12 @@ private:
                 if (at == std::string::npos) break;
                 tokenText.erase(0, at + 1);
             }
+        }
+        // 只接用户明确填写的整页范围；先完成协议校验，再消费execution/N流水。
+        if (range && (!RangeNumber(addressText, address) || !RangeNumber(bytesText, bytes) ||
+            address % 4096 || bytes % 4096 || bytes > 64ull * 4096 || address > UINT64_MAX - bytes))
+        {
+            return Invalid(request, "invalid-execution-range", "Require positive aligned address, 1..64 whole pages and no uint64 overflow");
         }
         if (tokens.empty() || tokens.size() > n::kOwnedExecutionGroupLimit || (!scoped && tokens.size() != 1) ||
             (scoped && scope != "all" && scope != "selected") || (step && mode != "into" && mode != "over-call" && mode != "out"))
@@ -194,8 +215,8 @@ private:
         {
             return Invalid(request, "mixed-token-shapes", "Use one complete session table or one legacy token list");
         }
-        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : "step-cancel")},
-            {"scope", Text(scope)}, {"mode", Text(mode)}, {"stops", V::makeArray(tokens)}}));
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : range ? "range-add" : "step-cancel")},
+            {"scope", Text(scope)}, {"mode", Text(mode)}, {"address", Text(addressText)}, {"bytes", Text(bytesText)}, {"stops", V::makeArray(tokens)}}));
         return Mutate(request, std::move(id), signature, [&] {
             n::ExecutionGroupResult result; // 一次幂等修改仅派发一个原集合动作，并保存其全部成员结果。
             if (pause)
@@ -209,6 +230,10 @@ private:
             else if (cancel)
             {
                 result = group_.CancelStep(stops.front());
+            }
+            else if (range)
+            {
+                result = group_.AddRange(stops.front(), address, bytes); // 不附加、不继续，成员原session分配独立range/N。
             }
             else
             {
@@ -300,15 +325,18 @@ void RegisterExecutionGroupCommand()
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach.";
     command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
-        L"step-cancel execution/N TOKENHEX; quit. Copy full replToken bytes, never a member index. "
+        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
-        L"control.step.cancel params:{}; controller.shutdown params:{}. Mutations require current hello session id/epoch, "
+        L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); controller.shutdown params:{}. Mutations require current hello session id/epoch, "
         L"execution/N request IDs, and expected:{collectionId,stops:[complete current member.pauseToken, stopToken or stepToken]}. "
         L"Mixed pause/continue also accept expected:{collectionId,sessions:[complete member.sessionToken owner+control objects]}; REPL accepts replSessionToken lists. "
         L"All/selected validate the entire explicit set first; Pause reports already-held, Continue reports already-running, without native calls for those members. "
         L"Every outcome includes actionAttempted and disposition; unclear/recovery/foreign states reject the batch without clearing responsibility. "
         L"Pause checks all selected live owner/PID/creation/binding request IDs before original session.Pause; no old stop is required. "
         L"ManualPause receipts remain separate; exact Held ManualPause can continue but cannot step in this version. "
+        L"Range-add requires exactly one complete current NX Held stopToken, including ManualPause; canAddRange reports eligibility. "
+        L"It uses the original member owner, adds only explicit 4 KiB pages within the total 64-page budget, and never continues the target. "
+        L"site retains initial configuration; control.breakpoint.executionRanges and control.executionRange show actual ranges and the native range/N receipt. "
         L"128 replay receipts, strictly increasing IDs; replay returns original result and does not repeat actions. "
         L"All stop identities/events/revisions are checked before any selected continue; actual calls remain sequential and may partly fail. "
         L"Partial attach and continue retain successful members and original responsibility. No automatic descendants or system-wide attachment. "

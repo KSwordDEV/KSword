@@ -11,7 +11,7 @@ namespace ks::action_analyze
     namespace execution_group_native = ks::cli::action_analyze::control;
 
     // 请求完全按值进入原串行线程，界面行索引和控件不进入后台。
-    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep };
+    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange };
 
     struct ExecutionGroupRequest
     {
@@ -21,6 +21,8 @@ namespace ks::action_analyze
         std::vector<execution_group_native::ExecutionGroupSessionEntry> sessions; // 混合Pause/Continue携带每项完整原owner与显示快照。
         execution_group_native::NativeStepMode mode = execution_group_native::NativeStepMode::Into; // 单成员步进模式。
         std::string sampleId; // 可选共享采样UUID；空值交给原会话分配。
+        std::uint64_t rangeAddress = 0; // AddRange点击时冻结的整页起点，不替换Start站点。
+        std::uint64_t rangeBytes = 0; // AddRange明确新增字节数，原owner核验总页数预算。
         bool all = false; // Pause/Continue显式区分固定全集与所选子集。
         bool authorized = false; // Start时冻结的用户授权。
     };

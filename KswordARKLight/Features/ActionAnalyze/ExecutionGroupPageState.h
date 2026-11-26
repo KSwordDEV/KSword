@@ -11,7 +11,7 @@ enum : int {
     kIdentify, kAdd, kRemove, kDraft, kAuthorized, kStart, kQuery, kContinueAll,
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
-    kPauseAll, kPauseSelected
+    kPauseAll, kPauseSelected, kAddRange
 };
 enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, FieldCount };
 
@@ -21,6 +21,7 @@ struct Page {
     Ui::ParameterWorkspace parameters;
     std::array<HWND, FieldCount> labels{}, inputs{};
     HWND hint = nullptr, identity = nullptr, identify = nullptr;
+    HWND rangeHint = nullptr, addRange = nullptr;
     HWND draft = nullptr, add = nullptr, remove = nullptr, loadDraft = nullptr, authorized = nullptr;
     HWND start = nullptr, query = nullptr, continueAll = nullptr, continueSelected = nullptr;
     HWND pauseAll = nullptr, pauseSelected = nullptr;

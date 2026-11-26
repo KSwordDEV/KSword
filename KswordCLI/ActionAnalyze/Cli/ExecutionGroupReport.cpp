@@ -40,6 +40,7 @@ const char* Action(n::ExecutionGroupAction value)
     case Step: return "step";
     case CancelStep: return "step-cancel";
     case Close: return "close";
+    case AddRange: return "range-add";
     }
     return "unknown";
 }
@@ -111,6 +112,16 @@ V ControlReport(const n::NativeControlResult& s)
     }
     if (s.breakpointHit) fields.emplace_back("hit", V::makeObject({{"requestId", Text(s.breakpointHit->requestId)},
         {"address", Count(s.breakpointHit->address)}}));
+    if (s.executionRange)
+    {
+        const auto& range = *s.executionRange; // 显示本次独立range/N回执，不用绑定当前范围替代操作结论。
+        fields.emplace_back("executionRange", V::makeObject({{"requestId", Text(range.request.stop.requestId)},
+            {"address", Count(range.request.address)}, {"bytes", Count(range.request.bytes)},
+            {"added", V::makeBool(range.added)}, {"rollbackComplete", V::makeBool(range.rollbackComplete)},
+            {"stateRevision", Count(range.stateRevision)}, {"event", Event(range.request.stop.event)},
+            {"groupId", Text(range.request.stop.groupId)}, {"stopId", Text(range.request.stop.stopId)},
+            {"stage", Text(range.stage)}, {"win32Error", V::makeUInt(range.win32Error)}}));
+    }
     if (s.registers) {
         std::vector<std::pair<std::string, V>> values{{"threadId", Text(s.registers->thread.threadId)}};
         for (const auto& field : control::NativeStopRegisterFields) {
@@ -182,6 +193,7 @@ V Report(const n::ExecutionGroupResult& result, bool repl)
             {"control", ControlReport(member.control)}, {"condition", Condition(member.condition)},
             {"sessionToken", session}, {"canPause", V::makeBool(n::OwnedExecutionGroup::CanPauseMember(member))},
             {"canContinue", V::makeBool(n::OwnedExecutionGroup::CanContinueMember(member))},
+            {"canAddRange", V::makeBool(n::OwnedExecutionGroup::CanAddRangeMember(member))},
             {"pauseToken", pausable ? token : V::makeNull()}, {"stopToken", held ? token : V::makeNull()}, {"stepToken", stepping ? token : V::makeNull()}};
         if (repl) {
             fields.emplace_back("replToken", pausable || held || stepping ? Text(TokenText(token)) : V::makeNull());

@@ -7,7 +7,7 @@
 namespace Ksword::Features::ActionAnalyze {
 namespace execution_native = ks::cli::action_analyze::control;
 
-enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify };
+enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange };
 
 // 点击时按值冻结；不借用窗口、列表索引或稍后可能改变的参数。
 struct LightExecutionGroupRequest {
@@ -19,6 +19,8 @@ struct LightExecutionGroupRequest {
     bool authorized = false;
     bool all = false;
     std::uint32_t identityPid = 0;
+    std::uint64_t address = 0; // AddRange点击时的手工范围草稿，不改写Start站点。
+    std::uint64_t bytes = 0;
 };
 
 struct LightExecutionGroupSnapshot {
