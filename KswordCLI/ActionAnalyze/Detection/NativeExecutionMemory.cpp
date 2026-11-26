@@ -71,7 +71,7 @@ ProjectResult AssociateNativeExecutionMemory(std::string_view projectId, std::st
 
     const auto& doc = execution.document; // 原生执行归档；不反序列化成活控制对象。
     const auto& plan = memory.plan; // 原内存采样的冻结身份与读取上下文。
-    if (!IsString(doc, "kind", "native-execution-v1") ||
+    if (!IsNativeExecutionDocument(doc) ||
         !IsString(plan, "kind", "selected-memory-plan-v1") ||
         !IsString(doc, "projectId", projectId) || !IsString(plan, "projectId", projectId) ||
         !IsString(doc, "sampleId", sampleId) || !IsString(plan, "sampleId", sampleId)) {

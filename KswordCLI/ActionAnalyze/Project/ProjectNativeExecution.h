@@ -22,6 +22,9 @@ struct ArchivedNativeExecution {
     std::uint64_t blockOrdinal = 0; // 真实记录所属 Stored 块。
 };
 
+// 只识别已支持版本，完整字段及身份仍由ReadNativeExecution核验；供归档关联器统一选择。
+bool IsNativeExecutionDocument(const Evidence::JsonValue& document);
+
 // 调用者持项目写租约，在原生会话的串行控制线程显式保存当前停点。
 // state 必须直接来自该活 owner，不接受外来 JSON 或历史停点反序列化。
 ProjectResult WriteNativeExecution(ProjectDocument& project,

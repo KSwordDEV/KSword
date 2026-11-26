@@ -1,10 +1,10 @@
-# 原生执行观测 v1
+# 原生执行观测 v1／v2
 
-`native-execution-v1` 保存 KSword 活原生调试所有者已经接纳的执行观察。它不把远程写入、线程创建、APC 入队或 API 调用成功转换成执行事实。
+`native-execution-v1`／`native-execution-v2` 保存 KSword 活原生调试所有者已经接纳的执行观察。新写入采用 v2，增加同一事件线程的完整冻结寄存器；读侧继续接受字段严格匹配的旧 v1。它不把远程写入、线程创建、APC 入队或 API 调用成功转换成执行事实。
 
 ## 实际事件与保存时机
 
-`NativeExecutionFromOwnedStop` 只处理当前仍持有、账本已接纳、未进入继续未决状态的第一机会 `EXCEPTION_SINGLE_STEP`。事件 PID、实际线程身份、创建 FILETIME 和原生事件键来自同一份 `NativeDebugOwner` 快照。历史组、已释放组或另一个事件的步进回执不会生成本格式。
+`NativeExecutionFromOwnedStop` 只处理当前仍持有、账本已接纳、未进入继续未决状态的第一机会 `EXCEPTION_SINGLE_STEP`，以及原 owner 核验的登记 NX 页执行访问异常。事件 PID、实际线程身份、创建 FILETIME 和原生事件键来自同一份 `NativeDebugOwner` 快照。历史组、已释放组或另一个事件的步进回执不会生成本格式。
 
 - `execution-enter-attempt`：DR0 执行断点命中精确绑定地址，表示尝试在该地址执行。它不证明该指令完成。
 - `instruction-completed`：Into 模式的 TF 步进完成；临时步进资源已恢复，回执的新事件、停止组和实际线程与当前停点一致。`instructionAddress` 为此次步进的起始 RIP，`nextInstructionAddress` 为事件时回读的下一 RIP。
@@ -19,7 +19,7 @@
 
 | 字段 | 语义 |
 | --- | --- |
-| `kind` | 固定为 `native-execution-v1` |
+| `kind` | 新档为 `native-execution-v2`，兼容旧 `native-execution-v1` |
 | `projectId`、`sampleId` | 已登记项目与本轮采样 |
 | `sessionId`、`epoch` | 保存时仍持有事件的会话与控制代次 |
 | `source` | `native-debug-owner` |
@@ -32,8 +32,11 @@
 | `instructionAddress` | 尝试进入或完成的指令起始地址 |
 | `nextInstructionAddress` | Into 完成后的实际 RIP；进入尝试时为 `null` |
 | `observedQpc`、`qpcFrequency` | 外部所有者观察事件的本机时钟；未采到观察时刻时为 `null` |
+| `registers` | 仅 v2：未采到为 `null`；成功为同一实际 `threadId` 及 `values` 固定字段对象 |
 
 地址、FILETIME、QPC、序号和修订为无损十进制字符串。PID／TID 为 JSON 无符号整数。线程创建时间不能早于所属进程创建时间。元数据字段严格匹配版本，不忽略未知字段或根据文字摘要补值。
+
+v2 的 `registers.values` 恰好包含 `eflags`、`r10` 至 `r15`、`r8`、`r9`、`rax`、`rbp`、`rbx`、`rcx`、`rdi`、`rdx`、`rip`、`rsi`、`rsp` 这18项，均为无损无符号十进制字符串。`eflags` 是原32位值的零扩展。`rip` 必须等于进入尝试的 `instructionAddress`，或 Into 完成的 `nextInstructionAddress`。这是事件停止时快照，不能把完成后的寄存器解释为指令执行前值。旧 v1 不含该字段，读侧不填零也不从历史地址重建寄存器。三端继续使用既有规范文档和JSON详情展示，历史值不提供活控制资格。新增v2读写及关联接线尚未构建或运行验收。
 
 调用方持项目写租约并在原生会话的串行控制线程保存。写入器核对活所有者的采样、会话、代次及后端事件，写入新段后刷盘，再通过固定项目目录中的只读句柄核对封装、元数据、端点和完整段 SHA-256。写入、刷盘及核验分别保留回执。
 

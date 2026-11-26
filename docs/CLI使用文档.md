@@ -284,6 +284,8 @@ JSONL方法为 `control.execution.range.add`，请求带当前session、独立�
 
 REPL 使用 `execution-save STOP_ID STATE_REVISION` 显式保存当前仍持有的原生执行观测，不自动继续。JSONL 使用 `control.execution.save`，`params` 必须为空对象，并携带当前会话 `session:{id,epoch}` 和精确 `expected:{stopId,stateRevision}`；修订以规范正十进制字符串表示。保存时在同一 CLI 串行控制线程重新查询活 owner，仅接当前执行进入尝试或原生 Into TF 单指令完成观测。相同原生事件重复保存返回原归档坐标，不新建段。每会话最多保存 4096 个事件，去重内存保持有界，后续会话可核验旧段后继续追加；失败返回原始 `raw.written/raw.flushed`、状态和错误，阻止该会话后续追加，不跳段掩盖部分写失败。
 
+新原生执行文档为 `native-execution-v2`，额外保存同一事件实际线程的 `registers:{threadId,values}`；`values` 含完整18项通用寄存器／RIP／EFlags 的无损十进制字符串，采集失败时整个 `registers` 为 `null`。Into 完成档中的值为指令执行之后的停止现场。`analyze execution read` 以及内存／线程转移／APC／上下文／节映射关联继续接受旧 `native-execution-v1`，旧档缺寄存器不填零。Qt／Light 的原生历史详情消费同一规范文档，不重新查询目标。新增v2读写尚未构建或实测。
+
 项目单目标会话提供 REPL `api-capture PID FILETIME DURATION confirm`，或 JSONL `control.api.capture`：携带当前 `session`，不带 `expected`，`params` 只含 `sourcePid`（UInt）、`sourceCreationFileTime`（规范正十进制字符串）、`durationMs`（UInt，1000..10000）、`confirm:true`。显式来源必须是另一进程实例，不得使用当前原生目标；调用前从原 owner 的 Query 实读目标 PID，来源 PID＋FILETIME 再由既有显式 R3 附加控制器核对。不从关联候选自动选进程，也不默换采样。
 
 该命令在原 CLI 控制线程同步完成有限采集，**采集区间最长 10 秒，启动与停止排空超时另计**，期间其他控制指令等待完成后处理；不支持 duration=0。原 debug 线程独立保留已有停点，API 清退只停止 API，不 Continue/Close 原生 owner。复用同一个项目 writer 和实际 sample 的冻结修订，不创建第二 writer、项目、采样或 owner，不订阅 Agent ETW。只允许首次使用 primary API lane：`raw` 或 `checkpoints` 目录已存在时（含空目录、坏尾、缺标记）由核心以 `apiCaptureLaneAlreadyUsed` 拒绝，不覆盖、补写或跳段。

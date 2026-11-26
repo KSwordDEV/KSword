@@ -44,7 +44,7 @@ std::optional<NativeSectionMapAssociation> AssociateNativeSectionMap(
     }
 
     const auto& document = execution.document; // 原生文档独立保留，不反序列化为活控制对象。
-    if (!storage::IsString(document, "kind", "native-execution-v1") ||
+    if (!IsNativeExecutionDocument(document) ||
         !storage::IsString(document, "projectId", scope.projectId) ||
         !storage::IsString(document, "sampleId", scope.sampleId)) {
         return {};

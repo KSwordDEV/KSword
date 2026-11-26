@@ -38,7 +38,7 @@ std::optional<NativeTransferAssociation> AssociateNativeTransfer(const SampleSco
         !fields.enterQpc || fields.returnQpc < fields.enterQpc) return {};
 
     const auto& doc = execution.document;
-    if (!IsString(doc, "kind", "native-execution-v1") || !IsString(doc, "projectId", scope.projectId) ||
+    if (!IsNativeExecutionDocument(doc) || !IsString(doc, "projectId", scope.projectId) ||
         !IsString(doc, "sampleId", scope.sampleId)) return {};
     const auto* target = doc.find("target");
     const auto* thread = doc.find("thread");
@@ -91,7 +91,7 @@ std::optional<NativeApcTransferAssociation> AssociateNativeApcTransfer(const Sam
         return {};
     }
     const auto& doc = execution.document; // 历史原生事件仍不转换成活控制对象。
-    if (!IsString(doc, "kind", "native-execution-v1") || !IsString(doc, "projectId", scope.projectId) ||
+    if (!IsNativeExecutionDocument(doc) || !IsString(doc, "projectId", scope.projectId) ||
         !IsString(doc, "sampleId", scope.sampleId)) {
         return {};
     }
@@ -155,7 +155,7 @@ std::optional<NativeContextTransferAssociation> AssociateNativeContextTransfer(c
         return {};
     }
     const auto& doc = execution.document; // 原生产品目前只输出AMD64执行观察，拒绝用x86请求混配。
-    if (!IsString(doc, "kind", "native-execution-v1") || !IsString(doc, "projectId", scope.projectId) ||
+    if (!IsNativeExecutionDocument(doc) || !IsString(doc, "projectId", scope.projectId) ||
         !IsString(doc, "sampleId", scope.sampleId)) {
         return {};
     }

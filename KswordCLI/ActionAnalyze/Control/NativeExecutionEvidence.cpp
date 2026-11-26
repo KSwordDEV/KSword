@@ -54,6 +54,10 @@ std::optional<NativeExecutionEvidence> NativeExecutionFromOwnedStop(const Native
     result.stateRevision = state.group->stateRevision;
     result.observedQpc = state.timing.eventObservedQpc;
     result.qpcFrequency = state.timing.qpcFrequency;
+    if (state.registers && state.registers->thread == thread->identity)
+    {
+        result.registers = state.registers; // 与实际执行阶段一起保存，Query不会补读现场。
+    }
 
     // Into 的已完成 TF 回执绑定同一实际线程和新的停止事件；旧步进票据不得污染后续命中。
     if (singleStep && state.step && state.step->request.mode == NativeStepMode::Into &&

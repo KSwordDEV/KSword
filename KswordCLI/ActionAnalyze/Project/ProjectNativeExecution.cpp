@@ -9,10 +9,25 @@ namespace archive = ks::cli::action_analyze::archive;
 using namespace ProjectStorage;
 using V = Evidence::JsonValue;
 
+// 将实际事件的完整寄存器按稳定目录写入v2；失败保持null，不使用全零对象替代。
+V Registers(const native::NativeExecutionEvidence& observed)
+{
+    if (!observed.registers)
+    {
+        return V::makeNull();
+    }
+    JsonObject values; // 所有u64值保留无损十进制编码。
+    for (const auto& field : native::NativeStopRegisterFields)
+    {
+        values.emplace_back(field.name, Number((*observed.registers).*(field.value)));
+    }
+    return Object({{"threadId", Text(observed.registers->thread.threadId)}, {"values", Object(std::move(values))}});
+}
+
 V Document(const ProjectInfo& project, const native::OwnerIdentity& owner,
     const native::NativeExecutionEvidence& observed)
 {
-    return Object({{"kind", Text("native-execution-v1")}, {"projectId", Text(project.projectId)},
+    return Object({{"kind", Text("native-execution-v2")}, {"projectId", Text(project.projectId)},
         {"sampleId", Text(owner.sampleId)}, {"sessionId", Text(owner.sessionId)}, {"epoch", Text(owner.epoch)},
         {"source", Text("native-debug-owner")}, {"historical", V::makeBool(true)},
         {"observation", Text(observed.kind == native::NativeExecutionKind::InstructionCompleted ?
@@ -26,7 +41,41 @@ V Document(const ProjectInfo& project, const native::OwnerIdentity& owner,
         {"instructionAddress", Number(observed.instructionAddress)},
         {"nextInstructionAddress", observed.nextInstructionAddress ? Number(*observed.nextInstructionAddress) : V::makeNull()},
         {"observedQpc", observed.observedQpc ? Number(*observed.observedQpc) : V::makeNull()},
-        {"qpcFrequency", Number(observed.qpcFrequency)}});
+        {"qpcFrequency", Number(observed.qpcFrequency)}, {"registers", Registers(observed)}});
+}
+
+// v2寄存器必须全部存在且来自文档的实际线程；v1没有该字段，不补造未知寄存器。
+bool ValidRegisters(const V& doc, const V& thread)
+{
+    const auto* registers = doc.find("registers"); // 当前版本已经核对顶层字段集合。
+    if (!registers || registers->isNull())
+    {
+        return true;
+    }
+    std::string expectedThread, actualThread; // 与原生执行观察的实际强线程ID比较。
+    if (!Fields(*registers, {"threadId", "values"}) || !GetString(thread, "threadId", expectedThread) ||
+        !GetString(*registers, "threadId", actualThread) || actualThread != expectedThread)
+    {
+        return false;
+    }
+    const auto* values = registers->find("values"); // 固定18项，不忽略拼写错误或额外寄存器。
+    const auto* object = values ? values->asObject() : nullptr;
+    if (!object || object->size() != native::NativeStopRegisterFields.size())
+    {
+        return false;
+    }
+    for (const auto& field : native::NativeStopRegisterFields)
+    {
+        std::uint64_t value = 0; // 已校验的无符号寄存器值，零合法。
+        if (!GetNumber(*values, field.name, value))
+        {
+            return false;
+        }
+    }
+    std::uint64_t flags = 0, rip = 0, stoppedIp = 0; // RIP指向事件时现场，Into保存的是完成后的下一地址。
+    return GetNumber(*values, "eflags", flags) && flags <= MAXDWORD && GetNumber(*values, "rip", rip) &&
+        GetNumber(doc, IsString(doc, "observation", "instruction-completed") ? "nextInstructionAddress" : "instructionAddress", stoppedIp) &&
+        rip == stoppedIp;
 }
 
 bool Positive(const V& object, std::string_view key, std::uint64_t* output = nullptr)
@@ -45,10 +94,14 @@ bool Identifier(const V& object, std::string_view key)
 
 bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sampleId)
 {
-    if (!Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
+    const bool version2 = IsString(doc, "kind", "native-execution-v2"); // 版本严格分开，旧v1仍按原字段集合读取。
+    const bool fieldsValid = version2 ? Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
             "target", "thread", "event", "groupId", "stopId", "stateRevision", "instructionAddress",
-            "nextInstructionAddress", "observedQpc", "qpcFrequency"}) ||
-        !IsString(doc, "kind", "native-execution-v1") || !IsString(doc, "projectId", projectId) ||
+            "nextInstructionAddress", "observedQpc", "qpcFrequency", "registers"}) :
+        Fields(doc, {"kind", "projectId", "sampleId", "sessionId", "epoch", "source", "historical", "observation",
+            "target", "thread", "event", "groupId", "stopId", "stateRevision", "instructionAddress",
+            "nextInstructionAddress", "observedQpc", "qpcFrequency"});
+    if (!fieldsValid || !IsNativeExecutionDocument(doc) || !IsString(doc, "projectId", projectId) ||
         !IsString(doc, "sampleId", sampleId) || !IsString(doc, "source", "native-debug-owner")) return false;
     std::string session, epoch, backend;
     const auto* historical = doc.find("historical");
@@ -73,7 +126,7 @@ bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sa
     if (!pid || pid->type() != Evidence::JsonType::UInt || !pid->tryGetU64(processId) || !processId || processId > MAXDWORD ||
         !tid || tid->type() != Evidence::JsonType::UInt || !tid->tryGetU64(threadId) || !threadId || threadId > MAXDWORD ||
         !Positive(*target, "creationFileTime", &processTime) || !Positive(*thread, "creationFileTime", &threadTime) ||
-        threadTime < processTime) return false;
+        threadTime < processTime || (version2 && !ValidRegisters(doc, *thread))) return false;
     std::uint64_t frequency = 0;
     if (!GetNumber(doc, "qpcFrequency", frequency) ||
         (!IsNull(doc, "observedQpc") && (!frequency || !Positive(doc, "observedQpc")))) return false;
@@ -81,6 +134,11 @@ bool ValidDocument(const V& doc, std::string_view projectId, std::string_view sa
     return IsString(doc, "observation", "execution-enter-attempt") && IsNull(doc, "nextInstructionAddress");
 }
 } // namespace
+
+bool IsNativeExecutionDocument(const Evidence::JsonValue& document)
+{
+    return IsString(document, "kind", "native-execution-v1") || IsString(document, "kind", "native-execution-v2");
+}
 
 ProjectResult ReadNativeExecution(const ProjectDocument& project, std::string_view sampleId,
     std::uint64_t ordinal, std::optional<std::uint64_t> previousSequence, ArchivedNativeExecution& out)
