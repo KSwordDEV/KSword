@@ -8,6 +8,9 @@
 #include "hook/HookTargets.h"
 #include "hook/ClipboardGuardCommon.h"
 #include "hook/ClipboardGuardWin32u.h"
+#include "../shared/evidence/ActionAnalyzeEtwProvider.h"
+
+#include <evntprov.h>
 
 namespace apimon
 {
@@ -25,6 +28,45 @@ namespace apimon
         constexpr DWORD kCooperativeStartupPollMs = 10;
         constexpr DWORD kSessionIdlePollMs = 100;       // kSessionIdlePollMs：等待下一次 UI 会话配置时的低频轮询间隔。
         constexpr DWORD kSessionActivePollMs = 250;     // kSessionActivePollMs：已安装 Hook 后检查停止标记的轮询间隔。
+
+        namespace Etw = ks::action_analyze::etw;
+
+        // 只在已连接的合作会话内登记提供程序。采集方的缺失或 ETW 写入失败不会影响管道控制。
+        class CooperativeEtw final
+        {
+        public:
+            explicit CooperativeEtw(bool cooperative) noexcept
+            {
+                if (cooperative && ::EventRegister(&Etw::kProviderGuid, nullptr, nullptr, &registration_) != ERROR_SUCCESS)
+                {
+                    registration_ = 0;
+                }
+            }
+
+            ~CooperativeEtw()
+            {
+                if (registration_)
+                {
+                    ::EventUnregister(registration_);
+                }
+            }
+
+            CooperativeEtw(const CooperativeEtw&) = delete;
+            CooperativeEtw& operator=(const CooperativeEtw&) = delete;
+
+            // 发布实际发生的状态转换，正文为空。ETW 上下文独立于管道确认及完整覆盖。
+            void Write(Etw::AgentEvent kind) const noexcept
+            {
+                if (registration_)
+                {
+                    const EVENT_DESCRIPTOR event{static_cast<USHORT>(kind), 1, 0, 4, 0, 0, 1};
+                    ::EventWrite(registration_, &event, 0, nullptr);
+                }
+            }
+
+        private:
+            REGHANDLE registration_ = 0; // 本轮合作会话独占的 ETW 提供程序句柄。
+        };
 
         void TraceAgentFailure(const std::wstring& errorText)
         {
@@ -331,6 +373,8 @@ namespace apimon
                     continue;
                 }
 
+                const CooperativeEtw telemetry(cooperative != nullptr); // 只跟踪已验证的合作连接。
+                telemetry.Write(Etw::AgentEvent::PipeReady);
                 SendMonitorEvent(
                     ks::winapi_monitor::EventCategory::Internal,
                     L"Agent",
@@ -360,6 +404,7 @@ namespace apimon
                     {
                         CompleteCooperativeStartup(cancelled ? ERROR_OPERATION_ABORTED : ERROR_GEN_FAILURE);
                     }
+                    telemetry.Write(Etw::AgentEvent::InstallIncomplete);
                     if(cancelled)RequestStop();
                     SendMonitorEvent(
                         ks::winapi_monitor::EventCategory::Internal,
@@ -376,6 +421,10 @@ namespace apimon
                     continue;
                 }
                 APIMON_DIAG_MARK("install-end",0,0);
+                if (!initiallyPaused)
+                {
+                    telemetry.Write(errorText.empty() ? Etw::AgentEvent::HooksInstalled : Etw::AgentEvent::HooksPartial);
+                }
                 if (!errorText.empty())
                 {
                     SendMonitorEvent(
@@ -406,9 +455,15 @@ namespace apimon
 
                 WaitForCurrentSessionStop(configValue, pause.value, cooperative, initiallyPaused);
                 APIMON_DIAG_MARK("uninstall-begin",0,0);
-                while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
+                bool restored = UninstallConfiguredHooks(); // 仅在卸载成功时发布 ETW 清退事件。
+                while (!restored && !g_processDetachRequested.load())
                 {
                     ::Sleep(kSessionActivePollMs);
+                    restored = UninstallConfiguredHooks();
+                }
+                if (restored && !initiallyPaused)
+                {
+                    telemetry.Write(Etw::AgentEvent::HooksRestored);
                 }
                 SendHooksRemovedEvent(L"Inline hooks removed and agent is waiting for the next session.");
                 APIMON_DIAG_MARK("uninstall-end",0,0);

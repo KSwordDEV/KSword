@@ -17,6 +17,10 @@
 #include "ExportCatalog.h"
 #include "RawAbiSnapshot.h"
 #include "HookCallStack.h"
+#include "ApiInjectionObservation.h"
+#include "ApiApcObservation.h"
+#include "ApiContextObservation.h"
+#include "ApiSectionMapObservation.h"
 #include "../../shared/ApiMonitorInjection.h"
 #ifdef _M_IX86
 #include "../../APIMonitor_x86/hook/EntryStubs.h"
@@ -1435,18 +1439,28 @@ namespace apimon
             return bits;
         }
 
+        // SendRawEventWithMetrics：经原分类门禁发送一个业务包，不创建第二条结构化队列。
+        // categoryValue/moduleName/apiName 标识事件；statusValue/detailText 为原状态及摘要。
+        // hasReturn/returnBits 和 duration 保存原返回与耗时；apiId/operationId 保留既有身份。
+        // resultKind 指明状态语义；四类可选字段仅由对应 Hook 传入，其余路径保持空指针。
         bool SendRawEventWithMetrics(const ks::winapi_monitor::EventCategory categoryValue,
             const wchar_t* moduleName, const wchar_t* apiName, const long statusValue,
             const wchar_t* detailText, const bool hasReturn, const std::uint64_t returnBits,
             const ApiCallDuration& duration, const std::uint32_t apiId = 0, const std::uint64_t operationId = 0,
-            const ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode)
+            const ks::winapi_monitor::EventResultKind resultKind = ks::winapi_monitor::EventResultKind::StatusCode,
+            const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields = nullptr,
+            const Ksword::Evidence::ApiApcFieldsV1* apcFields = nullptr,
+            const Ksword::Evidence::ApiContextFieldsV1* contextFields = nullptr,
+            const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr)
         {
             if (!CategoryEnabled(categoryValue)
-                || (categoryValue == ks::winapi_monitor::EventCategory::Loader && !ActiveConfig().enableLoader)) return false;
+                || (categoryValue == ks::winapi_monitor::EventCategory::Loader && !ActiveConfig().enableLoader)) {
+                return false;
+            }
             return SendMonitorEventRawWithMetrics(categoryValue, moduleName, apiName,
                 static_cast<std::int32_t>(statusValue), detailText,
                 hasReturn, returnBits, duration.valid, duration.ticks100ns, apiId,
-                resultKind, operationId);
+                resultKind, operationId, injectionFields, apcFields, contextFields, sectionMapFields);
         }
 
         bool SendFileEventWithReturn(const wchar_t* apiName, const long status,
@@ -2057,8 +2071,14 @@ namespace apimon
             }
 
             std::wstring errorText;
+            // kernel32 的真实 CreateRemoteThread 会调用 KernelBase!CreateRemoteThreadEx，
+            // 绕过 KernelBase 的同名入口，因此该 API 必须观察 kernel32 公共入口。
+            // 定义和 API 身份保持不变；coverage 仍记录真实安装地址。
+            // installModule：本次安装实际选择的模块，不重写 binding 的原模块身份。
+            const wchar_t* installModule = std::strcmp(bindingValue.procName, "CreateRemoteThread") == 0
+                ? L"kernel32.dll" : bindingValue.moduleName;
             const InlineHookInstallResult installResult = InstallInlineHook(
-                bindingValue.moduleName,
+                installModule,
                 bindingValue.procName,
                 bindingValue.hookAddress,
                 bindingValue.hookRecord,
@@ -3020,28 +3040,27 @@ namespace apimon
             return resultHandle;
         }
 
+        // HookedCreateRemoteThread：processHandle/startAddress 为原目标和请求入口；其余原参数原样转发。
+        // 仅采集真实返回线程身份，不解引用 threadIdPointer，也不证明该线程实际执行。
         HANDLE WINAPI HookedCreateRemoteThread(HANDLE processHandle, LPSECURITY_ATTRIBUTES threadAttributesPointer, SIZE_T stackSize, LPTHREAD_START_ROUTINE startAddress, LPVOID parameterPointer, DWORD creationFlags, LPDWORD threadIdPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); }
-            const auto callClock = BeginApiCallClock();
-            HANDLE resultHandle = g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
-            const auto duration = EndApiCallClock(callClock);
-            const DWORD lastError = ::GetLastError();
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"process=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
-            AppendWideText(detailBuffer, L" start=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(startAddress));
-            AppendWideText(detailBuffer, L" param=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(parameterPointer));
-            AppendWideText(detailBuffer, L" flags=");
-            AppendHexText(detailBuffer, creationFlags);
-            AppendWideText(detailBuffer, L" tid=");
-            AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
-            AppendWideText(detailBuffer, L" handle=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateRemoteThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
+            ScopedHookGuard guardValue; // 禁止观察查询及嵌套原 API 重复发业务包。
+            if (guardValue.bypass()) {
+                return g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
+            }
+            // observation：冻结进程身份和原请求入口，调用后采集返回线程身份。
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
+                processHandle, reinterpret_cast<std::uintptr_t>(startAddress), 0);
+            const auto callClock = BeginApiCallClock(); // 原调用耗时计时起点。
+            observation.MarkEntry();
+            HANDLE resultHandle = g_createRemoteThreadOriginal(processHandle, threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); // 原返回句柄。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用的耗时结果。
+            const DWORD lastError = ::GetLastError(); // 观察完成后恢复的原调用错误状态。
+            observation.CompleteThread(resultHandle != nullptr, resultHandle);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateRemoteThread",
+                resultHandle != nullptr ? 0 : lastError, L"", true, ApiReturnBits(resultHandle), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
             ::SetLastError(lastError);
             return resultHandle;
         }
@@ -3091,19 +3110,27 @@ namespace apimon
             return resultValue;
         }
 
+        // HookedWriteProcessMemory：原样转发 processHandle/baseAddress/bufferPointer/sizeValue/bytesWrittenPointer。
+        // 成功后才安全读实际写入长度，不以请求长度冒充实际写入范围。
         BOOL WINAPI HookedWriteProcessMemory(HANDLE processHandle, LPVOID baseAddress, LPCVOID bufferPointer, SIZE_T sizeValue, SIZE_T* bytesWrittenPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); }
-            const auto callClock = BeginApiCallClock();
-            const BOOL resultValue = g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
-            const auto duration = EndApiCallClock(callClock);
-            const DWORD lastError = ::GetLastError();
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
-            AppendWideText(detailBuffer, L" written=");
-            AppendUnsignedText(detailBuffer, static_cast<unsigned long long>(bytesWrittenPointer != nullptr ? *bytesWrittenPointer : 0));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"WriteProcessMemory", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ScopedHookGuard guardValue; // 采集查询与嵌套原 API 的重入保护。
+            if (guardValue.bypass()) {
+                return g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
+            }
+            // observation：本次写入的原目标、请求范围和前后代次。
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::MemoryWrite,
+                processHandle, reinterpret_cast<std::uintptr_t>(baseAddress), sizeValue);
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const BOOL resultValue = g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); // 原 BOOL 返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 原调用 LastError，观察后恢复。
+            observation.CompleteWrite(resultValue != FALSE, bytesWrittenPointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"WriteProcessMemory",
+                resultValue != FALSE ? 0 : lastError, L"", true, ApiReturnBits(resultValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3197,24 +3224,26 @@ namespace apimon
 
         // HookedQueueUserAPC 作用：
         // - 输入：APC 函数地址、线程句柄和参数；
-        // - 处理：记录用户态 APC 排队，覆盖 QueueUserAPC 注入路径；
+        // - 处理：记录原请求和线程代次；接受入队不等于投递或执行；
         // - 返回：保持 QueueUserAPC 的 DWORD 结果并恢复 LastError。
         DWORD WINAPI HookedQueueUserAPC(PAPCFUNC apcRoutinePointer, HANDLE threadHandle, ULONG_PTR dataValue)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue); }
-            const auto callClock = BeginApiCallClock();
-            const DWORD resultValue = g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue);
-            const auto duration = EndApiCallClock(callClock);
-            const DWORD lastError = ::GetLastError();
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"thread=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
-            AppendWideText(detailBuffer, L" apc=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
-            AppendWideText(detailBuffer, L" data=");
-            AppendHexText(detailBuffer, static_cast<std::uint64_t>(dataValue));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"QueueUserAPC", resultValue != 0 ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ScopedHookGuard guardValue; // 保护身份查询及原调用内部的嵌套 Hook。
+            if (guardValue.bypass()) {
+                return g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue);
+            }
+            // observation：冻结 threadHandle 身份、apcRoutinePointer 和 dataValue 原请求。
+            ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer), dataValue);
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const DWORD resultValue = g_queueUserAPCOriginal(apcRoutinePointer, threadHandle, dataValue); // 原 DWORD 返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 原调用错误状态，复核及发包后恢复。
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"QueueUserAPC",
+                resultValue != 0 ? 0 : lastError, L"", true, ApiReturnBits(resultValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, &observation.fields());
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -3243,26 +3272,25 @@ namespace apimon
 
         // HookedSetThreadContext 作用：
         // - 输入：线程句柄和 CONTEXT 输入缓冲；
-        // - 处理：记录线程上下文写入，覆盖 SetThreadContext 注入/劫持路径；
+        // - 处理：安全采集请求上下文与目标代次，不证明请求 IP 已执行；
         // - 返回：保持原始 BOOL 结果，并恢复 LastError。
         BOOL WINAPI HookedSetThreadContext(HANDLE threadHandle, const CONTEXT* contextPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_setThreadContextOriginal(threadHandle, contextPointer); }
-            const auto callClock = BeginApiCallClock();
-            const BOOL resultValue = g_setThreadContextOriginal(threadHandle, contextPointer);
-            const auto duration = EndApiCallClock(callClock);
-            const DWORD lastError = ::GetLastError();
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"thread=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
-            AppendWideText(detailBuffer, L" flags=");
-            AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-#if defined(_M_X64)
-            AppendWideText(detailBuffer, L" rip=");
-            AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
-#endif
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SetThreadContext", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ScopedHookGuard guardValue; // 保护额外身份查询及嵌套原 API。
+            if (guardValue.bypass()) {
+                return g_setThreadContextOriginal(threadHandle, contextPointer);
+            }
+            ApiContextObservation observation(threadHandle, contextPointer); // 原目标及安全读取的请求快照。
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const BOOL resultValue = g_setThreadContextOriginal(threadHandle, contextPointer); // 原 BOOL 返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 复核和发包后恢复的原调用错误。
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"SetThreadContext",
+                resultValue != FALSE ? 0 : lastError, L"", true, ApiReturnBits(resultValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, &observation.fields());
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -4836,25 +4864,28 @@ namespace apimon
             return statusValue;
         }
 
+        // HookedNtCreateThreadEx：保留全部原参数/返回；processHandle/startRoutinePointer 为原请求目标。
+        // threadHandlePointer 仅在 NT_SUCCESS 后安全读取，返回线程身份不证明执行。
         NTSTATUS NTAPI HookedNtCreateThreadEx(PHANDLE threadHandlePointer, ACCESS_MASK desiredAccess, POBJECT_ATTRIBUTES objectAttributesPointer, HANDLE processHandle, PVOID startRoutinePointer, PVOID argumentPointer, ULONG createFlags, SIZE_T zeroBits, SIZE_T stackSize, SIZE_T maximumStackSize, PVOID attributeListPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"process=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
-            AppendWideText(detailBuffer, L" start=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(startRoutinePointer));
-            AppendWideText(detailBuffer, L" arg=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argumentPointer));
-            AppendWideText(detailBuffer, L" flags=");
-            AppendHexText(detailBuffer, createFlags);
-            AppendWideText(detailBuffer, L" thread=");
-            AppendHexText(detailBuffer, threadHandlePointer != nullptr ? reinterpret_cast<std::uint64_t>(*threadHandlePointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtCreateThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 防止采集查询及嵌套调用重复进入。
+            if (guardValue.bypass()) {
+                return g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer);
+            }
+            // observation：原目标身份、请求入口与成功返回线程身份。
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
+                processHandle, reinterpret_cast<std::uintptr_t>(startRoutinePointer), 0);
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntCreateThreadExOriginal(threadHandlePointer, desiredAccess, objectAttributesPointer, processHandle, startRoutinePointer, argumentPointer, createFlags, zeroBits, stackSize, maximumStackSize, attributeListPointer); // 原 NTSTATUS。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 保留原调用实际留下的 LastError。
+            observation.CompleteThreadOutput(NT_SUCCESS(statusValue), threadHandlePointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtCreateThreadEx",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
@@ -4897,18 +4928,28 @@ namespace apimon
             return statusValue;
         }
 
+        // HookedNtWriteVirtualMemory：保留全部原参数；仅成功后安全读取 bytesWrittenPointer。
+        // processHandle/baseAddress/sizeValue 只定义请求，实际范围仍须原输出证据。
         NTSTATUS NTAPI HookedNtWriteVirtualMemory(HANDLE processHandle, PVOID baseAddress, PVOID bufferPointer, SIZE_T sizeValue, PSIZE_T bytesWrittenPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, static_cast<std::uint64_t>(sizeValue), 0, 0);
-            AppendWideText(detailBuffer, L" written=");
-            AppendUnsignedText(detailBuffer, bytesWrittenPointer != nullptr ? static_cast<unsigned long long>(*bytesWrittenPointer) : 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtWriteVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 保护观察查询及嵌套原调用。
+            if (guardValue.bypass()) {
+                return g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer);
+            }
+            // observation：本次写入的目标身份、请求和实际完成长度。
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::MemoryWrite,
+                processHandle, reinterpret_cast<std::uintptr_t>(baseAddress), sizeValue);
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); // 原 NTSTATUS。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 原调用实际留下的错误状态。
+            observation.CompleteWrite(NT_SUCCESS(statusValue), bytesWrittenPointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtWriteVirtualMemory",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
@@ -4927,25 +4968,28 @@ namespace apimon
             return statusValue;
         }
 
+        // HookedNtMapViewOfSection：原样转发所有参数；采集 sectionHandle/processHandle 与可读请求。
+        // baseAddressPointer/viewSizePointer 只在成功后读回输出，不把映射成功解释为写入或执行。
         NTSTATUS NTAPI HookedNtMapViewOfSection(HANDLE sectionHandle, HANDLE processHandle, PVOID* baseAddressPointer, ULONG_PTR zeroBits, SIZE_T commitSize, PLARGE_INTEGER sectionOffsetPointer, PSIZE_T viewSizePointer, DWORD inheritDisposition, ULONG allocationType, ULONG protectValue)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"section=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(sectionHandle));
-            AppendWideText(detailBuffer, L" process=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
-            AppendWideText(detailBuffer, L" base=");
-            AppendHexText(detailBuffer, baseAddressPointer != nullptr ? reinterpret_cast<std::uint64_t>(*baseAddressPointer) : 0);
-            AppendWideText(detailBuffer, L" size=");
-            AppendUnsignedText(detailBuffer, viewSizePointer != nullptr ? static_cast<unsigned long long>(*viewSizePointer) : 0);
-            AppendWideText(detailBuffer, L" protect=");
-            AppendHexText(detailBuffer, protectValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtMapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 保护额外查询及原调用内部的 Hook。
+            if (guardValue.bypass()) {
+                return g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue);
+            }
+            // observation：冻结原请求，原调用成功后安全取得实际映射范围。
+            ApiSectionMapObservation observation(sectionHandle, processHandle, baseAddressPointer,
+                viewSizePointer, sectionOffsetPointer, protectValue);
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntMapViewOfSectionOriginal(sectionHandle, processHandle, baseAddressPointer, zeroBits, commitSize, sectionOffsetPointer, viewSizePointer, inheritDisposition, allocationType, protectValue); // 原 NTSTATUS。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 原调用错误状态，观察后恢复。
+            observation.Complete(NT_SUCCESS(statusValue), baseAddressPointer, viewSizePointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtMapViewOfSection",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
@@ -5097,23 +5141,29 @@ namespace apimon
 
         // HookedNtQueueApcThread 作用：
         // - 输入：线程句柄、APC 例程和三个参数；
-        // - 处理：记录原生 APC 排队，覆盖绕过 QueueUserAPC 的注入路径；
-        // - 返回：保持原始 NTSTATUS。
+        // - 处理：记录原生 APC 入队请求及线程代次；接受不等于投递或执行；
+        // - 返回：保持原始 NTSTATUS 和调用后 LastError。
         NTSTATUS NTAPI HookedNtQueueApcThread(HANDLE threadHandle, PVOID apcRoutinePointer, PVOID argument1Pointer, PVOID argument2Pointer, PVOID argument3Pointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"thread=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
-            AppendWideText(detailBuffer, L" apc=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
-            AppendWideText(detailBuffer, L" arg1=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 保护身份查询及原 API 的嵌套调用。
+            if (guardValue.bypass()) {
+                return g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            }
+            // observation：保存原 threadHandle、例程和三个参数位模式，不解引用参数。
+            ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer),
+                reinterpret_cast<std::uintptr_t>(argument1Pointer), reinterpret_cast<std::uintptr_t>(argument2Pointer),
+                reinterpret_cast<std::uintptr_t>(argument3Pointer));
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntQueueApcThreadOriginal(threadHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer); // 原 NTSTATUS。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 原调用错误状态，复核和发包后恢复。
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThread",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
@@ -5203,25 +5253,26 @@ namespace apimon
 
         // HookedNtSetContextThread 作用：
         // - 输入：线程句柄和 CONTEXT 输入缓冲；
-        // - 处理：记录 Nt 层上下文写入；
-        // - 返回：保持原始 NTSTATUS。
+        // - 处理：安全采集 Nt 层请求上下文及目标代次，不证明请求 IP 执行；
+        // - 返回：保持原始 NTSTATUS 和调用后 LastError。
         NTSTATUS NTAPI HookedNtSetContextThread(HANDLE threadHandle, PCONTEXT contextPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntSetContextThreadOriginal(threadHandle, contextPointer); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntSetContextThreadOriginal(threadHandle, contextPointer);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            AppendWideText(detailBuffer, L"thread=");
-            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
-            AppendWideText(detailBuffer, L" flags=");
-            AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->ContextFlags : 0);
-#if defined(_M_X64)
-            AppendWideText(detailBuffer, L" rip=");
-            AppendHexText(detailBuffer, contextPointer != nullptr ? contextPointer->Rip : 0);
-#endif
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSetContextThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 保护观察查询及原调用内部 Hook。
+            if (guardValue.bypass()) {
+                return g_ntSetContextThreadOriginal(threadHandle, contextPointer);
+            }
+            ApiContextObservation observation(threadHandle, contextPointer); // 原身份与安全读取的请求快照。
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntSetContextThreadOriginal(threadHandle, contextPointer); // 原 NTSTATUS。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 复核和发包后恢复的原调用错误状态。
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtSetContextThread",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 

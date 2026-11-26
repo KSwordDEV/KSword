@@ -184,6 +184,7 @@ struct ApiMonitorClueReadback {
     std::uint64_t clues = 0; // 已核对的线索数。
     bool ended = false; // 最后一条必须是计数匹配的导入尾记。
     ApiMonitorArchiveSource source = ApiMonitorArchiveSource::LegacyUnspecified; // 只有合法尾记才更新。
+    bool mixedEtw = false; // 合作采样可声明配套 ETW 流，读取进度仍由 ETW 自身的检查点决定。
 
     // 从已解码的 RawRecord 读取一条记录。合法尾记返回 true 且 row 为空。
     bool Accept(const JsonValue& metadata, std::string_view bytes, std::optional<ArchivedApiMonitorClue>& row)
@@ -208,11 +209,17 @@ struct ApiMonitorClueReadback {
         std::string type; // 解码后的尾记类型名。
         std::uint64_t count = 0; // 与本次核对的线索数比较。
         const auto declaredSource = ReadApiMonitorArchiveSource(metadata); // 可选的原始输入方式。
-        ended = declaredSource && clues > 0 && bytes.empty() && kind && kind->tryGetString(type) && type == kApiMonitorClueEnd &&
+        const auto* mixed = metadata.find("mixedEtw"); // 字段缺失时兼容旧独立档。
+        bool declaresMixed = false; // 仅合作输入可以声明配套流，允许此类采样真实零线索。
+        const bool validMixed = !mixed || (declaredSource == ApiMonitorArchiveSource::CooperativePipe &&
+            mixed->tryGetBool(declaresMixed) && declaresMixed);
+        ended = validMixed && declaredSource && (clues > 0 || declaresMixed) && bytes.empty() &&
+            kind && kind->tryGetString(type) && type == kApiMonitorClueEnd &&
             scanned && scanned->tryGetU64(sourceRows) && sourceRows >= sourceSequence && retained &&
             retained->tryGetU64(count) && count == clues;
         if (ended) {
             source = *declaredSource;
+            mixedEtw = declaresMixed;
         }
         return ended;
     }

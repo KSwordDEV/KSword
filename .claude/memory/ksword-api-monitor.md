@@ -1,11 +1,34 @@
 # API Monitor 定义、x86/x64 引擎、覆盖与异步采集
 
+## ActionAnalyze 显式附加接线（2026-11-26，验收状态见回执）
+
+- 新增正式 CLI `analyze api-evidence attach`，明确 PID＋creation FILETIME＋confirm，只选择 CLI 同目录产品 Agent。`Project/AttachedApiCapture` 做确认/R0 拒绝，`CooperativeApiRequest` 末尾 mode 缺省保留合作准入；共同归档流水不复制，计划增加 captureMode。
+- `shared/ApiMonitorCapture` 的 attachCreationFileTime、attachConfirmed、strictReadOnlyObservation 必须共同选择；精确身份、模块加载、同管道 SessionReady/成功 HooksInstalled/完整当前活动覆盖快照、停止与排空分别回执。严格观察拒绝行为选项、后代和 R0；桌面 COOPERATIVE_ONLY 仍拒绝附加。普通 monitor 的 duration0 仍拒绝。Agent PIN 及退役代码驻留策略保持。
+- 作者直接派发 CodeBuddy 在本机互斥内构建与自有非预装载目标验收，不跑驱动/Sysmon/GUI/其它用户进程。实际通过范围、产物及清理只以 [attached-api-capture](../../docs/action-analyze-planning/attached-api-capture.md) 后续实际回执为准。
+
+## ActionAnalyze 显式附加实测（2026-11-26，本机自有 x64 通过）
+
+- 正式 CLI `analyze api-evidence attach` 对启动时未装载 Agent 的自有 x64 目标按精确 PID＋创建 FILETIME 确认，再由 CLI 从自身同目录装载产品 Agent。`attachmentIdentityVerified`／`agentLoadAttempted`／`agentModuleVerified` 与 `agentReady` 分开；Ready＝同一管道 SessionReady＋成功 HooksInstalled＋当前完整且含活动观察 Hook 的覆盖，不要求全部 API 成功。
+- 有效回执两轮：`033900`（CLI `f3675bea…`）99/99、`035422`（CLI `35b4f0dc…`）100/100；均 HostX64、BelowNormal、固定 IntDir `KswordCLI/x64/Release`、统一 Release，构建／夹具编译／全部产品测试在 `Local\KSword.ActionAnalyze.CliValidation` 互斥内执行。该两轮的测试文件与项目删除发生在退出互斥之后（夹具收尾次序缺口），现脚本已把清理移入互斥并显式 `ReleaseMutex`，仅静态检查、未重跑；各轮只认证表中列出的 CLI SHA。1000ms：41 普通包／2 段、末坐标 `raw/2 #42`，回读原包 PID/TID/会话与冻结实例一致；`--duration-ms 0` CtrlBreak：184 包／5 段、`cancelled=true`；停钩、干净 EOF、清退分别成立，目标存活后正常退出。不声称 DLL 卸载。
+- 修复：配置驱动（非合作）安装路径的 `HooksInstalled` 不带覆盖修订，共享控制器不得把修订 0 直接判为启动失败；改为仍要求成功安装回执＋当前完整非零修订＋活动观察 Hook。合作驻留修订非零，比较逻辑不变。
+- 负控：缺 confirm、错误 FILETIME 未装载未发配置；`--backend r0` 与 `--r0-inject` 拒绝；普通 `monitor api capture --duration-ms 0` 仍拒绝。`source-gate` 为源码＋预处理核对，不是桌面 `KSWORD_APIMON_COOPERATIVE_ONLY` 运行测试。
+- 边界与无效轮：仅自有 x64 无预装载目标；一般目标、全活动/全 API、GUI、R0、WOW64、长程与并发未验。`034440` 使用旧 EXE 得 97/100、`035041` 为 `LNK1104` 构建失败，均不计成功。回执 [attached-api-capture](../../docs/action-analyze-planning/attached-api-capture.md)。
+
 ## ActionAnalyze 三端离线归档核对（2026-11-25）
 
 - WinAPI 磁盘归档在现有写入点标记五类 API 线索。CLI `analyze api-evidence import` 仅读关闭的归档，按原包重新分类，把来源行号和原包写入 Stored raw 段。回放核对整个段及收尾计数，再输出请求页。调用方信息来自归档声明，目标身份、实际写入范围、执行、归因和源覆盖保持未知。
 - 正式 HostX64 Release 的 CLI、Qt 和 Light 共用同一已登记的合成项目。7 条输入保存 5 条线索，CLI 逐字节核对原包，Qt 与 Light 逐行核对详情。两端均实测截断后保留前次结果和恢复重读。Qt 验证 API 筛选及关键字筛选保留选择，Light 验证键盘选择。窗口退出 0，配置恢复，固定测试目录已清理。Qt 验收覆盖浅色及右侧详情。真实运行中的 API 回传和强对象关联尚未接入 ActionAnalyze。回执 `.codex-build-logs/action-analyze-three-product-api.log`。
 - 合成性能回归单机采样。约 20.2 MiB、15000 行、10% 命中时，CLI 导入及读回约 216 ms，峰值工作集 12.3 MiB。约 29.6 MiB、22000 行全命中时约 521 ms，峰值工作集 45.6 MiB。对应 100 行回放约 27／129 ms，峰值工作集约 11 MiB。导入分 64 KiB 读取，同时保留命中的原包直到全部输入通过验证。数据未覆盖实时采集开销。回执 `.codex-build-logs/action-analyze-api-evidence-perf.log`。
 - Light 在「监控 → ActionAnalyze」新增独立 API 筛选，验证选中详情在关键字筛掉该行时保持。22,000 条合成线索完整读回，原生列表显示最近 4,096 条（序号 17,905 至 22,000）。点击回放到结果可见约 190 ms，含验证脚本轮询间隔。回放前工作集约 42.0 MiB，进程工作集峰值约 52.3 MiB，私有提交峰值约 23.2 MiB，含窗口启动开销。正式产物 SHA-256 `5d054981d1c1c019ca81f14fcd6979b56cfe20f15189f96564badd02740c3412`，工作区设置恢复，测试目录清理。旧 ETW 筛选和 800×650 原生窗口几何已复测。回执 `.codex-build-logs/action-analyze-light-api-window-perf.log`。
+
+## ActionAnalyze启动期复用核对（2026-11-24）
+
+- 详见`docs/ActionAnalyze启动挂起注入与最早窗口验证-20261124.md`及`tools/api_monitor_startup_validation/`。最终自有x64/x86六例68项通过、退出0，正式日志前缀`.codex-build-logs/behavior-planning/apimon-startup-20261124-212423-`。未改产品Agent、CLI、驱动、语言包；未碰Explorer/DWM/样本。
+- 生产`injectAgentNative`依赖目标模块枚举/导出，原始CREATE_SUSPENDED未恢复时两架构均299。EXE入口原生断点恢复字节/IP、显式Suspend主线程、Continue并detach后可装真实Release Agent；SessionReady→HooksInstalled时构造/main仍0，恢复后捕获首调，TLS已经执行不能补采。两Agent报告定义hash67aa8a…与当前898项源一致，不将1000 coverage包视为1000成功API。
+- 另一条独立机制原型：原始挂起内修改仅自有目标内存导入目录，首导入CRT-free小DLL，首次恢复后DllMain对该EXE安装CreateFileW IAT Hook。两架构均先于EXE TLS安装并捕获TLS/构造/main三处首次调用、原写入保留、正常退出。该小DLL不是产品Agent/HookEngine，不证明全部inline入口或依赖DLL早期覆盖；产品不因此新增公共TraceHost/追踪DLL。完整Agent仍需早期安全子集与earlyReady→sourceReady/regionReady交接，不在加载器锁等worker。
+- 当前源码已有显式R0注入`shared/ApiMonitorR0Injection.h`/CLI`--r0-inject`，早期记忆“没有R0入口”仅为旧时状态；当前路径也先找目标LoadLibraryW，源码不等本轮R0运行验证，仍等指定环境。
+- CreateProcess处理器保持原flags，返回后才AutoInjectChild，broker成功不等子HookReady；原自动后代路径不能声称无启动空窗。内存写/映射等处理器多数原调用返回后发文本事件，需追加阶段/强类型/真实身份/区域版本及准入，不能全部原样用作ActionAnalyze完整协议。
+- 正式测试EXE/DLL/PDB在统一Release，中间产物本测试目录按平台固定；最终test-artifacts目录、本次config/stop和自有进程已清理。原始失败证据保留：夹具TLS误用CRT导致自有0xC0000005，修为纯Win32；WOW64入口需识别0x4000001f。不能归因于Agent崩溃。
 
 ## GUI 分类与第三轮强类型扩充（2026-11-08）
 

@@ -156,9 +156,18 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\shared\WinApiMonitorProtocol.h" />
+    <ClInclude Include="..\shared\evidence\ActionAnalyzeEtwProvider.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="hook\HookEngine.h" />
     <ClInclude Include="hook\HookTargets.h" />
+    <ClInclude Include="hook\ApiInjectionObservation.h" />
+    <ClInclude Include="hook\ApiApcObservation.h" />
+    <ClInclude Include="..\shared\evidence\ApiApcFields.h" />
+    <ClInclude Include="hook\ApiThreadTargetObservation.h" />
+    <ClInclude Include="hook\ApiContextObservation.h" />
+    <ClInclude Include="hook\ApiSectionMapObservation.h" />
+    <ClInclude Include="..\shared\evidence\ApiContextFields.h" />
+    <ClInclude Include="..\shared\evidence\ApiSectionMapFields.h" />
     <ClInclude Include="hook\ClipboardGuardCommon.h" />
     <ClInclude Include="hook\ClipboardGuardHook.h" />
     <ClInclude Include="hook\ClipboardGuardVTableHook.h" />
@@ -173,6 +182,11 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="hook\HookEngine.cpp" />
     <ClCompile Include="hook\HookTargets.cpp" />
+    <ClCompile Include="hook\ApiInjectionObservation.cpp" />
+    <ClCompile Include="hook\ApiApcObservation.cpp" />
+    <ClCompile Include="hook\ApiThreadTargetObservation.cpp" />
+    <ClCompile Include="hook\ApiContextObservation.cpp" />
+    <ClCompile Include="hook\ApiSectionMapObservation.cpp" />
     <ClCompile Include="hook\ClipboardGuardCommon.cpp" />
     <ClCompile Include="hook\ClipboardGuardHook.cpp" />
     <ClCompile Include="hook\ClipboardGuardVTableHook.cpp" />

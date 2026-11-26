@@ -30,6 +30,9 @@
     <ClInclude Include="..\shared\WinApiMonitorProtocol.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="..\shared\evidence\ActionAnalyzeEtwProvider.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="framework.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -39,6 +42,20 @@
     <ClInclude Include="hook\HookTargets.h">
       <Filter>头文件\hook</Filter>
     </ClInclude>
+    <ClInclude Include="hook\ApiInjectionObservation.h">
+      <Filter>头文件\hook</Filter>
+    </ClInclude>
+    <ClInclude Include="hook\ApiApcObservation.h">
+      <Filter>头文件\hook</Filter>
+    </ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiApcFields.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="hook\ApiThreadTargetObservation.h"><Filter>头文件\hook</Filter></ClInclude>
+    <ClInclude Include="hook\ApiContextObservation.h"><Filter>头文件\hook</Filter></ClInclude>
+    <ClInclude Include="hook\ApiSectionMapObservation.h"><Filter>头文件\hook</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiContextFields.h"><Filter>头文件</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiSectionMapFields.h"><Filter>头文件</Filter></ClInclude>
     <ClInclude Include="hook\ClipboardGuardCommon.h">
       <Filter>头文件\hook</Filter>
     </ClInclude>
@@ -77,6 +94,15 @@
     <ClCompile Include="hook\HookTargets.cpp">
       <Filter>源文件\hook</Filter>
     </ClCompile>
+    <ClCompile Include="hook\ApiInjectionObservation.cpp">
+      <Filter>源文件\hook</Filter>
+    </ClCompile>
+    <ClCompile Include="hook\ApiApcObservation.cpp">
+      <Filter>源文件\hook</Filter>
+    </ClCompile>
+    <ClCompile Include="hook\ApiThreadTargetObservation.cpp"><Filter>源文件\hook</Filter></ClCompile>
+    <ClCompile Include="hook\ApiContextObservation.cpp"><Filter>源文件\hook</Filter></ClCompile>
+    <ClCompile Include="hook\ApiSectionMapObservation.cpp"><Filter>源文件\hook</Filter></ClCompile>
     <ClCompile Include="hook\ClipboardGuardCommon.cpp">
       <Filter>源文件\hook</Filter>
     </ClCompile>

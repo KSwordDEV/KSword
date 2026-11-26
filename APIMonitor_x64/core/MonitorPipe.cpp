@@ -1,4 +1,8 @@
 #include "pch.h"
+#include "../../shared/evidence/ApiInjectionFields.h"
+#include "../../shared/evidence/ApiApcFields.h"
+#include "../../shared/evidence/ApiContextFields.h"
+#include "../../shared/evidence/ApiSectionMapFields.h"
 #include "MonitorPipe.h"
 #include "../hook/HookCallStack.h"
 #include "MonitorCoverage.h"
@@ -579,20 +583,31 @@ namespace apimon
             detailText.c_str());
     }
 
+    // QueueMonitorEventRaw：在同一个固定包中封装原事件及可选结构，再进入既有有界环队列。
     static bool QueueMonitorEventRaw(
-        const ks::winapi_monitor::EventCategory categoryValue,
-        const wchar_t* moduleName,
-        const wchar_t* apiName,
-        const std::int32_t resultCode,
-        const wchar_t* detailText,
-        const ks::winapi_monitor::EventResultKind resultKind,
-        const ks::winapi_monitor::EventKind eventKind, const std::uint64_t operationId, const std::uint32_t apiId,
-        const std::uint64_t coverageRevision,
-        const bool hasReturnValue = false, const std::uint64_t returnBits = 0,
-        const bool hasDuration = false, const std::uint64_t duration100ns = 0)
+        const ks::winapi_monitor::EventCategory categoryValue, // 原业务类别。
+        const wchar_t* moduleName, // 原模块身份。
+        const wchar_t* apiName, // 精确 API 名。
+        const std::int32_t resultCode, // 原返回状态或错误码。
+        const wchar_t* detailText, // 普通事件的文本摘要。
+        const ks::winapi_monitor::EventResultKind resultKind, // 状态解释方式。
+        const ks::winapi_monitor::EventKind eventKind, // API 调用或覆盖事件类型。
+        const std::uint64_t operationId, // 既有业务操作关联标识。
+        const std::uint32_t apiId, // 显式定义 ID，零时按名称查找。
+        const std::uint64_t coverageRevision, // 覆盖事件修订，业务耗时可复用其存储槽。
+        const bool hasReturnValue = false, // 原返回位是否有效。
+        const std::uint64_t returnBits = 0, // 原返回位模式。
+        const bool hasDuration = false, // 原耗时是否有效。
+        const std::uint64_t duration100ns = 0, // 原调用耗时，单位 100ns。
+        const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields = nullptr, // 既有 AAIP1 借用字段。
+        const Ksword::Evidence::ApiApcFieldsV1* apcFields = nullptr, // 独立 AAAP1 借用字段。
+        const Ksword::Evidence::ApiContextFieldsV1* contextFields = nullptr, // 独立 AACT1 借用字段。
+        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr) // 独立 AASM1 借用字段。
     {
-        if ((StopRequested() || EventsPaused()) && categoryValue != ks::winapi_monitor::EventCategory::Internal) return false;
-        ks::winapi_monitor::ApiMonitorEventPacket packetValue{};
+        if ((StopRequested() || EventsPaused()) && categoryValue != ks::winapi_monitor::EventCategory::Internal) {
+            return false;
+        }
+        ks::winapi_monitor::ApiMonitorEventPacket packetValue{}; // 此次唯一的固定 ABI 事件包。
         packetValue.pid = static_cast<std::uint32_t>(::GetCurrentProcessId());
         packetValue.tid = static_cast<std::uint32_t>(::GetCurrentThreadId());
         packetValue.timestamp100ns = QueryNow100ns();
@@ -618,16 +633,33 @@ namespace apimon
         packetValue.sessionIdentity = CurrentMonitorSessionIdentity();
         std::memcpy(packetValue.definitionSha256, kDefinitionSha256, sizeof(packetValue.definitionSha256));
 
-        const std::size_t detailLimit = std::min<std::size_t>(
+        const std::size_t detailLimit = std::min<std::size_t>( // 普通文本摘要的配置长度上限。
             ActiveConfig().detailLimitChars,
             ks::winapi_monitor::kMaxDetailChars - 1);
         CopyWideTextRaw(moduleName, packetValue.moduleName, std::size(packetValue.moduleName), ks::winapi_monitor::kMaxModuleNameChars - 1);
         CopyWideTextRaw(apiName, packetValue.apiName, std::size(packetValue.apiName), ks::winapi_monitor::kMaxApiNameChars - 1);
         CopyWideTextRaw(detailText, packetValue.detailText, std::size(packetValue.detailText), detailLimit);
+        // 结构化字段覆盖同包文本槽，不受普通摘要截断；各类型互斥选择，不增发业务包。
+        if (injectionFields && hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue != ks::winapi_monitor::EventCategory::Internal) {
+            Ksword::Evidence::StoreApiInjectionFields(packetValue, *injectionFields);
+        }
+        else if (apcFields && hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue == ks::winapi_monitor::EventCategory::Thread) {
+            Ksword::Evidence::StoreApiApcFields(packetValue, *apcFields);
+        }
+        else if (contextFields && hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue == ks::winapi_monitor::EventCategory::Thread) {
+            Ksword::Evidence::StoreApiContextFields(packetValue, *contextFields);
+        }
+        else if (sectionMapFields && hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue == ks::winapi_monitor::EventCategory::Memory) {
+            Ksword::Evidence::StoreApiSectionMapFields(packetValue, *sectionMapFields);
+        }
         StoreHookCallStack(packetValue);
 
         ::AcquireSRWLockExclusive(&g_queueLock);
-        const std::size_t capacity = categoryValue == ks::winapi_monitor::EventCategory::Internal
+        const std::size_t capacity = categoryValue == ks::winapi_monitor::EventCategory::Internal // 此类别可用容量。
             ? kMaxPendingPacketCount : kMaxPendingPacketCount - kControlPacketReserve;
         if (g_pendingPacketCount >= capacity)
         {
@@ -636,7 +668,7 @@ namespace apimon
             return false;
         }
 
-        const std::size_t tailIndex = (g_pendingPacketHead + g_pendingPacketCount) % kMaxPendingPacketCount;
+        const std::size_t tailIndex = (g_pendingPacketHead + g_pendingPacketCount) % kMaxPendingPacketCount; // 环队列写入槽。
         g_pendingPacketRing[tailIndex] = packetValue;
         ++g_pendingPacketCount;
         ::ReleaseSRWLockExclusive(&g_queueLock);
@@ -663,16 +695,24 @@ namespace apimon
             ks::winapi_monitor::EventKind::ApiCall, 0, 0, 0, true, returnBits);
     }
 
+    // SendMonitorEventRawWithMetrics：把原类别/模块/API、返回/耗时、关联 ID 与可选字段交给唯一队列。
+    // category/module/api/result/detail 为原事件；hasReturnValue/returnBits 与 hasDuration/duration100ns
+    // 分别声明原返回和耗时；apiId/resultKind/operationId 为既有身份及语义，其余四指针为独立协议。
     bool SendMonitorEventRawWithMetrics(ks::winapi_monitor::EventCategory category,
         const wchar_t* module, const wchar_t* api, std::int32_t result,
         const wchar_t* detail, bool hasReturnValue, std::uint64_t returnBits,
         bool hasDuration, std::uint64_t duration100ns, std::uint32_t apiId,
-        ks::winapi_monitor::EventResultKind resultKind, std::uint64_t operationId)
+        ks::winapi_monitor::EventResultKind resultKind, std::uint64_t operationId,
+        const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields,
+        const Ksword::Evidence::ApiApcFieldsV1* apcFields,
+        const Ksword::Evidence::ApiContextFieldsV1* contextFields,
+        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields)
     {
         return QueueMonitorEventRaw(category, module, api, result, detail,
             resultKind,
             ks::winapi_monitor::EventKind::ApiCall, operationId, apiId, 0,
-            hasReturnValue, returnBits, hasDuration, duration100ns);
+            hasReturnValue, returnBits, hasDuration, duration100ns, injectionFields, apcFields,
+            contextFields, sectionMapFields);
     }
 
     bool SendHooksInstalledEvent(const std::wstring& detail)

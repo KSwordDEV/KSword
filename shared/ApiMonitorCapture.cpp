@@ -123,6 +123,8 @@ private:
     bool stopping = false, stopFailure = false, callbackFailed = false;
     std::uint64_t startedAt = ::GetTickCount64();
     bool residentOnly() const { return request.residentCreationFileTime != 0; }
+    bool attaching() const { return request.attachCreationFileTime != 0; }
+    bool strictObservation() const { return residentOnly() || attaching(); }
     bool start();
     bool addReader(DWORD pid, std::uint64_t expected = 0);
     void poll();
@@ -156,7 +158,7 @@ bool Capture::addReader(DWORD pid, std::uint64_t expected) {
     reader->pipeName = buildPipeNameForPid(pid);
     // A previous session can still be closing its fixed-PID pipe. Use the
     // existing configurable endpoint so it cannot mask this session's handshake.
-    if (residentOnly()) reader->pipeName += L"_" + session;
+    if (strictObservation()) reader->pipeName += L"_" + session;
     reader->receiver = std::make_unique<CoverageSnapshotReceiver>(pid, reader->evidence.session);
     readers.push_back(std::move(reader)); return true;
 }
@@ -164,8 +166,12 @@ bool Capture::start() {
     result.sessionId = uniqueSession();
     DWORD failure = 0;
     if (!rootLease.acquire(request.pid, &failure)) { error(L"session lease unavailable; error=" + std::to_wstring(failure)); return false; }
-    if (!addReader(request.pid, request.residentCreationFileTime)) return false;
+    if (!addReader(request.pid, attaching() ? request.attachCreationFileTime : request.residentCreationFileTime)) return false;
     const auto& rootReader = *readers.front();
+    if (attaching()) {
+        if (!processAlive(rootReader.process.value)) { error(L"attachment target exited before admission"); return false; }
+        result.attachmentIdentityVerified = true;
+    }
     std::wstring detail;
     if (!resolveAgentPath(request.pid, request.agentPath, &result.agentPath, &detail)) { error(detail); return false; }
     if (residentOnly()) {
@@ -221,7 +227,7 @@ bool Capture::start() {
     std::wstring body = L"[monitor]\r\n";
     auto append = [&](const std::wstring& key, const std::wstring& value) { body += key + L"=" + value + L"\r\n"; };
     for (const auto& option : request.options) append(option.first, option.second);
-    if (residentOnly()) {
+    if (strictObservation()) {
         append(L"fake_success_enabled", L"0");
         append(L"fake_success_raw_fallback", L"0");
         append(L"clipboard_read_action", L"allow");
@@ -235,13 +241,18 @@ bool Capture::start() {
     append(L"injection_broker_pipe", endpoint.pipeName); append(L"injection_broker_token", endpoint.token);
     append(L"injection_broker_pid", std::to_wstring(endpoint.hostPid)); append(L"injection_broker_creation", std::to_wstring(endpoint.hostCreation));
     if (cancel.load() || !processAlive(rootReader.process.value)) return false;
-    if (!publish(result.configPath, body, request.pid, detail, residentOnly() ? rootReader.process.value : nullptr)) { error(detail); return false; }
+    if (strictObservation() && request.beforeResidentPublish) {
+        request.beforeResidentPublish(rootReader.process.value);
+        if (cancel.load() || !processAlive(rootReader.process.value)) return false;
+    }
+    if (!publish(result.configPath, body, request.pid, detail, strictObservation() ? rootReader.process.value : nullptr)) { error(detail); return false; }
     result.configPublished = true;
-    if (residentOnly() && (cancel.load() || !processAlive(rootReader.process.value))) return false;
+    if (strictObservation() && (cancel.load() || !processAlive(rootReader.process.value))) return false;
     if (!::DeleteFileW(result.stopPath.c_str()) && ::GetLastError() != ERROR_FILE_NOT_FOUND) { error(L"remove old stop marker failed"); return false; }
 #ifndef KSWORD_APIMON_COOPERATIVE_ONLY
     if (!residentOnly()) result.reusedResident = remoteImageLoaded(request.pid, result.agentPath);
     if (!residentOnly() && !result.reusedResident) {
+        result.agentLoadAttempted = true;
         // The injector has a bounded native wait; a watcher translates Ctrl+C to
         // its cancellation handle without ever closing handles from another thread.
         std::atomic_bool done{false};
@@ -256,24 +267,31 @@ bool Capture::start() {
         done.store(true); watcher.join();
         if (!injected) { error(detail); return false; }
     }
+    if (attaching()) {
+        result.agentModuleVerified = processAlive(rootReader.process.value)
+            && processCreationIdentity(rootReader.process.value) == request.attachCreationFileTime
+            && remoteImageLoaded(request.pid, result.agentPath);
+        if (!result.agentModuleVerified) { error(L"attached product Agent module not verified on the frozen target"); return false; }
+    }
 #endif
     const auto deadline = ::GetTickCount64() + request.startupTimeoutMs;
     while (::GetTickCount64() < deadline && !cancel.load()) {
         poll();
         const auto& root = rootReader.evidence;
         if (callbackFailed) return false;
-        if (residentOnly()) {
+        if (strictObservation()) {
             if (root.exited || root.installFailed || rootReader.agentFailed || root.pipeError || root.removed
                 || !processAlive(rootReader.process.value)) return false;
             if (cancel.load() || ::GetTickCount64() >= deadline) break;
             if (root.installed) {
-                if (!rootReader.installRevision) {
-                    error(L"resident Agent did not report an installation coverage revision");
-                    return false;
-                }
+                // 配置驱动的附加安装先于首个覆盖快照发出 HooksInstalled，安装回执本身
+                // 没有修订。此时仍须由当前完整快照和活动观察 Hook 完成同一核验，
+                // 不能用未知修订直接判定启动失败。
+                const bool revisionCoversInstall = !rootReader.installRevision
+                    || root.revision >= rootReader.installRevision;
                 // The sender can supersede a snapshot before transmitting it. A newer
                 // complete snapshot is sufficient when it still confirms active coverage.
-                if (root.coverageComplete && !root.coverageStale && root.revision >= rootReader.installRevision) {
+                if (root.coverageComplete && !root.coverageStale && root.revision && revisionCoversInstall) {
                     if (!hasActiveObservation(root)) {
                         error(L"resident Agent coverage has no active observational hook");
                         return false;
@@ -288,7 +306,7 @@ bool Capture::start() {
         }
         ::Sleep(5);
     }
-    error(cancel.load() ? L"startup cancelled" : residentOnly()
+    error(cancel.load() ? L"startup cancelled" : strictObservation()
         ? L"timed out waiting for resident Agent installation and verified coverage"
         : L"timed out waiting for HooksInstalled");
     return false;
@@ -314,15 +332,15 @@ void Capture::consume(Reader& reader, const ApiMonitorEventPacket& packet) {
     }
     ++result.received;
     if (packet.category == static_cast<std::uint32_t>(EventCategory::Internal) && text(packet.moduleName) == L"Agent"
-        && (!residentOnly() || (packet.eventKind == static_cast<std::uint32_t>(EventKind::ApiCall)
+        && (!strictObservation() || (packet.eventKind == static_cast<std::uint32_t>(EventKind::ApiCall)
             && packet.resultKind == static_cast<std::uint32_t>(EventResultKind::StatusCode)))) {
         const auto name = text(packet.apiName);
         if (name == L"SessionReady" && packet.resultCode == 0) state.sessionReady = true;
-        if (name == L"HooksInstalled" && (!residentOnly() || (state.sessionReady && packet.resultCode == 0))) {
+        if (name == L"HooksInstalled" && (!strictObservation() || (state.sessionReady && packet.resultCode == 0))) {
             state.installed = true;
             reader.installRevision = packet.snapshotRevision;
         }
-        if (name == L"HooksRemoved" && (!residentOnly() || (state.sessionReady && packet.resultCode == 0))) {
+        if (name == L"HooksRemoved" && (!strictObservation() || (state.sessionReady && packet.resultCode == 0))) {
             state.removed = true;
             state.finalRevision = packet.snapshotRevision;
         }
@@ -359,7 +377,7 @@ void Capture::pollReader(Reader& reader) {
     state.exited = ::WaitForSingleObject(reader.process.value, 0) == WAIT_OBJECT_0;
     if (!reader.pipe.value) {
         if (state.exited || reader.disconnected || state.pipeError) return;
-        const DWORD flags = residentOnly() ? SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION : 0;
+        const DWORD flags = strictObservation() ? SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION : 0;
         HANDLE pipe = ::CreateFileW(reader.pipeName.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, flags, nullptr);
         if (pipe == INVALID_HANDLE_VALUE) {
             const auto failure = ::GetLastError();
@@ -369,7 +387,7 @@ void Capture::pollReader(Reader& reader) {
         reader.pipe.reset(pipe); ULONG serverPid = 0;
         if (!::GetNamedPipeServerProcessId(pipe, &serverPid) || serverPid != state.pid
             || processCreationIdentity(reader.process.value) != state.creation
-            || (residentOnly() && !processAlive(reader.process.value))) {
+            || (strictObservation() && !processAlive(reader.process.value))) {
             state.pipeError = ERROR_ACCESS_DENIED; reader.pipe.reset(); return;
         }
         state.connected = true;
@@ -407,7 +425,7 @@ void Capture::poll() {
 }
 bool Capture::writeStop(DWORD pid, std::uint64_t creation, bool root, bool* markerWritten) {
     if (markerWritten) *markerWritten = false;
-    const bool resident = root && residentOnly();
+    const bool resident = root && strictObservation();
     Handle openedProcess(resident ? nullptr : ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
     const HANDLE process = resident ? readers.front()->process.value : openedProcess.value;
     if (!process) return ::GetLastError() == ERROR_INVALID_PARAMETER;
@@ -432,7 +450,7 @@ void Capture::cleanup() {
     stopping = true;
     if (!result.configPublished) { result.cleanupComplete = true; return; }
     stopFailure = !writeStop(request.pid, readers.front()->evidence.creation, true, &result.stopWritten);
-    if (residentOnly() && stopFailure) error(L"could not confirm the resident target stop marker");
+    if (strictObservation() && stopFailure) error(L"could not confirm the exact target stop marker");
 #ifndef KSWORD_APIMON_COOPERATIVE_ONLY
     if (broker) {
         const auto participants = broker->stopAndTakeParticipants(); broker.reset();
@@ -453,9 +471,9 @@ void Capture::cleanup() {
         bool complete = !stopFailure;
         for (const auto& reader : readers) {
             const auto& process = reader->evidence; // 目标与连接的终态独立。
-            const bool drained = residentOnly() ? process.cleanPipeEof : reader->disconnected;
+            const bool drained = strictObservation() ? process.cleanPipeEof : reader->disconnected;
             // 目标退出时已建立的管道仍可能有可读包；继续读取剩余缓冲，直到端点终止或原有清退超时。
-            const bool exitedAndSettled = process.exited && (!residentOnly() || !process.connected || reader->disconnected);
+            const bool exitedAndSettled = process.exited && (!strictObservation() || !process.connected || reader->disconnected);
             complete = complete && ((process.removed && drained) || exitedAndSettled);
         }
         if (complete) { result.cleanupComplete = true; break; }
@@ -473,29 +491,30 @@ CaptureResult Capture::run() {
         if (result.started) {
             readyAt = ::GetTickCount64();
             result.readyAfterMs = *readyAt - startedAt;
-            const auto deadline = *readyAt + request.durationMs;
+            const bool continuous = strictObservation() && request.durationMs == 0;
+            const auto deadline = *readyAt + request.durationMs; // 有限时模式保留从就绪起算的截止点。
             // 采集线程在启动屏障成立后发布一次值回执，终态仍由原流程排空并确认。
             if (result.readyCoverageRevision && request.onResidentReady) {
                 request.onResidentReady(readers.front()->evidence.session, *result.readyCoverageRevision);
             }
             bool endedEarly = false;
-            while (!cancel.load() && ::GetTickCount64() < deadline) {
+            while (!cancel.load() && (continuous || ::GetTickCount64() < deadline)) {
                 poll();
                 const auto& reader = *readers.front();
                 const auto& root = reader.evidence;
                 if (callbackFailed || root.exited || root.pipeError || root.removed
-                    || (residentOnly() && reader.agentFailed)) {
+                    || (strictObservation() && reader.agentFailed)) {
                     if (root.removed) error(L"Agent stopped before requested interval");
                     endedEarly = true;
                     break;
                 }
-                if (residentOnly() && request.onResidentPoll) {
+                if (strictObservation() && request.onResidentPoll) {
                     request.onResidentPoll(); // 不需要额外的线程或目标侧回调。
                 }
                 ::Sleep(5);
             }
-            result.completedInterval = ::GetTickCount64() >= deadline
-                && (!residentOnly() || (!endedEarly && !cancel.load()));
+            result.completedInterval = !continuous && ::GetTickCount64() >= deadline
+                && (!strictObservation() || (!endedEarly && !cancel.load()));
         }
     } catch (const std::exception&) { error(L"capture controller exception"); }
     if (readyAt) {
@@ -520,15 +539,22 @@ CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic
     const std::set<std::wstring> behavioral{L"fake_success_enabled",L"fake_success_raw_fallback",L"fake_success_rules",
         L"clipboard_read_action",L"clipboard_write_action",L"clipboard_enum_action"};
     const bool resident = request.residentCreationFileTime != 0;
+    const bool attached = request.attachCreationFileTime != 0;
+    const bool strict = resident || attached;
     bool valid = request.pid > 4 && request.pid != ::GetCurrentProcessId() && !request.agentPath.empty()
-        && request.durationMs >= 100 && request.durationMs <= 120000 && request.eventLimit <= 100000
-        && (request.eventLimit || (resident && request.onVerifiedPacket))
+        && ((strict && request.durationMs == 0) || (request.durationMs >= 100 && request.durationMs <= 120000))
+        && request.eventLimit <= 100000
+        && (request.eventLimit || (strict && request.onVerifiedPacket))
         && request.startupTimeoutMs >= 1000 && request.startupTimeoutMs <= 120000 && request.stopTimeoutMs >= 1000 && request.stopTimeoutMs <= 120000;
 #ifdef KSWORD_APIMON_COOPERATIVE_ONLY
     // 桌面目标的创建时间不能为空；错误输入不允许落入旧捕获模式。
-    valid = valid && resident;
+    valid = valid && resident && !attached;
 #endif
-    if (resident) {
+    // An incomplete opt-in must never fall into the legacy monitor path.
+    if (attached || request.attachConfirmed || request.strictReadOnlyObservation) {
+        valid = valid && attached && !resident && request.attachConfirmed && request.strictReadOnlyObservation;
+    }
+    if (strict) {
         const auto agentName = request.agentPath.substr(request.agentPath.find_last_of(L"\\/") + 1);
         valid = valid && !request.autoChildren && !request.useR0Injection
             && request.agentPath.find_first_of(L"\r\n\0", 0, 3) == std::wstring::npos
@@ -536,7 +562,7 @@ CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic
                 || _wcsicmp(agentName.c_str(), agentFileName(IMAGE_FILE_MACHINE_I386)) == 0);
     }
     for (const auto& [key, value] : request.options)
-        valid = valid && (observational.count(key) || (!resident && behavioral.count(key)))
+        valid = valid && (observational.count(key) || (!strict && behavioral.count(key)))
             && value.size() <= 16000 && value.find_first_of(L"\r\n\0", 0, 3) == std::wstring::npos;
     if (!valid) { CaptureResult result; result.code = 1; result.errors.push_back(L"invalid capture request"); return result; }
     return Capture(request, cancel).run();
