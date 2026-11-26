@@ -191,6 +191,13 @@ const native::NativeFrozenThread* FrozenOriginThread(const native::NativeControl
     return thread == result.frozenThreads.end() ? nullptr : &*thread;
 }
 
+// 事件流水号仅在所属原生后端内唯一；没有事件凭据时保留空值。
+V ReportNativeEvent(const std::optional<native::NativeEventKey>& event)
+{
+    return event ? V::makeObject({{"backendInstanceId", Text(event->backendInstanceId)},
+        {"serial", Count(event->serial)}}) : V::makeNull();
+}
+
 // 将原生持有、命中、安装数量与可继续的精确令牌分别投影。
 JsonObject ReportFields(const native::NativeControlResult& result, bool includeStop = true)
 {
@@ -240,6 +247,22 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
         body.emplace_back("release", V::makeObject({{"result", Text(ReleaseState(receipt.result))},
             {"win32Error", receipt.nativeError ? V::makeUInt(*receipt.nativeError) : V::makeNull()}}));
     }
+    // 清退成功和首次恢复失败可同时存在，两者均来自当前原生所有者。
+    if (const auto& retirement = result.retirement) {
+        const auto* kind = retirement->kind == native::NativeRetirementKind::Detached
+            ? "detached" : "exit-event-continued"; // 区分主动脱离与消费进程退出事件。
+        body.emplace_back("retirement", V::makeObject({{"kind", Text(kind)},
+            {"backendInstanceId", Text(retirement->owner.backendInstanceId)},
+            {"exitEvent", ReportNativeEvent(retirement->exitEvent)},
+            {"exitCode", retirement->exitCode ? V::makeUInt(*retirement->exitCode) : V::makeNull()}}));
+    }
+    if (const auto& failure = result.firstRecoveryFailure) {
+        body.emplace_back("firstRecoveryFailure", V::makeObject({{"stage", Text(failure->stage)},
+            {"win32Error", V::makeUInt(failure->win32Error)},
+            {"backendInstanceId", Text(failure->owner.backendInstanceId)},
+            {"pendingEvent", ReportNativeEvent(failure->pendingEvent)},
+            {"releaseRequestId", failure->releaseRequestId ? Text(*failure->releaseRequestId) : V::makeNull()}}));
+    }
     return body;
 }
 
@@ -266,12 +289,24 @@ V ReportPair(const native::OwnedBreakpointGroupResult& result)
             {"creationFileTime", member.creationFileTime ? Count(member.creationFileTime) : V::makeNull()},
             {"ready", V::makeBool(member.ready)}, {"gateOpened", V::makeBool(member.gateOpened)},
             {"held", V::makeBool(member.held)},
+            {"exitCode", member.exitCode ? V::makeUInt(*member.exitCode) : V::makeNull()},
             {"control", member.control ? V::makeObject(ReportFields(*member.control, false)) : V::makeNull()}}));
     }
     JsonObject report{{"mode", Text("cooperative-pair")}, {"state", Text(state)}, {"stage", Text(result.stage)},
         {"win32Error", V::makeUInt(result.win32Error)}, {"clean", V::makeBool(result.clean)},
         {"outcomeMember", result.outcomeMember ? V::makeUInt(*result.outcomeMember) : V::makeNull()},
         {"frozen", V::makeBool(result.frozen)}, {"members", V::makeArray(std::move(members))}};
+    // 清退原因在重试前已经冻结，独立于当前是否已清退。
+    if (const auto reason = result.endReason) {
+        using enum native::OwnedBreakpointGroupEndReason;
+        const char* name = nullptr; // 原生所有者记录的初次结束原因。
+        switch (*reason) {
+        case Requested: name = "requested"; break;
+        case native::OwnedBreakpointGroupEndReason::Failed: name = "failed"; break;
+        case MemberEnded: name = "member-ended"; break;
+        }
+        report.emplace_back("endReason", name ? Text(name) : V::makeNull());
+    }
     if (const auto& stop = result.stop) {
         report.emplace_back("stop", V::makeObject({{"id", Text(stop->stopId)},
             {"stateRevision", Count(stop->stateRevision)}}));
@@ -769,7 +804,7 @@ void RegisterBreakpointCommand()
     command.syntax = L"KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME | --rva RVA) --confirm --disposition resume-detach [--input repl|jsonl] [--condition EXPR | --watch-write-bytes 1|2|4|8 | --cooperative-pair]";
     command.summary = L"Control breakpoints in explicitly authorized AMD64 child processes.";
     command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA. Optional --condition uses predicate-expr-v2 at execution-enter-attempt. Fields: stop.address, stop.exceptionCode, stop.pid, stop.tid, stop.thread.rip and stop.thread.creationFileTime (u64), stop.firstChance (bool), stop.thread.rax (u64, not collected).";
-    command.notes = L"Data write watch requires the EXE's aligned writable data export. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs start at continue/1; expired receipts cannot be replayed. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved.";
+    command.notes = L"Data write watch requires the EXE's aligned writable data export. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs start at continue/1; expired receipts cannot be replayed. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
     command.runStreaming = Run;
     addCommand(std::move(command));
 }

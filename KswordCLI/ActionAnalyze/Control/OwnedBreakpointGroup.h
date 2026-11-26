@@ -17,6 +17,7 @@ struct OwnedBreakpointGroupToken {
 enum class OwnedBreakpointGroupState {
     Idle, Starting, Running, HeldPartial, HeldComplete, Closing, Closed, Ended, Failed, RecoveryRequired
 };
+enum class OwnedBreakpointGroupEndReason { Requested, Failed, MemberEnded };
 
 struct OwnedBreakpointGroupMember {
     std::uint32_t pid = 0; // 本工具实际创建的进程 ID。
@@ -25,6 +26,7 @@ struct OwnedBreakpointGroupMember {
     bool gateOpened = false; // 已交付允许进入正常工作的字节。
     bool held = false; // 当前观测中原生账本确实持有该成员的停点。
     std::optional<NativeControlResult> control; // 尝试原生准入之后才有独立状态。
+    std::optional<std::uint32_t> exitCode; // 仅在启动取得的进程对象已发出终止信号后读取。
 };
 
 struct OwnedBreakpointGroupRelease {
@@ -44,6 +46,7 @@ struct OwnedBreakpointGroupResult {
     std::array<OwnedBreakpointGroupMember, kOwnedBreakpointGroupSize> members; // 按启动顺序分列。
     std::optional<OwnedBreakpointGroupToken> stop; // 仅两份真实停点均可继续时发布。
     std::optional<OwnedBreakpointGroupRelease> lastRelease; // 最近一次显式继续的原始回执，清退后仍保留。
+    std::optional<OwnedBreakpointGroupEndReason> endReason; // 即使有未清退责任，也保留最初的清退原因。
 };
 
 // 一次性会话，由调用方的同一串行线程使用；调用 Start 前必须取得显式授权。
@@ -64,6 +67,7 @@ public:
     // 最近一次提交的精确重放返回 Duplicate 与原始回执；其它过期令牌不能释放事件。
     [[nodiscard]] OwnedBreakpointGroupResult Continue(const OwnedBreakpointGroupToken& stop);
     // 逐个请求清退。未完成时保留该对象，Query 观察进度，Close 可发起原生接口允许的重试。
+    // 启动进程的退出结果独立于调试清退，在本对象内可继续查询。
     [[nodiscard]] OwnedBreakpointGroupResult Close();
 
 private:

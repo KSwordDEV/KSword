@@ -334,6 +334,8 @@ private:
         NativeStopTiming timing{};
         std::optional<NativeBreakpointHit> hit{};
         std::uint64_t hitEventSerial = 0;
+        std::optional<NativeRetirementReceipt> retirement{};
+        std::optional<NativeRecoveryFailure> firstRecoveryFailure{};
     };
 
     struct DebugSlot {
@@ -380,6 +382,7 @@ private:
     void AdoptCreateEvent();
     bool ApplyContinue(DWORD disposition);
     void Detach();
+    void ContinueExitEvent(DWORD exitCode);
     void Complete(NativeControlStatus status, NativeError outcome);
     bool IsClean() const;
     NativeControlResult Snapshot(const PauseRecord* record) const;
@@ -431,6 +434,8 @@ NativeControlResult NativeDebugOwner::Impl::Snapshot(const PauseRecord* record) 
     result.pid = record->request.pid;
     result.processCreationTime = record->request.processCreationTime;
     result.processInstanceId = record->processInstanceId;
+    result.retirement = record->retirement;
+    result.firstRecoveryFailure = record->firstRecoveryFailure;
     result.group = ledger_.Query(record->groupId);
     result.frozenThreads = record->frozenThreads;
     result.timing = record->timing;
@@ -553,8 +558,7 @@ NativeControlResult NativeDebugOwner::Impl::Pause(const NativePauseRequest& requ
     killOnExitError_ = {};
     if (!DebugSetProcessKillOnExit(FALSE)) {
         killOnExitError_ = WinError("disable-kill-on-exit");
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = killOnExitError_;
+        RequireRecovery(killOnExitError_);
         Detach();
         return Snapshot(latest_);
     }
@@ -611,6 +615,7 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
     if (!DebugSetProcessKillOnExit(FALSE)) {
         killOnExitError_ = WinError("disable-kill-on-exit");
         RetireBreakpoint(killOnExitError_);
+        RequireRecovery(killOnExitError_);
         Detach();
         return Snapshot(latest_);
     }
@@ -745,16 +750,17 @@ void NativeDebugOwner::Impl::Receive(const DEBUG_EVENT& event) {
     // guess its disposition from the exception code alone. Keep the raw obligation.
     if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT &&
         event.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT) {
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = {"ambiguous-breakpoint-during-attach-cleanup", ERROR_NOT_SUPPORTED};
+        RequireRecovery({"ambiguous-breakpoint-during-attach-cleanup", ERROR_NOT_SUPPORTED});
+        return;
+    }
+    if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
+        ContinueExitEvent(event.u.ExitProcess.dwExitCode);
         return;
     }
     // Preserve exception dispatch for any non-owned exception. The manual stop only owns
     // the attach create-process event.
     if (!ApplyContinue(event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT ? DBG_EXCEPTION_NOT_HANDLED : DBG_CONTINUE)) { return; }
-    if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
-        Complete(NativeControlStatus::Ended, {"exit-process-event-continued", ERROR_SUCCESS});
-    } else if (closing_ || latest_->status != NativeControlStatus::Accepted) {
+    if (closing_ || latest_->status != NativeControlStatus::Accepted) {
         Detach();
     }
 }
@@ -993,6 +999,17 @@ void NativeDebugOwner::Impl::RetireBreakpoint(NativeError reason) {
 }
 
 void NativeDebugOwner::Impl::RequireRecovery(NativeError error) {
+    if (!latest_->firstRecoveryFailure) {
+        NativeRecoveryFailure failure{error.stage, error.code, owner_, std::nullopt, std::nullopt};
+        if (event_) {
+            failure.pendingEvent = NativeEventKey{owner_.backendInstanceId, eventSerial_};
+            if (const auto responsibility = ledger_.UnresolvedNativeResponsibility();
+                responsibility && responsibility->event == *failure.pendingEvent) {
+                failure.releaseRequestId = responsibility->lastRequestId;
+            }
+        }
+        latest_->firstRecoveryFailure = std::move(failure);
+    }
     if (breakpoint_) {
         auto& binding = breakpoint_->binding;
         binding.state = NativeBreakpointState::RecoveryRequired;
@@ -1015,8 +1032,7 @@ void NativeDebugOwner::Impl::FinishBreakpointEvent(DWORD disposition) {
 void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     auto& bp = *breakpoint_;
     if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
-        if (!ApplyContinue(DBG_CONTINUE)) { return; }
-        Complete(NativeControlStatus::Ended, {"exit-process-event-continued", ERROR_SUCCESS});
+        ContinueExitEvent(event.u.ExitProcess.dwExitCode);
         return;
     }
     if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
@@ -1323,6 +1339,7 @@ void NativeDebugOwner::Impl::Detach() {
         RequireRecovery(error);
         return;
     }
+    latest_->retirement = NativeRetirementReceipt{NativeRetirementKind::Detached, owner_, std::nullopt, std::nullopt};
     if (breakpoint_ && breakpoint_->retire) {
         Complete(!breakpoint_->installed && breakpoint_->retirement ? NativeControlStatus::Rejected : NativeControlStatus::Detached,
             breakpoint_->retirement);
@@ -1333,6 +1350,13 @@ void NativeDebugOwner::Impl::Detach() {
     } else {
         Complete(NativeControlStatus::Detached, {"debug-active-process-stop", ERROR_SUCCESS});
     }
+}
+
+void NativeDebugOwner::Impl::ContinueExitEvent(DWORD exitCode) {
+    const NativeEventKey key{owner_.backendInstanceId, eventSerial_};
+    if (!ApplyContinue(DBG_CONTINUE)) { return; }
+    latest_->retirement = NativeRetirementReceipt{NativeRetirementKind::ExitEventContinued, owner_, key, exitCode};
+    Complete(NativeControlStatus::Ended, {"exit-process-event-continued", ERROR_SUCCESS});
 }
 
 void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError outcome) {

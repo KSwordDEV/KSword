@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import threading
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -455,22 +455,30 @@ def regression(log, watch_width, truth=None):
                 CloseHandle(handle)
 
 
-def wait_pair(session, state, identities):
+def pair_members(report, identities):
+    members = report['members']
+    require(report['mode'] == 'cooperative-pair' and report['frozen'] and
+            [(member['pid'], member['creationFileTime']) for member in members] == identities, report)
+    return members
+
+
+def wait_pair(session, state, identities, *, require_exits=False):
     """逐轮核对固定成员身份，直到观察到预期组状态。"""
     deadline = time.monotonic() + 5
     while True:
         report = session.status()
-        members = report['members']
-        require(report['mode'] == 'cooperative-pair' and report['frozen'] and
-                [(member['pid'], member['creationFileTime']) for member in members] == identities, report)
-        if report['state'] == state:
+        members = pair_members(report, identities)
+        if report['state'] == state and (not require_exits or
+                (report['clean'] and all(member['exitCode'] is not None for member in members))):
             return report
-        require(report['state'] in ('starting', 'running', 'held-partial') and time.monotonic() < deadline, report)
+        pending = ('starting', 'running', 'held-partial', 'closing', 'ended') if require_exits else (
+            'starting', 'running', 'held-partial')
+        require(report['state'] in pending and time.monotonic() < deadline, report)
         time.sleep(0.01)
 
 
-def cooperative_pair_regression(log):
-    """用两个独立业务信号，验证部分持有、精确释放、旧令牌和清退。"""
+@contextmanager
+def armed_pair(log):
     prefix = r'Local\KSwordProductPair-' + uuid4().hex
     env = dict(os.environ, KSWORD_PRODUCT_BREAKPOINT_PAIR_EVENTS=prefix)
     events = []  # 保存本轮创建的所有事件，失败也会释放。
@@ -503,7 +511,54 @@ def cooperative_pair_regression(log):
 
         armed = wait_pair(session, 'running', identities)
         require(all(member['gateOpened'] and member['control']['breakpoint']['state'] == 'armed'
-                    for member in armed['members']) and all(attached(child) for child in children), armed)
+                     for member in armed['members']) and all(attached(child) for child in children), armed)
+        require('endReason' not in armed and all(member['exitCode'] is None and
+                'retirement' not in member['control'] and 'firstRecoveryFailure' not in member['control']
+                for member in armed['members']), armed)
+        yield session, identities, children, triggers, completions
+    finally:
+        try:
+            if session is not None:
+                session.close_pipes()
+        finally:
+            for child in children:
+                try:
+                    if Wait(child, 0) == WAIT_TIMEOUT:
+                        TerminateProcess(child, 3)  # 仅在测试失败后清理已核验的固定夹具。
+                        Wait(child, 5000)
+                finally:
+                    CloseHandle(child)
+            for handle in events:
+                CloseHandle(handle)
+
+
+def check_pair_retirement(member, kind):
+    control = member['control']
+    retirement = control['retirement']
+    backend = retirement['backendInstanceId']
+    require(not member['held'] and control['clean'] and not control['attached'] and
+            'firstRecoveryFailure' not in control and retirement['kind'] == kind and UUID(backend).int != 0, member)
+    if kind == 'detached':
+        require(retirement['exitEvent'] is None and retirement['exitCode'] is None, member)
+    else:
+        event = retirement['exitEvent']
+        serial = event['serial']
+        require(event['backendInstanceId'] == backend and isinstance(serial, str) and
+                0 < int(serial) <= (1 << 64) - 1 and serial == str(int(serial)) and
+                type(retirement['exitCode']) is int and retirement['exitCode'] == member['exitCode'], member)
+    return backend
+
+
+def checked_exit_code(child):
+    code = win.DWORD()
+    require(Wait(child, 5000) == WAIT_OBJECT and GetExitCode(child, ct.byref(code)),
+            f'cooperative child exit not readable: {ct.get_last_error()}')
+    return code.value
+
+
+def cooperative_pair_regression(log):
+    """用两个独立业务信号，验证部分持有、精确释放、旧令牌和清退。"""
+    with armed_pair(log) as (session, identities, children, triggers, completions):
         require(SetEvent(triggers[0]), 'trigger the first, still independent owner')
         partial = wait_pair(session, 'held-partial', identities)
         require([member['held'] for member in partial['members']] == [True, False] and 'stop' not in partial and
@@ -542,35 +597,57 @@ def cooperative_pair_regression(log):
         summary = session.receive('summary')
         closed = summary['control']
         require(summary['reason'] == 'requested' and summary['exitCode'] == 0 and closed['state'] == 'closed' and
+                closed['endReason'] == 'requested' and closed['outcomeMember'] is None and
                 closed['clean'] and 'stop' not in closed and closed['release'] == receipt, summary)
-        for member in closed['members']:
+        backends = set()
+        for member in pair_members(closed, identities):
             native = member['control']
-            require(not member['held'] and native['clean'] and not native['attached'] and
-                    native['breakpoint']['state'] == 'retired' and native['breakpoint']['enrolledThreads'] == '0' and
-                    native['release']['result'] == 'continued', member)
-        require(session.process.wait(timeout=8) == 0 and all(not attached(child) for child in children), summary)
+            backends.add(check_pair_retirement(member, 'detached'))
+            require(member['exitCode'] is None and native['breakpoint']['state'] == 'retired' and
+                    native['breakpoint']['enrolledThreads'] == '0' and native['release']['result'] == 'continued', member)
+        require(len(backends) == 2 and session.process.wait(timeout=8) == 0 and
+                all(Wait(child, 0) == WAIT_TIMEOUT and not attached(child) for child in children), summary)
         require(all(Wait(done, 5000) == WAIT_OBJECT for done in completions), 'shutdown must release both held targets')
         require(all(SetEvent(trigger) for trigger in triggers) and
                 all(Wait(done, 5000) == WAIT_OBJECT for done in completions), 'both detached targets must execute again')
-        for child in children:
-            code = win.DWORD()
-            require(Wait(child, 5000) == WAIT_OBJECT and GetExitCode(child, ct.byref(code)) and code.value == 0,
-                    f'cooperative child exit code: {code.value}')
-        log.write(f'PAIR_CLOSE=PASS CLI_EXIT=0 CHILD_EXITS=0,0 PIDS={identities[0][0]},{identities[1][0]}\n')
-    finally:
-        try:
-            if session is not None:
-                session.close_pipes()
-        finally:
-            for child in children:
-                try:
-                    if Wait(child, 0) == WAIT_TIMEOUT:
-                        TerminateProcess(child, 3)  # 仅在测试失败后清理已核验的固定夹具。
-                        Wait(child, 5000)
-                finally:
-                    CloseHandle(child)
-            for handle in events:
-                CloseHandle(handle)
+        require([checked_exit_code(child) for child in children] == [0, 0], 'detached children must exit normally')
+        log.write(f'PAIR_CLOSE=PASS END_REASON=requested RETIREMENTS=detached,detached '
+                  f'EXIT_CODES_AT_CLOSE=null,null CLI_EXIT=0 CHILD_EXITS=0,0 PIDS={identities[0][0]},{identities[1][0]}\n')
+
+
+def cooperative_pair_exit_regression(log):
+    with armed_pair(log) as (session, identities, children, triggers, completions):
+        # The same fixture returns from main after its third tick. Keep the CLI open to observe that exit.
+        for index in range(1, 4):
+            require(all(SetEvent(trigger) for trigger in triggers), f'trigger natural-exit round {index}')
+            stop = wait_pair(session, 'held-complete', identities)['stop']
+            released = session.request(f'continue/{index}', 'control.continue',
+                                       dict(stopId=stop['id'], stateRevision=stop['stateRevision']))
+            receipt = released['release']
+            require(receipt['continued'] and receipt['stopId'] == stop['id'] and
+                    receipt['stateRevision'] == stop['stateRevision'], released)
+            require(all(Wait(done, 5000) == WAIT_OBJECT for done in completions), f'execute natural-exit round {index}')
+
+        ended = wait_pair(session, 'ended', identities, require_exits=True)
+        origin = ended['outcomeMember']
+        require(ended['endReason'] == 'member-ended' and ended['win32Error'] == 0 and
+                type(origin) is int and origin in (0, 1) and 'stop' not in ended and ended['release'] == receipt, ended)
+        members = pair_members(ended, identities)
+        backends, kinds = [], []
+        for index, (member, child) in enumerate(zip(members, children, strict=True)):
+            kind = member['control']['retirement']['kind']
+            # The peer may already have its own exit event or may be detached first during group cleanup.
+            require(kind == 'exit-event-continued' or (index != origin and kind == 'detached'), member)
+            require(type(member['exitCode']) is int and member['exitCode'] == checked_exit_code(child) == 0, member)
+            backends.append(check_pair_retirement(member, kind))
+            kinds.append(kind)
+        require(len(set(backends)) == 2, ended)
+        session.send('shutdown', 'controller.shutdown')
+        summary = session.receive('summary')
+        require(summary['reason'] == 'requested' and summary['exitCode'] == 0 and
+                summary['control'] == ended and session.process.wait(timeout=8) == 0, summary)
+        log.write(f'PAIR_NATURAL_EXIT=PASS END_REASON=member-ended OUTCOME_MEMBER={origin} '
+                  f'RETIREMENTS={",".join(kinds)} CLI_EXIT=0 CHILD_EXITS=0,0 PIDS={identities[0][0]},{identities[1][0]}\n')
 
 
 def main():
@@ -579,9 +656,14 @@ def main():
     mode.add_argument('--write-watch', action='store_true')
     mode.add_argument('--condition-registers', action='store_true')
     mode.add_argument('--cooperative-pair', action='store_true')
+    options.add_argument('--expected-cli-sha256', help='Require this Release CLI SHA-256 before any fixture starts')
     args = options.parse_args()
+    expected_digest = args.expected_cli_sha256.lower() if args.expected_cli_sha256 is not None else None
+    if expected_digest is not None and (len(expected_digest) != 64 or not set(expected_digest) <= set('0123456789abcdef')):
+        options.error('--expected-cli-sha256 must be a 64-digit hexadecimal digest')
     require(CLI.is_file(), f'Build the official CLI first: {CLI}')
     digest = fingerprint(CLI)
+    require(expected_digest is None or digest == expected_digest, f'Release CLI SHA-256 mismatch: expected {expected_digest}, got {digest}')
     logs = REPO / '.codex-build-logs' / 'behavior-planning'
     logs.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
@@ -595,6 +677,7 @@ def main():
             with installed_fixture(log):
                 if args.cooperative_pair:
                     cooperative_pair_regression(log)
+                    cooperative_pair_exit_regression(log)
                 elif args.condition_registers:
                     invalid_condition(log)
                     for truth in ('true', 'false', 'unknown'):

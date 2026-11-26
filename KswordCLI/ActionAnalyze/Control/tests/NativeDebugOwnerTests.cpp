@@ -1,4 +1,5 @@
 #include "../NativeDebugOwner.h"
+#include "../OwnedBreakpointGroup.h"
 
 #include <Windows.h>
 #include <winternl.h>
@@ -51,6 +52,16 @@ HANDLE InheritedEvent(bool broadcast = false) {
     const auto event = CreateEventW(&attributes, broadcast, FALSE, nullptr);
     Require(event != nullptr, "fixture-event");
     return event;
+}
+
+HANDLE CreateFixtureJob() {
+    const auto job = CreateJobObjectW(nullptr, nullptr);
+    Require(job != nullptr, "create-private-job");
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    Require(SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) != FALSE,
+        "set-private-job");
+    return job;
 }
 
 struct WorkerEvents {
@@ -113,13 +124,7 @@ int Child(wchar_t** args) {
 
 class Fixture {
 public:
-    Fixture(wchar_t* executable) {
-        job_.Reset(CreateJobObjectW(nullptr, nullptr));
-        Require(job_.Get() != nullptr, "create-private-job");
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        Require(SetInformationJobObject(job_.Get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits)) != FALSE,
-            "set-private-job");
+    explicit Fixture(wchar_t* executable) : job_(CreateFixtureJob()) {
         std::wstring command = L"\"" + std::wstring(executable) + L"\" --child";
         HANDLE inherited[10]{};
         for (std::size_t i = 0; i < std::size(events_); ++i) {
@@ -427,13 +432,165 @@ void TestBreakpoints(wchar_t* executable, const OwnerIdentity& owner) {
         "terminal-breakpoint-releases-target-handle-before-owner-close");
 }
 
+constexpr char kFixtureSite[] = "KswordFixtureBreakpoint";
+constexpr int kCooperativeExit = 17;
+
+int CooperativeChild(const wchar_t* readyArg, const wchar_t* gateArg) {
+    const Handle ready(reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(std::wcstoull(readyArg, nullptr, 10))));
+    const Handle gate(reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(std::wcstoull(gateArg, nullptr, 10))));
+    if (!SetEvent(ready.Get())) return 2;
+    char go = 0;
+    DWORD received = 0;
+    if (!ReadFile(gate.Get(), &go, sizeof(go), &received, nullptr)) {
+        return GetLastError() == ERROR_BROKEN_PIPE ? 0 : 3;
+    }
+    return received == 1 && go == '1' && KswordFixtureBreakpoint(ready.Get()) ? kCooperativeExit : 4;
+}
+
+template<class Predicate>
+OwnedBreakpointGroupResult WaitForPair(OwnedBreakpointGroup& pair, Predicate matches, const char* check) {
+    const auto deadline = GetTickCount64() + kDeadlineMs;
+    do {
+        auto result = pair.Query();
+        if (matches(result)) {
+            Require(true, check);
+            return result;
+        }
+        Sleep(1);
+    } while (GetTickCount64() < deadline);
+    const auto result = pair.Query();
+    std::fprintf(stderr, "pair state=%d stage=%s error=%u\n", static_cast<int>(result.state), result.stage, result.win32Error);
+    Require(matches(result), check);
+    return result;
+}
+
+void CheckPairExit(const OwnedBreakpointGroupResult& result, std::uint32_t exitCode) {
+    for (const auto& member : result.members) {
+        Require(member.exitCode == exitCode, "original-process-object-confirms-exit-code");
+    }
+}
+
+void StartPair(OwnedBreakpointGroup& pair, const wchar_t* module, HANDLE job) {
+    const auto started = pair.Start(module, kFixtureSite);
+    Require(started.state == OwnedBreakpointGroupState::Starting && started.frozen, "pair-accepts-two-cooperative-targets");
+    for (const auto& member : started.members) {
+        const Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+            FALSE, member.pid));
+        FILETIME created{}, exited{}, kernel{}, user{};
+        Require(process.Get() && GetProcessTimes(process.Get(), &created, &exited, &kernel, &user) &&
+            ((static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime) == member.creationFileTime,
+            "verify-own-pair-member-before-assigning-test-job");
+        Require(AssignProcessToJobObject(job, process.Get()) != FALSE, "contain-only-test-pair-member");
+    }
+}
+
+void TestPairRecovery(const OwnerIdentity& identity) {
+    wchar_t module[MAX_PATH]{};
+    const auto length = GetModuleFileNameW(nullptr, module, MAX_PATH);
+    Require(length && length < MAX_PATH, "pair-full-module-path");
+    const Handle job(CreateFixtureJob());
+
+    {
+        OwnedBreakpointGroup pair(identity);
+        StartPair(pair, module, job.Get());
+        (void)pair.Close();
+        const auto cancelled = WaitForPair(pair, [](const auto& result) {
+            return result.clean && result.members[0].exitCode && result.members[1].exitCode;
+        }, "early-close-disarms-and-gate-eof-exits-both-targets");
+        Require(cancelled.state == OwnedBreakpointGroupState::Closed && !cancelled.stop &&
+            cancelled.endReason == OwnedBreakpointGroupEndReason::Requested, "early-close-receipt-preserves-cancellation");
+        CheckPairExit(cancelled, 0);
+        for (const auto& member : cancelled.members) {
+            Require(!member.gateOpened && member.control && member.control->retirement &&
+                member.control->retirement->kind == NativeRetirementKind::Detached, "cancelled-member-detaches-before-gate-eof");
+        }
+    }
+    {
+        OwnedBreakpointGroup pair(identity);
+        StartPair(pair, module, job.Get());
+        const auto hit = WaitForPair(pair, [](const auto& result) { return result.stop.has_value(); }, "exit-pair-holds-both");
+        const auto continued = pair.Continue(*hit.stop);
+        Require(continued.lastRelease && continued.lastRelease->continued, "exit-pair-continues-both-events");
+        const auto ended = WaitForPair(pair, [](const auto& result) {
+            return result.clean && result.members[0].exitCode && result.members[1].exitCode;
+        }, "target-exit-cleans-up-pair");
+        Require(ended.state == OwnedBreakpointGroupState::Ended && ended.endReason == OwnedBreakpointGroupEndReason::MemberEnded &&
+            ended.outcomeMember && ended.lastRelease && ended.lastRelease->continued, "member-exit-preserves-original-release");
+        CheckPairExit(ended, kCooperativeExit);
+        const auto& member = ended.members[*ended.outcomeMember];
+        Require(member.control && member.control->retirement && member.control->retirement->exitEvent &&
+            member.control->retirement->kind == NativeRetirementKind::ExitEventContinued &&
+            member.control->retirement->exitCode == static_cast<std::uint32_t>(kCooperativeExit),
+            "exit-event-consumption-is-distinct-from-detach");
+    }
+    {
+        OwnedBreakpointGroup pair(identity);
+        StartPair(pair, module, job.Get());
+        const auto hit = WaitForPair(pair, [](const auto& result) { return result.stop.has_value(); }, "fault-pair-holds-both");
+        const auto& target = *hit.members[0].control;
+        Require(target.pending && target.responsibility, "fault-pair-first-member-has-exact-native-event");
+        const Handle thread(OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION,
+            FALSE, target.pending->tid));
+        Require(thread.Get() && GetProcessIdOfThread(thread.Get()) == target.pid, "fixture-opens-only-its-own-event-thread");
+        CONTEXT saved{};
+        saved.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        Require(GetThreadContext(thread.Get(), &saved) && saved.Dr0 == target.breakpoint->address,
+            "fixture-reads-native-breakpoint-slot");
+        CONTEXT conflicting = saved;
+        conflicting.Dr0 += 8;
+        Require(SetThreadContext(thread.Get(), &conflicting) && GetThreadContext(thread.Get(), &conflicting) &&
+            conflicting.Dr0 == saved.Dr0 + 8, "fixture-installs-and-reads-back-conflicting-slot-on-own-child");
+
+        const auto failed = pair.Close();
+        Require(failed.state == OwnedBreakpointGroupState::RecoveryRequired && !failed.clean && !failed.stop &&
+            failed.endReason == OwnedBreakpointGroupEndReason::Requested, "failed-close-clears-token-but-keeps-group-open");
+        const auto& unresolved = *failed.members[0].control;
+        Require(unresolved.attached && unresolved.pending && unresolved.pending->event == target.pending->event &&
+            unresolved.responsibility && unresolved.responsibility->state == EventState::Retryable && !unresolved.retirement &&
+            unresolved.release && unresolved.release->receipt &&
+            unresolved.release->receipt->result == ReleaseResult::StillPending, "restore-conflict-retains-same-native-event");
+        Require(unresolved.firstRecoveryFailure && unresolved.firstRecoveryFailure->pendingEvent == target.pending->event &&
+            unresolved.firstRecoveryFailure->releaseRequestId == unresolved.releaseRequestId &&
+            std::string_view(unresolved.firstRecoveryFailure->stage) == "breakpoint-slot-restore-conflict" &&
+            unresolved.firstRecoveryFailure->win32Error == ERROR_INVALID_DATA, "first-native-failure-identifies-the-exact-event");
+        const auto& other = *failed.members[1].control;
+        Require(other.clean && other.retirement && other.retirement->kind == NativeRetirementKind::Detached &&
+            other.release && other.release->receipt && other.release->receipt->result == ReleaseResult::Continued,
+            "healthy-member-clears-independently");
+        Require(pair.Continue(*hit.stop).ledgerResult == LedgerResult::StaleRevision &&
+            pair.Query().members[0].control->pending->event == target.pending->event, "stale-group-token-cannot-release-pending-failure");
+        Require(SetThreadContext(thread.Get(), &saved), "fixture-removes-its-conflicting-slot-value");
+        const auto retried = pair.Close();
+        const auto& recovered = *retried.members[0].control;
+        Require(retried.state == OwnedBreakpointGroupState::Closed && retried.clean && !retried.stop &&
+            recovered.clean && recovered.retirement && recovered.retirement->kind == NativeRetirementKind::Detached &&
+            recovered.release && recovered.release->receipt && recovered.release->receipt->result == ReleaseResult::Continued &&
+            recovered.releaseRequestId != unresolved.releaseRequestId, "retry-clears-original-event-with-new-cleanup-receipt");
+        Require(recovered.firstRecoveryFailure && recovered.firstRecoveryFailure->pendingEvent == target.pending->event &&
+            recovered.firstRecoveryFailure->releaseRequestId == unresolved.releaseRequestId &&
+            recovered.firstRecoveryFailure->owner == recovered.retirement->owner &&
+            pair.Close().members[0].control->retirement == recovered.retirement, "successful-retry-keeps-first-failure-and-is-idempotent");
+        const auto finished = WaitForPair(pair, [](const auto& result) {
+            return result.members[0].exitCode && result.members[1].exitCode;
+        }, "both-targets-run-after-fault-is-cleared");
+        CheckPairExit(finished, kCooperativeExit);
+    }
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     if (argc == 12 && std::wcscmp(argv[1], L"--child") == 0) { return Child(argv + 2); }
-    Fixture fixture(argv[0]);
+    if (argc == 5 && std::wcscmp(argv[1], L"--ksword-breakpoint-ready") == 0 &&
+        std::wcscmp(argv[3], L"--ksword-breakpoint-gate") == 0) return CooperativeChild(argv[2], argv[4]);
     const OwnerIdentity owner{"10000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000002",
         "10000000-0000-0000-0000-000000000003", "10000000-0000-0000-0000-000000000004"};
+    if (argc == 2 && std::wcscmp(argv[1], L"--recovery-only") == 0) {
+        TestPairRecovery(owner);
+        std::printf("RESULT=PASS checks=%u\n", checks);
+        return 0;
+    }
+    Fixture fixture(argv[0]);
     NativeDebugOwner native(owner);
     const NativePauseRequest good{"pause-1", fixture.pid, fixture.creationTime, true, NativeTargetDisposition::ResumeAndDetach};
 
@@ -605,6 +762,7 @@ int wmain(int argc, wchar_t** argv) {
     Require(endedOwner.Pause(second).status == NativeControlStatus::Rejected, "exited-original-instance-rejected");
     Require(endedOwner.Close().clean, "close-with-no-owned-event");
     TestBreakpoints(argv[0], owner);
+    TestPairRecovery(owner);
     std::printf("RESULT=PASS checks=%u\n", checks);
     return 0;
 }

@@ -35,3 +35,13 @@
 正式 CLI 已登记 `NativeDebugOwner`、`NativeBreakpointImage` 和 `StopLedger`，实际入口为 `analyze breakpoint session`。HostX64 Release 增量构建已通过。未验证三端一致性、性能或普通 R0。
 
 正式 `KswordCLI.exe` 的 JSONL 和 REPL 合计通过 30 项运行检查。独立确认首次命中前函数体未执行，有效继续后执行，同址再次获得不同停点；停止时退出，回执为 `clean=true`、`attached=false`，原子进程第二次执行后退出 `0`。JSONL 的旧修订和重复继续 ID 均未放行第二次停点。正式运行日志为 `.codex-build-logs/behavior-planning/action-analyze-product-breakpoint-20261125-033030-7079019-run.log`。
+
+## 合作目标清退回执
+
+- `NativeControlResult::retirement` 只记录成功的 `DebugActiveProcessStop`，或经 `ContinueDebugEvent` 成功消费的精确退出事件。退出事件回执保留 owner、原生事件序号及退出码。未附加的拒绝可以 `clean=true`，但没有调试清退回执。
+- `firstRecoveryFailure` 保留当前记录最早的未清退错误和当时的事件身份。恢复寄存器失败、尚未调用 Continue 时，`StopLedger` 保留该精确事件与 `StillPending` 回执，允许用当前修订重试。原生 Continue 结果不确定时仍保留 `Indeterminate`，不重发，也不将后续查询当作恢复。清退成功后仍可对账首次错误与最终回执。
+- `OwnedBreakpointGroup` 保留发起清退的原因和各成员的原生结果，`exitCode` 来自启动时保存的进程对象已经发出终止信号后的读取。`clean` 只表示启动门及原生调试责任都已清退；启动门已打开的合作目标可继续运行并在随后查询时报告退出。调试所有者死亡后的自动恢复未受支持；关闭 Windows 的 kill-on-exit 行为不证明事件、线程或寄存器已恢复。
+
+从仓库根目录运行 `pwsh -NoProfile -File KswordCLI/ActionAnalyze/Control/tests/Invoke-NativeDebugOwnerValidation.ps1 -RecoveryOnly`，只构建并运行独立合作双目标夹具。用例覆盖开门前取消、目标正常退出，以及可重试的断点恢复冲突。
+
+2026-11-26 CodeBuddy：原生 `1072 PASS`；正式 CLI `--cooperative-pair` 主动关闭双脱离、自然退出双回执，进程句柄读回退出码 `0 / 0`。日志位于 `.codex-build-logs/behavior-planning/`，分别以 `action-analyze-native-debug-owner-20261126-054714` 和 `action-analyze-product-breakpoint-long-20261126-055730` 开头。

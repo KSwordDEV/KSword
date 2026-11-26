@@ -199,7 +199,7 @@ public:
     OwnedBreakpointGroupResult Close();
 
 private:
-    enum class Ending { None, Requested, Failed, MemberEnded };
+    using Ending = OwnedBreakpointGroupEndReason;
 
     struct HeldPair {
         OwnedBreakpointGroupToken token; // 对外只暴露组标识和修订。
@@ -211,7 +211,8 @@ private:
     void Drain();
     void Refresh();
     void CaptureStop();
-    static void RetireLaunchHandles(Child& child);
+    static void CloseLaunchGate(Child& child);
+    static void ObserveChildExit(Child& child);
 
     const OwnerIdentity identity_; // 双成员共用的采样、会话与代次。
     std::array<Child, kOwnedBreakpointGroupSize> children_; // 固定成员，不按命中顺序重排。
@@ -220,14 +221,14 @@ private:
     std::uint64_t revision_ = 0; // 组修订与原生继续序号都不复用。
     Failure outcome_; // 发起清退时冻结的原因。
     std::optional<std::size_t> outcomeMember_; // 有责任成员时记录其下标。
-    Ending ending_ = Ending::None; // 清退原因，由快照区分清退中以及已清退。
+    std::optional<Ending> ending_;
     bool started_ = false; // 已消费一次性启动请求。
     bool frozen_ = false; // 两个确认就绪的子进程已构成固定范围。
 };
 
 OwnedBreakpointGroupResult OwnedBreakpointGroup::Impl::Start(const std::wstring& exePath, const std::string& exportName)
 {
-    if (started_ || ending_ != Ending::None) return Snapshot(LedgerResult::InvalidTransition);
+    if (started_ || ending_) return Snapshot(LedgerResult::InvalidTransition);
     started_ = true;
     const auto fail = [this](Failure failure, std::optional<std::size_t> member = {}) {
         BeginEnding(Ending::Failed, failure, member);
@@ -300,6 +301,7 @@ OwnedBreakpointGroupResult OwnedBreakpointGroup::Impl::Snapshot(LedgerResult led
     result.frozen = frozen_;
     result.ledgerResult = ledger;
     result.lastRelease = lastRelease_;
+    result.endReason = ending_;
     bool recovery = false;
     bool allGatesOpened = true;
     bool someHeld = false;
@@ -319,7 +321,7 @@ OwnedBreakpointGroupResult OwnedBreakpointGroup::Impl::Snapshot(LedgerResult led
     using enum OwnedBreakpointGroupState;
     if (recovery) {
         result.state = RecoveryRequired;
-    } else if (ending_ != Ending::None && !result.clean) {
+    } else if (ending_ && !result.clean) {
         result.state = Closing;
     } else if (ending_ == Ending::Failed) {
         result.state = Failed;
@@ -352,17 +354,27 @@ void OwnedBreakpointGroup::Impl::Drain()
         if (child.owner && (!child.observed.control || !child.observed.control->clean)) {
             child.observed.control = child.owner->Close();
         }
-        RetireLaunchHandles(child);
+        CloseLaunchGate(child);
+        ObserveChildExit(child);
     }
 }
 
 // 未接管的启动直接收到 EOF；已接管的等真实清退后再让孩子退出等待。
-void OwnedBreakpointGroup::Impl::RetireLaunchHandles(Child& child)
+void OwnedBreakpointGroup::Impl::CloseLaunchGate(Child& child)
 {
     if (child.observed.control && !child.observed.control->clean) return;
     child.gate.reset();
     child.ready.reset();
-    child.process.reset();
+}
+
+void OwnedBreakpointGroup::Impl::ObserveChildExit(Child& child)
+{
+    if (!child.process.valid()) return;
+    if (!child.observed.exitCode && WaitForSingleObject(child.process.get(), 0) == WAIT_OBJECT_0) {
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(child.process.get(), &exitCode)) child.observed.exitCode = exitCode;
+    }
+    if (child.observed.exitCode && (!child.observed.control || child.observed.control->clean)) child.process.reset();
 }
 
 // 冻结清退原因后撤销当轮令牌，由每个拥有者单独归还真实责任。
@@ -401,9 +413,10 @@ void OwnedBreakpointGroup::Impl::Refresh()
         if (child.owner && (!child.observed.control || !child.observed.control->clean)) {
             child.observed.control = child.owner->Query();
         }
-        if (ending_ != Ending::None) RetireLaunchHandles(child);
+        if (ending_) CloseLaunchGate(child);
+        ObserveChildExit(child);
     }
-    if (ending_ != Ending::None || !frozen_) return;
+    if (ending_ || !frozen_) return;
 
     for (std::size_t i = 0; i < children_.size(); ++i) {
         const auto& state = *children_[i].observed.control;
@@ -483,7 +496,7 @@ OwnedBreakpointGroupResult OwnedBreakpointGroup::Impl::Continue(const OwnedBreak
 
 OwnedBreakpointGroupResult OwnedBreakpointGroup::Impl::Close()
 {
-    if (ending_ == Ending::None) {
+    if (!ending_) {
         BeginEnding(Ending::Requested, {"cooperative-pair-close-requested", ERROR_SUCCESS});
     } else {
         Drain();

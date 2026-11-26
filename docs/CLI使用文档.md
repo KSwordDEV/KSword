@@ -215,7 +215,9 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。单目标模式接受明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内。两种模式均不支持 WOW64、PDB 或 R0，异常退出后不保证恢复。
 
-`--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--condition`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，已继续的原回执仍可查询；正常退出与原生恢复责任分别显示。
+`--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--condition`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，保留原始 `endReason`（`requested`、`failed` 或 `member-ended`）和已经取得的继续回执。`members[].exitCode` 来自启动时取得的进程句柄；未观察到退出时为 `null`，即使调试清退已确认。
+
+单目标和组内成员均在取得原生凭据时返回 `retirement`：`detached` 表示已脱离，`exit-event-continued` 表示已继续进程退出事件，后者附带 `exitEvent` 和事件报告的退出码。`firstRecoveryFailure` 独立保存首次未清退阶段、Win32 错误、原生所有者及当时已知的事件和继续请求 ID，后续清退成功仍保留。事件凭据由 `backendInstanceId` 和十进制字符串 `serial` 共同定位，无凭据时对应字段为空。
 
 JSONL 输入沿用 `schemaVersion`、`requestId`、`method`、`params` 包络，支持 `control.query`、`control.continue`、`controller.shutdown`，三者的 `params` 均为空对象。继续须提供 `hello` 的 `session` 和 `expected` 中的 `stopId`、`stateRevision`，后者为十进制字符串。继续请求 ID 从 `continue/1` 逐次递增，最近 128 个继续 ID 可重放，窗口外返回 `release-replay-expired`。后端滚动保留至多 64 个停点，不淘汰未清退责任。两种输入均输出独立的 JSON 行，`hello`、`response`、`error` 或 `summary` 保存会话和传输序号；有原生清退责任时不会报告 `clean=true`。
 

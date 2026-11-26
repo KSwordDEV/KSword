@@ -85,6 +85,24 @@ struct NativeStopTiming {
     std::optional<std::uint64_t> continueReturnedQpc;
 };
 
+enum class NativeRetirementKind { Detached, ExitEventContinued };
+
+struct NativeRetirementReceipt {
+    NativeRetirementKind kind;
+    OwnerIdentity owner;
+    std::optional<NativeEventKey> exitEvent;
+    std::optional<std::uint32_t> exitCode;
+    bool operator==(const NativeRetirementReceipt&) const = default;
+};
+
+struct NativeRecoveryFailure {
+    const char* stage;
+    std::uint32_t win32Error;
+    OwnerIdentity owner;
+    std::optional<NativeEventKey> pendingEvent;
+    std::optional<std::string> releaseRequestId;
+};
+
 struct NativeControlResult {
     NativeControlStatus status = NativeControlStatus::Idle;
     LedgerResult ledgerResult = LedgerResult::Applied;
@@ -105,6 +123,10 @@ struct NativeControlResult {
     NativeStopTiming timing;
     bool attached = false;
     bool clean = true; // no native obligations or attachment, not proof the target executed
+    // OS evidence for the end of this attachment; admission refusal has no such receipt.
+    std::optional<NativeRetirementReceipt> retirement;
+    // First unresolved native failure for this record, retained even if a later Close succeeds.
+    std::optional<NativeRecoveryFailure> firstRecoveryFailure;
 };
 
 // May be called from the CLI controller. Commands run serially on the dedicated
