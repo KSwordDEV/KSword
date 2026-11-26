@@ -259,6 +259,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 执行集合的同采样API入口为 REPL `api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]` 或 JSONL `control.api.capture`。JSONL params沿用明确 `sourcePid/sourceCreationFileTime/durationMs/confirm` 及可选 `startupProgress`；expected为 `{collectionId,sessions:[唯一完整sessionToken]}`。来源必须在集合全部成员以外，复用原项目writer和sample，Ready后采集1000–10000毫秒，CLI返回后再处理排队控制。`apiCapture/apiOwner` 保留采集、归档、清退及原目标前后回读；不Continue同伴、不自动保存执行事件。Qt/Light同步提供参数、确认、阶段、完整详情及关闭取消。新增接线未构建、未实测。
 
+执行集合内存入口为 `memory-read execution/N ADDRESS BYTES TOKENHEX`／`control.memory.read`（params含十进制字符串address/bytes，expected含collectionId及唯一完整stopToken），以及 `memory-save execution/N TRACKING_EPOCH`／`control.memory.save`（空params，expected含collectionId/trackingEpoch）。读取沿原成员会话核对读前后停点，允许主动暂停；保存冻结原字节到本轮sample独立raw-memory，切换选择不改来源。结果独立保留逐页诊断、字节预览、savedSource及写入/刷盘/核验，同读取重复保存返回原段，真实追加失败停止后续写入。Qt/Light原参数页和worker同步接入，新增源码未构建、未实测。
+
 执行集合的模块站点可选 `imageSha256`（64个小写十六进制字符），支持精确导出及RVA。每个原成员owner对实际模块基址对应的调试装载事件文件核验后才武装DR0；期望值在 `site.imageSha256`，实测成功值在 `control.breakpoint.imageSha256`，私有地址禁止该字段。不能取得原事件文件或散列不符只清退对应成员，成功成员继续保留。该新增集合约束仍待构建和运行。
 
 执行集合也支持单成员 `control.execution.range.add`：`params:{address,bytes}` 用规范正十进制字符串，`expected:{collectionId,stops:[完整当前NX停点票据]}`。REPL为 `execution-range-add execution/N ADDRESS BYTES TOKENHEX`。它沿原成员owner追加明确整页范围，保留原停点、初始站点和总64页预算，不继续目标；ManualPause允许追加。`canAddRange`、实际 `executionRanges` 和独立 `executionRange` 回执分列。该新增入口尚未构建或实测。

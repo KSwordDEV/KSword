@@ -65,6 +65,8 @@ public:
                      {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
                       {"rangeAdd", Text("control.execution.range.add params:{address,bytes} canonical decimal strings; expected:{collectionId,stops:[one complete current NX Held token]}; never Continue")},
                       {"executionSave", Text("control.execution.save params:{}; expected:{collectionId,stops:[one current execution stopToken]}; requires configured project; never Continue")},
+                      {"memoryRead", Text("control.memory.read params:{address:decimal-string,bytes:decimal-string}; expected:{collectionId,stops:[one complete stopToken]}; no automatic save or Continue")},
+                      {"memorySave", Text("control.memory.save params:{}; expected:{collectionId,trackingEpoch}; save the current original read to raw-memory, independent of member selection")},
                       {"apiCapture", Text("control.api.capture requires one complete sessionToken in expected.sessions and a confirmed explicit source outside all members; shared sample writer, never Continue")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
@@ -83,6 +85,7 @@ private:
         const auto report = p::Report(result, !jsonl_); // 控制回执与存储回执各自保留。
         auto fields = *report.asObject(); // JSON对象只提供只读视图，复制值字段后追加归档投影。
         fields.emplace_back("executionArchive", Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
+        fields.emplace_back("memory", Ksword::ActionAnalyze::DescribeExecutionGroupMemory(archive_.View().memory)); // 内存结果独立保留读取与保存身份。
         const auto& view = archive_.View(); // API结果携带采集时冻结的成员身份，不随后来选择漂移。
         fields.emplace_back("apiCapture", view.api ? DescribeNativeSessionApi(*view.api, view.apiBefore, view.apiAfter) : V::makeNull());
         fields.emplace_back("apiOwner", view.api ? V::makeObject({{"sampleId", Text(view.apiOwner.sampleId)},
@@ -213,6 +216,47 @@ private:
         });
     }
 
+    // 保存已读取的当前快照，不要求仍持有旧停点；trackingEpoch精确指定原字节，不能用当前行号代替。
+    bool SaveMemory(const Request& request)
+    {
+        std::string id = request.id, epoch; // 存储请求仍沿execution/N原重放流水。
+        if (cleanupOnly_)
+        {
+            return Invalid(request, "cleanup-pending", "Original owners are closing");
+        }
+        if (jsonl_)
+        {
+            const auto* fields = request.expected ? request.expected->asObject() : nullptr;
+            const auto* collection = request.expected ? request.expected->find("collectionId") : nullptr;
+            const auto* source = request.expected ? request.expected->find("trackingEpoch") : nullptr;
+            std::string collectionId; // 校验本集合及原读取身份，保存不接收stopToken。
+            if (!request.session || !Empty(request) || !fields || fields->size() != 2 || !collection ||
+                !collection->tryGetString(collectionId) || collectionId != collectionId_ || !source || !source->tryGetString(epoch))
+            {
+                return Invalid(request, "invalid-memory-source", "Require params:{} and expected:{collectionId,trackingEpoch}");
+            }
+        }
+        else
+        {
+            const auto* args = request.params.asArray(); // REPL显式复制最新读取的trackingEpoch。
+            if (request.expected || !args || args->size() != 2 || !(*args)[0].tryGetString(id) || !(*args)[1].tryGetString(epoch))
+            {
+                return Invalid(request, "invalid-memory-source", "Use memory-save execution/N TRACKING_EPOCH");
+            }
+        }
+        const auto source = archive_.View().memory.capture; // 完整字节只保留在原worker，不让协议补造内存样本。
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text("memory-save")}, {"trackingEpoch", Text(epoch)}}));
+        return Mutate(request, std::move(id), signature, [&] {
+            if (!source || source->request.plan.trackingEpoch != epoch)
+            {
+                return FaultJson({"stale-memory-source", "Copy the current memory.read.source.trackingEpoch",
+                    std::nullopt, 1, "cli", 0, "execution-group-memory"}); // 重放先命中原回执，新请求才核对当前读取。
+            }
+            archive_.SaveMemory(source);
+            return Report(group_.QueryWithoutCondition()); // 保存原字节不释放任何停止组。
+        });
+    }
+
     bool Dispatch(const Request& request, bool& closed)
     {
         if (request.session && (request.session->id != identity_.sessionId || request.session->epoch != identity_.epoch))
@@ -222,6 +266,10 @@ private:
         {
             return CaptureApi(request); // 此路径仍受上方hello身份核对及原修改流水约束。
         }
+        if (method == "memory-save" || method == "control.memory.save")
+        {
+            return SaveMemory(request);
+        }
         const bool query = method == "status" || method == "control.query";
         const bool close = method == "quit" || method == "close" || method == "controller.shutdown";
         const bool resume = method == "continue" || method == "control.continue";
@@ -230,9 +278,11 @@ private:
         const bool step = method == "step" || method == "control.step";
         const bool cancel = method == "step-cancel" || method == "control.step.cancel";
         const bool range = method == "execution-range-add" || method == "control.execution.range.add"; // 原成员显式追加NX页。
+        const bool readMemory = method == "memory-read" || method == "control.memory.read"; // 单成员Held范围读取，不自动保存。
+        const bool rangeInput = range || readMemory; // 两种动作共用数值输入，但内存读取不要求整页对齐。
         const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
+            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
         if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(group_.Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
@@ -242,7 +292,7 @@ private:
             if (result.clean) archive_.Close(); // 原native全清退之后才归还writer，保留历史回执。
             return Emit("response", request.id, Report(result));
         }
-        if (!pause && !resume && !step && !cancel && !range && !save) return Invalid(request, "unsupported-method", "Use status, pause, continue, step, step-cancel, execution-range-add, execution-save or quit");
+        if (!pause && !resume && !step && !cancel && !range && !save && !readMemory) return Invalid(request, "unsupported-method", "Use help for execution and memory commands");
         if (cleanupOnly_) return Invalid(request, "cleanup-pending", "Original owners are closing; status and quit remain available");
         std::string id = request.id, scope, mode;
         std::string addressText, bytesText; // 范围原文参与请求签名，不从当前绑定补造。
@@ -267,14 +317,14 @@ private:
             tokens = *(sessionTable ? sessionValues : stopValues)->asArray();
             if (!fields || (scoped ? fields->size() != 1 || !request.params.find("scope") || !request.params.find("scope")->tryGetString(scope) :
                 step ? fields->size() != 1 || !request.params.find("mode") || !request.params.find("mode")->tryGetString(mode) :
-                range ? fields->size() != 2 || !request.params.find("address") || !request.params.find("address")->tryGetString(addressText) ||
+                rangeInput ? fields->size() != 2 || !request.params.find("address") || !request.params.find("address")->tryGetString(addressText) ||
                     !request.params.find("bytes") || !request.params.find("bytes")->tryGetString(bytesText) : !fields->empty()))
-                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; range-add requires address and bytes strings; step-cancel/save require empty params");
+                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; range-add/memory-read require address and bytes strings; step-cancel/save require empty params");
         } else {
             std::string tokenText;
-            if (request.expected || !args || args->size() != (range ? 4 : cancel || save ? 2 : 3) || !(*args)[0].tryGetString(id) ||
+            if (request.expected || !args || args->size() != (rangeInput ? 4 : cancel || save ? 2 : 3) || !(*args)[0].tryGetString(id) ||
                 !args->back().tryGetString(tokenText) ||
-                (range ? !(*args)[1].tryGetString(addressText) || !(*args)[2].tryGetString(bytesText) :
+                (rangeInput ? !(*args)[1].tryGetString(addressText) || !(*args)[2].tryGetString(bytesText) :
                      !cancel && !save && !(*args)[1].tryGetString(scoped ? scope : mode)))
                 return Invalid(request, "invalid-repl", "Use help; include execution/N and complete TOKENHEX");
             for (;;) {
@@ -288,11 +338,13 @@ private:
                 tokenText.erase(0, at + 1);
             }
         }
-        // 只接用户明确填写的整页范围；先完成协议校验，再消费execution/N流水。
-        if (range && (!RangeNumber(addressText, address) || !RangeNumber(bytesText, bytes) ||
-            address % 4096 || bytes % 4096 || bytes > 64ull * 4096 || address > UINT64_MAX - bytes))
+        // 范围先完成协议校验再消费execution/N；只有NX追加要求整页，内存读取保留精确字节子范围。
+        if (rangeInput && (!RangeNumber(addressText, address) || !RangeNumber(bytesText, bytes) ||
+            (range && (address % 4096 || bytes % 4096)) || bytes > 64ull * 4096 || address > UINT64_MAX - bytes))
         {
-            return Invalid(request, "invalid-execution-range", "Require positive aligned address, 1..64 whole pages and no uint64 overflow");
+            return Invalid(request, "invalid-execution-range", range
+                ? "Require positive aligned address, 1..64 whole pages and no uint64 overflow"
+                : "Require positive decimal address and 1..262144 bytes with no uint64 overflow");
         }
         if (tokens.empty() || tokens.size() > n::kOwnedExecutionGroupLimit || (!scoped && tokens.size() != 1) ||
             (scoped && scope != "all" && scope != "selected") || (step && mode != "into" && mode != "over-call" && mode != "out"))
@@ -321,7 +373,7 @@ private:
         {
             return Invalid(request, "mixed-token-shapes", "Use one complete session table or one legacy token list");
         }
-        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : range ? "range-add" : save ? "execution-save" : "step-cancel")},
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : range ? "range-add" : readMemory ? "memory-read" : save ? "execution-save" : "step-cancel")},
             {"scope", Text(scope)}, {"mode", Text(mode)}, {"address", Text(addressText)}, {"bytes", Text(bytesText)}, {"stops", V::makeArray(tokens)}}));
         return Mutate(request, std::move(id), signature, [&] {
             n::ExecutionGroupResult result; // 一次幂等修改仅派发一个原集合动作，并保存其全部成员结果。
@@ -341,7 +393,7 @@ private:
             {
                 result = group_.AddRange(stops.front(), address, bytes); // 不附加、不继续，成员原session分配独立range/N。
             }
-            else if (save)
+            else if (save || readMemory)
             {
                 const auto current = group_.QueryWithoutCondition(); // 无条件回读不自动释放其它成员。
                 const auto member = std::find_if(current.members.begin(), current.members.end(), [&](const auto& item) {
@@ -351,7 +403,14 @@ private:
                 n::ExecutionGroupSessionEntry entry; // 原owner只能从当前集合取得，客户端不能补造。
                 entry.control = stops.front();
                 if (member != current.members.end()) entry.owner = member->owner;
-                archive_.Save(group_, entry); // 存储层再次核对完整当前事件，拒绝ManualPause和旧停点。
+                if (readMemory)
+                {
+                    archive_.CaptureMemory(group_, entry, address, bytes); // 原会话再次核对前后停点，ManualPause可读取。
+                }
+                else
+                {
+                    archive_.Save(group_, entry); // 存储层再次核对完整当前事件，拒绝ManualPause和旧停点。
+                }
                 result = group_.QueryWithoutCondition();
             }
             else
@@ -455,6 +514,7 @@ void RegisterExecutionGroupCommand()
         L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
     command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
+        L"memory-read execution/N ADDRESS BYTES TOKENHEX; memory-save execution/N TRACKING_EPOCH; "
         L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
         L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); control.execution.save params:{} with one complete current execution stop; controller.shutdown params:{}. Mutations require current hello session id/epoch, "
@@ -468,6 +528,8 @@ void RegisterExecutionGroupCommand()
         L"It uses the original member owner, adds only explicit 4 KiB pages within the total 64-page budget, and never continues the target. "
         L"Execution-save writes the current original member event to the configured project's new sample raw-native stream, preserving registers and event-time binding. "
         L"ManualPause is not execution evidence. executionArchive reports saved/firstFailure, written/flushed/verified separately; duplicate events reuse the original ordinal. "
+        L"Memory read uses one complete current stopToken, decimal address and byte count (1..262144); ManualPause is allowed. It checks the original owner before and after reading without Continue. "
+        L"control.memory.save params:{} expected:{collectionId,trackingEpoch} saves the displayed original snapshot to raw-memory. memory reports source, page states, bounded hex previews and separate write/flush/verification. "
         L"API capture uses control.api.capture params:{sourcePid:UInt,sourceCreationFileTime:decimal-string,durationMs:UInt,confirm:true,startupProgress?:bool}, expected:{collectionId,sessions:[one complete sessionToken]}. "
         L"Source must be outside every execution group member; duration is 1000..10000 ms after Ready, with startup/drain time separate. The original writer/sample is reused. "
         L"CLI handles queued control after the finite capture returns; progress is stderr JSONL, apiCapture reports independent admission/capture/archive/cleanup and before/after member state. "

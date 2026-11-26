@@ -60,7 +60,8 @@ void Layout(Page& page)
         ::MoveWindow(child, x, y, (std::max)(1, w), (std::max)(1, h), TRUE);
     };
     const std::array actions{page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.close};
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi,
+        page.readMemory, page.saveMemory, page.close};
     const int actionsHeight = Ui::LayoutParameterActions(actions, edge, 0, width, Scale(136), row, gap, false);
     const int contentHeight = (std::max)(1, static_cast<int>(rect.bottom) - 2 * edge - actionsHeight - gap);
     const int parameterHeight = wide ? contentHeight : (std::max)(1, contentHeight / 3);
@@ -119,6 +120,14 @@ void Layout(Page& page)
         move(page.apiLabels[index], 0, y, bodyWidth, labelHeight);
         y += labelHeight;
         move(page.apiInputs[index], 0, y, bodyWidth, row);
+        y += row + gap;
+    }
+    for (std::size_t index = 0; index < page.memoryInputs.size(); ++index)
+    {
+        const int labelHeight = TextHeight(page.memoryLabels[index], bodyWidth); // 范围标签与输入沿用唯一参数正文滚动。
+        move(page.memoryLabels[index], 0, y, bodyWidth, labelHeight);
+        y += labelHeight;
+        move(page.memoryInputs[index], 0, y, bodyWidth, row);
         y += row + gap;
     }
     const int authorizationHeight = TextHeight(page.authorized, bodyWidth) + gap;
@@ -194,6 +203,15 @@ bool CreateControls(Page& page)
         ::SendMessageW(page.apiInputs[index], EM_SETLIMITTEXT, index == 1 ? 20 : 10, 0); // 非法文本交原解析器拒绝。
     }
     ::SetWindowTextW(page.apiInputs[2], L"3000"); // 只设有限时长草稿，不默认选择来源PID。
+    const std::array<const wchar_t*, 2> memoryTitles{L"停点内存起始地址（十六进制）", L"停点内存范围字节数（十进制，最多256KiB）"}; // 独立草稿不会修改已读取结果。
+    const std::array<int, 2> memoryIds{kMemoryAddress, kMemoryBytes}; // 追加控件ID不改变既有导航。
+    for (std::size_t index = 0; index < page.memoryInputs.size(); ++index)
+    {
+        page.memoryLabels[index] = Ui::CreateText(body, 0, memoryTitles[index], 0, 0, 1, 1);
+        Wrap(page.memoryLabels[index]);
+        page.memoryInputs[index] = Edit(body, memoryIds[index]);
+        ::SendMessageW(page.memoryInputs[index], EM_SETLIMITTEXT, 20, 0);
+    }
     page.authorized = ::CreateWindowExW(0, L"BUTTON", L"我已获得对本次全部进程实例的明确授权",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kAuthorized), ::GetModuleHandleW(nullptr), nullptr);
@@ -210,6 +228,8 @@ bool CreateControls(Page& page)
     page.cancelStep = Ui::CreateButton(page.hwnd, kCancelStep, L"中止选中步进", 0, 0, 1, 1);
     page.saveExecution = Ui::CreateButton(page.hwnd, kSaveExecution, L"保存选中执行观察", 0, 0, 1, 1);
     page.captureApi = Ui::CreateButton(page.hwnd, kCaptureApi, L"采集同采样API", 0, 0, 1, 1); // 范围为单选原成员，来源另填。
+    page.readMemory = Ui::CreateButton(page.hwnd, kReadMemory, L"读取选中停点内存", 0, 0, 1, 1); // 单成员明确范围读取。
+    page.saveMemory = Ui::CreateButton(page.hwnd, kSaveMemory, L"保存本次内存快照", 0, 0, 1, 1); // 当前结果保存不受后来选区影响。
     page.close = Ui::CreateButton(page.hwnd, kClose, L"关闭并清退集合", 0, 0, 1, 1, Ui::ButtonRole::Danger);
     // 本表操作条为None；业务控制在固定底栏，完整文档操作在正文工具行。
     page.members = Ui::CreateReportListView(page.hwnd, kMembers, 0, 0, 1, 1);
@@ -230,15 +250,17 @@ bool CreateControls(Page& page)
     Ui::AttachTextFindSupport(page.text);
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
     controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 新来源字段参与原键盘导航，不另建窗口。
+    controls.insert(controls.end(), page.memoryInputs.begin(), page.memoryInputs.end()); // 原键盘路由覆盖内存范围输入。
     for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
         page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
-        page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.close, page.members, page.preset, page.textMode, page.copy,
+        page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.readMemory, page.saveMemory, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
     for (const auto control : controls)
         if (!control || !::SetWindowSubclass(control, Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     if (!::SetWindowSubclass(ListView_GetHeader(page.members), Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     for (const auto label : page.labels) if (!label) return false;
     for (const auto label : page.apiLabels) if (!label) return false; // 创建失败不能交付缺标签输入。
+    for (const auto label : page.memoryLabels) if (!label) return false; // 内存范围必须有明确标签。
     if (!page.hint || !page.identity || !page.rangeHint || !page.projectLabel) return false;
     page.tooltip = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
@@ -259,6 +281,12 @@ bool CreateControls(Page& page)
         Tip(page, page.cancelStep, L"只选一个仍在原生步进中的成员；中止复用该成员的原步进请求。");
         Tip(page, page.saveExecution, L"启动前须配置项目。单选当前执行进入或单指令完成事件后显式保存，保留寄存器和事件时绑定；不继续本成员或同伴。相同事件返回原段坐标，追加失败不跳段。");
         Tip(page, page.captureApi, L"须配置本轮项目并单选仍附加的原成员。确认另一明确来源后采集1–10秒，写同一采样raw。集合全部成员不能作为来源；不Continue或自动保存执行事件，关闭时取消采集。");
+        Tip(page, page.readMemory, L"冻结唯一选中成员的完整停点与下方内存范围，在原会话逐页读取；读前后回读原停点，不继续任何成员。主动暂停也可读取；失败不转实时读取。");
+        Tip(page, page.saveMemory, L"将当前实际读取的范围和页状态写入本轮项目raw-memory；不按当前选择或参数重读，不补零。重复保存返回原段，写入失败后停止追加。");
+        for (const auto input : page.memoryInputs)
+        {
+            Tip(page, input, L"只用于显式读取停点内存，与启动和追加NX范围分开。起点按十六进制、长度按十进制填写，最多256KiB；修改不改变已读结果来源。");
+        }
         for (const auto input : page.apiInputs)
         {
             Tip(page, input, L"API来源与上方站点草稿分开。填写集合以外的明确PID、创建FILETIME及1000–10000毫秒；实际采集前显示确认。");

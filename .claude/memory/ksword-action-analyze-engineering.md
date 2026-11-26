@@ -2,6 +2,9 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第5/6项执行集合成员内存源码。** 原`OwnedExecutionGroup::CaptureMemory`核对原owner/完整Held后复用该成员`OwnedDataWatchSession::CaptureMemory`；不求同伴条件、不Continue、不改为实时读取。`ExecutionGroupArchive`保留最新读取和独立保存来源，复用原writer/sample的`raw-memory`，独立段号/前序、同读取去重、真实写入失败阻止后续追加。CLI接`memory-read/control.memory.read`及`memory-save/control.memory.save`，原execution/N重放；保存按trackingEpoch指定当前原字节。Qt复用ProcessGroupMemoryPane参数及新AppendCapture字段入口，隐藏重复项目；Light沿原参数正文及唯一worker；两端Close置已有取消位、读取收尾后原集合清退。导航仍为监控→行为分析→执行断点集合，页面类型参数执行＋None清单＋共享字段详情，对照写入停点与原停止组内存页。本批无构建、测试、GUI、验收记录或推送，产物未更新。
+- **2026-11-26 两项CodeBuddy恢复任务结束。** 长宿主自动回执两项ok，布尔245004ms、线程恢复170694ms；均只源码。布尔作者确认已有v3 &/^/|的bool/u64路径闭合，仅修正FilterAst.h契约注释，指出RuleExpression.h旧说明需同步。线程作者新增DischargeExitedHold，仅按真实线程对象signaled证明免除退出对象暂停债，存活债务保留；RestoreStep先回关NX再判断step资源。不得推断历史CountPeerTicks=0或取消后0xC0000005已运行修复。限定两次授权已结束，继续禁止新派发/续接/重试，自动回执位置仍在.codex-build-logs/codebuddy-two-dispatch。
+
 - **2026-11-26 第4/6项集合同采样API源码。** 原`ExecutionGroupArchive`借本轮唯一writer/sample和`CaptureNativeBoundApi`采另一明确来源，拒绝来源为任一集合成员；前后`QueryWithoutCondition`不求条件、不Continue、不自动保存执行事件。Qt复用`NativeSessionApiPane`、原worker和200ms投影，Light复用`NativeSessionApiFields`和原250ms快照；两端关闭立即置原取消位，排空后才Close成员及writer。CLI `api-capture execution/N ... REPLSESSIONTOKEN [progress]`／`control.api.capture`用唯一完整sessionToken、原128回执流水；解析/完整报告复用单目标入口，stdout响应、stderr可选进度。CLI有限同步采集期间控制排队，不能声称在途取消。本批仅源码，未构建、测试、GUI、验收落盘或推送。
 - **2026-11-26 两项CodeBuddy网络恢复授权。** 用户明确「网络环境炸了刚才，你可以继续跑那两个炸掉的」。原批次90秒首token超时退出1；首次恢复宿主误设后台120秒超时退出143，已确认无残留派发/CodeBuddy进程后，同两项改为30分钟宿主上限重跑，当前`sh_217ef3fbd001zM5SIntRv2cBgQ`。仍只允许条件布尔/线程恢复原限定源码，不测试/构建/GUI/验收/再派发，等自动最终通知，不轮询；本次恢复不开放其他CodeBuddy任务。
 

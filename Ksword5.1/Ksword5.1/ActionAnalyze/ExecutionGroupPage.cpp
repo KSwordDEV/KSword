@@ -3,6 +3,7 @@
 #include "ExecutionGroupFields.h"
 #include "ExecutionGroupSiteEditor.h"
 #include "NativeSessionApiPane.h"
+#include "ProcessGroupMemoryPane.h"
 #include "PrivateExecutionRangePane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
@@ -127,6 +128,10 @@ namespace ks::action_analyze
         workspace->parameters()->addWidget(m_rangePane);
         m_apiPane = new NativeSessionApiPane(workspace); // 沿用写入停点页的同采样来源分区和唯一参数滚动。
         workspace->parameters()->addWidget(m_apiPane);
+        m_memoryPane = new ProcessGroupMemoryPane(workspace, true, true); // 参数/读取/保存复用同类页面，项目只由本集合Start持有。
+        workspace->parameters()->addWidget(m_memoryPane);
+        m_memoryPane->MoveExecutionActions(workspace->actions()); // 共享动作仍固定可见，参数正文独立滚动。
+        m_memoryPane->execute = [this](bool save) { Memory(save); };
         m_rangePane->addRange = [this](std::uint64_t address, std::uint64_t bytes)
         {
             AddRange(address, bytes); // 点击时再冻结显示停点，worker不读取控件或行索引。

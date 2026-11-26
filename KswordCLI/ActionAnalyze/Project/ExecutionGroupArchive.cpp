@@ -97,6 +97,79 @@ Evidence::JsonValue DescribeExecutionGroupArchive(const ExecutionGroupArchiveVie
         {"firstFailure", Saved(view.firstFailure)}});
 }
 
+// 输入内存读取/归档纯值，输出统一正文；最多64页，每页只预览32个原字节，完整字节仍在原快照和归档。
+Evidence::JsonValue DescribeExecutionGroupMemory(const ExecutionGroupMemoryView& view)
+{
+    const auto stop = [](const std::optional<native::ProcessGroupStop>& value) {
+        return value ? V::makeObject({{"pid", V::makeUInt(value->target.pid)},
+            {"creationFileTime", ProjectStorage::Number(value->target.creationFileTime)},
+            {"groupId", V::makeString(value->groupId)}, {"stopId", V::makeString(value->stopId)},
+            {"backendInstanceId", V::makeString(value->event.backendInstanceId)},
+            {"serial", ProjectStorage::Number(value->event.serial)},
+            {"stateRevision", ProjectStorage::Number(value->stateRevision)}}) : V::makeNull();
+    }; // 真实读前/读后停点保持独立；无后置确认时保持null。
+    const auto source = [](const std::shared_ptr<const native::ProcessMemorySnapshotResult>& value) {
+        if (!value)
+        {
+            return V::makeNull();
+        }
+        const auto& plan = value->request.plan; // 结果只绑定读取时冻结的真实身份与范围。
+        return V::makeObject({{"sampleId", V::makeString(plan.sampleId)},
+            {"trackingEpoch", V::makeString(plan.trackingEpoch)}, {"pid", V::makeUInt(plan.target.pid)},
+            {"creationFileTime", ProjectStorage::Number(plan.target.creationFileTime100ns)},
+            {"processInstanceId", V::makeString(plan.target.processInstanceId)},
+            {"address", ProjectStorage::Number(plan.range.base)}, {"bytes", ProjectStorage::Number(plan.range.length)}});
+    };
+    V read = V::makeNull(); // 未读取不能冒充成功空快照。
+    if (view.capture)
+    {
+        const auto& capture = *view.capture; // 请求、读前后停点和实际页来自同一次原会话读取。
+        Evidence::JsonArray pages; // 有界页状态，失败页也保留诊断，不补零字节。
+        if (capture.snapshot && capture.snapshot->round)
+        {
+            for (const auto& page : capture.snapshot->round->pages)
+            {
+                pages.push_back(V::makeObject({{"base", ProjectStorage::Number(page.pageBase)},
+                    {"address", ProjectStorage::Number(page.sampledRange.base)}, {"bytes", ProjectStorage::Number(page.sampledRange.length)},
+                    {"status", V::makeUInt(static_cast<unsigned>(page.status))}, {"win32Error", V::makeUInt(page.issue.win32Error)},
+                    {"returnedBytes", page.returnedBytes ? ProjectStorage::Number(*page.returnedBytes) : V::makeNull()}}));
+            }
+        }
+        Evidence::JsonArray previews; // 每个成功子范围最多32字节，完整内容不截断写入raw-memory。
+        if (capture.snapshot)
+        {
+            constexpr char hex[] = "0123456789abcdef"; // 十六进制预览不借系统代码页解释原字节。
+            for (const auto& page : capture.snapshot->captured)
+            {
+                std::string text; // 本页成功字节的有界预览；失败页不会出现空白填充。
+                const auto count = (std::min)(page.bytes.size(), std::size_t{32});
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    text.push_back(hex[page.bytes[index] >> 4]);
+                    text.push_back(hex[page.bytes[index] & 15]);
+                }
+                previews.push_back(V::makeObject({{"address", ProjectStorage::Number(page.observation.sampledRange.base)},
+                    {"capturedBytes", ProjectStorage::Number(page.bytes.size())}, {"previewHex", V::makeString(std::move(text))}}));
+            }
+        }
+        read = V::makeObject({{"source", source(view.capture)}, {"stage", V::makeString(capture.stage)},
+            {"win32Error", V::makeUInt(capture.win32Error)}, {"heldAtBothChecks", V::makeBool(capture.heldAtBothChecks)},
+            {"before", stop(capture.before)}, {"after", stop(capture.after)},
+            {"completeRange", V::makeBool(capture.snapshot && capture.snapshot->completeRange)},
+            {"samplerState", capture.snapshot ? V::makeUInt(static_cast<unsigned>(capture.snapshot->status.state)) : V::makeNull()},
+            {"pages", V::makeArray(std::move(pages))}, {"previews", V::makeArray(std::move(previews))}});
+    }
+    const auto& receipt = view.receipt; // 存储坐标属于savedSource，不能贴到后来新读取上。
+    return V::makeObject({{"read", std::move(read)}, {"error", Issue(view.status)},
+        {"appendBlocked", V::makeBool(view.appendBlocked)}, {"duplicate", V::makeBool(view.duplicate)},
+        {"savedSource", source(view.savedSource)}, {"stream", V::makeString("raw-memory")},
+        {"ordinal", receipt ? ProjectStorage::Number(receipt->ordinal) : V::makeNull()},
+        {"segmentVerified", V::makeBool(receipt && receipt->verified)},
+        {"sha256", receipt ? V::makeString(receipt->sha256) : V::makeNull()},
+        {"written", receipt ? Boundary(receipt->raw.written) : V::makeNull()},
+        {"flushed", receipt ? Boundary(receipt->raw.flushed) : V::makeNull()}});
+}
+
 // 准备只在集合Start前执行；失败没有原生责任，不保留无用writer租约。
 bool ExecutionGroupArchive::Prepare(const std::wstring& directory, bool openExisting)
 {
@@ -233,7 +306,74 @@ void ExecutionGroupArchive::CaptureApi(native::OwnedExecutionGroup& group,
     }
 }
 
-// 输入唯一成员的完整显示停点，保存原事件；无执行证据时返回拒绝，不影响原调试责任。
+// 输入唯一原成员与明确范围，输出逐页读取；失败不降级为实时读取，也不沿用旧成功字节。
+void ExecutionGroupArchive::CaptureMemory(native::OwnedExecutionGroup& group,
+    const native::ExecutionGroupSessionEntry& displayed, std::uint64_t address, std::uint64_t bytes,
+    const std::atomic_bool* cancel)
+{
+    namespace memory = ks::cli::action_analyze::memory;
+    memory::Plan plan; // 身份来自冻结原成员，不从当前输入框或候选对象补值。
+    plan.sampleId = displayed.owner.sampleId;
+    plan.target = {displayed.owner.sessionId, displayed.owner.epoch, displayed.control.processInstanceId,
+        displayed.control.pid, displayed.control.processCreationTime}; // machine/boot沿用原生页的会话局部标签。
+    plan.range = {address, bytes};
+    plan.rounds = 2; // 单次CaptureSelectedMemory只实际读取首轮；复用共享Plan的最小轮数约定。
+    plan.authorizedOwnedProcess = true; // 仅原集合Start明确授权过的精确成员能通过后续owner核对。
+    auto rejected = std::make_shared<native::ProcessMemorySnapshotResult>(); // 参数失败也公布此次范围，旧结果不冒充新读取。
+    rejected->request.plan = plan;
+    rejected->request.source = native::ProcessMemorySource::HeldEvent;
+    view_.memory.capture = rejected;
+    view_.memory.duplicate = false;
+    if (!address || !bytes || bytes > 64ull * 4096 || address > UINT64_MAX - bytes || !ProjectStorage::NewId(plan.trackingEpoch))
+    {
+        rejected->stage = "execution-group-memory-invalid-range";
+        rejected->win32Error = ERROR_INVALID_PARAMETER;
+        return;
+    }
+    view_.memory.capture = std::make_shared<const native::ProcessMemorySnapshotResult>(group.CaptureMemory(displayed, plan, cancel));
+}
+
+// 输入当前实际读取对象，独立追加raw-memory；先占段状态，异常或坏尾不能被后续保存越过。
+void ExecutionGroupArchive::SaveMemory(const std::shared_ptr<const native::ProcessMemorySnapshotResult>& displayed)
+{
+    auto& memory = view_.memory; // 保存状态和读取状态分别保留，后续Capture不覆盖首次追加失败。
+    memory.duplicate = false;
+    if (memory.appendBlocked)
+    {
+        return;
+    }
+    if (!project_ || !view_.writerHeld || !displayed || displayed != memory.capture ||
+        displayed->request.plan.sampleId != view_.sampleId || !displayed->snapshot ||
+        !displayed->snapshot->round || displayed->snapshot->round->pages.empty())
+    {
+        memory.status = {ProjectError::InvalidArgument, 0, "executionGroupMemorySnapshotRequired"};
+        return;
+    }
+    if (displayed == memory.savedSource)
+    {
+        memory.duplicate = true;
+        memory.status = {};
+        return;
+    }
+    if (memoryOrdinal_ == UINT64_MAX)
+    {
+        memory.status = {ProjectError::LimitExceeded, 0, "executionGroupMemoryOrdinalLimit"};
+        return;
+    }
+    memory.savedSource = displayed;
+    memory.receipt.emplace();
+    memory.status = {ProjectError::IoError, 0, "executionGroupMemoryWriteInterrupted"};
+    memory.appendBlocked = true; // 即使写入器抛异常，catch发布时也能看见真实未决追加。
+    memory.status = WriteProcessGroupMemorySnapshot(*project_, view_.sampleId, memoryOrdinal_, memoryPrevious_, *displayed, *memory.receipt);
+    if (memory.status && memory.receipt->verified && memory.receipt->raw.flushed)
+    {
+        memoryPrevious_ = memory.receipt->raw.flushed->lastSequence;
+        ++memoryOrdinal_;
+        memory.appendBlocked = false;
+    }
+}
+
+// 输入唯一成员的完整显示停点，保存原执行事件；内存读取本身不产生执行证据。
 void ExecutionGroupArchive::Save(native::OwnedExecutionGroup& group,
     const native::ExecutionGroupSessionEntry& displayed)
 {

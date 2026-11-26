@@ -487,6 +487,26 @@ ExecutionGroupResult OwnedExecutionGroup::AddRange(const NativeControlResult& di
     return self.Result(); // 原生层负责总64页预算与新增页回滚，site保留Start时初始配置。
 }
 
+// 原集合只核对成员目录和精确事件；实际前后停点、强实例及逐页读取由原会话负责。
+ProcessMemorySnapshotResult OwnedExecutionGroup::CaptureMemory(const ExecutionGroupSessionEntry& displayed,
+    const memory::Plan& plan, const std::atomic_bool* cancel)
+{
+    auto& self = *impl_; // 必须由拥有原集合的同一个串行worker调用。
+    self.Observe(false);
+    auto* member = self.Find(displayed.control); // PID+创建时间定位，下面再核对完整原owner和停止身份。
+    if (self.closing || !member || member->session->Identity() != displayed.owner ||
+        !Matches(displayed.control, member->current))
+    {
+        ProcessMemorySnapshotResult rejected; // 拒绝也保留实际请求，不伪造空读取成功。
+        rejected.request.plan = plan;
+        rejected.request.source = ProcessMemorySource::HeldEvent;
+        rejected.stage = "execution-group-memory-stale-stop";
+        rejected.win32Error = ERROR_INVALID_STATE;
+        return rejected;
+    }
+    return member->session->CaptureMemory(displayed.control, plan, cancel); // 不创建新暂停组或调试owner。
+}
+
 ExecutionGroupResult OwnedExecutionGroup::Close()
 {
     auto& self = *impl_;

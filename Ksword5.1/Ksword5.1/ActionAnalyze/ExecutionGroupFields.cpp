@@ -1,6 +1,7 @@
 #include "../Framework.h"
 #include "ExecutionGroupFields.h"
 #include "NativeSessionApiPane.h"
+#include "ProcessGroupMemoryPane.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QStringList>
@@ -302,6 +303,16 @@ namespace ks::action_analyze
         if (snapshot.archive.api)
         {
             NativeSessionApiPane::AppendFields(document, *snapshot.archive.api); // 不随当前成员选择改写采集时来源。
+        }
+        if (snapshot.archive.memory.capture || snapshot.archive.memory.receipt)
+        {
+            if (snapshot.archive.memory.capture)
+            {
+                ProcessGroupMemoryPane::AppendCapture(document, *snapshot.archive.memory.capture); // 与原停点页共享可读字段和原字节预览。
+            }
+            document.section(QStringLiteral("本次选中范围内存"))
+                .field(QStringLiteral("内存结果 JSON"), QString::fromStdString(Ksword::Evidence::WriteJson(
+                    Ksword::ActionAnalyze::DescribeExecutionGroupMemory(snapshot.archive.memory)))); // 原读取、保存身份与页状态同源。
         }
         if (snapshot.apiStartup)
         {

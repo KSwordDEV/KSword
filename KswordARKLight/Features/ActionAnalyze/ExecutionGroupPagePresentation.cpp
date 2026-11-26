@@ -284,6 +284,11 @@ void RefreshText(Page& page)
         text += L"\r\n[API采集后原成员]";
         NativeText(text, page.shown.archive.apiAfter); // 后置回读缺失保持空值，不以旧Held冒充。
     }
+    if (page.shown.archive.memory.capture || page.shown.archive.memory.receipt)
+    {
+        text += L"\r\n[停点内存读取与归档]\r\n" + Widen(Ksword::Evidence::WriteJson(
+            Ksword::ActionAnalyze::DescribeExecutionGroupMemory(page.shown.archive.memory))); // 同源完整正文参与查找、复制和导出。
+    }
     if (page.shown.apiStartup)
     {
         text += FormatLightNativeSessionApiProgress(*page.shown.apiStartup); // 同一250ms展示周期读取在途进度。
@@ -434,6 +439,16 @@ void Refresh(Page& page)
         execution_native::NativeExecutionFromOwnedStop(*state).has_value()); // 不借用Continue资格伪造执行证据。
     const bool apiAllowed = controls && state && page.shown.archive.writerHeld && state->attached; // 不要求目标继续或命中条件通过。
     ::EnableWindow(page.captureApi, apiAllowed);
+    const bool memoryAllowed = controls && state && execution_native::OwnedExecutionGroup::Matches(*state, *state); // 条件不通过也可只读原停点。
+    ::EnableWindow(page.readMemory, memoryAllowed);
+    for (const auto input : page.memoryInputs)
+    {
+        ::EnableWindow(input, controls); // 范围是待执行草稿，不跟随后来选区重写旧结果。
+    }
+    const auto& memory = page.shown.archive.memory; // 保存资格取实际读取及本轮writer，与当前选择分开。
+    ::EnableWindow(page.saveMemory, controls && page.shown.archive.writerHeld && !memory.appendBlocked &&
+        memory.capture && memory.capture->snapshot && memory.capture->snapshot->round &&
+        !memory.capture->snapshot->round->pages.empty());
     for (const auto input : page.apiInputs)
     {
         ::EnableWindow(input, apiAllowed); // 草稿编辑不改变已经开始的采集身份。

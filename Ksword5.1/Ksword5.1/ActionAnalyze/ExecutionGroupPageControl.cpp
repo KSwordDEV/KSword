@@ -4,6 +4,7 @@
 #include "ExecutionGroupSiteEditor.h"
 #include "PrivateExecutionRangePane.h"
 #include "NativeSessionApiPane.h"
+#include "ProcessGroupMemoryPane.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/ResultTableHost.h"
@@ -211,6 +212,43 @@ namespace ks::action_analyze
         Poll(); // 实际owner/来源及全集排除由共享服务在原worker再核对。
     }
 
+    // 输入读/保存动作；读取只冻结唯一完整停点，保存只冻结原已读字节，不因当前选择改变来源。
+    void ExecutionGroupPage::Memory(bool save)
+    {
+        if (!m_session || m_shown.busy || m_shown.closing || m_shown.retired)
+        {
+            return;
+        }
+        ExecutionGroupRequest request; // 原worker处理全部读取和writer调用，GUI不打开目标。
+        request.command = save ? ExecutionGroupCommand::SaveMemory : ExecutionGroupCommand::ReadMemory;
+        if (save)
+        {
+            request.memorySource = m_shown.archive.memory.capture; // 即使已选另一成员也保存原读取，而非隐式重读。
+        }
+        else
+        {
+            const auto rows = Selected(); // 读取必须有唯一明确原成员。
+            if (rows.size() != 1)
+            {
+                return;
+            }
+            const auto& site = m_model->sites.at(rows.front()); // 使用强实例定位显示回执。
+            const auto member = std::find_if(m_shown.result.members.begin(), m_shown.result.members.end(), [&](const auto& item) {
+                return item.site.pid == site.pid && item.site.creationFileTime == site.creationFileTime;
+            });
+            ProcessGroupRequest prepared; // 复用共享范围解析，不创建暂停集合或项目。
+            if (member == m_shown.result.members.end() || !m_memoryPane->PrepareNative(member->control, prepared))
+            {
+                return;
+            }
+            request.sessions.push_back({member->owner, member->control});
+            request.rangeAddress = prepared.memory->plan.range.base;
+            request.rangeBytes = prepared.memory->plan.range.length;
+        }
+        m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
+        Poll();
+    }
+
     // 输入动作和明确范围，复制当前显示的完整NativeControlResult vector；不重造stop token。
     void ExecutionGroupPage::Submit(ExecutionGroupCommand command, bool all, native::NativeStepMode mode)
     {
@@ -328,6 +366,7 @@ namespace ks::action_analyze
         bool rangeAllowed = false; // 完整NX Held支持独立追加，ManualPause无需步进资格。
         bool saveAllowed = false; // 执行事件保存与Continue资格分开，ManualPause没有执行证据。
         bool apiAllowed = false; // 来源采集不依赖精确停点，必须有本轮writer和仍附加的原成员。
+        bool memoryAllowed = false; // 完整Held可读取，包括主动暂停；不要求执行证据或条件真值。
         QString rangeTarget; // 明确当前追加目标；未单选时不沿用上一成员身份。
         if (selected.size() == 1)
         {
@@ -351,6 +390,7 @@ namespace ks::action_analyze
                 rangeAllowed = native::OwnedExecutionGroup::CanAddRangeMember(*member);
                 saveAllowed = m_shown.archive.writerHeld && native::NativeExecutionFromOwnedStop(member->control).has_value();
                 apiAllowed = m_shown.archive.writerHeld && member->control.attached;
+                memoryAllowed = native::OwnedExecutionGroup::Matches(member->control, member->control);
                 rangeTarget = sourceText(QStringLiteral("追加目标：PID %1 / 创建 FILETIME %2 / 停点 %3"))
                     .arg(site.pid).arg(site.creationFileTime)
                     .arg(member->control.responsibility ? QString::fromStdString(member->control.responsibility->stopId) : QStringLiteral("—"));
@@ -389,6 +429,10 @@ namespace ks::action_analyze
         m_save->setEnabled(ready && saveAllowed); // 允许同事件重放，原归档器返回旧段坐标不重复写。
         m_captureApi->setEnabled(ready && apiAllowed);
         m_apiPane->setEnabled(ready && apiAllowed); // 编辑仅形成草稿，不改写旧采集来源。
+        const auto& memory = m_shown.archive.memory; // 保存来源与当前选中成员分别判断。
+        m_memoryPane->SetSharedAvailable(ready && memoryAllowed, ready && m_shown.archive.writerHeld &&
+            !memory.appendBlocked && memory.capture && memory.capture->snapshot && memory.capture->snapshot->round &&
+            !memory.capture->snapshot->round->pages.empty());
         m_query->setEnabled(ready);
         m_close->setEnabled(m_session && !m_shown.retired); // 在途动作时仍允许请求清退。
         m_rangeTarget->setVisible(m_session && !m_shown.retired);

@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-26 原两项CodeBuddy已返回。** `sh_217ef3fbd001zM5SIntRv2cBgQ` 两项均返回ok源码回执；布尔任务仅修改契约注释、线程恢复修改退出线程债务及NX恢复顺序。未测试/构建/GUI，历史失败不得标修复通过。授权次数已用完，继续静默，不新增派发或续接。源码结果见[工程记录](ksword-action-analyze-engineering.md)。
+
 - **2026-11-26 原两项CodeBuddy恢复获准。** 用户明确「网络环境炸了刚才，你可以继续跑那两个炸掉的」。恢复范围只有原【条件布尔运算】/【线程恢复】源码任务；不扩为验收、其他派发或任意续接。网络首token超时及一次120秒宿主超时均无完成结论；无残留进程后已给同两项30分钟宿主上限，当前`sh_217ef3fbd001zM5SIntRv2cBgQ`，等自动最终回执、不轮询。细节见[工程记录](ksword-action-analyze-engineering.md)。
 
 - **2026-11-26 CodeBuddy 两次限额例外。** 用户最新原话：「派2个任务给codebuddy，然后等回执，不要开subagent再转换给codebuddy。这两次过后继续静默。注意约束和节省。」本轮已直接通过 `codebuddy-fast-dispatch/scripts/dispatch.ps1` 一批派出两个任务：条件布尔运算源码闭合、原生线程恢复源码修正。两项均禁止测试/构建/GUI/续接/再次派发/提交推送，最终文本回执位于 `.codex-build-logs/codebuddy-two-dispatch/`。收到这两次回执后继续禁止新增 CodeBuddy 派发、续接和重试，除非用户再次明确恢复；goal重激活不撤销限制。不因CLI调用成功就标源码或运行通过。

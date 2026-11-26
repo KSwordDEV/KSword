@@ -12,7 +12,7 @@ namespace ks::action_analyze
     namespace execution_group_native = ks::cli::action_analyze::control;
 
     // 请求完全按值进入原串行线程，界面行索引和控件不进入后台。
-    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution, CaptureApi };
+    enum class ExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory };
 
     struct ExecutionGroupRequest
     {
@@ -29,6 +29,7 @@ namespace ks::action_analyze
         bool all = false; // Pause/Continue显式区分固定全集与所选子集。
         bool authorized = false; // Start时冻结的用户授权。
         Ksword::ActionAnalyze::NativeBoundApiRequest api; // 显式来源身份与有限时长，只用于CaptureApi。
+        std::shared_ptr<const execution_group_native::ProcessMemorySnapshotResult> memorySource; // SaveMemory冻结的唯一原读取，不借新选区。
     };
 
     struct ExecutionGroupSessionSnapshot

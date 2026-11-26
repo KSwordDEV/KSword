@@ -19,9 +19,11 @@ std::vector<HWND> Navigation(const Page& page)
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
     controls.insert(controls.begin() + 2, page.identify);
     controls.insert(controls.end(), page.apiInputs.begin(), page.apiInputs.end()); // 来源字段由原参数正文参与Tab遍历。
+    controls.insert(controls.end(), page.memoryInputs.begin(), page.memoryInputs.end()); // 独立内存范围使用同一键盘导航。
     for (const auto control : {page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
         page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi, page.close, page.preset,
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.captureApi,
+        page.readMemory, page.saveMemory, page.close, page.preset,
         page.members, page.textMode, page.copy, page.exportText, page.text}) controls.push_back(control);
     return controls;
 }
@@ -93,7 +95,8 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
         else if (code == BN_CLICKED && (id == kIdentify || id == kAdd || id == kRemove || id == kLoadDraft ||
             id == kStart || id == kQuery || id == kPauseAll || id == kPauseSelected || id == kContinueAll ||
             id == kContinueSelected || id == kStepInto || id == kStepOver || id == kStepOut || id == kCancelStep ||
-            id == kClose || id == kAddRange || id == kSaveExecution || id == kCaptureApi || id == kCopy || id == kExportText)) Command(*page, id);
+            id == kClose || id == kAddRange || id == kSaveExecution || id == kCaptureApi || id == kReadMemory ||
+            id == kSaveMemory || id == kCopy || id == kExportText)) Command(*page, id);
         return 0;
     }
     case WM_NOTIFY: {

@@ -156,6 +156,20 @@ struct LightExecutionGroupSession::Shared {
                             Publish(group->QueryWithoutCondition(), true, &archive->View()); // 不求值同伴条件或Continue。
                         }
                         break;
+                    case LightExecutionGroupCommand::ReadMemory:
+                        if (group && archive && request->sessions.size() == 1)
+                        {
+                            archive->CaptureMemory(*group, request->sessions.front(), request->address, request->bytes, &apiCancel); // 原成员会话负责读前后停点。
+                            Publish(group->QueryWithoutCondition(), true, &archive->View());
+                        }
+                        break;
+                    case LightExecutionGroupCommand::SaveMemory:
+                        if (group && archive)
+                        {
+                            archive->SaveMemory(request->memorySource); // 保存明确显示的原读取，不调用Continue。
+                            Publish(group->QueryWithoutCondition(), true, &archive->View());
+                        }
+                        break;
                     case LightExecutionGroupCommand::Identify: {
                         FILETIME created{}, exited{}, kernel{}, user{};
                         std::uint64_t creation = 0;
@@ -237,7 +251,7 @@ bool LightExecutionGroupSession::Submit(LightExecutionGroupRequest request)
         shared_->status.canStart = false;
         shared_->status.apiStartup.reset(); // 新采样不沿用上轮采集阶段。
     }
-    if (request.command == LightExecutionGroupCommand::CaptureApi)
+    if (request.command == LightExecutionGroupCommand::CaptureApi || request.command == LightExecutionGroupCommand::ReadMemory)
     {
         shared_->apiCancel.store(false); // 已通过关闭/单在途准入后才归属本请求。
         shared_->status.apiStartup.reset();

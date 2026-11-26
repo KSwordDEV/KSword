@@ -8,7 +8,7 @@
 namespace Ksword::Features::ActionAnalyze {
 namespace execution_native = ks::cli::action_analyze::control;
 
-enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange, SaveExecution, CaptureApi };
+enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange, SaveExecution, CaptureApi, ReadMemory, SaveMemory };
 
 // 点击时按值冻结；不借用窗口、列表索引或稍后可能改变的参数。
 struct LightExecutionGroupRequest {
@@ -25,6 +25,7 @@ struct LightExecutionGroupRequest {
     std::wstring projectDirectory; // Start冻结的可选项目路径，空值只控制不归档。
     bool openExistingProject = false; // 明确打开已有项目，仍新建一轮sample。
     Ksword::ActionAnalyze::NativeBoundApiRequest api; // CaptureApi冻结的另一明确来源，原worker复用同采样writer。
+    std::shared_ptr<const execution_native::ProcessMemorySnapshotResult> memorySource; // 保存时冻结已读字节，不以当前选区重读。
 };
 
 struct LightExecutionGroupSnapshot {

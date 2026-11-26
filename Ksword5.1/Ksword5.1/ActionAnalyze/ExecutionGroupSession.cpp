@@ -164,6 +164,17 @@ namespace ks::action_analyze
                             }
                             result = group->QueryWithoutCondition(); // API结束不求同伴条件，不自动Continue。
                             break;
+                        case ExecutionGroupCommand::ReadMemory:
+                            if (request.sessions.size() == 1)
+                            {
+                                archive.CaptureMemory(*group, request.sessions.front(), request.rangeAddress, request.rangeBytes, &apiCancel); // 同一关闭取消位，原worker串行读取。
+                            }
+                            result = group->QueryWithoutCondition();
+                            break;
+                        case ExecutionGroupCommand::SaveMemory:
+                            archive.SaveMemory(request.memorySource); // 显式保存旧读取，不以当前行或参数改写其身份。
+                            result = group->QueryWithoutCondition();
+                            break;
                         }
                     }
 
@@ -256,7 +267,7 @@ namespace ks::action_analyze
         {
             return false;
         }
-        if (request.command == ExecutionGroupCommand::CaptureApi)
+        if (request.command == ExecutionGroupCommand::CaptureApi || request.command == ExecutionGroupCommand::ReadMemory)
         {
             m_shared->apiCancel.store(false); // 在关闭检查之后清零，仅属于本次已受理请求。
             m_shared->snapshot.apiStartup.reset();

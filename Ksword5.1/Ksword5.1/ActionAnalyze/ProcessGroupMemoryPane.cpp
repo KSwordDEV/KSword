@@ -26,7 +26,7 @@ namespace ks::action_analyze
     namespace memory = ks::cli::action_analyze::memory;
     using ks::i18n::sourceText;
 
-    ProcessGroupMemoryPane::ProcessGroupMemoryPane(QWidget* parent, bool nativeStop) : QWidget(parent)
+    ProcessGroupMemoryPane::ProcessGroupMemoryPane(QWidget* parent, bool nativeStop, bool sharedProject) : QWidget(parent)
     {
         auto* root = new QVBoxLayout(this); // 参数区内组合，不增加页根留白。
         root->setContentsMargins(0, 0, 0, 0);
@@ -84,6 +84,17 @@ namespace ks::action_analyze
             return button;
         };
         m_browse = action(QStringLiteral("选择新项目目录"), QStringLiteral("只选择尚不存在的目录；配置或启动前创建本端独立项目与采样。"));
+        if (sharedProject)
+        {
+            form->setRowVisible(m_directory, false); // 原执行集合已有独立项目草稿，本分区不再显示第二套目录。
+            if (m_projectMode)
+            {
+                form->setRowVisible(m_projectMode, false);
+            }
+            m_browse->hide();
+            ks::i18n::LanguageManager::instance().bindText(hint, {},
+                QStringLiteral("读取唯一选中成员的停点内存；保存使用本轮集合项目和原读取范围。修改参数或选择不会改变已读结果。逐页取样不是原子进程转储。"));
+        }
         if (nativeStop)
         {
             ks::i18n::LanguageManager::instance().bindText(m_browse, {}, QStringLiteral("选择归档项目目录"));
@@ -188,6 +199,13 @@ namespace ks::action_analyze
         return Prepare(view, member.target, request);
     }
 
+    // 原执行集合决定读取/保存资格；共享参数组件只展示动作，不依据本地隐藏目录猜项目状态。
+    void ProcessGroupMemoryPane::SetSharedAvailable(bool read, bool save)
+    {
+        m_read->setEnabled(read);
+        m_save->setEnabled(save);
+    }
+
     void ProcessGroupMemoryPane::Update(const ProcessGroupSessionSnapshot& shown, bool oneSelected, bool configured)
     {
         m_directory->setEnabled(!configured); // 项目创建前可编辑；活会话路径只读冻结。
@@ -242,8 +260,16 @@ namespace ks::action_analyze
                         .arg((*boundary)->blockOrdinal).arg((*boundary)->lastSequence) : QStringLiteral("未取得"));
             }
         }
-        if (!shown.memory) return;
-        const auto& read = *shown.memory; // 结果保持读取时的精确请求，不借用当前输入草稿。
+        if (shown.memory)
+        {
+            AppendCapture(document, *shown.memory); // 普通停止组与执行集合共享读取字段，存储回执各由原writer投影。
+        }
+    }
+
+    // 输入实际读取结果，输出同源字段文档；所有显示值绑定原请求，不根据当前输入或选择重建。
+    void ProcessGroupMemoryPane::AppendCapture(ks::ui::FieldDocument& document,
+        const native::ProcessMemorySnapshotResult& read)
+    {
         document.section(QStringLiteral("本次选中范围内存"))
             .field(QStringLiteral("PID"), QString::number(read.request.plan.target.pid))
             .field(QStringLiteral("创建 FILETIME"), QString::number(read.request.plan.target.creationFileTime100ns))

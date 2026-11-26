@@ -207,6 +207,31 @@ void Command(Page& page, int id)
                 page.error = L"请加入1–16个站点并明确授权整个集合。";
                 submit = false;
             }
+        } else if (id == kReadMemory) {
+            request.command = LightExecutionGroupCommand::ReadMemory;
+            const auto rows = SelectedRows(page); // 原读取只绑定点击时唯一完整Held成员。
+            if (rows.size() != 1 || !execution_native::OwnedExecutionGroup::Matches(
+                page.shown.result.members[static_cast<std::size_t>(rows.front())].control,
+                page.shown.result.members[static_cast<std::size_t>(rows.front())].control))
+            {
+                page.error = L"读取内存须单选持有完整停点的原成员，允许主动暂停。";
+                submit = false;
+            }
+            else if (!Number(page.memoryInputs[0], request.address, 16) || !request.address ||
+                !Number(page.memoryInputs[1], request.bytes, 10) || !request.bytes ||
+                request.bytes > 64ull * 4096 || request.address > UINT64_MAX - request.bytes)
+            {
+                page.error = L"内存起点须为非零十六进制地址，长度为1–262144十进制字节，且不能溢出。";
+                submit = false;
+            }
+            else
+            {
+                const auto& member = page.shown.result.members[static_cast<std::size_t>(rows.front())]; // 冻结原owner与完整停点。
+                request.sessions.push_back({member.owner, member.control});
+            }
+        } else if (id == kSaveMemory) {
+            request.command = LightExecutionGroupCommand::SaveMemory;
+            request.memorySource = page.shown.archive.memory.capture; // 保存来源与当前行分离，后端按原对象核对。
         } else if (id == kCaptureApi) {
             request.command = LightExecutionGroupCommand::CaptureApi;
             const auto rows = SelectedRows(page); // 确认前固定原成员，不能在模态返回后按新选区换目标。

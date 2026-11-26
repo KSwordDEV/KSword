@@ -178,6 +178,16 @@ expected: {"collectionId":"<current collectionId>","stops":[<complete current me
 
 每次控制响应中的 `executionArchive` 独立给出项目/采样、写租约、最近保存、首次追加失败及 `appendBlocked`。`saved` 包含实际事件、段号、written/flushed 边界、段散列和 `segmentVerified`，写成功不代表目标已继续或全流程采集完成。相同 backend/serial 再次保存返回原段坐标及 `duplicate:true`；保存日志最多4096个事件。真实追加失败后保留原失败并阻止越过坏尾；可以继续控制和清退，不能以旧成功重放掩盖 `firstFailure`。Qt 字段详情和 Light 完整正文消费同一规范文档，搜索/复制/导出保留这些字段。本批仅源码接线，尚未构建或实测。
 
+### 选中停点内存读取与保存
+
+`memory-read execution/N ADDRESS BYTES TOKENHEX` 对唯一成员读取明确范围。地址、字节数均为规范正十进制，长度最多262144字节；不要求按页对齐，但必须满足共享采样器的页数预算。`TOKENHEX` 使用完整当前 `member.replToken`。JSONL 使用 `control.memory.read`，`params:{"address":"...","bytes":"..."}`，`expected:{"collectionId":"...","stops":[<一个完整stopToken>]}`，并携带当前hello的session。主动暂停停点也可读取，无须把它当成执行命中。
+
+读取沿该成员的原会话和只读采样器，分别保留真实读前、读后停点及 `heldAtBothChecks`；不调用Continue、不求同伴条件，也不退回实时读取。`memory.read` 返回冻结来源、范围、采样器状态、逐页状态和每个成功子范围前32字节十六进制预览。完整原字节保留在原worker结果中，失败页不补零。
+
+保存必须显式调用 `memory-save execution/N TRACKING_EPOCH`，其中身份来自当前 `memory.read.source.trackingEpoch`。JSONL 为 `control.memory.save`，`params:{}`、`expected:{"collectionId":"...","trackingEpoch":"..."}`。保存使用已读取的原范围和原字节；切换成员、修改参数或后续Continue不会把来源换成新目标。原writer将结果写入当前sample的独立 `raw-memory` 流，`savedSource` 与最新读取身份分列，写入、刷盘、核验分别保留。重复保存同一读取返回原段；真实写入失败后停止追加，不跳过坏尾。全部命令沿原 `execution/N` 重放流水。
+
+Qt复用原 `ProcessGroupMemoryPane` 输入、固定动作和字段文档，隐藏重复项目设置；Light在原参数正文提供独立内存范围，两端都使用本端唯一worker，关闭时取消逐页读取。三端接线均为源码，未构建或实测。
+
 ### 同采样 API 来源采集
 
 配置项目后，可为一个仍附加的成员选择集合以外的来源实例，复用当前 sample 的冻结修订和原 writer：

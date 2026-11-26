@@ -18,7 +18,8 @@ namespace ks::action_analyze
     {
     public:
         // nativeStop用于原写入/步进单会话文案，默认仍为集合选中成员。
-        explicit ProcessGroupMemoryPane(QWidget* parent, bool nativeStop = false);
+        explicit ProcessGroupMemoryPane(QWidget* parent, bool nativeStop = false, bool sharedProject = false);
+        void SetSharedAvailable(bool read, bool save); // 集合原项目模式只更新两个显式动作，不创建或重配writer。
         std::function<void(bool save)> execute; // 点击读/保存，由父页冻结当前精确成员。
         std::wstring ProjectDirectory() const; // Configure点击时冻结的可选新项目目录。
         bool OpenExistingProject() const; // 原生控制页显式选择已有项目，新建采样而不复用历史停止令牌。
@@ -32,6 +33,9 @@ namespace ks::action_analyze
         void MoveExecutionActions(QLayout* actions);
         void Update(const ProcessGroupSessionSnapshot& shown, bool oneSelected, bool configured);
         static void Append(ks::ui::FieldDocument& document, const ProcessGroupSessionSnapshot& shown);
+        // 输入原读取纯值，将身份、停点、页状态和字节预览追加到同一规范字段文档，不访问控件。
+        static void AppendCapture(ks::ui::FieldDocument& document,
+            const process_group_native::ProcessMemorySnapshotResult& read);
     private:
         QLineEdit* m_directory = nullptr; // 全新项目路径，空表示仅读取、不保存。
         QComboBox* m_projectMode = nullptr; // 原生页的新建/打开草稿；集合旧入口保持只新建。
