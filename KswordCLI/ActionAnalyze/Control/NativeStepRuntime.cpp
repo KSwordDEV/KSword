@@ -36,50 +36,8 @@ std::uint64_t Time(FILETIME value) {
     return (static_cast<std::uint64_t>(value.dwHighDateTime) << 32) | value.dwLowDateTime;
 }
 
-// Exact bounded whitelist; no guessed instruction lengths. CALL r/m64 decodes
-// only unprefixed or one REX-prefixed FF /2 including ModRM/SIB/displacement.
-// Prefixes/REP, POPF, MOV SS, IRET and syscall boundaries are intentionally absent.
+// 有界AMD64长度解码结果只用于取指和CALL返回边界；完成仍由实际TF/DR事件确认。
 struct Instruction { std::size_t size = 0; bool call = false; bool ret = false; };
-Instruction Decode(const std::uint8_t* bytes, std::size_t count) {
-    if (!count) return {};
-    const auto byte = bytes[0];
-    if (byte == 0x90) return {1};
-    if (byte == 0xc3) return {1, false, true};
-    if (byte == 0xe8 && count >= 5) return {5, true};
-    std::size_t offset = (byte >= 0x40 && byte <= 0x4f) ? 1 : 0;
-    if (offset >= count) return {};
-    if (bytes[offset] == 0xff && count > offset + 1) {
-        const auto modrm = bytes[offset + 1];
-        if ((modrm & 0x38) != 0x10) return {};
-        const auto mod = modrm >> 6;
-        const auto rm = modrm & 7;
-        std::size_t size = offset + 2;
-        if (mod != 3 && rm == 4) {
-            if (size >= count) return {};
-            const auto sib = bytes[size++];
-            if (mod == 0 && (sib & 7) == 5) size += 4;
-        } else if (mod == 0 && rm == 5) size += 4;
-        if (mod == 1) ++size;
-        if (mod == 2) size += 4;
-        return size <= count ? Instruction{size, true} : Instruction{};
-    }
-    // Register-only MOV/ADD/SUB/XOR/TEST/CMP and PUSH/POP, with optional REX.
-    // These cannot suppress the TF event by changing SS, TF or privilege level.
-    const auto op = bytes[offset];
-    if (op >= 0x50 && op <= 0x5f) return {offset + 1};
-    if (op >= 0xb8 && op <= 0xbf) {
-        const auto size = offset + 1 + ((offset && (byte & 8)) ? 8 : 4);
-        return size <= count ? Instruction{size} : Instruction{};
-    }
-    if ((op == 0x89 || op == 0x8b || op == 0x01 || op == 0x03 || op == 0x29 || op == 0x2b ||
-        op == 0x31 || op == 0x33 || op == 0x85 || op == 0x39 || op == 0x3b) &&
-        count > offset + 1 && (bytes[offset + 1] & 0xc0) == 0xc0) return {offset + 2};
-    if ((op == 0x83 || op == 0x81) && count > offset + 1 && (bytes[offset + 1] & 0xc0) == 0xc0) {
-        const auto size = offset + 2 + (op == 0x83 ? 1 : 4);
-        return size <= count ? Instruction{size} : Instruction{};
-    }
-    return {};
-}
 
 // 页尾取指使用有界长度解码。未列入的编码返回未知，不以最长15字节冒充实际指令。
 // 此处只确定opcode/ModRM/SIB/位移/立即数边界；运行完成仍必须由真实BS证明。
@@ -259,19 +217,24 @@ NativeStepError NativeStepRuntime::Executable(std::uint64_t address) const {
 }
 
 NativeStepError NativeStepRuntime::CheckPageTrapInstruction(std::uint64_t address) const {
-    // 只排除已知会抑制/改写TF或跨特权交付的入口，不解码长度、不预测下一IP。
-    // 普通内存、SSE/AVX、跳转、near CALL/RET等不受旧Decode白名单限制。
+    // 普通步进与NX推进共用：排除已知会抑制/改写TF或跨特权交付的入口，不预测下一IP。
+    // 长度由DecodeFetch单独核验；普通内存、SSE/AVX、跳转、near CALL/RET按实际BS完成。
     std::uint8_t op = 0;
     std::size_t offset = 0;
+    bool repeat = false; // REP字符串的一次BS可能只完成一轮，不能发布整条instruction-completed。
     for (; offset < 15; ++offset) {
         if (address > (std::numeric_limits<std::uint64_t>::max)() - offset)
             return {"page-trap-opcode-address-overflow", ERROR_INVALID_ADDRESS};
         if (const auto error = Read(address + offset, &op, 1); error) return error;
+        repeat = repeat || op == 0xf2 || op == 0xf3;
         if ((op >= 0x40 && op <= 0x4f) || op == 0x66 || op == 0x67 || op == 0xf0 || op == 0xf2 || op == 0xf3 ||
             op == 0x26 || op == 0x2e || op == 0x36 || op == 0x3e || op == 0x64 || op == 0x65) continue;
         break;
     }
     if (offset == 15) return {"page-trap-opcode-prefix-limit", ERROR_NOT_SUPPORTED};
+    if (op == 0xcc) return {"step-user-int3-conflict", ERROR_BUSY};
+    if (repeat && ((op >= 0xa4 && op <= 0xa7) || (op >= 0xaa && op <= 0xaf)))
+        return {"step-repeat-string-completion-unsupported", ERROR_NOT_SUPPORTED};
     if (op == 0x9d || op == 0xcf || op == 0x17 || op == 0xca || op == 0xcb || op == 0x9a || op == 0xea)
         return {"page-trap-tf-control-instruction-unsupported", ERROR_NOT_SUPPORTED};
     if (op == 0x0f || op == 0x8e || op == 0xff) {
@@ -288,18 +251,17 @@ NativeStepError NativeStepRuntime::CheckPageTrapInstruction(std::uint64_t addres
 }
 
 NativeStepError NativeStepRuntime::Destination(const CONTEXT& context, std::optional<std::uint64_t>& destination) {
-    const auto ip = Ip(context);
-    std::array<std::uint8_t, 15> bytes{};
-    std::size_t available = 0;
-    // Read one byte at a time so a valid short instruction at a page end does
-    // not require the following page to be readable.
+    const auto ip = Ip(context); // 当前实际停止线程的冻结取指地址。
+    NativeInstructionFetch fetched; // 最多读取一条15字节指令，不预读无关下一页。
     const auto* frozen = executionRange_ && executionRange_->Instruction() && executionRange_->Instruction()->address == ip &&
         executionRange_->Instruction()->length ? &*executionRange_->Instruction() : nullptr;
-    if (frozen) { bytes = frozen->bytes; available = frozen->length; }
-    else for (; available < bytes.size() && ip <= std::numeric_limits<std::uint64_t>::max() - available; ++available) {
-        if (Read(ip + available, &bytes[available], 1)) break;
+    if (frozen) {
+        fetched = *frozen; // NX跨页已经冻结的编码，后续Prepare仍核验同一指令字节。
+    } else {
+        if (const auto error = DecodeInstructionFetch(process_, ip, fetched); error) return error;
     }
-    const auto instruction = frozen ? DecodeFetch(bytes.data(), available) : Decode(bytes.data(), available);
+    if (const auto error = CheckPageTrapInstruction(ip); error) return error;
+    const auto instruction = DecodeFetch(fetched.bytes.data(), fetched.length); // 普通地址与NX页使用同一长度规则。
     callReturn_.reset();
     if (receipt_.request.mode == NativeStepMode::Out) {
         std::uint64_t returnIp = 0;
