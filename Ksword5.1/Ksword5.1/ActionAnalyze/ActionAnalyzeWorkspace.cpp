@@ -225,8 +225,8 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
     ks::monitor::AddMonitorNavigationTab(m_tabs, nativeWatchPage,
         QString::fromLatin1(ks::monitor::ActionAnalyzeDataWatchId));
     m_breakpoints->setLivePreparation([this, nativeToolbar, nativeWatchPage](
-        const QString& module, std::uint32_t rva, const QString& definitionId) {
-        if (!nativeToolbar->prepareImageRva || !nativeToolbar->prepareImageRva(module, rva, definitionId))
+        const QString& module, std::uint32_t rva, const QString& definitionId, const QString& projectPath) {
+        if (!nativeToolbar->prepareImageRva || !nativeToolbar->prepareImageRva(module, rva, definitionId, projectPath))
         {
             return false;
         }

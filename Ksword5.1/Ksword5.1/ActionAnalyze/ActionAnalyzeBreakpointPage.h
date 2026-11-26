@@ -37,7 +37,7 @@ namespace ks::action_analyze
         void setProjectContext(const ProjectSnapshot& snapshot);
         std::function<void(const QString&, const QString&)> projectDefinitionsSaved; // 已保存的清单路径和项目 UUID。
         // 工作台连接原控制页：输入模块路径、RVA及定义ID，返回草稿是否被接收，不表示已设断点。
-        void setLivePreparation(std::function<bool(const QString&, std::uint32_t, const QString&)> prepare);
+        void setLivePreparation(std::function<bool(const QString&, std::uint32_t, const QString&, const QString&)> prepare);
 
     protected:
         // 跟随 Qt 语言切换更新文案，保留当前编辑内容和表格选区。
@@ -110,7 +110,7 @@ namespace ks::action_analyze
         QPushButton* m_edit = nullptr; // 明确用所选定义填入表单。
         QPushButton* m_remove = nullptr; // 明确删除列表中的所选定义。
         QPushButton* m_prepareLive = nullptr; // 将所选模块RVA定义带入已有进程执行草稿。
-        std::function<bool(const QString&, std::uint32_t, const QString&)> m_livePreparation; // 原控制页的纯UI端口。
+        std::function<bool(const QString&, std::uint32_t, const QString&, const QString&)> m_livePreparation; // 模块/RVA/定义/原项目的纯UI端口。
         QPushButton* m_save = nullptr; // 保存当前项目的整个断点草稿。
         QPushButton* m_openPending = nullptr; // 显式处理待切换项目或已保存的新修订。
         QLabel* m_projectLabel = nullptr; // 保存目标的项目标题、路径和基准修订。

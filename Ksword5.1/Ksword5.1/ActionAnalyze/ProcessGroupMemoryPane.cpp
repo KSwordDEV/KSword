@@ -119,6 +119,18 @@ namespace ks::action_analyze
         return m_projectMode && m_projectMode->currentData().toBool();
     }
 
+    // 与模块/RVA草稿一起调用；控件不可编辑表示已有会话，不覆盖其冻结项目。
+    bool ProcessGroupMemoryPane::SetExistingProjectDraft(const QString& path)
+    {
+        if (!m_projectMode || !m_projectMode->isEnabled() || !m_directory->isEnabled() || path.isEmpty())
+        {
+            return false;
+        }
+        m_projectMode->setCurrentIndex(1);
+        m_directory->setText(path);
+        return true; // 真正写租约及新采样仍只在Start的原worker里取得。
+    }
+
     void ProcessGroupMemoryPane::MoveExecutionActions(QLayout* actions)
     {
         for (auto* button : {m_read, m_save}) // 只移动显式执行动作；新目录选择仍属于参数草稿。

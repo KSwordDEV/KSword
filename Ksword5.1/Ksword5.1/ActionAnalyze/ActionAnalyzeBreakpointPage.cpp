@@ -476,7 +476,7 @@ void ActionAnalyzeBreakpointPage::createList()
 
 // 输入原控制页的草稿端口；刷新按钮资格，不启动查询、调试器或第二份常驻会话。
 void ActionAnalyzeBreakpointPage::setLivePreparation(
-    std::function<bool(const QString&, std::uint32_t, const QString&)> prepare)
+    std::function<bool(const QString&, std::uint32_t, const QString&, const QString&)> prepare)
 {
     m_livePreparation = std::move(prepare);
     updateControls();
@@ -494,16 +494,23 @@ void ActionAnalyzeBreakpointPage::prepareLiveSelection()
         return;
     }
     const auto definition = *selected; // 文件选择器会进入事件循环，不能跨越它持有模型行指针。
+    const auto project = m_project; // 冻结已保存定义的真正项目，不采用选择器返回后的新上下文。
     const auto* location = std::get_if<BreakpointRva>(&definition.location); // 调试符号不冒充PE导出。
     if (!location || !location->rva)
     {
         return;
     }
+    const QPointer<ActionAnalyzeBreakpointPage> alive(this); // 文件选择器期间工作台可被关闭。
     const auto path = QFileDialog::getOpenFileName(this, sourceText(QStringLiteral("选择已加载模块")),
         QString::fromStdString(definition.module.name), sourceText(QStringLiteral("Windows 模块 (*.exe *.dll)")));
-    if (path.isEmpty())
+    if (!alive || path.isEmpty())
     {
         return;
+    }
+    if (!m_project.matches(project) || m_project.revisionId != project.revisionId || m_saving ||
+        std::find(m_project.definitions.begin(), m_project.definitions.end(), definition) == m_project.definitions.end())
+    {
+        return; // 选择模块期间项目或定义已变化，不能将旧位置标为新项目的定义。
     }
     // 文件名是定义的模块选择条件；实际是否装载及RVA是否可执行由原native准入判断。
     if (QFileInfo(path).fileName().compare(QString::fromStdString(definition.module.name), Qt::CaseInsensitive) != 0)
@@ -512,7 +519,10 @@ void ActionAnalyzeBreakpointPage::prepareLiveSelection()
             sourceText(QStringLiteral("所选文件名与断点定义的模块名不同，请重新选择。")));
         return;
     }
-    m_livePreparation(path, location->rva, QString::fromStdString(definition.breakpointDefinitionId));
+    if (m_livePreparation)
+    {
+        m_livePreparation(path, location->rva, QString::fromStdString(definition.breakpointDefinitionId), project.manifestPath);
+    }
 }
 
 void ActionAnalyzeBreakpointPage::changeEvent(QEvent* event)

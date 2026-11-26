@@ -492,9 +492,10 @@ namespace
         if (m_toolbar)
         {
             m_toolbar->prepareImageRva = [page = QPointer<DataWriteWatchPage>(this)](
-                const QString& path, std::uint32_t rva, const QString& definitionId)
+                const QString& path, std::uint32_t rva, const QString& definitionId, const QString& projectPath)
             {
-                if (!page || page->m_owner || page->m_work->isBusy() || !rva || !QFileInfo(path).isAbsolute())
+                if (!page || page->m_owner || page->m_work->isBusy() || !rva || !QFileInfo(path).isAbsolute() ||
+                    (!definitionId.isEmpty() && projectPath.isEmpty()))
                 {
                     return false; // 活会话与在途动作不接受另一次目标绑定。
                 }
@@ -512,6 +513,10 @@ namespace
                 const QSignalBlocker modeBlock(page->m_siteKind); // 一次提交完整草稿，不触发半成品刷新。
                 const QSignalBlocker pathBlock(page->m_image);
                 const QSignalBlocker locationBlock(page->m_export);
+                if (!definitionId.isEmpty() && !page->m_memoryPane->SetExistingProjectDraft(projectPath))
+                {
+                    return false; // 已保存定义必须连同原项目载入，不能错误创建无定义的全新项目。
+                }
                 page->m_siteKind->setCurrentIndex(page->m_siteKind->findData(7));
                 page->m_image->setText(path);
                 page->m_export->setText(QStringLiteral("0x%1").arg(rva, 0, 16));

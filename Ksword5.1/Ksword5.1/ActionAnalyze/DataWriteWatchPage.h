@@ -29,8 +29,8 @@ namespace ks::action_analyze
         DataWatchToolbarState state; // 原页面发布的UI值快照，无现场查询。
         std::function<void(DataWatchToolbarAction)> execute; // 调用原页面执行路径。
         std::function<void()> changed; // 原页面回投时更新工具条，无新增轮询。
-        // 输入已选模块绝对路径、非零RVA和定义ID；只准备草稿，实际附加仍须显式开始。
-        std::function<bool(const QString&, std::uint32_t, const QString&)> prepareImageRva;
+        // 输入模块绝对路径、非零RVA、定义ID及原项目路径；仅准备同项目新采样草稿。
+        std::function<bool(const QString&, std::uint32_t, const QString&, const QString&)> prepareImageRva;
     };
 
     // 创建行为分析的写入/私有执行停点页；输入父宿主，返回复用参数工作区的页面。

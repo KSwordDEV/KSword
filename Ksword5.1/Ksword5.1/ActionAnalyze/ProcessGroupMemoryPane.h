@@ -22,6 +22,8 @@ namespace ks::action_analyze
         std::function<void(bool save)> execute; // 点击读/保存，由父页冻结当前精确成员。
         std::wstring ProjectDirectory() const; // Configure点击时冻结的可选新项目目录。
         bool OpenExistingProject() const; // 原生控制页显式选择已有项目，新建采样而不复用历史停止令牌。
+        // 从已保存定义载入同一项目草稿；输入核验过的清单/目录路径，不打开文件，不创建采样。
+        bool SetExistingProjectDraft(const QString& path);
         bool Prepare(const ProcessGroupSessionSnapshot& shown,
             const process_group_native::ProcessGroupTarget& target, ProcessGroupRequest& request);
         // 写入／步进页复用相同范围草稿，输入原控制回执，仅构造值请求不访问原owner。
