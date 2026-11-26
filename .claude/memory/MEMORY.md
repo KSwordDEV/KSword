@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-26 11:54已冻结并清退。** 收工优先于持续推进，不再启动新任务。新增5项额度最终用3/5。最后CodeBuddy已完成CLI正式增量Build（exit0、SHA256 `CBB7034F96693C6939EFD4C51520DF9164332F145E692AB30506CC508E42298A`）及i18n（32875源串/exit0），日志位于`.codex-build-logs/codebuddy-five-tests/final-close/`；整理receipt未及时完成，11:54按硬截止结束精确宿主3864、node41936及子bash/conhost，未在编译/运行中中断产品。11:54:12实际核对：本次三个宿主/子node与MSBuild/cl/link/python/CLI/自有夹具残留数0，11:55 automation已删除。旧dispatch status.json可能仍写running，但不是活进程，明日不得据此重做构建或认为仍在执行。未写完receipt不算已有；B/C未执行。原脏文件与runtime证据原样保留，全部产品改动和夹具已有本地提交，未推送。
+
 - **2026-11-26 本地恢复点。** 当前`ActionAnalyze`最新源码提交`a0e5abe25`；本轮所有产品改动、共享记忆和新增入口夹具已提交，未推送。保留用户原有`KswordCLI/KswordCLI.cpp`、`Control/tests/Invoke-NativeStepValidation.ps1`及未跟踪`product_execution_group_append.py`、`TextFieldComparisonValidation.cpp`、runtime测试证据，禁止回滚/清空。原11:55收尾automation已删除，不留明日自动作业；最后CodeBuddy只做收尾，不运行新场景。
 
 - **2026-11-26 关机前收尾约束与当前状态。** 用户已执行`shutdown -s -t 1380`，要求本机12:00前收工；随后说明无需列剩余事项，只要确保没有执行中的任务、明天原地恢复。不得取消关机；停止本次后台任务前核对精确PID/命令，不触碰无关进程。新增5项CodeBuddy额度现用3/5：第1项1800秒超时143，CLI/x64及x86 Agent构建日志成功、入口场景A PASS，B/C未执行且无最终回执；第2项已正常结束，theme PASS、i18n两个源串四项缺失已定点修正；第3项`sh_2188b3835001RPmN7PXTSBkZuA`仅最终CLI增量Build、i18n复查及原日志回执整理，最晚11:54退出，不增加运行场景。`bb1ebe216`提交解除固定上限，`52bb756d9`提交三端EXE/递归接管/同采样网络整合，`d4591fa80`修正NX owner先恢复再等待Agent清退。全部未推送，最新修正不能借旧日志算运行通过。
