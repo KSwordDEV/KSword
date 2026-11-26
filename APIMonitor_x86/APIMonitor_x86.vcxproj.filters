@@ -22,11 +22,14 @@
     <ClCompile Include="..\APIMonitor_x64\hook\ApiThreadTargetObservation.cpp"><Filter>hook</Filter></ClCompile>
     <ClCompile Include="..\APIMonitor_x64\hook\ApiContextObservation.cpp"><Filter>hook</Filter></ClCompile>
     <ClCompile Include="..\APIMonitor_x64\hook\ApiSectionMapObservation.cpp"><Filter>hook</Filter></ClCompile>
+    <ClCompile Include="..\APIMonitor_x64\hook\ApiMemoryLifecycleObservation.cpp"><Filter>hook</Filter></ClCompile>
     <ClInclude Include="..\APIMonitor_x64\hook\ApiThreadTargetObservation.h"><Filter>hook</Filter></ClInclude>
     <ClInclude Include="..\APIMonitor_x64\hook\ApiContextObservation.h"><Filter>hook</Filter></ClInclude>
     <ClInclude Include="..\APIMonitor_x64\hook\ApiSectionMapObservation.h"><Filter>hook</Filter></ClInclude>
+    <ClInclude Include="..\APIMonitor_x64\hook\ApiMemoryLifecycleObservation.h"><Filter>hook</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ApiContextFields.h" />
     <ClInclude Include="..\shared\evidence\ApiSectionMapFields.h" />
+    <ClInclude Include="..\shared\evidence\ApiMemoryLifecycleFields.h" />
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardCommon.cpp"><Filter>hook</Filter></ClCompile>
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardHook.cpp"><Filter>hook</Filter></ClCompile>
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardVTableHook.cpp"><Filter>hook</Filter></ClCompile>

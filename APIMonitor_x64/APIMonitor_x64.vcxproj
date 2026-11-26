@@ -166,8 +166,10 @@
     <ClInclude Include="hook\ApiThreadTargetObservation.h" />
     <ClInclude Include="hook\ApiContextObservation.h" />
     <ClInclude Include="hook\ApiSectionMapObservation.h" />
+    <ClInclude Include="hook\ApiMemoryLifecycleObservation.h" />
     <ClInclude Include="..\shared\evidence\ApiContextFields.h" />
     <ClInclude Include="..\shared\evidence\ApiSectionMapFields.h" />
+    <ClInclude Include="..\shared\evidence\ApiMemoryLifecycleFields.h" />
     <ClInclude Include="hook\ClipboardGuardCommon.h" />
     <ClInclude Include="hook\ClipboardGuardHook.h" />
     <ClInclude Include="hook\ClipboardGuardVTableHook.h" />
@@ -187,6 +189,7 @@
     <ClCompile Include="hook\ApiThreadTargetObservation.cpp" />
     <ClCompile Include="hook\ApiContextObservation.cpp" />
     <ClCompile Include="hook\ApiSectionMapObservation.cpp" />
+    <ClCompile Include="hook\ApiMemoryLifecycleObservation.cpp" />
     <ClCompile Include="hook\ClipboardGuardCommon.cpp" />
     <ClCompile Include="hook\ClipboardGuardHook.cpp" />
     <ClCompile Include="hook\ClipboardGuardVTableHook.cpp" />

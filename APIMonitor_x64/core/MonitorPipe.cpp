@@ -3,6 +3,7 @@
 #include "../../shared/evidence/ApiApcFields.h"
 #include "../../shared/evidence/ApiContextFields.h"
 #include "../../shared/evidence/ApiSectionMapFields.h"
+#include "../../shared/evidence/ApiMemoryLifecycleFields.h"
 #include "MonitorPipe.h"
 #include "../hook/HookCallStack.h"
 #include "MonitorCoverage.h"
@@ -602,7 +603,8 @@ namespace apimon
         const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields = nullptr, // 既有 AAIP1 借用字段。
         const Ksword::Evidence::ApiApcFieldsV1* apcFields = nullptr, // 独立 AAAP1 借用字段。
         const Ksword::Evidence::ApiContextFieldsV1* contextFields = nullptr, // 独立 AACT1 借用字段。
-        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr) // 独立 AASM1 借用字段。
+        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr, // 独立 AASM1 借用字段。
+        const Ksword::Evidence::ApiMemoryLifecycleFieldsV1* memoryFields = nullptr) // 独立 AAIM1 借用字段。
     {
         if ((StopRequested() || EventsPaused()) && categoryValue != ks::winapi_monitor::EventCategory::Internal) {
             return false;
@@ -656,6 +658,11 @@ namespace apimon
             && categoryValue == ks::winapi_monitor::EventCategory::Memory) {
             Ksword::Evidence::StoreApiSectionMapFields(packetValue, *sectionMapFields);
         }
+        else if (memoryFields && hasReturnValue && eventKind == ks::winapi_monitor::EventKind::ApiCall
+            && categoryValue == ks::winapi_monitor::EventCategory::Memory) {
+            // 同一个业务包替换详情槽，不新增队列、线程或第二份调用事件。
+            Ksword::Evidence::StoreApiMemoryLifecycleFields(packetValue, *memoryFields);
+        }
         StoreHookCallStack(packetValue);
 
         ::AcquireSRWLockExclusive(&g_queueLock);
@@ -697,7 +704,7 @@ namespace apimon
 
     // SendMonitorEventRawWithMetrics：把原类别/模块/API、返回/耗时、关联 ID 与可选字段交给唯一队列。
     // category/module/api/result/detail 为原事件；hasReturnValue/returnBits 与 hasDuration/duration100ns
-    // 分别声明原返回和耗时；apiId/resultKind/operationId 为既有身份及语义，其余四指针为独立协议。
+    // 分别声明原返回和耗时；apiId/resultKind/operationId 为既有身份及语义，其余指针为独立协议。
     bool SendMonitorEventRawWithMetrics(ks::winapi_monitor::EventCategory category,
         const wchar_t* module, const wchar_t* api, std::int32_t result,
         const wchar_t* detail, bool hasReturnValue, std::uint64_t returnBits,
@@ -706,13 +713,14 @@ namespace apimon
         const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields,
         const Ksword::Evidence::ApiApcFieldsV1* apcFields,
         const Ksword::Evidence::ApiContextFieldsV1* contextFields,
-        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields)
+        const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields,
+        const Ksword::Evidence::ApiMemoryLifecycleFieldsV1* memoryFields)
     {
         return QueueMonitorEventRaw(category, module, api, result, detail,
             resultKind,
             ks::winapi_monitor::EventKind::ApiCall, operationId, apiId, 0,
             hasReturnValue, returnBits, hasDuration, duration100ns, injectionFields, apcFields,
-            contextFields, sectionMapFields);
+            contextFields, sectionMapFields, memoryFields);
     }
 
     bool SendHooksInstalledEvent(const std::wstring& detail)

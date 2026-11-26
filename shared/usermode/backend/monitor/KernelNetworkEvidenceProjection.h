@@ -12,6 +12,7 @@ namespace ks::r3::monitor {
 // 清单提供者的规范 GUID 与 EnableTraceEx2 的 IPv4/IPv6 关键字。
 inline constexpr std::string_view kKernelNetworkProviderId = "7dd42a49-5329-4832-8dfd-43d979153a88";
 inline constexpr std::uint64_t kKernelNetworkIpKeywords = 0x10 | 0x20;
+std::array<std::uint16_t, 8> KernelNetworkEvidenceEventIds() noexcept;
 
 enum class NetworkProtocol : std::uint8_t { Tcp = 6, Udp = 17 };
 enum class NetworkAddressFamily : std::uint8_t { Ipv4 = 4, Ipv6 = 6 };

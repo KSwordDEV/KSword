@@ -58,11 +58,14 @@
     <ClCompile Include="..\APIMonitor_x64\hook\ApiThreadTargetObservation.cpp" />
     <ClCompile Include="..\APIMonitor_x64\hook\ApiContextObservation.cpp" />
     <ClCompile Include="..\APIMonitor_x64\hook\ApiSectionMapObservation.cpp" />
+    <ClCompile Include="..\APIMonitor_x64\hook\ApiMemoryLifecycleObservation.cpp" />
     <ClInclude Include="..\APIMonitor_x64\hook\ApiThreadTargetObservation.h" />
     <ClInclude Include="..\APIMonitor_x64\hook\ApiContextObservation.h" />
     <ClInclude Include="..\APIMonitor_x64\hook\ApiSectionMapObservation.h" />
+    <ClInclude Include="..\APIMonitor_x64\hook\ApiMemoryLifecycleObservation.h" />
     <ClInclude Include="..\shared\evidence\ApiContextFields.h" />
     <ClInclude Include="..\shared\evidence\ApiSectionMapFields.h" />
+    <ClInclude Include="..\shared\evidence\ApiMemoryLifecycleFields.h" />
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardCommon.cpp" />
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardHook.cpp" />
     <ClCompile Include="..\APIMonitor_x64\hook\ClipboardGuardVTableHook.cpp" />

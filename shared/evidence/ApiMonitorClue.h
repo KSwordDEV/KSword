@@ -16,6 +16,7 @@ struct ApiMonitorClue {
     std::string_view family; // 归档、筛选和回放共用的线索类别。
     ks::winapi_monitor::EventCategory category; // 声明中的业务分类。
     bool native; // 模块来自 ntdll，或来自 KernelBase/kernel32 转发族。
+    std::wstring_view module{}; // 非上述模块族时的精确模块名，不含扩展名。
 };
 
 // 从定长包字段读取字符串。缺失终止符时返回空视图，避免越界解释原始归档。
@@ -48,27 +49,89 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
         {L"Wow64SetThreadContext", "thread-context", C::Thread, false},
         {L"NtSetContextThread", "thread-context", C::Thread, true},
         {L"NtMapViewOfSection", "section-map", C::Memory, true},
+        {L"NtAllocateVirtualMemory", "memory-allocation", C::Memory, true},
+        {L"NtProtectVirtualMemory", "memory-protection", C::Memory, true},
+        {L"NtFreeVirtualMemory", "memory-free-request", C::Memory, true},
+        // 注册表仅登记已有专用处理器；普通 HKEY 不代表完整路径。
+        {L"RegOpenKeyW", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegOpenKeyA", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegOpenKeyExW", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegOpenKeyExA", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegQueryValueExW", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegQueryValueExA", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegGetValueW", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegGetValueA", "registry-query", C::Registry, false, L"advapi32"},
+        {L"RegSetValueExW", "registry-write", C::Registry, false, L"advapi32"},
+        {L"RegSetValueExA", "registry-write", C::Registry, false, L"advapi32"},
+        {L"RegSetKeyValueW", "registry-write", C::Registry, false, L"advapi32"},
+        {L"RegSetKeyValueA", "registry-write", C::Registry, false, L"advapi32"},
+        // 清单查询和进程创建分开，成功查询不等于环境已被判定。
+        {L"Process32FirstW", "process-enumeration", C::Process, false},
+        {L"Process32First", "process-enumeration", C::Process, false},
+        {L"Process32NextW", "process-enumeration", C::Process, false},
+        {L"Process32Next", "process-enumeration", C::Process, false},
+        {L"Module32FirstW", "module-query", C::Loader, false},
+        {L"Module32First", "module-query", C::Loader, false},
+        {L"Module32NextW", "module-query", C::Loader, false},
+        {L"Module32Next", "module-query", C::Loader, false},
+        {L"GetModuleHandleW", "module-query", C::Loader, false},
+        {L"GetModuleHandleA", "module-query", C::Loader, false},
+        {L"NtQuerySystemInformation", "system-query", C::Process, true},
+        {L"CreateProcessW", "process-start", C::Process, false},
+        {L"CreateProcessA", "process-start", C::Process, false},
+        // 文件打开/复制/写入分别归属，句柄打开不宣称文件内容落盘。
+        {L"CreateFileW", "file-open", C::File, false},
+        {L"CreateFileA", "file-open", C::File, false},
+        {L"CreateFile2", "file-open", C::File, false},
+        {L"CopyFileW", "file-copy", C::File, false},
+        {L"CopyFileA", "file-copy", C::File, false},
+        {L"WriteFile", "file-write", C::File, false},
+        // 服务控制使用正式强类型导出，未扩展到未采集的 COM 任务方法。
+        {L"CreateServiceW", "service-control", C::Service, false, L"advapi32"},
+        {L"CreateServiceA", "service-control", C::Service, false, L"advapi32"},
+        {L"OpenServiceW", "service-control", C::Service, false, L"advapi32"},
+        {L"OpenServiceA", "service-control", C::Service, false, L"advapi32"},
+        {L"StartServiceW", "service-control", C::Service, false, L"advapi32"},
+        {L"StartServiceA", "service-control", C::Service, false, L"advapi32"},
+        {L"ChangeServiceConfigW", "service-control", C::Service, false, L"advapi32"},
+        {L"ChangeServiceConfigA", "service-control", C::Service, false, L"advapi32"},
+        {L"DeleteService", "service-control", C::Service, false, L"advapi32"},
+        // 网络只保留当前调用的请求/返回，不建立跨句柄域名归因。
+        {L"GetAddrInfoW", "network-name-query", C::Network, false, L"ws2_32"},
+        {L"getaddrinfo", "network-name-query", C::Network, false, L"ws2_32"},
+        {L"WinHttpConnect", "network-session", C::Network, false, L"winhttp"},
+        {L"InternetConnectW", "network-session", C::Network, false, L"wininet"},
+        {L"InternetConnectA", "network-session", C::Network, false, L"wininet"},
+        {L"WinHttpOpenRequest", "network-request", C::Network, false, L"winhttp"},
+        {L"HttpOpenRequestW", "network-request", C::Network, false, L"wininet"},
+        {L"HttpOpenRequestA", "network-request", C::Network, false, L"wininet"},
+        {L"WinHttpSendRequest", "network-request", C::Network, false, L"winhttp"},
+        {L"HttpSendRequestW", "network-request", C::Network, false, L"wininet"},
+        {L"HttpSendRequestA", "network-request", C::Network, false, L"wininet"},
     }; // 已有专用处理器或声明表中的导出。
     if (packet.size != sizeof(packet) || packet.version != kProtocolVersion ||
-        packet.eventKind != static_cast<std::uint32_t>(EventKind::ApiCall) ||
-        (packet.category != static_cast<std::uint32_t>(C::Memory) &&
-         packet.category != static_cast<std::uint32_t>(C::Thread))) {
+        packet.eventKind != static_cast<std::uint32_t>(EventKind::ApiCall)) {
         return nullptr;
     }
 
     // 比较限于已读到终止符的模块名和值，ASCII 模块名不受区域设置影响。
     const auto module = ApiMonitorPacketText(packet.moduleName); // 包报告的模块名。
     const auto api = ApiMonitorPacketText(packet.apiName); // 包报告的精确导出名。
-    const auto matchesModule = [&](std::wstring_view expected) {
-        return std::ranges::equal(module, expected, [](wchar_t value, wchar_t lower) {
+    const auto equalModule = [](std::wstring_view value, std::wstring_view expected) {
+        return std::ranges::equal(value, expected, [](wchar_t value, wchar_t lower) {
             return (value >= L'A' && value <= L'Z' ? value + (L'a' - L'A') : value) == lower;
         });
     };
+    const auto matchesModule = [&](std::wstring_view expected) { return equalModule(module, expected); };
     const bool native = matchesModule(L"ntdll") || matchesModule(L"ntdll.dll"); // 原生模块族。
     const bool win32 = matchesModule(L"kernelbase") || matchesModule(L"kernelbase.dll") ||
         matchesModule(L"kernel32") || matchesModule(L"kernel32.dll"); // Win32 包装器模块族。
     for (const auto& item : catalog) { // 仅匹配表内同模块族、同分类的精确导出。
-        if ((item.native ? native : win32) && api == item.api && packet.category == static_cast<std::uint32_t>(item.category)) {
+        const bool sameModule = item.module.empty() ? (item.native ? native : win32) :
+            (matchesModule(item.module) || (module.size() == item.module.size() + 4 &&
+             equalModule(module.substr(0, item.module.size()), item.module) &&
+             equalModule(module.substr(item.module.size()), L".dll"))); // 不在 noexcept 分类热路径分配字符串。
+        if (sameModule && api == item.api && packet.category == static_cast<std::uint32_t>(item.category)) {
             return &item;
         }
     }

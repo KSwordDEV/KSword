@@ -90,6 +90,14 @@ NetworkEndpoint ReadEndpoint(NetworkAddressFamily family, std::span<const std::u
 
 } // namespace
 
+std::array<std::uint16_t, 8> KernelNetworkEvidenceEventIds() noexcept
+{
+    std::array<std::uint16_t, kManifestEvents.size()> ids{};
+    std::transform(kManifestEvents.begin(), kManifestEvents.end(), ids.begin(),
+        [](const ManifestEvent& row) { return row.id; });
+    return ids;
+}
+
 bool IsValidNetworkSampleScope(const NetworkSampleScopeView& scope) noexcept
 {
     return IsCanonicalUuid(scope.projectId) && IsCanonicalUuid(scope.sampleId) &&

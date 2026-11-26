@@ -2,6 +2,7 @@
 
 #include "../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
 #include "ApiMonitorClue.h"
+#include "../../KswordCLI/ActionAnalyze/Detection/ArchivedEvidenceGraph.h"
 
 #include <algorithm>
 #include <deque>
@@ -21,6 +22,7 @@ struct ApiTransferCandidateRows {
     ActionAnalyze::Detection::ApiTransferLink link; // 共享匹配器返回的来源声明候选。
     Row write; // 写入包真实坐标及当时读取的只读详情。
     Row threadCreate; // 创建包真实坐标及当时读取的只读详情。
+    ActionAnalyze::Detection::ArchivedGraphRecord requestRecord; // 同一原包解析的匹配输入。
 };
 
 template<typename Row>
@@ -28,6 +30,7 @@ struct ApiApcCandidateRows {
     ActionAnalyze::Detection::ApiApcTransferLink link; // 只表示写入与队列接受的一致性候选。
     Row write; // 同一候选的真实写入原行，独立于主表窗口。
     Row queue; // 同一候选的 APC 入队返回原行，不表示投递或执行。
+    ActionAnalyze::Detection::ArchivedGraphRecord requestRecord; // 同一原包解析的匹配输入。
 };
 
 // 上下文来源候选保留真实双方原行，不记录上下文已生效或执行事实。
@@ -36,7 +39,56 @@ struct ApiContextCandidateRows {
     ActionAnalyze::Detection::ApiContextTransferLink link; // 共享判据返回的请求 IP 区间候选。
     Row write; // 当前候选的原始实际写入行。
     Row context; // 当前候选的上下文请求返回行，不是实际执行记录。
+    ActionAnalyze::Detection::ArchivedGraphRecord requestRecord; // 同一原包解析的匹配输入。
 };
+
+// 映射无需先有写入；保留独立的请求窗口和实际原包，不从主表截断窗口补造。
+template<typename Row>
+struct ApiSectionMapCandidateRow {
+    ActionAnalyze::Detection::EvidenceRef evidence; // 实际项目、采样、来源及 raw 坐标。
+    ActionAnalyze::Detection::ArchivedGraphRecord record; // 共用匹配器所需的原请求字段。
+    Row row; // 同一次归档扫描生成的原行详情。
+    std::string sha256; // 整段通过校验后填入的 API 段摘要。
+};
+
+// 输入核验回调内的原包，输出 CLI 匹配器的字段投影；不做任何关系推断。
+inline ActionAnalyze::Detection::ArchivedGraphRecord ApiExecutionRequestRecord(
+    const ArchivedApiMonitorClue& clue, std::uint64_t segment, std::uint64_t sequence)
+{
+    ActionAnalyze::Detection::ArchivedGraphRecord record; // 原包字段与坐标的只读副本。
+    record.segmentOrdinal = segment;
+    record.recordSequence = sequence;
+    record.headerPid = clue.packet.pid;
+    record.headerTid = clue.packet.tid;
+    for (const auto character : clue.clue->api) // 目录中的 API 导出名均为 ASCII，显式转换避免隐式窄化。
+    {
+        record.operation.push_back(static_cast<char>(character));
+    }
+    record.apiFamily = clue.clue->family;
+    record.apiCategory = clue.clue->category == ks::winapi_monitor::EventCategory::Memory ? "memory" : "thread";
+    // 每类字段都使用原协议解析器，不从 UI 摘要或请求值恢复缺失结果。
+    record.apiInjection = ReadApiInjectionFields(clue.packet);
+    if (record.apiInjection)
+    {
+        record.apiOutcome = ApiInjectionCallOutcome(clue.packet, *record.apiInjection);
+    }
+    record.apiApc = ReadApiApcFields(clue.packet);
+    if (record.apiApc)
+    {
+        record.apcOutcome = ApiApcCallOutcome(clue.packet);
+    }
+    record.apiContext = ReadApiContextFields(clue.packet);
+    if (record.apiContext)
+    {
+        record.contextOutcome = ApiContextCallOutcome(clue.packet);
+    }
+    record.apiSectionMap = ReadApiSectionMapFields(clue.packet);
+    if (record.apiSectionMap)
+    {
+        record.sectionMapOutcome = ApiSectionMapCallOutcome(clue.packet);
+    }
+    return record;
+}
 
 // 从已核验包生成与 ArchivedEvidenceGraph 相同的来源身份，不生成任何强对象或控制资格。
 inline ActionAnalyze::Detection::EvidenceRef ApiTransferEvidence(
@@ -70,6 +122,17 @@ public:
         std::uint64_t segment, std::uint64_t sequence, const std::string& followEpoch = {})
     {
         const auto evidence = ApiTransferEvidence(scope_, clue, segment, sequence, followEpoch); // 实际原包锚点。
+        auto request = ApiExecutionRequestRecord(clue, segment, sequence); // 同次读取的共享匹配字段。
+        request.recordOffset = row.offset; // 原记录头偏移，不使用表格行号。
+        if (request.apiSectionMap)
+        {
+            if (maps_.size() == kApiContextCandidateRows)
+            {
+                maps_.pop_front();
+                ++evictedMaps_;
+            }
+            maps_.push_back({evidence, request, row, {}});
+        }
         const auto links = chain_.Accept(evidence, clue.packet); // 唯一匹配器决定区间、实例和时序。
         for (const auto& link : links)
         {
@@ -85,7 +148,7 @@ public:
             {
                 candidates_.pop_front();
             }
-            candidates_.push_back({link, prior->row, row});
+            candidates_.push_back({link, prior->row, row, request});
         }
 
         // Accept 已登记本包写入；APC 查询复用同一匹配器，不另存一份 1024 写入状态。
@@ -104,7 +167,7 @@ public:
             {
                 apcCandidates_.pop_front();
             }
-            apcCandidates_.push_back({link, prior->row, row});
+            apcCandidates_.push_back({link, prior->row, row, request});
         }
 
         // 同一 Accept 已登记写入；上下文匹配复用该链及已有详情，不创建第二套写状态。
@@ -124,7 +187,7 @@ public:
             {
                 contextCandidates_.pop_front();
             }
-            contextCandidates_.push_back({link, prior->row, row});
+            contextCandidates_.push_back({link, prior->row, row, request});
         }
 
         // 此筛选仅控制详情缓存；候选成立与否仍完全取决于上面的共享链分析器。
@@ -165,6 +228,21 @@ public:
         return contextCandidateCount_;
     }
 
+    // 后台整段核验后调用；只把该段的真实摘要赋给保留的映射请求。
+    void CommitSegment(std::uint64_t ordinal, const std::string& sha256)
+    {
+        for (auto& mapping : maps_) // 当前有界映射窗口中的已读原行。
+        {
+            if (mapping.record.segmentOrdinal == ordinal)
+            {
+                mapping.sha256 = sha256;
+            }
+        }
+    }
+    // 无输入，返回独立映射窗口和容量淘汰数；不执行新的采集或读取。
+    const std::deque<ApiSectionMapCandidateRow<Row>>& Maps() const noexcept { return maps_; }
+    std::uint64_t EvictedMaps() const noexcept { return evictedMaps_; }
+
 private:
     // 仅缓存共享链路有资格保留的实际写入，避免失败包挤出有效写入详情。
     static bool CacheableWrite(const ks::winapi_monitor::ApiMonitorEventPacket& packet)
@@ -197,6 +275,8 @@ private:
     std::uint64_t apcCandidateCount_ = 0; // 不随 APC 候选窗口裁剪回退。
     std::deque<ApiContextCandidateRows<Row>> contextCandidates_; // 最近 128 对 write/context 原行值。
     std::uint64_t contextCandidateCount_ = 0; // 已核验前缀累计上下文候选数。
+    std::deque<ApiSectionMapCandidateRow<Row>> maps_; // 最近 128 条节映射请求及原始坐标。
+    std::uint64_t evictedMaps_ = 0; // 映射窗口裁剪数，不能把未覆盖旧请求解释为无关联。
 };
 
 } // namespace Ksword::Evidence

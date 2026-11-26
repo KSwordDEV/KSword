@@ -1,7 +1,7 @@
 #include "ApiMonitorCapture.h"
 #include "ApiMonitorInjection.h"
 #include "ApiMonitorInjectionProtocol.h"
-#ifndef KSWORD_APIMON_COOPERATIVE_ONLY
+#if !defined(KSWORD_APIMON_COOPERATIVE_ONLY) && !defined(KSWORD_APIMON_STRICT_CAPTURE_ONLY)
 #include "ApiMonitorInjectionBroker.h"
 #ifdef _WIN64
 #include "ApiMonitorR0Injection.h"
@@ -104,7 +104,7 @@ void finishPipeRead(Reader& reader, CaptureResult& result, DWORD failure) {
 class Capture {
 public:
     Capture(const CaptureRequest& r, const std::atomic_bool& c) : request(r), cancel(c) {}
-#ifndef KSWORD_APIMON_COOPERATIVE_ONLY
+#if !defined(KSWORD_APIMON_COOPERATIVE_ONLY) && !defined(KSWORD_APIMON_STRICT_CAPTURE_ONLY)
     ~Capture() { if (broker) broker->stop(); }
 #endif
     CaptureResult run();
@@ -116,7 +116,9 @@ private:
     CooperativeSessionDirectory cooperativeDirectory;
 #ifndef KSWORD_APIMON_COOPERATIVE_ONLY
     Handle cancelEvent;
+#ifndef KSWORD_APIMON_STRICT_CAPTURE_ONLY
     std::unique_ptr<InjectionBroker> broker;
+#endif
 #endif
     std::vector<std::unique_ptr<Reader>> readers;
     std::vector<DWORD> pendingChildren;
@@ -210,9 +212,9 @@ bool Capture::start() {
         if (!cancelEvent.value) { error(L"create cancellation event failed"); return false; }
     }
 #endif
-    // 桌面 ActionAnalyze 仅接收合作会话，不生成子进程装载端点。
+    // 桌面严格观察可显式附加一个实例，始终不生成子进程装载端点。
     InjectionEndpoint endpoint; // 合作路径保持空端点，沿用现有 Agent 配置格式。
-#ifndef KSWORD_APIMON_COOPERATIVE_ONLY
+#if !defined(KSWORD_APIMON_COOPERATIVE_ONLY) && !defined(KSWORD_APIMON_STRICT_CAPTURE_ONLY)
     if (request.autoChildren) {
         broker = std::make_unique<InjectionBroker>();
         InjectionBroker::Injector childInjector;
@@ -259,9 +261,15 @@ bool Capture::start() {
         std::thread watcher([&] { while (!done.load()) { if (cancel.load()) { ::SetEvent(cancelEvent.value); break; } ::Sleep(10); } });
         bool injected = false;
         try {
+#ifdef KSWORD_APIMON_STRICT_CAPTURE_ONLY
+            // 复用原双架构 R3 装载器；WOW64 由目标 PE 导出和既有 x86 stub 处理。
+            injected = injectAgent(request.pid, result.agentPath, &detail, cancelEvent.value,
+                readers.front()->evidence.creation);
+#else
             injected = request.useR0Injection
                 ? injectAgentR0(request.pid, result.agentPath, &detail, cancelEvent.value, readers.front()->evidence.creation)
                 : injectAgent(request.pid, result.agentPath, &detail, cancelEvent.value, readers.front()->evidence.creation);
+#endif
         }
         catch (...) { done.store(true); watcher.join(); throw; }
         done.store(true); watcher.join();
@@ -451,7 +459,7 @@ void Capture::cleanup() {
     if (!result.configPublished) { result.cleanupComplete = true; return; }
     stopFailure = !writeStop(request.pid, readers.front()->evidence.creation, true, &result.stopWritten);
     if (strictObservation() && stopFailure) error(L"could not confirm the exact target stop marker");
-#ifndef KSWORD_APIMON_COOPERATIVE_ONLY
+#if !defined(KSWORD_APIMON_COOPERATIVE_ONLY) && !defined(KSWORD_APIMON_STRICT_CAPTURE_ONLY)
     if (broker) {
         const auto participants = broker->stopAndTakeParticipants(); broker.reset();
         for (const auto& child : participants) {
@@ -549,6 +557,10 @@ CaptureResult captureApiMonitor(const CaptureRequest& request, const std::atomic
 #ifdef KSWORD_APIMON_COOPERATIVE_ONLY
     // 桌面目标的创建时间不能为空；错误输入不允许落入旧捕获模式。
     valid = valid && resident && !attached;
+#endif
+#ifdef KSWORD_APIMON_STRICT_CAPTURE_ONLY
+    // 正式桌面只开放合作驻留或已确认的精确实例附加，不开放普通监控入口。
+    valid = valid && strict;
 #endif
     // An incomplete opt-in must never fall into the legacy monitor path.
     if (attached || request.attachConfirmed || request.strictReadOnlyObservation) {

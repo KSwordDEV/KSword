@@ -21,6 +21,7 @@
 #include "ApiApcObservation.h"
 #include "ApiContextObservation.h"
 #include "ApiSectionMapObservation.h"
+#include "ApiMemoryLifecycleObservation.h"
 #include "../../shared/ApiMonitorInjection.h"
 #ifdef _M_IX86
 #include "../../APIMonitor_x86/hook/EntryStubs.h"
@@ -1442,7 +1443,7 @@ namespace apimon
         // SendRawEventWithMetrics：经原分类门禁发送一个业务包，不创建第二条结构化队列。
         // categoryValue/moduleName/apiName 标识事件；statusValue/detailText 为原状态及摘要。
         // hasReturn/returnBits 和 duration 保存原返回与耗时；apiId/operationId 保留既有身份。
-        // resultKind 指明状态语义；四类可选字段仅由对应 Hook 传入，其余路径保持空指针。
+        // resultKind 指明状态语义；各类可选字段仅由对应 Hook 传入，其余路径保持空指针。
         bool SendRawEventWithMetrics(const ks::winapi_monitor::EventCategory categoryValue,
             const wchar_t* moduleName, const wchar_t* apiName, const long statusValue,
             const wchar_t* detailText, const bool hasReturn, const std::uint64_t returnBits,
@@ -1451,7 +1452,8 @@ namespace apimon
             const Ksword::Evidence::ApiInjectionFieldsV1* injectionFields = nullptr,
             const Ksword::Evidence::ApiApcFieldsV1* apcFields = nullptr,
             const Ksword::Evidence::ApiContextFieldsV1* contextFields = nullptr,
-            const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr)
+            const Ksword::Evidence::ApiSectionMapFieldsV1* sectionMapFields = nullptr,
+            const Ksword::Evidence::ApiMemoryLifecycleFieldsV1* memoryFields = nullptr)
         {
             if (!CategoryEnabled(categoryValue)
                 || (categoryValue == ks::winapi_monitor::EventCategory::Loader && !ActiveConfig().enableLoader)) {
@@ -1460,7 +1462,7 @@ namespace apimon
             return SendMonitorEventRawWithMetrics(categoryValue, moduleName, apiName,
                 static_cast<std::int32_t>(statusValue), detailText,
                 hasReturn, returnBits, duration.valid, duration.ticks100ns, apiId,
-                resultKind, operationId, injectionFields, apcFields, contextFields, sectionMapFields);
+                resultKind, operationId, injectionFields, apcFields, contextFields, sectionMapFields, memoryFields);
         }
 
         bool SendFileEventWithReturn(const wchar_t* apiName, const long status,
@@ -4889,42 +4891,72 @@ namespace apimon
             return statusValue;
         }
 
+        // Allocate：原输入先冻结，原调用仅执行一次，成功后分别安全读取真实base/size。
         NTSTATUS NTAPI HookedNtAllocateVirtualMemory(HANDLE processHandle, PVOID* baseAddressPointer, ULONG_PTR zeroBits, PSIZE_T regionSizePointer, ULONG allocationType, ULONG protectValue)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, allocationType, protectValue);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtAllocateVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 避免观察查询递归。
+            if (guardValue.bypass()) {
+                return g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue);
+            }
+            ApiMemoryLifecycleObservation observation(Ksword::Evidence::ApiMemoryOperation::Allocate,
+                processHandle, baseAddressPointer, regionSizePointer, allocationType, protectValue); // 原输入和强实例。
+            const auto callClock = BeginApiCallClock(); // 原调用计时。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntAllocateVirtualMemoryOriginal(processHandle, baseAddressPointer, zeroBits, regionSizePointer, allocationType, protectValue); // 原返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 恢复调用方LastError。
+            observation.Complete(statusValue, baseAddressPointer, regionSizePointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtAllocateVirtualMemory",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
+                ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
+        // Free：只保留原请求与原返回，不读回size=0并推断释放了整块分配。
         NTSTATUS NTAPI HookedNtFreeVirtualMemory(HANDLE processHandle, PVOID* baseAddressPointer, PSIZE_T regionSizePointer, ULONG freeType)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, freeType, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtFreeVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 避免观察查询递归。
+            if (guardValue.bypass()) {
+                return g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType);
+            }
+            ApiMemoryLifecycleObservation observation(Ksword::Evidence::ApiMemoryOperation::Free,
+                processHandle, baseAddressPointer, regionSizePointer, freeType, 0); // 冻结调用前释放请求。
+            const auto callClock = BeginApiCallClock(); // 原调用计时。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntFreeVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, freeType); // 原返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 恢复调用方LastError。
+            observation.Complete(statusValue, nullptr, nullptr);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtFreeVirtualMemory",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
+                ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
+        // Protect：冻结输入和newProtect，成功后独立读取系统调整范围与oldProtection。
         NTSTATUS NTAPI HookedNtProtectVirtualMemory(HANDLE processHandle, PVOID* baseAddressPointer, PSIZE_T regionSizePointer, ULONG newProtect, PULONG oldProtectPointer)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddressPointer != nullptr ? *baseAddressPointer : nullptr, regionSizePointer != nullptr ? static_cast<std::uint64_t>(*regionSizePointer) : 0, oldProtectPointer != nullptr ? *oldProtectPointer : 0, newProtect);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtProtectVirtualMemory", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 避免观察查询递归。
+            if (guardValue.bypass()) {
+                return g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer);
+            }
+            ApiMemoryLifecycleObservation observation(Ksword::Evidence::ApiMemoryOperation::Protect,
+                processHandle, baseAddressPointer, regionSizePointer, 0, newProtect); // 原请求范围及保护。
+            const auto callClock = BeginApiCallClock(); // 原调用计时。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntProtectVirtualMemoryOriginal(processHandle, baseAddressPointer, regionSizePointer, newProtect, oldProtectPointer); // 原返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 原调用耗时。
+            const DWORD lastError = ::GetLastError(); // 恢复调用方LastError。
+            observation.Complete(statusValue, baseAddressPointer, regionSizePointer, oldProtectPointer);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtProtectVirtualMemory",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
+                ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 
