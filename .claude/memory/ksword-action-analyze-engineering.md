@@ -2,6 +2,11 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 执行集合显式保存三端源码。** `Project/ExecutionGroupArchive`在原worker准备可选新项目／打开项目及本轮新sample，全部原成员沿用真实sample；保存前`OwnedExecutionGroup::QueryWithoutCondition`回读原owner完整事件，不求同伴条件、不Continue。`native-execution-v3`原写入器保留18寄存器、事件绑定、NX范围及实测散列，backend/serial去重；真实追加失败阻止跳段，保留首次失败及written/flushed/verified。CLI `--project PATH [--open-project]`与`execution-save`／`control.execution.save`；Qt／Light原执行集合参数页、原worker、详情同步接入。导航为“监控→行为分析→执行断点集合”，类型为参数执行＋管理表（None）＋同源字段详情，沿用ParameterWorkspace；对照原DataWriteWatch及ProcessGroupMemoryPane。全部新增仅源码，无构建／测试／GUI／验收回执／推送。继续禁止新增CodeBuddy任务，已派两项仍等待自动最终消息，不轮询。
+
+- **2026-11-26 进度口径纠正，交接保留。** 用户质疑“整体70%”是否为应付目标；主代理已明确收回整体70%及±10%说法。这些数值没有统一任务分母或权重，混合了历史实证与新源码接线，不能证明达到70%目标。以后按“历史正式产品已验范围／新增源码已接待验／明确未实现”报告，不以新增提交数量或主观平均数提高完成度，不为重新算百分比增加审查和验收任务。
+- **2026-11-26 `278d1e4df` 同采样API在途启动源码。** 共享`NativeBoundApiProgress`携带原项目、采样、来源及native目标身份，沿原采集线程发布实际里程碑。Qt复用原200ms值刷新，Light复用原状态快照；CLI `api-capture ... confirm [progress]`或`params.startupProgress:true`向stderr输出带身份JSONL，stdout仍为原最终响应。完整采集/归档仍看最终回执。本批未构建、未测试、未GUI、未推送，不新增验收记录。
+
 - **2026-11-26 当前开发批次，均仅源码且未推送。** `ff32000ba` 将真实Agent启动阶段接入CLI stderr与Qt/Light原快照；`353ccd441` 从已核验终段回放同一启动快照，旧档为null，归档详情不查询当前PID。`56b2dd4bf` 为执行集合各模块站点接可选SHA256，原owner验证装载事件文件，完整成员票据保留实测值，桌面保留期望值草稿。`c72a380f2` 聚合嵌套恢复责任，单成员Step/Cancel前置回读不自动释放其它成员。`234dddf40` 接Qt/Light同采样API关闭取消，原采集排空后再串行关闭native；启动前取消不装Agent、不创建API流。`ef27b3382` 新写`native-execution-v3`，保存同一事件原绑定、已纳入NX范围、实测文件散列；继续读旧v1/v2，不把历史绑定还原成控制。未执行构建、测试、GUI或新增验收记录，旧回执不覆盖这些变化。
 - **CodeBuddy本轮唯一两次例外。** 用户仅批准直接派2项后等回执，再恢复静默；已一批直接派【条件布尔运算】与【线程恢复】，两项只做限定源码修正，不测试/构建/GUI/再派发/提交推送。最终文本在`.codex-build-logs/codebuddy-two-dispatch/`，批次宿主`sh_217a8b3fe001t52NhqCaDy67Ji`。等待自动最终通知，不轮询、不重试、不续接。布尔运算主体与三端提示尚未提交，等原直接任务回执后收整；历史线程退出/等待取消失败仍不得标修复通过。交接须保留这条限额，goal重激活不撤销限制。
 

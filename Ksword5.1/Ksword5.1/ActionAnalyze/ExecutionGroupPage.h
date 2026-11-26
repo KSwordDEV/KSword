@@ -5,7 +5,9 @@
 
 class QCheckBox;
 class QEvent;
+class QGroupBox;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QTimer;
 namespace ks::ui { class TableActionTableView; class StructuredFieldView; }
@@ -46,6 +48,9 @@ namespace ks::action_analyze
         ks::ui::TableActionTableView* m_members = nullptr; // 多选管理表，操作条None。
         ks::ui::StructuredFieldView* m_fields = nullptr; // 所选成员和全部操作回执的唯一字段源。
         QCheckBox* m_authorized = nullptr; // 对完整目录的显式控制授权。
+        QGroupBox* m_projectSection = nullptr; // Start之前可编辑，原结果使用worker中的真实项目身份。
+        QLineEdit* m_projectDirectory = nullptr; // 可选项目路径草稿；空值不创建项目。
+        QCheckBox* m_openProject = nullptr; // 明确打开已有项目并创建新sample，不猜目录用途。
         QLabel* m_status = nullptr; // 草稿错误、回读时间、清退责任分层显示。
         QPushButton* m_add = nullptr; // 加入下一站点。
         QPushButton* m_replace = nullptr; // 用完整输入替换选中草稿行。
@@ -61,6 +66,7 @@ namespace ks::action_analyze
         QPushButton* m_over = nullptr; // 唯一选中成员步过调用。
         QPushButton* m_out = nullptr; // 唯一选中成员跳出。
         QPushButton* m_cancel = nullptr; // 唯一选中成员原步进请求取消。
+        QPushButton* m_save = nullptr; // 显式保存唯一成员当前执行事件，不继续目标。
         QPushButton* m_query = nullptr; // 请求原worker状态回读。
         QPushButton* m_close = nullptr; // 关闭新动作准入并清退原owner。
         QTimer* m_poll = nullptr; // 已公布值展示定时器，不承担原生采样。

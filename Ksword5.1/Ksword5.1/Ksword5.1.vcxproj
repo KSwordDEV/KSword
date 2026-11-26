@@ -451,6 +451,7 @@
     <ClCompile Include="ActionAnalyze\NativeSessionApiPane.cpp" />
     <ClCompile Include="ActionAnalyze\NativeSessionApiFields.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp" />
@@ -1094,6 +1095,7 @@
     <ClInclude Include="ActionAnalyze\PrivateExecutionCandidatesFields.h" />
     <ClInclude Include="ActionAnalyze\NativeSessionApiPane.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\ProcessGroupMemorySnapshot.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Memory\SelectedMemorySnapshot.h" />

@@ -9,8 +9,10 @@
 #include "../UI/ThemeStatusRole.h"
 
 #include <QCheckBox>
+#include <QGroupBox>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTimer>
 #include <QUuid>
@@ -132,7 +134,9 @@ namespace ks::action_analyze
         request.sites = m_model->sites;
         request.authorized = m_authorized->isChecked();
         request.sampleId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-        m_session = std::make_unique<ExecutionGroupSession>(); // 唯一本端会话，无项目writer和归档副作用。
+        request.projectDirectory = m_projectDirectory->text().toStdWString(); // 参数冻结后交原worker持唯一写租约。
+        request.openExistingProject = m_openProject->isChecked();
+        m_session = std::make_unique<ExecutionGroupSession>(); // 唯一本端会话，项目准备完成后才附加。
         m_shown = {};
         m_inputError = m_session->Submit(std::move(request)) ? QString() : sourceText(QStringLiteral("本端会话未受理操作，请刷新后重试。"));
         m_poll->start();
@@ -183,7 +187,8 @@ namespace ks::action_analyze
         if (command != ExecutionGroupCommand::Query)
         {
             const auto selected = Selected(all); // Continue接受全集/明确子集；Step和Cancel只接受唯一成员。
-            if (selected.empty() || ((command == ExecutionGroupCommand::Step || command == ExecutionGroupCommand::CancelStep) && selected.size() != 1))
+            if (selected.empty() || ((command == ExecutionGroupCommand::Step || command == ExecutionGroupCommand::CancelStep ||
+                command == ExecutionGroupCommand::SaveExecution) && selected.size() != 1))
             {
                 return;
             }
@@ -211,6 +216,10 @@ namespace ks::action_analyze
                 {
                     eligible = native::OwnedExecutionGroup::MatchesStep(member->control, member->control);
                 }
+                else if (command == ExecutionGroupCommand::SaveExecution)
+                {
+                    eligible = m_shown.archive.writerHeld && native::NativeExecutionFromOwnedStop(member->control).has_value();
+                }
                 else if (command == ExecutionGroupCommand::Step && member->control.stopReason == native::NativeStopReason::ManualPause)
                 {
                     eligible = false; // 手动暂停不借用原执行命中或旧step的步进资格。
@@ -219,7 +228,8 @@ namespace ks::action_analyze
                 {
                     return; // 任一无资格不提交整批，已复制的临时vector不产生副作用。
                 }
-                if (command == ExecutionGroupCommand::Pause || command == ExecutionGroupCommand::Continue)
+                if (command == ExecutionGroupCommand::Pause || command == ExecutionGroupCommand::Continue ||
+                    command == ExecutionGroupCommand::SaveExecution)
                 {
                     request.sessions.push_back({member->owner, member->control}); // 完整owner和显示快照，不从PID补票。
                 }
@@ -278,6 +288,7 @@ namespace ks::action_analyze
         bool cancellable = false; // 取消针对原步进请求，不能用当前普通停点替代。
         bool stepAllowed = false; // 手动暂停只允许Continue，本批不开放ManualPause步进。
         bool rangeAllowed = false; // 完整NX Held支持独立追加，ManualPause无需步进资格。
+        bool saveAllowed = false; // 执行事件保存与Continue资格分开，ManualPause没有执行证据。
         QString rangeTarget; // 明确当前追加目标；未单选时不沿用上一成员身份。
         if (selected.size() == 1)
         {
@@ -299,6 +310,7 @@ namespace ks::action_analyze
             if (member != m_shown.result.members.end())
             {
                 rangeAllowed = native::OwnedExecutionGroup::CanAddRangeMember(*member);
+                saveAllowed = m_shown.archive.writerHeld && native::NativeExecutionFromOwnedStop(member->control).has_value();
                 rangeTarget = sourceText(QStringLiteral("追加目标：PID %1 / 创建 FILETIME %2 / 停点 %3"))
                     .arg(site.pid).arg(site.creationFileTime)
                     .arg(member->control.responsibility ? QString::fromStdString(member->control.responsibility->stopId) : QStringLiteral("—"));
@@ -317,6 +329,7 @@ namespace ks::action_analyze
             });
         };
         m_editor->setEnabled(editable); // 活集合目录和条件不可被参数编辑静默重配。
+        m_projectSection->setEnabled(editable); // 目录编辑不重定向已产生的结果或writer。
         m_authorized->setEnabled(editable);
         m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);
         m_replace->setEnabled(editable && selected.size() == 1);
@@ -333,6 +346,7 @@ namespace ks::action_analyze
             button->setEnabled(ready && stepAllowed);
         }
         m_cancel->setEnabled(ready && cancellable);
+        m_save->setEnabled(ready && saveAllowed); // 允许同事件重放，原归档器返回旧段坐标不重复写。
         m_query->setEnabled(ready);
         m_close->setEnabled(m_session && !m_shown.retired); // 在途动作时仍允许请求清退。
         m_rangeTarget->setVisible(m_session && !m_shown.retired);
@@ -365,6 +379,12 @@ namespace ks::action_analyze
         if (m_shown.failed)
         {
             status += sourceText(QStringLiteral(" · 后台执行失败，保留上次回执")) + QStringLiteral(" / ") + QString::fromStdString(m_shown.diagnostic);
+        }
+        if (!m_shown.archive.setup || (m_shown.archive.saved && !m_shown.archive.saved->status))
+        {
+            const auto& failure = !m_shown.archive.setup ? m_shown.archive.setup : m_shown.archive.saved->status; // 存储失败不冒充控制失败。
+            status += QLatin1Char('\n') + sourceText(QStringLiteral("执行观察归档")) + QStringLiteral(" / %1 / Win32 %2")
+                .arg(QString::fromLatin1(failure.detail)).arg(failure.nativeError);
         }
         if (!m_registered)
         {

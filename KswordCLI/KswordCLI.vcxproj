@@ -224,6 +224,7 @@
     <ClCompile Include="ActionAnalyze\Cli\NativeExecutionCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\NativeSectionMapCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectNativeExecution.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ExecutionGroupArchive.cpp" />
     <ClCompile Include="ActionAnalyze\Project\SampleImageDefinition.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\NativeTransferAssociation.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\PrivateExecutionCandidates.cpp" />
@@ -289,6 +290,7 @@
     <ClInclude Include="ActionAnalyze\Cli\NativeExecutionCommand.h" />
     <ClInclude Include="ActionAnalyze\Cli\NativeSectionMapCommand.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectNativeExecution.h" />
+    <ClInclude Include="ActionAnalyze\Project\ExecutionGroupArchive.h" />
     <ClInclude Include="ActionAnalyze\Project\SampleImageDefinition.h" />
     <ClInclude Include="ActionAnalyze\Detection\NativeTransferAssociation.h" />
     <ClInclude Include="ActionAnalyze\Detection\PrivateExecutionCandidates.h" />

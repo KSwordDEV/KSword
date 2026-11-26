@@ -288,6 +288,16 @@ namespace ks::action_analyze
         {
             document.field(QStringLiteral("后台异常摘要"), QString::fromStdString(snapshot.diagnostic));
         }
+        if (snapshot.archive.configured || !snapshot.archive.setup)
+        {
+            // 三端共用规范存储文档，正文、复制和导出保留同一原事件及written/flushed/verified边界。
+            const auto archive = Ksword::ActionAnalyze::DescribeExecutionGroupArchive(snapshot.archive); // worker纯值，不重读目标。
+            document.section(QStringLiteral("执行观察归档"))
+                .field(QStringLiteral("项目 ID"), QString::fromStdString(snapshot.archive.projectId))
+                .field(QStringLiteral("采样 ID"), QString::fromStdString(snapshot.archive.sampleId))
+                .field(QStringLiteral("项目目录"), QString::fromStdWString(snapshot.archive.directory))
+                .field(QStringLiteral("归档结果 JSON"), QString::fromStdString(Ksword::Evidence::WriteJson(archive)));
+        }
         for (const int row : selected)
         {
             if (row < 0 || row >= static_cast<int>(sites.size()))

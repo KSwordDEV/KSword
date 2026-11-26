@@ -13,14 +13,19 @@
 #include "../UI/TablePresentation.h"
 #include "../UI/ThemeAccentIcon.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../theme.h"
 
 #include <QCheckBox>
 #include <QEvent>
 #include <QGroupBox>
+#include <QFormLayout>
+#include <QFileDialog>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QSplitter>
 #include <QTimer>
@@ -75,6 +80,41 @@ namespace ks::action_analyze
         }
         ks::ui::NormalizeToolbarLayout(draftFlow);
         workspace->parameters()->addWidget(draft);
+        m_projectSection = new QGroupBox(workspace); // 参数正文保存目录草稿；执行区只保留保存动作。
+        language.bindText(m_projectSection, {}, QStringLiteral("执行观察归档"));
+        auto* projectForm = new QFormLayout(m_projectSection); // 沿用同类内存页的自然高度、窄栏折行。
+        ks::ui::StyleSecondaryForm(projectForm, 100);
+        auto* directoryRow = new QWidget(m_projectSection); // 目录输入和选择器同一行，不叠第二层卡片。
+        auto* directoryLayout = new QHBoxLayout(directoryRow);
+        directoryLayout->setContentsMargins(0, 0, 0, 0);
+        directoryLayout->setSpacing(8);
+        m_projectDirectory = new QLineEdit(directoryRow);
+        m_projectDirectory->setObjectName(QStringLiteral("execution_group_project_directory"));
+        m_projectDirectory->setMaxLength(32767);
+        auto* browse = Action(directoryRow, "execution_group_project_browse", {}, QStringLiteral("选择归档项目目录"));
+        KswordTheme::ApplyStandardIconButtonMetrics(browse);
+        ks::ui::SetThemeButtonIcon(browse, QIcon(QStringLiteral(":/Icon/process_open_folder.svg")));
+        browse->setAccessibleName(ks::i18n::sourceText(QStringLiteral("选择归档项目目录")));
+        directoryLayout->addWidget(m_projectDirectory, 1);
+        directoryLayout->addWidget(browse);
+        auto* directoryLabel = new QLabel(m_projectSection); // 标签绑定实际输入，支持键盘定位。
+        directoryLabel->setBuddy(m_projectDirectory);
+        language.bindText(directoryLabel, {}, QStringLiteral("新项目目录（可选）"));
+        projectForm->addRow(directoryLabel, directoryRow);
+        m_openProject = new QCheckBox(m_projectSection);
+        language.bindText(m_openProject, {}, QStringLiteral("打开项目并新建采样"));
+        projectForm->addRow(m_openProject);
+        ks::ui::StyleParameterSection(m_projectSection);
+        workspace->parameters()->addWidget(m_projectSection);
+        connect(browse, &QPushButton::clicked, this, [this]
+        {
+            const auto directory = QFileDialog::getExistingDirectory(this,
+                ks::i18n::sourceText(QStringLiteral("选择归档项目目录")), m_projectDirectory->text()); // 系统选择器只编辑草稿。
+            if (!directory.isEmpty())
+            {
+                m_projectDirectory->setText(directory);
+            }
+        });
         m_authorized = new QCheckBox(workspace); // 授权在Start请求时冻结，不随后续UI变化重配。
         language.bindText(m_authorized, {}, QStringLiteral("我明确授权控制列表中的全部进程实例"));
         workspace->parameters()->addWidget(m_authorized);
@@ -104,12 +144,14 @@ namespace ks::action_analyze
         m_over = Action(controls, "execution_group_over", QStringLiteral("步过选中成员"), QStringLiteral("使用唯一选中成员当前完整停点提交步过调用。"));
         m_out = Action(controls, "execution_group_out", QStringLiteral("跳出选中成员"), QStringLiteral("使用唯一选中成员当前完整停点提交跳出。"));
         m_cancel = Action(controls, "execution_group_cancel", QStringLiteral("取消选中步进"), QStringLiteral("只取消唯一选中成员显示的原步进请求；旧请求不能中止后来的步进。"));
+        m_save = Action(controls, "execution_group_save", QStringLiteral("保存选中执行观察"),
+            QStringLiteral("将唯一选中成员的当前执行进入或单指令完成事件保存到本轮项目；保留原停点，不继续任何成员。"));
         m_query = Action(controls, "execution_group_query", {}, QStringLiteral("重新回读原集合的每个成员状态。"));
         m_query->setAccessibleName(ks::i18n::sourceText(QStringLiteral("刷新状态")));
         KswordTheme::ApplyStandardIconButtonMetrics(m_query);
         ks::ui::SetThemeButtonIcon(m_query, QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
         m_close = Action(controls, "execution_group_close", QStringLiteral("关闭并清退集合"), QStringLiteral("由原所有者恢复并脱离；未确认清退时保留该会话。"));
-        for (auto* button : {m_pauseAll, m_pauseSelected, m_continueAll, m_continueSelected, m_into, m_over, m_out, m_cancel, m_query, m_close})
+        for (auto* button : {m_pauseAll, m_pauseSelected, m_continueAll, m_continueSelected, m_into, m_over, m_out, m_cancel, m_save, m_query, m_close})
         {
             flow->addWidget(button);
         }
@@ -174,6 +216,7 @@ namespace ks::action_analyze
         connect(m_over, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::Step, false, execution_group_native::NativeStepMode::OverCall); });
         connect(m_out, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::Step, false, execution_group_native::NativeStepMode::Out); });
         connect(m_cancel, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::CancelStep); });
+        connect(m_save, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::SaveExecution); });
         connect(m_query, &QPushButton::clicked, this, [this] { Submit(ExecutionGroupCommand::Query); });
         connect(m_close, &QPushButton::clicked, this, [this]
         {

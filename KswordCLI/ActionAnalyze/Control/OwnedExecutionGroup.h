@@ -75,6 +75,8 @@ public:
     [[nodiscard]] ExecutionGroupResult Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
         NativeTargetDisposition disposition, std::string_view sampleId = {});
     [[nodiscard]] ExecutionGroupResult Query();
+    // 仅回读原成员，不执行命中条件或自动Continue；用于显式保存/调查的前置核对。
+    [[nodiscard]] ExecutionGroupResult QueryWithoutCondition();
     // 主动暂停仍使用各成员原执行owner；输入活会话完整显示值，不要求已有stop。
     // 全体预核对通过后逐成员Pause，接纳不等于已持有ManualPause停点。
     [[nodiscard]] ExecutionGroupResult Pause(std::span<const NativeControlResult> displayedSessions, bool all);

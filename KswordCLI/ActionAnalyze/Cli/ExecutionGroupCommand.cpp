@@ -3,6 +3,7 @@
 #include "ExecutionGroupProtocol.h"
 #include "Transport.h"
 #include "../Project/ProjectStorage.h"
+#include "../Project/ExecutionGroupArchive.h"
 #include "../../CommandRegistry.h"
 
 #ifndef NOMINMAX
@@ -11,6 +12,7 @@
 #include <Windows.h>
 
 #include <charconv>
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -32,23 +34,36 @@ bool RangeNumber(std::string_view text, std::uint64_t& number)
 
 class ExecutionGroupSession final {
 public:
-    ExecutionGroupSession(bool jsonl, n::OwnerIdentity identity, std::vector<n::ExecutionGroupSite> sites)
-        : jsonl_(jsonl), identity_(std::move(identity)), sites_(std::move(sites)) {}
+    ExecutionGroupSession(bool jsonl, n::OwnerIdentity identity, std::vector<n::ExecutionGroupSite> sites,
+        std::wstring projectDirectory, bool openExisting)
+        : jsonl_(jsonl), identity_(std::move(identity)), sites_(std::move(sites)),
+          projectDirectory_(std::move(projectDirectory)), openExisting_(openExisting) {}
 
     int Run()
     {
         if (const auto fault = transport_.Start(jsonl_)) { std::cerr << fault.message << '\n'; return fault.code; }
         try {
+            if (!archive_.Prepare(projectDirectory_, openExisting_))
+            {
+                // 项目或采样失败在任何附加前报告，原集合仍为空，不创建隐式替代项目。
+                (void)Emit("error", {}, Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
+                return End("project-setup-failed", 3);
+            }
+            if (!archive_.View().sampleId.empty())
+            {
+                identity_.sampleId = archive_.View().sampleId; // 全体原成员沿用本轮真实新采样。
+            }
             const auto started = group_.Start(std::move(sites_), true, n::NativeTargetDisposition::ResumeAndDetach, identity_.sampleId);
             collectionId_ = started.collectionId; // 仅校验包络用，不因校验或请求重放触发条件Query。
-            if (!Emit("hello", {}, V::makeObject({{"sampleId", Text(identity_.sampleId)}, {"control", p::Report(started, !jsonl_)},
+            if (!Emit("hello", {}, V::makeObject({{"sampleId", Text(identity_.sampleId)}, {"control", Report(started)},
                 {"protocol", V::makeObject({{"maxMembers", V::makeUInt(n::kOwnedExecutionGroupLimit)},
                     {"mutationRequestId", Text("execution/<strictly increasing canonical positive uint64>")},
                      {"replayEntries", V::makeUInt(128)}, {"stopToken", Text("Mixed pause/continue copy complete member.sessionToken entries; legacy lists combine pauseToken for running members and stopToken for Held; step/cancel retain stopToken/stepToken")},
                     {"pauseScope", Text("all/selected validate every explicit session first; exact Held is already-held; Armed bindings call original Pause")},
                     {"continueScope", Text("all/selected validate every explicit session first; exact Held calls Continue; Armed running is already-running")},
                      {"sessionTable", Text("expected:{collectionId,sessions:[complete owner+control sessionToken]}; legacy stops tokens remain accepted")},
-                     {"rangeAdd", Text("control.execution.range.add params:{address,bytes} canonical decimal strings; expected:{collectionId,stops:[one complete current NX Held token]}; never Continue")},
+                      {"rangeAdd", Text("control.execution.range.add params:{address,bytes} canonical decimal strings; expected:{collectionId,stops:[one complete current NX Held token]}; never Continue")},
+                      {"executionSave", Text("control.execution.save params:{}; expected:{collectionId,stops:[one current execution stopToken]}; requires configured project; never Continue")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
             // 部分启动失败仍进入命令循环，保留成功附加者供状态、继续、步进及清退。
@@ -59,6 +74,15 @@ public:
 
 private:
     struct Saved { std::string signature; V result; };
+
+    // 原集合投影追加同一writer的归档值；不改变控制令牌形状或成员原owner身份。
+    V Report(const n::ExecutionGroupResult& result) const
+    {
+        const auto report = p::Report(result, !jsonl_); // 控制回执与存储回执各自保留。
+        auto fields = *report.asObject(); // JSON对象只提供只读视图，复制值字段后追加归档投影。
+        fields.emplace_back("executionArchive", Ksword::ActionAnalyze::DescribeExecutionGroupArchive(archive_.View()));
+        return V::makeObject(std::move(fields));
+    }
 
     bool Emit(std::string_view type, std::string_view id, V result)
     {
@@ -126,17 +150,19 @@ private:
         const bool step = method == "step" || method == "control.step";
         const bool cancel = method == "step-cancel" || method == "control.step.cancel";
         const bool range = method == "execution-range-add" || method == "control.execution.range.add"; // 原成员显式追加NX页。
+        const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | quit"));
-        if (query && Empty(request) && !request.expected) return Emit("response", request.id, p::Report(group_.Query(), !jsonl_));
+            "status | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | quit"));
+        if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(group_.Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
             const auto result = group_.Close();
             cleanupOnly_ = !result.clean;
             closed = result.clean;
-            return Emit("response", request.id, p::Report(result, !jsonl_));
+            if (result.clean) archive_.Close(); // 原native全清退之后才归还writer，保留历史回执。
+            return Emit("response", request.id, Report(result));
         }
-        if (!pause && !resume && !step && !cancel && !range) return Invalid(request, "unsupported-method", "Use status, pause, continue, step, step-cancel, execution-range-add or quit");
+        if (!pause && !resume && !step && !cancel && !range && !save) return Invalid(request, "unsupported-method", "Use status, pause, continue, step, step-cancel, execution-range-add, execution-save or quit");
         if (cleanupOnly_) return Invalid(request, "cleanup-pending", "Original owners are closing; status and quit remain available");
         std::string id = request.id, scope, mode;
         std::string addressText, bytesText; // 范围原文参与请求签名，不从当前绑定补造。
@@ -163,13 +189,13 @@ private:
                 step ? fields->size() != 1 || !request.params.find("mode") || !request.params.find("mode")->tryGetString(mode) :
                 range ? fields->size() != 2 || !request.params.find("address") || !request.params.find("address")->tryGetString(addressText) ||
                     !request.params.find("bytes") || !request.params.find("bytes")->tryGetString(bytesText) : !fields->empty()))
-                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; range-add requires address and bytes strings; step-cancel requires empty params");
+                return Invalid(request, "invalid-params", "Pause/continue require scope; step requires mode; range-add requires address and bytes strings; step-cancel/save require empty params");
         } else {
             std::string tokenText;
-            if (request.expected || !args || args->size() != (range ? 4 : cancel ? 2 : 3) || !(*args)[0].tryGetString(id) ||
+            if (request.expected || !args || args->size() != (range ? 4 : cancel || save ? 2 : 3) || !(*args)[0].tryGetString(id) ||
                 !args->back().tryGetString(tokenText) ||
                 (range ? !(*args)[1].tryGetString(addressText) || !(*args)[2].tryGetString(bytesText) :
-                    !cancel && !(*args)[1].tryGetString(scoped ? scope : mode)))
+                     !cancel && !save && !(*args)[1].tryGetString(scoped ? scope : mode)))
                 return Invalid(request, "invalid-repl", "Use help; include execution/N and complete TOKENHEX");
             for (;;) {
                 const auto at = tokenText.find(',');
@@ -215,7 +241,7 @@ private:
         {
             return Invalid(request, "mixed-token-shapes", "Use one complete session table or one legacy token list");
         }
-        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : range ? "range-add" : "step-cancel")},
+        const auto signature = CanonicalParams(V::makeObject({{"action", Text(pause ? "pause" : resume ? "continue" : step ? "step" : range ? "range-add" : save ? "execution-save" : "step-cancel")},
             {"scope", Text(scope)}, {"mode", Text(mode)}, {"address", Text(addressText)}, {"bytes", Text(bytesText)}, {"stops", V::makeArray(tokens)}}));
         return Mutate(request, std::move(id), signature, [&] {
             n::ExecutionGroupResult result; // 一次幂等修改仅派发一个原集合动作，并保存其全部成员结果。
@@ -235,13 +261,26 @@ private:
             {
                 result = group_.AddRange(stops.front(), address, bytes); // 不附加、不继续，成员原session分配独立range/N。
             }
+            else if (save)
+            {
+                const auto current = group_.QueryWithoutCondition(); // 无条件回读不自动释放其它成员。
+                const auto member = std::find_if(current.members.begin(), current.members.end(), [&](const auto& item) {
+                    return item.control.pid == stops.front().pid &&
+                        item.control.processCreationTime == stops.front().processCreationTime;
+                });
+                n::ExecutionGroupSessionEntry entry; // 原owner只能从当前集合取得，客户端不能补造。
+                entry.control = stops.front();
+                if (member != current.members.end()) entry.owner = member->owner;
+                archive_.Save(group_, entry); // 存储层再次核对完整当前事件，拒绝ManualPause和旧停点。
+                result = group_.QueryWithoutCondition();
+            }
             else
             {
                 const auto stepMode = mode == "into" ? n::NativeStepMode::Into :
                     mode == "over-call" ? n::NativeStepMode::OverCall : n::NativeStepMode::Out; // 已校验的三种单成员步进。
                 result = group_.Step(stops.front(), stepMode);
             }
-            return p::Report(result, !jsonl_);
+            return Report(result);
         });
     }
 
@@ -262,8 +301,9 @@ private:
             } else if (input.kind != InputKind::Tick) Sleep(100);
             state = group_.Close(); // 在同一串行通道重试原清退，不建立新 owner 或释放票据。
         }
+        archive_.Close(); // 所有原owner clean，项目租约可以归还，存储失败回执仍可读。
         const bool sent = Emit("summary", {}, V::makeObject({{"reason", Text(reason)}, {"exitCode", V::makeUInt(code)},
-            {"control", p::Report(state, !jsonl_)}}));
+            {"control", Report(state)}}));
         return sent && transport_.Finish() ? code : 3;
     }
 
@@ -293,6 +333,9 @@ private:
     std::vector<n::ExecutionGroupSite> sites_;
     Transport transport_;
     n::OwnedExecutionGroup group_;
+    Ksword::ActionAnalyze::ExecutionGroupArchive archive_; // 与原集合共用控制线程，clean后关闭。
+    std::wstring projectDirectory_; // 启动时冻结的明确项目目录。
+    bool openExisting_ = false; // 不从文件是否存在推断项目模式。
     std::string collectionId_; // 本活集合固定包络身份，不参与成员owner替换。
     bool cleanupOnly_ = false;
     std::uint64_t sequence_ = 0, highWater_ = 0;
@@ -309,7 +352,10 @@ int Run(const Args& args)
     n::OwnerIdentity identity;
     using Ksword::ActionAnalyze::ProjectStorage::NewId;
     if (!NewId(identity.sampleId) || !NewId(identity.sessionId) || !NewId(identity.epoch) || !NewId(identity.backendInstanceId)) return 3;
-    return ExecutionGroupSession(input == L"jsonl", std::move(identity), std::move(sites)).Run();
+    if (args.has(L"--open-project") && !args.has(L"--project"))
+        throw std::invalid_argument("--open-project requires --project PATH");
+    return ExecutionGroupSession(input == L"jsonl", std::move(identity), std::move(sites),
+        args.get(L"--project"), args.has(L"--open-project")).Run();
 }
 } // namespace
 
@@ -317,18 +363,19 @@ void RegisterExecutionGroupCommand()
 {
     Command command;
     command.path = L"analyze execution-group session";
-    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3]";
+    command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project]]";
     command.summary = L"Attach one frozen execution site per explicit process instance, with independent native owners and conditions.";
     command.options = L"--sites is a UTF-8 JSON disk file without BOM, at most 128 KiB: {schemaVersion:1,sites:[...]}. "
         L"1-16 distinct PIDs; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
         L"Image: absolute DOS module plus exactly one numeric uint32 rva or case-sensitive exactExport. "
         L"Optional imageSha256 is exactly 64 lowercase hex characters; the original member owner verifies the actual debug-load event file before arming DR0. Private sites reject this field. "
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
-        L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach.";
+        L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
+        L"--project creates a project and new sample before attach; --open-project opens an existing project but still creates a new sample. Omit both for control without archival.";
     command.notes = L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
-        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; quit. Copy full replToken bytes, never a member index. "
+        L"step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
-        L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); controller.shutdown params:{}. Mutations require current hello session id/epoch, "
+        L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); control.execution.save params:{} with one complete current execution stop; controller.shutdown params:{}. Mutations require current hello session id/epoch, "
         L"execution/N request IDs, and expected:{collectionId,stops:[complete current member.pauseToken, stopToken or stepToken]}. "
         L"Mixed pause/continue also accept expected:{collectionId,sessions:[complete member.sessionToken owner+control objects]}; REPL accepts replSessionToken lists. "
         L"All/selected validate the entire explicit set first; Pause reports already-held, Continue reports already-running, without native calls for those members. "
@@ -337,6 +384,8 @@ void RegisterExecutionGroupCommand()
         L"ManualPause receipts remain separate; exact Held ManualPause can continue but cannot step in this version. "
         L"Range-add requires exactly one complete current NX Held stopToken, including ManualPause; canAddRange reports eligibility. "
         L"It uses the original member owner, adds only explicit 4 KiB pages within the total 64-page budget, and never continues the target. "
+        L"Execution-save writes the current original member event to the configured project's new sample raw-native stream, preserving registers and event-time binding. "
+        L"ManualPause is not execution evidence. executionArchive reports saved/firstFailure, written/flushed/verified separately; duplicate events reuse the original ordinal. "
         L"site retains initial configuration; control.breakpoint.executionRanges and control.executionRange show actual ranges and the native range/N receipt. "
         L"128 replay receipts, strictly increasing IDs; replay returns original result and does not repeat actions. "
         L"All stop identities/events/revisions are checked before any selected continue; actual calls remain sequential and may partly fail. "

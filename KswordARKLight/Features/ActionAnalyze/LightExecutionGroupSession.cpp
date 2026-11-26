@@ -26,10 +26,12 @@ struct LightExecutionGroupSession::Shared {
     bool released = true;
     bool stopping = false;
 
-    void Publish(execution_native::ExecutionGroupResult result, bool explicitOperation = false)
+    void Publish(execution_native::ExecutionGroupResult result, bool explicitOperation = false,
+        const Ksword::ActionAnalyze::ExecutionGroupArchiveView* archive = nullptr)
     {
         std::lock_guard lock(mutex);
         status.result = std::move(result);
+        if (archive) status.archive = *archive; // 本轮控制及存储值原子发布，不查询另一个writer。
         status.observedFileTime = NowFileTime();
         if (explicitOperation) status.operationFileTime = status.observedFileTime;
         status.diagnostic.clear();
@@ -52,6 +54,7 @@ struct LightExecutionGroupSession::Shared {
     void Run()
     {
         std::unique_ptr<execution_native::OwnedExecutionGroup> group;
+        std::unique_ptr<Ksword::ActionAnalyze::ExecutionGroupArchive> archive; // 每次显式Start新建，clean之前不替换。
         for (;;) {
             std::optional<LightExecutionGroupRequest> request;
             bool close = false;
@@ -78,7 +81,8 @@ struct LightExecutionGroupSession::Shared {
             try {
                 if (close) {
                     const auto result = group ? group->Close() : execution_native::ExecutionGroupResult{};
-                    Publish(result, true);
+                    if (result.clean && archive) archive->Close(); // 原生全清退后才归还写租约，保留回执。
+                    Publish(result, true, archive ? &archive->View() : nullptr);
                     if (result.clean) group.reset();
                     std::lock_guard lock(mutex);
                     released = result.clean;
@@ -91,8 +95,18 @@ struct LightExecutionGroupSession::Shared {
                         // 只有显式清退确认后才能替换；部分Start失败不会重建成功owner。
                         if (!group) {
                             group = std::make_unique<execution_native::OwnedExecutionGroup>();
-                            Publish(group->Start(std::move(request->sites), request->authorized,
-                                execution_native::NativeTargetDisposition::ResumeAndDetach), true);
+                            archive = std::make_unique<Ksword::ActionAnalyze::ExecutionGroupArchive>();
+                            if (archive->Prepare(request->projectDirectory, request->openExistingProject))
+                            {
+                                // 真实sample在附加前创建，全部成员共享身份而不共享调试owner。
+                                Publish(group->Start(std::move(request->sites), request->authorized,
+                                    execution_native::NativeTargetDisposition::ResumeAndDetach, archive->View().sampleId),
+                                    true, &archive->View());
+                            }
+                            else
+                            {
+                                Publish(group->QueryWithoutCondition(), true, &archive->View());
+                            }
                         }
                         break;
                     }
@@ -119,6 +133,13 @@ struct LightExecutionGroupSession::Shared {
                         // 只调用原集合、原成员；追加不Continue，也不创建新的调试owner。
                         if (group && request->stops.size() == 1)
                             Publish(group->AddRange(request->stops.front(), request->address, request->bytes), true);
+                        break;
+                    case LightExecutionGroupCommand::SaveExecution:
+                        if (group && archive && request->sessions.size() == 1)
+                        {
+                            archive->Save(*group, request->sessions.front()); // 不解析PID草稿，不求条件或释放同伴。
+                            Publish(group->QueryWithoutCondition(), true, &archive->View());
+                        }
                         break;
                     case LightExecutionGroupCommand::Identify: {
                         FILETIME created{}, exited{}, kernel{}, user{};
@@ -147,6 +168,7 @@ struct LightExecutionGroupSession::Shared {
                 }
             } catch (...) {
                 std::lock_guard lock(mutex);
+                if (archive) status.archive = archive->View(); // 写入异常保留中断段及阻止追加状态，旧成功不覆盖。
                 status.diagnostic = L"后台操作异常；原集合及未决清退责任仍保留，请刷新或再次清退。";
                 ++status.revision;
             }
@@ -250,6 +272,7 @@ void LightExecutionGroupSession::CancelRetirement()
         if (StartWorker() == ERROR_SUCCESS) {
             std::lock_guard lock(shared_->mutex);
             shared_->status.result = previous.result;
+            shared_->status.archive = previous.archive; // 重建已clean的展示worker也保留历史保存坐标。
             shared_->status.observedFileTime = previous.observedFileTime;
             shared_->status.operationFileTime = previous.operationFileTime;
             shared_->status.revision = previous.revision + 1;

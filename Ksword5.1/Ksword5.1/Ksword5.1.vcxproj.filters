@@ -904,6 +904,7 @@
     <ClCompile Include="ActionAnalyze\NativeSessionApiPane.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\NativeSessionApiFields.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -2963,6 +2964,7 @@
     <ClInclude Include="ActionAnalyze\PrivateExecutionCandidatesFields.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\NativeSessionApiPane.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\ProcessGroupMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Memory\SelectedMemorySnapshot.h"><Filter>Header Files</Filter></ClInclude>

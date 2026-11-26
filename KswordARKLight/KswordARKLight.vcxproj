@@ -139,6 +139,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.cpp" />
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp" />
@@ -463,6 +464,7 @@
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.h" />
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.h" />
     <ClInclude Include="Features\ActionAnalyze\LightNativeStopArchive.h" />
     <ClInclude Include="Features\ActionAnalyze\NativeSessionApiFields.h" />

@@ -8,6 +8,8 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 `--confirm` 与 `--disposition resume-detach` 必须明确提供。`--input` 可选 `repl`（默认）或 `jsonl`，只支持 R3。不会自动扫描系统、接纳所有后代、按历史关系图附加或在同一 PID 上为第二个站点创建另一个 owner。
 
+可选 `--project PATH` 在附加前新建项目并创建本轮独立采样；`--project PATH --open-project` 打开已有项目并创建新采样，不复用旧停止票据。不提供目录时仍可控制集合，但不能保存执行观察。项目准备失败会阻止附加；项目被其它会话占用时不另开 writer。Qt 和 Light 的执行集合页提供相同目录及打开方式草稿，Start 时冻结，由原 worker 持有写租约，全部原成员 clean 后才归还。
+
 ## 配置文件
 
 集合的 `recovery-required` 同时保留成员原回执中的断点、步进、主动暂停、范围回滚与不确定事件继续责任；不能只看顶层状态而把完整 Held 数量当作已可恢复运行。首次恢复失败在成功清退后仍保留为历史诊断，`clean=true` 后不因此阻止集合进入 Closed。集合只呈现责任，实际恢复仍由各成员原 owner 的 Close 执行。
@@ -158,6 +160,22 @@ expected: {"collectionId":"<current collectionId>","stops":[<complete current NX
 
 `address/bytes` 为规范正十进制字符串，起点与长度均须 4096 对齐，不溢出，长度最多64页。原 owner 核验实际私有页、同一分配及所有范围合计64页预算。追加在成员原 `OwnedDataWatchSession` 内分配独立 `range/N`，不调用 Continue，不改变原停止事件、初始地址或 `site`。完整 ManualPause 可追加；运行、步进在途、恢复未决及旧范围快照均拒绝。核验采用无条件回读，不触发其它成员条件自动继续。实际范围见 `control.breakpoint.executionRanges`，该次范围与回滚结果见 `control.executionRange` 和 `operation.outcomes`；失败不能用请求已受理冒充范围已纳入。同ID重放沿原128回执窗口返回原结果，不重复追加。
 
+### 保存成员执行观察
+
+配置项目后，选择一个当前执行进入或用户 Into 完成事件，沿同一修改流水显式保存：
+
+```text
+method: "control.execution.save"
+requestId: "execution/5"
+params: {}
+session: {"id":"<hello.session.id>","epoch":"<hello.session.epoch>"}
+expected: {"collectionId":"<current collectionId>","stops":[<complete current member.stopToken>]}
+```
+
+保存先无条件回读原成员及完整事件/修订；不求值同伴条件，不调用 Continue，不因有请求而声称实际执行。ManualPause、普通数据写入或不完整旧停点不构成执行观察。实际段沿 `native-execution-v3` 保存同一事件的寄存器、原绑定、已纳入 NX 范围和实测映像散列。全部成员共用本轮采样的 `raw-native` 顺序流，但每条记录保留原成员 owner，不能用集合 ID 替代。
+
+每次控制响应中的 `executionArchive` 独立给出项目/采样、写租约、最近保存、首次追加失败及 `appendBlocked`。`saved` 包含实际事件、段号、written/flushed 边界、段散列和 `segmentVerified`，写成功不代表目标已继续或全流程采集完成。相同 backend/serial 再次保存返回原段坐标及 `duplicate:true`；保存日志最多4096个事件。真实追加失败后保留原失败并阻止越过坏尾；可以继续控制和清退，不能以旧成功重放掩盖 `firstFailure`。Qt 字段详情和 Light 完整正文消费同一规范文档，搜索/复制/导出保留这些字段。本批仅源码接线，尚未构建或实测。
+
 退出：
 
 ```text
@@ -183,8 +201,11 @@ step execution/6 over-call TOKENHEX
 step execution/7 out TOKENHEX
 step-cancel execution/8 TOKENHEX
 execution-range-add execution/9 ADDRESS BYTES TOKENHEX
+execution-save execution/10 TOKENHEX
 quit
 ```
+
+Save 使用唯一当前执行成员的完整 `replToken`；它与 JSONL 的 `stopToken` 保存请求等价。无项目时只控制，不产生执行段。
 
 Pause/Continue 的 `TOKENHEX` 推荐复制同次当前成员输出的完整 `replSessionToken`，也兼容旧 `replToken` 列表；同一批次不能混用两种形状。多个票据使用逗号连接，不加空格。Step/Cancel/Range仍复制完整 `replToken`。Range的ADDRESS/BYTES与JSONL相同，使用规范正十进制整页范围。它们是完整 JSON 票据的 UTF-8 字节编码，不是历史索引；CLI 解码后核对与 JSONL 相同字段。旧 epoch、外来owner或旧事件不会因REPL位于当前CLI内而获得控制权。
 

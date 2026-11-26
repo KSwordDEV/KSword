@@ -8,6 +8,10 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "执行观察归档": "Execution observation archive",
+    "保存选中执行观察": "Save selected execution observation",
+    "归档结果 JSON": "Archive result JSON",
+    "将唯一选中成员的当前执行进入或单指令完成事件保存到本轮项目；保留原停点，不继续任何成员。": "Save the single selected member's current execution-entry or completed single-instruction event to this session's project. Retain the original stop without continuing any member.",
     "实际调用原会话": "Original session method called",
     "成员操作分类": "Member operation disposition",
     "核验全部成员的原会话和完整快照；已持有精确停点者保留原停点，只请求运行成员暂停。": "Validate every original session and complete snapshot. Retain exact held stops and request pause only for running members.",

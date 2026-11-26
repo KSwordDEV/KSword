@@ -11,7 +11,7 @@ enum : int {
     kIdentify, kAdd, kRemove, kDraft, kAuthorized, kStart, kQuery, kContinueAll,
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
-    kPauseAll, kPauseSelected, kAddRange, kImageSha256
+    kPauseAll, kPauseSelected, kAddRange, kImageSha256, kProjectDirectory, kOpenProject, kSaveExecution
 };
 // 末尾增加输入字段，保留既有控件ID与字段顺序；散列使用独立kImageSha256标识。
 enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, ImageSha256, FieldCount };
@@ -23,6 +23,8 @@ struct Page {
     std::array<HWND, FieldCount> labels{}, inputs{};
     HWND hint = nullptr, identity = nullptr, identify = nullptr;
     HWND rangeHint = nullptr, addRange = nullptr;
+    HWND projectLabel = nullptr, projectDirectory = nullptr, openProject = nullptr; // 独立项目草稿，Start时冻结。
+    HWND saveExecution = nullptr; // 保存单选成员当前原事件，权限与Continue分开。
     HWND draft = nullptr, add = nullptr, remove = nullptr, loadDraft = nullptr, authorized = nullptr;
     HWND start = nullptr, query = nullptr, continueAll = nullptr, continueSelected = nullptr;
     HWND pauseAll = nullptr, pauseSelected = nullptr;

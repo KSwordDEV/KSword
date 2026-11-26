@@ -180,9 +180,32 @@ void Command(Page& page, int id)
             request.command = LightExecutionGroupCommand::Start;
             request.sites = page.sites; // 冻结全部身份、站点、原条件及编译谓词。
             request.authorized = ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            request.projectDirectory = InputText(page.projectDirectory); // 原样冻结目录，不随稍后编辑重定向写入。
+            request.openExistingProject = ::SendMessageW(page.openProject, BM_GETCHECK, 0, 0) == BST_CHECKED;
             if (request.sites.empty() || !request.authorized) {
                 page.error = L"请加入1–16个站点并明确授权整个集合。";
                 submit = false;
+            }
+        } else if (id == kSaveExecution) {
+            request.command = LightExecutionGroupCommand::SaveExecution;
+            const auto rows = SelectedRows(page); // 只保存点击时唯一原成员，不按PID输入或首行选择。
+            if (rows.size() != 1 || !page.shown.archive.writerHeld)
+            {
+                page.error = L"保存须配置本轮项目并单选当前执行停点。";
+                submit = false;
+            }
+            else
+            {
+                const auto& member = page.shown.result.members[static_cast<std::size_t>(rows.front())]; // 完整原owner和事件快照。
+                if (!execution_native::NativeExecutionFromOwnedStop(member.control))
+                {
+                    page.error = L"当前停点不是执行进入或已完成的单指令事件；主动暂停不能保存为执行观察。";
+                    submit = false;
+                }
+                else
+                {
+                    request.sessions.push_back({member.owner, member.control});
+                }
             }
         } else if (id == kAddRange) {
             request.command = LightExecutionGroupCommand::AddRange;

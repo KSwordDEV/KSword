@@ -198,6 +198,13 @@ public:
 OwnedExecutionGroup::OwnedExecutionGroup() : impl_(std::make_unique<Impl>()) {}
 OwnedExecutionGroup::~OwnedExecutionGroup() = default;
 
+// 同一串行worker的只读控制快照；更新原成员事实，不推进任何成员的假条件释放。
+ExecutionGroupResult OwnedExecutionGroup::QueryWithoutCondition()
+{
+    impl_->Observe(false);
+    return impl_->Result();
+}
+
 ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
     NativeTargetDisposition disposition, std::string_view sampleId)
 {

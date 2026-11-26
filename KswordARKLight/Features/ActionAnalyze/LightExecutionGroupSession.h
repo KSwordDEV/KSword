@@ -2,12 +2,13 @@
 
 #include "../../Core/Win32Lean.h"
 #include "../../../KswordCLI/ActionAnalyze/Control/OwnedExecutionGroup.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ExecutionGroupArchive.h"
 #include <memory>
 
 namespace Ksword::Features::ActionAnalyze {
 namespace execution_native = ks::cli::action_analyze::control;
 
-enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange };
+enum class LightExecutionGroupCommand { Start, Query, Pause, Continue, Step, CancelStep, Identify, AddRange, SaveExecution };
 
 // 点击时按值冻结；不借用窗口、列表索引或稍后可能改变的参数。
 struct LightExecutionGroupRequest {
@@ -21,10 +22,13 @@ struct LightExecutionGroupRequest {
     std::uint32_t identityPid = 0;
     std::uint64_t address = 0; // AddRange点击时的手工范围草稿，不改写Start站点。
     std::uint64_t bytes = 0;
+    std::wstring projectDirectory; // Start冻结的可选项目路径，空值只控制不归档。
+    bool openExistingProject = false; // 明确打开已有项目，仍新建一轮sample。
 };
 
 struct LightExecutionGroupSnapshot {
     execution_native::ExecutionGroupResult result;
+    Ksword::ActionAnalyze::ExecutionGroupArchiveView archive; // 原worker公布的归档身份及独立存储结果。
     std::uint64_t revision = 0;
     std::uint64_t observedFileTime = 0;
     std::uint64_t operationFileTime = 0;

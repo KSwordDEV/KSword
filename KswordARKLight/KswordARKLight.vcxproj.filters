@@ -221,6 +221,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -708,6 +709,7 @@
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Memory\PassiveDirtyMemory.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectMemorySnapshot.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectNativeExecution.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ExecutionGroupArchive.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\LightNativeStopArchive.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\NativeSessionApiFields.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

@@ -268,6 +268,12 @@ void RefreshText(Page& page)
     const auto& result = page.shown.result;
     std::wstring text = L"执行集合=" + Widen(result.collectionId) + L"\r\n来源=本端原生执行所有者逐成员回读；非原子冻结\r\n采样 FILETIME=" +
         std::to_wstring(page.shown.observedFileTime) + L"\r\n状态=" + GroupStateText(result.state) + L" clean=" + std::to_wstring(result.clean);
+    if (page.shown.archive.configured || !page.shown.archive.setup)
+    {
+        // 原规范JSON同时供CLI响应与Qt字段文档使用；Light复制/导出只消费这一份完整正文。
+        const auto archive = Ksword::ActionAnalyze::DescribeExecutionGroupArchive(page.shown.archive); // 不访问当前PID或路径草稿。
+        text += L"\r\n\r\n[执行观察归档]\r\n" + Widen(Ksword::Evidence::WriteJson(archive));
+    }
     const bool fields = ::SendMessageW(page.textMode, CB_GETCURSEL, 0, 0) == 0;
     if (fields) {
         // 草稿选择与右侧活成员分开显示；用户编辑输入不会改写此处已经保存的站点来源。
@@ -392,6 +398,8 @@ void Refresh(Page& page)
     for (const auto row : rows) subset.Include(page.shown.result.members[static_cast<std::size_t>(row)]);
     ::EnableWindow(page.start, controls && page.shown.canStart && !page.sites.empty() && ::SendMessageW(page.authorized, BM_GETCHECK, 0, 0) == BST_CHECKED);
     ::EnableWindow(page.identify, controls);
+    ::EnableWindow(page.projectDirectory, controls && page.shown.canStart); // 活writer不跟随路径草稿变化。
+    ::EnableWindow(page.openProject, controls && page.shown.canStart);
     ::EnableWindow(page.query, !page.retiring && (!page.shown.active || (ready && !page.shown.canStart)));
     const auto queryTitle = page.shown.active ? L"刷新原集合" : L"重试后台会话";
     if (InputText(page.query) != queryTitle) ::SetWindowTextW(page.query, queryTitle);
@@ -406,12 +414,19 @@ void Refresh(Page& page)
         ::EnableWindow(button, controls && state && Eligible(page.shown.result.members[static_cast<std::size_t>(rows.front())]) &&
             state->stopReason != execution_native::NativeStopReason::ManualPause);
     ::EnableWindow(page.cancelStep, controls && state && state->step && state->step->state == execution_native::NativeStepState::Running);
+    ::EnableWindow(page.saveExecution, controls && state && page.shown.archive.writerHeld &&
+        execution_native::NativeExecutionFromOwnedStop(*state).has_value()); // 不借用Continue资格伪造执行证据。
     ::EnableWindow(page.close, page.shown.active && !page.shown.closedClean);
     auto status = GroupStateText(page.shown.result.state) + L" / 成员 " + std::to_wstring(page.shown.result.members.size()) +
         L" / 草稿 " + std::to_wstring(page.sites.size()) + (page.shown.busy ? L" / 后台处理中" : L"") +
         (page.shown.closing ? L" / 清退未结清，可再次清退" : L"");
     if (!page.error.empty()) status += L"\r\n" + page.error;
     if (!page.shown.diagnostic.empty()) status += L"\r\n" + page.shown.diagnostic;
+    if (!page.shown.archive.setup || (page.shown.archive.saved && !page.shown.archive.saved->status))
+    {
+        const auto& failure = !page.shown.archive.setup ? page.shown.archive.setup : page.shown.archive.saved->status; // 存储诊断与控制结果分列。
+        status += L"\r\n执行观察归档 / " + Widen(failure.detail) + L" / Win32 " + std::to_wstring(failure.nativeError);
+    }
     if (InputText(page.status) != status) ::SetWindowTextW(page.status, status.c_str());
     RefreshText(page);
 }

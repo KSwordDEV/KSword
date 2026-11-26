@@ -53,6 +53,7 @@ namespace ks::action_analyze
         void Run()
         {
             std::unique_ptr<native::OwnedExecutionGroup> group; // 原集合仅在专用线程中构造和释放。
+            Ksword::ActionAnalyze::ExecutionGroupArchive archive; // 唯一writer与原生操作同线程串行。
             try
             {
                 group = std::make_unique<native::OwnedExecutionGroup>();
@@ -108,8 +109,17 @@ namespace ks::action_analyze
                         {
                         case ExecutionGroupCommand::Start:
                             started = true;
-                            result = group->Start(std::move(request.sites), request.authorized,
-                                native::NativeTargetDisposition::ResumeAndDetach, request.sampleId);
+                            if (archive.Prepare(request.projectDirectory, request.openExistingProject))
+                            {
+                                // 先创建本轮采样，再给全部原成员同一真实sample；失败不附加任何目标。
+                                result = group->Start(std::move(request.sites), request.authorized,
+                                    native::NativeTargetDisposition::ResumeAndDetach,
+                                    archive.View().sampleId.empty() ? request.sampleId : archive.View().sampleId);
+                            }
+                            else
+                            {
+                                result = group->QueryWithoutCondition(); // 详情保留项目失败，不伪报原生Start成功。
+                            }
                             break;
                         case ExecutionGroupCommand::Query:
                             result = group->Query();
@@ -132,15 +142,27 @@ namespace ks::action_analyze
                                 result = group->AddRange(request.stops.front(), request.rangeAddress, request.rangeBytes);
                             }
                             break;
+                        case ExecutionGroupCommand::SaveExecution:
+                            if (request.sessions.size() == 1)
+                            {
+                                archive.Save(*group, request.sessions.front()); // 完整原owner/control，不执行条件或Continue。
+                            }
+                            result = group->QueryWithoutCondition();
+                            break;
                         }
                     }
 
                     FILETIME observed{}; // 真实回读完成时间，未声称跨进程同时采样。
                     ::GetSystemTimeAsFileTime(&observed);
                     const bool retired = closing && result.clean;
+                    if (retired)
+                    {
+                        archive.Close(); // 归还writer前必须由原集合确认全体clean。
+                    }
                     {
                         std::lock_guard lock(access); // 一次发布成员、操作回执及观察时间。
                         snapshot.result = std::move(result);
+                        snapshot.archive = archive.View(); // 保存与控制在同一修订公布，不从GUI读取项目。
                         snapshot.observedFileTime = (static_cast<std::uint64_t>(observed.dwHighDateTime) << 32) | observed.dwLowDateTime;
                         snapshot.busy = false;
                         snapshot.closing = closeRequested;
@@ -155,6 +177,10 @@ namespace ks::action_analyze
                 }
                 catch (...)
                 {
+                    {
+                        std::lock_guard lock(access); // 写入异常也发布原始失败和实际writer状态，不能留下旧成功。
+                        snapshot.archive = archive.View();
+                    }
                     Fail(std::current_exception()); // 不允许异常销毁持有原生责任的集合。
                 }
 

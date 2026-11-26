@@ -60,7 +60,7 @@ void Layout(Page& page)
         ::MoveWindow(child, x, y, (std::max)(1, w), (std::max)(1, h), TRUE);
     };
     const std::array actions{page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected,
-        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.close};
+        page.addRange, page.stepInto, page.stepOver, page.stepOut, page.cancelStep, page.saveExecution, page.close};
     const int actionsHeight = Ui::LayoutParameterActions(actions, edge, 0, width, Scale(136), row, gap, false);
     const int contentHeight = (std::max)(1, static_cast<int>(rect.bottom) - 2 * edge - actionsHeight - gap);
     const int parameterHeight = wide ? contentHeight : (std::max)(1, contentHeight / 3);
@@ -103,6 +103,15 @@ void Layout(Page& page)
     y += row + gap;
     const std::array draftActions{page.add, page.remove, page.loadDraft};
     y += Ui::LayoutParameterActions(draftActions, 0, y, bodyWidth, Scale(104), row, gap) + gap;
+    // 归档路径属于下一轮Start草稿，与所选成员及保存动作分开；只用现有参数正文滚动。
+    const int projectHeight = TextHeight(page.projectLabel, bodyWidth); // 长中文按实际宽度折行。
+    move(page.projectLabel, 0, y, bodyWidth, projectHeight);
+    y += projectHeight;
+    move(page.projectDirectory, 0, y, bodyWidth, row);
+    y += row + gap;
+    const int openHeight = TextHeight(page.openProject, bodyWidth) + gap; // 复选框保留完整新采样语义。
+    move(page.openProject, 0, y, bodyWidth, openHeight);
+    y += openHeight + gap;
     const int authorizationHeight = TextHeight(page.authorized, bodyWidth) + gap;
     move(page.authorized, 0, y, bodyWidth, authorizationHeight);
     y += authorizationHeight + gap;
@@ -158,6 +167,13 @@ bool CreateControls(Page& page)
     page.add = Ui::CreateButton(body, kAdd, L"加入草稿", 0, 0, 1, 1);
     page.remove = Ui::CreateButton(body, kRemove, L"移除草稿项", 0, 0, 1, 1);
     page.loadDraft = Ui::CreateButton(body, kLoadDraft, L"载入草稿项", 0, 0, 1, 1);
+    page.projectLabel = Ui::CreateText(body, 0, L"执行观察项目目录（可选；留空仅控制）", 0, 0, 1, 1);
+    Wrap(page.projectLabel);
+    page.projectDirectory = Edit(body, kProjectDirectory); // 支持粘贴完整路径，Start前不执行磁盘操作。
+    ::SendMessageW(page.projectDirectory, EM_SETLIMITTEXT, 32767, 0);
+    page.openProject = ::CreateWindowExW(0, L"BUTTON", L"打开已有项目，创建新采样",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
+        reinterpret_cast<HMENU>(kOpenProject), ::GetModuleHandleW(nullptr), nullptr);
     page.authorized = ::CreateWindowExW(0, L"BUTTON", L"我已获得对本次全部进程实例的明确授权",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE, 0, 0, 1, 1, body,
         reinterpret_cast<HMENU>(kAuthorized), ::GetModuleHandleW(nullptr), nullptr);
@@ -172,6 +188,7 @@ bool CreateControls(Page& page)
     page.stepOver = Ui::CreateButton(page.hwnd, kStepOver, L"选中成员步过", 0, 0, 1, 1);
     page.stepOut = Ui::CreateButton(page.hwnd, kStepOut, L"选中成员跳出", 0, 0, 1, 1);
     page.cancelStep = Ui::CreateButton(page.hwnd, kCancelStep, L"中止选中步进", 0, 0, 1, 1);
+    page.saveExecution = Ui::CreateButton(page.hwnd, kSaveExecution, L"保存选中执行观察", 0, 0, 1, 1);
     page.close = Ui::CreateButton(page.hwnd, kClose, L"关闭并清退集合", 0, 0, 1, 1, Ui::ButtonRole::Danger);
     // 本表操作条为None；业务控制在固定底栏，完整文档操作在正文工具行。
     page.members = Ui::CreateReportListView(page.hwnd, kMembers, 0, 0, 1, 1);
@@ -191,15 +208,15 @@ bool CreateControls(Page& page)
     ::SendMessageW(page.text, EM_SETLIMITTEXT, 0, 0);
     Ui::AttachTextFindSupport(page.text);
     std::vector<HWND> controls(page.inputs.begin(), page.inputs.end());
-    for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.authorized,
+    for (const auto control : {page.identify, page.draft, page.add, page.remove, page.loadDraft, page.projectDirectory, page.openProject, page.authorized,
         page.start, page.query, page.pauseAll, page.pauseSelected, page.continueAll, page.continueSelected, page.addRange, page.stepInto, page.stepOver,
-        page.stepOut, page.cancelStep, page.close, page.members, page.preset, page.textMode, page.copy,
+        page.stepOut, page.cancelStep, page.saveExecution, page.close, page.members, page.preset, page.textMode, page.copy,
         page.exportText, page.text, page.status}) controls.push_back(control);
     for (const auto control : controls)
         if (!control || !::SetWindowSubclass(control, Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     if (!::SetWindowSubclass(ListView_GetHeader(page.members), Navigate, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     for (const auto label : page.labels) if (!label) return false;
-    if (!page.hint || !page.identity || !page.rangeHint) return false;
+    if (!page.hint || !page.identity || !page.rangeHint || !page.projectLabel) return false;
     page.tooltip = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
     if (page.tooltip) {
@@ -216,6 +233,9 @@ bool CreateControls(Page& page)
         for (const auto button : {page.stepInto, page.stepOver, page.stepOut})
             Tip(page, button, L"只选一个当前断点或步进停点，命中条件须允许操作。主动暂停停点不支持步进。");
         Tip(page, page.cancelStep, L"只选一个仍在原生步进中的成员；中止复用该成员的原步进请求。");
+        Tip(page, page.saveExecution, L"启动前须配置项目。单选当前执行进入或单指令完成事件后显式保存，保留寄存器和事件时绑定；不继续本成员或同伴。相同事件返回原段坐标，追加失败不跳段。");
+        Tip(page, page.projectDirectory, L"默认新建项目；勾选打开已有项目时复用项目但创建新采样。项目或写租约失败会阻止本轮附加，不借用其它页面writer。");
+        Tip(page, page.openProject, L"必须填写已有项目目录。每次Start均创建独立新采样，历史执行证据不恢复活控制权。");
         Tip(page, page.close, L"原集合清退未结清时保持存活，可再次点击重试；确认clean后才允许启动下一轮草稿。");
         Tip(page, page.query, L"回读原集合及真实成员状态；后台会话首次创建失败时可在此重试。");
         Tip(page, page.identify, L"在集合的同一个后台会话读取PID创建时间，不附加、不暂停；已有创建时间草稿不被覆盖。");

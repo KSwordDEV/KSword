@@ -112,6 +112,7 @@
     <ClCompile Include="ActionAnalyze\Cli\NativeExecutionCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\NativeSectionMapCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectNativeExecution.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ExecutionGroupArchive.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\SampleImageDefinition.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Detection\NativeTransferAssociation.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Detection\PrivateExecutionCandidates.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -177,6 +178,7 @@
     <ClInclude Include="ActionAnalyze\Cli\NativeExecutionCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\NativeSectionMapCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectNativeExecution.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ExecutionGroupArchive.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\SampleImageDefinition.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\NativeTransferAssociation.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\PrivateExecutionCandidates.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
