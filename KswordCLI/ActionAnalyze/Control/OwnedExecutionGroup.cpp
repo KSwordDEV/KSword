@@ -260,7 +260,7 @@ public:
         auto state = site.address ? member.session->AttachPrivateAddress(site.pid, site.creationFileTime,
             site.address, 0, site.condition, sampleId, site.rangeBytes) :
             member.session->AttachImageExecution(site.pid, site.creationFileTime, site.modulePath,
-                site.rva, site.exactExport, site.condition, sampleId, site.imageSha256);
+                site.rva, site.exactExport, site.condition, sampleId, site.imageSha256, true);
         if (!state.pid)
         {
             state.pid = site.pid;

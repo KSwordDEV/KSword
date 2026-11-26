@@ -75,7 +75,8 @@ std::array<std::wstring, 11> Cells(const execution_native::ExecutionGroupResult&
 {
     const auto& state = member.control;
     return {std::to_wstring(member.site.pid), std::to_wstring(member.site.creationFileTime), SiteText(member.site),
-        Widen(state.stage ? state.stage : ""), state.clean ? L"已结清" : L"未结清",
+        state.breakpoint && state.breakpoint->waitingForModule ? L"等待模块加载" :
+            Widen(state.stage ? state.stage : ""), state.clean ? L"已结清" : L"未结清",
         Widen(member.owner.backendInstanceId), state.group ? Widen(state.group->groupId) : L"无",
         state.responsibility ? std::to_wstring(state.responsibility->event.serial) : L"无",
         state.group ? std::to_wstring(state.group->stateRevision) : L"无", std::to_wstring(state.win32Error),
@@ -117,6 +118,7 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
             L" TID=" + std::to_wstring(thread.tid) + L" creation=" + std::to_wstring(thread.creationTime);
     if (state.breakpoint) {
         const auto& binding = *state.breakpoint;
+        text += binding.waitingForModule ? L"\r\n等待模块加载；设点成功前没有执行覆盖。" : L""; // 与原实际绑定字段共用详情文档。
         text += L"\r\n实际绑定 request=" + Widen(binding.requestId) + L" state=" + std::to_wstring(static_cast<int>(binding.state)) +
             L" stage=" + Widen(binding.stage ? binding.stage : "") + L" Win32=" + std::to_wstring(binding.win32Error) +
             L"\r\nmoduleBase=" + Hex(binding.moduleBase) + L" address=" + Hex(binding.address) + L" RVA=" + Hex(binding.rva) +

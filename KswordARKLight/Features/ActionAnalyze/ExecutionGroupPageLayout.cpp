@@ -289,6 +289,7 @@ bool CreateControls(Page& page)
         Tip(page, page.inputs[Address], L"加入草稿时作为启动私有地址；追加选中NX范围时作为新增范围起点。追加目标由右侧单选成员的原停点决定，不由PID草稿决定。");
         Tip(page, page.inputs[Range], L"启动时0表示单地址；追加时必须填写非零字节数，4KiB整数倍且不超过256KiB。编辑不会修改已保存草稿项或旧集合来源。");
         Tip(page, page.inputs[ImageSha256], L"只接受64位小写十六进制SHA256，留空不设约束。原生所有者核验实际调试装载文件后才武装DR0，不自动采集。私有地址时隐藏并保留草稿，不发送。");
+        Tip(page, page.inputs[Module], L"选择模块绝对路径；尚未加载时沿本轮会话等待首次加载，设点成功前不提供执行覆盖。关闭集合可取消等待，已设点模块卸载后清退，不自动重绑。");
         Tip(page, page.inputs[DefinitionId], L"仅模块RVA站点可填写规范UUID，并须配置项目。全部成员在附加前核对本轮采样冻结定义的启用状态、模块、RVA和映像散列；不解析PDB或激活系统所有实例。");
         for (const auto button : {page.stepInto, page.stepOver, page.stepOut})
             Tip(page, button, L"只选一个当前断点或步进停点，命中条件须允许操作。主动暂停停点不支持步进。");

@@ -225,6 +225,7 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
             {"enrolledThreads", Count(binding->enrolledThreads)},
             {"privateExecutionFollowAvailable", V::makeBool(binding->privateExecutionFollowAvailable)}}; // 原绑定声明，调用时仍核验活停点。
         fields.emplace_back("imageSha256", binding->imageSha256 ? Text(*binding->imageSha256) : V::makeNull());
+        fields.emplace_back("waitingForModule", V::makeBool(binding->waitingForModule)); // 与Armed及已知地址分别报告，等待不能授予停止令牌。
         if (binding->writeWatchBytes) {
             fields.emplace_back("watchedBytes", V::makeUInt(binding->writeWatchBytes));
             fields.emplace_back("siteKind", Text(binding->explicitPrivateAddress ? "private-address-write" :

@@ -101,6 +101,8 @@ namespace ks::action_analyze
                     .field(QStringLiteral("断点状态码"), QString::number(static_cast<int>(binding.state)))
                     .field(QStringLiteral("断点诊断"), QString::fromLatin1(binding.stage))
                     .field(QStringLiteral("断点 Win32"), QString::number(binding.win32Error));
+                document.field(QStringLiteral("等待模块加载"), binding.waitingForModule
+                    ? QStringLiteral("是") : QStringLiteral("否"), true); // 使用原owner状态，与实际地址和诊断保留同源。
                 document.field(QStringLiteral("实际装载文件 SHA256"), binding.imageSha256
                     ? QString::fromStdString(*binding.imageSha256) : sourceText(QStringLiteral("无实际测量值")));
                 document.field(QStringLiteral("已纳入执行范围"), QString::number(binding.executionRanges.size()));
@@ -239,6 +241,11 @@ namespace ks::action_analyze
         if (member == result.members.end())
         {
             return index.column() == 2 ? sourceText(QStringLiteral("草稿，尚未核验")) : QString();
+        }
+        if (index.column() == 2 && member->control.breakpoint && member->control.breakpoint->waitingForModule)
+        {
+            // 原native仍附加但尚未武装，列表不能把Accepted当作已有执行覆盖。
+            return sourceText(QStringLiteral("等待模块加载"));
         }
         return index.column() == 2 ? MemberState(member->control.status) :
             QStringLiteral("%1 / Win32 %2").arg(QString::fromLatin1(member->control.stage)).arg(member->control.win32Error);

@@ -589,6 +589,7 @@ void RegisterExecutionGroupCommand()
     command.options = L"--sites is a UTF-8 JSON disk file without BOM, at most 128 KiB: {schemaVersion:1,sites:[...]}. "
         L"1-16 distinct PIDs; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
         L"Image: absolute DOS module plus exactly one numeric uint32 rva or case-sensitive exactExport. "
+        L"An absent exact-path image waits in the original owner until a LOAD_DLL event permits full resolution and thread enrollment. control.breakpoint.waitingForModule distinguishes waiting from armed; no breakpoint covers the waiting interval. Close cancels waiting, and unload after activation retires the binding instead of rebinding. "
         L"Optional imageSha256 is exactly 64 lowercase hex characters; the original member owner verifies the actual debug-load event file before arming DR0. Private sites reject this field. "
         L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "

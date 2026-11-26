@@ -57,7 +57,7 @@ namespace ks::action_analyze
         m_module = new QLineEdit(m_moduleRow);
         m_module->setMaxLength(32767);
         auto* browse = new QPushButton(QStringLiteral("…"), m_moduleRow); // 标准紧凑选择器，不创建另一套路径模型。
-        language.bindToolTip(browse, {}, QStringLiteral("选择目标进程已加载的模块绝对路径。"));
+        language.bindToolTip(browse, {}, QStringLiteral("选择模块绝对路径；尚未加载时沿本轮会话等待首次加载，设点成功前不提供执行覆盖。"));
         KswordTheme::ApplyStandardIconButtonMetrics(browse);
         moduleLayout->addWidget(m_module, 1);
         moduleLayout->addWidget(browse);

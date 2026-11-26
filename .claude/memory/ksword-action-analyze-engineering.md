@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第6项集合延迟模块设点源码。** NativeBreakpointRequest新增默认false的waitForModule，仅显式普通映像执行准入；OwnedDataWatchSession::AttachImageExecution增加尾部默认参数，集合初始/追加Attach统一true，原单目标/合作默认不变。InstallBreakpoint仅ERROR_MOD_NOT_FOUND、且尚无目标副作用时保留Installing与waitingForModule，原LOAD_DLL事件中复用完整路径/PE位置/可选事件文件散列及全部线程登记后才Armed；不轮询模块、不新增owner/线程，不自动重绑卸载模块。关闭清除等待并沿原detach，等待不授Pause/Continue/Step资格或执行覆盖。CLI原ReportFields加waitingForModule/help/文档，Qt/Light原列表及同源详情明确“等待模块加载”、模块选择tooltip同步，双语2键定点source_translations。导航监控→行为分析→执行断点集合，原ParameterWorkspace+None管理表+StructuredFieldView/原生文本详情，参考既有单目标写入停点及执行集合两端；未改布局/主题/动作。仅源码，本批不构建/实测/GUI/派发/验收回执/推送；延迟DLL真实加载及清退待验，不能据此标全局自动定义或完整后代跟随完成。
+
 - **2026-11-26 第6/10项集合Unknown保留实际路径。** 源码发现OwnedDataWatchSession仍默认假/未知自动Continue，导致集合文档/联停/自动归档的未知保留没有实际生效。构造新增默认false的holdUnknownCondition，集合Start与Append成员明确true，原ApplyCondition未知计数后直接保留同一事件；单目标默认旧策略不变。MatchesDisplayedStop与集合ReleaseEligible允许精确同事件/组/修订的真或未知，原完整令牌、恢复失败和原生动作准入不变；Unknown可显式Continue/Step/AddRange，自动归档仍只筛真实执行。三端均沿OwnedExecutionGroup获得修正，无新UI文本/协议/线程/owner。仅源码及专项说明，不构建/测试/GUI/验收落盘/派发/推送；不得把历史追加138检查或旧条件回执扩算这批通过。
 
 - **2026-11-26 第6项Light归档启动草稿收尾。** ExecutionGroupPage在路径EN_CHANGE及自动保存/打开已有项目checkbox变化后沿原Refresh即时刷新资格；缺目录时禁用Start并说明原因，实际worker Prepare附加前拒绝仍保留，运行中参数仍禁改。不新增轮询/布局/页面/owner，修改范围为监控→行为分析→执行断点集合的原参数执行页；源码未构建/GUI/测试。专项CLI文档纠正旧“假或未知自动继续”为假自动继续、未知保留，与当前核心一致；不是新条件语义或运行回执。

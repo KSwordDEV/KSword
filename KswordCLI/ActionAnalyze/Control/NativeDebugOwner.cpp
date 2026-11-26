@@ -401,6 +401,7 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
         !target.pid || target.pid == GetCurrentProcessId() || !target.processCreationTime || !target.explicitlyAuthorized ||
         target.disposition != NativeTargetDisposition::ResumeAndDetach || !validSite ||
         (request.imageSha256 && (!request.explicitImageAttachment || !ValidNativeImageSha256(*request.imageSha256))) ||
+        (request.waitForModule && !request.explicitImageAttachment) ||
         (request.explicitImageAttachment && (explicitAddress || pageMode || request.writeWatchBytes ||
             request.writeWatchPointerExport || request.executePointerExport)) ||
         !control || (pageMode && (!explicitAddress || request.writeWatchBytes ||
@@ -976,7 +977,18 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
         ? ResolveNativePointerDataSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName, bp.request.writeWatchBytes, site)
         : ResolveNativeImageSite(process_.Get(), pid, bp.request.modulePath, bp.request.rva,
             bp.request.exportName, site, bp.request.writeWatchBytes);
+    if (error == ERROR_MOD_NOT_FOUND && bp.request.waitForModule)
+    {
+        // 只有精确模块缺席可等待；坏PE、错误RVA/导出、哈希或访问失败仍走原清退。
+        // 此时尚未设置地址、DR0或页保护，原进程可继续加载模块，不报告Armed。
+        bp.binding.waitingForModule = true;
+        bp.binding.stage = "execution-breakpoint-waiting-for-module";
+        bp.binding.win32Error = ERROR_SUCCESS;
+        latest_->outcome = {bp.binding.stage, ERROR_SUCCESS};
+        return {};
+    }
     if (error) { return {bp.request.privateAddress ? "resolve-explicit-private-address" : "resolve-requested-image-site", error}; }
+    bp.binding.waitingForModule = false; // 精确模块已解析；后续任何安装失败均保留原恢复责任。
     if (bp.request.imageSha256)
     {
         std::string observed; // 在任何DR0写入之前核对实际装载文件，不将请求值当作测量结果。
@@ -1411,6 +1423,7 @@ bool NativeDebugOwner::Impl::ReceivePageEvent(const DEBUG_EVENT& event) {
 
 void NativeDebugOwner::Impl::RetireBreakpoint(NativeError reason) {
     auto& bp = *breakpoint_;
+    bp.binding.waitingForModule = false; // 用户关闭、模块卸载或失败后不再接纳后续装载。
     if (!bp.retire || (!bp.retirement && reason)) { bp.retirement = reason; }
     bp.retire = true;
     if (bp.binding.state == NativeBreakpointState::RecoveryRequired) { return; }
@@ -1543,6 +1556,16 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
         ContinueExitEvent(event.u.ExitProcess.dwExitCode);
         return;
+    }
+    if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT && bp.processVerified && !bp.awaitingAttachBreak &&
+        bp.binding.waitingForModule && !bp.retire && !closing_)
+    {
+        // 原加载事件仍冻结目标，复用完整路径解析、可选事件文件散列及全部现存线程登记。
+        // 安装完成后才继续本次加载；新线程随后仍由原CREATE_THREAD链路纳入。
+        if (const auto error = InstallBreakpoint(); error)
+        {
+            RetireBreakpoint(error);
+        }
     }
     if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
         if (!CompareObjectHandles(process_.Get(), event.u.CreateProcessInfo.hProcess)) {

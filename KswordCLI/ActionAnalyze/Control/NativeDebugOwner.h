@@ -21,7 +21,7 @@ struct NativePauseRequest {
 };
 
 // 默认映像/指针入口仅接纳当前宿主直接创建的合作子进程；显式映像附加仅用于普通执行。
-// 模块必须已加载，路径为完整 DOS 路径。
+// 路径为完整 DOS 路径；显式映像入口可选择等待尚未加载的模块，等待不表示已设防。
 // RVA 由调用方确认是指令边界；名称只解析区分大小写的 PE 导出，不接受转发导出。
 // privateAddress入口允许显式授权的既有同用户AMD64进程，冻结单地址或privateRangeBytes指定的私有范围。
 struct NativeBreakpointRequest {
@@ -36,6 +36,7 @@ struct NativeBreakpointRequest {
     std::uint64_t privateRangeBytes = 0; // 非零仅配privateAddress且writeWatchBytes=0；4096整数倍，最多64页，同私有分配。
     bool explicitImageAttachment = false; // 仅普通映像执行允许附加既有目标，仍须完整显式进程授权和准入。
     std::optional<std::string> imageSha256; // 冻结定义约束；必须核对实际装载事件文件，不能仅检查同名盘上文件。
+    bool waitForModule = false; // 仅显式普通映像执行允许，沿原LOAD_DLL事件等待首次加载；不自动重绑已卸载模块。
     bool operator==(const NativeBreakpointRequest&) const = default;
 };
 
@@ -69,6 +70,7 @@ struct NativeBreakpointBinding {
     std::uint64_t rangeBytes = 0; // 0为单地址DR0；非零为整个NX范围字节数，address是4KiB对齐起点。
     std::vector<NativeExecutionRange> executionRanges; // 初始及成功新增范围；address/rangeBytes始终保留初始值。
     std::optional<std::string> imageSha256; // 原装载事件文件核验通过后的散列，不认证运行时页内容。
+    bool waitingForModule = false; // 原owner已附加但精确模块尚未出现；address为0且无已安装断点。
 };
 
 // 一次写入停点时读到的变化区间，供三端对账。掩码第 n 位对应起点后第 n 字节。
