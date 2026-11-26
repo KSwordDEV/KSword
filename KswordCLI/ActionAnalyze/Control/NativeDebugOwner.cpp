@@ -1970,7 +1970,9 @@ NativeControlResult NativeDebugOwner::QueryArmedPause(std::string_view requestId
 }
 
 NativeControlResult NativeDebugOwner::ArmBreakpoint(const NativeBreakpointRequest& request) {
-    return impl_->Invoke([&] { return impl_->ArmBreakpoint(request); });
+    auto normalized = request; // Qt文件选择器和CLI都可提供正斜线；准入及幂等使用同一DOS路径表示。
+    std::replace(normalized.modulePath.begin(), normalized.modulePath.end(), L'/', L'\\');
+    return impl_->Invoke([&] { return impl_->ArmBreakpoint(normalized); });
 }
 
 // 输入调用方冻结的follow请求，在原调试线程串行运行；返回原转换结果或精确恢复责任。
