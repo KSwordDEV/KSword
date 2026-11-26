@@ -178,6 +178,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 导入后的采样可在 Qt「监控 → 行为分析 → 项目与采样」和 Light「监控 → ActionAnalyze」中打开。Qt 总览可勾选 `API` 筛选并查看来源坐标。CLI 的 `--packet 1` 可取回完整包，桌面详情提供有界前缀。
 
+`api-evidence replay` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采样（`cooperative-pipe`）以及未声明来源的旧档（`legacy-unspecified`）。合作管道的 `sourceSequence` 为普通包流水号，分页用 Stored 的 `rawSequence`，每条线索另有 `rawSegment`。正在提交的采样返回已核验的连续前缀，后续段损坏时保留前缀、退出 `4` 并返回 `failedSegment`。采集覆盖保持 `unknown`。
+
 `api-rule-catalog --json` 不需要项目。程序从自身目录下的 `profiles/action_analyze_api_rules.json` 加载规则，`profiles` 分别列出 `grouped` 和 `by-category` 的分类预置，`behaviorRules` 列出两种回放配置共用的附加释义。缺失、超限、JSON 损坏、版本不符或表达式字段不匹配时返回 `rule-profile-unavailable`，不会使用程序内置的替代规则。当前文件只包含已验证的小型 API 预置，KswordSandbox 的 601 条候选索引见[规则规划资料](action-analyze-planning/README.md)，仍未转换为可发行规则。
 
 文件为 UTF-8 JSON。每套分类须为一条已核验 API 观测给出唯一命中；返回释义按文件顺序取第一条匹配。修改条件时更新 `presetSet`，新版在下一次采集或回放生效。正在进行的采集继续使用启动时读入的版本。规则配置加载失败时，JSONL 跟随仍归档原包，并在 `rules.configError` 报告诊断。源码构建会将发布配置复制到目标目录。

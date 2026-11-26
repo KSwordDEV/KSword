@@ -1,10 +1,13 @@
 #include "ApiMonitorEvidenceCommand.h"
 
 #include "../../CommandRegistry.h"
+#include "../Project/ProjectApiCheckpoint.h"
+#include "../Project/ProjectStorage.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
 
 #include <array>
+#include <iterator>
 #include <wincrypt.h>
 
 #pragma comment(lib, "Crypt32.lib")
@@ -206,7 +209,8 @@ project::ProjectResult Store(project::ProjectDocument& document, const project::
 }
 
 // 将原包事实和未知项投影成 CLI 值。原包序号与 Stored 序号分别引用。
-Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequence, bool includePacket)
+Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequence, bool includePacket,
+    std::uint64_t rawSegment = 1)
 {
     const auto& packet = row.packet; // 原始调用来源头与回包字段。
     const auto family = row.clue->family; // 稳定线索类别。
@@ -216,7 +220,8 @@ Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequ
     const wchar_t* phase = hasReturn ? L"return" : packet.resultKind ==
         static_cast<std::uint32_t>(monitor::EventResultKind::EntryOnly) ? L"entry" : L"observation";
     std::vector<std::pair<std::wstring, Json>> fields{
-        {L"rawSequence", Json::count(rawSequence)}, {L"sourceSequence", Json::count(row.sourceSequence)},
+        {L"rawSegment", Json::count(rawSegment)}, {L"rawSequence", Json::count(rawSequence)},
+        {L"sourceSequence", Json::count(row.sourceSequence)},
         {L"family", Json::string({family.begin(), family.end()})}, {L"api", Json::string(std::wstring(row.clue->api))},
         {L"pid", Json::number(packet.pid)}, {L"tid", Json::number(packet.tid)},
         {L"sourceSessionIdentity", Json::count(packet.sessionIdentity)}, {L"time100ns", Json::count(packet.timestamp100ns)},
@@ -270,12 +275,80 @@ Result Replay(const project::ProjectDocument& document, const std::string& sampl
     if (!readback.ended || !scan.checked || !scan.VerifiedBoundary(expected ? *expected : *scan.checked)) {
         return Failure(4, L"archive-invalid-or-incomplete", 0, 0, sample);
     }
+    const auto source = evidence::ApiMonitorArchiveSourceName(readback.source); // 完整核验后才公布尾记声明。
     return {0, Json::object({{L"status", Json::string(L"readback-verified")},
         {L"sampleId", Json::string({sample.begin(), sample.end()})}, {L"rawSegment", Json::count(1)},
+        {L"archiveSource", Json::string({source.begin(), source.end()})},
         {L"sourceRows", Json::count(readback.sourceRows)}, {L"clueRows", Json::count(readback.clues)},
         {L"coverage", Json::string(L"unknown")},
         {L"nextAfter", !page.empty() && lastShown < readback.clues ? Json::count(lastShown) : Json{}},
         {L"rows", Json::array(page)}}), {}};
+}
+
+// 逐段回查合作管道检查点。只在本段完全核验后发布记录，坏段保留此前有效前缀。
+std::optional<Result> ReplayCooperative(const project::ProjectDocument& document, const std::string& sample,
+    std::uint64_t after, std::uint64_t limit, bool includePacket, std::uint64_t through = 0)
+{
+    project::ProjectApiCheckpoint checkpoint; // 上一次完整核验的有效水位。
+    std::vector<Json> page; // 本页只保留有限条分类线索。
+    std::uint64_t clues = 0; // 连续前缀中的线索数。
+    std::uint64_t lastShown = after; // 当前页可用于翻页的最后一条原始序号。
+    bool more = false; // 还有本页以后的已核验线索。
+    project::ProjectResult status; // 首个未通过的检查点或待读终段。
+    for (std::uint64_t ordinal = 1; ordinal; ++ordinal) {
+        std::vector<Json> rows; // 暂存单段候选，直到标记、原包和散列通过。
+        std::uint64_t segmentClues = 0; // 当前段中的线索计数。
+        auto segmentLast = lastShown; // 当前段候选翻页位置。
+        bool segmentMore = false; // 当前段内有窗口之外的分类线索。
+        status = project::ReadApiCheckpoint(document, sample, ordinal, checkpoint.ordinal ? &checkpoint : nullptr,
+            checkpoint, [&](const auto&, const auto&, const auto& records) {
+                for (const auto& record : records) {
+                    const auto& raw = std::get<archive::RawRecordV1>(record.body); // 共用验证器确认正文格式。
+                    const auto clue = project::ReadCommittedApiClue(raw); // 未分类包仍属于已提交的原始流。
+                    if (!clue) {
+                        continue;
+                    }
+                    ++segmentClues;
+                    if (record.recordSequence > after) {
+                        if (page.size() + rows.size() < limit) {
+                            rows.push_back(ClueJson(*clue, record.recordSequence, includePacket, ordinal));
+                            segmentLast = record.recordSequence;
+                        } else {
+                            segmentMore = true;
+                        }
+                    }
+                }
+                return true;
+            });
+        if (!status) {
+            break;
+        }
+        if (checkpoint.source != evidence::ApiMonitorArchiveSource::CooperativePipe) {
+            return std::nullopt;
+        }
+        // 只有已发布段的结果进入累计计数和调用者可见的页。
+        clues += segmentClues;
+        more |= segmentMore;
+        lastShown = segmentLast;
+        page.insert(page.end(), std::make_move_iterator(rows.begin()), std::make_move_iterator(rows.end()));
+        if (checkpoint.finalSegment || ordinal == through) {
+            break;
+        }
+    }
+    if (!checkpoint.ordinal) {
+        return Failure(status.error == project::ProjectError::NotFound ? 5 : 4,
+            L"archive-invalid-or-incomplete", 0, status.nativeError, sample, status.detail);
+    }
+    const bool invalid = !status && status.error != project::ProjectError::NotFound; // 缺失发布与坏段分开报告。
+    return Result{invalid ? 4 : 0, Json::object({{L"status", Json::string(checkpoint.finalSegment ? L"readback-verified" : L"readback-prefix")},
+        {L"sampleId", Json::string({sample.begin(), sample.end()})}, {L"rawSegment", Json::count(1)},
+        {L"committedSegments", Json::count(checkpoint.ordinal)}, {L"finalSegment", Json::boolean(checkpoint.finalSegment)},
+        {L"archiveSource", Json::string(L"cooperative-pipe")},
+        {L"sourceRows", Json::count(checkpoint.lastSourceSequence)}, {L"clueRows", Json::count(clues)},
+        {L"coverage", Json::string(L"unknown")}, {L"sourceState", checkpoint.sourceState.empty() ? Json{} :
+            Json::string(project::ProjectStorage::WideAscii(checkpoint.sourceState))},
+        {L"failedSegment", invalid ? Json::count(checkpoint.ordinal + 1) : Json{}},
+        {L"nextAfter", !page.empty() && more ? Json::count(lastShown) : Json{}}, {L"rows", Json::array(page)}}), {}};
 }
 
 // 先完整验证已关闭的事件文件，成功后按项目修订创建新样本并进行刷盘回读。
@@ -344,6 +417,13 @@ Result RunReplay(const Args& args)
     id.reserve(sample.size());
     for (const auto ch : sample) {
         id.push_back(static_cast<char>(ch));
+    }
+    project::ApiFollowArchiveKind kind; // 首探测只分派格式，实际读取仍需逐段校验。
+    const auto probe = project::ProbeApiFollowArchive(document, id, kind);
+    if (probe && kind == project::ApiFollowArchiveKind::Checkpointed) {
+        if (auto result = ReplayCooperative(document, id, after, limit, args.has(L"--packet"))) {
+            return std::move(*result);
+        }
     }
     return Replay(document, id, after, limit, args.has(L"--packet"));
 }
