@@ -663,7 +663,15 @@ NativeControlResult OwnedDataWatchSession::Continue(const NativeControlResult& d
 // 输入为当前会话；输出原生owner值快照，调用方不得借此绕过条件授予手动继续资格。
 NativeControlResult OwnedDataWatchSession::QueryWithoutCondition()
 {
-    return owner_ ? owner_->Query() : NativeControlResult{};
+    auto state = owner_ ? owner_->Query() : NativeControlResult{}; // 只回读原owner，不求值、不放行合作Gate。
+    const auto& decision = conditionReport_.last; // 已发生的自动继续失败属于原会话，不能被原生Held快照抹掉。
+    if (!state.clean && decision && decision->failureStage)
+    {
+        state.status = NativeControlStatus::RecoveryRequired;
+        state.stage = decision->failureStage;
+        state.win32Error = decision->releaseError;
+    }
+    return state;
 }
 
 // 点击时冻结原实例和绑定票据；工作线程只在同一个owner中请求下断，不创建暂停会话。
@@ -673,7 +681,11 @@ NativeControlResult OwnedDataWatchSession::Pause(const NativeControlResult& disp
     {
         return Reject({}, "data-watch-pause-owner-unavailable", ERROR_INVALID_STATE, LedgerResult::InvalidTransition);
     }
-    auto current = owner_->Query(); // 不触发条件自动Continue，也不打开合作Gate。
+    auto current = QueryWithoutCondition(); // 不触发条件自动Continue，也不打开合作Gate。
+    if (current.status == NativeControlStatus::RecoveryRequired)
+    {
+        return current; // 条件恢复责任仍归原会话，只保留原Close恢复入口。
+    }
     if (!CanPauseDataWatchSession(displayedSession) || !CanPauseDataWatchSession(current) ||
         displayedSession.pid != current.pid || displayedSession.processCreationTime != current.processCreationTime ||
         displayedSession.processInstanceId != current.processInstanceId ||
@@ -700,7 +712,11 @@ NativeControlResult OwnedDataWatchSession::FollowPrivateExecution(const NativeCo
     {
         return Reject({}, "data-watch-follow-owner-unavailable", ERROR_INVALID_STATE, LedgerResult::InvalidTransition);
     }
-    auto current = owner_->Query(); // 只回读原owner，不让该转换动作触发条件自动Continue。
+    auto current = QueryWithoutCondition(); // 只回读原owner，不让该转换动作触发条件自动Continue。
+    if (current.status == NativeControlStatus::RecoveryRequired)
+    {
+        return current;
+    }
     if (!MatchesDisplayedStop(displayedStop, current) || !CanFollowDataWatchPrivateExecution(current))
     {
         return Reject(std::move(current), "data-watch-follow-stale-stop", ERROR_INVALID_DATA, LedgerResult::StaleRevision);
@@ -719,6 +735,10 @@ NativeControlResult OwnedDataWatchSession::FollowPrivateExecution(const NativeCo
 
 bool OwnedDataWatchSession::MatchesDisplayedStop(const NativeControlResult& displayed, const NativeControlResult& current) const
 {
+    if (conditionReport_.last && conditionReport_.last->failureStage)
+    {
+        return false; // 手动暂停、步进或归档不能绕过同一会话尚未结算的自动继续失败。
+    }
     const auto* selected = DataWatchHeldStop(displayed); // UI 点击时冻结的原生事件。
     const auto* live = DataWatchHeldStop(current); // 所有者刚回读的同一停止责任。
     if (!selected || !live || selected->event != live->event || selected->groupId != live->groupId ||
@@ -738,7 +758,11 @@ NativeControlResult OwnedDataWatchSession::AddPrivateExecutionRange(const Native
     {
         return Reject({}, "data-watch-range-owner-unavailable", ERROR_INVALID_STATE, LedgerResult::InvalidTransition);
     }
-    auto current = owner_->Query(); // 追加不是Query条件操作，不因条件为假或未知而释放原停点。
+    auto current = QueryWithoutCondition(); // 追加不是Query条件操作，不因条件为假或未知而释放原停点。
+    if (current.status == NativeControlStatus::RecoveryRequired)
+    {
+        return current;
+    }
     if (!MatchesDisplayedStop(displayedStop, current) || !current.breakpoint ||
         !current.breakpoint->rangeBytes || current.breakpoint->writeWatchBytes)
     {

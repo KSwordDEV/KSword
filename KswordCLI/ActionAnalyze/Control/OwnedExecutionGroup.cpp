@@ -107,13 +107,7 @@ public:
             // 在原会话建立 owner 前拒绝的附加没有新的原生状态；保留其明确失败而非改成 idle。
             if (!member.session->Identity().backendInstanceId.empty()) {
                 auto current = applyCondition ? member.session->Query() : member.session->QueryWithoutCondition();
-                const auto& decision = member.session->ConditionReport().last; // 原会话条件恢复责任独立于原生Query状态。
-                if (!current.clean && decision && decision->failureStage)
-                {
-                    current.status = NativeControlStatus::RecoveryRequired;
-                    current.stage = decision->failureStage;
-                    current.win32Error = decision->releaseError;
-                }
+                // 两种共享回读都保留原会话恢复失败，集合不维护第二份条件故障投影。
                 if (current.status != NativeControlStatus::Idle || member.current.status != NativeControlStatus::Rejected)
                     member.current = std::move(current);
             }

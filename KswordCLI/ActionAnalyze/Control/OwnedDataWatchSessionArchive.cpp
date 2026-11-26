@@ -42,7 +42,7 @@ Ksword::ActionAnalyze::ProjectResult OwnedDataWatchSession::SaveExecution(Ksword
     if (!owner_ || closing_) {
         return storage::Failure(Ksword::ActionAnalyze::ProjectError::InvalidArgument, "dataWatchExecutionUnavailable");
     }
-    const auto current = owner_->Query(); // 只读原生回执；不运行写入条件，不申请继续。
+    const auto current = QueryWithoutCondition(); // 保留会话既有恢复失败；不运行条件，不申请继续。
     if (!MatchesDisplayedStop(displayedStop, current) || !NativeExecutionFromOwnedStop(current)) {
         return storage::Failure(Ksword::ActionAnalyze::ProjectError::InvalidArgument, "dataWatchExecutionStaleStop");
     }
