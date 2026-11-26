@@ -158,6 +158,7 @@ private:
     NativeError InstallBreakpoint();
     NativeError VerifyBoundSite() const; // 回读当前私有绑定；明确地址按当前实际宽度验证。
     NativeError EnrollThread(DWORD tid, HANDLE eventThread = nullptr);
+    NativeError CoverBreakpointThreads(const std::vector<FrozenThread>& frozen);
     NativeError RestoreBreakpoint();
     NativeError PreparePageResume();
     NativeError RequestInterrupt();
@@ -910,6 +911,29 @@ NativeError NativeDebugOwner::Impl::EnrollThread(DWORD tid, HANDLE eventThread) 
     return error;
 }
 
+NativeError NativeDebugOwner::Impl::CoverBreakpointThreads(const std::vector<FrozenThread>& frozen) {
+    auto& bp = *breakpoint_;
+    if (!event_ || !bp.installed) return {"breakpoint-thread-coverage-requires-event", ERROR_INVALID_STATE};
+    if (const auto error = VerifyBoundSite(); error) return error;
+    for (const auto& thread : frozen) {
+        const auto tid = thread.member.tid;
+        const auto wait = WaitForSingleObject(thread.handle.Get(), 0);
+        if (wait == WAIT_OBJECT_0) continue;
+        if (wait != WAIT_TIMEOUT) return WinError("check-breakpoint-covered-thread");
+        // 枚举可能先看见尚未分发CREATE_THREAD的对象；在当前事件内完成登记后才允许放行。
+        const auto error = native_owner_detail::EnrollNativeBreakpointThread(bp.slots, bp.request.target.pid,
+            tid, thread.handle.Get(), bp.binding.address, bp.debugControl, breakpointMembershipRevision_,
+            bp.executionPage.has_value());
+        bp.binding.enrolledThreads = bp.slots.size(); // 部分安装失败也保留已取得的槽位恢复责任。
+        if (error) return error;
+        if (step_.Running()) {
+            const auto slot = bp.slots.find(tid);
+            if (const auto hold = step_.Enroll(slot->second.thread.Get()); hold) return {hold.stage, hold.code};
+        }
+    }
+    return {};
+}
+
 NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
     auto& bp = *breakpoint_;
     NativeImageSite site;
@@ -1062,6 +1086,7 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataC
     record.hitEventSerial = eventSerial_;
     std::vector<FrozenThread> frozen;
     if (const auto error = CaptureThreads(record.request.pid, record.processInstanceId, threadIds_, frozen); error) { return error; }
+    if (const auto error = CoverBreakpointThreads(frozen); error) return error;
     FrozenStopGroup group{record.groupId, revision, {}, {}};
     ThreadIdentity origin;
     ThreadIds newIds;
@@ -1135,6 +1160,13 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataC
 
 NativeError NativeDebugOwner::Impl::PrepareBreakpointResume() {
     auto& bp = *breakpoint_;
+    if (!bp.retire) {
+        std::vector<FrozenThread> current;
+        if (const auto error = CaptureThreads(bp.request.target.pid, latest_->processInstanceId, threadIds_, current); error)
+            return error;
+        if (const auto error = CoverBreakpointThreads(current); error) return error;
+        // 这里只补实际武装与同伴暂停，不改写原停止组、origin、寄存器或采样身份。
+    }
     if ((bp.binding.executePointerExport || bp.binding.explicitPrivateAddress) && !bp.retire) {
         if (const auto error = VerifyBoundSite(); error) RetireBreakpoint(error);
     }

@@ -119,6 +119,15 @@ NativeDebugError EnrollNativeBreakpointThread(NativeDebugSlots& slots, DWORD pid
     if (!thread) return WinError("open-breakpoint-thread");
     if (GetProcessIdOfThread(thread.Get()) != pid || (eventThread && !CompareObjectHandles(thread.Get(), eventThread)))
         return {"breakpoint-thread-object-mismatch", ERROR_INVALID_DATA};
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetThreadTimes(thread.Get(), &created, &exited, &kernel, &user) || !FileTime(created))
+        return {"breakpoint-thread-instance-unavailable", ERROR_INVALID_DATA};
+    if (pageMode) {
+        // NX由进程页保护触发；登记强线程身份即可，不占DR0，也不接管目标已有TF/DR状态。
+        slots.emplace(tid, NativeDebugSlot{std::move(thread), 0, 0, revision,
+            NativeFollowSlotState{control, std::nullopt, std::nullopt}});
+        return {};
+    }
     CONTEXT context{};
     context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
     if (!GetThreadContext(thread.Get(), &context)) return WinError("read-breakpoint-thread-context");
@@ -128,7 +137,6 @@ NativeDebugError EnrollNativeBreakpointThread(NativeDebugSlots& slots, DWORD pid
         return WinError("hold-breakpoint-thread");
     slots.emplace(tid, NativeDebugSlot{NativeDebugHandle(duplicate), context.Dr0, context.Dr7 & mask, revision,
         NativeFollowSlotState{control, std::nullopt, std::nullopt}}); // 写入结果未知时原账也已在owner内。
-    if (pageMode) return {}; // NX只登记强线程，不取得DR0责任。
     context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
     context.Dr0 = static_cast<decltype(context.Dr0)>(address);
     context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~mask) | control);
