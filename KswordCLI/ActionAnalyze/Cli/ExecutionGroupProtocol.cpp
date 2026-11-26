@@ -257,6 +257,7 @@ JsonValue StopToken(const n::NativeControlResult& state)
         binding = V::makeObject({{"requestId", Text(state.breakpoint->requestId)}, {"state", V::makeUInt(static_cast<unsigned>(state.breakpoint->state))},
             {"address", Count(state.breakpoint->address)}, {"rangeBytes", Count(state.breakpoint->rangeBytes)},
             {"imageSha256", state.breakpoint->imageSha256 ? Text(*state.breakpoint->imageSha256) : V::makeNull()},
+            {"waitingForModule", V::makeBool(state.breakpoint->waitingForModule)}, // 原owner真实等待状态，不能从零地址推断。
             {"executionRanges", V::makeArray(std::move(ranges))}});
     }
     V pause = V::makeNull(); // 主动暂停回执保留原owner和pause/N，ManualPause继续仍须完整事件与停止组。
@@ -354,9 +355,14 @@ bool ParseStopToken(const V& token, n::NativeControlResult& state)
         !token.find("stepObservedEvent") || !token.find("stepObservedEvent")->isNull() ||
         !token.find("stepStopGroupId") || !token.find("stepStopGroupId")->isNull()) return false;
     if (!Optional(token.find("breakpoint"), state.breakpoint, [](const V* v, n::NativeBreakpointBinding& b) {
-        if ((!Shape(*v, 5) && !Shape(*v, 6)) || !String(v->find("requestId"), b.requestId) || !Enum(v->find("state"), b.state, 6) || !Number(v->find("address"), b.address, true) ||
+        // 新票据回传等待位；旧五/六字段票据仍可读，不从当前会话补造历史字段。
+        const auto* hash = v->find("imageSha256"); // 可选的既有实测映像摘要字段。
+        const auto* waiting = v->find("waitingForModule"); // 新增独立报告位，不授予控制资格。
+        const auto fields = std::size_t{5} + (hash ? 1 : 0) + (waiting ? 1 : 0); // 精确形状仍拒绝未知字段。
+        if (!Shape(*v, fields) || (waiting && !Boolean(waiting, b.waitingForModule)) ||
+            !String(v->find("requestId"), b.requestId) || !Enum(v->find("state"), b.state, 6) || !Number(v->find("address"), b.address, true) ||
             !Number(v->find("rangeBytes"), b.rangeBytes, true)) return false;
-        if (const auto* hash = v->find("imageSha256"); hash && !hash->isNull())
+        if (hash && !hash->isNull())
         {
             std::string observed; // 票据携带实测值；不从当前owner补造历史显示字段。
             if (!String(hash, observed, 64) || observed.size() != 64 ||
@@ -365,10 +371,6 @@ bool ParseStopToken(const V& token, n::NativeControlResult& state)
                 return false;
             }
             b.imageSha256 = std::move(observed);
-        }
-        else if (!hash && !Shape(*v, 5))
-        {
-            return false; // 旧五字段只兼容无散列绑定，不能用额外未知字段代替缺失散列。
         }
         const auto* ranges = v->find("executionRanges");
         if (!ranges || !ranges->asArray() || ranges->asArray()->size() > 64) return false;

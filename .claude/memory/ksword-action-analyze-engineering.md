@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第6项CLI集合等待状态补齐。** 原StopToken为全部成员nativeSnapshot/sessionToken输出breakpoint.waitingForModule，ParseStopToken接新字段并兼容旧五/六字段绑定，精确字段计数不接纳未知键；不按零地址推定等待、不改变控制准入。上一批CLI帮助已承诺此字段，本批补真实集合输出。仅源码本地提交，未构建/测试/GUI/派发/验收回执/推送。
+
 - **2026-11-26 第6/10项冻结定义条件源码。** BreakpointDefinition可选condition只存非空单行UTF-8 source/固定predicate-expr-v3，旧无条件五字段及原键序不变，新条件按键序进入原修订/hash/sample快照，编辑增量修订沿默认比较。ResolveSampleImageDefinition新增可选condition输出，带条件定义缺消费端口即拒绝；PrepareSampleImageCondition统一三端准备，保留CLI原生单目标Entry与OwnedDataWatchSession的Observation阶段。集合初始/追加在原目录副本准备全部继承条件，空手填继承，非空必须原文相同，冲突/类型/语法错误附加前整批拒绝，旧成员/writer不动。Qt/Light单目标原归档准备也接条件，Qt worker/Light原status回显实际继承文本；CLI --definition接原hello条件与求值器。Qt监控→行为分析→项目断点沿原ParameterWorkspace表单增加单行条件编辑/准备错误/草稿保护/清空/保存，Light原项目定义选择器只展示与激活，定义编辑仍为无；对照原DataWriteWatchPage/ExecutionGroupSiteEditor及ParameterWorkspace，未改主题/导航/布局所有权。双语4键定点source_translations，CLI help/元数据/schema/专项文档同步，无新源码/工程项。此批仅开发源码与本地提交，未构建/测试/GUI/i18n audit/验收回执/新派发/推送；测试额度3/3仍耗尽。延迟模块与条件均待运行，不能提升历史验收比例；全局自动激活/PDB/完整后代/死亡恢复仍为无。
 
 - **2026-11-26 第6项集合延迟模块设点源码。** NativeBreakpointRequest新增默认false的waitForModule，仅显式普通映像执行准入；OwnedDataWatchSession::AttachImageExecution增加尾部默认参数，集合初始/追加Attach统一true，原单目标/合作默认不变。InstallBreakpoint仅ERROR_MOD_NOT_FOUND、且尚无目标副作用时保留Installing与waitingForModule，原LOAD_DLL事件中复用完整路径/PE位置/可选事件文件散列及全部线程登记后才Armed；不轮询模块、不新增owner/线程，不自动重绑卸载模块。关闭清除等待并沿原detach，等待不授Pause/Continue/Step资格或执行覆盖。CLI原ReportFields加waitingForModule/help/文档，Qt/Light原列表及同源详情明确“等待模块加载”、模块选择tooltip同步，双语2键定点source_translations。导航监控→行为分析→执行断点集合，原ParameterWorkspace+None管理表+StructuredFieldView/原生文本详情，参考既有单目标写入停点及执行集合两端；未改布局/主题/动作。仅源码，本批不构建/实测/GUI/派发/验收回执/推送；延迟DLL真实加载及清退待验，不能据此标全局自动定义或完整后代跟随完成。
