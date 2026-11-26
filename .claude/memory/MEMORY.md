@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-26 最新核心方向：自动接管及EXE挂起启动。** API Monitor发现跨进程行为后自动解析私有范围并接管下一目标；入口增加选择EXE→启动挂起→附加，同时保留已有实例。零窗口需Hook放行前目标外owner同步交接，异步回传不能承诺。网络采集复用现有“网络→流量监控”，HTTPS解析后置。64页NX/16成员是代码上限。十一项源码粗估与历史实证分开；CodeBuddy测试额度3/3耗尽仍有效。详见[工程记录](ksword-action-analyze-engineering.md)。
+
 - **2026-11-26 最新测试额度3/3已用完，三个宿主均已结束。** 追加正式CLI构建及6组138检查PASS，i18n448项FAIL；历史线程恢复cancel通过、thread-exit仍FAIL；文本比较宿主1800秒超时143，无最终运行回执，不算通过。主代理继续功能和已知文本分区修复，不执行实测、续接或重试，GUI仍后置；goal重激活不恢复无限授权。原自动日志、产物范围及源码状态见[工程记录](ksword-action-analyze-engineering.md)。
 
 - **2026-11-26 原两项CodeBuddy已返回。** `sh_217ef3fbd001zM5SIntRv2cBgQ` 两项均返回ok源码回执；布尔任务仅修改契约注释、线程恢复修改退出线程债务及NX恢复顺序。未测试/构建/GUI，历史失败不得标修复通过。授权次数已用完，继续静默，不新增派发或续接。源码结果见[工程记录](ksword-action-analyze-engineering.md)。

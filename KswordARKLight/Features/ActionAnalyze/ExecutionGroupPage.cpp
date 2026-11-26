@@ -4,6 +4,7 @@
 #include "../../Ui/Controls.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/Theme.h"
+#include "../../Ui/WorkspaceHost.h"
 #include <algorithm>
 #include <memory>
 #include <windowsx.h>
@@ -13,6 +14,7 @@ namespace execution_group_page {
 namespace {
 constexpr wchar_t kClass[] = L"KswordARKLight.ExecutionGroup";
 constexpr UINT_PTR kDisplayTimer = 1;
+constexpr UINT kEvidenceDraft = WM_APP + 981; // 同UI线程同步传纯值，不保留发送方指针。
 
 std::vector<HWND> Navigation(const Page& page)
 {
@@ -70,6 +72,36 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
         page->session.CancelRetirement();
         Refresh(*page);
         return TRUE;
+    case kEvidenceDraft: {
+        const auto* draft = reinterpret_cast<const Ksword::Evidence::NativeExecutionSiteDraft*>(lp); // 当前同步调用的来源值。
+        const auto state = page->session.ReadStatus(); // 读取原worker已公布状态，不发原生Query。
+        if (!draft || page->retiring || !state.canStart || state.busy || state.active || state.closing ||
+            page->sites.size() >= execution_native::kOwnedExecutionGroupLimit ||
+            std::any_of(page->sites.begin(), page->sites.end(), [&](const auto& site) { return site.pid == draft->pid; }))
+        {
+            return FALSE;
+        }
+        execution_native::ExecutionGroupSite site; // 纯参数站点，不继承历史授权、停点或owner。
+        site.pid = draft->pid;
+        site.creationFileTime = draft->creationFileTime;
+        site.address = draft->address;
+        site.rangeBytes = draft->rangeBytes;
+        std::erase_if(page->evidenceDrafts, [&](const auto& origin) // 删除已不在目录中的旧来源，保持常量上限。
+        {
+            return std::none_of(page->sites.begin(), page->sites.end(), [&](const auto& existing)
+            {
+                return existing.pid == origin.pid && existing.creationFileTime == origin.creationFileTime &&
+                    existing.address == origin.address && existing.rangeBytes == origin.rangeBytes;
+            });
+        });
+        page->sites.push_back(std::move(site)); // 不调用LoadDraft，保留原编辑表单全部未保存值。
+        page->evidenceDrafts.push_back(*draft);
+        RefreshDraft(*page);
+        ::SendMessageW(page->draft, CB_SETCURSEL, page->sites.size() - 1, 0);
+        page->error.clear();
+        Refresh(*page);
+        return TRUE;
+    }
     case WM_COMMAND: {
         const int id = LOWORD(wp), code = HIWORD(wp);
         if (id == kPreset && code == CBN_SELCHANGE) {
@@ -200,5 +232,24 @@ HWND CreateExecutionGroupWindow(HWND parent, const RECT& bounds)
 HWND CreateExecutionGroupPage(HWND parent, const RECT& bounds)
 {
     return execution_group_page::CreateExecutionGroupWindow(parent, bounds);
+}
+
+// 来源页位于同一原生WorkspaceHost分支；按固定导航ID查找，不搜索其它窗口或进程。
+bool PrepareExecutionGroupEvidenceDraft(HWND source, const Ksword::Evidence::NativeExecutionSiteDraft& draft)
+{
+    for (HWND host = source; host; host = ::GetParent(host)) // 只在当前宿主祖先链定位执行工作台。
+    {
+        if (!::GetDlgItem(host, 58790))
+        {
+            continue;
+        }
+        const HWND target = Ui::WorkspaceHostPage(host, 2, true); // 按原工厂惰性创建唯一集合页。
+        if (!target || !::SendMessageW(target, execution_group_page::kEvidenceDraft, 0, reinterpret_cast<LPARAM>(&draft)))
+        {
+            return false;
+        }
+        return Ui::ActivateWorkspaceHostTab(host, 2); // 成功加入目录才导航，显式Start仍由用户执行。
+    }
+    return false;
 }
 }

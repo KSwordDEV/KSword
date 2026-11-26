@@ -2,6 +2,10 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 最新用户核心方向。** 用户要求重点加强“发现跨进程行为→自动接管下一目标”，目标私有地址必须自动配置；入口须可选择EXE自动启动并挂起、再附加，同时保留已有进程入口。API Monitor的零窗口期待需要Hook调用前同步目标外owner准备屏障，不能拿返回后异步回传声称全接管。网络复用现有网络→流量监控强度，HTTPS解析后置。64页NX/16实例均现有代码上限，不是Windows硬限制；调整额度与补齐自动接管分开。用户询问十一项源码评估，已按源码口径分别估75/85/70/65/65/65/35/85/80/80/70%，仅粗估且不改原产品实证清单、不算整体均值。CodeBuddy测试额度3/3用完仍有效，不因goal重激活恢复。开发子代理【流量接入】只写独立网络后端/CLI源码，禁构建测试/GUI/CodeBuddy/提交推送；主代理处理启动与自动接管。
+
+- **2026-11-26 第4/5/6项历史私有执行草稿源码。** shared ApiNativeExecutionProjection提供唯一PrepareNativeExecutionSiteDraft，核对原v3私有执行绑定、强实例、实际指令地址及来源摘要；NX仅原已纳入且包含指令的整页范围，不扩大。CLI analyze execution draft新增内置help及--sites-only输出完整v1站点文件；Qt/Light原归档树两动作送入原未启动集合目录、成功后导航，不覆盖表单，不自动Start/Append活集合；来源在原详情保留。复用ParameterWorkspace/None清单/FlowLayout/StructuredFieldView及原生等价结构，对照原候选准备与执行集合两页，不增加owner/轮询/文件工程项。双语6键定点，CLI及专项文档同步。仅源码本地提交，未构建/测试/i18n audit/GUI/验收回执/新派发测试/推送；自动接管仍无，不以此冒充完成。
+
 - **2026-11-26 第6项CLI集合等待状态补齐。** 原StopToken为全部成员nativeSnapshot/sessionToken输出breakpoint.waitingForModule，ParseStopToken接新字段并兼容旧五/六字段绑定，精确字段计数不接纳未知键；不按零地址推定等待、不改变控制准入。上一批CLI帮助已承诺此字段，本批补真实集合输出。仅源码本地提交，未构建/测试/GUI/派发/验收回执/推送。
 
 - **2026-11-26 第6/10项冻结定义条件源码。** BreakpointDefinition可选condition只存非空单行UTF-8 source/固定predicate-expr-v3，旧无条件五字段及原键序不变，新条件按键序进入原修订/hash/sample快照，编辑增量修订沿默认比较。ResolveSampleImageDefinition新增可选condition输出，带条件定义缺消费端口即拒绝；PrepareSampleImageCondition统一三端准备，保留CLI原生单目标Entry与OwnedDataWatchSession的Observation阶段。集合初始/追加在原目录副本准备全部继承条件，空手填继承，非空必须原文相同，冲突/类型/语法错误附加前整批拒绝，旧成员/writer不动。Qt/Light单目标原归档准备也接条件，Qt worker/Light原status回显实际继承文本；CLI --definition接原hello条件与求值器。Qt监控→行为分析→项目断点沿原ParameterWorkspace表单增加单行条件编辑/准备错误/草稿保护/清空/保存，Light原项目定义选择器只展示与激活，定义编辑仍为无；对照原DataWriteWatchPage/ExecutionGroupSiteEditor及ParameterWorkspace，未改主题/导航/布局所有权。双语4键定点source_translations，CLI help/元数据/schema/专项文档同步，无新源码/工程项。此批仅开发源码与本地提交，未构建/测试/GUI/i18n audit/验收回执/新派发/推送；测试额度3/3仍耗尽。延迟模块与条件均待运行，不能提升历史验收比例；全局自动激活/PDB/完整后代/死亡恢复仍为无。

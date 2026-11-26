@@ -8183,6 +8183,12 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "准备地址草稿": "Prepare address draft",
+    "准备范围草稿": "Prepare range draft",
+    "将当前私有执行观察的原进程实例与实际指令地址加入未启动的执行集合；不覆盖输入、不附加目标。": "Add the original process instance and actual instruction address from this private execution observation to an unstarted execution group. Preserve form inputs and leave the target unattached.",
+    "将包含实际指令的原已纳入 NX 范围加入未启动的执行集合；不扩大范围，现场资格在显式开始时重新核对。": "Add the original admitted NX range containing the actual instruction to an unstarted execution group. Preserve its exact extent; live admission is checked again at explicit start.",
+    "执行集合未接收草稿：请先清退并返回草稿，检查重复 PID 或 16 个成员上限。": "The execution group did not accept the draft. Close the current group and return to drafts; check duplicate PIDs and the 16-member limit.",
+    "草稿证据来源": "Draft evidence source",
     "断点条件：%1": "Breakpoint condition: %1",
     "断点条件（可选）": "Breakpoint condition (optional)",
     "条件随采样冻结，激活时使用原生停点字段；留空为无条件，手填冲突会拒绝附加。": "The condition is frozen with the sample and uses native stop fields at activation. Leave blank for no condition. A conflicting manual condition prevents attachment.",

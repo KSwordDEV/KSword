@@ -25,6 +25,38 @@ namespace ks::action_analyze
     namespace native = execution_group_native;
     using ks::i18n::sourceText;
 
+    // 工作台显式转交纯值草稿；只追加目录，不覆盖编辑器或启动任何原生会话。
+    bool ExecutionGroupPage::AddEvidenceDraft(const Ksword::Evidence::NativeExecutionSiteDraft& draft)
+    {
+        if (m_session || m_model->sites.size() >= native::kOwnedExecutionGroupLimit ||
+            std::any_of(m_model->sites.begin(), m_model->sites.end(), [&](const auto& site) { return site.pid == draft.pid; }))
+        {
+            return false;
+        }
+        native::ExecutionGroupSite site; // 无旧owner、条件或停止令牌的新参数站点。
+        site.pid = draft.pid;
+        site.creationFileTime = draft.creationFileTime;
+        site.address = draft.address;
+        site.rangeBytes = draft.rangeBytes;
+        auto rows = m_model->sites; // 原目录成功追加后才一次发布，原表单保持不变。
+        rows.push_back(std::move(site));
+        std::erase_if(m_evidenceDrafts, [&](const auto& origin) // 淘汰已移除站点来源，存储始终有界。
+        {
+            return std::none_of(m_model->sites.begin(), m_model->sites.end(), [&](const auto& existing)
+            {
+                return existing.pid == origin.pid && existing.creationFileTime == origin.creationFileTime &&
+                    existing.address == origin.address && existing.rangeBytes == origin.rangeBytes;
+            });
+        });
+        m_evidenceDrafts.push_back(draft);
+        m_model->Replace(std::move(rows));
+        m_members->selectRow(m_model->rowCount() - 1);
+        m_inputError.clear();
+        Render();
+        Detail();
+        return true;
+    }
+
     // 输入all范围开关，返回点击时全部所选行；不从当前第一行推断批次。
     std::vector<int> ExecutionGroupPage::Selected(bool all) const
     {
@@ -531,6 +563,23 @@ namespace ks::action_analyze
 
     void ExecutionGroupPage::Detail()
     {
-        m_fields->setDocument(ExecutionGroupDocument(m_shown, m_model->sites, Selected())); // 搜索、复制和导出共享完整规范字段。
+        auto document = ExecutionGroupDocument(m_shown, m_model->sites, Selected()); // 同一规范文档参与搜索、复制和导出。
+        for (const auto row : Selected()) // 手动替换站点后不再冒用不匹配的旧来源。
+        {
+            const auto& site = m_model->sites.at(row); // 明确所选目录身份，不按首行代表全集。
+            for (const auto& origin : m_evidenceDrafts)
+            {
+                if (site.pid == origin.pid && site.creationFileTime == origin.creationFileTime &&
+                    site.address == origin.address && site.rangeBytes == origin.rangeBytes)
+                {
+                    document.section(QStringLiteral("草稿证据来源"))
+                        .field(QStringLiteral("projectId"), QString::fromStdString(origin.projectId))
+                        .field(QStringLiteral("sampleId"), QString::fromStdString(origin.sampleId))
+                        .field(QStringLiteral("raw-native"), QString::number(origin.nativeOrdinal))
+                        .field(QStringLiteral("SHA256"), QString::fromStdString(origin.nativeSha256));
+                }
+            }
+        }
+        m_fields->setDocument(document);
     }
 }

@@ -63,6 +63,44 @@ Result Read(const Args& args)
         {L"document", Document(archived.document)}}), {}};
 }
 
+// 输入项目、采样、原生段和可选范围模式；输出可保存为--sites的纯参数，不附加进程。
+Result Draft(const Args& args)
+{
+    const auto sample = Sample(args); // 旧采样只定位来源，不复用其活会话身份。
+    const auto ordinal = args.has(L"--ordinal") ? args.integer(L"--ordinal") : 1; // 来源raw-native段。
+    if (!ordinal || ordinal > 4096)
+    {
+        throw std::invalid_argument("--ordinal must be 1..4096");
+    }
+    project::ProjectDocument document; // 本命令只读原项目，与现场owner完全分开。
+    if (const auto status = document.Open(args.require(L"--project"), project::ProjectAccess::ReadOnly); !status)
+    {
+        return Failed(status);
+    }
+    project::ArchivedNativeExecution archived; // 先沿原读端核验完整前缀，再生成来源。
+    if (const auto status = ReadNativeExecutionChain(document, sample, ordinal, archived); !status)
+    {
+        return Failed(status);
+    }
+    const auto source = Ksword::Evidence::NativeExecutionHistorySource(archived, ordinal); // 与桌面树同源。
+    const auto draft = Ksword::Evidence::PrepareNativeExecutionSiteDraft(source.sourceDocument, args.has(L"--range"));
+    if (!draft)
+    {
+        return Failed(storage::Failure(project::ProjectError::InvalidArgument, "nativeExecutionDraftUnavailable"));
+    }
+    if (args.has(L"--sites-only"))
+    {
+        return {0, Document(Ksword::Evidence::NativeExecutionDraftSites(*draft)), {}}; // v1对象可直接保存作站点文件。
+    }
+    return {0, Json::object({
+        {L"projectId", Json::string(storage::WideAscii(draft->projectId))},
+        {L"sampleId", Json::string(storage::WideAscii(draft->sampleId))},
+        {L"nativeOrdinal", Json::count(draft->nativeOrdinal)},
+        {L"nativeSha256", Json::string(storage::WideAscii(draft->nativeSha256))},
+        {L"historical", Json::boolean(true)}, {L"liveValidated", Json::boolean(false)},
+        {L"sitesFile", Document(Ksword::Evidence::NativeExecutionDraftSites(*draft))}}), {}};
+}
+
 // 输入项目、采样和段号游标，分页列出原生观察摘要；完整原文沿execution read读取。
 Result History(const Args& args)
 {
@@ -460,6 +498,14 @@ void RegisterNativeExecutionCommands()
     read.notes = L"Verifies every raw-native segment from 1 through the requested ordinal. Accepts legacy native-execution-v1/v2 and current native-execution-v3 with full event-thread registers and the original event binding. The binding retains admitted NX ranges and any measured image SHA256; missing legacy fields remain unknown. Returns the historical document, SHA-256 and raw-native boundary. Archived registers are event-stop values; instruction-completed registers describe the state after the instruction. Historical binding and stop IDs cannot grant live control.";
     read.run = Read;
     addCommand(std::move(read));
+    Command draft; // 归档参数准备独立于实时execution-group控制。
+    draft.path = L"analyze execution draft";
+    draft.syntax = L"KswordCLI.exe analyze execution draft --project PATH --sample UUID [--ordinal N] [--range] [--sites-only] [--json]";
+    draft.summary = L"Prepare an explicit execution-group site draft from verified private execution history.";
+    draft.options = L"Requires --project and --sample. --ordinal defaults to 1 (1..4096). --range selects the original admitted NX range containing the observed instruction; default is the actual instruction address. --sites-only returns the v1 single-member sites file object.";
+    draft.notes = L"Uses the same draft conversion as Qt and Light. Requires a v3 private execution binding, original process PID/creation FILETIME and source hash. Module, write-watch and legacy unknown bindings are unavailable. Does not align, enlarge or guess ranges. Save --sites-only --json output as UTF-8 without BOM for execution-group --sites or members-append. This is a new draft: it does not attach, authorize, continue or rebind the historical stop. The live owner must verify the same process instance, committed MEM_PRIVATE memory and all native admission requirements.";
+    draft.run = Draft;
+    addCommand(std::move(draft));
     Command history; // 历史列表按raw-native游标分页，不依赖API流存在。
     history.path = L"analyze execution history";
     history.syntax = L"KswordCLI.exe analyze execution history --project PATH --sample UUID [--after N --limit N] [--json]";

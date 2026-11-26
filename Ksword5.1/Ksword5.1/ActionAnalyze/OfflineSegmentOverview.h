@@ -63,6 +63,7 @@ namespace ks::action_analyze
         std::function<void(const QString&, const QString&)> liveSampleRegistered;
         std::function<void()> openBreakpointPage; // 工作台负责切换到已经登记的全局断点页。
         std::function<void()> activateOverview; // 浮窗的归档动作受理后定位共用总览。
+        std::function<bool(const Ksword::Evidence::NativeExecutionSiteDraft&)> prepareExecutionDraft; // 显式将已核验来源加入未启动集合，不覆盖编辑器。
         // 接入现有写入/执行owner的动作端口，不创建采集器或第二个原生控制器。
         void setNativeWatchToolbar(std::shared_ptr<DataWatchToolbarPort> toolbar);
         void setProcessGroupToolbar(std::shared_ptr<ProcessGroupToolbarPort> toolbar); // 复用显式集合的暂停/恢复入口。
@@ -126,6 +127,8 @@ namespace ks::action_analyze
         void selectNativeExecution(const Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>& candidate);
         // 输入树叶所持同采样历史，显示共享详情；不访问进程或执行控制动作。
         void selectNativeHistory(const Ksword::Evidence::NativeExecutionHistoryEntry& observation);
+        void updateExecutionDraftActions(); // 只按当前树来源更新两种草稿资格，无I/O或现场控制。
+        void prepareSelectedExecutionDraft(bool range); // 点击时冻结当前历史来源，再交工作台原集合页。
         // 刷新状态和共享详情文档，不执行文件 I/O。
         void updateText();
         void updateDetails();
@@ -179,6 +182,8 @@ namespace ks::action_analyze
         QWidget* m_archiveRelationPanel = nullptr; // 仅在归档窗口内显示的关系浏览区。
         QLabel* m_archiveRelationStatus = nullptr; // 空窗口、操作提示或隐藏原行的反馈。
         QTreeView* m_archiveRelationTree = nullptr; // 通过真实归档坐标定位原始记录的只读树。
+        QPushButton* m_prepareExecutionAddress = nullptr; // 当前私有执行观察的单地址草稿入口。
+        QPushButton* m_prepareExecutionRange = nullptr; // 当前观察原已纳入NX范围的草稿入口。
         ArchiveRelationModel* m_archiveRelationModel = nullptr; // 当前归档窗口的分组索引。
         QString m_projectManifest; // 下次开始时冻结的项目清单路径。
         QString m_projectRevision; // 已打开项目的配置修订，启动时重新核对。

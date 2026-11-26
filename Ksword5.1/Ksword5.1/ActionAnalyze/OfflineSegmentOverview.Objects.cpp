@@ -9,11 +9,13 @@
 #include "../UI/TableColumnAutoFit.h"
 #include "../UI/TablePresentation.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include <QAbstractItemModel>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPushButton>
 #include <QItemSelectionModel>
 #include <QSignalBlocker>
 #include <QStringList>
@@ -652,6 +654,21 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
     // 保留面板入口，让未选事件与无关系记录都有明确空态。
     layout->addWidget(m_objects);
     layout->addWidget(m_objectStatus);
+    auto* draftActions = new QWidget(panel); // 证据树动作沿现有工具带自适应换行，不增加外层滚动。
+    auto* draftFlow = new ks::ui::FlowLayout(draftActions, 0, 8, 8);
+    auto& language = ks::i18n::LanguageManager::instance(); // 与原页面共用动态双语绑定。
+    m_prepareExecutionAddress = new QPushButton(draftActions);
+    m_prepareExecutionRange = new QPushButton(draftActions);
+    language.bindText(m_prepareExecutionAddress, {}, QStringLiteral("准备地址草稿"));
+    language.bindText(m_prepareExecutionRange, {}, QStringLiteral("准备范围草稿"));
+    language.bindToolTip(m_prepareExecutionAddress, {}, QStringLiteral("将当前私有执行观察的原进程实例与实际指令地址加入未启动的执行集合；不覆盖输入、不附加目标。"));
+    language.bindToolTip(m_prepareExecutionRange, {}, QStringLiteral("将包含实际指令的原已纳入 NX 范围加入未启动的执行集合；不扩大范围，现场资格在显式开始时重新核对。"));
+    draftFlow->addWidget(m_prepareExecutionAddress);
+    draftFlow->addWidget(m_prepareExecutionRange);
+    ks::ui::NormalizeToolbarLayout(draftFlow);
+    layout->addWidget(draftActions);
+    connect(m_prepareExecutionAddress, &QPushButton::clicked, this, [this] { prepareSelectedExecutionDraft(false); });
+    connect(m_prepareExecutionRange, &QPushButton::clicked, this, [this] { prepareSelectedExecutionDraft(true); });
 
     // 独立展开关系列表。原图、对象菜单和原图的窄窗换行继续由原控件负责。
     m_archiveRelationToggle = new QToolButton(panel);
@@ -722,6 +739,7 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
     });
     connect(m_archiveRelationTree->selectionModel(), &QItemSelectionModel::currentChanged, this,
         [this](const QModelIndex& index) {
+            updateExecutionDraftActions(); // 当前树选择决定准备来源，不沿用旧详情选择。
             if (const auto* entry = m_archiveRelationModel->history(index))
             {
                 selectNativeHistory(*entry);
@@ -734,8 +752,36 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
                 }
             }
         });
+    updateExecutionDraftActions(); // 首次无来源时禁用动作，不将空树冒充可执行草稿。
     retranslateArchiveRelations();
     return panel;
+}
+
+// 用户在已发布树上显式选择观察；草稿由共享核心准备，不触碰目标进程。
+void OfflineSegmentOverview::updateExecutionDraftActions()
+{
+    const auto index = m_archiveRelationTree->currentIndex(); // 模型索引只在本次同步调用中使用。
+    const auto* history = m_archiveRelationModel->history(index); // 独立原生历史叶。
+    const auto* candidate = m_archiveRelationModel->execution(index, m_snapshot.get()); // 已核验的一致性候选。
+    const auto* source = history ? &history->sourceDocument : candidate ? &candidate->sourceDocument : nullptr;
+    m_prepareExecutionAddress->setEnabled(prepareExecutionDraft && source &&
+        Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, false).has_value());
+    m_prepareExecutionRange->setEnabled(prepareExecutionDraft && source &&
+        Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, true).has_value());
+}
+
+// 点击冻结草稿后交原集合页；成功才导航，失败保持原树、旧详情及编辑输入。
+void OfflineSegmentOverview::prepareSelectedExecutionDraft(bool range)
+{
+    const auto index = m_archiveRelationTree->currentIndex(); // 不按先前选过的旧原生详情补来源。
+    const auto* history = m_archiveRelationModel->history(index);
+    const auto* candidate = m_archiveRelationModel->execution(index, m_snapshot.get());
+    const auto* source = history ? &history->sourceDocument : candidate ? &candidate->sourceDocument : nullptr;
+    const auto draft = source ? Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, range) : std::nullopt;
+    if (draft && prepareExecutionDraft && !prepareExecutionDraft(*draft))
+    {
+        m_objectStatus->setText(sourceText(QStringLiteral("执行集合未接收草稿：请先清退并返回草稿，检查重复 PID 或 16 个成员上限。")));
+    }
 }
 
 // 归档读取成功后更新关系树，切换采样时清除旧叶项。
@@ -918,6 +964,7 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
             }
         }
     }
+    updateExecutionDraftActions(); // 模型重置期间信号被阻断，在最终恢复选择后统一刷新资格。
 }
 
 // 更新归档操作及树项文案，保持当前采样、节点与展开状态。

@@ -47,7 +47,7 @@ enum ControlId {
     kSampleChoice, kReplaySample, kCancelChoice, kApiOnly, kNetworkOnly,
     kSwitchView, kLivePid, kLiveProvider, kReservedLiveArchive, kLiveStart, kLiveStop, kLiveFollow, kCreateProject,
     kEvidenceFamily, kLocateEvidence, kEvidenceRecord, kLiveApi, kApiPid, kApiSession, kApiCreation, kApiBrowse, kApiPath, kApiSource,
-    kTransferCandidates, kApiDuration
+    kTransferCandidates, kApiDuration, kPrepareExecutionAddress, kPrepareExecutionRange
 };
 static_assert(kApiSource <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
@@ -153,6 +153,7 @@ struct Page {
     HWND status = nullptr;
     EvidenceTimeline timeline;
     ApiTransferCandidateTree transferTree; // 当前回放的写入与创建来源声明候选。
+    HWND prepareExecutionAddress = nullptr, prepareExecutionRange = nullptr; // 当前树来源的两种显式草稿动作。
     std::optional<EvidenceRecord> selectedCandidate; // 原包已滚出列表时仍供共享详情读取。
     std::optional<Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>> selectedExecution; // 只读原生来源，与 API 原行分别保存。
     std::optional<Ksword::Evidence::NativeExecutionHistoryEntry> selectedNativeHistory; // 独立历史选择，不依赖API候选。
@@ -656,8 +657,13 @@ void Layout(Page& page) {
         ::SetFocus(page.filter); // 切回实时或无候选范围时，键盘焦点回到可见筛选入口。
     }
     ::ShowWindow(page.transferTree.hwnd(), showCandidates ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(page.prepareExecutionAddress, showCandidates ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(page.prepareExecutionRange, showCandidates ? SW_SHOW : SW_HIDE);
     if (showCandidates) {
-        move(page.transferTree.hwnd(), inset, graphTop, width, graphHeight - gap);
+        const int actionWidth = (width - gap) / 2; // 两个简短动作同排等高，保留树作为本区主要内容。
+        move(page.prepareExecutionAddress, inset, graphTop, actionWidth, height);
+        move(page.prepareExecutionRange, inset + actionWidth + gap, graphTop, width - actionWidth - gap, height);
+        move(page.transferTree.hwnd(), inset, graphTop + height + gap, width, (std::max)(0, graphHeight - height - 2 * gap));
     }
     move(page.details, inset, graphTop + graphHeight, width, detailHeight - gap);
     move(page.status, inset, bottom, width, statusHeight);
@@ -2102,7 +2108,8 @@ LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UIN
             page.liveStart, page.liveStop, page.liveFollow,
             page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
             page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
-            page.timeline.hwnd(), page.list.hwnd(), page.transferTree.hwnd(), page.details, page.status }; // 候选树纳入已有 Tab／Shift+Tab 顺序。
+            page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
+            page.transferTree.hwnd(), page.details, page.status }; // 草稿动作与候选树共用原Tab／Shift+Tab顺序。
         const auto found = std::find(order.begin(), order.end(), hwnd);
         const auto size = static_cast<int>(order.size());
         auto index = static_cast<int>(found - order.begin());
@@ -2260,6 +2267,13 @@ bool CreateControls(Page& page) {
         ::GetModuleHandleW(nullptr), nullptr);
     page.transferTree.Create(page.hwnd, kTransferCandidates);
     if (!page.transferTree.hwnd()) return false;
+    page.prepareExecutionAddress = Ui::CreateButton(page.hwnd, kPrepareExecutionAddress, L"准备地址草稿", 0, 0, 0, 0);
+    page.prepareExecutionRange = Ui::CreateButton(page.hwnd, kPrepareExecutionRange, L"准备范围草稿", 0, 0, 0, 0);
+    if (!page.prepareExecutionAddress || !page.prepareExecutionRange) return false;
+    ::EnableWindow(page.prepareExecutionAddress, FALSE); // 无原生来源时不提供虚假可用入口。
+    ::EnableWindow(page.prepareExecutionRange, FALSE);
+    AddButtonTip(page.tooltip, page.hwnd, page.prepareExecutionAddress, L"将当前私有执行观察的原进程实例与实际指令地址加入未启动的执行集合；不覆盖输入、不附加目标。");
+    AddButtonTip(page.tooltip, page.hwnd, page.prepareExecutionRange, L"将包含实际指令的原已纳入 NX 范围加入未启动的执行集合；不扩大范围，现场资格在显式开始时重新核对。");
     AddButtonTip(page.tooltip, page.hwnd, page.transferTree.hwnd(), L"来源声明候选不证明实际执行或强归因。展开后双击或按 Enter 定位写入、线程创建双方原包。");
     AddButtonTip(page.tooltip, page.hwnd, page.createProject, L"在指定的新文件夹中建立一个行为分析工程");
     AddButtonTip(page.tooltip, page.hwnd, page.open, L"打开已有行为分析工程");
@@ -2290,7 +2304,8 @@ bool CreateControls(Page& page) {
         page.liveStart, page.liveStop, page.liveFollow,
         page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
         page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
-        page.timeline.hwnd(), page.list.hwnd(), page.transferTree.hwnd(), page.details, page.status}) { // 复用既有键盘遍历子类，不另加全局快捷键。
+        page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
+        page.transferTree.hwnd(), page.details, page.status}) { // 复用既有键盘遍历子类，不另加全局快捷键。
         if (!::SetWindowSubclass(child, NavigateControls, 1, reinterpret_cast<DWORD_PTR>(&page))) return false;
     }
     Ui::SetWindowFontRecursive(page.hwnd);
@@ -2357,6 +2372,21 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         break;
     }
     case WM_COMMAND:
+        if ((LOWORD(wp) == kPrepareExecutionAddress || LOWORD(wp) == kPrepareExecutionRange) &&
+            HIWORD(wp) == BN_CLICKED && !page->retiring && !page->liveView)
+        {
+            const auto* history = page->transferTree.History(); // 点击时冻结当前树来源，不使用残留旧详情。
+            const auto* candidate = page->transferTree.Execution(); // 一致性候选和独立历史共用同一转换。
+            const auto* source = history ? &history->sourceDocument : candidate ? &candidate->sourceDocument : nullptr;
+            const auto draft = source ? Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source,
+                LOWORD(wp) == kPrepareExecutionRange) : std::nullopt;
+            if (draft && !PrepareExecutionGroupEvidenceDraft(hwnd, *draft))
+            {
+                page->requestStatus = L"执行集合未接收草稿：请先清退并返回草稿，检查重复 PID 或 16 个成员上限。";
+                UpdateStatus(*page);
+            }
+            return 0;
+        }
         if (HIWORD(wp) == BN_CLICKED && !page->retiring) {
             switch (LOWORD(wp)) {
             case kSwitchView: if (!page->catalogBusy) ToggleView(*page); return 0;
@@ -2441,6 +2471,16 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     case WM_NOTIFY: {
         const auto& notice = *reinterpret_cast<const NMHDR*>(lp);
         if (notice.idFrom == kTransferCandidates) {
+            if (notice.code == TVN_SELCHANGEDW)
+            {
+                const auto* history = page->transferTree.History(); // 新旧树切换也立即清除原草稿动作资格。
+                const auto* candidate = page->transferTree.Execution();
+                const auto* source = history ? &history->sourceDocument : candidate ? &candidate->sourceDocument : nullptr;
+                ::EnableWindow(page->prepareExecutionAddress, !page->retiring && source &&
+                    Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, false).has_value());
+                ::EnableWindow(page->prepareExecutionRange, !page->retiring && source &&
+                    Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, true).has_value());
+            }
             if (notice.code == TVN_SELCHANGEDW && !page->applyingProjection &&
                 (page->transferTree.Execution() || page->transferTree.History()))
             {

@@ -189,6 +189,75 @@ NativeExecutionHistoryEntry NativeExecutionHistorySource(
     return entry;
 }
 
+// 三端在用户显式准备时调用；只消费原读端已核验的来源，旧档不补造私有绑定资格。
+std::optional<NativeExecutionSiteDraft> PrepareNativeExecutionSiteDraft(const JsonValue& source, bool range)
+{
+    namespace storage = ActionAnalyze::ProjectStorage;
+    const auto* native = source.find("native"); // 唯一原生文档，不从请求IP或下一RIP替代实际指令。
+    if (!native || !ActionAnalyze::IsNativeExecutionDocument(*native))
+    {
+        return {};
+    }
+    const auto* target = native->find("target"); // 原进程强实例字段。
+    const auto* binding = native->find("binding"); // v3保留的原停点绑定；v1/v2保持不可准备。
+    const auto* pid = target ? target->find("pid") : nullptr; // PID使用原UInt形状。
+    NativeExecutionSiteDraft draft; // 所有字段成功后才返回，不产生部分可执行草稿。
+    std::uint64_t process = 0, module = 0, writeBytes = 0; // 原PID、模块基址及写关注宽度。
+    std::uint64_t instruction = 0; // 原生真实指令起点，步进完成也不使用下一RIP。
+    if (!binding || !pid || pid->type() != JsonType::UInt || !pid->tryGetU64(process) ||
+        !process || process > UINT32_MAX || !storage::GetNumber(*target, "creationFileTime", draft.creationFileTime) ||
+        !draft.creationFileTime || !storage::GetNumber(*binding, "moduleBase", module) || module ||
+        !storage::GetNumber(*binding, "writeWatchBytes", writeBytes) || writeBytes ||
+        !storage::GetNumber(*native, "instructionAddress", instruction) || !instruction ||
+        !storage::GetString(*native, "projectId", draft.projectId) || !storage::IsUuid(draft.projectId) ||
+        !storage::GetString(*native, "sampleId", draft.sampleId) || !storage::IsUuid(draft.sampleId) ||
+        !storage::GetNumber(source, "nativeSegmentOrdinal", draft.nativeOrdinal) || !draft.nativeOrdinal ||
+        !storage::GetString(source, "nativeSha256", draft.nativeSha256) || !storage::IsHash(draft.nativeSha256))
+    {
+        return {};
+    }
+    draft.pid = static_cast<std::uint32_t>(process);
+    draft.address = instruction;
+    if (range)
+    {
+        const auto* ranges = binding->find("executionRanges"); // 只使用该事件实际纳入的原范围。
+        if (!ranges || !ranges->asArray())
+        {
+            return {};
+        }
+        bool found = false; // 没有包含实际指令的范围时不回退为单页或单地址。
+        for (const auto& item : *ranges->asArray())
+        {
+            std::uint64_t base = 0, bytes = 0; // 每个原范围独立核对，不合并相邻分配。
+            if (storage::GetNumber(item, "base", base) && storage::GetNumber(item, "bytes", bytes) &&
+                base && bytes && base % 4096 == 0 && bytes % 4096 == 0 && bytes <= 64ull * 4096 &&
+                base <= UINT64_MAX - bytes && instruction >= base && instruction - base < bytes)
+            {
+                draft.address = base;
+                draft.rangeBytes = bytes;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            return {};
+        }
+    }
+    return draft;
+}
+
+// 保持原站点文件协议的UInt PID和无损十进制字符串；不输出任何旧控制令牌。
+JsonValue NativeExecutionDraftSites(const NativeExecutionSiteDraft& draft)
+{
+    JsonObject site{{"pid", JsonValue::makeUInt(draft.pid)},
+        {"creationFileTime", JsonValue::makeString(std::to_string(draft.creationFileTime))},
+        {"address", JsonValue::makeString(std::to_string(draft.address))},
+        {"rangeBytes", JsonValue::makeString(std::to_string(draft.rangeBytes))}}; // 原ReadSites四字段私有地址形状，零范围也须显式。
+    return JsonValue::makeObject({{"schemaVersion", JsonValue::makeUInt(1)},
+        {"sites", JsonValue::makeArray({JsonValue::makeObject(std::move(site))})}});
+}
+
 // 输出包含匹配类型、原包坐标和完整原生文档；历史来源不转换为活停点或放行票据。
 JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection::EvidenceRef* write,
     const ActionAnalyze::Detection::EvidenceRef& request,

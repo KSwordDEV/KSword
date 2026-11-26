@@ -240,8 +240,18 @@ ActionAnalyzeWorkspace::ActionAnalyzeWorkspace(QWidget* parent)
         QString::fromLatin1(ks::monitor::ActionAnalyzeProcessGroupId));
     m_overview->setProcessGroupToolbar(groupToolbar);
     // 执行站点集合拥有独立原生会话，保留暂停集合工具栏和定义→单目标准备端口。
-    ks::monitor::AddMonitorNavigationTab(m_tabs, new ExecutionGroupPage(m_tabs),
+    auto* executionGroup = new ExecutionGroupPage(m_tabs); // 归档准备复用同一集合页，不创建第二owner。
+    ks::monitor::AddMonitorNavigationTab(m_tabs, executionGroup,
         QString::fromLatin1(ks::monitor::ActionAnalyzeExecutionGroupId));
+    m_overview->prepareExecutionDraft = [this, executionGroup](const Ksword::Evidence::NativeExecutionSiteDraft& draft)
+    {
+        if (!executionGroup->AddEvidenceDraft(draft))
+        {
+            return false;
+        }
+        m_tabs->setCurrentWidget(executionGroup); // 加入目录成功后直达；开始及授权仍由用户明确执行。
+        return true;
+    };
     m_overview->openBreakpointPage = [this]() {
         m_tabs->setCurrentWidget(m_breakpoints);
     };

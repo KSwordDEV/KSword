@@ -319,6 +319,16 @@ void RefreshText(Page& page)
                 L"\r\n草稿执行站点=" + SiteText(site) +
                 L"\r\n草稿期望映像 SHA256=" + (site.imageSha256 ? Widen(*site.imageSha256) : L"未指定");
             text += L"\r\n冻结断点定义ID=" + Widen(site.definitionId); // 原草稿引用，不冒充已激活。
+            for (const auto& origin : page.evidenceDrafts) // 手动改站点后不再显示不匹配的旧来源。
+            {
+                if (site.pid == origin.pid && site.creationFileTime == origin.creationFileTime &&
+                    site.address == origin.address && site.rangeBytes == origin.rangeBytes)
+                {
+                    text += L"\r\n[草稿证据来源]\r\nprojectId=" + Widen(origin.projectId) +
+                        L"\r\nsampleId=" + Widen(origin.sampleId) + L"\r\nraw-native=" + std::to_wstring(origin.nativeOrdinal) +
+                        L"\r\nSHA256=" + Widen(origin.nativeSha256); // 同一正文供搜索、复制和导出。
+                }
+            }
         }
         const auto selected = SelectedRows(page);
         if (selected.empty()) text += L"\r\n请选择成员查看冻结站点、原生身份和完整票据。";

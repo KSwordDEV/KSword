@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ExecutionGroupSession.h"
+#include "../../../shared/evidence/ApiNativeExecutionProjection.h"
 #include <QWidget>
 
 class QCheckBox;
@@ -26,6 +27,7 @@ namespace ks::action_analyze
     public:
         explicit ExecutionGroupPage(QWidget* parent); // 创建共享布局与导航内容，不自动附加。
         ~ExecutionGroupPage() override; // 非阻塞请求原worker清退，退出租约持续保活。
+        bool AddEvidenceDraft(const Ksword::Evidence::NativeExecutionSiteDraft& draft); // 加入未启动目录且保留输入；失败不改变原集合。
 
     protected:
         void changeEvent(QEvent* event) override; // 语言更新保留目录、草稿、选择和原票据。
@@ -84,6 +86,7 @@ namespace ks::action_analyze
         std::unique_ptr<ExecutionGroupSession> m_session; // clean前不替换的本端原生会话。
         ExecutionGroupSessionSnapshot m_shown; // 用户当前实际看到的完整结果，动作据此冻结。
         QString m_inputError; // 输入或入队失败，不覆盖原生结果。
+        std::vector<Ksword::Evidence::NativeExecutionSiteDraft> m_evidenceDrafts; // 最多当前目录的16份原证据来源，不授控制权。
         bool m_registered = false; // 单例常驻所有者登记准入。
     };
 }

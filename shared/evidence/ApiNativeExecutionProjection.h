@@ -45,6 +45,24 @@ struct NativeExecutionHistoryEntry {
 NativeExecutionHistoryEntry NativeExecutionHistorySource(
     const ActionAnalyze::ArchivedNativeExecution& execution, std::uint64_t ordinal);
 
+// 归档到下一次显式执行的纯参数草稿；没有owner、事件票据或现场内存资格。
+struct NativeExecutionSiteDraft {
+    std::uint32_t pid = 0; // 原生观察所属的进程编号，不从API句柄或当前PID反查。
+    std::uint64_t creationFileTime = 0; // 与PID配对的原创建FILETIME。
+    std::uint64_t address = 0; // 实际指令地址，范围模式则为原已纳入NX范围起点。
+    std::uint64_t rangeBytes = 0; // 零为单地址，非零为包含该指令的原NX范围。
+    std::string projectId, sampleId; // 原证据项目与采样，不自动成为下一轮采样身份。
+    std::uint64_t nativeOrdinal = 0; // 来源raw-native段号，供草稿展示与追溯。
+    std::string nativeSha256; // 来源段摘要，与下一次现场内存版本无关。
+};
+
+// 输入已发布的原生历史/一致性来源及显式范围模式，成功返回草稿；不访问目标。
+// 仅原v3私有执行绑定可用；范围必须来自已纳入范围且包含实际指令，不扩大或对齐补页。
+std::optional<NativeExecutionSiteDraft> PrepareNativeExecutionSiteDraft(const JsonValue& source, bool range);
+
+// 输入纯值草稿，输出原execution-group --sites接受的v1单成员文件对象；来源独立保留在上层。
+JsonValue NativeExecutionDraftSites(const NativeExecutionSiteDraft& draft);
+
 // 输入两次发布的历史叶项，返回物理来源是否相同；不按PID或树下标认领旧选择。
 inline bool SameNativeExecutionHistory(const NativeExecutionHistoryEntry& left,
     const NativeExecutionHistoryEntry& right)
