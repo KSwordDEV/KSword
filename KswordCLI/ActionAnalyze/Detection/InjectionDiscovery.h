@@ -138,6 +138,8 @@ struct EventProjection {
 bool HasEvidenceLocation(const SampleScope& scope, const EvidenceRef& evidence) noexcept;
 // 校验机器、启动期及强进程身份。该函数不从系统回填缺失字段。
 bool IsBoundProcess(const SampleScope& scope, const ProcessBinding& process) noexcept;
+// 两个实例均已核实。创建者必须在新线程创建时已经存在，且同 PID 时只能是宿主实例。
+bool IsPossibleThreadCreator(const ProcessBinding& creator, const ThreadBinding& newThread) noexcept;
 // 逐事件只读投影。没有扫描、定时器、目标写入或告警处置。结果持有输入，便于独立回读。
 EventProjection ProjectInjectionEvent(const SampleScope& scope, InjectionEvent event);
 

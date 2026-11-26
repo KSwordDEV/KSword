@@ -141,7 +141,7 @@ void Evaluate(const SampleScope& scope, const ThreadCreationObservation& row, Ev
     }
     bool consistentCreator = creator;
     if (creator && ((row.creatorPidHint != 0 && row.creatorPidHint != row.creator->instance.pid.value) ||
-            (row.creator->instance.pid == row.target->instance.pid && !SameProcess(*row.creator, *row.target)))) {
+            !IsPossibleThreadCreator(*row.creator, *row.newThread))) {
         result.gaps.push_back(Issue::IdentityConflict);
         consistentCreator = false;
     }
@@ -211,6 +211,12 @@ bool IsBoundProcess(const SampleScope& scope, const ProcessBinding& process) noe
         id.pid.present && id.pid.value != 0 && id.pid.value <= UINT32_MAX &&
         id.createTime100ns.present && id.createTime100ns.value != 0 &&
         id.strength() == Evidence::IdentityStrength::Strong;
+}
+
+bool IsPossibleThreadCreator(const ProcessBinding& creator, const ThreadBinding& newThread) noexcept
+{
+    return creator.instance.createTime100ns.value <= newThread.creationFileTime &&
+        (creator.instance.pid != newThread.owner.instance.pid || SameProcess(creator, newThread.owner));
 }
 
 EventProjection ProjectInjectionEvent(const SampleScope& scope, InjectionEvent event)
