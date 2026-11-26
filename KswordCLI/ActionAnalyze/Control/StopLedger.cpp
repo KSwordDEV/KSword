@@ -53,7 +53,8 @@ bool EventConfirmedHeld(EventState state) {
 }
 
 bool ValidPhase(StopPhase phase) {
-    return phase == StopPhase::CallEnter || phase == StopPhase::CallReturn || phase == StopPhase::ExecutionEnterAttempt;
+    return phase == StopPhase::CallEnter || phase == StopPhase::CallReturn || phase == StopPhase::ExecutionEnterAttempt ||
+        phase == StopPhase::DataWriteObserved;
 }
 
 bool ValidReceipt(const ReleaseReceipt& receipt) {
@@ -467,7 +468,7 @@ std::optional<StopGroupSnapshot> StopLedger::Query(std::string_view groupId) con
 
     StopGroupSnapshot snapshot{owner_.sampleId, owner_.sessionId, owner_.epoch, group->frozen.groupId, group->revision,
         group->frozen.membershipRevision, group->frozen.membershipSha256, ProjectGroup(*group), std::nullopt, {},
-        group->incidentalQuality, {}, group->closed};
+        group->incidentalQuality, {}, group->closed, group->native ? std::optional(group->eventState) : std::nullopt};
     if (group->native && group->native->phase) {
         OriginHold hold = OriginHold::Held;
         if (group->originExited) { hold = OriginHold::Exited; }

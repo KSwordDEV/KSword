@@ -51,7 +51,8 @@ ReleaseRequest Request(const StopLedger& ledger, std::string id) {
 void AssertSameProjection(const StopLedger& ledger, const StopGroupSnapshot& prior) {
     const auto now = ledger.Query(prior.groupId).value();
     Check(now.stateRevision == prior.stateRevision && now.membershipRevision == prior.membershipRevision &&
-        now.membershipSha256 == prior.membershipSha256 && now.historical == prior.historical && now.state == prior.state);
+        now.membershipSha256 == prior.membershipSha256 && now.historical == prior.historical && now.state == prior.state &&
+        now.nativeEventState == prior.nativeEventState);
 }
 
 void ScopeAndFirstContinue() {
@@ -83,6 +84,7 @@ void ScopeAndFirstContinue() {
     Check(ledger.ObserveMember(group, outside, M::Exited) == R::Applied);
     const auto complete = ledger.Query(group).value();
     Check(complete.state == GroupState::HeldComplete && complete.incidentalQuality == IncidentalQuality::Partial);
+    Check(complete.nativeEventState == EventState::Held);
     Check(ledger.UnresolvedNativeResponsibility()->state == EventState::Held && !ledger.CanRetireLedger());
     auto stale = Request(ledger, "cmd-stale-revision");
     stale.expectedStateRevision = partial.stateRevision;
@@ -94,6 +96,7 @@ void ScopeAndFirstContinue() {
     Check(begun.result == R::Applied && begun.effect.has_value());
     const auto pending = ledger.Query(group).value();
     Check(pending.state == GroupState::ReleasePending && pending.origin->hold == OriginHold::ReleasePending);
+    Check(pending.nativeEventState == EventState::ReleasePending);
     Check(pending.incidentalThreadIds == std::vector{incidental.threadId} && !ledger.CanRetireLedger());
     const auto duplicate = ledger.BeginRelease(command);
     Check(duplicate.result == R::Duplicate && !duplicate.effect);
@@ -107,6 +110,7 @@ void ScopeAndFirstContinue() {
     Check(ledger.RecordReleaseReceipt(*begun.effect, success) == R::Applied);
     const auto released = ledger.Query(group).value();
     Check(released.state == GroupState::Released && released.historical && released.origin->hold == OriginHold::Released);
+    Check(released.nativeEventState == EventState::Released);
     Check(released.members[0].state == MemberState::Released && released.members[1].state == MemberState::Released);
     Check(released.members[2].state == MemberState::Exited && released.incidentalThreadIds == pending.incidentalThreadIds);
     Check(!ledger.UnresolvedNativeResponsibility() && ledger.CanRetireLedger());
@@ -141,6 +145,7 @@ void IndeterminateContinueAndExplicitRetry() {
     Check(ledger.RecordReleaseReceipt(first, unknown) == R::Applied);
     const auto recovery = ledger.Query(group).value();
     Check(recovery.state == GroupState::RecoveryRequired && recovery.origin->hold == OriginHold::RecoveryRequired);
+    Check(recovery.nativeEventState == EventState::Indeterminate);
     Check(recovery.members[0].state == MemberState::RecoveryRequired && !ledger.CanRetireLedger());
     Check(ledger.Freeze(Freeze({origin}, Id(32))) == R::InvalidTransition);
     Check(ledger.QueryRelease("original")->receipt == unknown);
@@ -152,6 +157,7 @@ void IndeterminateContinueAndExplicitRetry() {
     const ReleaseReceipt held{ReleaseResult::StillPending, std::nullopt};
     Check(ledger.RecordReleaseReadback(first, held) == R::Applied);
     Check(ledger.Query(group)->origin->hold == OriginHold::RecoveryRequired && ledger.Query(group)->state == GroupState::RecoveryRequired);
+    Check(ledger.Query(group)->nativeEventState == EventState::Retryable);
     Check(ledger.UnresolvedNativeResponsibility()->state == EventState::Retryable);
     Check(ledger.QueryRelease("original")->receipt == unknown && ledger.QueryRelease("original")->readback == held);
     const auto second = ledger.BeginRelease(Request(ledger, "proof-backed-retry")).effect.value();
@@ -187,6 +193,7 @@ void OriginAndIncidentalOutliveFrozenSet() {
     Check(ledger.RecordRetiredOnExit(group, event, origin.processInstanceId) == R::Applied);
     const auto ended = ledger.Query(group).value();
     Check(ended.state == GroupState::Ended && ended.origin->hold == OriginHold::Exited && ended.historical);
+    Check(ended.nativeEventState == EventState::RetiredOnExit);
     Check(!ledger.UnresolvedNativeResponsibility() && ledger.QueryRelease("exit-race")->eventRetiredOnExit);
     Check(ledger.RecordReleaseReceipt(attempt, {ReleaseResult::Continued, 0}) == R::Historical);
     Check(ledger.RecordRetiredOnExit(group, event, origin.processInstanceId) == R::Duplicate);
@@ -207,6 +214,7 @@ void UnknownPhaseAndLostReceipt() {
     Check(ledger.RecordReleaseReadback(attempt, {ReleaseResult::Continued, std::nullopt}) == R::Applied);
     const auto closed = ledger.Query(group).value();
     Check(closed.state == GroupState::Released && !closed.origin && closed.members[0].state == MemberState::NotHeld);
+    Check(closed.nativeEventState == EventState::Released);
     Check(closed.members[0].evidence == M::Pending && !ledger.QueryRelease("no-return")->receipt);
 }
 
@@ -222,6 +230,15 @@ void NoNativeHold() {
     Check(ledger.ConfirmNoNativeEvent(group) == R::Applied);
     Check(ledger.Query(group)->state == GroupState::NotHeld && ledger.CanRetireLedger());
     Check(ledger.ConfirmNoNativeEvent(group) == R::Duplicate);
+
+    const auto next = Id(23);
+    Check(ledger.Freeze(Freeze({origin}, next)) == R::Applied);
+    Check(!ledger.Query(next)->nativeEventState);
+    Check(ledger.ObserveMember(next, origin, M::Exited) == R::Applied);
+    Check(ledger.SealMembership(next) == R::Applied);
+    Check(ledger.ConfirmNoNativeEvent(next) == R::Applied);
+    const auto ended = ledger.Query(next).value();
+    Check(ended.state == GroupState::Ended && ended.historical && !ended.nativeEventState);
 }
 
 void FailedContinueRetainsItsEvent() {

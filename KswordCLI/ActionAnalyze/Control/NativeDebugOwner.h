@@ -25,6 +25,7 @@ struct NativeBreakpointRequest {
     std::wstring modulePath;
     std::optional<std::uint32_t> rva;
     std::string exportName;
+    std::uint32_t writeWatchBytes = 0; // 0 为执行停点。1、2、4、8 为合作映像的对齐可写数据范围。
     bool operator==(const NativeBreakpointRequest&) const = default;
 };
 
@@ -39,11 +40,20 @@ struct NativeBreakpointBinding {
     std::size_t enrolledThreads = 0;
     const char* stage = "breakpoint-installing";
     std::uint32_t win32Error = 0;
+    std::uint32_t writeWatchBytes = 0; // 当前绑定的实际关注宽度。
+};
+
+// 一次写入停点时读到的变化区间，供三端对账。掩码第 n 位对应起点后第 n 字节。
+struct NativeDataChange {
+    std::uint32_t watchedBytes = 0;
+    std::uint32_t changedByteMask = 0;
+    std::uint64_t enrolledAfterStop = 0; // 首次停点前登记为 0，之后登记使用彼时的停点序号。
 };
 
 struct NativeBreakpointHit {
     std::string requestId;
     std::uint64_t address = 0;
+    std::optional<NativeDataChange> dataChange; // 执行停点为空，写入停点只在实际字节变化时发布。
 };
 
 enum class NativeControlStatus {
@@ -59,6 +69,7 @@ struct NativePendingEvent {
     std::optional<std::uint32_t> exceptionCode;
     std::optional<bool> exceptionFirstChance;
     bool ledgerOwned = false;
+    bool continuationIndeterminate = false; // last observed event retained after a failed ContinueDebugEvent
 };
 
 struct NativeFrozenThread {
@@ -102,9 +113,10 @@ struct NativeControlResult {
 // Continue validates the full ledger request. Recover requires an earlier release
 // request and returns its receipt or retries a provably separate detach failure.
 // An indeterminate Continue stays visible for the owner. Close stops admission
-// and returns before an in-flight attach/detach has necessarily completed.
-// Keep this instance and keep querying until close is clean. Destruction joins
-// the debug thread and cannot discard an unresolved OS responsibility.
+// and may return before cleanup completes. The debug thread exits after a clean
+// close, and the owner still serves receipt queries. Keep an unclean owner alive
+// to query or retry verified cleanup. Destruction waits for the debug thread and
+// may block while an OS responsibility remains unresolved.
 class NativeDebugOwner final {
 public:
     explicit NativeDebugOwner(OwnerIdentity identity);

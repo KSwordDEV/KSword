@@ -39,7 +39,7 @@ struct NativeEventKey {
     bool operator==(const NativeEventKey&) const = default;
 };
 
-enum class StopPhase { CallEnter, CallReturn, ExecutionEnterAttempt };
+enum class StopPhase { CallEnter, CallReturn, ExecutionEnterAttempt, DataWriteObserved };
 
 // 仅由验证过实际事件和强线程身份的外部 owner 提交。站点阶段未知时仍能保留事件责任。
 struct NativeStop {
@@ -88,6 +88,8 @@ struct StopGroupSnapshot {
     IncidentalQuality incidentalQuality;
     std::vector<std::string> incidentalThreadIds;
     bool historical;
+    // 原生事件的责任状态独立于冻结成员汇总。没有接纳事件时为空。
+    std::optional<EventState> nativeEventState;
 };
 
 // stopId 只用于定位。调用方须持活会话/后端和事件身份，公开快照中没有这些组合字段。

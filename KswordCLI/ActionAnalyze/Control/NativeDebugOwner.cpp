@@ -33,10 +33,23 @@ constexpr DWORD kWaitMs = 10;
 constexpr DWORD kAttachDeadlineMs = 5000;
 constexpr std::string_view kClosePrefix = "native-owner-close/";
 constexpr DWORD64 kDr0Control = 0x000f0003;
-constexpr DWORD64 kDr0LocalExecute = 1;
+constexpr DWORD64 kDr0Local = 1; // 槽位 0 的当前线程启用位及对应的命中标志。
 constexpr DWORD64 kDr6Reasons = 0xe00f;
 constexpr DWORD kTrapFlag = 0x100;
 constexpr DWORD kResumeFlag = 0x10000;
+
+// 返回槽位 0 的本地关注设置。零宽度继续表示执行停点。
+std::optional<DWORD64> DebugControl(std::uint32_t dataBytes) noexcept {
+    constexpr DWORD64 write = 1ull << 16; // Intel 调试寄存器的仅写访问类型。
+    switch (dataBytes) {
+    case 0: return kDr0Local;
+    case 1: return kDr0Local | write;
+    case 2: return kDr0Local | write | (1ull << 18);
+    case 4: return kDr0Local | write | (3ull << 18);
+    case 8: return kDr0Local | write | (2ull << 18);
+    default: return std::nullopt;
+    }
+}
 
 std::uintptr_t InstructionPointer(const CONTEXT& context) noexcept {
 #if defined(_M_X64)
@@ -281,22 +294,23 @@ class NativeDebugOwner::Impl final {
 public:
     explicit Impl(OwnerIdentity owner) : owner_(std::move(owner)), ledger_(owner_), thread_([this] { Run(); }) {}
     ~Impl() {
-        Invoke([this] {
-            stopWhenClean_ = true;
-            return Close();
-        });
+        (void)Invoke([this] { return Close(); });
         thread_.join();
     }
 
     template<class Function>
     NativeControlResult Invoke(Function operation) {
         const std::lock_guard callLock(caller_);
+        std::unique_lock lock(queueMutex_);
+        if (threadFinished_) {
+            // Closure seals admission. Historical queries and their replays no longer need the debug thread.
+            lock.unlock();
+            return operation();
+        }
         auto job = std::make_shared<std::packaged_task<NativeControlResult()>>(std::move(operation));
         auto result = job->get_future();
-        {
-            const std::lock_guard lock(queueMutex_);
-            queued_ = [job] { (*job)(); };
-        }
+        queued_ = [job] { (*job)(); };
+        lock.unlock();
         wake_.notify_one();
         return result.get();
     }
@@ -319,12 +333,14 @@ private:
         std::vector<NativeFrozenThread> frozenThreads{};
         NativeStopTiming timing{};
         std::optional<NativeBreakpointHit> hit{};
+        std::uint64_t hitEventSerial = 0;
     };
 
     struct DebugSlot {
         Handle thread;
         DWORD64 originalAddress;
         DWORD64 originalControl;
+        std::uint64_t enrolledAfterStop; // 登记发生时最后一次已确认的停点序号。
     };
 
     struct ActiveBreakpoint {
@@ -333,9 +349,12 @@ private:
         NativeImageSite systemBreak;
         NativeImageSite systemBreakThread;
         std::map<DWORD, DebugSlot> slots;
+        DWORD64 debugControl = kDr0Local; // 已核验的控制位，同时用于安装、识别本端事件和恢复。
+        std::array<std::uint8_t, 8> dataBaseline{}; // 最后一次停住时确认的关注范围内容。
         DWORD interruptTid = 0;
         bool processVerified = false;
         bool installed = false;
+        bool awaitingAttachBreak = false;
         bool interruptRequested = false;
         bool retire = false;
         NativeError retirement;
@@ -351,16 +370,18 @@ private:
     NativeError InstallBreakpoint();
     NativeError EnrollThread(DWORD tid, HANDLE eventThread = nullptr);
     NativeError RestoreBreakpoint();
-    NativeError AdoptBreakpointHit();
+    NativeError AdoptBreakpointHit(std::optional<NativeDataChange> dataChange = std::nullopt);
+    NativeError ReadWatchedData(std::array<std::uint8_t, 8>& bytes) const;
     NativeError PrepareBreakpointResume();
     void RetireBreakpoint(NativeError reason);
-    void BreakpointRecovery(NativeError error);
+    void RequireRecovery(NativeError error);
     void FinishBreakpointEvent(DWORD disposition);
     void RequestBreakpointClose();
     void AdoptCreateEvent();
     bool ApplyContinue(DWORD disposition);
     void Detach();
     void Complete(NativeControlStatus status, NativeError outcome);
+    bool IsClean() const;
     NativeControlResult Snapshot(const PauseRecord* record) const;
     NativeControlResult Reject(NativeError error, LedgerResult ledgerResult, const PauseRecord* record = nullptr) const;
 
@@ -381,20 +402,27 @@ private:
     ULONGLONG attachDeadline_ = 0;
     bool attached_ = false;
     bool closing_ = false;
-    bool stopWhenClean_ = false;
+    bool detachFailed_ = false;
     NativeError killOnExitError_;
 
     std::mutex caller_;
     std::mutex queueMutex_;
     std::condition_variable wake_;
     std::function<void()> queued_;
+    bool threadFinished_ = false; // published under queueMutex_ once the worker runs no more owner code
     std::thread thread_;
 };
+
+bool NativeDebugOwner::Impl::IsClean() const {
+    return !attached_ && !event_ && ledger_.CanRetireLedger() &&
+        (!breakpoint_ || (breakpoint_->slots.empty() && !breakpoint_->awaitingAttachBreak &&
+            !breakpoint_->interruptRequested && !breakpoint_->interruptTid));
+}
 
 NativeControlResult NativeDebugOwner::Impl::Snapshot(const PauseRecord* record) const {
     NativeControlResult result;
     result.attached = attached_;
-    result.clean = !attached_ && !event_ && ledger_.CanRetireLedger();
+    result.clean = IsClean();
     if (!record) { return result; }
     result.status = record->status;
     result.stage = record->outcome.stage;
@@ -409,18 +437,22 @@ NativeControlResult NativeDebugOwner::Impl::Snapshot(const PauseRecord* record) 
     if (breakpoint_) { result.breakpoint = breakpoint_->binding; }
     result.breakpointHit = record->hit;
     if (record->lastReleaseRequestId) {
-        result.releaseRequestId = record->lastReleaseRequestId;
-        result.release = ledger_.QueryRelease(*record->lastReleaseRequestId);
+        result.release = ledger_.QueryRelease(*record->lastReleaseRequestId, record->groupId);
+        if (result.release) { result.releaseRequestId = record->lastReleaseRequestId; }
     }
-    if (record == latest_) {
-        result.responsibility = ledger_.UnresolvedNativeResponsibility();
-        if (event_) {
-            result.pending = NativePendingEvent{{owner_.backendInstanceId, eventSerial_}, event_->dwProcessId,
-                event_->dwThreadId, event_->dwDebugEventCode, std::nullopt, std::nullopt, result.responsibility.has_value()};
-            if (event_->dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
-                result.pending->exceptionCode = event_->u.Exception.ExceptionRecord.ExceptionCode;
-                result.pending->exceptionFirstChance = event_->u.Exception.dwFirstChance != 0;
-            }
+    if (const auto responsibility = ledger_.UnresolvedNativeResponsibility();
+        responsibility && responsibility->groupId == record->groupId) {
+        result.responsibility = responsibility;
+    }
+    if (record == latest_ && event_) {
+        const NativeEventKey key{owner_.backendInstanceId, eventSerial_};
+        if (record->hitEventSerial != key.serial) { result.breakpointHit.reset(); }
+        result.pending = NativePendingEvent{key, event_->dwProcessId, event_->dwThreadId, event_->dwDebugEventCode,
+            std::nullopt, std::nullopt, result.responsibility && result.responsibility->event == key,
+            failedContinueSerial_ == eventSerial_};
+        if (event_->dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
+            result.pending->exceptionCode = event_->u.Exception.ExceptionRecord.ExceptionCode;
+            result.pending->exceptionFirstChance = event_->u.Exception.dwFirstChance != 0;
         }
     }
     return result;
@@ -532,11 +564,13 @@ NativeControlResult NativeDebugOwner::Impl::Pause(const NativePauseRequest& requ
 
 NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpointRequest& request) {
     const auto& target = request.target;
+    const auto control = DebugControl(request.writeWatchBytes); // 校验宽度并冻结硬件访问类型。
     if (target.requestId.empty() || target.requestId.size() > 128 || target.requestId.starts_with(kClosePrefix) ||
         !target.pid || target.pid == GetCurrentProcessId() || !target.processCreationTime || !target.explicitlyAuthorized ||
         target.disposition != NativeTargetDisposition::ResumeAndDetach || !AbsoluteModulePath(request.modulePath) ||
         request.rva.has_value() == !request.exportName.empty() || (request.rva && !*request.rva) ||
-        request.exportName.size() > 255 || request.exportName.find('\0') != std::string::npos) {
+        request.exportName.size() > 255 || request.exportName.find('\0') != std::string::npos ||
+        !control || (request.writeWatchBytes && request.rva)) {
         return Reject({"explicit-child-and-exact-image-site-required", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
     }
     if (breakpoint_ && breakpoint_->request.target.requestId == target.requestId) {
@@ -559,6 +593,8 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
     breakpoint_.emplace();
     breakpoint_->request = request;
     breakpoint_->binding.requestId = target.requestId;
+    breakpoint_->binding.writeWatchBytes = request.writeWatchBytes;
+    breakpoint_->debugControl = *control;
     process_ = std::move(process);
     LARGE_INTEGER frequency{};
     if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0) {
@@ -578,6 +614,7 @@ NativeControlResult NativeDebugOwner::Impl::ArmBreakpoint(const NativeBreakpoint
         Detach();
         return Snapshot(latest_);
     }
+    breakpoint_->awaitingAttachBreak = true;
     attachDeadline_ = GetTickCount64() + kAttachDeadlineMs;
     return Snapshot(latest_);
 }
@@ -589,7 +626,12 @@ NativeControlResult NativeDebugOwner::Impl::Query(std::string_view groupId, std:
             if (!releaseRequestId.empty()) {
                 result.release = ledger_.QueryRelease(releaseRequestId, groupId);
                 if (!result.release) {
-                    return Reject({"release-request-not-found", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence, &record);
+                    result.status = NativeControlStatus::Rejected;
+                    result.stage = "release-request-not-found";
+                    result.win32Error = ERROR_NOT_FOUND;
+                    result.ledgerResult = LedgerResult::InvalidEvidence;
+                    result.releaseRequestId.reset();
+                    return result;
                 }
                 result.releaseRequestId = releaseRequestId;
             }
@@ -610,12 +652,15 @@ NativeControlResult NativeDebugOwner::Impl::Query(std::string_view groupId, std:
         return result;
     }
     if (!releaseRequestId.empty()) {
-        return Reject({"release-query-requires-group", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
+        auto result = Reject({"release-query-requires-group", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
+        result.releaseRequestId.reset();
+        result.release.reset();
+        return result;
     }
     auto result = Snapshot(latest_);
     if (closing_ && result.clean) {
         result.status = NativeControlStatus::Closed;
-        result.stage = "owner-closed";
+        if (!result.win32Error) { result.stage = "owner-closed"; }
     } else if (closing_ && result.status != NativeControlStatus::RecoveryRequired) {
         result.status = NativeControlStatus::ClosePending;
     }
@@ -627,16 +672,17 @@ void NativeDebugOwner::Impl::Run() {
         std::function<void()> work;
         {
             std::unique_lock lock(queueMutex_);
+            if (!queued_ && closing_ && IsClean()) {
+                process_.Reset();
+                threadFinished_ = true;
+                return;
+            }
             if (!queued_ && (!attached_ || event_)) {
                 wake_.wait(lock, [this] { return static_cast<bool>(queued_); });
             }
             work = std::exchange(queued_, {});
         }
         if (work) { work(); }
-        if (closing_ && !attached_ && !event_ && ledger_.CanRetireLedger()) {
-            process_.Reset();
-            if (stopWhenClean_) { return; }
-        }
         if (attached_ && !event_) { Pump(); }
     }
 }
@@ -645,23 +691,26 @@ void NativeDebugOwner::Impl::Pump() {
     DEBUG_EVENT event{};
     if (WaitForDebugEvent(&event, kWaitMs)) {
         Receive(event);
-        return;
-    }
-    if (GetLastError() != ERROR_SEM_TIMEOUT) {
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = WinError("wait-for-debug-event");
-        if (breakpoint_) { BreakpointRecovery(latest_->outcome); }
-        // Unsupported/transient wait errors should neither tight-loop nor block submitted commands.
-        std::unique_lock lock(queueMutex_);
-        wake_.wait_for(lock, std::chrono::milliseconds(kWaitMs), [this] { return static_cast<bool>(queued_); });
-        return;
+        if (!attached_ || event_) { return; }
+    } else {
+        const auto error = WinError("wait-for-debug-event");
+        if (error.code != ERROR_SEM_TIMEOUT) {
+            if (!detachFailed_) { RequireRecovery(error); }
+            // Unsupported/transient wait errors should neither tight-loop nor block submitted commands.
+            std::unique_lock lock(queueMutex_);
+            wake_.wait_for(lock, std::chrono::milliseconds(kWaitMs), [this] { return static_cast<bool>(queued_); });
+            return;
+        }
     }
     if (breakpoint_) {
-        if (breakpoint_->binding.state == NativeBreakpointState::Installing && GetTickCount64() >= attachDeadline_) {
-            RetireBreakpoint({"breakpoint-attach-timeout", ERROR_TIMEOUT});
-            Detach();
-        } else if (breakpoint_->interruptRequested && GetTickCount64() >= attachDeadline_) {
-            BreakpointRecovery({"breakpoint-cleanup-interrupt-timeout", ERROR_TIMEOUT});
+        const auto& bp = *breakpoint_;
+        const auto now = GetTickCount64();
+        if (bp.awaitingAttachBreak && now >= attachDeadline_) {
+            const NativeError timeout{"breakpoint-attach-timeout", ERROR_TIMEOUT};
+            RetireBreakpoint(timeout);
+            RequireRecovery(timeout);
+        } else if (bp.interruptRequested && now >= attachDeadline_) {
+            RequireRecovery({"breakpoint-cleanup-interrupt-timeout", ERROR_TIMEOUT});
         }
     } else if (latest_->status == NativeControlStatus::Accepted && GetTickCount64() >= attachDeadline_) {
         latest_->status = NativeControlStatus::Rejected;
@@ -680,8 +729,7 @@ void NativeDebugOwner::Impl::Receive(const DEBUG_EVENT& event) {
         const Handle imageFile(event.u.LoadDll.hFile);
     }
     if (event.dwProcessId != latest_->request.pid) {
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = {"unexpected-native-event-process", ERROR_INVALID_DATA};
+        RequireRecovery({"unexpected-native-event-process", ERROR_INVALID_DATA});
         return;
     }
     if (breakpoint_) {
@@ -736,6 +784,7 @@ NativeError NativeDebugOwner::Impl::EnrollThread(DWORD tid, HANDLE eventThread) 
             return {"breakpoint-thread-object-conflict", ERROR_INVALID_DATA};
         }
         bp.slots.erase(old);
+        bp.binding.enrolledThreads = bp.slots.size();
     }
     if (bp.slots.size() >= kMaxMembers) { return {"breakpoint-thread-capacity", ERROR_BUFFER_OVERFLOW}; }
     const Handle current(OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION |
@@ -755,15 +804,15 @@ NativeError NativeDebugOwner::Impl::EnrollThread(DWORD tid, HANDLE eventThread) 
     HANDLE duplicate = nullptr;
     if (!DuplicateHandle(GetCurrentProcess(), current.Get(), GetCurrentProcess(), &duplicate, 0, FALSE,
         DUPLICATE_SAME_ACCESS)) { return WinError("hold-breakpoint-thread"); }
-    DebugSlot slot{Handle(duplicate), context.Dr0, context.Dr7 & kDr0Control};
+    DebugSlot slot{Handle(duplicate), context.Dr0, context.Dr7 & kDr0Control, breakpointMembershipRevision_};
     bp.slots.emplace(tid, std::move(slot));
     bp.binding.enrolledThreads = bp.slots.size();
     context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
     context.Dr0 = static_cast<decltype(context.Dr0)>(bp.binding.address);
-    context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~kDr0Control) | kDr0LocalExecute);
+    context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~kDr0Control) | bp.debugControl);
     if (!SetThreadContext(current.Get(), &context)) { return WinError("arm-breakpoint-thread"); }
     if (!GetThreadContext(current.Get(), &context)) { return WinError("read-armed-breakpoint-thread"); }
-    if (context.Dr0 != bp.binding.address || (context.Dr7 & kDr0Control) != kDr0LocalExecute) {
+    if (context.Dr0 != bp.binding.address || (context.Dr7 & kDr0Control) != bp.debugControl) {
         return {"verify-armed-breakpoint-thread", ERROR_INVALID_DATA};
     }
     return {};
@@ -774,11 +823,15 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
     NativeImageSite site;
     const auto pid = bp.request.target.pid;
     const auto error = ResolveNativeImageSite(process_.Get(), pid, bp.request.modulePath, bp.request.rva,
-        bp.request.exportName, site);
+        bp.request.exportName, site, bp.request.writeWatchBytes);
     if (error) { return {"resolve-requested-image-site", error}; }
     bp.binding.moduleBase = site.base;
     bp.binding.address = site.address;
     bp.binding.rva = site.rva;
+    // 先在附加事件持有期间取基线。没有完整样本就不武装任何线程的数据关注点。
+    if (bp.request.writeWatchBytes) {
+        if (const auto baseline = ReadWatchedData(bp.dataBaseline); baseline) return baseline;
+    }
     std::vector<FrozenThread> threads;
     if (const auto capture = CaptureThreads(pid, latest_->processInstanceId, threadIds_, threads); capture) { return capture; }
     for (const auto& thread : threads) {
@@ -786,6 +839,17 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint() {
     }
     bp.installed = true;
     return {};
+}
+
+// 只在原生停止期间读取绑定中的既有数据。成功时返回完整范围，失败时保留系统错误。
+NativeError NativeDebugOwner::Impl::ReadWatchedData(std::array<std::uint8_t, 8>& bytes) const {
+    const auto& binding = breakpoint_->binding; // 已解析且与当前映像实例绑定的可写数据。
+    const auto* address = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(binding.address));
+    SIZE_T count = 0; // 系统实际复制的大小。
+    if (!ReadProcessMemory(process_.Get(), address, bytes.data(), binding.writeWatchBytes, &count)) {
+        return WinError("read-write-watch-data");
+    }
+    return count == binding.writeWatchBytes ? NativeError{} : NativeError{"read-write-watch-data", ERROR_PARTIAL_COPY};
 }
 
 NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
@@ -804,12 +868,12 @@ NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
             if (!GetThreadContext(thread, &context)) {
                 error = WinError("read-breakpoint-restore-context");
             } else if (context.Dr0 != slot.originalAddress || (context.Dr7 & kDr0Control) != slot.originalControl) {
-                if (context.Dr0 != bp.binding.address || (context.Dr7 & kDr0Control) != kDr0LocalExecute) {
+                if (context.Dr0 != bp.binding.address || (context.Dr7 & kDr0Control) != bp.debugControl) {
                     error = {"breakpoint-slot-restore-conflict", ERROR_INVALID_DATA};
                 } else {
                     context.Dr0 = static_cast<decltype(context.Dr0)>(slot.originalAddress);
                     context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~kDr0Control) | slot.originalControl);
-                    context.Dr6 = static_cast<decltype(context.Dr6)>(context.Dr6 & ~kDr0LocalExecute);
+                    context.Dr6 = static_cast<decltype(context.Dr6)>(context.Dr6 & ~kDr0Local);
                     if (!SetThreadContext(thread, &context)) {
                         error = WinError("restore-breakpoint-thread");
                     } else if (!GetThreadContext(thread, &context)) {
@@ -819,6 +883,8 @@ NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
                     }
                 }
             }
+        } else if (wait != WAIT_OBJECT_0) {
+            error = {"check-breakpoint-thread-lifetime", ERROR_INVALID_DATA};
         }
         if (error) {
             if (!firstError) { firstError = error; }
@@ -831,7 +897,7 @@ NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
     return firstError;
 }
 
-NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
+NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataChange> dataChange) {
     const auto& bp = *breakpoint_;
     if (breakpointMembershipRevision_ == std::numeric_limits<std::uint64_t>::max()) {
         return {"breakpoint-stop-identity-exhausted", ERROR_ARITHMETIC_OVERFLOW};
@@ -841,7 +907,8 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
         BreakpointId(owner_.backendInstanceId, revision, true), firstBound_->processInstanceId};
     record.timing = firstBound_->timing;
     record.timing.eventObservedQpc = ReadQpc();
-    record.hit = NativeBreakpointHit{bp.request.target.requestId, bp.binding.address};
+    record.hit = NativeBreakpointHit{bp.request.target.requestId, bp.binding.address, dataChange};
+    record.hitEventSerial = eventSerial_;
     std::vector<FrozenThread> frozen;
     if (const auto error = CaptureThreads(record.request.pid, record.processInstanceId, threadIds_, frozen); error) { return error; }
     FrozenStopGroup group{record.groupId, revision, {}, {}};
@@ -867,8 +934,8 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
     latest_ = &breakpointStops_.back();
     if (breakpointStops_.size() > kStopHistoryGroups) { breakpointStops_.pop_front(); }
     const NativeEventKey key{owner_.backendInstanceId, eventSerial_};
-    if (ledger_.AdoptNativeStop(latest_->groupId, {key, origin, latest_->stopId,
-        StopPhase::ExecutionEnterAttempt}) != LedgerResult::Applied) {
+    const auto phase = dataChange ? StopPhase::DataWriteObserved : StopPhase::ExecutionEnterAttempt; // 实际停止阶段。
+    if (ledger_.AdoptNativeStop(latest_->groupId, {key, origin, latest_->stopId, phase}) != LedgerResult::Applied) {
         for (const auto& thread : frozen) {
             (void)ledger_.ObserveMember(latest_->groupId, thread.member.identity, MemberEvidence::NoOwnedHold);
         }
@@ -885,9 +952,10 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit() {
     }
     (void)ledger_.SealMembership(latest_->groupId);
     latest_->status = NativeControlStatus::Held;
-    latest_->outcome = {"execution-breakpoint-held", ERROR_SUCCESS};
+    latest_->outcome = {dataChange ? "data-write-breakpoint-held" : "execution-breakpoint-held", ERROR_SUCCESS};
     breakpoint_->binding.state = NativeBreakpointState::Held;
     breakpoint_->binding.stage = latest_->outcome.stage;
+    breakpoint_->binding.win32Error = ERROR_SUCCESS;
     return {};
 }
 
@@ -900,31 +968,37 @@ NativeError NativeDebugOwner::Impl::PrepareBreakpointResume() {
     CONTEXT context{};
     context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
     if (!GetThreadContext(thread, &context)) { return WinError("read-breakpoint-resume-context"); }
-    if (InstructionPointer(context) != bp.binding.address || context.Dr0 != bp.binding.address ||
-        (context.Dr7 & kDr0Control) != kDr0LocalExecute) { return {"breakpoint-resume-context-changed", ERROR_INVALID_DATA}; }
-    // RF 仅屏蔽本次重试的指令取指，其他线程继续保有 DR0，不需要单步或重新武装窗口。
-    context.EFlags |= kResumeFlag;
-    context.Dr6 = static_cast<decltype(context.Dr6)>(context.Dr6 & ~kDr0LocalExecute);
+    const bool writing = bp.binding.writeWatchBytes != 0; // 写入停点在指令执行后交付，不重试前一条指令。
+    if ((!writing && InstructionPointer(context) != bp.binding.address) || context.Dr0 != bp.binding.address ||
+        (context.Dr7 & kDr0Control) != bp.debugControl) { return {"breakpoint-resume-context-changed", ERROR_INVALID_DATA}; }
+    // 执行停点设置 RF 跳过本次同地址取指。数据停点只清掉本槽的已处理原因。
+    if (!writing) context.EFlags |= kResumeFlag;
+    context.Dr6 = static_cast<decltype(context.Dr6)>(context.Dr6 & ~kDr0Local);
     if (!SetThreadContext(thread, &context)) { return WinError("prepare-breakpoint-resume"); }
     if (!GetThreadContext(thread, &context)) { return WinError("read-breakpoint-resume-preparation"); }
-    if (!(context.EFlags & kResumeFlag)) { return {"verify-breakpoint-resume-flag", ERROR_INVALID_DATA}; }
+    if (writing ? (context.Dr6 & kDr0Local) != 0 : !(context.EFlags & kResumeFlag)) {
+        return {"verify-breakpoint-resume-flags", ERROR_INVALID_DATA};
+    }
     return {};
 }
 
 void NativeDebugOwner::Impl::RetireBreakpoint(NativeError reason) {
     auto& bp = *breakpoint_;
+    if (!bp.retire || (!bp.retirement && reason)) { bp.retirement = reason; }
     bp.retire = true;
-    bp.retirement = reason;
+    if (bp.binding.state == NativeBreakpointState::RecoveryRequired) { return; }
     bp.binding.state = NativeBreakpointState::Retiring;
-    bp.binding.stage = reason.stage;
-    bp.binding.win32Error = reason.code;
+    bp.binding.stage = bp.retirement.stage;
+    bp.binding.win32Error = bp.retirement.code;
 }
 
-void NativeDebugOwner::Impl::BreakpointRecovery(NativeError error) {
-    auto& binding = breakpoint_->binding;
-    binding.state = NativeBreakpointState::RecoveryRequired;
-    binding.stage = error.stage;
-    binding.win32Error = error.code;
+void NativeDebugOwner::Impl::RequireRecovery(NativeError error) {
+    if (breakpoint_) {
+        auto& binding = breakpoint_->binding;
+        binding.state = NativeBreakpointState::RecoveryRequired;
+        binding.stage = error.stage;
+        binding.win32Error = error.code;
+    }
     latest_->status = NativeControlStatus::RecoveryRequired;
     latest_->outcome = error;
 }
@@ -932,17 +1006,16 @@ void NativeDebugOwner::Impl::BreakpointRecovery(NativeError error) {
 void NativeDebugOwner::Impl::FinishBreakpointEvent(DWORD disposition) {
     auto& bp = *breakpoint_;
     bp.cleanupDisposition = disposition;
-    if (const auto error = RestoreBreakpoint(); error) { BreakpointRecovery(error); return; }
-    if (!ApplyContinue(disposition)) { BreakpointRecovery(latest_->outcome); return; }
+    if (const auto error = RestoreBreakpoint(); error) { RequireRecovery(error); return; }
+    if (!ApplyContinue(disposition)) { return; }
     bp.cleanupDisposition.reset();
-    if (!bp.interruptRequested && !bp.interruptTid) { Detach(); }
+    Detach();
 }
 
 void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     auto& bp = *breakpoint_;
     if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
-        if (!ApplyContinue(DBG_CONTINUE)) { BreakpointRecovery(latest_->outcome); return; }
-        bp.slots.clear(); // 真实进程退出，不再存在可恢复的线程上下文。
+        if (!ApplyContinue(DBG_CONTINUE)) { return; }
         Complete(NativeControlStatus::Ended, {"exit-process-event-continued", ERROR_SUCCESS});
         return;
     }
@@ -956,10 +1029,11 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
         } else {
             bp.processVerified = true;
         }
+        if (!bp.processVerified) { bp.awaitingAttachBreak = false; }
     }
     if (event.dwDebugEventCode == CREATE_THREAD_DEBUG_EVENT && bp.processVerified) {
         const auto start = reinterpret_cast<std::uintptr_t>(event.u.CreateThread.lpStartAddress);
-        if ((!bp.binding.address || bp.interruptRequested) && start == bp.systemBreakThread.address) {
+        if ((bp.awaitingAttachBreak || bp.interruptRequested) && start == bp.systemBreakThread.address) {
             bp.interruptTid = event.dwThreadId;
         }
         if (!bp.retire && bp.binding.address) {
@@ -981,42 +1055,67 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
         if (exception.ExceptionCode == EXCEPTION_BREAKPOINT && address == bp.systemBreak.address &&
             bp.interruptTid == event.dwThreadId) {
             disposition = DBG_CONTINUE;
+            bp.awaitingAttachBreak = false;
             bp.interruptTid = 0;
             bp.interruptRequested = false;
             if (!bp.retire && !bp.binding.address) {
                 if (const auto error = InstallBreakpoint(); error) { RetireBreakpoint(error); }
             }
-        } else if (exception.ExceptionCode == EXCEPTION_SINGLE_STEP && bp.binding.address && address == bp.binding.address) {
+        } else if (exception.ExceptionCode == EXCEPTION_SINGLE_STEP && bp.binding.address &&
+            (bp.binding.writeWatchBytes || address == bp.binding.address)) {
             const auto slot = bp.slots.find(event.dwThreadId);
             CONTEXT context{};
             context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
             if (slot != bp.slots.end() && !GetThreadContext(slot->second.thread.Get(), &context)) {
                 bp.retryHitContext = true;
-                BreakpointRecovery(WinError("read-breakpoint-hit-context"));
+                RequireRecovery(WinError("read-breakpoint-hit-context"));
                 return;
             }
             bp.retryHitContext = false;
-            if (slot != bp.slots.end() && InstructionPointer(context) == address && context.Dr0 == address &&
-                (context.Dr7 & kDr0Control) == kDr0LocalExecute && (context.Dr6 & kDr0LocalExecute)) {
-                if ((context.Dr6 & kDr6Reasons) != kDr0LocalExecute) {
+            if (slot != bp.slots.end() && InstructionPointer(context) == address && context.Dr0 == bp.binding.address &&
+                (context.Dr7 & kDr0Control) == bp.debugControl && (context.Dr6 & kDr0Local)) {
+                if ((context.Dr6 & kDr6Reasons) != kDr0Local) {
                     RetireBreakpoint({"breakpoint-mixed-single-step-causes", ERROR_BUSY});
                 } else {
                     disposition = DBG_CONTINUE;
                 }
                 if (!bp.retire && disposition == DBG_CONTINUE) {
-                    if (const auto error = AdoptBreakpointHit(); error) { RetireBreakpoint(error); }
-                    else { return; }
+                    std::optional<NativeDataChange> change; // 写入前后的差异，仅在停止期间读取。
+                    std::array<std::uint8_t, 8> observed{}; // 本次触发后读取的目标数据。
+                    if (bp.binding.writeWatchBytes) {
+                        if (const auto error = ReadWatchedData(observed); error) {
+                            RetireBreakpoint(error);
+                        } else {
+                            std::uint32_t mask = 0; // 掩码标明相对起点的哪些字节发生变化。
+                            for (std::uint32_t i = 0; i < bp.binding.writeWatchBytes; ++i) {
+                                if (observed[i] != bp.dataBaseline[i]) mask |= 1u << i;
+                            }
+                            change = NativeDataChange{bp.binding.writeWatchBytes, mask, slot->second.enrolledAfterStop};
+                        }
+                    }
+                    if (!bp.retire && change && !change->changedByteMask) {
+                        // 写回相同值时消费本端事件，保留原数据基线和所有线程的关注点。
+                        if (const auto error = PrepareBreakpointResume(); error) RetireBreakpoint(error);
+                    } else if (!bp.retire) {
+                        if (const auto error = AdoptBreakpointHit(change); error) {
+                            RetireBreakpoint(error);
+                        } else {
+                            if (change) bp.dataBaseline = observed;
+                            return;
+                        }
+                    }
                 }
             }
         }
     }
 
-    // DebugBreakProcess 排队后先等匹配的异常，不能在其辅助线程尚未经过断点时脱离。
+    // 初始附加和清退中断都先排空已核验的系统断点，再脱离。
     if (bp.retire) { FinishBreakpointEvent(disposition); return; }
-    if (!ApplyContinue(disposition)) { BreakpointRecovery(latest_->outcome); return; }
+    if (!ApplyContinue(disposition)) { return; }
     if (bp.binding.address && !bp.retire) {
         bp.binding.state = NativeBreakpointState::Armed;
-        bp.binding.stage = "execution-breakpoint-armed";
+        bp.binding.stage = bp.binding.writeWatchBytes ? "data-write-breakpoint-armed" : "execution-breakpoint-armed";
+        bp.binding.win32Error = ERROR_SUCCESS;
         latest_->status = NativeControlStatus::Released;
         latest_->outcome = {bp.binding.stage, ERROR_SUCCESS};
     }
@@ -1026,21 +1125,23 @@ void NativeDebugOwner::Impl::RequestBreakpointClose() {
     auto& bp = *breakpoint_;
     if (!bp.retire) { RetireBreakpoint({"breakpoint-close-requested", ERROR_SUCCESS}); }
     if (event_) {
-        if (bp.cleanupDisposition && failedContinueSerial_ != eventSerial_) { FinishBreakpointEvent(*bp.cleanupDisposition); }
+        if (failedContinueSerial_ == eventSerial_) { return; }
+        if (bp.cleanupDisposition) { FinishBreakpointEvent(*bp.cleanupDisposition); }
         else if (bp.retryHitContext) { ReceiveBreakpoint(*event_); }
         return;
     }
     if (!attached_) { return; }
+    if (bp.awaitingAttachBreak) { return; }
     if (bp.slots.empty() && !bp.interruptRequested && !bp.interruptTid) { Detach(); return; }
     if (bp.interruptRequested || bp.interruptTid) { return; }
     Handle interrupt(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ |
         PROCESS_CREATE_THREAD, FALSE, bp.request.target.pid));
-    if (!interrupt) { BreakpointRecovery(WinError("open-breakpoint-cleanup-process")); return; }
+    if (!interrupt) { RequireRecovery(WinError("open-breakpoint-cleanup-process")); return; }
     if (!CompareObjectHandles(interrupt.Get(), process_.Get())) {
-        BreakpointRecovery({"breakpoint-cleanup-process-mismatch", ERROR_INVALID_DATA});
+        RequireRecovery({"breakpoint-cleanup-process-mismatch", ERROR_INVALID_DATA});
         return;
     }
-    if (!DebugBreakProcess(interrupt.Get())) { BreakpointRecovery(WinError("request-breakpoint-cleanup-event")); return; }
+    if (!DebugBreakProcess(interrupt.Get())) { RequireRecovery(WinError("request-breakpoint-cleanup-event")); return; }
     bp.interruptRequested = true;
     attachDeadline_ = GetTickCount64() + kAttachDeadlineMs;
 }
@@ -1100,10 +1201,11 @@ void NativeDebugOwner::Impl::AdoptCreateEvent() {
 }
 
 bool NativeDebugOwner::Impl::ApplyContinue(DWORD disposition) {
+    if (failedContinueSerial_ == eventSerial_) { return false; }
     if (!ContinueDebugEvent(event_->dwProcessId, event_->dwThreadId, disposition)) {
+        const auto error = WinError("continue-debug-event");
         failedContinueSerial_ = eventSerial_;
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = WinError("continue-debug-event");
+        RequireRecovery(error);
         return false;
     }
     event_.reset();
@@ -1111,12 +1213,18 @@ bool NativeDebugOwner::Impl::ApplyContinue(DWORD disposition) {
 }
 
 NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& request, bool recover, bool internal) {
+    const auto rejectRelease = [&](NativeError error, LedgerResult reason) {
+        auto result = Reject(error, reason);
+        result.releaseRequestId.reset();
+        result.release.reset();
+        return result;
+    };
     if (!internal && request.requestId.starts_with(kClosePrefix)) {
-        return Reject({"reserved-release-request-id", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
+        return rejectRelease({"reserved-release-request-id", ERROR_INVALID_PARAMETER}, LedgerResult::InvalidEvidence);
     }
-    const auto old = ledger_.QueryRelease(request.requestId);
+    const auto old = ledger_.QueryRelease(request.requestId, request.groupId);
     if (recover && !old) {
-        return Reject({"recover-requires-original-release-request", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence);
+        return rejectRelease({"recover-requires-original-release-request", ERROR_NOT_FOUND}, LedgerResult::InvalidEvidence);
     }
     const auto decision = ledger_.BeginRelease(request, internal);
     if (decision.result == LedgerResult::Duplicate) {
@@ -1124,9 +1232,8 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
         result.ledgerResult = decision.result;
         result.releaseRequestId = request.requestId;
         result.release = old;
-        if (recover && latest_ && latest_->groupId == request.groupId && attached_ && !event_ &&
-            (!breakpoint_ || breakpoint_->retire) &&
-            latest_->status == NativeControlStatus::RecoveryRequired && result.release && result.release->receipt &&
+        if (recover && detachFailed_ && attached_ && !event_ && latest_ && latest_->groupId == request.groupId &&
+            latest_->lastReleaseRequestId == request.requestId && result.release && result.release->receipt &&
             result.release->receipt->result == ReleaseResult::Continued) {
             Detach();
             result = Query(request.groupId);
@@ -1138,17 +1245,26 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
     }
     if (!decision.effect) {
         if (decision.result == LedgerResult::ReplayExpired) {
-            return Reject({"release-replay-expired", ERROR_NOT_FOUND}, decision.result);
+            return rejectRelease({"release-replay-expired", ERROR_NOT_FOUND}, decision.result);
         }
         if (decision.result == LedgerResult::ReadbackRequired) {
             auto result = Query(request.groupId);
-            result.ledgerResult = decision.result;
             if (result.responsibility && result.responsibility->lastRequestId) {
-                result.release = ledger_.QueryRelease(*result.responsibility->lastRequestId);
+                result = Query(request.groupId, *result.responsibility->lastRequestId);
             }
+            result.ledgerResult = decision.result;
             return result;
         }
-        return Reject({"release-authorization-rejected", ERROR_INVALID_PARAMETER}, decision.result);
+        if (decision.result == LedgerResult::Historical) {
+            // A racing Close or Continue may have released this exact group. Read its winning receipt.
+            auto result = Query(request.groupId);
+            result.status = NativeControlStatus::Rejected;
+            result.stage = "release-authorization-rejected";
+            result.win32Error = ERROR_INVALID_PARAMETER;
+            result.ledgerResult = decision.result;
+            return result;
+        }
+        return rejectRelease({"release-authorization-rejected", ERROR_INVALID_PARAMETER}, decision.result);
     }
     const auto& attempt = *decision.effect;
     if (latest_) { latest_->lastReleaseRequestId = request.requestId; }
@@ -1156,17 +1272,16 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
     const DWORD expectedEvent = isBreakpoint ? EXCEPTION_DEBUG_EVENT : CREATE_PROCESS_DEBUG_EVENT;
     if (!event_ || !latest_ || event_->dwDebugEventCode != expectedEvent || eventSerial_ != request.event.serial ||
         event_->dwProcessId != latest_->request.pid || failedContinueSerial_ == eventSerial_) {
-        (void)ledger_.RecordReleaseReceipt(attempt, {ReleaseResult::Indeterminate, ERROR_INVALID_DATA});
-        if (latest_) {
-            latest_->status = NativeControlStatus::RecoveryRequired;
-            latest_->outcome = {"release-native-event-unverified", ERROR_INVALID_DATA};
-        }
+        const NativeError error{"release-native-event-unverified", ERROR_INVALID_DATA};
+        (void)ledger_.RecordReleaseReceipt(attempt, {ReleaseResult::Indeterminate, error.code});
+        if (latest_) { RequireRecovery(error); }
     } else {
         if (isBreakpoint) {
             if (const auto error = PrepareBreakpointResume(); error) {
                 // 尚未调用 ContinueDebugEvent；确切事件仍在本线程，允许用新修订重试。
-                (void)ledger_.RecordReleaseReceipt(attempt, {ReleaseResult::StillPending, error.code});
-                BreakpointRecovery(error);
+                const auto recorded = ledger_.RecordReleaseReceipt(attempt, {ReleaseResult::StillPending, error.code});
+                RequireRecovery(recorded == LedgerResult::Applied ? error :
+                    NativeError{"record-native-release-receipt", ERROR_INVALID_DATA});
                 auto result = Query(request.groupId);
                 result.ledgerResult = decision.result;
                 return result;
@@ -1180,8 +1295,7 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
             ReleaseReceipt{ReleaseResult::Indeterminate, latest_->outcome.code};
         const auto recorded = ledger_.RecordReleaseReceipt(attempt, receipt);
         if (recorded != LedgerResult::Applied) {
-            latest_->status = NativeControlStatus::RecoveryRequired;
-            latest_->outcome = {"record-native-release-receipt", ERROR_INVALID_DATA};
+            RequireRecovery({"record-native-release-receipt", ERROR_INVALID_DATA});
         } else if (continued) {
             latest_->status = NativeControlStatus::Released;
             latest_->outcome = {"continue-debug-event", ERROR_SUCCESS};
@@ -1192,8 +1306,6 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
                 breakpoint_->binding.stage = "execution-breakpoint-armed";
                 breakpoint_->binding.win32Error = ERROR_SUCCESS;
             }
-        } else if (isBreakpoint) {
-            BreakpointRecovery(latest_->outcome);
         }
     }
     auto result = Query(request.groupId);
@@ -1203,11 +1315,12 @@ NativeControlResult NativeDebugOwner::Impl::Release(const ReleaseRequest& reques
 
 void NativeDebugOwner::Impl::Detach() {
     if (!attached_ || event_ || ledger_.UnresolvedNativeResponsibility()) { return; }
-    if (breakpoint_ && (!breakpoint_->slots.empty() || breakpoint_->interruptTid || breakpoint_->interruptRequested)) { return; }
+    if (breakpoint_ && (!breakpoint_->slots.empty() || breakpoint_->awaitingAttachBreak ||
+        breakpoint_->interruptTid || breakpoint_->interruptRequested)) { return; }
     if (!DebugActiveProcessStop(latest_->request.pid)) {
-        latest_->status = NativeControlStatus::RecoveryRequired;
-        latest_->outcome = WinError("debug-active-process-stop");
-        if (breakpoint_) { BreakpointRecovery(latest_->outcome); }
+        const auto error = WinError("debug-active-process-stop");
+        detachFailed_ = true;
+        RequireRecovery(error);
         return;
     }
     if (breakpoint_ && breakpoint_->retire) {
@@ -1226,6 +1339,7 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
     // Successful detach or a continued EXIT_PROCESS event is authoritative for the
     // attachment. Neither a signaled handle nor thread exit on its own clears it.
     attached_ = false;
+    detachFailed_ = false;
     if (!ledger_.CanRetireLedger()) {
         for (const auto& member : members_) {
             const auto evidence = WaitForSingleObject(member.handle.Get(), 0) == WAIT_OBJECT_0
@@ -1238,6 +1352,13 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
     latest_->status = status;
     latest_->outcome = outcome;
     if (breakpoint_) {
+        // Detach is gated on an empty slot and interrupt set. A continued process exit also retires them.
+        breakpoint_->slots.clear();
+        breakpoint_->awaitingAttachBreak = false;
+        breakpoint_->interruptTid = 0;
+        breakpoint_->interruptRequested = false;
+        breakpoint_->cleanupDisposition.reset();
+        breakpoint_->retryHitContext = false;
         auto& binding = breakpoint_->binding;
         binding.state = status == NativeControlStatus::Rejected ? NativeBreakpointState::Rejected : NativeBreakpointState::Retired;
         binding.stage = outcome.stage;
@@ -1245,7 +1366,9 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
         binding.enrolledThreads = 0;
     }
     members_.clear();
-    if (closing_) { process_.Reset(); }
+    if (!ledger_.CanRetireLedger()) {
+        RequireRecovery({"native-event-ledger-unresolved", ERROR_INVALID_DATA});
+    }
 }
 
 NativeControlResult NativeDebugOwner::Impl::Close() {
@@ -1254,13 +1377,18 @@ NativeControlResult NativeDebugOwner::Impl::Close() {
     if (const auto responsibility = ledger_.UnresolvedNativeResponsibility(); responsibility &&
         (responsibility->state == EventState::Held || responsibility->state == EventState::Retryable)) {
         const auto group = ledger_.Query(responsibility->groupId);
-        auto result = Release({owner_, responsibility->groupId, responsibility->stopId, responsibility->event,
+        if (!group) {
+            RequireRecovery({"close-stop-group-unavailable", ERROR_INVALID_DATA});
+            return Query({});
+        }
+        const auto released = Release({owner_, responsibility->groupId, responsibility->stopId, responsibility->event,
             std::string(kClosePrefix) + responsibility->groupId + "/" + std::to_string(group->stateRevision), group->stateRevision},
             false, true);
-        if (result.clean) {
-            result.status = NativeControlStatus::Closed;
-            result.stage = "owner-closed";
+        if (released.status == NativeControlStatus::Rejected && !released.clean) {
+            RequireRecovery({released.stage, released.win32Error});
         }
+        auto result = Query({});
+        result.ledgerResult = released.ledgerResult;
         return result;
     }
     if (breakpoint_ && attached_) { RequestBreakpointClose(); }

@@ -99,7 +99,7 @@ DWORD ReadExport(const ImageReader& image, IMAGE_DATA_DIRECTORY entry, std::stri
 } // namespace
 
 DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
-    std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site) {
+    std::optional<std::uint32_t> rva, std::string_view exportName, NativeImageSite& site, std::uint32_t dataBytes) {
     std::uintptr_t base = 0;
     DWORD size = 0;
     if (const auto error = GetImage(pid, path, base, size)) { return error; }
@@ -123,22 +123,30 @@ DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
         if (!directory.VirtualAddress) { return ERROR_PROC_NOT_FOUND; }
         if (const auto error = ReadExport(image, directory, exportName, addressRva)) { return error; }
     }
-    if (!image.Contains(addressRva, 1)) { return ERROR_INVALID_ADDRESS; }
-    bool executable = false;
+    const auto width = dataBytes ? dataBytes : 1; // 数据关注点必须完整位于一个数据节。
+    if (!image.Contains(addressRva, width)) { return ERROR_INVALID_ADDRESS; }
+    bool eligibleSection = false; // 根据关注点用途区分只执行位置与可写数据。
     for (WORD i = 0; i < pe.FileHeader.NumberOfSections; ++i) {
         IMAGE_SECTION_HEADER section{};
         if (!image.Read(sectionTable + i * static_cast<DWORD>(sizeof(section)), section)) { return ERROR_BAD_EXE_FORMAT; }
-        if (addressRva >= section.VirtualAddress && addressRva - section.VirtualAddress < section.Misc.VirtualSize) {
-            executable = (section.Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+        if (addressRva >= section.VirtualAddress && width <= section.Misc.VirtualSize &&
+            addressRva - section.VirtualAddress <= section.Misc.VirtualSize - width) {
+            const bool executable = (section.Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0; // PE 节属性。
+            eligibleSection = dataBytes ? !executable && (section.Characteristics & IMAGE_SCN_MEM_WRITE) != 0 : executable;
             break;
         }
     }
     MEMORY_BASIC_INFORMATION memory{};
     const auto address = base + addressRva;
-    if (!executable || !VirtualQueryEx(process, reinterpret_cast<void*>(address), &memory, sizeof(memory)) ||
+    // 同一地址还必须被当前进程映射为对应的内存类型。
+    const DWORD eligibleProtection = dataBytes ? PAGE_READWRITE | PAGE_WRITECOPY :
+        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    if (!eligibleSection || (dataBytes && address % dataBytes) ||
+        !VirtualQueryEx(process, reinterpret_cast<void*>(address), &memory, sizeof(memory)) ||
         reinterpret_cast<std::uintptr_t>(memory.AllocationBase) != base || memory.Type != MEM_IMAGE ||
         memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) ||
-        !(memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) {
+        !(memory.Protect & eligibleProtection) || memory.RegionSize < width ||
+        address - reinterpret_cast<std::uintptr_t>(memory.BaseAddress) > memory.RegionSize - width) {
         return ERROR_INVALID_ADDRESS;
     }
     site = {base, address, addressRva};
