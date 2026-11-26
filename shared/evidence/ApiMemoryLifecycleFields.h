@@ -17,6 +17,7 @@ enum class ApiMemoryOperation : std::uint64_t {
     Allocate = 1, // NtAllocateVirtualMemory请求和成功输出。
     Protect = 2, // NtProtectVirtualMemory请求和成功输出。
     Free = 3, // NtFreeVirtualMemory请求及返回，不推断释放范围。
+    Unmap = 4, // NtUnmapViewOfSection直接基址请求；没有长度、输出范围或新保护。
 };
 enum ApiMemoryFlag : std::uint64_t {
     ApiMemoryActorIdentity = 1ull << 0, // 源创建时间查询成功。
@@ -106,8 +107,8 @@ inline std::optional<ApiMemoryLifecycleFieldsV1> ReadApiMemoryLifecycleFields(
             v[i] = (v[i] << 4) | static_cast<std::uint64_t>(c <= L'9' ? c - L'0' : c - L'a' + 10);
         }
     }
-    // 只接受本版本三类操作、已知有效位和源端32/64位；NTSTATUS必须与原返回一致。
-    if (v[0] < 1 || v[0] > 3 || (v[1] & ~255ull) || (v[2] != 32 && v[2] != 64) ||
+    // 接受已定义四类操作，旧三类编码不变；NTSTATUS必须与原返回一致。
+    if (v[0] < 1 || v[0] > 4 || (v[1] & ~255ull) || (v[2] != 32 && v[2] != 64) ||
         v[4] > UINT32_MAX || v[10] > UINT32_MAX || v[11] > UINT32_MAX ||
         v[12] > UINT32_MAX ||
         p.hookAddress != static_cast<std::uint32_t>(p.resultCode) ||
@@ -122,9 +123,10 @@ inline std::optional<ApiMemoryLifecycleFieldsV1> ReadApiMemoryLifecycleFields(
         (!(flags & ApiMemoryRequestedBase) && v[6]) || (!(flags & ApiMemoryRequestedBytes) && v[7]) ||
         (!(flags & ApiMemoryOutputBase) && v[8]) || (!(flags & ApiMemoryOutputBytes) && v[9]) ||
         (!(flags & ApiMemoryOldProtection) && v[12]) ||
-        ((!success || v[0] == 3) && (flags & (ApiMemoryOutputBase | ApiMemoryOutputBytes | ApiMemoryOldProtection))) ||
+        ((!success || v[0] >= 3) && (flags & (ApiMemoryOutputBase | ApiMemoryOutputBytes | ApiMemoryOldProtection))) ||
         (v[0] != 2 && (flags & ApiMemoryOldProtection)) ||
-        (v[0] == 2 && v[10]) || (v[0] == 3 && v[11])) {
+        (v[0] == 2 && v[10]) || (v[0] >= 3 && v[11]) ||
+        (v[0] == 4 && ((flags & ApiMemoryRequestedBytes) || v[7] || v[10]))) {
         return std::nullopt;
     }
     // 对原指针/size_t/句柄按源位宽核对，不能在x64读端接受伪造x86高位。
@@ -143,7 +145,8 @@ inline std::optional<ApiMemoryLifecycleFieldsV1> ReadApiMemoryLifecycleFields(
             [](wchar_t c, wchar_t lower) { return (c >= L'A' && c <= L'Z' ? c + 32 : c) == lower; });
     };
     const std::wstring_view expectedApi = v[0] == 1 ? L"NtAllocateVirtualMemory" :
-        v[0] == 2 ? L"NtProtectVirtualMemory" : L"NtFreeVirtualMemory"; // kind必须与原Hook精确匹配。
+        v[0] == 2 ? L"NtProtectVirtualMemory" : v[0] == 3 ? L"NtFreeVirtualMemory" :
+        L"NtUnmapViewOfSection"; // kind必须与原Hook精确匹配，不能让Free伪装为Unmap。
     if ((!moduleIs(L"ntdll") && !moduleIs(L"ntdll.dll")) || text(p.apiName) != expectedApi) {
         return std::nullopt;
     }
@@ -174,6 +177,10 @@ inline std::string_view ApiMemoryLifecycleEventType(const ApiMemoryLifecycleFiel
     }
     if (f.operation == ApiMemoryOperation::Free) {
         return f.status >= 0 ? "memory-release-request-succeeded" : "memory-release-request-failed";
+    }
+    if (f.operation == ApiMemoryOperation::Unmap)
+    {
+        return f.status >= 0 ? "memory-unmap-request-succeeded" : "memory-unmap-request-failed";
     }
     if (f.status < 0) {
         return "memory-protection-failed";

@@ -45,6 +45,10 @@ namespace ks::action_analyze
     QString PrivateCandidateState(const detection::PrivateExecutionCandidate& row)
     {
         const auto& fields = *row.origin.record.apiMemoryLifecycle; // 核心只返回合法AAIM1行。
+        if (fields.operation == Ksword::Evidence::ApiMemoryOperation::Unmap)
+        {
+            return sourceText(QStringLiteral("解除映射请求；实际范围未知"));
+        }
         if (fields.operation == Ksword::Evidence::ApiMemoryOperation::Free)
         {
             return sourceText(QStringLiteral("Free 请求；实际释放未知"));
@@ -57,12 +61,13 @@ namespace ks::action_analyze
             sourceText(QStringLiteral("范围线索；缺目标强身份"));
     }
 
-    // 只显示两个实际输出有效位均存在的范围；Free和失败返回绝不显示请求值为实际值。
+    // 只显示分配/保护操作两个实际输出有效位均存在的范围；Free、Unmap和失败不回填请求值。
     QString PrivateCandidateRange(const detection::PrivateExecutionCandidate& row)
     {
         const auto& fields = *row.origin.record.apiMemoryLifecycle; // 保留原实际输出，未对齐或截断。
         constexpr auto flags = Ksword::Evidence::ApiMemoryOutputBase | Ksword::Evidence::ApiMemoryOutputBytes;
-        if (fields.operation == Ksword::Evidence::ApiMemoryOperation::Free ||
+        if ((fields.operation != Ksword::Evidence::ApiMemoryOperation::Allocate &&
+            fields.operation != Ksword::Evidence::ApiMemoryOperation::Protect) ||
             !fields.returnValid || fields.status < 0 || (fields.flags & flags) != flags)
         {
             return sourceText(QStringLiteral("实际范围未知"));
@@ -109,10 +114,13 @@ namespace ks::action_analyze
         }
 
         const auto& candidate = page.rows[static_cast<std::size_t>(row)]; // 唯一选中原调用的纯值快照。
+        const bool unmap = candidate.origin.record.apiMemoryLifecycle->operation ==
+            Ksword::Evidence::ApiMemoryOperation::Unmap; // Unmap没有保护值，也没有可纳入NX的实际输出范围。
         document.section(QStringLiteral("选中候选"));
         document.field(QStringLiteral("候选原因码"), QString::fromLatin1(candidate.reason));
-        document.field(QStringLiteral("范围候选"), candidate.rangeCandidate ? QStringLiteral("是") : QStringLiteral("否"), true);
-        document.field(QStringLiteral("原保护可执行"), candidate.executableProtection ? QStringLiteral("是") : QStringLiteral("否"), true);
+        document.field(QStringLiteral("范围候选"), !unmap && candidate.rangeCandidate ? QStringLiteral("是") : QStringLiteral("否"), true);
+        document.field(QStringLiteral("原保护可执行"), unmap ? QStringLiteral("不适用") :
+            candidate.executableProtection ? QStringLiteral("是") : QStringLiteral("否"), true);
         document.field(QStringLiteral("后续 Free 请求关联数"), QString::number(candidate.freeRequestCount));
         document.field(QStringLiteral("已保留 Free 请求关联数"), QString::number(candidate.freeRequests.size()));
         AppendCall(document, candidate.origin);

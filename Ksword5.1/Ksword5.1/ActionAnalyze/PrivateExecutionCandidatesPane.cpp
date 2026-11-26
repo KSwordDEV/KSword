@@ -178,7 +178,10 @@ namespace ks::action_analyze
             return;
         }
         const auto& row = m_shown->page->rows[static_cast<std::size_t>(selected)]; // 当前页原调用。
-        if (!row.wholeRangeDraft || !m_address->text().trimmed().isEmpty())
+        const auto& fields = row.origin.record.apiMemoryLifecycle; // 原操作决定是否存在可采用的实际输出范围。
+        if (!fields || (fields->operation != Ksword::Evidence::ApiMemoryOperation::Allocate &&
+            fields->operation != Ksword::Evidence::ApiMemoryOperation::Protect) ||
+            !row.wholeRangeDraft || !m_address->text().trimmed().isEmpty())
         {
             m_notice = QStringLiteral("整段不可用或已有子范围草稿；请保留并手工编辑明确范围。");
             Render();
@@ -213,6 +216,13 @@ namespace ks::action_analyze
             return false;
         }
         const auto& fields = *row.origin.record.apiMemoryLifecycle; // 目标只取原AAIM1强实例，不回填PID。
+        if (fields.operation == Ksword::Evidence::ApiMemoryOperation::Unmap)
+        {
+            // 即使调用者保留手填范围，也不能把解除映射请求转换为私有NX草稿。
+            m_notice = QStringLiteral("解除映射请求没有实际输出范围，不能准备私有 NX 范围草稿。");
+            Render();
+            return false;
+        }
         if (!row.strongTarget || fields.targetPid != m_context.target.pid ||
             fields.targetCreationFileTime != m_context.target.creationFileTime)
         {

@@ -5025,16 +5025,28 @@ namespace apimon
             return statusValue;
         }
 
+        // 输入原processHandle及直接视图内地址；输出原NTSTATUS，只记录请求，不枚举或猜测解除范围。
         NTSTATUS NTAPI HookedNtUnmapViewOfSection(HANDLE processHandle, PVOID baseAddress)
         {
-            ScopedHookGuard guardValue;
-            if (guardValue.bypass()) { return g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress); }
-            const auto callClock = BeginApiCallClock();
-            const NTSTATUS statusValue = g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress);
-            const auto duration = EndApiCallClock(callClock);
-            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
-            BuildRemoteMemoryDetail(detailBuffer, processHandle, baseAddress, 0, 0, 0);
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtUnmapViewOfSection", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            ScopedHookGuard guardValue; // 额外身份查询不递归采集，原API仍只调用一次。
+            if (guardValue.bypass())
+            {
+                return g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress);
+            }
+            const PVOID requestedBase = baseAddress; // 直接参数的原值；观察器读本地槽，不读取目标视图内容。
+            ApiMemoryLifecycleObservation observation(Ksword::Evidence::ApiMemoryOperation::Unmap,
+                processHandle, &requestedBase, nullptr, 0, 0); // API没有size，不置RequestedBytes有效位。
+            const auto callClock = BeginApiCallClock(); // 原调用计时起点。
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntUnmapViewOfSectionOriginal(processHandle, baseAddress); // 保留原返回。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock); // 身份回读不计入原API耗时。
+            const DWORD lastError = ::GetLastError(); // 额外观察完成后恢复原LastError。
+            observation.Complete(statusValue, nullptr, nullptr);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtUnmapViewOfSection",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
+                ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            ::SetLastError(lastError);
             return statusValue;
         }
 

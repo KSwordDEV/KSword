@@ -81,7 +81,7 @@ void ApiMemoryLifecycleObservation::MarkReturn() noexcept
     ::SetLastError(error);
 }
 
-// 按原NTSTATUS采输出。Free不读取返回base/size，避免size=0被解释为全区释放。
+// 按原NTSTATUS采输出；Free/Unmap没有输出范围，不从size=0或输入地址推断全区。
 void ApiMemoryLifecycleObservation::Complete(NTSTATUS status, PVOID const* base,
     const SIZE_T* size, const ULONG* oldProtection) noexcept
 {
@@ -92,7 +92,7 @@ void ApiMemoryLifecycleObservation::Complete(NTSTATUS status, PVOID const* base,
     PVOID outputBase = nullptr; // 成功后的真实输出基址。
     SIZE_T outputBytes = 0; // 成功后的真实输出长度。
     ULONG previous = 0; // 成功Protect的旧保护。
-    if (status >= 0 && fields_.operation != ApiMemoryOperation::Free) {
+    if (status >= 0 && (fields_.operation == ApiMemoryOperation::Allocate || fields_.operation == ApiMemoryOperation::Protect)) {
         if (SafeRead(base, outputBase)) {
             fields_.outputBase = reinterpret_cast<std::uintptr_t>(outputBase);
             fields_.flags |= ApiMemoryOutputBase;

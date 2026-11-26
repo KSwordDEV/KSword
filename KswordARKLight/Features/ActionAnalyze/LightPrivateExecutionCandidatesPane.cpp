@@ -80,8 +80,11 @@ bool SelectReady(const Pane& pane) {
     const auto* row = Row(pane);
     if (!ReadReady(pane) || !SameSession(pane) || !pane.context.target.attached || !pane.context.nxBinding || !row ||
         !row->rangeCandidate || !row->strongTarget || !row->origin.record.apiMemoryLifecycle) return false;
-    const auto& fields = *row->origin.record.apiMemoryLifecycle;
-    return fields.targetPid == pane.context.target.pid && fields.targetCreationFileTime == pane.context.target.creationFileTime;
+    const auto& fields = *row->origin.record.apiMemoryLifecycle; // Unmap与Free没有可载入NX草稿的实际输出范围。
+    const bool rangeOperation = fields.operation == Ksword::Evidence::ApiMemoryOperation::Allocate ||
+        fields.operation == Ksword::Evidence::ApiMemoryOperation::Protect; // 与原共享范围准备服务采用同一操作边界。
+    return rangeOperation && fields.targetPid == pane.context.target.pid &&
+        fields.targetCreationFileTime == pane.context.target.creationFileTime;
 }
 // 使用当前系统字体测量自然折行高度，供窄窗参数滚动布局使用。
 int Height(HWND label, int width) {

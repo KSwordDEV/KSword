@@ -1,7 +1,7 @@
 #include "ApiMemoryLifecycleProjection.h"
 
 namespace ks::cli::action_analyze {
-// 唯一JSON投影：各有效位独立决定值，Free从不生成实际释放范围。
+// 唯一JSON投影：各有效位独立决定值，Free/Unmap从不生成实际解除范围。
 Ksword::Evidence::JsonValue ApiMemoryLifecycleJson(const Ksword::Evidence::ApiMemoryLifecycleFieldsV1& f,
     std::uint64_t session)
 {
@@ -18,7 +18,8 @@ Ksword::Evidence::JsonValue ApiMemoryLifecycleJson(const Ksword::Evidence::ApiMe
     };
     const auto type = ApiMemoryLifecycleEventType(f); // 共享解析给出的稳定事件类型。
     const auto operation = f.operation == ApiMemoryOperation::Allocate ? "allocate" :
-        f.operation == ApiMemoryOperation::Protect ? "protect" : "free-request"; // Free保持请求语义。
+        f.operation == ApiMemoryOperation::Protect ? "protect" :
+        f.operation == ApiMemoryOperation::Free ? "free-request" : "unmap-request"; // 请求没有实际解除范围输出。
     return V::makeObject({{"schema", V::makeString("api-memory-lifecycle-v1")},
         {"kind", V::makeString(operation)}, {"eventType", V::makeString(std::string(type))},
         {"flags", number(f.flags)}, {"pointerBits", V::makeUInt(f.pointerBits)},
@@ -34,7 +35,8 @@ Ksword::Evidence::JsonValue ApiMemoryLifecycleJson(const Ksword::Evidence::ApiMe
         {"outputBase", optional(ApiMemoryOutputBase, f.outputBase)},
         {"outputBytes", optional(ApiMemoryOutputBytes, f.outputBytes)},
         {"allocationType", f.operation == ApiMemoryOperation::Allocate ? number(f.allocationType) : V::makeNull()},
-        {"newProtection", f.operation != ApiMemoryOperation::Free ? number(f.newProtection) : V::makeNull()},
+        {"newProtection", f.operation == ApiMemoryOperation::Allocate || f.operation == ApiMemoryOperation::Protect
+            ? number(f.newProtection) : V::makeNull()},
         {"freeType", f.operation == ApiMemoryOperation::Free ? number(f.freeType) : V::makeNull()},
         // oldProtection独立判有效，不以成功或保护请求值代替原输出。
         {"oldProtectionValid", V::makeBool((f.flags & ApiMemoryOldProtection) != 0)},

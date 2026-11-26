@@ -52,6 +52,7 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
         {L"NtAllocateVirtualMemory", "memory-allocation", C::Memory, true},
         {L"NtProtectVirtualMemory", "memory-protection", C::Memory, true},
         {L"NtFreeVirtualMemory", "memory-free-request", C::Memory, true},
+        {L"NtUnmapViewOfSection", "memory-unmap-request", C::Memory, true},
         // 注册表仅登记已有专用处理器；普通 HKEY 不代表完整路径。
         {L"RegOpenKeyW", "registry-query", C::Registry, false, L"advapi32"},
         {L"RegOpenKeyA", "registry-query", C::Registry, false, L"advapi32"},

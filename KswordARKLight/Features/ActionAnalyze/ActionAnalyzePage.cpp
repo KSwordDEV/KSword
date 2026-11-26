@@ -281,6 +281,10 @@ std::wstring ApiFamilyLabel(std::wstring_view family) {
     {
         return L"内存释放请求";
     }
+    if (family == L"memory-unmap-request")
+    {
+        return L"解除映射请求"; // 独立分类，不使用Free或保护变更标签。
+    }
     // 新类别沿用原分类展示入口，名称不宣称执行、连接或持久化已生效。
     const std::pair<std::wstring_view, std::wstring_view> labels[] = {
         {L"registry-query", L"注册表查询"},

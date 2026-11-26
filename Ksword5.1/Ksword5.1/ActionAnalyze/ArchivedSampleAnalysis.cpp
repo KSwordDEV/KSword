@@ -46,6 +46,7 @@ namespace
             {"network-name-query", QStringLiteral("名称解析调用")},
             {"network-session", QStringLiteral("网络会话句柄")},
             {"network-request", QStringLiteral("HTTP 请求调用")},
+            {"memory-unmap-request", QStringLiteral("解除映射请求")}, // 追加类别，保留既有枚举及计数索引。
         }};
         return categories;
     }

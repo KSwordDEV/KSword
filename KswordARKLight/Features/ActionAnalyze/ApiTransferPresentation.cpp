@@ -26,9 +26,11 @@ namespace
             const auto& f = *record.apiMemoryLifecycle; // AAIM1核验通过的不可变字段。
             using namespace Ksword::Evidence;
             const auto eventType = ApiMemoryLifecycleEventType(f); // 稳定事件类型，不作跨事件归因。
+            const bool unmap = f.operation == ApiMemoryOperation::Unmap; // 解除映射只有原输入基址和返回状态，不含长度或保护。
             std::wstring text = L"API 内存生命周期\r\n内存操作类型："; // 复用现有详情正文。
             text += f.operation == ApiMemoryOperation::Allocate ? L"分配" :
-                f.operation == ApiMemoryOperation::Protect ? L"保护变更" : L"释放请求";
+                f.operation == ApiMemoryOperation::Protect ? L"保护变更" :
+                f.operation == ApiMemoryOperation::Free ? L"释放请求" : unmap ? L"解除映射请求" : L"未知";
             text += L"\r\n生命周期事件类型：" + std::wstring(eventType.begin(), eventType.end());
             AppendApiNumber(text, L"内存字段有效位", f.flags);
             AppendApiNumber(text, L"源调用 ABI（位）", f.pointerBits);
@@ -41,30 +43,42 @@ namespace
             AppendApiNumber(text, L"目标进程创建 FILETIME", f.targetCreationFileTime, (f.flags & ApiMemoryTargetIdentity) != 0);
             text += L"\r\n目标身份前后稳定：";
             text += !(f.flags & ApiMemoryTargetIdentity) ? L"未知" : f.flags & ApiMemoryTargetStable ? L"是" : L"否";
-            AppendApiNumber(text, L"请求内存基址", f.requestedBase, (f.flags & ApiMemoryRequestedBase) != 0);
-            AppendApiNumber(text, L"请求内存字节数", f.requestedBytes, (f.flags & ApiMemoryRequestedBytes) != 0);
-            AppendApiNumber(text, L"实际输出内存基址", f.outputBase, (f.flags & ApiMemoryOutputBase) != 0);
-            AppendApiNumber(text, L"实际输出内存字节数", f.outputBytes, (f.flags & ApiMemoryOutputBytes) != 0);
+            AppendApiNumber(text, unmap ? L"解除映射输入基址" : L"请求内存基址", f.requestedBase, (f.flags & ApiMemoryRequestedBase) != 0);
+            if (!unmap)
+            {
+                // Unmap没有长度参数或输出范围，保留零不构成已解除映射的字节范围。
+                AppendApiNumber(text, L"请求内存字节数", f.requestedBytes, (f.flags & ApiMemoryRequestedBytes) != 0);
+                AppendApiNumber(text, L"实际输出内存基址", f.outputBase, (f.flags & ApiMemoryOutputBase) != 0);
+                AppendApiNumber(text, L"实际输出内存字节数", f.outputBytes, (f.flags & ApiMemoryOutputBytes) != 0);
+            }
 
-            // Free不显示任何已知输出范围，所有类型保留真实返回及操作专属参数。
+            // 各操作只显示自身参数；Unmap既不是Free，也没有新保护或旧保护输出。
             if (f.operation == ApiMemoryOperation::Allocate)
             {
                 AppendApiNumber(text, L"分配类型 AllocationType", f.allocationType);
             }
-            if (f.operation != ApiMemoryOperation::Free)
+            if (f.operation == ApiMemoryOperation::Allocate || f.operation == ApiMemoryOperation::Protect)
             {
                 AppendApiNumber(text, L"请求内存保护", f.newProtection);
             }
-            else
+            else if (f.operation == ApiMemoryOperation::Free)
             {
                 AppendApiNumber(text, L"释放类型 FreeType", f.freeType);
             }
-            text += f.flags & ApiMemoryOldProtection ? L"\r\n旧保护有效：是" : L"\r\n旧保护有效：否";
-            AppendApiNumber(text, L"原内存保护", f.oldProtection, (f.flags & ApiMemoryOldProtection) != 0);
+            if (!unmap)
+            {
+                text += f.flags & ApiMemoryOldProtection ? L"\r\n旧保护有效：是" : L"\r\n旧保护有效：否";
+                AppendApiNumber(text, L"原内存保护", f.oldProtection, (f.flags & ApiMemoryOldProtection) != 0);
+            }
             text += f.returnValid ? L"\r\n原返回有效：是" : L"\r\n原返回有效：否";
             text += L"\r\n原 NTSTATUS：" + std::to_wstring(f.status);
             AppendApiNumber(text, L"调用进入 QPC", f.enterQpc, f.enterQpc != 0);
             AppendApiNumber(text, L"调用返回 QPC", f.returnQpc, f.returnQpc != 0);
+            if (unmap)
+            {
+                return text + L"\r\n分配代次：未知\r\n实际解除映射范围：未知\r\n"
+                    L"解除映射仅记录原输入基址及返回；实际解除映射范围、分配代次、后续执行与因果未知，不提供私有 NX 范围草稿。\r\n";
+            }
             return text + L"\r\n分配代次：未知\r\n实际释放范围：未知\r\n"
                 L"内存生命周期仅记录原请求及返回；释放全区、分配代次、后续执行与因果未知。\r\n";
         }

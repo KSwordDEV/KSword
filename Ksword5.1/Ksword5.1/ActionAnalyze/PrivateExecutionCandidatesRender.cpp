@@ -156,9 +156,11 @@ namespace ks::action_analyze
         const auto* row = current && selected >= 0 && static_cast<std::size_t>(selected) < m_shown->page->rows.size() ?
             &m_shown->page->rows[static_cast<std::size_t>(selected)] : nullptr;
         const auto* fields = row && row->origin.record.apiMemoryLifecycle ? &*row->origin.record.apiMemoryLifecycle : nullptr;
+        const bool rangeOperation = fields && (fields->operation == Ksword::Evidence::ApiMemoryOperation::Allocate ||
+            fields->operation == Ksword::Evidence::ApiMemoryOperation::Protect); // 只有分配/保护具有实际输出范围。
         const bool target = fields && row->strongTarget && fields->targetPid == m_context.target.pid &&
             fields->targetCreationFileTime == m_context.target.creationFileTime;
-        const bool eligible = idle && current && m_attempt == m_shown && target && row->rangeCandidate &&
+        const bool eligible = idle && current && m_attempt == m_shown && target && rangeOperation && row->rangeCandidate &&
             m_context.nxBinding && m_context.fullHeld && m_context.target.attached;
         m_load->setEnabled(eligible && row->wholeRangeDraft.has_value());
         m_prepare->setEnabled(eligible && DraftMatchesSelection());
@@ -172,6 +174,10 @@ namespace ks::action_analyze
         if (row && !target)
         {
             eligibility += QLatin1Char('\n') + sourceText(QStringLiteral("选中候选的目标 PID 与创建 FILETIME 必须匹配本轮原调试目标。"));
+        }
+        if (fields && fields->operation == Ksword::Evidence::ApiMemoryOperation::Unmap)
+        {
+            eligibility += QLatin1Char('\n') + sourceText(QStringLiteral("解除映射请求没有实际输出范围，不能准备私有 NX 范围草稿。"));
         }
         m_eligibility->setText(eligibility);
         if (m_draftPage && m_draftOrigin)

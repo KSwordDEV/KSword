@@ -224,8 +224,11 @@ namespace
         using namespace Ksword::Evidence;
         const auto& f = *clue.apiMemoryLifecycle; // 同一完整原包的字段和独立有效位。
         const auto eventType = ApiMemoryLifecycleEventType(f); // 稳定机器类型，不提升成执行证据。
+        const bool unmap = f.operation == ApiMemoryOperation::Unmap; // 解除映射只有原输入基址，没有字节范围或保护输入输出。
         const auto kind = f.operation == ApiMemoryOperation::Allocate ? QStringLiteral("分配") :
-            f.operation == ApiMemoryOperation::Protect ? QStringLiteral("保护变更") : QStringLiteral("释放请求"); // 原API种类。
+            f.operation == ApiMemoryOperation::Protect ? QStringLiteral("保护变更") :
+            f.operation == ApiMemoryOperation::Free ? QStringLiteral("释放请求") :
+            unmap ? QStringLiteral("解除映射请求") : QStringLiteral("未知"); // 原API种类，不把新操作默认归为Free。
         document.section(QStringLiteral("API 内存生命周期"))
             .field(QStringLiteral("内存操作类型"), kind, true)
             .field(QStringLiteral("生命周期事件类型"), QString::fromLatin1(eventType.data(), eventType.size()))
@@ -241,33 +244,43 @@ namespace
             .field(QStringLiteral("API 目标 PID"), OptionalApiValue(f.flags, ApiMemoryTargetIdentity, f.targetPid), true)
             .field(QStringLiteral("目标进程创建 FILETIME"), OptionalApiValue(f.flags, ApiMemoryTargetIdentity, f.targetCreationFileTime), true)
             .field(QStringLiteral("目标身份前后稳定"), stable, true)
-            .field(QStringLiteral("请求内存基址"), OptionalApiValue(f.flags, ApiMemoryRequestedBase, f.requestedBase, 16), true)
-            .field(QStringLiteral("请求内存字节数"), OptionalApiValue(f.flags, ApiMemoryRequestedBytes, f.requestedBytes), true)
-            .field(QStringLiteral("实际输出内存基址"), OptionalApiValue(f.flags, ApiMemoryOutputBase, f.outputBase, 16), true)
-            .field(QStringLiteral("实际输出内存字节数"), OptionalApiValue(f.flags, ApiMemoryOutputBytes, f.outputBytes), true);
+            .field(unmap ? QStringLiteral("解除映射输入基址") : QStringLiteral("请求内存基址"),
+                OptionalApiValue(f.flags, ApiMemoryRequestedBase, f.requestedBase, 16), true);
+        if (!unmap)
+        {
+            // NtUnmapViewOfSection没有长度参数或输出范围，不能把保留零展示成解除映射字节数。
+            document.field(QStringLiteral("请求内存字节数"), OptionalApiValue(f.flags, ApiMemoryRequestedBytes, f.requestedBytes), true)
+                .field(QStringLiteral("实际输出内存基址"), OptionalApiValue(f.flags, ApiMemoryOutputBase, f.outputBase, 16), true)
+                .field(QStringLiteral("实际输出内存字节数"), OptionalApiValue(f.flags, ApiMemoryOutputBytes, f.outputBytes), true);
+        }
 
         // 操作专属参数不借零值伪造成其它API输入；oldProtection有效性与值分列。
         if (f.operation == ApiMemoryOperation::Allocate)
         {
             document.field(QStringLiteral("分配类型 AllocationType"), QString::number(f.allocationType, 16));
         }
-        if (f.operation != ApiMemoryOperation::Free)
+        if (f.operation == ApiMemoryOperation::Allocate || f.operation == ApiMemoryOperation::Protect)
         {
             document.field(QStringLiteral("请求内存保护"), QString::number(f.newProtection, 16));
         }
-        else
+        else if (f.operation == ApiMemoryOperation::Free)
         {
             document.field(QStringLiteral("释放类型 FreeType"), QString::number(f.freeType, 16));
         }
-        document.field(QStringLiteral("旧保护有效"), f.flags & ApiMemoryOldProtection ? QStringLiteral("是") : QStringLiteral("否"), true)
-            .field(QStringLiteral("原内存保护"), OptionalApiValue(f.flags, ApiMemoryOldProtection, f.oldProtection, 16), true)
-            .field(QStringLiteral("原返回有效"), f.returnValid ? QStringLiteral("是") : QStringLiteral("否"), true)
+        if (!unmap)
+        {
+            document.field(QStringLiteral("旧保护有效"), f.flags & ApiMemoryOldProtection ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("原内存保护"), OptionalApiValue(f.flags, ApiMemoryOldProtection, f.oldProtection, 16), true);
+        }
+        // Unmap与其它操作共用原返回文档；成功状态也不补造已解除映射的实际范围。
+        document.field(QStringLiteral("原返回有效"), f.returnValid ? QStringLiteral("是") : QStringLiteral("否"), true)
             .field(QStringLiteral("原 NTSTATUS"), QString::number(static_cast<std::uint32_t>(f.status), 16))
             .field(QStringLiteral("调用进入 QPC"), f.enterQpc ? QString::number(f.enterQpc) : QStringLiteral("未知"), true)
             .field(QStringLiteral("调用返回 QPC"), f.returnQpc ? QString::number(f.returnQpc) : QStringLiteral("未知"), true)
             .field(QStringLiteral("分配代次"), QStringLiteral("未知"), true)
-            .field(QStringLiteral("实际释放范围"), QStringLiteral("未知"), true)
-            .note(QStringLiteral("内存生命周期仅记录原请求及返回；释放全区、分配代次、后续执行与因果未知。"));
+            .field(unmap ? QStringLiteral("实际解除映射范围") : QStringLiteral("实际释放范围"), QStringLiteral("未知"), true)
+            .note(unmap ? QStringLiteral("解除映射仅记录原输入基址及返回；实际解除映射范围、分配代次、后续执行与因果未知，不提供私有 NX 范围草稿。") :
+                QStringLiteral("内存生命周期仅记录原请求及返回；释放全区、分配代次、后续执行与因果未知。"));
     }
 
     // 输入 document 为原文档、candidates 为累计数、latest 为可空最近 APC 回执；追加正文，无返回值。

@@ -45,13 +45,18 @@ PrivateExecutionCandidate Candidate(PrivateMemoryCall call)
     PrivateExecutionCandidate row; // 失败及Free也保留完整调用，只是不产生范围草稿。
     row.origin = std::move(call);
     const auto& fields = *row.origin.record.apiMemoryLifecycle; // 原严格AAIM1解析输出。
-    row.executableProtection = fields.operation != ApiMemoryOperation::Free &&
+    row.executableProtection = (fields.operation == ApiMemoryOperation::Allocate || fields.operation == ApiMemoryOperation::Protect) &&
         ExecutableProtection(fields.newProtection);
     row.strongTarget = StrongTarget(row.origin);
     if (fields.operation == ApiMemoryOperation::Free)
     {
         row.reason = "free-request-actual-release-unknown";
         return row;
+    }
+    if (fields.operation == ApiMemoryOperation::Unmap)
+    {
+        row.reason = "unmap-request-actual-range-unknown";
+        return row; // 直接地址属于原请求，不能转成私有执行范围或使旧候选失活。
     }
     if (!ActualRange(fields))
     {
@@ -184,7 +189,7 @@ ProjectResult ReadPrivateExecutionCandidates(const ProjectDocument& project,
                 const auto& record = archived.records[index]; // 与observation同索引的真实调用坐标。
                 const auto& observation = archived.graph.observations[index]; // 原包解码缺口及来源引用。
                 const bool lifecycle = record.apiFamily == "memory-allocation" || record.apiFamily == "memory-protection" ||
-                    record.apiFamily == "memory-free-request";
+                    record.apiFamily == "memory-free-request" || record.apiFamily == "memory-unmap-request";
                 if (!lifecycle)
                 {
                     continue;

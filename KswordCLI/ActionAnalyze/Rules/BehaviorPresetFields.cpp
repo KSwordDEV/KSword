@@ -191,7 +191,7 @@ std::vector<FieldSample> ProjectApiPresetFields(std::string_view api, std::strin
         if (memory->flags & Evidence::ApiMemoryTargetStable) {
             output.Add("target.stable", true);
         }
-        if (memory->operation != Evidence::ApiMemoryOperation::Free) {
+        if (memory->operation == Evidence::ApiMemoryOperation::Allocate || memory->operation == Evidence::ApiMemoryOperation::Protect) {
             output.Add("memory.newProtection", memory->newProtection);
         }
         if (memory->operation == Evidence::ApiMemoryOperation::Allocate) {
