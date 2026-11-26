@@ -1127,13 +1127,13 @@ namespace
             : active ? sourceText(QStringLiteral("正在绑定写入停点"))
             : state == native::NativeControlStatus::Idle ? sourceText(QStringLiteral("写入监控未开始"))
             : sourceText(QStringLiteral("写入监控已脱离"));
-        if (m_status->text() != status)
         if (m_apiStartupShown)
         {
             // 保留原native状态，在同一固定状态栏追加API来源阶段，关闭时仍显示脱离进度。
             status += QStringLiteral(" · ") + sourceText(QStringLiteral("最后确认的启动阶段：%1"))
                 .arg(QString::fromLatin1(ks::winapi_monitor::CaptureStartupStageName(m_apiStartupShown->startup.stage)));
         }
+        if (m_status->text() != status)
         {
             m_status->setText(status);
         }
@@ -1349,11 +1349,11 @@ namespace
         {
             NativeSessionApiPane::AppendFields(document, *m_apiShown); // 搜索、复制和导出使用同一份规范文档。
         }
-        if (const auto observed = native::NativeExecutionFromOwnedStop(m_result))
         if (m_apiStartupShown)
         {
             NativeSessionApiPane::AppendProgress(document, *m_apiStartupShown); // 原状态区运行时可回查本次身份。
         }
+        if (const auto observed = native::NativeExecutionFromOwnedStop(m_result))
         {
             document.section(QStringLiteral("当前执行观测"))
                 .field(QStringLiteral("执行观测类型"), observed->kind == native::NativeExecutionKind::InstructionCompleted
