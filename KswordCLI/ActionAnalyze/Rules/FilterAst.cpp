@@ -215,6 +215,24 @@ private:
             }
             return Truth::Unknown;
         }
+        if (const auto* binary = std::get_if<BooleanBinary>(&node)) {
+            const auto left = Node(binary->left); // 先读取左侧；首次故障仍由原解释器保留。
+            const auto right = Node(binary->right); // 非短路操作必须读取右侧，不能隐藏除零或预算故障。
+            switch (binary->op)
+            {
+            case BooleanBinaryOp::And:
+                if (left == Truth::False || right == Truth::False) return Truth::False;
+                return left == Truth::True && right == Truth::True ? Truth::True : Truth::Unknown;
+            case BooleanBinaryOp::Or:
+                if (left == Truth::True || right == Truth::True) return Truth::True;
+                return left == Truth::False && right == Truth::False ? Truth::False : Truth::Unknown;
+            case BooleanBinaryOp::Xor:
+                if (left == Truth::Unknown || right == Truth::Unknown) return Truth::Unknown;
+                return AsTruth(left != right);
+            }
+            fault_ = EvaluationFault::InvalidInput;
+            return Truth::Unknown;
+        }
         if (const auto* conditional = std::get_if<Conditional>(&node)) {
             const auto selected = SelectBranch(*conditional);
             return selected ? Node(*selected) : Truth::Unknown;
@@ -496,6 +514,20 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
                 return {{}, PrepareError::InvalidTree, i};
             }
             if (outputs[logical->left] != FieldType::Bool || outputs[logical->right] != FieldType::Bool) {
+                return {{}, PrepareError::TypeMismatch, i};
+            }
+        } else if (const auto* binary = std::get_if<BooleanBinary>(&node)) {
+            if (binary->op != BooleanBinaryOp::And && binary->op != BooleanBinaryOp::Xor &&
+                binary->op != BooleanBinaryOp::Or)
+            {
+                return {{}, PrepareError::UnsupportedOperator, i};
+            }
+            if (!attach(binary->left) || !attach(binary->right))
+            {
+                return {{}, PrepareError::InvalidTree, i};
+            }
+            if (outputs[binary->left] != FieldType::Bool || outputs[binary->right] != FieldType::Bool)
+            {
                 return {{}, PrepareError::TypeMismatch, i};
             }
         } else if (const auto* conditional = std::get_if<Conditional>(&node)) {

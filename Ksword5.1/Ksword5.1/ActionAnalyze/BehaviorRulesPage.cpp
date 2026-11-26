@@ -448,6 +448,7 @@ namespace
             sourceText(QStringLiteral("数值表达式需声明 expressionProfile 为 predicate-expr-v3。例：(source.headerPid & 0xffu64) == 42u64。支持 ~、一元 +、* / % + - << >> & ^ | 和字段间比较；位运算参与比较时加括号。")),
             sourceText(QStringLiteral("u64 加减乘溢出环绕，移位取计数低六位。未知值不视为零；除零或余零返回未知及 division-by-zero。旧 v1/v2 只接受原字段对常量语法。")),
             sourceText(QStringLiteral("v3 支持条件 ? 真分支 : 假分支；两分支须同为 bool 或 u64，只求值选中分支，未知条件返回未知。")),
+            sourceText(QStringLiteral("v3 的 &、^、| 也支持两个 bool 谓词，按从左到右求值两侧，不短路；bool 与 u64 混合会拒绝。")),
             sourceText(QStringLiteral("归档预置字段及类型：%1。它们仅来自同一原包的已核验协议和有效位，不是合成草稿字段；API 请求接受不证明执行或注入成功。"))
                 .arg(archiveFields.join(QStringLiteral(", "))),
             sourceText(QStringLiteral("序列使用显式 sourceSequence。合成事件无法证明真实来源覆盖，缺证据的窗口可判为未知。"))

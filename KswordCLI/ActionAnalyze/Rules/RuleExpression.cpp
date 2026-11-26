@@ -368,7 +368,19 @@ private:
                 }
                 node = NumericComparison{*comparison, left, right};
             } else {
-                node = NumericBinary{std::get<NumericBinaryOp>(op->operation), left, right};
+                const auto operation = std::get<NumericBinaryOp>(op->operation); // 相同符号按两侧已生成子树选择bool/u64。
+                const bool bitwise = operation == NumericBinaryOp::BitAnd ||
+                    operation == NumericBinaryOp::BitOr || operation == NumericBinaryOp::BitXor;
+                if (bitwise && !HasNumericOperands(left) && !HasNumericOperands(right))
+                {
+                    const auto booleanOperation = operation == NumericBinaryOp::BitAnd ? BooleanBinaryOp::And :
+                        operation == NumericBinaryOp::BitOr ? BooleanBinaryOp::Or : BooleanBinaryOp::Xor;
+                    node = BooleanBinary{booleanOperation, left, right}; // 类型准备仍核对完整两侧，不做运行时类型猜测。
+                }
+                else
+                {
+                    node = NumericBinary{operation, left, right};
+                }
             }
             if (!Emit(std::move(node), range)) {
                 return false;

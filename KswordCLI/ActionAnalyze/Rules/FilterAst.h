@@ -52,6 +52,13 @@ struct FieldTest { FieldOp op; std::string field; Literal literal; };
 struct Not { std::size_t child; };
 enum class Logic { And, Or };
 struct Logical { Logic op; std::size_t left; std::size_t right; };
+// C#布尔 &、^、| 保留从左到右的非短路求值；与u64位运算分别进行静态类型检查。
+enum class BooleanBinaryOp { And, Xor, Or };
+struct BooleanBinary {
+    BooleanBinaryOp op; // 明确的布尔非短路运算。
+    std::size_t left; // 左侧布尔谓词索引。
+    std::size_t right; // 右侧布尔谓词索引，即使左侧决定结果仍会求值。
+};
 struct NumericComparison {
     FieldOp op; // 仅允许六种数值比较。
     std::size_t left; // 左侧 u64 子树的后序索引。
@@ -65,7 +72,7 @@ struct Conditional {
     std::size_t whenFalse; // 条件已知为假时唯一求值的分支。
 };
 using AstNode = std::variant<bool, Not, Logical, FieldTest, NumericLiteral,
-    NumericField, NumericUnary, NumericBinary, NumericComparison, Conditional>;
+    NumericField, NumericUnary, NumericBinary, NumericComparison, Conditional, BooleanBinary>;
 
 // 准备错误定位到节点，运行错误另外附在 Unknown 上。
 enum class PrepareError {
@@ -111,8 +118,9 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
                              std::span<const AstNode> nodes);
 
 // 字段视图在调用期间有效，按 ID 递增且唯一。未投影字段的质量为 NotCollected。
-// 短路保留左到右语义；条件节点只读取已选分支，未知条件不读取分支字段。
-// 实际读到的坏字段或耗尽预算独立报告，结果为 Unknown。
+// && 与 || 保留左到右短路；&、^、| 的两侧同为布尔谓词时按左到右依次求值，左侧已定值也不跳过右侧。
+// 条件节点只读取已选分支，未知条件不读取分支字段。
+// 实际读到的坏字段、算术故障或耗尽预算独立报告，结果为 Unknown；首次故障不被后续节点覆盖。
 Evaluation EvaluatePredicate(const PreparedPredicate& predicate, Phase phase,
                              std::span<const FieldSample> fields,
                              std::size_t workLimit = MaxPredicateWork);

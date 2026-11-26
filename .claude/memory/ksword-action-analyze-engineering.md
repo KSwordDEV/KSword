@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第10项布尔非短路源码闭合。** v3解析器按两侧静态输出选择BooleanBinary/u64 NumericBinary，解释器按左到右依次计算bool &/^/|，算术和预算故障仍使最终Unknown；同为bool或同为u64，混合拒绝，v1/v2不开放。Qt规则草稿、写入停点、Light说明与CLI内置help、两份文档及双语同步。CodeBuddy确认已有主体无新增行为缺口，仅修FilterAst契约注释，主代理补RuleExpression.h过时说明。只是有限C#风格谓词，不是完整C#执行环境；bool字段间==仍为无。无构建/运行/GUI/新增验收记录/推送。
+
 - **2026-11-26 第5/6项线程恢复源码整合。** 接收CodeBuddy原限定任务的两处改动：`NativeStepRuntime::Restore`在上下文失败时仍逐真实线程对象结清已signaled退出对象的暂停债，存活债保留；`NativeDebugOwner::RestoreStep`在step资源为空的返回之前先处理仍开放的NX页。主代理只整理新增注释和代码排版，没有重复完整审查或执行验收。历史线程退出/取消后Continue异常保持待验，未构建/测试/GUI/推送。
 
 - **2026-11-26 第5/6项执行集合成员内存源码。** 原`OwnedExecutionGroup::CaptureMemory`核对原owner/完整Held后复用该成员`OwnedDataWatchSession::CaptureMemory`；不求同伴条件、不Continue、不改为实时读取。`ExecutionGroupArchive`保留最新读取和独立保存来源，复用原writer/sample的`raw-memory`，独立段号/前序、同读取去重、真实写入失败阻止后续追加。CLI接`memory-read/control.memory.read`及`memory-save/control.memory.save`，原execution/N重放；保存按trackingEpoch指定当前原字节。Qt复用ProcessGroupMemoryPane参数及新AppendCapture字段入口，隐藏重复项目；Light沿原参数正文及唯一worker；两端Close置已有取消位、读取收尾后原集合清退。导航仍为监控→行为分析→执行断点集合，页面类型参数执行＋None清单＋共享字段详情，对照写入停点与原停止组内存页。本批无构建、测试、GUI、验收记录或推送，产物未更新。

@@ -292,6 +292,8 @@ JSONL方法为 `control.execution.range.add`，请求带当前session、独立�
 
 v3新增 `condition ? whenTrue : whenFalse`，优先级低于 `||`、右结合。条件为bool，两分支必须同为bool或同为u64，最终断点谓词仍须bool；例：`(stop.firstChance ? stop.thread.rax : stop.thread.rbx) == 0u64`。准备时检查全部分支类型，求值时只进入选中分支；未知条件直接Unknown，未选分支不读取字段、不产生除零故障。显式v1/v2拒绝三元语法，字段白名单不扩张。Qt／Light走同一准备及求值路径；三元扩展仅源码完成，尚未构建或运行。
 
+v3的 `& ^ |` 另支持同为bool的两侧谓词，按原C#优先级从左到右求值两侧，bool/u64混合在准备阶段拒绝。与 `&&/||` 不同，右侧不会因左侧真值而省略；例如 `false & (1u64 / 0u64 == 0u64)` 返回带 `division-by-zero` 的Unknown。未知值保持三值逻辑，异或遇未知仍为Unknown。三端复用共享解析器和预算，该新增布尔语法仍待构建和运行。
+
 原生 Into 与 NX 跨页取指复用同一有界 AMD64 解码器，按已登记编码支持普通内存读写、算术、分支、near CALL／RET 和部分 SSE／AVX 指令。只读取当前一条指令，最多15字节；执行完成仍须来自精确原线程的真实 TF 事件。未知编码、POPF、SS 修改、特权转换和竞争调试状态拒绝。REP 字符串的一次 BS 可能只代表一轮，因此当前拒绝这种单指令完成请求；不会把一轮当成整条指令完成。Over 仍要求 CALL，Out 仍要求真实 RET 或 owner 已证明的入口帧。本增量尚未构建或运行验证。
 
 省略 `--watch-write-bytes` 时设执行关注，地址必须位于已提交的私有 EXECUTE／RX／RWX 区域；提供 1／2／4／8 时设对应宽度的写入关注，地址必须自然对齐且完全落在同一私有 RW／RWX 区域。附加不依赖导出符号、目标握手或父子关系；`--exe`、`--module`、`--export`、`--rva`、两种指针导出参数和双目标模式不能与附加选择器混用。回执 `targetMode=attached-private-address`，默认单地址绑定 `siteKind=private-address-execution` 或 `private-address-write`，冻结地址与区域属性。两种单目标模式均支持原条件和单步；写入模式可在真实停点读取、保存内存并采集同采样 API，Into 真正完成后的执行观测也可保存。新线程通过同一原生 owner 登记，关闭使用原恢复账本；默认单地址DR0不修改区域保护，检测到映射属性变化会清退，不自动重绑；同址同属性的分配代次仍未知。此新增入口尚未实测。

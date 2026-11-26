@@ -148,6 +148,7 @@
     "请选择已保存并启用的非零RVA定义。调试符号尚不支持此入口。": "Select a saved and enabled nonzero RVA definition. Debug-symbol resolution is not supported by this entry.",
     "已核验装载文件 SHA-256": "Verified loaded-file SHA-256",
     "v3 支持条件 ? 真分支 : 假分支；两分支须同为 bool 或 u64，只求值选中分支，未知条件返回未知。": "v3 supports condition ? whenTrue : whenFalse. Both branches must be bool or both u64. Only the selected branch is evaluated; an unknown condition returns Unknown.",
+    "v3 的 &、^、| 也支持两个 bool 谓词，按从左到右求值两侧，不短路；bool 与 u64 混合会拒绝。": "v3 also supports &、^、| with two bool predicates. Both sides are evaluated from left to right without short-circuiting. Mixed bool/u64 operands are rejected.",
     "选择同名模块后带入实时控制页；固定映像散列由原生附加核对实际装载文件，再武装断点。": "Select the matching module to prepare live control. Native attachment verifies any pinned hash against the actual loaded file before arming the breakpoint.",
     "纳入新的私有执行范围": "Add a private execution range",
     "新范围起点": "New range base",

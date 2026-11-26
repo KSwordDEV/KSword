@@ -972,6 +972,7 @@ namespace
             QLatin1Char('\n') + sourceText(QStringLiteral("可用字段：stop.address、stop.data.changedByteMask、stop.data.watchedBytes、stop.data.enrolledAfterStop、stop.exceptionCode、stop.firstChance、stop.pid、stop.tid、stop.thread.creationFileTime。stop.thread 下支持 rip、rax、rbx、rcx、rdx、rbp、rsi、rdi、rsp、r8 至 r15、eflags。寄存器取自命中线程的冻结快照，采集失败为未知。")));
         m_condition->setToolTip(m_condition->toolTip() + QLatin1Char('\n') + sourceText(QStringLiteral("数值条件示例：(stop.thread.rax & 0xffu64) == 0u64、stop.thread.rip >= stop.address。位运算比较请加括号；无符号运算溢出环绕，除零为未知。")));
         m_condition->setToolTip(m_condition->toolTip() + QLatin1Char('\n') + sourceText(QStringLiteral("v3 支持条件 ? 真分支 : 假分支；两分支须同为 bool 或 u64，只求值选中分支，未知条件返回未知。")));
+        m_condition->setToolTip(m_condition->toolTip() + QLatin1Char('\n') + sourceText(QStringLiteral("v3 的 &、^、| 也支持两个 bool 谓词，按从左到右求值两侧，不短路；bool 与 u64 混合会拒绝。")));
         if (m_conditionFailure.diagnostic)
         {
             auto error = sourceText(QStringLiteral("停点条件无效：%1")).arg(QString::fromLatin1(m_conditionFailure.diagnostic));

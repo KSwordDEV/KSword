@@ -6,15 +6,17 @@
 | --- | --- |
 | `predicate-expr-v1` | 原字段对显式常量比较、布尔组合、括号、文本函数、`isNull/isComplete`。 |
 | `predicate-expr-v2` | v1 加 `isKnown` 和 `quality(field) ==/!= "规范质量名"`。 |
-| `predicate-expr-v3` | v2 加有限 u64 数值子树、字段对字段比较和类型化 `?:` 条件子树。 |
+| `predicate-expr-v3` | v2 加有限 u64 数值子树、字段对字段比较、类型化 `?:` 和布尔非短路 `& ^ |`。 |
 
 v1/v2 保留原解析路径：拒绝数值算术、位操作、数值括号和字段对字段比较。v1 拒绝 v2 的质量函数。旧 JSON `FieldTest` 继续调用原 `PreparePredicate()`。
 
-v3 数值常量为十进制或 `0x` 十六进制，必须带 `u64` 后缀。优先级从高到低为 `! ~ +`、`* / %`、`+ -`、`<< >>`、关系比较、相等比较、`&`、`^`、`|`、`&&`、`||`、`?:`。普通二元操作左结合，`?:` 右结合；位运算只接受 u64，因此 `(mask & 1u64) != 0u64` 必须明确括号。没有赋值、自增自减、用户函数、对象方法、指针读取或正则执行。
+v3 数值常量为十进制或 `0x` 十六进制，必须带 `u64` 后缀。优先级从高到低为 `! ~ +`、`* / %`、`+ -`、`<< >>`、关系比较、相等比较、`&`、`^`、`|`、`&&`、`||`、`?:`。普通二元操作左结合，`?:` 右结合；数值位运算两侧须为 u64，因此 `(mask & 1u64) != 0u64` 必须明确括号。没有赋值、自增自减、用户函数、对象方法、指针读取或正则执行。
 
 `condition ? whenTrue : whenFalse` 的条件必须为 bool，两个分支同为 bool 或同为 u64；顶层仍要求 bool。准备阶段检查全部分支的字段和类型，执行时条件为真／假只读取所选分支，未知条件直接返回 Unknown，不读取两个分支或推断相同分支。示例：`(stop.firstChance ? stop.thread.rax : stop.thread.rbx) == 0u64`；`stop.firstChance ? true : stop.thread.rax != 0u64`。未选择的除零分支不产生故障，选中分支沿用 `division-by-zero`。v1/v2拒绝三元语法。缺 `:`、非布尔条件、分支类型不同分别返回 `expression-expected-conditional-colon`、`expression-expected-boolean-condition`、`expression-conditional-branch-type-mismatch` 及源码位置。本次三元扩展仅完成源码，未构建或运行。
 
 加减乘按 unchecked u64 环绕，右移为无符号右移，移位计数只取低六位。不支持一元负号。字面量越界在准备阶段拒绝。未知操作数传播未知；已求值的零除数使结果为 `Unknown + DivisionByZero`，稳定 ID 为 `division-by-zero`。`&&/||` 按三值逻辑从左到右短路，未进入的分支不产生算术故障。所有新数值节点受 512 节点、32 深度和运行计费预算限制。
+
+v3 的 `&`、`^`、`|` 也接受两个 bool 谓词，按 C# 优先级从左到右求值两侧，不使用 `&&/||` 的短路。bool 与 u64 混用在准备阶段拒绝。bool `&` 中假值决定假、bool `|` 中真值决定真，其余未知按三值逻辑保留；异或任一未知即 Unknown。即使左侧已决定真值，右侧发生的除零或预算故障仍使整体为带故障 Unknown。例如 `(stop.pid == 42u64) & isKnown(stop.thread.rax)`；`false & (1u64 / 0u64 == 0u64)` 会求值右侧并报告 `division-by-zero`。数值位运算语义不变，v1/v2继续拒绝这些运算符。该布尔扩展仅源码完成，未构建或运行。
 
 主程序“监控 → 行为分析 → 行为规则草稿”使用相同解析器。草稿顶层可显式设置 `expressionProfile`；未设置时按 v2 读取，新的内置草稿明确使用 v3。字段类型从 `BehaviorRuleFields()` 取得；合成草稿输入和归档预置字段分别列出，不把 API 字段冒充合成事件输入。
 
