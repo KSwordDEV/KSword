@@ -19,23 +19,35 @@
     <LinkIncremental>false</LinkIncremental><VcpkgApplocalDeps>false</VcpkgApplocalDeps><VcpkgEnabled>false</VcpkgEnabled>
     <Repo>$(MSBuildProjectDirectory)\..\..\..</Repo>
     <ProjectSource>$(Repo)\KswordCLI\ActionAnalyze\Project</ProjectSource>
+    <ArchiveSource>$(Repo)\KswordCLI\ActionAnalyze\Archive</ArchiveSource>
   </PropertyGroup>
   <Import Project="..\..\..\Ksword.ReleaseOutput.props" />
   <ItemDefinitionGroup>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader><DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ProjectCallbackValidation.cpp" />
     <ClCompile Include="ProjectValidation.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectCallbackEvidence.cpp" />
+    <ClInclude Include="$(ProjectSource)\ProjectCallbackEvidence.h" />
     <ClCompile Include="$(ProjectSource)\ProjectDocument.cpp" />
     <ClCompile Include="$(ProjectSource)\ProjectLock.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectRawEvidence.cpp" />
     <ClCompile Include="$(ProjectSource)\ProjectStorage.cpp" />
     <ClCompile Include="$(ProjectSource)\SampleCatalog.cpp" />
+    <ClCompile Include="$(ArchiveSource)\RawEvidenceArchive.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentBodies.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentFormat.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentInspection.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentReader.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentWriter.cpp" />
     <ClCompile Include="$(Repo)\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="$(Repo)\shared\evidence\LosslessValue.cpp" />
   </ItemGroup>

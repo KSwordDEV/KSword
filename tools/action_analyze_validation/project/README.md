@@ -41,3 +41,11 @@ if ($LASTEXITCODE) { throw 'Independent format check failed' }
 `ProjectDocument::InspectSegment` 在当前项目的已提交采样中按流和正数段号定位一个文件。`raw`、`records` 和 `control` 使用 20 位十进制段号。`analysis` 需要独立的 `runId` 目录与身份绑定。调用成功后，`SegmentInspection::framingStatus` 描述本次读取的封装检查，`interpretedBytes` 和 `durableBytes` 保持未知。`archiveStreamUnavailable` 与 `archiveSegmentUnavailable` 只说明指定位置的打开失败。可选 `endOffset` 是调用方指定的扫描边界，范围受 Archive 的 1 GiB 段上限约束。
 
 `ProjectArchiveValidation.cpp` 是独立入口，可与四个原 Project 源文件、`ProjectArchive.cpp`、Archive 的 `SegmentFormat.cpp`、`SegmentReader.cpp`、`SegmentWriter.cpp`、`SegmentInspection.cpp`，以及 `EvidenceJson.cpp` 和 `LosslessValue.cpp` 一起编译。它接收一个尚不存在的夹具目录，验证目录与文件缺失、明确扫描端点、采样及段头身份、孤立样本、硬链接和项目文件不变。
+
+## KSword callback archive
+
+`python -B tools/action_analyze_validation/cli/callback_archive_graph.py --create-fixture` uses the existing Release project validator to create three synthetic samples in `tools/action_analyze_validation/project/x64/Release/callback-project-fixture`, then opens them read-only in `Ksword5.1/x64/Release/KswordCLI.exe`. The fixture contains only synthetic in-memory callback records and must not already exist.
+
+Previously validated on the integrated Release working tree: native fixture and CLI both exited `0`. The nonempty sample `7df25ff0-b8ae-4c0d-91da-276dba502214` returned `raw/1 #2`, source sequence `107`, record offset `472`, packet offset `566`, length `1264`, and the notification time `133000000000000123`. The initial page, continuation, and complete empty sample `ebffbb80-7ca6-40ce-b990-ba6754605c2c` matched the raw batch counters. A conflicting batch returned `project-corrupt`; a changed cursor digest returned `stale-revision`. The CLI verified that all source files remained byte-for-byte unchanged. See the recorded `CLI_CALLBACK_ARCHIVE_GRAPH=PASS` in `.codex-build-logs/action-analyze-item4-callback-batch-notification-codebuddy.json`.
+
+This receipt covers synthetic project archive readback. `sourceCoverage` remains `unknown`; callback hints do not identify process or thread instances or establish creation outcome or execution.

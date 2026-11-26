@@ -183,7 +183,54 @@ ProjectResult ReadCommittedApiGraph(const ProjectDocument& project, const Sample
     return {};
 }
 
-ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const SampleScope& scope,
+// 读取并核验一次自有回调归档。只发布上下文提示，不能在图中建立角色实例或边。
+ProjectResult ReadCallbackGraph(const ProjectDocument& project, const SampleScope& scope,
+    const ArchivedGraphRequest& request, GraphPageDraft& draft)
+{
+    ProjectCallbackEvidenceReceipt batch; // 同一 raw/1 文件中核验过的源游标、终态、原包和坐标。
+    if (const auto status = ReadInitialCallbackEvidence(project, scope.sampleId, batch); !status) {
+        return status;
+    }
+    auto& page = draft.page; // 整段水位与分页无关。
+    page.source = ArchivedGraphSource::CallbackBatch;
+    page.end = batch.boundary;
+    page.sha256 = std::move(batch.prefixSha256);
+    page.observationCount = batch.records.size();
+    for (const auto& record : batch.records) {
+        if (record.rawSequence <= request.afterSequence) {
+            continue;
+        }
+        if (page.records.size() == request.limit) {
+            draft.more = true;
+            break;
+        }
+        // 存储坐标与驱动源序号分别保留，不使用时间推测身份。
+        ArchivedGraphRecord coordinate;
+        coordinate.segmentOrdinal = batch.segmentOrdinal;
+        coordinate.blockOrdinal = batch.boundary.blockOrdinal;
+        coordinate.recordSequence = record.rawSequence;
+        coordinate.recordOffset = record.rawOffset;
+        coordinate.inlineOffset = record.inlineOffset;
+        coordinate.inlineBytes = sizeof(record.event);
+        coordinate.operation = "callback.thread.create.v1";
+        const auto& event = record.event; // 专用读侧已经核验 v1 创建正文。
+        const auto time = event.timeUtc100ns;
+        coordinate.callbackHints = ArchivedCallbackHints{
+            event.originatingProcessId ? std::optional<std::uint32_t>{event.originatingProcessId} : std::nullopt,
+            event.originatingThreadId ? std::optional<std::uint32_t>{event.originatingThreadId} : std::nullopt,
+            event.targetProcessId, event.targetThreadId,
+            time > 0 ? std::optional{static_cast<std::uint64_t>(time)} : std::nullopt};
+        draft.inputs.push_back(Context(scope, coordinate, kProjectCallbackSourceId, batch.plan.sourceEpoch,
+            kProjectCallbackSourceId, event.sequence, {Issue::SourceUnverified, Issue::ActorInstanceUnknown,
+                Issue::TargetInstanceUnknown, Issue::OutcomeUnknown, Issue::ThreadInstanceUnknown, Issue::ExecutionUnknown}));
+        page.records.push_back(std::move(coordinate));
+    }
+    page.callbackBatch = ArchivedCallbackBatch{std::move(batch.plan), batch.end};
+    return {};
+}
+
+// 有 ETW 检查点时必须严格核验其内容；无检查点的首段按计划记录选择离线读侧。
+ProjectResult ReadInitialOrEtwGraph(const ProjectDocument& project, const SampleScope& scope,
     const ArchivedGraphRequest& request, GraphPageDraft& draft)
 {
     ProjectEtwCheckpoint checkpoint; // 已提交的同编号 raw 与 records 端点。
@@ -203,6 +250,7 @@ ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const Sa
     }
     Evidence::ApiMonitorClueReadback api; // 核对整个导入段，含本页之外的行和尾记。
     ProjectResult visitorStatus; // 保存回调拒绝原因，区分未支持格式和已识别格式损坏。
+    bool callbackBatch = false; // 识别计划后停止通用扫描，交由回调专用读侧完整核验。
 
     const ProjectRawEvidenceRead read{scope.projectId, scope.sampleId, request.segmentOrdinal, // 冻结此次只读的段身份。
         endOffset, previousSequence,
@@ -230,7 +278,9 @@ ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const Sa
                     }
                 } else {
                     if (record.recordSequence == 1 && !Evidence::IsApiMonitorClueImport(parsed.value)) {
-                        if (ProjectStorage::IsString(parsed.value, "kind", "etw-capture-plan-v1")) {
+                        if (ProjectStorage::IsString(parsed.value, "kind", kProjectCallbackPlanKind)) {
+                            callbackBatch = true;
+                        } else if (ProjectStorage::IsString(parsed.value, "kind", "etw-capture-plan-v1")) {
                             visitorStatus = Failure(ProjectError::NotFound, "graphEtwCheckpointNotPublished");
                         } else if (ProjectStorage::IsString(parsed.value, "kind", kApiFollowPlanKind) &&
                             parsed.value.find(kApiFollowCheckpointField)) {
@@ -259,6 +309,9 @@ ProjectResult ReadImportedApiOrEtwGraph(const ProjectDocument& project, const Sa
     Archive::RawEvidenceScanResult scan; // 只在扫描和散列一致后公布图与坐标。
     if (const auto status = project.ReadRawEvidenceSegment(read, scan, &page.sha256); !status) {
         return status;
+    }
+    if (callbackBatch) {
+        return ReadCallbackGraph(project, scope, request, draft);
     }
     if (!visitorStatus) {
         return visitorStatus;
@@ -315,7 +368,7 @@ ProjectResult ReadArchivedEvidenceGraph(const ProjectDocument& project, const Ar
     page.records.reserve(request.limit);
     const auto status = apiKind == ApiFollowArchiveKind::Checkpointed
         ? ReadCommittedApiGraph(project, scope, request, draft)
-        : ReadImportedApiOrEtwGraph(project, scope, request, draft);
+        : ReadInitialOrEtwGraph(project, scope, request, draft);
     if (!status) {
         return status;
     }

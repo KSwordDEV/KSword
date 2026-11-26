@@ -36,7 +36,7 @@ constexpr ProjectCommand kMethods[] = {
     {M::InspectArchive, "archive.inspect", "archive inspect",
         "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]\n"
         "archive inspect SAMPLE_ID raw|raw-etw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]",
-        "Inspect Stored framing or a verified graph page. For mixed ETW use stream raw-etw with graph.", false},
+        "Inspect Stored framing or a verified API, ETW, or KSword callback graph page. For mixed ETW use stream raw-etw with graph.", false},
 };
 
 Reply Invalid(const char* message) {
@@ -219,6 +219,7 @@ const char* GraphGap(Detection::Issue issue) {
     case I::LegacySummaryOnly: return "legacy-summary-only";
     case I::ActorInstanceUnknown: return "actor-instance-unknown";
     case I::TargetInstanceUnknown: return "target-instance-unknown";
+    case I::OutcomeUnknown: return "outcome-unknown";
     case I::ActualWriteRangeUnknown: return "actual-write-range-unknown";
     case I::ThreadInstanceUnknown: return "thread-instance-unknown";
     case I::ExecutionUnknown: return "execution-unknown";
@@ -237,7 +238,7 @@ V GraphObservationJson(const Detection::GraphObservation& observation,
     for (const auto gap : observation.gaps) {
         gaps.push_back(Text(GraphGap(gap)));
     }
-    return Object({{"operation", Text(record.operation)},
+    Ksword::Evidence::JsonObject fields{{"operation", Text(record.operation)},
         {"apiFamily", record.apiFamily.empty() ? V::makeNull() : Text(record.apiFamily)},
         {"apiCategory", record.apiCategory.empty() ? V::makeNull() : Text(record.apiCategory)},
         {"headerPid", record.headerPid ? V::makeUInt(*record.headerPid) : V::makeNull()},
@@ -249,7 +250,15 @@ V GraphObservationJson(const Detection::GraphObservation& observation,
         {"eventOrdinal", OptionalNumber(source.eventOrdinal)},
         {"raw", Object({{"segmentOrdinal", Number(record.segmentOrdinal)}, {"blockOrdinal", Number(record.blockOrdinal)},
             {"recordSequence", Number(record.recordSequence)}, {"recordOffset", Number(record.recordOffset)},
-            {"inlineOffset", Number(record.inlineOffset)}, {"inlineBytes", Number(record.inlineBytes)}})}});
+             {"inlineOffset", Number(record.inlineOffset)}, {"inlineBytes", Number(record.inlineBytes)}})}};
+    if (const auto& hints = record.callbackHints) { // 只对回调公开来源角色，不混用普通事件报头。
+        fields.emplace_back("callbackHints", Object({
+            {"originPid", hints->originPid ? V::makeUInt(*hints->originPid) : V::makeNull()},
+             {"originTid", hints->originTid ? V::makeUInt(*hints->originTid) : V::makeNull()},
+             {"targetPid", V::makeUInt(hints->targetPid)}, {"targetTid", V::makeUInt(hints->targetTid)},
+             {"notificationUtc100ns", OptionalNumber(hints->notificationUtc100ns)}}));
+    }
+    return V::makeObject(std::move(fields));
 }
 
 // 从已打开项目查询一页已验证的 raw 归档。续页使用同一段和前缀摘要。
@@ -293,11 +302,13 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
 
     const bool etw = page.source == Detection::ArchivedGraphSource::CommittedEtw; // ETW 段通过双流核验。
     const bool apiFollow = page.source == Detection::ArchivedGraphSource::CommittedApiFollow; // 跟随段通过连续 raw 检查点核验。
-    const auto finalSegment = etw ? page.etwFinalSegment : page.apiFinalSegment; // 旧导入没有连续段终态。
-    auto result = Object({{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
+    const bool callback = page.source == Detection::ArchivedGraphSource::CallbackBatch;
+    const auto finalSegment = etw ? page.etwFinalSegment : page.apiFinalSegment; // 回调和旧导入不报告采样终态。
+    Ksword::Evidence::JsonObject fields{{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
         {"sampleId", Text(page.graph.scope.sampleId)}, {"generation", Number(document.Info()->generation)},
         {"stream", Text(mixedEtw ? "raw-etw" : "raw")}, {"ordinal", Number(page.segmentOrdinal)}, {"descriptionHash", Text(page.descriptionHash)},
-        {"archiveSource", Text(etw ? "etw-checkpoint" : apiFollow ? "api-follow-checkpoint" : "api-import")},
+        {"archiveSource", Text(etw ? "etw-checkpoint" : apiFollow ? "api-follow-checkpoint" :
+            callback ? "ksword-callback-batch" : "api-import")},
         {"sourceCoverage", Text("unknown")},
         {"machineId", V::makeNull()}, {"bootId", V::makeNull()},
         {"prefix", Object({{"sha256", Text(page.sha256)}, {"endOffset", Number(page.end.byteOffset)},
@@ -306,7 +317,18 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
         {"observationCount", Number(page.observationCount)}, {"nextAfterSequence", OptionalNumber(page.nextAfterSequence)},
         {"tree", Object({{"unresolvedCandidates", V::makeArray(std::move(candidates))},
             {"contextObservations", V::makeArray(std::move(context))}})},
-        {"nodes", V::makeArray({})}, {"relations", V::makeArray({})}, {"observations", V::makeArray(std::move(rows))}});
+        {"nodes", V::makeArray({})}, {"relations", V::makeArray({})}, {"observations", V::makeArray(std::move(rows))}};
+    if (const auto& batch = page.callbackBatch) {
+        // 批次读回是源游标快照，与图分页和整个采样的覆盖状态无关。
+        fields.emplace_back("callbackBatch", Object({
+            {"sourceEpoch", Text(batch->plan.sourceEpoch)}, {"state", Text(CallbackBatchStateName(batch->end.state))},
+            {"afterSequence", Number(batch->plan.afterSequence)}, {"maxRecords", Number(batch->plan.maxRecords)},
+            {"nextSequence", Number(batch->end.nextSequence)}, {"latestSequence", Number(batch->end.latestSequence)},
+            {"returnedCount", Number(batch->end.returnedCount)},
+            {"lostBeforeFirst", OptionalNumber(batch->end.lostBeforeFirst)},
+            {"droppedCount", OptionalNumber(batch->end.droppedCount)}}));
+    }
+    auto result = V::makeObject(std::move(fields)); // 在帧预算检查前完成所有字段。
     if (WriteJson(result).size() > kResultBytes) {
         return {{}, {}, {"response-too-large", "Archive graph page exceeds the response budget", {}, 6}};
     }

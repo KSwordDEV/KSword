@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CrossProcessEvidenceGraph.h"
-#include "../Project/ProjectRawEvidence.h"
+#include "../Project/ProjectCallbackEvidence.h"
 
 namespace Ksword::ActionAnalyze::Detection {
 
@@ -10,7 +10,7 @@ inline constexpr std::size_t kArchivedGraphMaxRows = 4096;
 inline constexpr std::size_t kArchivedGraphDefaultRows = 100;
 inline constexpr std::uint64_t kArchivedGraphMaxApiSegments = 128; // 与 CLI 历史查询的链核验预算一致。
 
-enum class ArchivedGraphSource { ImportedApi, CommittedEtw, CommittedApiFollow };
+enum class ArchivedGraphSource { ImportedApi, CommittedEtw, CommittedApiFollow, CallbackBatch };
 
 // 游标使用本段的 raw 记录序号，有效观察序号为正数，首次读取传 0。
 // 恢复页时可传上次回执的散列复核同一前缀。
@@ -21,6 +21,19 @@ struct ArchivedGraphRequest {
     std::size_t limit = kArchivedGraphDefaultRows; // 本页保留的观察数上限。
     std::string_view expectedSha256; // 可选的既有 raw 前缀散列。
     ProjectEvidenceLane lane = ProjectEvidenceLane::Primary; // 游标仅在本流内有效。
+};
+
+// 回调 v1 通知中的弱角色提示，不能作为进程或线程实例使用。
+struct ArchivedCallbackHints {
+    std::optional<std::uint32_t> originPid, originTid; // 零表示来源没有该提示。
+    std::uint32_t targetPid, targetTid; // 线程创建正文要求目标编号非零。
+    std::optional<std::uint64_t> notificationUtc100ns; // 回调采时，不是线程创建时间；非正值作未知。
+};
+
+// 同一已核验读批的游标及计数。续页和完整空批也返回同一份回执。
+struct ArchivedCallbackBatch {
+    ProjectCallbackEvidencePlan plan;
+    ProjectCallbackEvidenceEnd end;
 };
 
 // 从原始段扫描器复制实际坐标。行号与图 observations 下标逐项对应。
@@ -35,6 +48,7 @@ struct ArchivedGraphRecord {
     std::optional<std::uint32_t> headerPid, headerTid; // 仅来源提示。
     std::string_view apiFamily; // 共用目录的稳定线索类别。视图指向静态文本，ETW 为空。
     std::string_view apiCategory; // 原包核对后的业务分类 memory 或 thread。视图指向静态文本，ETW 为空。
+    std::optional<ArchivedCallbackHints> callbackHints; // 仅自有回调批次提供。
 };
 
 struct ArchivedApiGraphCheckpoint {
@@ -55,9 +69,10 @@ struct ArchivedGraphPage {
     std::optional<bool> etwFinalSegment; // ETW 检查点是否报告本段为终段。
     std::optional<bool> apiFinalSegment; // 已验证的 API 跟随检查点是否报告本段为终段。
     std::optional<ArchivedApiGraphCheckpoint> apiCheckpoint; // 本次已从首段连续验证的 API 水位。
+    std::optional<ArchivedCallbackBatch> callbackBatch; // 仅回调档提供，不代表整次采样覆盖。
 };
 
-// 从已登记的 raw 段读取一页。支持完整 API 导入、已提交的 API 跟随和已提交的 ETW。
+// 从已登记的 raw 段读取一页。支持完整 API 导入、已提交的 API 跟随和 ETW、完整自有回调批次。
 // 适配期间只读取档案。失败不替换 out，成功时 records 与 graph.observations 等长。
 [[nodiscard]] ProjectResult ReadArchivedEvidenceGraph(const ProjectDocument& project,
     const ArchivedGraphRequest& request, ArchivedGraphPage& out);

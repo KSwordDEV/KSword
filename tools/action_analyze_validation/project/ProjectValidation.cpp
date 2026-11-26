@@ -11,6 +11,8 @@
 #include <map>
 #include <stdexcept>
 
+void RunCallbackValidation(const std::filesystem::path& project);
+
 namespace {
 using namespace Ksword::ActionAnalyze;
 namespace fs = std::filesystem;
@@ -233,6 +235,10 @@ void Run(const fs::path& project) {
 
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 3 && std::wstring_view(argv[1]) == L"--callback") {
+            RunCallbackValidation(fs::absolute(argv[2]));
+            return 0;
+        }
         if (argc == 3 && std::wstring_view(argv[1]) == L"--try-writer") {
             ProjectDocument test;
             const auto result = test.Open(argv[2], ProjectAccess::ReadWrite);

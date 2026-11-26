@@ -348,6 +348,10 @@ project save settings 20000000-0000-4000-8000-000000000001 "{""title"":""调查�
 
 支持通过段尾计数校验的 API 导入段、通过连续检查点校验的被动 API 跟随段，以及通过双流检查点校验的 ETW 段。被动跟随读取从第 1 段校验至请求段，最多 128 段。`archiveSource` 为 `api-follow-checkpoint` 时，`finalSegment` 标记当前段是否为终段。`prefix` 标明已核验字节端点、末块、末序号和 SHA-256。每条 `observations[]` 保留来源标识、代次、原生序号及 `raw` 坐标。`recordOffset` 和 `inlineOffset` 分别指向记录头与内联数据。`tree.unresolvedCandidates` 与 `tree.contextObservations` 保存本页候选和上下文各自的 `raw.recordSequence`。`headerPid` 和 `headerTid` 是来源报头提示。实例、执行和 `finding` 为 `null`，`nodes` 与 `relations` 为空，`sourceCoverage` 为 `unknown`。`observationCount` 统计本段核验范围内的全部来源观察。损坏或缺失证据返回请求错误。[方法 schema](../schemas/action_analyze/archive-inspect-method.schema.json)
 
+`archiveSource:"ksword-callback-batch"` 表示已核验 KSword 自有线程创建通知的完整 `raw/1`。`callbackHints` 区分通知上下文和目标 PID/TID；`notificationUtc100ns` 是归档中的原始通知采时，值为正时以十进制字符串返回，其余为 `null`，不作为线程创建时间。`sourceSequence` 是驱动源序号，`raw.recordSequence` 是归档记录号，`raw.recordOffset` 和 `raw.inlineOffset` 分别指向记录头和原包。回调只作为上下文，实例、结果和执行未知，`finalSegment` 为 `null`。该入口只读回放。
+
+`callbackBatch` 在首页、续页和完整空批次均返回同一份批次回执。`afterSequence`、`nextSequence`、`latestSequence` 是本次源游标，`returnedCount` 包含该批未归档的非线程创建记录。`lostBeforeFirst` 是源报告的覆盖数，`droppedCount` 是环的累计丢弃数；源未报告时为 `null`。即使状态为 `caught-up`，`sourceCoverage` 仍为 `unknown`。缺失或损坏的批次返回错误，完整空批次的 `observationCount` 为 `"0"`。
+
 ### `log`
 
 Read bounded frames from the KswordARK log device.

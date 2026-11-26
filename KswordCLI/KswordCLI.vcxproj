@@ -288,6 +288,7 @@
     <ClCompile Include="ActionAnalyze\Project\CooperativeApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectCallbackEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectStorage.cpp" />
     <ClCompile Include="ActionAnalyze\Project\SampleCatalog.cpp" />
     <ClInclude Include="ActionAnalyze\Project\ProjectDocument.h" />
@@ -297,6 +298,7 @@
     <ClInclude Include="ActionAnalyze\Project\CooperativeApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectApiCheckpoint.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectCallbackEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectStorage.h" />
     <ClInclude Include="ActionAnalyze\Project\SampleCatalog.h" />
   </ItemGroup>
