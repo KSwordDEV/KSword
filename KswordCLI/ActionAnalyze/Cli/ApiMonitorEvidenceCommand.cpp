@@ -1,7 +1,10 @@
 #include "ApiMonitorEvidenceCommand.h"
+#include "ApiMemoryLifecycleProjection.h"
 
 #include "../../CommandRegistry.h"
 #include "../Project/CooperativeApiCapture.h"
+#include "../Project/AttachedApiCapture.h"
+#include "../Project/ProjectEtwEvidence.h"
 #include "../Project/ProjectApiClueArchive.h"
 #include "../Project/ProjectApiCheckpoint.h"
 #include "../Project/ProjectStorage.h"
@@ -188,6 +191,7 @@ Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequ
         {L"reportedStatusCode", packet.resultKind == static_cast<std::uint32_t>(monitor::EventResultKind::StatusCode)
             ? Json::signedNumber(packet.resultCode) : Json{}},
         {L"targetIdentity", Json{}}, {L"completedWriteBytes", Json{}}, {L"executed", Json{}}, {L"attribution", Json{}},
+        {L"apiMemoryLifecycle", ks::cli::action_analyze::ApiMemoryLifecycleCliJson(packet)}, // 生命周期原请求和成功输出。
     }; // 未知字段显式为空，旧摘要不会升级成跨进程事实。
     if (includePacket) {
         const auto* begin = reinterpret_cast<const std::uint8_t*>(&packet); // 已核对的原包字节范围。
@@ -237,6 +241,7 @@ Result Replay(const project::ProjectDocument& document, const std::string& sampl
     return {0, Json::object({{L"status", Json::string(L"readback-verified")},
         {L"sampleId", Json::string({sample.begin(), sample.end()})}, {L"rawSegment", Json::count(1)},
         {L"archiveSource", Json::string({source.begin(), source.end()})},
+        {L"mixedEtw", Json::boolean(readback.mixedEtw)},
         {L"sourceRows", Json::count(readback.sourceRows)}, {L"clueRows", Json::count(readback.clues)},
         {L"coverage", Json::string(L"unknown")},
         {L"nextAfter", !page.empty() && lastShown < readback.clues ? Json::count(lastShown) : Json{}},
@@ -293,16 +298,16 @@ std::optional<Result> ReplayCooperative(const project::ProjectDocument& document
             break;
         }
     }
-    if (!checkpoint.ordinal) {
-        return Failure(invalid ? 4 : 5,
     // 结束回执有写端已确认的水位；在这个范围内缺检查点同样是回读故障。
     const bool invalid = !status && (status.error != project::ProjectError::NotFound || checkpoint.ordinal < through);
+    if (!checkpoint.ordinal) {
+        return Failure(invalid ? 4 : 5,
             L"archive-invalid-or-incomplete", 0, status.nativeError, sample, status.detail);
     }
     return Result{invalid ? 4 : 0, Json::object({{L"status", Json::string(checkpoint.finalSegment ? L"readback-verified" : L"readback-prefix")},
         {L"sampleId", Json::string({sample.begin(), sample.end()})}, {L"rawSegment", Json::count(1)},
         {L"committedSegments", Json::count(checkpoint.ordinal)}, {L"finalSegment", Json::boolean(checkpoint.finalSegment)},
-        {L"archiveSource", Json::string(L"cooperative-pipe")},
+        {L"archiveSource", Json::string(L"cooperative-pipe")}, {L"mixedEtw", Json::boolean(checkpoint.mixedEtw)},
         {L"sourceRows", Json::count(checkpoint.lastSourceSequence)}, {L"clueRows", Json::count(clues)},
         {L"coverage", Json::string(L"unknown")}, {L"sourceState", checkpoint.sourceState.empty() ? Json{} :
             Json::string(project::ProjectStorage::WideAscii(checkpoint.sourceState))},
@@ -376,22 +381,100 @@ Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
         latest = Json::object(fields);
     }
     return Json::object({{L"presetSet", rules.presetSet.empty() ? Json{} : Json::string(WideAscii(rules.presetSet))},
+        {L"sourceSha256", rules.sourceSha256.empty() ? Json{} : Json::string(WideAscii(rules.sourceSha256))},
         {L"configError", rules.configError.empty() ? Json{} : Json::string(WideAscii(rules.configError))},
         {L"profile", Json::string(L"by-category")}, {L"coverage", Json::string(L"unknown")},
         {L"state", Json::string(rules.failed ? L"evaluation-failed" : L"ready")},
         {L"matchedRows", Json::count(rules.matchedRows)}, {L"latest", std::move(latest)}});
 }
 
-// 对合作目标的既有 Agent 发起一次有限时采集。返回连接、安装、原包和清退的独立回执。
-Result CaptureResident(const Args& args)
+// 只从已提交的跨段链投影候选，保留双方原始坐标及调用时身份，不将线程入口改称执行位置。
+Json CooperativeTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
+{
+    std::vector<Json> recent; // 最近候选窗口，与累计数量分别报告。
+    for (const auto& link : transfers.recent) {
+        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
+            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
+                {L"rawSequence", Json::count(evidence.raw->sequence)},
+                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
+        };
+        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"threadCreate", coordinate(link.threadCreate)},
+            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
+            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
+            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
+            {L"requestedStartAddress", Json::count(link.requestedStartAddress)}}));
+    }
+    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-thread-create")},
+        {L"execution", Json::string(L"unknown")}, {L"candidateCount", Json::count(transfers.candidateCount)},
+        {L"evictedWrites", Json::count(transfers.evictedWrites)},
+        {L"windowTruncated", Json::boolean(transfers.candidateCount > transfers.recent.size())},
+        {L"recent", Json::array(recent)}});
+}
+
+// APC候选保留目标线程和请求例程；接受、投递及执行三个状态不混为一个成功值。
+Json CooperativeApcTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
+{
+    std::vector<Json> recent; // 与线程创建候选独立的最近32条窗口。
+    for (const auto& link : transfers.recentApc) {
+        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
+            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
+                {L"rawSequence", Json::count(evidence.raw->sequence)},
+                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
+        };
+        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"apcQueue", coordinate(link.queue)},
+            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
+            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
+            {L"targetTid", Json::number(link.targetTid)},
+            {L"targetThreadCreationFileTime", Json::count(link.targetThreadCreationFileTime)},
+            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
+            {L"requestedRoutineAddress", Json::count(link.requestedRoutineAddress)},
+            {L"queueOutcome", Json::string(L"accepted")}, {L"delivery", Json{}}, {L"execution", Json{}}}));
+    }
+    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-apc-queue")},
+        {L"candidateCount", Json::count(transfers.apcCandidateCount)},
+        {L"evictedWrites", Json::count(transfers.evictedWrites)},
+        {L"windowTruncated", Json::boolean(transfers.apcCandidateCount > transfers.recentApc.size())},
+        {L"delivery", Json{}}, {L"execution", Json{}}, {L"recent", Json::array(recent)}});
+}
+
+// 两种显式准入复用同一回执投影和回读；0 为持续模式。
+// 输入已提交前缀累计的上下文回执，输出最近候选；不查询目标也不更新写入状态。
+Json CooperativeContextTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
+{
+    std::vector<Json> recent; // 独立于创建和APC的最近32条响应窗口。
+    for (const auto& link : transfers.recentContext) {
+        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
+            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
+                {L"rawSequence", Json::count(evidence.raw->sequence)},
+                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
+        }; // 输入原包引用，输出真实段、原序号及独立来源序号。
+        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"context", coordinate(link.context)},
+            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
+            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
+            {L"targetTid", Json::number(link.targetTid)},
+            {L"targetThreadCreationFileTime", Json::count(link.targetThreadCreationFileTime)},
+            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
+            {L"requestedIp", Json::count(link.requestedIp)}, {L"requestedSp", Json::count(link.requestedSp)},
+            {L"contextArchitecture", Json::count(link.contextArchitecture)},
+            {L"requestOutcome", Json::string(L"accepted")}, {L"contextApplied", Json{}}, {L"execution", Json{}}}));
+    }
+    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-context-request")},
+        {L"candidateCount", Json::count(transfers.contextCandidateCount)},
+        {L"evictedWrites", Json::count(transfers.evictedWrites)},
+        {L"windowTruncated", Json::boolean(transfers.contextCandidateCount > transfers.recentContext.size())},
+        {L"contextApplied", Json{}}, {L"execution", Json{}}, {L"recent", Json::array(recent)}});
+}
+
+Result CaptureEvidence(const Args& args, bool attached)
 {
     const auto title = Utf8Title(args.require(L"--title")); // 冻结到项目的新采样标题。
     const auto duration = args.u32(L"--duration-ms", 3000); // 安装回执及对应覆盖经核验后开始计时。
-    const auto pid = args.u32(L"--pid"); // 显式选择的合作目标编号。
+    const auto pid = args.u32(L"--pid"); // 显式选择的目标编号。
     const auto creation = args.integer(L"--creation-filetime"); // 与 PID 一起冻结，不以 PID 单独重绑。
     if (!args.has(L"--confirm") || pid <= 4 || pid == GetCurrentProcessId() ||
-        !creation || title.empty() || duration < 1000 || duration > 120000) {
-        return Failure(1, L"invalid-resident-capture-scope");
+        !creation || title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
+        (args.has(L"--agent-etw") && args.get(L"--agent-etw") != L"1")) {
+        return Failure(1, attached ? L"invalid-attachment-scope" : L"invalid-resident-capture-scope");
     }
 
     project::ProjectDocument document; // 本轮独占项目写入租约，避免同一采样混用修订。
@@ -400,7 +483,10 @@ Result CaptureResident(const Args& args)
     }
     const auto revision = document.Info()->revisionId; // 采集启动之前冻住当前保存的修订。
     Cancellation cancel; // 控制台停止由本次采样执行，不终止目标。
-    const auto run = project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision}, *cancel.token);
+    const bool captureEtw = args.has(L"--agent-etw"); // 同一采样增开配套的自有 ETW 流。
+    const auto run = attached ? project::CaptureAttachedApi(document,
+        {pid, creation, true, false, duration, title, revision}, *cancel.token) :
+        project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw}, *cancel.token);
     if (!run.sampleStatus) {
         return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail);
     }
@@ -423,9 +509,11 @@ Result CaptureResident(const Args& args)
         archiveResult.diagnostics.emplace_back(L"archive-write-failed");
     }
 
-    const bool incomplete = run.omittedClues || run.rules.failed; // 归档与规则各报告缺口。
+    const auto* etw = run.etw ? &*run.etw : nullptr; // 仅请求时公开独立的 ETW 活采回执。
+    const bool etwWriteFailed = etw && (!etw->archiveStatus || !etw->checkpointStatus); // 区分存储故障和来源缺口。
+    const bool incomplete = run.omittedClues || run.rules.failed || (etw && etw->Incomplete()); // 归档与规则各报告缺口。
     const int captureCode = captured.code == 0 && incomplete ? 6 : captured.code; // 保留原 API 错误码。
-    const int code = archiveResult.code ? archiveResult.code : !run.archiveStatus ? 3 : captureCode;
+    const int code = archiveResult.code ? archiveResult.code : !run.archiveStatus || etwWriteFailed ? 3 : captureCode;
     const auto* target = root == captured.processes.end() ? nullptr : &*root; // 只投影已绑定的目标实例回执。
     const bool connected = target && target->connected; // 没有连接证据时不发布生产方的会话或丢失值。
     // 目标退出也能完成清退，但不能代替生产方的停钩及完整排空回执。
@@ -437,6 +525,11 @@ Result CaptureResident(const Args& args)
         {L"revisionId", Json::string({revision.begin(), revision.end()})},
         {L"pid", Json::number(pid)}, {L"creationFileTime", Json::count(creation)},
         {L"residentVerified", Json::boolean(captured.reusedResident)},
+        {L"captureMode", Json::string(attached ? L"explicit-r3-attachment" : L"cooperative-resident")},
+        {L"attachmentIdentityVerified", attached ? Json::boolean(captured.attachmentIdentityVerified) : Json{}},
+        {L"agentLoadAttempted", attached ? Json::boolean(captured.agentLoadAttempted) : Json{}},
+        {L"agentModuleVerified", attached ? Json::boolean(captured.agentModuleVerified) : Json{}},
+        {L"agentPath", attached && !captured.agentPath.empty() ? Json::string(captured.agentPath) : Json{}},
         {L"configPublished", Json::boolean(captured.configPublished)},
         {L"connected", Json::boolean(connected)}, {L"agentReady", Json::boolean(ready)},
         {L"sessionReady", connected ? Json::boolean(target->sessionReady) : Json{}},
@@ -465,8 +558,27 @@ Result CaptureResident(const Args& args)
         {L"coverageSnapshotCurrent", target ? Json::boolean(target->coverageComplete && !target->coverageStale) : Json{}},
         {L"pipeError", target && target->pipeError ? Json::number(target->pipeError) : Json{}},
         {L"archive", apiArchived ? archiveResult.data : Json{}},
-        {L"rules", apiArchived ? CooperativeRulesReport(run.rules) : Json{}}, {L"errors", Json::strings(captured.errors)}
+        {L"rules", apiArchived ? CooperativeRulesReport(run.rules) : Json{}},
+        {L"apiTransfers", apiArchived ? CooperativeTransfersReport(run.transfers) : Json{}},
+        {L"apiApcTransfers", apiArchived ? CooperativeApcTransfersReport(run.transfers) : Json{}},
+        {L"apiContextTransfers", apiArchived ? CooperativeContextTransfersReport(run.transfers) : Json{}},
+        {L"errors", Json::strings(captured.errors)}
     };
+    if (etw) {
+        // 原生来源回执只含 ASCII 字段和值。封段与检查点错误各自保留本地阶段。
+        const auto status = evidence::WriteJson(project::EtwSourceReceipt(etw->source)); // 活采的原生来源快照。
+        const auto error = [](const project::ProjectResult& result) {
+            return result ? Json{} : Json::object({
+                {L"stage", Json::string(project::ProjectStorage::WideAscii(result.detail))},
+                {L"win32Error", Json::number(result.nativeError)}});
+        };
+        fields.emplace_back(L"etw", Json::object({{L"rawStream", Json::string(L"raw-etw")},
+            {L"started", Json::boolean(etw->started)}, {L"stopped", Json::boolean(etw->stopped)},
+            {L"source", Json{project::ProjectStorage::WideAscii(status), L"ETW"}},
+            {L"setupError", error(etw->setup)}, {L"archiveError", error(etw->archiveStatus)},
+            {L"checkpointError", error(etw->checkpointStatus)},
+            {L"verified", Json::boolean(etw->archiveStatus && etw->checkpointStatus && etw->raw.flushed)}}));
+    }
     return {code, Json::object(fields), std::move(archiveResult.diagnostics)};
 }
 
@@ -504,6 +616,11 @@ Result RunReplay(const Args& args)
 
 } // namespace
 
+Result RunAttachedApiEvidence(const Args& args)
+{
+    return CaptureEvidence(args, true);
+}
+
 void RegisterApiMonitorEvidenceCommands()
 {
     Command ingest; // 导入已结束的 API Monitor 原文件，创建独立项目采样。
@@ -517,14 +634,17 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command capture; // 合作目标的真实管道和项目归档入口。
     capture.path = L"analyze api-evidence capture";
-    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]";
+    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--agent-etw 1] [--duration-ms MS] [--json]";
     capture.options = L"Requires an existing project, an explicitly selected cooperative target with the resident product Agent, "
                       L"and its private KSWORD_APIMON_COOPERATIVE_SESSION_V1 directory.";
     capture.summary = L"Collect WinAPI evidence from a cooperative target's resident Agent into a new project sample.";
-    capture.notes = L"The capture interval is 1,000–120,000 ms. All verified ordinary calls are committed in bounded segments. "
+    capture.notes = L"--duration-ms accepts 1,000–120,000 ms (default 3,000), or 0 to capture until console cancellation or target exit. "
+                      L"Startup and cleanup timeouts still apply. Continuous capture never reports completedInterval=true; cancellation or target exit returns partial (6). "
+                      L"All verified ordinary calls are committed in bounded segments. "
                      L"API rules from profiles/action_analyze_api_rules.json run on committed segments; "
-                     L"the result includes their cumulative count and latest source location.";
-    capture.run = CaptureResident;
+                     L"the result includes their cumulative count and latest source location. "
+                     L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint.";
+    capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
     addCommand(std::move(capture));
 
     Command replay; // 只读重开相同采样，可按序号翻页并选读原包。

@@ -49,6 +49,7 @@ struct LocatedClue {
     std::string api;
     std::string_view family;
     std::optional<rules::ArchivedApiMemoryWriteReturn> memoryWriteReturn; // 同一原包的显式返回字段。
+    rules::ApiPresetEvidence evidence; // 有效位与原返回均来自本次核验的完整原包。
 };
 
 // 页索引只用于选中线索。位置字段直接取自同一次 Stored 扫描。
@@ -70,7 +71,8 @@ struct CluePage {
         rows.push_back({segment.ordinal, block.ordinal, record.recordSequence, clue.sourceSequence,
             record.recordOffset, record.recordOffset + archive::kRecordHeaderBytes + raw.inlineRawOffsetInPayload,
             raw.inlineRawBytes, NarrowAscii(clue.clue->api), clue.clue->family,
-            outcome ? std::optional{rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
+            outcome ? std::optional{rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt,
+            rules::ReadApiPresetEvidence(clue.packet)});
     }
 };
 
@@ -280,7 +282,7 @@ Result RunReplay(const Args& args)
     std::vector<rules::ArchivedApiObservation> observations;
     observations.reserve(page.rows.size());
     for (const auto& clue : page.rows) {
-        observations.push_back({clue.sequence, clue.sourceSequence, clue.api, clue.family, clue.memoryWriteReturn});
+        observations.push_back({clue.sequence, clue.sourceSequence, clue.api, clue.family, clue.memoryWriteReturn, clue.evidence});
     }
     const auto database = rules::LoadApiPresetDatabase(); // 每次离线回放独立冻结当前规则库。
     if (!database.error.empty()) {
@@ -325,8 +327,13 @@ Result RunReplay(const Args& args)
         {L"archiveKind", Json::string(follow ? L"checkpointed-api-follow" : L"closed-api-import")},
         {L"archiveSource", Json::string(Wide(source))},
         {L"presetSet", Json::string(Wide(database.presetSet))},
+        {L"sourceSha256", Json::string(Wide(database.sourceSha256))},
         {L"recordedPresetSet", read.lastCheckpoint && !read.lastCheckpoint->rulePresetSet.empty() ?
             Json::string(Wide(read.lastCheckpoint->rulePresetSet)) : Json{}},
+        {L"recordedSourceSha256", read.lastCheckpoint && !read.lastCheckpoint->ruleSourceSha256.empty() ?
+            Json::string(Wide(read.lastCheckpoint->ruleSourceSha256)) : Json{}},
+        {L"matchesRecordedRules", read.lastCheckpoint && !read.lastCheckpoint->ruleSourceSha256.empty() ?
+            Json::boolean(read.lastCheckpoint->ruleSourceSha256 == database.sourceSha256) : Json{}},
         {L"profile", Json::string(profileName)}, {L"coverage", Coverage(read, stop)},
         {L"offset", Json::count(page.offset)}, {L"evaluatedClueRows", Json::count(report.analyzedRows)},
         {L"nextOffset", more ? Json::count(next) : Json{}}, {L"matches", Json::array(matches)}}), {}};
@@ -345,10 +352,16 @@ Json DescribePresets(std::span<const rules::ApiPresetDefinition> definitions, bo
             {L"summaryZh", text.summaryZh.empty() ? Json{} : Json::string(ks::str::Utf8ToUtf16(text.summaryZh))}}));
     }
     std::vector<std::wstring> fields; // 这组规则表达式可引用的实际观测字段。
+    std::vector<Json> typedFields; // 与字段名列表兼容，同时提供真实类型和阶段。
     for (const auto& field : rules::ApiPresetFields(behavior)) {
         fields.push_back(Wide(field.id));
+        const auto type = field.type == rules::FieldType::U64 ? L"u64" :
+            field.type == rules::FieldType::Bool ? L"bool" : L"text";
+        typedFields.push_back(Json::object({{L"id", Json::string(Wide(field.id))},
+            {L"type", Json::string(type)}, {L"phase", Json::string(L"observation")}}));
     }
-    return Json::object({{L"fields", Json::strings(fields)}, {L"rules", Json::array(entries)}});
+    return Json::object({{L"fields", Json::strings(fields)}, {L"typedFields", Json::array(typedFields)},
+        {L"rules", Json::array(entries)}});
 }
 
 // 查询实际可装载规则，退出码 4 携带配置诊断。
@@ -360,6 +373,8 @@ Result RunCatalog(const Args&)
             {L"source", Json::string(rules::ApiPresetProfilePath)}, {L"configError", Json::string(Wide(database.error))}}), {}};
     }
     return {0, Json::object({{L"presetSet", Json::string(Wide(database.presetSet))},
+        {L"expressionProfile", Json::string(Wide(database.expressionProfile))},
+        {L"sourceSha256", Json::string(Wide(database.sourceSha256))},
         {L"source", Json::string(rules::ApiPresetProfilePath)}, {L"scope", Json::string(L"verified-single-api-observation")},
         {L"profiles", Json::object({
             {L"grouped", DescribePresets(rules::ApiClassificationPresets(database, rules::ApiPresetProfile::Grouped), false)},
@@ -375,7 +390,7 @@ void RegisterApiRuleReplayCommand()
     catalog.path = L"analyze api-rule-catalog";
     catalog.syntax = L"KswordCLI.exe analyze api-rule-catalog [--json]";
     catalog.summary = L"List the API behavior presets from profiles/action_analyze_api_rules.json.";
-    catalog.notes = L"Lists rule IDs, predicates, available fields and evidence scope. No project or live source is opened.";
+    catalog.notes = L"Lists rule IDs, predicates, available fields, evidence scope and sourceSha256 of the parsed file bytes. No project or live source is opened.";
     catalog.defaultBackend = L"offline";
     catalog.supportsR3 = false;
     catalog.run = RunCatalog;
@@ -387,7 +402,7 @@ void RegisterApiRuleReplayCommand()
         L"[--profile grouped|by-category] [--offset N] [--limit N] [--json]";
     replay.summary = L"Replay configured API behavior presets on verified evidence from one project sample.";
     replay.options = L"Required: --project and --sample. Default profile: grouped. Offset is zero-based. Limit: 1-100 (default 25).";
-    replay.notes = L"Use nextOffset for the next page. Collection coverage is unknown. presetSet identifies the replay rules; recordedPresetSet identifies the capture plan's declared version when present. Matches refer to individual archived API observations.";
+    replay.notes = L"Use nextOffset for the next page. Collection coverage is unknown. sourceSha256 identifies the replay rule bytes; recordedSourceSha256 identifies the capture plan's rule bytes when present. matchesRecordedRules is null for older archives without a recorded hash. Matches refer to individual archived API observations.";
     replay.defaultBackend = L"offline";
     replay.supportsR3 = false;
     replay.run = RunReplay;

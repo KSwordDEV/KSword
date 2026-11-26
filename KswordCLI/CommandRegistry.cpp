@@ -210,7 +210,8 @@ std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
             }
             if (!allowed.contains(key)) throw std::invalid_argument("unknown option " + narrowOption(key));
             if (args.has(key) && key != L"--json") throw std::invalid_argument("duplicate option");
-            if (key == L"--json" || key == L"--confirm" || key == L"--observe-threads" || key == L"--cooperative-pair") {
+            if (key == L"--json" || key == L"--confirm" || key == L"--observe-threads" ||
+                key == L"--cooperative-pair" || key == L"--watch-pointer-export" || key == L"--execute-pointer-export") {
                 args.values[key] = L"";
                 continue;
             }

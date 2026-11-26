@@ -200,6 +200,7 @@ ProjectResult PassiveApiCapture::BeginProject(ProjectDocument& project, const Pa
         {"checkpointRequired", V::makeBool(true)}};
     if (!ruleDatabase_.presetSet.empty()) {
         plan.emplace_back("rulePresetSet", Text(ruleDatabase_.presetSet));
+        plan.emplace_back("ruleSourceSha256", Text(ruleDatabase_.sourceSha256));
     }
     if (request.mixedEtw) plan.emplace_back("mixedEtw", V::makeBool(true));
     plan_ = Object(std::move(plan));
@@ -378,6 +379,7 @@ V PassiveApiCapture::RulesReport() const
         latest = V::makeObject(std::move(fields));
     }
     return Object({{"presetSet", ruleDatabase_.presetSet.empty() ? V::makeNull() : Text(ruleDatabase_.presetSet)},
+        {"sourceSha256", ruleDatabase_.sourceSha256.empty() ? V::makeNull() : Text(ruleDatabase_.sourceSha256)},
         {"configError", ruleDatabase_.error.empty() ? V::makeNull() : Text(ruleDatabase_.error)}, {"profile", Text("by-category")},
         {"coverage", Text("unknown")}, {"state", Text(ruleFailed_ ? "evaluation-failed" : "ready")},
         {"matchedRows", Number(ruleMatches_)}, {"latest", std::move(latest)}});

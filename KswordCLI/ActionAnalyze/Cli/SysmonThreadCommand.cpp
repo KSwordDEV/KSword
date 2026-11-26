@@ -45,7 +45,9 @@ const wchar_t* SubscriptionStateText(SubscriptionState state) noexcept
     return L"unknown";
 }
 
-const wchar_t* StateText(detection::SysmonReadState state) noexcept
+} // namespace
+
+const wchar_t* SysmonReadStateText(detection::SysmonReadState state) noexcept
 {
     using detection::SysmonReadState;
     switch (state) {
@@ -59,7 +61,7 @@ const wchar_t* StateText(detection::SysmonReadState state) noexcept
     return L"unknown";
 }
 
-const wchar_t* LimitText(detection::SysmonLimit limit) noexcept
+const wchar_t* SysmonLimitText(detection::SysmonLimit limit) noexcept
 {
     using detection::SysmonLimit;
     switch (limit) {
@@ -70,6 +72,8 @@ const wchar_t* LimitText(detection::SysmonLimit limit) noexcept
     }
     return L"unknown";
 }
+
+namespace {
 
 Json OptionalText(const std::optional<std::wstring>& value)
 {
@@ -149,7 +153,9 @@ V CheckedUtf8Value(const Json& json)
     return parsed.ok() ? std::move(parsed.value) : V::makeNull();
 }
 
-Result RunSysmonThreadCommand(const Args& args)
+} // namespace
+
+detection::SysmonThreadQuery ParseSysmonThreadQuery(const Args& args)
 {
     detection::SysmonThreadQuery query;
     query.targetGuid = args.require(L"--target-guid");
@@ -164,7 +170,14 @@ Result RunSysmonThreadCommand(const Args& args)
         query.recordId = args.integer(L"--record-id");
         if (*query.recordId == 0) { throw std::invalid_argument("--record-id must be nonzero"); }
     }
+    return query;
+}
 
+namespace {
+
+Result RunSysmonThreadCommand(const Args& args)
+{
+    const auto query = ParseSysmonThreadQuery(args);
     const auto report = detection::ReadLocalSysmonThreadEvents(query);
     std::vector<Json> rows;
     rows.reserve(report.observations.size());
@@ -192,7 +205,7 @@ Result RunSysmonThreadCommand(const Args& args)
     result.data = Json::object({{L"targetProcessGuid", Json::string(report.targetGuid)},
         {L"channel", Json::string(detection::kSysmonChannel)},
         {L"requestedRecordId", query.recordId ? Json::count(*query.recordId) : Json{}},
-        {L"readState", Json::string(StateText(report.state))}, {L"limit", Json::string(LimitText(report.limit))},
+        {L"readState", Json::string(SysmonReadStateText(report.state))}, {L"limit", Json::string(SysmonLimitText(report.limit))},
         {L"reachedEndOfRetainedResults", Json::boolean(report.reachedEnd)},
         {L"captureCoverage", Json::string(L"unknown")},
         {L"maxMatches", Json::number(query.maxMatches)}, {L"scanLimit", Json::number(detection::kSysmonScanLimit)},

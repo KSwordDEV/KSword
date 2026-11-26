@@ -1,6 +1,13 @@
 #include "BreakpointCommand.h"
+#include "BreakpointStepProtocol.h"
+#include "BreakpointFollowProtocol.h"
+#include "BreakpointRangeProtocol.h"
+#include "BreakpointPauseProtocol.h"
+#include "NativeExecutionJournal.h"
 
 #include "../Control/NativeDebugOwner.h"
+#include "../Control/NativeExecutionEvidence.h"
+#include "../Control/CooperativeBreakpointGate.h"
 #include "../Control/OwnedBreakpointGroup.h"
 #include "../Project/ProjectStorage.h"
 #include "../Rules/RuleExpression.h"
@@ -23,16 +30,20 @@ namespace rules = Ksword::ActionAnalyze::Rules;
 using V = JsonValue;
 constexpr std::size_t kReleaseReplayEntries = 128;
 
-// Rules 的 Entry 阶段在此指原生执行进入尝试。
+// 条件在原生断点停止时求值，执行/写入字段按实际事件提供，缺失保持未知。
 constexpr auto kConditionPhase = rules::Phase::Entry;
 constexpr rules::FieldBinding kConditionFields[] = {
     {"stop.address", rules::FieldType::U64, kConditionPhase},
+    {"stop.data.changedByteMask", rules::FieldType::U64, kConditionPhase},
+    {"stop.data.enrolledAfterStop", rules::FieldType::U64, kConditionPhase},
+    {"stop.data.watchedBytes", rules::FieldType::U64, kConditionPhase},
     {"stop.exceptionCode", rules::FieldType::U64, kConditionPhase},
     {"stop.firstChance", rules::FieldType::Bool, kConditionPhase},
     {"stop.pid", rules::FieldType::U64, kConditionPhase},
     {"stop.thread.creationFileTime", rules::FieldType::U64, kConditionPhase},
-    {"stop.thread.rax", rules::FieldType::U64, kConditionPhase}, // 本切片未采集。
+    {"stop.thread.rax", rules::FieldType::U64, kConditionPhase},
     {"stop.thread.rip", rules::FieldType::U64, kConditionPhase},
+    {"stop.thread.rsp", rules::FieldType::U64, kConditionPhase},
     {"stop.tid", rules::FieldType::U64, kConditionPhase},
 };
 
@@ -180,12 +191,18 @@ V ReportStopGroup(const native::StopGroupSnapshot& group)
 }
 
 // 由原生停点来源的稳定线程 ID 查找冻结成员。没有对应成员时不从当前 PID/TID 反查。
+// 普通步进停点不带 phase 来源：其冻结线程取自同组步进回执已核验的强线程身份。
 const native::NativeFrozenThread* FrozenOriginThread(const native::NativeControlResult& result)
 {
-    if (!result.group || !result.group->origin) {
+    std::string id;
+    if (result.group && result.group->origin) {
+        id = result.group->origin->threadId;
+    } else if (result.group && result.step && result.step->stopGroupId &&
+        *result.step->stopGroupId == result.group->groupId) {
+        id = result.step->request.thread.threadId;
+    } else {
         return nullptr;
     }
-    const auto& id = result.group->origin->threadId; // 原生账本记录的触发线程身份。
     const auto thread = std::find_if(result.frozenThreads.begin(), result.frozenThreads.end(),
         [&](const auto& member) { return member.identity.threadId == id; });
     return thread == result.frozenThreads.end() ? nullptr : &*thread;
@@ -206,14 +223,54 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
         {"attached", V::makeBool(result.attached)}, {"pid", V::makeUInt(result.pid)},
         {"creationFileTime", result.processCreationTime ? Count(result.processCreationTime) : V::makeNull()},
         {"processInstanceId", result.processInstanceId.empty() ? V::makeNull() : Text(result.processInstanceId)}};
+    body.emplace_back("stopReason", Text(result.stopReason == native::NativeStopReason::ManualPause ? "manual-pause" :
+        result.stopReason == native::NativeStopReason::Breakpoint ? "breakpoint" :
+        result.stopReason == native::NativeStopReason::NativeStep ? "native-step" : "none"));
+    if (result.armedPause)
+    {
+        body.emplace_back("armedPause", BreakpointPauseProtocol::Report(*result.armedPause));
+    }
     if (const auto& binding = result.breakpoint) {
         JsonObject fields{{"state", Text(BindingState(binding->state))},
             {"stage", Text(binding->stage)}, {"win32Error", V::makeUInt(binding->win32Error)},
             {"address", binding->address ? Address(binding->address) : V::makeNull()},
-            {"enrolledThreads", Count(binding->enrolledThreads)}}; // 当前实际安装的线程数。
+            {"enrolledThreads", Count(binding->enrolledThreads)},
+            {"privateExecutionFollowAvailable", V::makeBool(binding->privateExecutionFollowAvailable)}}; // 原绑定声明，调用时仍核验活停点。
         if (binding->writeWatchBytes) {
             fields.emplace_back("watchedBytes", V::makeUInt(binding->writeWatchBytes));
+            fields.emplace_back("siteKind", Text(binding->explicitPrivateAddress ? "private-address-write" :
+                binding->pointerExportAddress ? "private-pointer-export" : "image-data-export"));
+        } else if (binding->explicitPrivateAddress) {
+            fields.emplace_back("siteKind", Text(binding->rangeBytes ? "private-page-execution" : "private-address-execution"));
+            fields.emplace_back("rangeBytes", Count(binding->rangeBytes));
+        } else if (binding->executePointerExport) {
+            // 私有执行使用实际指针目的地址，选择器导出本身不视为执行位置。
+            fields.emplace_back("siteKind", Text("private-execution-pointer-export"));
+            fields.emplace_back("executePointerExport", V::makeBool(true));
+        } else {
+            // 普通模块绑定单独回传实际映像坐标，不把模块RVA当私有分配身份。
+            fields.emplace_back("siteKind", Text("image-execution"));
+            fields.emplace_back("moduleBase", Address(binding->moduleBase));
+            fields.emplace_back("rva", V::makeUInt(binding->rva));
         }
+        if (binding->pointerExportAddress || binding->explicitPrivateAddress) {
+            // 两种私有绑定都保留冻结的区域；这些字段不证明同址分配代次。
+            if (binding->pointerExportAddress)
+                fields.emplace_back("pointerExportAddress", Address(binding->pointerExportAddress));
+            fields.emplace_back("explicitPrivateAddress", V::makeBool(binding->explicitPrivateAddress));
+            fields.emplace_back("allocationBase", Address(binding->allocationBase));
+            fields.emplace_back("regionBase", Address(binding->regionBase));
+            fields.emplace_back("regionBytes", Count(binding->regionBytes));
+            fields.emplace_back("regionProtection", V::makeUInt(binding->regionProtection));
+            fields.emplace_back("allocationGenerationVerified", V::makeBool(false));
+        }
+        JsonArray ranges; // 成功纳入的真实范围，原始address/rangeBytes仍保留兼容。
+        for (const auto& range : binding->executionRanges)
+        {
+            ranges.push_back(V::makeObject({{"base", Address(range.base)}, {"bytes", Count(range.bytes)},
+                {"allocationBase", Address(range.allocationBase)}}));
+        }
+        fields.emplace_back("executionRanges", V::makeArray(std::move(ranges)));
         body.emplace_back("breakpoint", V::makeObject(std::move(fields)));
     }
     if (const auto& hit = result.breakpointHit) {
@@ -234,8 +291,36 @@ JsonObject ReportFields(const native::NativeControlResult& result, bool includeS
         fields.emplace_back("tid", std::move(tid));
         body.emplace_back("hit", V::makeObject(std::move(fields)));
     }
+    if (const auto execution = native::NativeExecutionFromOwnedStop(result)) {
+        // 实际执行观测与 API 入口请求分列；TF 完成只确认所记录的单条原生指令。
+        body.emplace_back("execution", V::makeObject({
+            {"kind", Text(execution->kind == native::NativeExecutionKind::InstructionCompleted ?
+                "instruction-completed" : "execution-enter-attempt")},
+            {"instructionAddress", Address(execution->instructionAddress)},
+            {"nextInstructionAddress", execution->nextInstructionAddress ? Address(*execution->nextInstructionAddress) : V::makeNull()},
+            {"pid", V::makeUInt(execution->pid)}, {"processCreationFileTime", Count(execution->processCreationFileTime)},
+            {"threadId", Text(execution->thread.identity.threadId)}, {"tid", V::makeUInt(execution->thread.tid)},
+            {"threadCreationFileTime", Count(execution->thread.creationTime)},
+            {"event", ReportNativeEvent(execution->event)}, {"groupId", Text(execution->groupId)},
+            {"stopId", Text(execution->stopId)}, {"stateRevision", Count(execution->stateRevision)},
+            {"observedQpc", execution->observedQpc ? Count(*execution->observedQpc) : V::makeNull()},
+            {"qpcFrequency", Count(execution->qpcFrequency)}, {"source", Text("native-debug-owner")}}));
+    }
     if (result.group) {
         body.emplace_back("stopGroup", ReportStopGroup(*result.group));
+    }
+    if (const auto* origin = FrozenOriginThread(result)) {
+        body.emplace_back("originThread", V::makeObject({{"threadId", Text(origin->identity.threadId)},
+            {"tid", V::makeUInt(origin->tid)}, {"creationFileTime", Count(origin->creationTime)}}));
+    }
+    if (const auto& registers = result.registers) {
+        // 只投影原生事件冻结的寄存器，不在输出时查询运行中的线程。
+        body.emplace_back("registers", V::makeObject({{"threadId", Text(registers->thread.threadId)},
+            {"rip", Address(registers->rip)}, {"rax", Count(registers->rax)}, {"rsp", Address(registers->rsp)}}));
+    }
+    if (result.executionRange)
+    {
+        body.emplace_back("executionRange", BreakpointRangeProtocol::Report(*result.executionRange));
     }
     if (includeStop && result.group && result.responsibility) {
         body.emplace_back("stop", V::makeObject({{"id", Text(result.responsibility->stopId)},
@@ -327,8 +412,8 @@ JsonObject PairFields(const native::OwnedBreakpointGroupResult& result)
 class BreakpointSession {
 public:
     BreakpointSession(bool jsonl, const native::OwnerIdentity& id, std::optional<BreakpointCondition> condition,
-        bool cooperativePair)
-        : jsonl_(jsonl), identity_(id), condition_(std::move(condition)), owner_(id),
+        bool cooperativePair, std::unique_ptr<NativeExecutionJournal> journal)
+        : jsonl_(jsonl), identity_(id), condition_(std::move(condition)), journal_(std::move(journal)), owner_(id),
           pair_(cooperativePair ? std::make_unique<native::OwnedBreakpointGroup>(id) : nullptr) {}
 
     int Run(const std::wstring& executable, native::NativeBreakpointRequest request)
@@ -337,7 +422,6 @@ public:
             std::cerr << fault.message << '\n';
             return fault.code;
         }
-        if (!condition_ && !pair_) return RunControl(executable, std::move(request));
         try {
             if (pair_) {
                 return RunPair(executable, request.exportName);
@@ -345,7 +429,7 @@ public:
             return RunControl(executable, std::move(request));
         } catch (...) {
             // 求值、快照或输出异常都先走正式关闭路径，归还可能已被账本接纳的事件。
-            return End(pair_ ? "cooperative-pair-processing-failed" : "condition-processing-failed", 6);
+            return End(pair_ ? "cooperative-pair-processing-failed" : "breakpoint-processing-failed", 6);
         }
     }
 
@@ -373,13 +457,23 @@ private:
 
     int RunControl(const std::wstring& executable, native::NativeBreakpointRequest request)
     {
+        privateWriteWatch_ = request.writeWatchBytes != 0 && (request.writeWatchPointerExport || request.privateAddress);
+        if (request.privateAddress || request.explicitImageAttachment) return BeginControl(request);
         // 子进程不继承控制管道或 console；关闭调试会话按约定继续子进程，不代为终止。
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
+        STARTUPINFOEXW startup{}; // 私有区间模式先等待合作应用初始化指针，再由调试所有者武装。
+        startup.StartupInfo.cb = sizeof(STARTUPINFOW);
         PROCESS_INFORMATION created{};
         auto line = L"\"" + executable + L"\"";
-        if (!CreateProcessW(executable.c_str(), line.data(), nullptr, nullptr, FALSE, DETACHED_PROCESS,
-                nullptr, nullptr, &startup, &created)) {
+        if (request.writeWatchPointerExport || request.executePointerExport) {
+            // 私有写入和私有执行都先初始化指针，再由真实Armed回执放行业务。
+            launchGate_ = std::make_unique<native::CooperativeBreakpointGate>();
+            if (const auto error = launchGate_->Prepare(startup, line)) {
+                return LaunchFailed("prepare-private-data-gate", error, 0);
+            }
+        }
+        const DWORD launchFlags = DETACHED_PROCESS | (launchGate_ ? EXTENDED_STARTUPINFO_PRESENT : 0);
+        if (!CreateProcessW(executable.c_str(), line.data(), nullptr, nullptr, launchGate_ != nullptr, launchFlags,
+                nullptr, nullptr, &startup.StartupInfo, &created)) {
             return LaunchFailed("create-process", GetLastError(), 0);
         }
         const ks::r3::common::UniqueHandle child(created.hProcess);
@@ -390,10 +484,27 @@ private:
         }
         request.target.pid = created.dwProcessId;
         request.target.processCreationTime = (static_cast<std::uint64_t>(start.dwHighDateTime) << 32) | start.dwLowDateTime;
+        if (launchGate_) {
+            if (const auto error = launchGate_->AwaitReady(child.get())) {
+                return LaunchFailed("private-data-target-not-ready", error, created.dwProcessId);
+            }
+        }
+        return BeginControl(request);
+    }
+
+    int BeginControl(const native::NativeBreakpointRequest& request)
+    {
         const auto accepted = owner_.ArmBreakpoint(request);
         if (!Emit("hello", {}, V::makeObject({{"targetPid", V::makeUInt(request.target.pid)},
                 {"targetCreationFileTime", Count(request.target.processCreationTime)}, {"control", ReportControl(accepted)},
-                {"continueProtocol", ContinueProtocol()}}))) {
+                   {"targetMode", Text(request.explicitImageAttachment ? "attached-image-execution" :
+                       request.privateAddress ? "attached-private-address" : "launched-child")},
+                 {"continueProtocol", ContinueProtocol()},
+                 {"executionArchive", journal_ ? journal_->Describe() : V::makeNull()},
+                  {"stepProtocol", steps_.Capabilities()},
+                  {"followProtocol", privateWriteWatch_ ? follows_.Capabilities() : V::makeNull()},
+                  {"rangeProtocol", request.privateRangeBytes ? ranges_.Capabilities() : V::makeNull()},
+                  {"pauseProtocol", pauses_.Capabilities()}}))) {
             return End("output-lost", 3);
         }
         if (!accepted.breakpoint || accepted.status == native::NativeControlStatus::Rejected) return End("arm-rejected", 3);
@@ -404,7 +515,8 @@ private:
     int RunCommands()
     {
         for (;;) {
-            const auto input = transport_.Next(pair_ || (condition_.has_value() && !closeRequested_));
+            const auto input = transport_.Next(pair_ || (launchGate_ && launchGate_->Waiting()) ||
+                (condition_.has_value() && !closeRequested_));
             switch (input.kind) {
             case InputKind::Eof: return End("eof", 0);
             case InputKind::Break: return End("ctrl-break", 6);
@@ -416,6 +528,12 @@ private:
             // 输入繁忙和空闲时都处理停点。命令分发沿用同一快照，不能绕过对新停点求值。
             std::optional<native::NativeControlResult> observed;
             std::optional<native::OwnedBreakpointGroupResult> pairObserved; // 本轮命令与条件使用同一组快照。
+            if (launchGate_ && launchGate_->Waiting()) {
+                const auto state = owner_.Query(); // 只有真实武装后才允许初始化完成的合作目标写入。
+                if (const auto error = launchGate_->Observe(state)) {
+                    return End("private-data-gate-release-failed", 6);
+                }
+            }
             if (pair_) {
                 pairObserved = pair_->Query();
                 if (condition_ && !closeRequested_) {
@@ -456,7 +574,8 @@ private:
     {
         return observed.status == native::NativeControlStatus::Held && observed.breakpointHit && observed.pending &&
             observed.pending->ledgerOwned && observed.group && observed.group->origin &&
-            observed.group->origin->phase == native::StopPhase::ExecutionEnterAttempt && observed.responsibility &&
+            (observed.group->origin->phase == native::StopPhase::ExecutionEnterAttempt ||
+                observed.group->origin->phase == native::StopPhase::DataWriteObserved) && observed.responsibility &&
             observed.responsibility->state == native::EventState::Held &&
             observed.responsibility->event == observed.pending->event;
     }
@@ -473,23 +592,38 @@ private:
         }
         rules::FieldSample samples[] = {
             {"stop.address", Known, observed.breakpointHit->address},
+            {"stop.data.changedByteMask", NotCollected, std::monostate{}},
+            {"stop.data.enrolledAfterStop", NotCollected, std::monostate{}},
+            {"stop.data.watchedBytes", NotCollected, std::monostate{}},
             {"stop.exceptionCode", NotCollected, std::monostate{}},
             {"stop.firstChance", NotCollected, std::monostate{}},
             {"stop.pid", Known, std::uint64_t{event.pid}},
             threadCreated,
             {"stop.thread.rax", NotCollected, std::monostate{}},
-            // 原生所有者接纳执行停点前已核验命中线程的冻结 RIP 等于绑定地址。
-            {"stop.thread.rip", Known, observed.breakpointHit->address},
+            {"stop.thread.rip", NotCollected, std::monostate{}},
+            {"stop.thread.rsp", NotCollected, std::monostate{}},
             {"stop.tid", Known, std::uint64_t{event.tid}},
         };
-        if (event.exceptionCode) samples[1] = {"stop.exceptionCode", Known, std::uint64_t{*event.exceptionCode}};
-        if (event.exceptionFirstChance.has_value()) samples[2] = {"stop.firstChance", Known, *event.exceptionFirstChance};
+        if (const auto& data = observed.breakpointHit->dataChange) {
+            samples[1] = {"stop.data.changedByteMask", Known, std::uint64_t{data->changedByteMask}};
+            samples[2] = {"stop.data.enrolledAfterStop", Known, data->enrolledAfterStop};
+            samples[3] = {"stop.data.watchedBytes", Known, std::uint64_t{data->watchedBytes}};
+        }
+        if (event.exceptionCode) samples[4] = {"stop.exceptionCode", Known, std::uint64_t{*event.exceptionCode}};
+        if (event.exceptionFirstChance.has_value()) samples[5] = {"stop.firstChance", Known, *event.exceptionFirstChance};
+        if (thread && observed.registers && observed.registers->thread == thread->identity) {
+            samples[8] = {"stop.thread.rax", Known, observed.registers->rax};
+            samples[9] = {"stop.thread.rip", Known, observed.registers->rip};
+            samples[10] = {"stop.thread.rsp", Known, observed.registers->rsp};
+        }
         return rules::EvaluatePredicate(condition_->predicate, kConditionPhase, samples);
     }
 
     const char* ApplyCondition(native::NativeControlResult& observed)
     {
         if (observed.status != native::NativeControlStatus::Held) return nullptr;
+        // 单步完成或应用异常产生的新停点由调用方决定，不套用原执行断点的条件。
+        if (!observed.breakpointHit) return nullptr;
         if (!VerifiedConditionStop(observed)) return "condition-stop-unverified";
         const auto& event = *observed.pending;
         if (lastCondition_ && lastCondition_->eventSerial == event.event.serial) return nullptr;
@@ -546,7 +680,7 @@ private:
                 {"stateRevision", Count(state.group->stateRevision)}, {"eventSerial", Count(state.pending->event.serial)},
                 {"truth", Text(truth == rules::Truth::True ? "true" : truth == rules::Truth::False ? "false" : "unknown")},
                 {"evaluationFault", evaluation.fault == rules::EvaluationFault::None ? V::makeNull() :
-                    Text(evaluation.fault == rules::EvaluationFault::Budget ? "budget" : "invalid-input")}}));
+                    Text(rules::EvaluationFaultId(evaluation.fault))}}));
         }
         lastPairCondition_ = std::move(decision);
         if (lastPairCondition_->hold) return nullptr;
@@ -580,6 +714,8 @@ private:
     V ReportControl(const native::NativeControlResult& result) const
     {
         auto report = ReportFields(result);
+        if (result.step) report.emplace_back("step", steps_.Report(*result.step));
+        if (result.executionFollow) report.emplace_back("executionFollow", follows_.Report(*result.executionFollow));
         if (!condition_) return V::makeObject(std::move(report));
         V last = V::makeNull();
         if (const auto& decision = lastCondition_) {
@@ -588,7 +724,7 @@ private:
             last = V::makeObject({{"groupId", Text(decision->groupId)}, {"stateRevision", Count(decision->stateRevision)},
                 {"truth", Text(truth == rules::Truth::True ? "true" : truth == rules::Truth::False ? "false" : "unknown")},
                 {"evaluationFault", fault == rules::EvaluationFault::None ? V::makeNull() :
-                    Text(fault == rules::EvaluationFault::Budget ? "budget" : "invalid-input")},
+                    Text(rules::EvaluationFaultId(fault))},
                 {"action", Text(truth == rules::Truth::True ? "hold" : "auto-continue")},
                 {"release", decision->release ? Text(ReleaseState(*decision->release)) : V::makeNull()},
                 {"releaseStage", decision->releaseStage ? Text(decision->releaseStage) : V::makeNull()},
@@ -630,6 +766,7 @@ private:
     native::NativeControlResult CloseAndObserve()
     {
         closeRequested_ = true;
+        if (launchGate_) launchGate_->Close(); // 尚未开门时以 EOF 取消目标业务，原生清退仍由 owner 执行。
         const auto deadline = GetTickCount64() + 3000; // 本次命令等待异步清退的上限。
         auto state = owner_.Close(); // 真实拥有者继续处理已登记的原生责任。
         bool retried = false; // 自动重试只执行一次，运行中的再次关闭由调用方决定。
@@ -710,6 +847,18 @@ private:
             return Invalid(request, "wrong-session", "Session identity mismatch");
         if (jsonl_ && !isContinue && request.id.starts_with(native::kSequencedReleasePrefix))
             return Invalid(request, "reserved-request-id", "The continue/ request ID namespace is reserved for continue");
+        const bool isStep = method == "step" || method == "control.step";
+        if (jsonl_ && !isStep && request.id.starts_with("step/"))
+            return Invalid(request, "reserved-request-id", "The step/ request ID namespace is reserved for step");
+        const bool isFollow = method == "execution-follow" || method == "control.execution.follow";
+        if (jsonl_ && !isFollow && request.id.starts_with("follow/"))
+            return Invalid(request, "reserved-request-id", "The follow/ request ID namespace is reserved for execution follow");
+        const bool isRange = method == "execution-range-add" || method == "control.execution.range.add";
+        if (jsonl_ && !isRange && request.id.starts_with("range/"))
+            return Invalid(request, "reserved-request-id", "The range/ request ID namespace is reserved for range addition");
+        const bool isPause = method == "pause" || method == "control.pause";
+        if (jsonl_ && !isPause && request.id.starts_with("pause/"))
+            return Invalid(request, "reserved-request-id", "The pause/ request ID namespace is reserved for pause");
         if ((method == "quit" || method == "controller.shutdown") && empty && !request.expected) {
             auto state = CloseControl(); // 成功沿用终态回执；未完成时保留输入并回应本次请求。
             if (!state.clean) {
@@ -724,9 +873,54 @@ private:
             return Emit("response", request.id, std::move(status)) ? 0 : 3;
         }
         if (method == "help" && !jsonl_ && empty)
-            return Emit("response", {}, Text("status | continue STOP_ID STATE_REVISION | quit")) ? 0 : 3;
+            return Emit("response", {}, Text("pause PID CREATION_FILETIME | pause-status pause/N | status | continue STOP_ID STATE_REVISION | execution-save STOP_ID STATE_REVISION | execution-follow ADDRESS STOP_ID STATE_REVISION | execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION（规范正十进制；仅当前完整NX停点，最多合计64页，不继续目标） | memory-snapshot BASE BYTES STOP_ID STATE_REVISION | api-capture PID FILETIME DURATION confirm（采集区间最多10秒，启动和清退另计；同步期间不处理其他指令，完成后继续操作） | step into|over-call|out STOP_ID STATE_REVISION THREAD_ID TID CREATION_FILETIME | step-status STEP_REQUEST_ID | step-cancel STEP_REQUEST_ID | quit | status 另带 execution 执行观测（execution-enter-attempt / instruction-completed）；主动暂停沿原owner，等待armedPause.state=held后用当前stop恢复，不产生执行证据。")) ? 0 : 3;
+        if (method == "execution-save" || method == "control.execution.save") {
+            if (pair_ || !journal_)
+                return Invalid(request, "execution-save-unavailable", "Save requires --project in a single-target session and a current execution observation");
+            auto saved = journal_->Save(request, jsonl_, identity_, owner_);
+            return Emit(saved.ok ? "response" : "error", request.id, std::move(saved.result)) ? 0 : 3;
+        }
+        if (method == "memory-snapshot" || method == "control.memory.snapshot") {
+            if (pair_ || !journal_)
+                return Invalid(request, "memory-snapshot-unavailable", "Snapshot requires --project in a single-target breakpoint session");
+            auto captured = journal_->CaptureMemory(request, jsonl_, identity_, owner_);
+            return Emit(captured.ok ? "response" : "error", request.id, std::move(captured.result)) ? 0 : 3;
+        }
+        if (method == "api-capture" || method == "control.api.capture") {
+            if (pair_ || !journal_) {
+                return Invalid(request, "api-capture-unavailable", "API capture requires --project in a single-target native session");
+            }
+            // 借用当前串行控制线程及原writer；停止API不继续或关闭原生owner。
+            auto captured = journal_->CaptureApi(request, jsonl_, identity_, owner_);
+            return Emit(captured.accepted ? "response" : "error", request.id, std::move(captured.result)) ? 0 : 3;
+        }
+        if (const auto pause = pauses_.Dispatch(request, jsonl_, !pair_, identity_, owner_); pause.handled)
+        {
+            return pause.error ? (Emit("error", request.id, FaultJson(pause.error)) ? 0 : 3) :
+                (Emit("response", request.id, ReportControl(*pause.control)) ? 0 : 3);
+        }
+        if (isStep && !pair_ && owner_.Query().stopReason == native::NativeStopReason::ManualPause)
+        {
+            return Invalid(request, "manual-pause-step-unavailable", "Continue or close the manual interruption; stepping requires an execution or native-step stop");
+        }
+        if (const auto step = steps_.Dispatch(request, jsonl_, !pair_,
+            identity_, owner_, nativeReleaseSequence_); step.handled) {
+            return step.error ? (Emit("error", request.id, FaultJson(step.error)) ? 0 : 3) :
+                (Emit("response", request.id, ReportControl(*step.control)) ? 0 : 3);
+        }
+        if (const auto follow = follows_.Dispatch(request, jsonl_, !pair_ && privateWriteWatch_,
+            identity_, owner_); follow.handled) {
+            // 转换保留原写停点；后续保存只接受原生层提取的真实执行事件。
+            return follow.error ? (Emit("error", request.id, FaultJson(follow.error)) ? 0 : 3) :
+                (Emit("response", request.id, ReportControl(*follow.control)) ? 0 : 3);
+        }
+        if (const auto range = ranges_.Dispatch(request, jsonl_, !pair_, identity_, owner_); range.handled)
+        {
+            return range.error ? (Emit("error", request.id, FaultJson(range.error)) ? 0 : 3) :
+                (Emit("response", request.id, ReportControl(*range.control)) ? 0 : 3);
+        }
         if (!isContinue)
-            return Invalid(request, "unsupported-method", "Use control.query, control.continue or controller.shutdown");
+            return Invalid(request, "unsupported-method", "Use control.query, control.pause, control.pause.query, control.continue, control.execution.save, control.execution.follow, control.execution.range.add, control.memory.snapshot, control.api.capture, control.step, control.step.query, control.step.cancel or controller.shutdown");
 
         std::string stop, revision;
         if (jsonl_) {
@@ -777,13 +971,13 @@ private:
             if (live) {
                 // 客户端继续序号与自动继续隔离，原生账本仍接收严格递增的释放序列。
                 if ((!jsonl_ && releaseSequenceHighWater_ == std::numeric_limits<std::uint64_t>::max()) ||
-                    (condition_ && nativeReleaseSequence_ == std::numeric_limits<std::uint64_t>::max())) {
+                    nativeReleaseSequence_ == std::numeric_limits<std::uint64_t>::max()) {
                     return Invalid(request, "continue-sequence-exhausted", "Native continue IDs are exhausted");
                 }
                 if (!jsonl_) {
                     releaseSequence = ++releaseSequenceHighWater_;
                 }
-                report = ReportControl(ContinueStop(current, condition_ ? ++nativeReleaseSequence_ : releaseSequence));
+                report = ReportControl(ContinueStop(current, ++nativeReleaseSequence_));
             }
         }
         if (!live) {
@@ -815,6 +1009,13 @@ private:
     std::uint64_t conditionFalse_ = 0;
     std::uint64_t conditionUnknown_ = 0;
     std::uint64_t nativeReleaseSequence_ = 0;
+    BreakpointStepProtocol steps_;
+    BreakpointFollowProtocol follows_;
+    BreakpointRangeProtocol ranges_; // 原owner范围事务的独立CLI重放窗口。
+    BreakpointPauseProtocol pauses_; // 同一原生附加内的主动暂停及查询入口。
+    bool privateWriteWatch_ = false; // 原请求的私有写入口；转换后只开放后续真实执行事件的Step。
+    std::unique_ptr<native::CooperativeBreakpointGate> launchGate_; // 私有写入/执行共用的指针初始化握手。
+    std::unique_ptr<NativeExecutionJournal> journal_; // 晚于原生 owner 销毁，保持整个会话的项目写租约。
     Transport transport_;
     native::NativeDebugOwner owner_;
     std::unique_ptr<native::OwnedBreakpointGroup> pair_; // 仅显式双目标模式创建组控制器。
@@ -826,13 +1027,42 @@ private:
 
 int Run(const Args& args)
 {
-    const auto executable = args.require(L"--exe");
-    auto module = args.get(L"--module", executable);
+    const bool attached = args.has(L"--pid");
+    const bool imageAttachment = args.has(L"--attach-image"); // 已有实例模块内执行入口，与私有地址选择分开。
+    const bool definition = args.has(L"--definition"); // 定义从同轮项目sample冻结配置读取，不从历史事件授控制。
+    if (definition && (!imageAttachment || !attached || !args.has(L"--project")))
+    {
+        throw std::invalid_argument("--definition requires --attach-image, --pid and --project");
+    }
+    const auto executable = attached ? std::wstring{} : args.require(L"--exe");
+    auto module = attached ? std::wstring{} : args.get(L"--module", executable);
     const auto input = args.get(L"--input", L"repl");
     if (!args.has(L"--confirm") || args.get(L"--disposition") != L"resume-detach" ||
-        !AbsoluteImage(executable) || !AbsoluteImage(module) || (input != L"repl" && input != L"jsonl") ||
-        args.has(L"--rva") == args.has(L"--export")) {
-        throw std::invalid_argument("Require an explicitly authorized child EXE, one site, and --disposition resume-detach");
+        (input != L"repl" && input != L"jsonl")) {
+        throw std::invalid_argument("Require --confirm, --disposition resume-detach and --input repl|jsonl");
+    }
+    if (attached) {
+        if (!args.has(L"--creation-filetime") || args.has(L"--exe") ||
+            args.has(L"--watch-pointer-export") || args.has(L"--execute-pointer-export") || args.has(L"--cooperative-pair"))
+            throw std::invalid_argument("Explicit attachment requires PID and creation FILETIME; no EXE/pointer/pair selectors");
+        if (imageAttachment)
+        {
+            module = args.require(L"--module"); // 对已有实例只选择目标已加载模块，不创建进程。
+            const auto selectors = static_cast<unsigned>(args.has(L"--rva")) +
+                static_cast<unsigned>(args.has(L"--export")) + static_cast<unsigned>(definition);
+            if (!AbsoluteImage(module) || selectors != 1 ||
+                args.has(L"--address") || args.has(L"--range-bytes") || args.has(L"--watch-write-bytes"))
+            {
+                throw std::invalid_argument("--attach-image requires an absolute module and exactly one export, RVA or saved definition; no private address or data watch");
+            }
+        }
+        else if (!args.has(L"--address") || args.has(L"--module") || args.has(L"--export") || args.has(L"--rva"))
+        {
+            throw std::invalid_argument("Private attachment requires --address; use --attach-image for module export/RVA attachment");
+        }
+    } else if (!AbsoluteImage(executable) || !AbsoluteImage(module) ||
+        args.has(L"--rva") == args.has(L"--export") || args.has(L"--address") || args.has(L"--creation-filetime") || imageAttachment) {
+        throw std::invalid_argument("Require an explicitly authorized child EXE and exactly one export or RVA");
     }
     const bool cooperativePair = args.has(L"--cooperative-pair"); // 仅接本工具启动的同一合作 EXE 的两个实例。
     if (cooperativePair && (!args.has(L"--export") || args.has(L"--module") ||
@@ -841,13 +1071,28 @@ int Run(const Args& args)
     }
     native::NativeBreakpointRequest request;
     request.modulePath = std::move(module);
+    request.explicitImageAttachment = imageAttachment;
     request.target.explicitlyAuthorized = true;
     request.target.disposition = native::NativeTargetDisposition::ResumeAndDetach;
-    if (args.has(L"--rva")) {
+    if (attached) {
+        request.target.pid = args.u32(L"--pid");
+        request.target.processCreationTime = args.integer(L"--creation-filetime");
+        if (!imageAttachment)
+        {
+            request.privateAddress = args.integer(L"--address"); // 单地址/NX范围的实际起点。
+        }
+        if (args.has(L"--range-bytes"))
+        {
+            request.privateRangeBytes = args.integer(L"--range-bytes"); // 显式NX范围，实际可用长度由原生层核验。
+        }
+        if (!request.target.pid || !request.target.processCreationTime || (!imageAttachment && !request.privateAddress))
+            throw std::invalid_argument("PID, creation FILETIME and the selected private address must be nonzero");
+    }
+    if ((!attached || imageAttachment) && args.has(L"--rva")) {
         const auto rva = args.u32(L"--rva");
         if (!rva) throw std::invalid_argument("Require a nonzero instruction-boundary RVA");
         request.rva = rva;
-    } else {
+    } else if ((!attached || imageAttachment) && !definition) {
         const auto name = args.require(L"--export");
         if (name.empty() || name.size() > 255) throw std::invalid_argument("Invalid PE export name");
         for (const auto character : name) {
@@ -856,24 +1101,85 @@ int Run(const Args& args)
         }
     }
 
-    // 数据关注点限定为自有子程序的对齐可写数据导出，条件表达式仍绑定既有执行阶段。
+    // 写关注接受导出或明确私有地址；条件按真实写入事件提供变化字段与冻结寄存器。
     if (args.has(L"--watch-write-bytes")) {
         const auto width = args.u32(L"--watch-write-bytes"); // 真实硬件关注宽度，单位字节。
         if ((width != 1 && width != 2 && width != 4 && width != 8) || args.has(L"--rva") ||
-            args.has(L"--module") || args.has(L"--condition")) {
-            throw std::invalid_argument("Data write watch requires an EXE data export, a width of 1/2/4/8, and no execution condition");
+            args.has(L"--module") || request.privateRangeBytes) {
+            throw std::invalid_argument("Data write watch requires a width of 1/2/4/8 and no module or RVA");
         }
         request.writeWatchBytes = width;
+    }
+    if (args.has(L"--watch-pointer-export")) {
+        if (!request.writeWatchBytes) {
+            throw std::invalid_argument("--watch-pointer-export requires --watch-write-bytes and the EXE's AMD64 pointer data export");
+        }
+        request.writeWatchPointerExport = true;
+    }
+    if (args.has(L"--execute-pointer-export")) {
+        // 首版仅启动自有合作EXE，沿用唯一原生owner及单目标执行的条件、步进和归档。
+        if (request.writeWatchBytes || request.writeWatchPointerExport || cooperativePair ||
+            args.has(L"--rva") || args.has(L"--module")) {
+            throw std::invalid_argument("--execute-pointer-export requires one EXE pointer data export and no data watch, module, RVA or pair");
+        }
+        request.executePointerExport = true;
+    }
+    if (args.has(L"--range-bytes") && (!attached || !request.privateRangeBytes))
+    {
+        throw std::invalid_argument("--range-bytes requires an explicit private address and a nonzero page-aligned execution range");
     }
 
     std::optional<BreakpointCondition> condition;
     if (args.has(L"--condition")) condition = PrepareCondition(args.require(L"--condition"));
-    // 此会话没有项目写权限，样本及控制代次均是单次会话身份。
+    if (args.has(L"--sample") && !args.has(L"--project"))
+        throw std::invalid_argument("--sample requires --project");
+    if (args.has(L"--project") && cooperativePair)
+        throw std::invalid_argument("--project requires a single-target breakpoint session");
+    std::unique_ptr<NativeExecutionJournal> journal;
+    if (args.has(L"--project")) {
+        std::string sample;
+        if (args.has(L"--sample")) {
+            for (const auto ch : args.require(L"--sample")) {
+                if (ch > 127) throw std::invalid_argument("--sample must be a canonical UUID");
+                sample.push_back(static_cast<char>(ch));
+            }
+            if (!Ksword::ActionAnalyze::ProjectStorage::IsUuid(sample))
+                throw std::invalid_argument("--sample must be a canonical UUID");
+        }
+        journal = std::make_unique<NativeExecutionJournal>();
+        if (const auto status = journal->Open(args.require(L"--project"), sample); !status) {
+            std::cerr << Ksword::ActionAnalyze::ProjectErrorName(status.error) << ": " << status.detail
+                << " (" << status.nativeError << ")\n";
+            return 3;
+        }
+        if (definition)
+        {
+            std::string definitionId; // CLI定义ID仅接受ASCII规范UUID，不经过有损代码页转换。
+            for (const auto character : args.require(L"--definition"))
+            {
+                if (character > 127)
+                {
+                    throw std::invalid_argument("--definition must be a canonical UUID");
+                }
+                definitionId.push_back(static_cast<char>(character));
+            }
+            std::uint32_t rva = 0; // 由冻结定义解析后才提交原native。
+            if (const auto status = journal->ResolveImageDefinition(definitionId, request.modulePath, rva); !status)
+            {
+                std::cerr << Ksword::ActionAnalyze::ProjectErrorName(status.error) << ": " << status.detail
+                    << " (" << status.nativeError << ")\n";
+                return 3;
+            }
+            request.rva = rva;
+        }
+    }
+    // 归档会话使用真实已提交采样，其余会话保持一次性身份。
     using Ksword::ActionAnalyze::ProjectStorage::NewId;
     native::OwnerIdentity id;
     if (!NewId(id.sampleId) || !NewId(id.sessionId) || !NewId(id.epoch) || !NewId(id.backendInstanceId) ||
         !NewId(request.target.requestId)) return 3;
-    return BreakpointSession(input == L"jsonl", id, std::move(condition), cooperativePair).Run(executable, std::move(request));
+    if (journal) id.sampleId = journal->SampleId();
+    return BreakpointSession(input == L"jsonl", id, std::move(condition), cooperativePair, std::move(journal)).Run(executable, std::move(request));
 }
 } // namespace
 
@@ -881,11 +1187,25 @@ void RegisterBreakpointCommand()
 {
     Command command;
     command.path = L"analyze breakpoint session";
-    command.syntax = L"KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME | --rva RVA) --confirm --disposition resume-detach [--input repl|jsonl] [--condition EXPR] [--watch-write-bytes 1|2|4|8 | --cooperative-pair]";
-    command.summary = L"Control breakpoints in explicitly authorized AMD64 child processes.";
-    command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA. Optional --condition uses predicate-expr-v2 at execution-enter-attempt. Fields: stop.address, stop.exceptionCode, stop.pid, stop.tid, stop.thread.rip and stop.thread.creationFileTime (u64), stop.firstChance (bool), stop.thread.rax (u64, not collected).";
-    command.notes = L"Data write watch requires the EXE's aligned writable data export. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. Pair conditions evaluate only a fully held group: any true member holds both; otherwise both auto-continue. REPL: status, continue STOP_ID STATE_REVISION, quit. JSONL continue request IDs start at continue/1; expired receipts cannot be replayed. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
+    command.syntax = L"KswordCLI.exe analyze breakpoint session (--exe PATH [--module PATH] (--export NAME | --rva RVA) | --pid PID --creation-filetime N (--address ADDR [--range-bytes N] | --attach-image --module PATH (--export NAME | --rva RVA | --definition UUID))) --confirm --disposition resume-detach [--input repl|jsonl] [--condition EXPR] [--project PATH [--sample UUID]] [--watch-write-bytes 1|2|4|8 [--watch-pointer-export] | --execute-pointer-export | --cooperative-pair]";
+    command.summary = L"Control execution or write breakpoints in an explicitly selected AMD64 process instance.";
+    command.options = L"The EXE and optional loaded module use absolute DOS paths; module defaults to the EXE. Use an exact PE export or instruction-boundary RVA. --watch-pointer-export resolves an aligned AMD64 pointer data export to one committed writable private interval; the child must acknowledge inherited --ksword-breakpoint-ready and --ksword-breakpoint-gate handles after initializing the pointer and wait for byte '1'. Pointer/region changes retire the binding, with no automatic rebinding or verified allocation generation. Optional --condition uses predicate-expr-v3 at execution entry or data-write observation. Fields: stop.address, stop.exceptionCode, stop.pid, stop.tid, stop.thread.creationFileTime, stop.thread.rip, stop.thread.rax and stop.thread.rsp (u64), stop.firstChance (bool). Registers come from the actual event thread's frozen context; failed collection remains unknown. Write observations also provide stop.data.changedByteMask, stop.data.enrolledAfterStop and stop.data.watchedBytes (u64); execution events leave data fields unknown.";
+    command.options += L" Numeric conditions support field-to-field comparisons, parentheses, unary ~ and +, multiplication/division/remainder, addition/subtraction, shifts and bitwise &, ^, | with C# precedence. Parenthesize bitwise expressions before comparison, for example (stop.thread.rax & 0xffu64) == 0u64 and stop.thread.rip >= stop.address. Unsigned overflow wraps; shift counts use their low six bits. Division or remainder by zero returns Unknown with evaluationFault=division-by-zero. Unknown fields are never treated as zero. Legacy v1/v2 profiles remain readable.";
+    command.options += L" Add private execution ranges at the current complete NX stop: REPL execution-range-add ADDRESS BYTES STOP_ID STATE_REVISION; JSONL control.execution.range.add requires params:{address,bytes} as positive decimal strings, exact expected:{stopId,stateRevision}, the live session and consecutive range/N IDs starting at range/1. The original owner retains 128 receipts independently of Continue/Step. New ranges may be disjoint or belong to different allocations; each range must cover committed executable private pages within one allocation. Total pages across all ranges cannot exceed 64; overlaps are rejected. No Continue occurs and the original event and initial binding.address/rangeBytes remain unchanged. binding.executionRanges lists successful ranges; control.executionRange separates added, rollbackComplete, stage and error. Cleanup retains unresolved protection responsibilities.";
+    command.options += L" --execute-pointer-export uses the EXE's aligned AMD64 pointer data export to select one committed MEM_PRIVATE EXECUTE/RX/RWX destination. It requires the same Ready/Gate handshake and is exclusive with data watch, module, RVA and pair. The selector is image data; DR0 watches its frozen destination without changing page protection. Pointer or region changes retire the binding without rebinding. Single-target condition, step and project evidence commands remain available.";
+    command.options += L" To attach to an existing AMD64 process, use --pid PID --creation-filetime FILETIME --address ADDR instead of --exe/module/export/rva/pointer/pair selectors. The selected address must be committed private memory: EXECUTE/RX/RWX for execution, or aligned RW/RWX for --watch-write-bytes. The default single-address mode uses DR0 without changing protection. No cooperative gate is needed. The original owner enrolls new threads, retains stop tokens and retires the binding if the frozen region changes. Addresses accept decimal or 0x notation. An existing target may execute before the armed receipt; this mode does not claim earliest-start coverage.";
+    // 范围模式改变执行权限，必须与默认单地址DR0的说明分开呈现。
+    command.options += L" Use --attach-image with --pid, --creation-filetime, an absolute --module path and exactly one --export or --rva to monitor execution in an already running process's loaded image. No child process or cooperative handshake is created. The native owner verifies the process instance and executable image site and uses its original DR0, thread enrollment, conditions, step, memory and execution archive paths. This selector excludes private addresses, NX ranges and data write watches. The export is an exact PE export; PDB symbols are not resolved.";
+    command.options += L" Optional --range-bytes selects private NX execution monitoring, exclusive with data watch. Use a 4096-byte-aligned base and a nonzero page-aligned length accepted by the native owner. This temporarily removes execute permission while preserving the original read/write permissions, and restores protection during cleanup. binding.rangeBytes identifies the monitored range; hit.address is the actual instruction address within it. Continue advances the stopped instruction with native TF and rearms NX before releasing peer threads. Unsupported advancement retains the stop and reports its stage.";
+    command.notes = L"Data write watch requires an aligned writable data export or an explicit private address. --cooperative-pair requires the EXE's execution export and two children that acknowledge inherited Ready/Gate handles. Pair conditions evaluate only a fully held group: any true member holds both; otherwise both auto-continue. REPL: status, continue STOP_ID STATE_REVISION, step into|over-call|out STOP_ID STATE_REVISION THREAD_ID TID CREATION_FILETIME, step-status STEP_REQUEST_ID, step-cancel STEP_REQUEST_ID, quit. Step requires a single-target session and its current frozen originThread; write stops use the actual event thread's current instruction, not the watched data address. JSONL adds control.step, control.step.query and control.step.cancel; independent step/N and continue/N IDs start at 1, with 128 retained receipts. Step modes support known native instructions/frames; unknown instructions or frames are rejected. A new step stop is held without reapplying the breakpoint condition. Shutdown reports confirmed cleanup or keeps the session open if cleanup is unresolved. Native retirement and the first recovery failure are reported independently when recorded.";
+    command.options += L" Saved definition activation uses --attach-image --module PATH --definition UUID --project PATH, exclusive with --export and --rva. The definition is read from the session sample's frozen settings, not a later project revision. It must be saved, enabled, a nonzero RVA and have a matching module basename. Debug symbols and pinned image hashes are not supported by this selector. hello.executionArchive.breakpointDefinitionId records the actual source definition. Existing stop tokens are never imported from the project.";
+    command.notes += L" Active single-target owners support REPL pause PID CREATION_FILETIME and pause-status pause/N. JSONL control.pause requires the current session, no expected, params:{targetPid:UInt,targetCreationFileTime:positive-decimal-string} and consecutive independent pause/N IDs (128 receipts). control.pause.query takes params:{requestId:pause/N} with an ordinary query ID. Acceptance means pending; armedPause.state=held and stopReason=manual-pause identify an actual interruption. Real target hits can preempt the interruption and retain their original identity. Continue uses the current exact stop token; manual pauses do not apply the breakpoint condition, create execution evidence or enable stepping on the interrupt helper. The original owner retains all breakpoint and page recovery responsibilities.";
     command.runStreaming = Run;
+    command.options += L" Optional --project opens an existing project with an exclusive writer lease for this entire single-target session; --sample reuses a committed sample, otherwise creates one from the current revision. Startup verifies the complete raw-native chain before launching or attaching. Write sessions support held memory snapshots and same-sample API capture; execution-save requires an actual execution observation.";
+    command.notes += L" REPL execution-save STOP_ID STATE_REVISION / JSONL control.execution.save explicitly saves the current owned execution observation without continuing. JSONL requires the current session, empty params and exact expected stopId/stateRevision. Repeated saves of the same native event return its original coordinates. At most 4096 events are saved per session; any write/readback failure blocks further appends and retains written/flushed receipts. Read history with analyze execution read.";
+    command.notes += L" Project sessions also provide REPL memory-snapshot BASE BYTES STOP_ID STATE_REVISION and JSONL control.memory.snapshot with params:{base,bytes} as canonical positive decimal strings and exact expected stopId/stateRevision. The same live owner must hold a complete stop before and after the read. No continue is issued. Each explicit read stores a new raw-memory segment (up to 64 pages; at most 4096 segments per sample), preserving readContext, actual bytes, SHA-256 and gaps. Response exitCode 6 means an incomplete range or changed stop; the session remains open. Memory write/readback failure blocks only raw-memory. Read/export with analyze memory read/export.";
+    command.notes += L" Same-sample API capture: REPL api-capture PID FILETIME DURATION confirm; JSONL control.api.capture requires the current session, no expected, and exactly params:{sourcePid:UInt,sourceCreationFileTime:decimal-string,durationMs:UInt,confirm:true}. Source must differ from the native target. The 1000..10000ms interval runs synchronously; startup and stop/drain timeouts are additional. Other control instructions wait until completion (no zero-duration mode). The independent debug thread retains any owned stop; API shutdown never continues or closes native control. Reuses the original project writer/sample, without Agent ETW; raw or checkpoints directory already present, including empty or damaged content, rejects capture. Response exitCode, capture, archive prefix, rule SHA, transfer counts and cleanup are independent. Explicitly use execution-save afterwards; no native event is saved automatically. Same-sample storage does not authenticate sources or establish causality.";
+    command.notes += L" Private write-to-execution follow: REPL execution-follow ADDRESS STOP_ID STATE_REVISION; JSONL control.execution.follow requires the current session, exactly params:{address:positive-decimal-string}, exact expected:{stopId,stateRevision}, and independent consecutive follow/N IDs starting at follow/1 (128 retained receipts). Use a single-target private write watch and query breakpoint.privateExecutionFollowAvailable with the current complete write stop; confirm the exact original address, originally at the start of an RWX private region. The same owner verifies every live thread and rolls back failed conversion. The operation changes the same-address watch to execution without Continue or Step or changing page protection; the original held hit remains a write observation. hello.followProtocol describes the protocol; control.executionFollow reports converted, rollbackComplete, stage and native error. Continue explicitly with the current stop only after inspecting the result. Old validation does not cover this entry.";
     addCommand(std::move(command));
 }
 

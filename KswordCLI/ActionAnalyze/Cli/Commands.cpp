@@ -1,9 +1,17 @@
 #include "Commands.h"
 #include "ApiMonitorEvidenceCommand.h"
+#include "AttachedApiCaptureCommand.h"
 #include "ApiRuleReplayCommand.h"
 #include "BreakpointCommand.h"
 #include "DirtyMemoryCommand.h"
 #include "MemoryWatch.h"
+#include "MemorySnapshotCommand.h"
+#include "NetworkCaptureCommand.h"
+#include "NativeExecutionCommand.h"
+#include "NativeSectionMapCommand.h"
+#include "PrivateExecutionCandidateCommand.h"
+#include "ProcessGroupCommand.h"
+#include "ExecutionGroupCommand.h"
 
 #include "../../CommandRegistry.h"
 #include "Controller.h"
@@ -159,9 +167,17 @@ void RegisterCommands() {
     addFamily(L"analyze", L"ActionAnalyze projects, passive sources and bounded memory observation.");
     RegisterMemoryWatch();
     RegisterDirtyMemoryCommand();
+    RegisterMemorySnapshotCommands();
     RegisterBreakpointCommand();
+    RegisterProcessGroupCommand();
+    RegisterExecutionGroupCommand();
     RegisterApiMonitorEvidenceCommands();
+    RegisterAttachedApiCaptureCommand();
     RegisterApiRuleReplayCommand();
+    RegisterNetworkCaptureCommand();
+    RegisterNativeExecutionCommands();
+    RegisterNativeSectionMapCommands();
+    RegisterPrivateExecutionCandidateCommand(); // AAIM1只读候选目录，不改变执行组或native owner。
     Command capabilities;
     capabilities.path = L"analyze capabilities";
     capabilities.syntax = L"KswordCLI.exe analyze capabilities [--json] [--backend offline|r3]";

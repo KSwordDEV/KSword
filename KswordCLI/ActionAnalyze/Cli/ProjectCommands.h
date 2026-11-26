@@ -9,7 +9,8 @@ namespace ks::cli::action_analyze {
 
 struct Reply;
 
-enum class ProjectMethod { Open, Query, Close, Create, Save, ListSamples, QuerySample, CreateSample, InspectArchive };
+// 项目方法稳定追加；InspectApi只读同一采样中的原API记录，不操作现场。
+enum class ProjectMethod { Open, Query, Close, Create, Save, ListSamples, QuerySample, CreateSample, InspectArchive, InspectApi };
 
 struct ProjectCommand {
     ProjectMethod method;

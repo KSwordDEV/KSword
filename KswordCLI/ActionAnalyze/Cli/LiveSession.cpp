@@ -4,8 +4,10 @@
 #include "PassiveApiCapture.h"
 #include "../../CommandRegistry.h"
 #include "../Project/ProjectEtwCheckpoint.h"
+#include "../Project/ProjectEtwEvidence.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
+#include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 #include "../../../shared/evidence/PassiveApiSourceDiagnosis.h"
 #include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
 
@@ -61,94 +63,6 @@ std::optional<Reply> PinTarget(DWORD pid, std::uint64_t created, Handle& target)
         return Reject("target-identity-mismatch", "PID and creation FILETIME do not identify a live instance", 5);
     target = std::move(pin);
     return std::nullopt;
-}
-
-std::string GuidText(const GUID& guid) {
-    const auto native = GuidToString(guid);
-    std::string text;
-    for (std::size_t i = 1; i + 1 < native.size(); ++i) {
-        const auto ch = native[i];
-        text.push_back(static_cast<char>(ch >= L'A' && ch <= L'F' ? ch + (L'a' - L'A') : ch));
-    }
-    return text;
-}
-
-const char* SourceState(PassiveEtwState state) {
-    switch (state) {
-    case PassiveEtwState::Idle: return "idle";
-    case PassiveEtwState::Starting: return "starting";
-    case PassiveEtwState::Running: return "running";
-    case PassiveEtwState::Stopping: return "stopping";
-    case PassiveEtwState::Stopped: return "stopped";
-    case PassiveEtwState::AccessDenied: return "access-denied";
-    case PassiveEtwState::ProviderUnavailable: return "provider-unavailable";
-    case PassiveEtwState::Failed: return "failed";
-    case PassiveEtwState::CleanupPending: return "cleanup-pending";
-    }
-    return "failed";
-}
-
-V OptionalStatus(bool attempted, ULONG code) {
-    return attempted ? V::makeUInt(code) : V::makeNull();
-}
-
-// 将控制器明确跳过的启动阶段映射为 JSON 值。没有跳过时返回空值。
-V StartupAbortJson(EtwStartupAbort stage) {
-    switch (stage) {
-    case EtwStartupAbort::BeforeOpenTrace:
-        return Text("before-open-trace");
-    case EtwStartupAbort::BeforeProcessTrace:
-        return Text("before-process-trace");
-    case EtwStartupAbort::None:
-        return V::makeNull();
-    }
-    return V::makeNull();
-}
-
-// 活会话和 Stored 终态使用同一原生回执投影，保留所有已观测的错误码。
-V SourceJson(const PassiveEtwStatus& status) {
-    const auto& native = status.native; // 控制器的阶段与原生状态快照。
-    const auto& stop = native.stopStatuses; // 重试时保留第一次及最近一次 STOP 的结果。
-    return Object({{"state", Text(SourceState(status.state))}, {"sourceEpoch", Text(status.sourceEpoch)},
-        {"inputWin32Error", V::makeUInt(status.inputError)},
-        {"startWin32Error", OptionalStatus(native.startAttempted, native.startStatus)},
-        {"enableWin32Error", native.providers.empty() ? V::makeNull() : V::makeUInt(native.providers.front().status)},
-        {"openWin32Error", OptionalStatus(native.openAttempted, native.openStatus)},
-        {"startupAbort", StartupAbortJson(native.startupAbort)},
-        {"processAttempted", V::makeBool(native.processAttempted)},
-        {"processWin32Error", OptionalStatus(native.processCompleted, native.processStatus)},
-        {"tailDeliveryUnconfirmed", V::makeBool(native.tailDeliveryUnconfirmed)},
-        {"closeWin32Error", OptionalStatus(native.closeAttempted, native.closeStatus)},
-        {"firstStopWin32Error", stop.empty() ? V::makeNull() : V::makeUInt(stop.front())},
-        {"lastStopWin32Error", stop.empty() ? V::makeNull() : V::makeUInt(stop.back())},
-        {"stopAttempts", Number(stop.size())}, {"nativeSessionStopped", V::makeBool(native.sessionStopped)},
-        {"callbackFailed", V::makeBool(native.callbackFailed)},
-        {"eventsLost", OptionalStatus(native.statisticsKnown, native.eventsLost)},
-        {"logBuffersLost", OptionalStatus(native.statisticsKnown, native.logBuffersLost)},
-        {"realTimeBuffersLost", OptionalStatus(native.statisticsKnown, native.realTimeBuffersLost)},
-        {"providerEvents", Number(status.providerEvents)}, {"headerFiltered", Number(status.headerFiltered)},
-        {"enqueued", Number(status.enqueued)}, {"queued", Number(status.queued)},
-        {"queueDropped", Number(status.queueDropped)}, {"payloadTruncated", Number(status.payloadTruncated)},
-        {"malformedPayload", Number(status.malformedPayload)}});
-}
-
-std::string RecordMetadata(const PassiveEtwRecord& record) {
-    const auto& desc = record.descriptor;
-    return WriteJson(Object({{"kind", Text("etw-observation-v1")},
-        {"sourceEpoch", Text(record.sourceEpoch)}, {"providerId", Text(GuidText(record.provider))},
-        {"descriptor", Object({{"id", V::makeUInt(desc.id)}, {"version", V::makeUInt(desc.version)},
-            {"channel", V::makeUInt(desc.channel)}, {"level", V::makeUInt(desc.level)},
-            {"opcode", V::makeUInt(desc.opcode)}, {"task", V::makeUInt(desc.task)}, {"keyword", Number(desc.keyword)}})},
-        {"headerPid", V::makeUInt(record.headerPid)}, {"headerTid", V::makeUInt(record.headerTid)},
-        {"headerFlags", V::makeUInt(record.headerFlags)}, {"sourceFileTime100ns", Number(record.sourceFileTime100ns)},
-        {"receiveQpc", record.receivedQpc ? Number(*record.receivedQpc) : V::makeNull()},
-        {"qpcFrequencyHz", record.receivedQpc ? Number(record.qpcFrequencyHz) : V::makeNull()},
-        {"activityId", Text(GuidText(record.activityId))},
-        {"relatedActivityId", record.relatedActivityId ? Text(GuidText(*record.relatedActivityId)) : V::makeNull()},
-        {"extendedDataCount", V::makeUInt(record.extendedDataCount)},
-        {"originalPayloadBytes", V::makeUInt(record.originalPayloadBytes)},
-        {"malformedPayload", V::makeBool(record.malformedPayload)},
-        {"storedPayloadBytes", Number(record.payloadPrefix.size())}}));
 }
 
 ProjectResult AppendResult(const archive::RawEvidenceReceipt& receipt) {
@@ -260,7 +174,7 @@ struct LiveSession::State {
             if (mixedEtw) {
                 const auto status = finalized ? terminal : source.status();
                 fields.emplace_back("etw", Object({{"rawStream", Text("raw-etw")}, {"plan", Plan(status)},
-                    {"source", SourceJson(status)}, {"archive", EtwArchiveReport()}}));
+                     {"source", EtwSourceReceipt(status)}, {"archive", EtwArchiveReport()}}));
             }
             return Object(std::move(fields));
         }
@@ -268,35 +182,7 @@ struct LiveSession::State {
         return Object({{"session", Identity()}, {"projectId", Text(projectId)}, {"sampleId", Text(sample.sampleId)},
             {"stateRevision", Number(Revision())}, {"capture", Text(phase)},
             {"stopReason", reason.empty() ? V::makeNull() : Text(reason)}, {"plan", Plan(status)},
-             {"source", SourceJson(status)}, {"archive", EtwArchiveReport()}});
-    }
-
-    ProjectResult AppendBatch(archive::RawEvidenceArchive& writer, std::span<const PassiveEtwRecord> records) {
-        std::vector<std::string> metadata;
-        std::vector<archive::RawEvidenceInput> inputs;
-        metadata.reserve(records.size());
-        inputs.reserve(records.size());
-        for (const auto& record : records) {
-            metadata.push_back(RecordMetadata(record));
-            const auto& bytes = record.payloadPrefix;
-            inputs.push_back({metadata.back(), bytes.empty() ? std::string_view{} :
-                std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())});
-        }
-        return AppendResult(writer.Append(inputs));
-    }
-
-    ProjectResult Append(archive::RawEvidenceArchive& writer) {
-        const auto plan = WriteJson(Plan(terminal));
-        const archive::RawEvidenceInput head{plan, {}};
-        if (const auto result = AppendResult(writer.Append(std::span(&head, 1))); !result) return result;
-        for (auto records = source.drain(kBatchSize); !records.empty(); records = source.drain(kBatchSize)) {
-            if (const auto result = AppendBatch(writer, records); !result) return result;
-        }
-        auto coverage = source.status();
-        const auto end = WriteJson(Object({{"kind", Text("etw-capture-end-v1")}, {"stopReason", Text(reason)},
-            {"source", SourceJson(coverage)}}));
-        const archive::RawEvidenceInput tail{end, {}};
-        return AppendResult(writer.Append(std::span(&tail, 1)));
+              {"source", EtwSourceReceipt(status)}, {"archive", EtwArchiveReport()}});
     }
 
     // 写入至多一个队列快照，只有双流检查点提交后才推进对外可见的段号。
@@ -315,13 +201,13 @@ struct LiveSession::State {
                 if (const auto result = AppendResult(writer.Append(std::span(&head, 1))); !result) return result;
                 const std::span observations(records);
                 for (std::size_t i = 0; i < observations.size(); i += kBatchSize) {
-                    if (const auto result = AppendBatch(writer, observations.subspan(i,
+                    if (const auto result = AppendEtwObservations(writer, observations.subspan(i,
                             (std::min)(kBatchSize, observations.size() - i))); !result) return result;
                 }
                 const auto end = WriteJson(Object({{"kind", Text("etw-capture-end-v1")},
                     {"stopReason", Text(final ? std::string_view(reason) : "segment-rotated")},
                     {"finalSegment", V::makeBool(final)}, {"segmentObservations", Number(records.size())},
-                    {"source", SourceJson(status)}}));
+                    {"source", EtwSourceReceipt(status)}}));
                 const archive::RawEvidenceInput tail{end, {}};
                 return AppendResult(writer.Append(std::span(&tail, 1)));
             }, EtwLane()}, next);
@@ -371,29 +257,11 @@ struct LiveSession::State {
             return;
         }
         segmentOrdinal = 1;
-        const auto enqueued = terminal.enqueued;
-        archiveResult = project.WriteRawEvidenceSegment({projectId, sample.sampleId, 1, {},
-            [this](auto& writer) { return Append(writer); }, EtwLane()}, raw);
-        if (archiveResult && raw.flushed && raw.flushed->lastSequence == enqueued + 2) {
-            archive::RawEvidenceScanResult checked;
-            archiveResult = project.ReadRawEvidenceSegment({projectId, sample.sampleId, 1,
-                 raw.flushed->byteOffset, 0, {}, std::nullopt, EtwLane()}, checked);
-            verified = archiveResult && checked.VerifiedBoundary(*raw.flushed);
-        }
-        if (archiveResult && !verified) archiveResult = Failure(ProjectError::Corrupt, "archiveRawVerification");
+        // 有限采样与合作 Agent 复用同一 raw 封段和 ETW 检查点。
+        archiveResult = CommitFiniteEtwEvidence(project, sample.sampleId, EtwLane(), Plan(terminal), reason,
+            source, raw, checkpointResult);
+        verified = static_cast<bool>(archiveResult);
         terminal = source.status();
-        if (verified) {
-            const auto statistic = [known = terminal.native.statisticsKnown](ULONG value) -> std::optional<std::uint32_t> {
-                if (!known) return std::nullopt;
-                return static_cast<std::uint32_t>(value);
-            };
-            const archive::EtwCoverageV1 coverage{providerId, terminal.sourceEpoch, 1, 1, raw.flushed->lastSequence,
-                enqueued, statistic(terminal.native.eventsLost), statistic(terminal.native.logBuffersLost),
-                statistic(terminal.native.realTimeBuffersLost), terminal.queueDropped, terminal.payloadTruncated,
-                terminal.malformedPayload};
-            ProjectEtwCheckpoint checkpoint;
-            checkpointResult = project.PublishEtwCheckpoint(sample.sampleId, *raw.flushed, coverage, checkpoint, EtwLane());
-        }
         target.reset();
         finalized = true;
     }
@@ -562,7 +430,7 @@ Reply LiveSession::OpenApiArchive(const Request& request, ProjectDocument& proje
     if (!authorization || !authorization->tryGetBool(authorized) || !authorized) {
         return Reject("source-not-authorized", "apiArchive.authorized must affirm this existing local archive is authorized");
     }
-    if (providerField && !IsString(params, "providerId", kMixedEtwProviderId)) {
+    if (providerField && !IsString(params, "providerId", ks::action_analyze::etw::kProviderId)) {
         return Reject("invalid-params", "API and ETW together require the KSword-owned ETW provider");
     }
 
@@ -575,7 +443,7 @@ Reply LiveSession::OpenApiArchive(const Request& request, ProjectDocument& proje
     PassiveEtwOptions options;
     if (providerField) {
         next->mixedEtw = true;
-        next->providerId = kMixedEtwProviderId;
+        next->providerId = ks::action_analyze::etw::kProviderId;
         next->pid = static_cast<std::uint32_t>(pid);
         next->created = creation;
         next->revisionHash = info->revisionHash;
@@ -634,7 +502,7 @@ Reply LiveSession::DispatchRepl(LiveMethod method, const JsonArray& args, Projec
             fields.emplace_back("apiArchive", Object({{"path", Text(path)},
                 {"sessionIdentity", Text(std::string_view(source).substr(mixed ? 8 : 4))},
                 {"authorized", V::makeBool(authorization == "authorized")}}));
-            if (mixed) fields.emplace_back("providerId", Text(kMixedEtwProviderId));
+            if (mixed) fields.emplace_back("providerId", Text(ks::action_analyze::etw::kProviderId));
             if (args.size() == 7) fields.emplace_back("durationMs", toUInt(duration));
         } else {
             std::string option;

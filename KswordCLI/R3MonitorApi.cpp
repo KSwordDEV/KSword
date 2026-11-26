@@ -3,6 +3,7 @@
 #include "../shared/ApiMonitorCallStack.h"
 #include "ApiMonitorSignatureCatalog.h"
 #include "ApiMonitorFilterImport.h"
+#include "ActionAnalyze/Cli/ApiMemoryLifecycleProjection.h"
 #include <algorithm>
 #include <filesystem>
 #include <set>
@@ -52,6 +53,7 @@ Json packetJson(const m::ApiMonitorEventPacket& p, const Json& declaration=Json{
         {L"eventKind",Json::number(p.eventKind)},{L"apiId",Json::number(p.apiId)},{L"operationId",Json::count(p.operationId)},
         {L"sessionIdentity",Json::hex(p.sessionIdentity)},{L"definitionSha256",Json::string(sha(p))},
         {L"callStackAvailable",Json::boolean(stackAvailable)},{L"callStack",Json::array(frames)},{L"rawAbi",rawAbi},
+        {L"apiMemoryLifecycle", action_analyze::ApiMemoryLifecycleCliJson(p)}, // 原单包AAIM1详情，不增加采集。
         {L"declaration",declaration},{L"declarationCatalogMatchesAgent",catalogMatch}});
 }
 void scalar(const std::wstring& value) {

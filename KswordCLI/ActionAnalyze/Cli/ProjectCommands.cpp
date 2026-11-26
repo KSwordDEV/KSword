@@ -1,7 +1,9 @@
 #include "ProjectCommands.h"
 
 #include "ArchivedCapture.h"
+#include "ApiMemoryLifecycleProjection.h"
 #include "Controller.h"
+#include "../Archive/NetworkEvidenceArchive.h"
 #include "../Archive/SegmentInspection.h"
 #include "../Detection/ArchivedEvidenceGraph.h"
 #include "../Detection/EvidenceRelationTree.h"
@@ -31,12 +33,15 @@ constexpr ProjectCommand kMethods[] = {
         "Save the project settings against its current revision.", true},
     {M::ListSamples, "sample.list", "sample list", "[START GENERATION [LIMIT]]", "List the samples at one project generation.", false},
     {M::QuerySample, "sample.query", "sample status", "SAMPLE_ID [capture [ORDINAL]]",
-        "Read frozen settings and optionally verify an ETW or passive API archive segment.", false},
+         "Read frozen settings and optionally verify ETW and passive API archive segments.", false},
     {M::CreateSample, "sample.create", "sample create", "TITLE", "Save a sample descriptor and its frozen settings without collecting data.", true},
     {M::InspectArchive, "archive.inspect", "archive inspect",
         "SAMPLE_ID raw|records|control ORDINAL [END_OFFSET]\n"
-        "archive inspect SAMPLE_ID raw|raw-etw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]",
-        "Inspect Stored framing or a verified API, ETW, or KSword callback graph page. For mixed ETW use stream raw-etw with graph.", false},
+        "archive inspect SAMPLE_ID raw|raw-etw ORDINAL graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]\n"
+        "archive inspect SAMPLE_ID raw ORDINAL network SEQUENCE RECORD_OFFSET",
+          "Inspect Stored framing, a raw evidence graph page (API, ETW, or KSword callback), or one archived network record. For the mixed ETW graph use stream raw-etw.", false},
+    {M::InspectApi, "api.detail", "api detail", "SAMPLE_ID ORDINAL RECORD_SEQUENCE [EXPECTED_SHA256]",
+        "Read one verified archived API clue, including its versioned request and return fields. This does not control a live target.", false},
 };
 
 Reply Invalid(const char* message) {
@@ -258,7 +263,129 @@ V GraphObservationJson(const Detection::GraphObservation& observation,
              {"targetPid", V::makeUInt(hints->targetPid)}, {"targetTid", V::makeUInt(hints->targetTid)},
              {"notificationUtc100ns", OptionalNumber(hints->notificationUtc100ns)}}));
     }
+    if (const auto& api = record.apiInjection) {
+        // 内容来自显式版本化 API 包，身份解析结果与已认证的图角色分别保存。
+        const auto optional = [&](std::uint64_t flag, std::uint64_t value) {
+            return api->flags & flag ? Number(value) : V::makeNull();
+        };
+        using namespace Ksword::Evidence;
+        const auto outcome = record.apiOutcome;
+        fields.emplace_back("apiTransfer", Object({{"schema", Text("api-injection-fields-v1")},
+            {"actorCreationFileTime", optional(ApiInjectionActorIdentity, api->actorCreationFileTime)},
+            {"targetPid", optional(ApiInjectionTargetIdentity, api->targetPid)},
+            {"targetCreationFileTime", optional(ApiInjectionTargetIdentity, api->targetCreationFileTime)},
+            {"targetStable", V::makeBool((api->flags & ApiInjectionTargetStable) != 0)},
+            {"targetTid", optional(ApiInjectionThreadIdentity, api->targetTid)},
+            {"targetThreadCreationFileTime", optional(ApiInjectionThreadIdentity, api->targetThreadCreationFileTime)},
+            {"address", optional(ApiInjectionAddress, api->address)}, {"requestedBytes", Number(api->requestedBytes)},
+            {"completedBytes", optional(ApiInjectionCompletedLength, api->completedBytes)},
+            {"requestedStartAddress", optional(ApiInjectionStartAddress, api->startAddress)},
+            {"enterQpc", Number(api->enterQpc)}, {"returnQpc", Number(api->returnQpc)},
+            {"inputHandle", Number(api->inputHandle)},
+            {"outcome", Text(outcome == ApiInjectionOutcome::Succeeded ? "succeeded" :
+                outcome == ApiInjectionOutcome::Failed ? "failed" : outcome == ApiInjectionOutcome::Partial ? "partial" : "unknown")}}));
+    }
+    if (const auto& apc = record.apiApc) {
+        // APC队列返回只提供源声明；不将接受状态翻译成投递或执行。
+        const auto optional = [&](std::uint64_t flag, std::uint64_t value) {
+            return apc->flags & flag ? Number(value) : V::makeNull();
+        };
+        using namespace Ksword::Evidence;
+        fields.emplace_back("apiApc", Object({{"schema", Text("api-apc-fields-v1")},
+            {"actorCreationFileTime", optional(ApiApcActorIdentity, apc->actorCreationFileTime)},
+            {"targetPid", optional(ApiApcTargetIdentity, apc->targetPid)},
+            {"targetCreationFileTime", optional(ApiApcTargetIdentity, apc->targetCreationFileTime)},
+            {"targetTid", optional(ApiApcThreadIdentity, apc->targetTid)},
+            {"targetThreadCreationFileTime", optional(ApiApcThreadIdentity, apc->targetThreadCreationFileTime)},
+            {"targetStable", V::makeBool((apc->flags & ApiApcTargetStable) != 0)},
+            {"requestedRoutineAddress", optional(ApiApcRoutineAddress, apc->routineAddress)},
+            {"enterQpc", Number(apc->enterQpc)}, {"returnQpc", Number(apc->returnQpc)},
+            {"inputThreadHandle", Number(apc->inputThreadHandle)}, {"argument1", Number(apc->argument1)},
+            {"argument2", Number(apc->argument2)}, {"argument3", Number(apc->argument3)},
+            {"queueOutcome", Text(record.apcOutcome == ApiApcQueueOutcome::Accepted ? "accepted" :
+                record.apcOutcome == ApiApcQueueOutcome::Failed ? "failed" : "unknown")},
+            {"delivery", V::makeNull()}, {"execution", V::makeNull()}}));
+    }
+    if (const auto& context = record.apiContext) {
+        // 请求寄存器与现场执行分开；缺少有效位时不使用零填充未知字段。
+        const auto optional = [&](std::uint64_t flag, std::uint64_t value) {
+            return context->flags & flag ? Number(value) : V::makeNull();
+        }; // 输入有效位及原整数，输出无损十进制字段或null。
+        using namespace Ksword::Evidence;
+        fields.emplace_back("apiContext", Object({{"schema", Text("api-context-fields-v1")},
+            {"actorCreationFileTime", optional(ApiContextActorIdentity, context->actorCreationFileTime)},
+            {"targetPid", optional(ApiContextTargetIdentity, context->targetPid)},
+            {"targetCreationFileTime", optional(ApiContextTargetIdentity, context->targetCreationFileTime)},
+            {"targetTid", optional(ApiContextThreadIdentity, context->targetTid)},
+            {"targetThreadCreationFileTime", optional(ApiContextThreadIdentity, context->targetThreadCreationFileTime)},
+            {"targetStable", V::makeBool((context->flags & ApiContextTargetStable) != 0)},
+            {"contextFlags", optional(ApiContextFlags, context->contextFlags)},
+            {"requestedIp", optional(ApiContextControlRegisters, context->requestedIp)},
+            {"requestedSp", optional(ApiContextControlRegisters, context->requestedSp)},
+            {"contextArchitecture", Number(context->contextArchitecture)},
+            {"enterQpc", Number(context->enterQpc)}, {"returnQpc", Number(context->returnQpc)},
+            {"inputThreadHandle", Number(context->inputThreadHandle)},
+            {"inputContextAddress", Number(context->inputContextAddress)},
+            {"requestOutcome", Text(record.contextOutcome == ApiContextOutcome::Accepted ? "accepted" :
+                record.contextOutcome == ApiContextOutcome::Failed ? "failed" : "unknown")},
+            {"contextApplied", V::makeNull()}, {"execution", V::makeNull()}}));
+    }
+    if (const auto& mapping = record.apiSectionMap) {
+        // 映射请求与成功读回范围分别公开，节句柄原位不能成为共享对象身份。
+        const auto optional = [&](std::uint64_t flag, std::uint64_t value) {
+            return mapping->flags & flag ? Number(value) : V::makeNull();
+        }; // 输入有效位及原整数，输出原值或未知，不解引用任何历史地址。
+        using namespace Ksword::Evidence;
+        fields.emplace_back("apiSectionMap", Object({{"schema", Text("api-section-map-fields-v1")},
+            {"actorCreationFileTime", optional(ApiSectionMapActorIdentity, mapping->actorCreationFileTime)},
+            {"targetPid", optional(ApiSectionMapTargetIdentity, mapping->targetPid)},
+            {"targetCreationFileTime", optional(ApiSectionMapTargetIdentity, mapping->targetCreationFileTime)},
+            {"targetStable", V::makeBool((mapping->flags & ApiSectionMapTargetStable) != 0)},
+            {"requestedBase", optional(ApiSectionMapRequestedBase, mapping->requestedBase)},
+            {"requestedBytes", optional(ApiSectionMapRequestedBytes, mapping->requestedBytes)},
+            {"mappedBase", optional(ApiSectionMapMappedBase, mapping->mappedBase)},
+            {"mappedBytes", optional(ApiSectionMapMappedBytes, mapping->mappedBytes)},
+            {"sectionOffset", optional(ApiSectionMapSectionOffset, mapping->sectionOffset)},
+            {"inputSectionHandle", Number(mapping->inputSectionHandle)},
+            {"inputProcessHandle", Number(mapping->inputProcessHandle)},
+            {"requestedProtection", Number(mapping->requestedProtection)},
+            {"enterQpc", Number(mapping->enterQpc)}, {"returnQpc", Number(mapping->returnQpc)},
+            {"mapOutcome", Text(record.sectionMapOutcome == ApiSectionMapOutcome::Accepted ? "accepted" :
+                record.sectionMapOutcome == ApiSectionMapOutcome::Failed ? "failed" : "unknown")},
+            {"sectionIdentity", V::makeNull()}, {"aliasPropagation", V::makeNull()}, {"execution", V::makeNull()}}));
+    }
+    if (record.apiMemoryLifecycle && record.apiSourceSession) {
+        // archive.inspect与api detail使用同一投影，保留原包来源，不从图节点反填身份。
+        fields.emplace_back("apiMemoryLifecycle", ApiMemoryLifecycleJson(*record.apiMemoryLifecycle, *record.apiSourceSession));
+    }
     return V::makeObject(std::move(fields));
+}
+
+// 输入为登记采样、raw段和明确记录序号；复用原读侧与详情投影，只返回精确命中的API。
+Reply ReadArchiveApi(const ProjectDocument& document, std::string_view sampleId,
+    std::uint64_t ordinal, std::uint64_t sequence, std::string_view expectedSha256)
+{
+    Detection::ArchivedGraphPage page; // 同一归档前缀核验后的最多一条记录。
+    const auto status = Detection::ReadArchivedEvidenceGraph(document,
+        {sampleId, ordinal, sequence - 1, 1, expectedSha256, ProjectEvidenceLane::Primary}, page); // 正序定位，不跨段猜测。
+    if (!status)
+    {
+        return FromError(status);
+    }
+    // 非API记录、序号空洞或另一条记录均不能被当作请求的原包详情。
+    if (page.records.empty() || page.records.front().recordSequence != sequence || page.records.front().apiFamily.empty())
+    {
+        return FromError(Failure(ProjectError::NotFound, "apiRecordNotFound"));
+    }
+    if (page.records.size() != 1 || page.graph.observations.size() != 1)
+    {
+        return FromError(Failure(ProjectError::Corrupt, "apiRecordProjection"));
+    }
+    // 返回原始坐标和实际前缀摘要，后续查询可显式绑定该摘要；字段仍由规范详情函数生成。
+    return Success(Object({{"view", Text("api")}, {"projectId", Text(page.graph.scope.projectId)},
+        {"sampleId", Text(page.graph.scope.sampleId)}, {"stream", Text("raw")}, {"ordinal", Number(ordinal)},
+        {"sha256", Text(page.sha256)}, {"sourceCoverage", Text("unknown")},
+        {"record", GraphObservationJson(page.graph.observations.front(), page.records.front())}}));
 }
 
 // 从已打开项目查询一页已验证的 raw 归档。续页使用同一段和前缀摘要。
@@ -302,7 +429,7 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
 
     const bool etw = page.source == Detection::ArchivedGraphSource::CommittedEtw; // ETW 段通过双流核验。
     const bool apiFollow = page.source == Detection::ArchivedGraphSource::CommittedApiFollow; // 跟随段通过连续 raw 检查点核验。
-    const bool callback = page.source == Detection::ArchivedGraphSource::CallbackBatch;
+    const bool callback = page.source == Detection::ArchivedGraphSource::CallbackBatch; // 终态仅说明一次回调读回。
     const auto finalSegment = etw ? page.etwFinalSegment : page.apiFinalSegment; // 回调和旧导入不报告采样终态。
     Ksword::Evidence::JsonObject fields{{"view", Text("graph")}, {"projectId", Text(page.graph.scope.projectId)},
         {"sampleId", Text(page.graph.scope.sampleId)}, {"generation", Number(document.Info()->generation)},
@@ -318,6 +445,68 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
         {"tree", Object({{"unresolvedCandidates", V::makeArray(std::move(candidates))},
             {"contextObservations", V::makeArray(std::move(context))}})},
         {"nodes", V::makeArray({})}, {"relations", V::makeArray({})}, {"observations", V::makeArray(std::move(rows))}};
+    // 保留 archiveSource 的既有分组；只有 API 页有需要解释的输入来源。
+    if (!page.apiInputKind.empty()) {
+        fields.emplace_back("apiInputKind", Text(page.apiInputKind));
+        JsonArray links; // 链接两份真实 raw 坐标，候选关系不改变上面的强角色及执行状态。
+        for (const auto& link : page.transferCandidates) {
+            const auto raw = [](const Detection::EvidenceRef& ref) {
+                return Object({{"segmentOrdinal", Number(ref.raw->segmentOrdinal)},
+                    {"recordSequence", Number(ref.raw->sequence)}});
+            };
+            links.push_back(Object({{"kind", Text("write-to-requested-thread-entry")},
+                {"write", raw(link.write)}, {"threadCreate", raw(link.threadCreate)},
+                {"actorPid", V::makeUInt(link.actorPid)}, {"actorCreationFileTime", Number(link.actorCreationFileTime)},
+                {"targetPid", V::makeUInt(link.targetPid)}, {"targetCreationFileTime", Number(link.targetCreationFileTime)},
+                {"writtenAddress", Number(link.writtenAddress)}, {"writtenBytes", Number(link.writtenBytes)},
+                {"requestedStartAddress", Number(link.requestedStartAddress)}, {"execution", V::makeNull()}}));
+        }
+        fields.emplace_back("apiTransferCandidates", Object({{"count", Number(page.transferCandidateCount)},
+            {"evictedWrites", Number(page.evictedTransferWrites)},
+            {"truncated", V::makeBool(page.transferCandidates.size() < page.transferCandidateCount)},
+            {"links", V::makeArray(std::move(links))}}));
+        JsonArray apcLinks; // 与线程创建候选分别公开，保留两端原包坐标。
+        for (const auto& link : page.apcTransferCandidates) {
+            const auto raw = [](const Detection::EvidenceRef& ref) {
+                return Object({{"segmentOrdinal", Number(ref.raw->segmentOrdinal)},
+                    {"recordSequence", Number(ref.raw->sequence)}});
+            };
+            apcLinks.push_back(Object({{"kind", Text("write-to-requested-apc-routine")},
+                {"write", raw(link.write)}, {"apcQueue", raw(link.queue)},
+                {"actorPid", V::makeUInt(link.actorPid)}, {"actorCreationFileTime", Number(link.actorCreationFileTime)},
+                {"targetPid", V::makeUInt(link.targetPid)}, {"targetCreationFileTime", Number(link.targetCreationFileTime)},
+                {"targetTid", V::makeUInt(link.targetTid)},
+                {"targetThreadCreationFileTime", Number(link.targetThreadCreationFileTime)},
+                {"writtenAddress", Number(link.writtenAddress)}, {"writtenBytes", Number(link.writtenBytes)},
+                {"requestedRoutineAddress", Number(link.requestedRoutineAddress)},
+                {"queueOutcome", Text("accepted")}, {"delivery", V::makeNull()}, {"execution", V::makeNull()}}));
+        }
+        fields.emplace_back("apiApcTransferCandidates", Object({{"count", Number(page.apcTransferCandidateCount)},
+            {"evictedWrites", Number(page.evictedTransferWrites)},
+            {"truncated", V::makeBool(page.apcTransferCandidates.size() < page.apcTransferCandidateCount)},
+            {"links", V::makeArray(std::move(apcLinks))}}));
+        JsonArray contextLinks; // 同一观察分页中的设置上下文请求，独立于APC和创建候选。
+        for (const auto& link : page.contextTransferCandidates) {
+            const auto raw = [](const Detection::EvidenceRef& reference) {
+                return Object({{"segmentOrdinal", Number(reference.raw->segmentOrdinal)},
+                    {"recordSequence", Number(reference.raw->sequence)}});
+            }; // 输入原引用，输出可回查段号与原序号。
+            contextLinks.push_back(Object({{"kind", Text("write-to-requested-context-ip")},
+                {"write", raw(link.write)}, {"context", raw(link.context)},
+                {"actorPid", V::makeUInt(link.actorPid)}, {"actorCreationFileTime", Number(link.actorCreationFileTime)},
+                {"targetPid", V::makeUInt(link.targetPid)}, {"targetCreationFileTime", Number(link.targetCreationFileTime)},
+                {"targetTid", V::makeUInt(link.targetTid)},
+                {"targetThreadCreationFileTime", Number(link.targetThreadCreationFileTime)},
+                {"writtenAddress", Number(link.writtenAddress)}, {"writtenBytes", Number(link.writtenBytes)},
+                {"requestedIp", Number(link.requestedIp)}, {"requestedSp", Number(link.requestedSp)},
+                {"contextArchitecture", Number(link.contextArchitecture)}, {"requestOutcome", Text("accepted")},
+                {"contextApplied", V::makeNull()}, {"execution", V::makeNull()}}));
+        }
+        fields.emplace_back("apiContextTransferCandidates", Object({{"count", Number(page.contextTransferCandidateCount)},
+            {"evictedWrites", Number(page.evictedTransferWrites)},
+            {"truncated", V::makeBool(page.contextTransferCandidates.size() < page.contextTransferCandidateCount)},
+            {"links", V::makeArray(std::move(contextLinks))}}));
+    }
     if (const auto& batch = page.callbackBatch) {
         // 批次读回是源游标快照，与图分页和整个采样的覆盖状态无关。
         fields.emplace_back("callbackBatch", Object({
@@ -333,6 +522,85 @@ Reply ReadArchiveGraph(const ProjectDocument& document, std::string_view sampleI
         return {{}, {}, {"response-too-large", "Archive graph page exceeds the response budget", {}, 6}};
     }
     return Success(std::move(result));
+}
+
+// 按原始序号及记录头位置定位网络证据。从项目固定句柄读取，仅发布完整校验块内的记录。
+Reply ReadArchiveNetwork(const ProjectDocument& document, std::string_view projectId, std::string_view sampleId,
+                         std::uint64_t ordinal, const V& params) {
+    std::uint64_t sequence = 0; // 归档记录序号，独立于生产方序号。
+    std::uint64_t offset = 0; // Stored 记录头的文件内坐标。
+    if (!GetNumber(params, "recordSequence", sequence) || !sequence || !GetNumber(params, "recordOffset", offset) ||
+        offset < archive::kSegmentHeaderBytes + archive::kBlockHeaderBytes ||
+        offset > archive::kMaxSegmentBytes - archive::kRecordHeaderBytes) {
+        return Invalid("Network view requires a positive recordSequence and a Stored recordOffset");
+    }
+
+    constexpr std::uint64_t kNetworkReadBytes = 64u << 20; // 与桌面段回放使用相同的读侧预算。
+    constexpr std::string_view hexDigits = "0123456789abcdef"; // 按网络归档约定输出真实保留字节。
+    ProjectResult located; // 保存精确定位后发现的正文或坐标错误。
+    std::optional<V> result; // 只持有一个已核验网络流的完整回执。
+    const ProjectRawEvidenceRead request{projectId, sampleId, ordinal, std::nullopt, std::nullopt,
+        [&](const archive::SegmentIdentity& identity, const archive::BlockInfo& block,
+            const std::vector<archive::DecodedRecord>& records) {
+            for (const auto& record : records) {
+                const bool matchesSequence = record.recordSequence == sequence; // 对账归档序号。
+                const bool matchesOffset = record.recordOffset == offset; // 对账记录头位置。
+                if (!matchesSequence && !matchesOffset) {
+                    continue;
+                }
+                if (!matchesSequence || !matchesOffset) {
+                    located = Failure(ProjectError::InvalidArgument, "networkRecordCoordinateMismatch");
+                    return false;
+                }
+
+                const auto projection = archive::ProjectNetworkFlowRecord(identity, record); // 审核归档声明和长度。
+                if (!projection) {
+                    located = Failure(ProjectError::Unsupported, "networkFlowRecord");
+                    return false;
+                }
+                const auto& raw = std::get<archive::RawRecordV1>(record.body); // 共享解码器已经确认正文类型。
+                auto metadata = Ksword::Evidence::ParseJson(raw.metadataJson); // 回执保留网络原始字段及空值。
+                if (!metadata.ok()) {
+                    located = Failure(ProjectError::Corrupt, "networkFlowMetadata");
+                    return false;
+                }
+                std::string bytesHex; // 拥有全部内联字节，脱离扫描块后仍有效。
+                bytesHex.reserve(projection->inlineBytes.size() * 2);
+                for (const unsigned char byte : projection->inlineBytes) {
+                    bytesHex.push_back(hexDigits[byte >> 4]);
+                    bytesHex.push_back(hexDigits[byte & 0xf]);
+                }
+
+                result = Object({{"view", Text("network")}, {"projectId", Text(projectId)},
+                    {"sampleId", Text(sampleId)}, {"stream", Text("raw")}, {"ordinal", Number(ordinal)},
+                    {"recordSequence", Number(sequence)}, {"recordOffset", Number(offset)},
+                    {"verifiedBlockEnd", Number(block.endOffset)}, {"sourceTrust", Text("recorded-declaration")},
+                    {"metadata", std::move(metadata.value)}, {"bytesHex", Text(bytesHex)}});
+                return false;
+            }
+            return true;
+        }, kNetworkReadBytes};
+
+    // 底层仅在完整验证的块中调用回调。提前结束对应找到该块后的主动停止。
+    archive::RawEvidenceScanResult scan; // 保留缺记录时的物理和正文失败情况。
+    if (const auto status = document.ReadRawEvidenceSegment(request, scan); !status) {
+        return FromError(status);
+    }
+    if (!located) {
+        return FromError(located);
+    }
+    if (result) {
+        return Success(std::move(*result));
+    }
+    const auto& framing = scan.segment.framing; // 区分系统读失败、损坏和合法的空结果。
+    if (framing.status == archive::SegmentScanStatus::IoError) {
+        return FromError(WinFailure("networkSegmentRead", framing.error.win32Error));
+    }
+    if (framing.status != archive::SegmentScanStatus::FramingComplete || scan.issue != archive::RawEvidenceScanIssue::None ||
+        scan.segment.bodyFailure.issue != archive::BodyIssue::None) {
+        return FromError(Failure(ProjectError::Corrupt, "networkSegmentPrefix"));
+    }
+    return FromError(Failure(ProjectError::NotFound, "networkRecordNotFound"));
 }
 } // namespace
 
@@ -438,11 +706,40 @@ Reply ProjectCommands::Dispatch(ProjectMethod method, const V& params) {
         return Success(SampleResult(*info, sample.info, sample.frozenSettings, sample.revisionHash,
             sample.configSemanticHash, std::move(capture)));
     }
+    case M::InspectApi: {
+        std::string sampleId; // 明确选择的登记采样UUID。
+        std::string expectedSha256; // 可选的同一原包前缀摘要。
+        std::uint64_t ordinal = 0; // raw通道中的真实段号。
+        std::uint64_t sequence = 0; // Stored记录序号，不能拿源流水号代替。
+        if (!KnownKeys(params, {"projectId", "sampleId", "ordinal", "recordSequence", "expectedSha256"}) ||
+            !GetUuid(params, "sampleId", sampleId) || !GetNumber(params, "ordinal", ordinal) || !ordinal ||
+            !GetNumber(params, "recordSequence", sequence) || !sequence ||
+            (params.find("expectedSha256") && (!GetString(params, "expectedSha256", expectedSha256) || !IsHash(expectedSha256))))
+        {
+            return Invalid("Expected sampleId, positive ordinal and recordSequence, and optional expectedSha256");
+        }
+        if (const auto error = checkProject())
+        {
+            return {{}, {}, error};
+        }
+        return ReadArchiveApi(document_, sampleId, ordinal, sequence, expectedSha256);
+    }
     case M::InspectArchive: {
-        const auto* view = params.find("view"); // 命令可显式改读证据图页。
+        const auto* view = params.find("view"); // 选择解释视图时，必须绑定明确的采样及 raw 段号。
         if (view) {
             std::string sampleId; // 要回读的登记采样。
             std::uint64_t ordinal = 0; // 显式选择的 raw 段号。
+            if (IsString(params, "view", "network")) {
+                if (!Fields(params, {"projectId", "sampleId", "stream", "ordinal", "view", "recordSequence", "recordOffset"}) ||
+                    !GetUuid(params, "sampleId", sampleId) || !IsString(params, "stream", "raw") ||
+                    !GetNumber(params, "ordinal", ordinal) || !ordinal) {
+                    return Invalid("Network view requires sampleId, stream raw, ordinal, recordSequence and recordOffset");
+                }
+                if (const auto error = checkProject()) {
+                    return {{}, {}, error};
+                }
+                return ReadArchiveNetwork(document_, projectId, sampleId, ordinal, params);
+            }
             const bool mixedEtw = IsString(params, "stream", "raw-etw");
             if (!KnownKeys(params, {"projectId", "sampleId", "stream", "ordinal", "view", "afterSequence", "limit", "expectedSha256"}) ||
                 !GetUuid(params, "sampleId", sampleId) || !IsString(params, "view", "graph") ||
@@ -558,9 +855,23 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
         }
         if (words.size() == 3) fields.emplace_back("captureOrdinal", Text(words[2]));
         break;
+    case M::InspectApi:
+        // REPL与JSONL进入同一分发，十进制规范与采样身份在Dispatch中统一核对。
+        if (words.size() < 3 || words.size() > 4)
+        {
+            return Invalid("Usage: api detail SAMPLE_ID ORDINAL RECORD_SEQUENCE [EXPECTED_SHA256]");
+        }
+        fields.emplace_back("sampleId", Text(words[0]));
+        fields.emplace_back("ordinal", Text(words[1]));
+        fields.emplace_back("recordSequence", Text(words[2]));
+        if (words.size() == 4)
+        {
+            fields.emplace_back("expectedSha256", Text(words[3]));
+        }
+        break;
     case M::InspectArchive:
         if (words.size() < 3) {
-            return Invalid("Usage: archive inspect SAMPLE_ID raw|records|control ORDINAL [END_OFFSET | graph [LIMIT [AFTER_SEQUENCE EXPECTED_SHA256]]]");
+            return Invalid("See help archive inspect for framing, graph and network usage");
         }
         fields.emplace_back("sampleId", Text(words[0]));
         fields.emplace_back("stream", Text(words[1]));
@@ -584,6 +895,14 @@ Reply ProjectCommands::DispatchRepl(ProjectMethod method, const JsonArray& args)
                 fields.emplace_back("afterSequence", Text(words[5]));
                 fields.emplace_back("expectedSha256", Text(words[6]));
             }
+        } else if (words.size() >= 4 && words[3] == "network") {
+            // REPL 原样转交两个十进制字符串，由统一命令入口校验坐标。
+            if (words.size() != 6) {
+                return Invalid("Usage: archive inspect SAMPLE_ID raw ORDINAL network SEQUENCE RECORD_OFFSET");
+            }
+            fields.emplace_back("view", Text("network"));
+            fields.emplace_back("recordSequence", Text(words[4]));
+            fields.emplace_back("recordOffset", Text(words[5]));
         } else if (words.size() == 4) {
             fields.emplace_back("endOffset", Text(words[3]));
         } else if (words.size() > 4) {

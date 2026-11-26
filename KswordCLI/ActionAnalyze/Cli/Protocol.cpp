@@ -158,10 +158,13 @@ Decoded DecodeJsonLine(std::string_view line, RequestProfile profile) {
 
 Decoded DecodeReplLine(std::string_view line) {
     if (const auto fault = TextFault(line)) return {{}, fault};
+    constexpr std::size_t kMaxReplWords = 9; // 两段命令名加上归档图续页所需的七个参数。
     std::vector<std::string> words;
     for (std::size_t i = 0; i < line.size();) {
         if (ReplSpace(line[i])) { ++i; continue; }
-        if (words.size() == 6) return {{}, {"invalid-repl", "Too many command arguments", i}};
+        if (words.size() == kMaxReplWords) {
+            return {{}, {"invalid-repl", "Too many command arguments", i}};
+        }
         std::string word;
         if (line[i] == '"') {
             const std::size_t start = i++;
