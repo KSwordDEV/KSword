@@ -199,6 +199,7 @@
     <ClCompile Include="ActionAnalyze\Cli\DirtyMemoryCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\BreakpointCommand.cpp" />
     <ClCompile Include="ActionAnalyze\Control\NativeDebugOwner.cpp" />
+    <ClCompile Include="ActionAnalyze\Control\OwnedBreakpointGroup.cpp" />
     <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImage.cpp" />
     <ClCompile Include="ActionAnalyze\Control\StopLedger.cpp" />
     <ClCompile Include="ActionAnalyze\Cli\SysmonThreadCommand.cpp" />
@@ -225,6 +226,7 @@
     <ClInclude Include="ActionAnalyze\Cli\MemoryWatch.h" />
     <ClInclude Include="ActionAnalyze\Cli\DirtyMemoryCommand.h" />
     <ClInclude Include="ActionAnalyze\Cli\BreakpointCommand.h" />
+    <ClInclude Include="ActionAnalyze\Control\OwnedBreakpointGroup.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeDebugOwner.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImage.h" />
     <ClInclude Include="ActionAnalyze\Control\StopLedger.h" />

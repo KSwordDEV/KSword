@@ -164,7 +164,7 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze memory watch` | `KswordCLI.exe analyze memory watch --pid PID --creation-time FILETIME --address ADDRESS --size BYTES [--samples N] [--interval-ms N] [--backend r3] [--json]` | 对明确内存范围读取有限快照，报告相邻快照的差异区间和读取时段。 |
 | `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，可选附加只读线程观察。 |
 | `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text 或 jsonl] [--backend r3]` | 持续逐轮跟踪明确授权的自有进程，可选附加只读线程观察，接受 `stop`。 |
-| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl]` | 在该 CLI 启动的自有 AMD64 子进程内，对现有及新建线程布置一个执行断点。 |
+| `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR 或 --watch-write-bytes N 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程。可使用单目标执行或写入停点，以及两个合作实例的执行停点组。 |
 | `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
 | `analyze sysmon-thread-create follow` | `KswordCLI.exe analyze sysmon-thread-create follow --target-guid GUID [--input repl 或 jsonl]` | 持续订阅指定目标的未来 Sysmon Event 8。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
@@ -188,9 +188,19 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 `round.previousThreadObservationRound` 是前一次实际尝试线程快照的内存轮号，与 `ordinal` 编码一致。首次、关闭或本轮未尝试时为 `null`。前一次快照可能有读取缺口，须查看所指轮次的 `snapshotStatus`；跳过的内存轮不更新这个编号。枚举失败而目标仍在运行时，保留已有线程句柄供后续确认退出，但失败轮不作为判断新线程的完整基准。
 
-`breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。提供明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内，不支持 WOW64、PDB、R0 或跨进程停止。异常退出后不保证恢复。
+`breakpoint session` 是独立活会话，不写项目、不接受已运行的 PID。单目标模式接受明确授权的 EXE 和可选已加载模块的完整路径；默认模块是 EXE，只接受一个区分大小写的非转发导出名或由调用方确认的指令边界 RVA。子进程不继承 CLI 的输入输出。最初的 `hello` 只报告启动和提交回执；用 `status` 等待 `breakpoint.state=armed`，或读取 `held`、命中线程和停止令牌。`continue STOP_ID STATE_REVISION` 继续该原生事件并保留断点，`quit` 或 EOF 先清退自有断点再解除附加，不代为终止子进程。武装前的执行不在覆盖内。两种模式均不支持 WOW64、PDB 或 R0，异常退出后不保证恢复。
+
+`--cooperative-pair` 启动同一合作 AMD64 控制台程序的两个实例，使用同一命名执行导出，和 `--module`、`--rva`、`--condition`、`--watch-write-bytes` 互斥。每个实例主动就绪，两端武装后才允许进入正常业务。`status` 返回两个独立的 `members`；只有 `held-complete` 才返回组 `stop`。`held-partial` 表示仅部分持有。继续使用组令牌，逐个成员确认 `release.members`，只有两项均确认才返回 `release.continued:true`。组关闭报告实际 `clean`，已继续的原回执仍可查询；正常退出与原生恢复责任分别显示。
 
 JSONL 输入沿用 `schemaVersion`、`requestId`、`method`、`params` 包络，支持 `control.query`、`control.continue`、`controller.shutdown`，三者的 `params` 均为空对象。继续须提供 `hello` 的 `session` 和 `expected` 中的 `stopId`、`stateRevision`，后者为十进制字符串。继续请求 ID 从 `continue/1` 逐次递增，最近 128 个继续 ID 可重放，窗口外返回 `release-replay-expired`。后端滚动保留至多 64 个停点，不淘汰未清退责任。两种输入均输出独立的 JSON 行，`hello`、`response`、`error` 或 `summary` 保存会话和传输序号；有原生清退责任时不会报告 `clean=true`。
+
+显式 `quit` 或 `controller.shutdown` 会停止自动条件求值，等待原生清退。当账本确认上次释放尚未调用 `ContinueDebugEvent` 时，本次关闭最多自动重试一次。清退成功后输出 `summary`。若责任仍未解除，CLI 返回带本次请求 ID 的 `response`，保留会话，可用 `status`／`control.query` 读取状态或重新请求关闭。
+
+写入停点使用 `--watch-write-bytes 1`、`2`、`4` 或 `8`，配合 `--export` 选择 EXE 中同宽对齐的可写数据导出。`breakpoint.watchedBytes` 给出已请求的硬件关注宽度。绑定时读取基线，收到原生写入事件后比较同一地址区间，存在实际变化时保留停点。`hit.changedByteMask` 第 0 位对应导出地址的首字节，表示本次快照与基线的差异。`hit.tid`、`threadId` 和 `threadCreationFileTime` 来自冻结的触发线程，继续后仍可核对。`enrolledAfterStop=0` 表示首次停点前已登记，大于 0 表示在相应停点之后登记。继续和关闭沿用同一原生账本。写入模式与 `--module`、`--rva`、`--condition` 互斥。
+
+回执的 `stopGroup` 提供冻结成员的修订和散列、持有与待恢复状态、线程计数及附带集合质量。`held-complete` 表示当前合作子进程中已知的冻结成员均受本次停点覆盖。继续仍使用活 `stop` 中的 ID 和修订，已结束的组保留为历史回执。
+
+`--condition EXPR` 在启动子进程前编译 C# 风格表达式。整数常量使用 `u64` 后缀，例如 `--condition 'stop.tid > 0u64 && stop.thread.creationFileTime > 0u64'`。条件匹配后保留真实停点及原继续令牌。结果为 `false` 或 `unknown` 时自动继续。可用字段包括 `stop.address`、`stop.exceptionCode`、`stop.firstChance`、`stop.pid`、`stop.tid`、`stop.thread.rip` 和 `stop.thread.creationFileTime`。异常信息取决于停点快照；线程 RIP 和创建 FILETIME 来自同一冻结停点，类型均为 `u64`。创建时间无法核验时保持未采集。`stop.thread.rax` 仍未采集。`status`、`control.query` 和结束回执提供表达式、判定计数及最近一次判定和释放结果。自动继续不消耗调用方的 `continue/N` 请求序号。
 
 `sysmon-thread-create` 使用 Sysmon 提供的源和目标 `ProcessGuid`，不以现场 PID 补历史身份。记录保留事件 ID、提供者、通道及时间；使用原目标 GUID 和 `--record-id` 可回读尚未轮替的记录。不把线程起点当执行，也不证明写入。倒序检查最多 4096 个候选并使用 5 秒读取预算；默认返回 32 条，最多 128 条。读尽退出 `0`，空结果不证明未发生；通道不可用退出 `5`，部分结果退出 `6`，读取失败或拒绝访问退出 `3`，参数错误退出 `1`。不安装或启用 Sysmon。
 
