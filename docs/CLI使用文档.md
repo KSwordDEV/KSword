@@ -165,8 +165,6 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `analyze memory track` | `KswordCLI.exe analyze memory track --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--samples N] [--interval-ms N] [--observe-threads] [--backend r3] [--json]` | 对明确授权的自有进程逐页追踪映射及内容变化，可选附加只读线程观察。 |
 | `analyze memory stream` | `KswordCLI.exe analyze memory stream --pid PID --creation-time FILETIME --address ADDRESS --size BYTES --confirm [--interval-ms N] [--observe-threads] [--output text 或 jsonl] [--backend r3]` | 持续逐轮跟踪明确授权的自有进程，可选附加只读线程观察，接受 `stop`。 |
 | `analyze breakpoint session` | `KswordCLI.exe analyze breakpoint session --exe PATH [--module PATH] (--export NAME 或 --rva RVA) --confirm --disposition resume-detach [--input repl\|jsonl] [--condition EXPR 或 --watch-write-bytes N 或 --cooperative-pair]` | 控制本 CLI 启动的自有 AMD64 子进程。可使用单目标执行或写入停点，以及两个合作实例的执行停点组。 |
-| `analyze sysmon-thread-create` | `KswordCLI.exe analyze sysmon-thread-create --target-guid GUID [--record-id N] [--max-matches N] [--json]` | 只读查询本机已有的 Sysmon Event 8 v2，报告指定目标的远程线程创建。 |
-| `analyze sysmon-thread-create follow` | `KswordCLI.exe analyze sysmon-thread-create follow --target-guid GUID [--input repl 或 jsonl]` | 持续订阅指定目标的未来 Sysmon Event 8。 |
 | `analyze api-evidence import` | `KswordCLI.exe analyze api-evidence import --archive EVENTS_JSONL --project PATH --title TITLE [--json]` | 从已关闭的 WinAPI 原始归档筛选线索，写入已存在项目的新采样。 |
 | `analyze api-evidence capture` | `KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--duration-ms MS] [--json]` | 从自有合作目标进程中已经装载的产品 Agent 采集普通 WinAPI 原包，分段写入已存在项目的新采样。 |
 | `analyze api-evidence replay` | `KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]` | 重开采样并核对原始段与收尾记录。按原始序号分页并可选返回原包。 |
@@ -229,9 +227,7 @@ JSONL 输入沿用 `schemaVersion`、`requestId`、`method`、`params` 包络，
 
 `--condition EXPR` 在启动子进程前编译 C# 风格表达式。整数常量使用 `u64` 后缀，例如 `--condition 'stop.tid > 0u64 && stop.thread.creationFileTime > 0u64'`。条件匹配后保留真实停点及原继续令牌。结果为 `false` 或 `unknown` 时自动继续。可用字段包括 `stop.address`、`stop.exceptionCode`、`stop.firstChance`、`stop.pid`、`stop.tid`、`stop.thread.rip` 和 `stop.thread.creationFileTime`。异常信息取决于停点快照；线程 RIP 和创建 FILETIME 来自同一冻结停点，类型均为 `u64`。创建时间无法核验时保持未采集。`stop.thread.rax` 仍未采集。`status`、`control.query` 和结束回执提供表达式、判定计数及最近一次判定和释放结果。自动继续不消耗调用方的 `continue/N` 请求序号。
 
-`sysmon-thread-create` 使用 Sysmon 提供的源和目标 `ProcessGuid`，不以现场 PID 补历史身份。记录保留事件 ID、提供者、通道及时间；使用原目标 GUID 和 `--record-id` 可回读尚未轮替的记录。不把线程起点当执行，也不证明写入。倒序检查最多 4096 个候选并使用 5 秒读取预算；默认返回 32 条，最多 128 条。读尽退出 `0`，空结果不证明未发生；通道不可用退出 `5`，部分结果退出 `6`，读取失败或拒绝访问退出 `3`，参数错误退出 `1`。不安装或启用 Sysmon。
-
-独立 `follow` 命令订阅开启后的事件，并在两种输入模式中持续输出 JSON 行。REPL 支持 `status`、`stop` 和 `help`。JSONL 支持 `sysmon.status` 与 `sysmon.stop`，使用空的 `params`。来源不可用、读取中断、队列溢出及尾部覆盖分别报告。
+ActionAnalyze 不使用 Sysmon 作为数据源。原 `analyze sysmon-thread-create` 及其 `follow`、`archive`、`replay` 子命令已移除，不再查询、订阅、归档或专用回放 Sysmon 事件。旧项目文件按原样保留，可查看通用项目描述和 Stored 封装；对完整的旧 Sysmon 段执行 `archive inspect SAMPLE_ID raw ORDINAL graph` 返回 `project-unsupported`（`graphArchiveSource`），不返回证据行。
 
 #### 人工会话
 
@@ -259,15 +255,15 @@ quit
 
 | REPL | JSONL 方法 | 参数和前提 |
 | --- | --- | --- |
-| `open PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS 或 sysmon=GUID] TITLE` | `session.open` | `params` 含 `projectId`、`pid`、`creationFileTime`、`providerId`、`title`，可选 `durationMs` 或 `sysmonTargetGuid`。顶层填写 `expected.revisionId`，省略 `session`。 |
+| `open PID CREATION_FILETIME PROVIDER_UUID [DURATION_MS] TITLE` | `session.open` | `params` 含 `projectId`、`pid`、`creationFileTime`、`providerId`、`title`，可选 `durationMs`。顶层填写 `expected.revisionId`，省略 `session`。 |
 | `status` | `session.query` | 传入 `open` 返回的顶层 `session`（`id`、`epoch`），`params:{}`。用新请求 ID 查询最新状态。 |
-| `findings` | `session.findings` | 使用与 `session.query` 相同的会话包络。读取 Sysmon 订阅状态、累计观察数及最新一条发现。 |
+| `findings` | `session.findings` | 使用与 `session.query` 相同的会话包络。含 API 归档的会话只读返回已提交原包的规则累计匹配数及最近坐标（`source:"api-archive-follow"`）；纯 ETW 仍返回 `state:"not-configured"`，不代表检查后未发现。 |
 | `stop` | `session.stop` | 传入顶层 `session`、`expected.stateRevision` 和 `params:{}`。停止 ETW，写入并读回核对原始段。 |
 | `close` | `session.close` | 传入终态的顶层 `session`、`expected.stateRevision` 和 `params:{}`。释放会话，之后可开启新采样或关闭项目。 |
 
 `pid` 与显式 `durationMs` 是 JSON 整数。**不传 `durationMs` 时持续记录**，无须发送查询驱动采集，回执的计划用 `durationMs:0` 表示没有期限。传入期限时沿用 1,000–120,000 毫秒的有限抓取。`creationFileTime` 和 `stateRevision` 是十进制字符串，Provider 使用不带花括号的规范小写 UUID。`session.open` 冻结本次项目修订并创建新样本。对 stop 和 close 的比较依据是上次报告的 `stateRevision`。机器会话按方法、参数、会话身份和 `expected` 去重。普通请求占满账本后，有效的停止、会话关闭和项目关闭可用预留额度。持续模式的 `session.query` 是不占累计账本的只读状态查询，调用方仍应为每条请求分配新 ID。`controller.shutdown` 可用新请求 ID 直接发起收尾。
 
-`r3` 的 JSONL `session.open` 也可跟随已授权的本地 WinAPI 归档。使用 `apiArchive` 对象代替 `providerId` 与 `sysmonTargetGuid`，提供 `path`（现有 `.jsonl` 的绝对路径）、`sessionIdentity`（非零十进制字符串）和 `authorized:true`。继续传入 `projectId`、`title`、`pid`、`creationFileTime` 和 `expected.revisionId`。可选的 `durationMs` 沿用相同范围。该来源仅提供文件与归档声明的一致性证据。`source.validatedRows` 是已校验的完整归档行数，`archive.recordedRows` 是已提交并回读的原包数，`source.coverage` 为 `unknown`。停止时固定可见文件边界，报告是否到达截止位置和未完成的尾部。 [方法契约](../schemas/action_analyze/live-etw-session.schema.json)
+`r3` 的 JSONL `session.open` 也可跟随已授权的本地 WinAPI 归档。使用 `apiArchive` 对象代替 `providerId`，提供 `path`（现有 `.jsonl` 的绝对路径）、`sessionIdentity`（非零十进制字符串）和 `authorized:true`。继续传入 `projectId`、`title`、`pid`、`creationFileTime` 和 `expected.revisionId`。可选的 `durationMs` 沿用相同范围。该来源仅提供文件与归档声明的一致性证据。`source.validatedRows` 是已校验的完整归档行数，`archive.recordedRows` 是已提交并回读的原包数，`source.coverage` 为 `unknown`。停止时固定可见文件边界，报告是否到达截止位置和未完成的尾部。 [方法契约](../schemas/action_analyze/live-etw-session.schema.json)
 
 `source.state=running` 表示工作线程已提交 `ProcessTrace` 调用。`source.startupAbort` 记录快速停止时明确跳过的调用阶段。`source.tailDeliveryUnconfirmed=true` 表示无法确认收尾阶段的完整交付，采样状态为 `partial`。原生错误码、系统丢失和本地队列丢失分别报告。最多保留 512 条记录，每条最多保留 4,096 字节 ETW `UserData` 前缀。手动停止、目标退出、到达期限、输入 EOF 和输出交付失败会触发收尾。`cleanup-pending` 表示原生清退未确认，可用新的请求 ID 和当前修订重试 `session.stop`。正常 EOF 或主动退出时，如果本次仍持有部分采样，退出码为 `6`，`summary.clean` 独立报告清退状态。
 
@@ -275,7 +271,7 @@ R3 账本为首次停止、一次新的清退重试、关闭采样和关闭项�
 
 持续模式约每秒或队列达到排空阈值时封存一段，每段最多 512 条。所有段沿用同一采样、来源代次及冻结目标，刷盘读回后才发布相同段号的 `raw`、`records` 检查点。`archive.segmentOrdinal` 和 `archive.recordedObservations` 报告最近已提交段及累计已提交条数；磁盘故障会明确收尾，保留之前已提交的段。停止后封存终段；`sample status SAMPLE_ID capture ORDINAL` 或带 `captureOrdinal` 十进制字符串的 `sample.query` 逐段回读，持续档的 `finalSegment` 区分普通段与终段。显式有限抓取仍写单段。采样创建描述中的 `not-collected` 不随采集回读修改。用 `archive inspect SAMPLE_ID raw ORDINAL` 核对封装。[被动 ETW 会话 schema](../schemas/action_analyze/live-etw-session.schema.json) · [检查点 schema](../schemas/action_analyze/etw-terminal-checkpoint.schema.json)
 
-`sysmonTargetGuid` 可在持续会话开启时同时启动本机 Sysmon Event 8 订阅。该 GUID 由调用方显式提供，身份属于 Sysmon 来源。即使没有查询指令，订阅也会接收并处理观察。`findings` 返回来源状态以及内存中保留的最新发现。当前项目归档仅包含 ETW 段，Sysmon 日志可按其原始日志记录 ID 回读。订阅缺失或断流不影响仍可运行的 ETW 来源。
+旧的 REPL `sysmon=GUID`、JSONL `sysmonTargetGuid` 以及在本会话中直接指定 Sysmon Provider UUID 均返回 `invalid-params`，不会创建采样、启动来源或自动切换到其他来源。
 
 #### JSONL 会话
 

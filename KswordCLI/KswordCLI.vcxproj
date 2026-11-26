@@ -203,8 +203,6 @@
     <ClCompile Include="ActionAnalyze\Control\OwnedBreakpointGroup.cpp" />
     <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImage.cpp" />
     <ClCompile Include="ActionAnalyze\Control\StopLedger.cpp" />
-    <ClCompile Include="ActionAnalyze\Cli\SysmonThreadCommand.cpp" />
-    <ClCompile Include="ActionAnalyze\Detection\SysmonThreadSource.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\InjectionDiscovery.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\InjectionTelemetry.cpp" />
     <ClCompile Include="ActionAnalyze\Detection\InjectionSurveyProjection.cpp" />
@@ -231,8 +229,6 @@
     <ClInclude Include="ActionAnalyze\Control\NativeDebugOwner.h" />
     <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImage.h" />
     <ClInclude Include="ActionAnalyze\Control\StopLedger.h" />
-    <ClInclude Include="ActionAnalyze\Cli\SysmonThreadCommand.h" />
-    <ClInclude Include="ActionAnalyze\Detection\SysmonThreadSource.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h" />
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h" />
     <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h" />

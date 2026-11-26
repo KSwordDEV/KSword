@@ -24,6 +24,11 @@ TelemetryProjection ProjectArchivedApiCall(const SampleScope& scope, const Evide
 TelemetryProjection ProjectCallbackThreadCreation(const SampleScope& scope, const EvidenceRef& evidence,
     const KSWORD_ARK_CALLBACK_MONITOR_EVENT& record);
 
+// 调用方须核对同采样已提交的 raw 坐标、来源/代次和正文。只保留通知线索，不要求机器/启动期，
+// 也不把归档核验当成原生来源、创建结果或实例身份已证实。
+TelemetryProjection ProjectArchivedCallbackThreadCreation(const SampleScope& scope, const EvidenceRef& evidence,
+    const KSWORD_ARK_CALLBACK_MONITOR_EVENT& record);
+
 // 仅用于调用方选中的相关 ETW 原始记录。当前通用 ETW 记录没有经过批准的写入/执行语义解析器。
 TelemetryProjection ProjectPassiveEtwContext(const SampleScope& scope, const EvidenceRef& evidence,
     const ks::r3::monitor::PassiveEtwRecord& record);

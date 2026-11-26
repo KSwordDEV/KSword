@@ -4,7 +4,6 @@
 #include "BreakpointCommand.h"
 #include "DirtyMemoryCommand.h"
 #include "MemoryWatch.h"
-#include "SysmonThreadCommand.h"
 
 #include "../../CommandRegistry.h"
 #include "Controller.h"
@@ -161,7 +160,6 @@ void RegisterCommands() {
     RegisterMemoryWatch();
     RegisterDirtyMemoryCommand();
     RegisterBreakpointCommand();
-    RegisterSysmonThreadCommand();
     RegisterApiMonitorEvidenceCommands();
     RegisterApiRuleReplayCommand();
     Command capabilities;

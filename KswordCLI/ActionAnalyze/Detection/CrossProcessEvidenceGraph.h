@@ -1,7 +1,6 @@
 #pragma once
 
 #include "InjectionDiscovery.h"
-#include "SysmonThreadSource.h"
 
 #include <compare>
 #include <cstddef>
@@ -45,14 +44,6 @@ struct GraphEventInput {
     std::optional<GraphArchiveContext> archiveContext = std::nullopt;
 };
 
-struct GraphSysmonInput {
-    EvidenceRef evidence;                         // 采样内原记录的回读位置。
-    SysmonThreadObservation observation;          // 已解码的 Sysmon Event 8 结构化字段。
-    InputTrust trust = InputTrust::RawOnly;         // 来源信任由采样所有者确认。
-};
-
-using GraphInput = std::variant<GraphEventInput, GraphSysmonInput>;
-
 // 原生键须与 EvidenceGraph::scope 中的机器和启动期一起使用。
 struct GraphProcessInstance {
     std::uint32_t pid;                             // 原生进程号。
@@ -67,26 +58,12 @@ struct GraphThreadInstance {
     auto operator<=>(const GraphThreadInstance&) const = default;
 };
 
-// Sysmon 单列身份空间，Computer 保留原始形式。
-struct GraphSysmonProcess {
-    std::wstring computer;                        // 来源记录的计算机名。
-    std::wstring processGuid;                     // 来源解码器规范化后的 GUID。
-    auto operator<=>(const GraphSysmonProcess&) const = default;
-};
-
-using GraphNodeKey = std::variant<GraphProcessInstance, GraphThreadInstance, GraphSysmonProcess>;
+using GraphNodeKey = std::variant<GraphProcessInstance, GraphThreadInstance>;
 
 enum class GraphRelation {
     ExternalWrite,          // 原生进程 → 原生进程，来源证实实际写入。
     ThreadCreated,          // 原生进程 → 原生线程，来源证实创建者。
     ProcessOwnsThread,      // 原生进程 → 原生线程，来源证实线程所属实例。
-    SysmonThreadReported,   // Sysmon 进程 → Sysmon 进程，Event 8 报告的创建观察。
-};
-
-struct GraphSysmonRecord {
-    std::uint64_t recordId;                       // 来源自带的日志记录号。
-    std::uint64_t timeCreatedFileTime;             // 日志事件时间。
-    std::uint64_t reportedStartAddress;            // 记录报告的线程入口地址。
 };
 
 struct GraphObservation {
@@ -95,7 +72,6 @@ struct GraphObservation {
     std::optional<std::size_t> actorProcess, targetProcess, newThread, observedThread;
     // 仅作来源元数据显示，不用于生成或补全实例键。
     std::uint32_t actorPidHint = 0, actorTidHint = 0, targetPidHint = 0, targetTidHint = 0;
-    std::optional<GraphSysmonRecord> sysmon;        // Sysmon 记录元数据。
     std::optional<Finding> finding;               // 经事实闸门核验的原生结论。
     std::vector<Issue> gaps;                      // 本条证据的缺口和校验状态。
     std::optional<GraphArchiveContext> archiveContext = std::nullopt;
@@ -117,6 +93,6 @@ struct EvidenceGraph {
 // 传入调用方选定的同采样有界前缀或页，返回只读证据图。来源验真、归档水位和覆盖回执由调用方管理。
 // 按边类型与端点聚合，同一规范定位在同一边只计一次。索引仅在本次投影有效。
 // 共用节点表达实例身份相同，跨事件顺序和执行状态仍按原始证据判断。
-EvidenceGraph BuildCrossProcessEvidenceGraph(const SampleScope& scope, std::span<const GraphInput> input);
+EvidenceGraph BuildCrossProcessEvidenceGraph(const SampleScope& scope, std::span<const GraphEventInput> input);
 
 } // namespace Ksword::ActionAnalyze::Detection

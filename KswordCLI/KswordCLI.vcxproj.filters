@@ -91,8 +91,6 @@
     <ClCompile Include="ActionAnalyze\Control\OwnedBreakpointGroup.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\NativeBreakpointImage.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Control\StopLedger.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
-    <ClCompile Include="ActionAnalyze\Cli\SysmonThreadCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
-    <ClCompile Include="ActionAnalyze\Detection\SysmonThreadSource.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Detection\InjectionDiscovery.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Detection\InjectionTelemetry.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Detection\InjectionSurveyProjection.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -119,8 +117,6 @@
     <ClInclude Include="ActionAnalyze\Control\NativeDebugOwner.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\NativeBreakpointImage.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Control\StopLedger.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
-    <ClInclude Include="ActionAnalyze\Cli\SysmonThreadCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
-    <ClInclude Include="ActionAnalyze\Detection\SysmonThreadSource.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

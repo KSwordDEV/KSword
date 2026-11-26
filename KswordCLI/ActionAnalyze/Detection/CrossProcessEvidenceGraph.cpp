@@ -9,8 +9,7 @@
 namespace Ksword::ActionAnalyze::Detection {
 namespace {
 
-// 检查证据锚点能否回到本采样。Sysmon 原生报告允许没有本机启动身份，
-// 原生进程和线程身份仍通过 InjectionDiscovery 的完整采样闸门。
+// 检查证据锚点能否回到本采样；建立原生进程和线程节点另需机器及启动期身份。
 bool HasDisplayLocation(const SampleScope& scope, const EvidenceRef& evidence) noexcept
 {
     return !scope.projectId.empty() && !scope.sampleId.empty() &&
@@ -48,7 +47,6 @@ public:
     }
 
     void Add(const GraphEventInput& input);
-    void Add(const GraphSysmonInput& input);
 
     EvidenceGraph graph; // 构建完成后移交调用方。
 
@@ -167,7 +165,9 @@ void GraphBuilder::AddRoles(const ThreadCreationObservation& row, GraphObservati
 
     const auto actor = IsProcessRole(row.creator, row.creatorPidHint);
     const auto target = IsProcessRole(row.target, row.targetPidHint);
-    if (actor && (!target || !ConflictingInstances(*row.creator, *row.target))) {
+    const auto newThread = target && row.newThread && IsThreadRole(*row.newThread, *row.target, row.targetTidHint);
+    if (actor && (!target || !ConflictingInstances(*row.creator, *row.target)) &&
+        (!newThread || IsPossibleThreadCreator(*row.creator, *row.newThread))) {
         result.actorProcess = Node(ProcessKey(*row.creator));
     }
     if (!target) {
@@ -176,7 +176,7 @@ void GraphBuilder::AddRoles(const ThreadCreationObservation& row, GraphObservati
     // 线程绑定给出的宿主必须和明确的目标角色匹配。
     const auto targetKey = ProcessKey(*row.target);
     result.targetProcess = Node(targetKey);
-    if (!row.newThread || !IsThreadRole(*row.newThread, *row.target, row.targetTidHint)) {
+    if (!newThread) {
         return;
     }
     result.newThread = Node(GraphThreadInstance{targetKey, row.newThread->tid, row.newThread->creationFileTime});
@@ -215,7 +215,12 @@ void GraphBuilder::Add(const GraphEventInput& input)
         const auto& evidence = std::visit([](const auto& row) -> const EvidenceRef& {
             return row.header.evidence;
         }, *event.observation);
-        if (BindLocation(result, evidence)) {
+        const auto trust = std::visit([](const auto& row) { return row.header.trust; }, *event.observation);
+        if (BindLocation(result, evidence) && trust == InputTrust::RawOnly) {
+            // 原始通知可直接展示编号；各角色投影只在来源核实后才建立节点。
+            AddGap(result, Issue::SourceUnverified);
+            std::visit([&](const auto& row) { AddRoles(row, result); }, *event.observation);
+        } else if (result.evidence) {
             // 按阶段、结果和身份重新计算事实，避免缓存结论绕过闸门。
             const auto checked = ProjectInjectionEvent(graph.scope, *event.observation);
             result.gaps = checked.gaps;
@@ -223,14 +228,13 @@ void GraphBuilder::Add(const GraphEventInput& input)
             if (checked.observation) {
                 std::visit([&](const auto& row) { AddRoles(row, result); }, *checked.observation);
             }
-            for (const auto gap : event.gaps) {
-                AddGap(result, gap);
-            }
         }
     } else if (BindLocation(result, input.contextEvidence)) {
         if (result.evidence->raw) {
             result.archiveContext = input.archiveContext;
         }
+    }
+    if (result.evidence) {
         for (const auto gap : event.gaps) {
             AddGap(result, gap);
         }
@@ -238,48 +242,15 @@ void GraphBuilder::Add(const GraphEventInput& input)
     graph.observations.push_back(std::move(result));
 }
 
-// 为验真的 Sysmon Event 8 建来源身份边，未确认时只保留证据定位和缺口。
-void GraphBuilder::Add(const GraphSysmonInput& input)
-{
-    GraphObservation result;
-    if (BindLocation(result, input.evidence)) {
-        if (input.trust != InputTrust::Validated) {
-            AddGap(result, Issue::SourceUnverified);
-        } else {
-            // 复用 Sysmon 字段解码闸门，检查日志来源、版本和入口地址。
-            const auto& original = input.observation.fields;
-            const auto decoded = DecodeSysmonThreadEvent(original.targetGuid, original);
-            if (decoded.state != SysmonThreadDecode::Observed || !decoded.observation ||
-                decoded.observation->reportedStartAddress != input.observation.reportedStartAddress) {
-                AddGap(result, Issue::InvalidNativeRecord);
-            } else {
-                const auto& fields = decoded.observation->fields;
-                result.actorPidHint = fields.sourcePid;
-                result.targetPidHint = fields.targetPid;
-                result.targetTidHint = fields.newThreadId;
-                // ProcessGuid 仅在 Sysmon 命名空间中聚合，线程号仍是单条报告的提示。
-                result.actorProcess = Node(GraphSysmonProcess{fields.computer, fields.sourceGuid});
-                result.targetProcess = Node(GraphSysmonProcess{fields.computer, fields.targetGuid});
-                result.sysmon = GraphSysmonRecord{fields.recordId, fields.timeCreatedFileTime,
-                    decoded.observation->reportedStartAddress};
-                AddGap(result, Issue::ThreadInstanceUnknown);
-                AddGap(result, Issue::ExecutionUnknown);
-                Edge(GraphRelation::SysmonThreadReported, *result.actorProcess, *result.targetProcess, input.evidence);
-            }
-        }
-    }
-    graph.observations.push_back(std::move(result));
-}
-
 } // namespace
 
-EvidenceGraph BuildCrossProcessEvidenceGraph(const SampleScope& scope, std::span<const GraphInput> input)
+EvidenceGraph BuildCrossProcessEvidenceGraph(const SampleScope& scope, std::span<const GraphEventInput> input)
 {
     // 使用本次传入的有界批次建立索引，返回快照时丢弃构建索引。
     GraphBuilder builder(scope);
     builder.graph.observations.reserve(input.size());
     for (const auto& row : input) {
-        std::visit([&](const auto& value) { builder.Add(value); }, row);
+        builder.Add(row);
     }
     return std::move(builder.graph);
 }

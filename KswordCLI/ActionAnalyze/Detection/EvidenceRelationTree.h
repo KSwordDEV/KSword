@@ -4,7 +4,7 @@
 
 namespace Ksword::ActionAnalyze::Detection {
 
-enum class TreeEdgeBasis { Unknown, DirectFact, SourceReport };
+enum class TreeEdgeBasis { Unknown, DirectFact };
 
 constexpr TreeEdgeBasis EvidenceTreeBasis(GraphRelation relation) noexcept
 {
@@ -13,8 +13,6 @@ constexpr TreeEdgeBasis EvidenceTreeBasis(GraphRelation relation) noexcept
     case GraphRelation::ThreadCreated:
     case GraphRelation::ProcessOwnsThread:
         return TreeEdgeBasis::DirectFact;
-    case GraphRelation::SysmonThreadReported:
-        return TreeEdgeBasis::SourceReport;
     }
     return TreeEdgeBasis::Unknown;
 }
@@ -40,7 +38,7 @@ struct EvidenceRelationTree {
 
 // 输入为 BuildCrossProcessEvidenceGraph 的同采样有界结果。图及同页归档坐标由调用方保留，索引仅在该快照内有效。
 // 展开出边时，只有与目标节点 displayParentEdge 相同的边进入子树，其余边显示为实例引用。
-// 显示父边只决定展开位置。创建、归属、写入和来源报告的语义以图中原边为准。
+// 显示父边只决定展开位置。创建、归属和写入的语义以图中原边为准。
 [[nodiscard]] EvidenceRelationTree ProjectEvidenceRelationTree(const EvidenceGraph& graph);
 
 } // namespace Ksword::ActionAnalyze::Detection

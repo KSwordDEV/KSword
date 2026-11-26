@@ -21,17 +21,22 @@ std::optional<std::wstring_view> ReadText(const wchar_t (&text)[N]) noexcept
     return std::wstring_view(text, static_cast<std::size_t>(end - text));
 }
 
-TelemetryProjection Invalid(const SampleScope& scope, const EvidenceRef& evidence)
+TelemetryProjection Invalid(const EvidenceRef& evidence, bool hasLocation)
 {
     TelemetryProjection result;
     result.disposition = TelemetryDisposition::InvalidRecord;
-    if (HasEvidenceLocation(scope, evidence)) {
+    if (hasLocation) {
         result.evidence = evidence;
         result.event.gaps.push_back(Issue::InvalidNativeRecord);
     } else {
         result.event.gaps.push_back(Issue::EvidenceUnavailable);
     }
     return result;
+}
+
+TelemetryProjection Invalid(const SampleScope& scope, const EvidenceRef& evidence)
+{
+    return Invalid(evidence, HasEvidenceLocation(scope, evidence));
 }
 
 // 返回位和结果码职责不同。只读精确 API 回包的标记；无标记时结果保留未知。
@@ -53,6 +58,61 @@ Outcome LegacyOutcome(const ApiMonitorEventPacket& packet, bool isWrite, Observa
         return Outcome::Unknown;
     }
     return Outcome::Succeeded;
+}
+
+// 沿用当前 raw 定位约定；来源原生序号或单独的规范事件号不能替代原包位置。
+bool HasCallbackRawLocation(const SampleScope& scope, const EvidenceRef& evidence) noexcept
+{
+    return !scope.projectId.empty() && !scope.sampleId.empty() &&
+        scope.projectId == evidence.projectId && scope.sampleId == evidence.sampleId &&
+        !evidence.sourceId.empty() && !evidence.sourceEpoch.empty() &&
+        evidence.raw && evidence.raw->segmentOrdinal != 0 && evidence.raw->sequence != 0;
+}
+
+TelemetryProjection ProjectCallbackThread(const SampleScope& scope, const EvidenceRef& evidence,
+    const KSWORD_ARK_CALLBACK_MONITOR_EVENT& record, InputTrust trust)
+{
+    const bool rawOnly = trust == InputTrust::RawOnly;
+    const bool hasLocation = rawOnly ? HasCallbackRawLocation(scope, evidence) : HasEvidenceLocation(scope, evidence);
+    if (record.version != KSWORD_ARK_CALLBACK_MONITOR_PROTOCOL_VERSION || record.size != sizeof(record)) {
+        return Invalid(evidence, hasLocation);
+    }
+    if (record.category != KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD ||
+        record.operation != KSWORD_ARK_THREAD_OP_CREATE) {
+        return {};
+    }
+    if (!hasLocation || record.sequence == 0 ||
+        (evidence.sourceSequence && *evidence.sourceSequence != record.sequence) ||
+        record.targetProcessId == 0 || record.targetThreadId == 0) {
+        return Invalid(evidence, hasLocation);
+    }
+
+    ThreadCreationObservation row;
+    row.header.evidence = evidence;
+    row.header.evidence.sourceSequence = record.sequence;
+    row.header.operation = "callback.thread.create.v1";
+    row.header.trust = trust;
+    // originating 字段是通知上下文提示；v1 没有用于证明创建者或宿主、线程实例的创建时间。
+    row.creatorPidHint = record.originatingProcessId;
+    row.creatorTidHint = record.originatingThreadId;
+    row.targetPidHint = record.targetProcessId;
+    row.targetTidHint = record.targetThreadId;
+    const auto locator = row.header.evidence;
+    if (rawOnly) {
+        // 通用判据要求强采样身份；读侧仅保留可回读的观察和独立缺口，不进入事实判定。
+        EventProjection event;
+        event.observation = std::move(row);
+        event.gaps = {Issue::SourceUnverified, Issue::ActorInstanceUnknown, Issue::TargetInstanceUnknown,
+            Issue::OutcomeUnknown, Issue::ThreadInstanceUnknown, Issue::ExecutionUnknown};
+        constexpr auto truncatedText = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PROCESS_NAME_TRUNCATED |
+            KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PATH_TRUNCATED;
+        if (record.flags & truncatedText) {
+            event.gaps.push_back(Issue::SourcePayloadTruncated);
+        }
+        return {TelemetryDisposition::Projected, locator, std::move(event)};
+    }
+    row.outcome = Outcome::Succeeded;
+    return {TelemetryDisposition::Projected, locator, ProjectInjectionEvent(scope, std::move(row))};
 }
 
 } // namespace
@@ -120,32 +180,13 @@ TelemetryProjection ProjectArchivedApiCall(const SampleScope& scope, const Evide
 TelemetryProjection ProjectCallbackThreadCreation(const SampleScope& scope, const EvidenceRef& evidence,
     const KSWORD_ARK_CALLBACK_MONITOR_EVENT& record)
 {
-    if (record.version != KSWORD_ARK_CALLBACK_MONITOR_PROTOCOL_VERSION || record.size != sizeof(record)) {
-        return Invalid(scope, evidence);
-    }
-    if (record.category != KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD ||
-        record.operation != KSWORD_ARK_THREAD_OP_CREATE) {
-        return {};
-    }
-    if (!HasEvidenceLocation(scope, evidence) || record.sequence == 0 ||
-        (evidence.sourceSequence && *evidence.sourceSequence != record.sequence) ||
-        record.targetProcessId == 0 || record.targetThreadId == 0) {
-        return Invalid(scope, evidence);
-    }
+    return ProjectCallbackThread(scope, evidence, record, InputTrust::Validated);
+}
 
-    ThreadCreationObservation row;
-    row.header.evidence = evidence;
-    row.header.evidence.sourceSequence = record.sequence;
-    row.header.operation = "callback.thread.create.v1";
-    row.header.trust = InputTrust::Validated;
-    row.outcome = Outcome::Succeeded;
-    // 经典 PsSetCreateThreadNotifyRoutine 在创建线程的线程上下文调用，但 v1 没有任何实例创建时间。
-    row.creatorPidHint = record.originatingProcessId;
-    row.creatorTidHint = record.originatingThreadId;
-    row.targetPidHint = record.targetProcessId;
-    row.targetTidHint = record.targetThreadId;
-    const auto locator = row.header.evidence;
-    return {TelemetryDisposition::Projected, locator, ProjectInjectionEvent(scope, std::move(row))};
+TelemetryProjection ProjectArchivedCallbackThreadCreation(const SampleScope& scope, const EvidenceRef& evidence,
+    const KSWORD_ARK_CALLBACK_MONITOR_EVENT& record)
+{
+    return ProjectCallbackThread(scope, evidence, record, InputTrust::RawOnly);
 }
 
 TelemetryProjection ProjectPassiveEtwContext(const SampleScope& scope, const EvidenceRef& evidence,

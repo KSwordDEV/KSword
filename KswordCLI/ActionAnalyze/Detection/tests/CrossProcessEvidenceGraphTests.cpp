@@ -1,8 +1,11 @@
 #include "../CrossProcessEvidenceGraph.h"
+#include "../ArchivedEvidenceGraph.h"
+#include "../../../../shared/driver/KswordArkCallbackIoctl.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <utility>
 
 using namespace Ksword::ActionAnalyze::Detection;
@@ -84,30 +87,9 @@ ExecutionObservation Execution(std::uint64_t ordinal, ExecutionState state)
 }
 
 // 通过现有来源投影闸门生成图模块输入。
-GraphInput Event(InjectionEvent event)
+GraphEventInput Event(InjectionEvent event)
 {
     return GraphEventInput{ProjectInjectionEvent(scope, std::move(event)), std::nullopt};
-}
-
-// 构造 Event 8 记录。号码与原生记录相同，用于检测是否发生错误关联。
-GraphSysmonInput Sysmon(std::uint64_t ordinal, std::wstring computer = L"sample-host")
-{
-    SysmonThreadFields fields;
-    fields.channel = kSysmonChannel;
-    fields.provider = kSysmonProvider;
-    fields.providerGuid = kSysmonProviderGuid;
-    fields.computer = std::move(computer);
-    fields.eventId = kSysmonThreadEventId;
-    fields.version = kSysmonThreadEventVersion;
-    fields.recordId = ordinal + 50;
-    fields.timeCreatedFileTime = 101;
-    fields.sourceGuid = L"{37A740D7-7285-8DCF-BC7D-270100000001}";
-    fields.targetGuid = L"37a740d7-7285-8dcf-bc7d-270100000002";
-    fields.sourcePid = 10;
-    fields.targetPid = 20;
-    fields.newThreadId = 30;
-    fields.startAddress = L"0x1000";
-    return {Anchor(ordinal, "sysmon", "windows-event-log"), {std::move(fields), 0x1000}, InputTrust::Validated};
 }
 
 // 检查给定的证据缺口是否实际出现在观察回执中。
@@ -189,15 +171,15 @@ void TestUnknowns()
     context.gaps.push_back(Issue::EtwContextOnly);
     auto foreignAnchor = Anchor(8, "etw", "etw");
     foreignAnchor.sampleId = "other";
-    auto cached = std::get<GraphEventInput>(Event(entry));
+    auto cached = Event(entry); // 模拟带有旧结论的入口观察，图构建须重新核对。
     cached.event.finding = Finding{FindingKind::ExternalWrite, Attribution::DirectWriter, true};
     auto failed = Write(9, Process(10));
     failed.outcome = Outcome::Failed;
     // 失败回包虽然携带非零数值，仍须经实际写入判据核实。
-    const std::array input{Event(weak), GraphInput{cached}, Event(wrongBoot), Event(missingActual), Event(conflict),
+    const std::array input{Event(weak), cached, Event(wrongBoot), Event(missingActual), Event(conflict),
         Event(unknownCreator), Event(wrongOwner), Event(rawOnly),
-        GraphInput{GraphEventInput{context, Anchor(8, "etw", "etw")}},
-        GraphInput{GraphEventInput{context, foreignAnchor}}, Event(failed)};
+        GraphEventInput{context, Anchor(8, "etw", "etw")},
+        GraphEventInput{context, foreignAnchor}, Event(failed)};
     const auto graph = BuildCrossProcessEvidenceGraph(scope, input);
     const auto& rows = graph.observations;
     Check(graph.edges.size() == 1 && graph.edges[0].relation == GraphRelation::ProcessOwnsThread, "only-verified-owner-edge");
@@ -217,56 +199,136 @@ void TestUnknowns()
         Gap(rows[10], Issue::OutcomeInconsistent), "failed-write-retains-roles-without-operation-edge");
 }
 
-// 混合两台虚构来源主机和原生事件，核对 GUID 边与原生结论的边界。
-void TestSysmon()
+// 采样缺少机器及启动期时，保留同采样坐标，但不生成原生实例或关系。
+void TestUnknownMachine()
 {
-    auto raw = Sysmon(3);
-    raw.trust = InputTrust::RawOnly;
-    auto wrongVersion = Sysmon(4);
-    wrongVersion.observation.fields.version = 99;
-    auto badAddress = Sysmon(5);
-    badAddress.observation.reportedStartAddress = 0x2000;
-    auto another = Sysmon(7);
-    another.evidence.eventOrdinal.reset();
-    // 原始段定位可独立使用，两次传入同一锚点只支撑边一次。
-    const std::array<GraphInput, 9> input{Event(Created(0)), Sysmon(1), Sysmon(2, L"another-host"),
-        raw, wrongVersion, badAddress, Sysmon(6), another, another};
-    const auto graph = BuildCrossProcessEvidenceGraph(scope, input);
-    const GraphSysmonProcess source{L"sample-host", L"37a740d7-7285-8dcf-bc7d-270100000001"};
-    const GraphSysmonProcess target{L"sample-host", L"37a740d7-7285-8dcf-bc7d-270100000002"};
-    const auto edge = Edge(graph, GraphRelation::SysmonThreadReported, source, target);
-    const auto& report = graph.observations[1];
-    Check(graph.nodes.size() == 7 && graph.edges.size() == 4, "sysmon-and-native-identity-spaces-distinct");
-    Check(edge && edge->observations == std::vector<std::size_t>{1, 6, 7}, "report-grouping-includes-raw-only-locator-once");
-    Check(report.actorProcess != graph.observations[0].actorProcess && report.targetProcess != graph.observations[0].targetProcess,
-        "matching-provider-pids-cannot-link-native-processes");
-    Check(report.targetTidHint == 30 && !report.newThread && !report.observedThread && !report.finding &&
-        Gap(report, Issue::ExecutionUnknown) && Gap(report, Issue::ThreadInstanceUnknown), "sysmon-has-no-native-finding");
-    Check(report.sysmon && report.sysmon->recordId == 51 && report.sysmon->reportedStartAddress == 0x1000 &&
-        report.sysmon->timeCreatedFileTime == 101, "provider-metadata-retained");
-    Check(!graph.observations[3].actorProcess && Gap(graph.observations[3], Issue::SourceUnverified), "sysmon-needs-source-validation");
-    Check(Gap(graph.observations[4], Issue::InvalidNativeRecord) && Gap(graph.observations[5], Issue::InvalidNativeRecord),
-        "sysmon-version-and-address-rechecked");
-
-    // 没有机器和启动期时，以来源 GUID 提供报告，原生身份保持未知。
-    auto providerScope = scope;
-    providerScope.machineId.clear();
-    providerScope.bootId.clear();
-    const auto providerOnly = BuildCrossProcessEvidenceGraph(providerScope, input);
-    Check(providerOnly.nodes.size() == 4 && providerOnly.edges.size() == 2, "provider-guid-usable-with-native-scope-unknown");
-    Check(providerOnly.observations[0].evidence && Gap(providerOnly.observations[0], Issue::EvidenceUnavailable) &&
-        !providerOnly.observations[0].actorProcess, "missing-native-scope-retains-anchor-with-no-instance");
+    auto incompleteScope = scope; // 仅保留冻结项目和采样身份。
+    incompleteScope.machineId.clear();
+    incompleteScope.bootId.clear();
+    const std::array input{Event(Created(0))}; // 可通过坐标回查的合成创建行。
+    const auto graph = BuildCrossProcessEvidenceGraph(incompleteScope, input); // 显示层不补造机器信息。
+    Check(graph.nodes.empty() && graph.edges.empty(), "no-native-relation-without-machine-and-boot");
+    const auto& observation = graph.observations.front(); // 保留同一条来源记录。
+    Check(observation.evidence && Gap(observation, Issue::EvidenceUnavailable) && !observation.actorProcess,
+        "missing-native-scope-retains-anchor-with-no-instance");
     Check(BuildCrossProcessEvidenceGraph(scope, {}).edges.empty(), "empty-input-no-evidence");
+}
+
+void TestThreadCreationEvidence()
+{
+    auto created = Created(0);
+    created.creator = Process(10, 102); // This PID generation began after the target thread.
+    created.creatorPidHint = 10;
+    const std::array input{Event(created)};
+    const auto graph = BuildCrossProcessEvidenceGraph(scope, input);
+    const auto& observation = graph.observations.front();
+    Check(observation.evidence && observation.actorPidHint == 10 && !observation.actorProcess &&
+        Gap(observation, Issue::IdentityConflict), "later-pid-generation-cannot-be-creator");
+    Check(observation.finding && observation.finding->attribution == Attribution::Unknown &&
+        graph.edges.size() == 1 && graph.edges.front().relation == GraphRelation::ProcessOwnsThread,
+        "creator-time-conflict-retains-target-thread-ownership");
+
+    auto notice = Created(1);
+    notice.header.trust = InputTrust::RawOnly;
+    notice.creatorPidHint = 10;
+    notice.creatorTidHint = 11;
+    notice.targetPidHint = 20;
+    notice.targetTidHint = 30;
+    auto clue = Event(notice);
+    clue.event.finding = Finding{FindingKind::ThreadCreated, Attribution::DirectThreadCreator, true};
+    auto archiveScope = scope;
+    archiveScope.machineId.clear();
+    archiveScope.bootId.clear();
+    const std::array rawInput{std::move(clue)};
+    const auto archive = BuildCrossProcessEvidenceGraph(archiveScope, rawInput);
+    const auto& raw = archive.observations.front();
+    Check(raw.evidence && raw.actorPidHint == 10 && raw.actorTidHint == 11 &&
+        raw.targetPidHint == 20 && raw.targetTidHint == 30 && Gap(raw, Issue::SourceUnverified),
+        "raw-notification-retains-hints-without-machine-or-boot");
+    Check(!raw.finding && archive.nodes.empty() && archive.edges.empty(), "raw-notification-cannot-add-relationships");
+}
+
+void TestCallbackArchiveTruncation(const std::filesystem::path& root)
+{
+    using namespace Ksword::ActionAnalyze;
+
+    ProjectDocument writer;
+    const auto created = writer.Create(root.wstring(), {"Callback graph fixture", "Synthetic archive only"});
+    Check(static_cast<bool>(created), "callback-project-create");
+    if (!created) return;
+
+    SampleInfo sample;
+    const auto registered = writer.CreateSample("Thread create context", sample);
+    Check(static_cast<bool>(registered), "callback-sample-create");
+    if (!registered) return;
+
+    KSWORD_ARK_CALLBACK_MONITOR_EVENT event{};
+    event.version = KSWORD_ARK_CALLBACK_MONITOR_PROTOCOL_VERSION;
+    event.size = static_cast<unsigned long>(sizeof(event));
+    event.sequence = 107;
+    event.category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD;
+    event.operation = KSWORD_ARK_THREAD_OP_CREATE;
+    event.originatingProcessId = 10;
+    event.originatingThreadId = 11;
+    event.targetProcessId = 20;
+    event.targetThreadId = 30;
+    auto events = std::array{event, event, event};
+    events[0].flags = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PROCESS_NAME_PRESENT |
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PROCESS_NAME_TRUNCATED;
+    std::fill_n(events[0].processName, KSWORD_ARK_CALLBACK_MONITOR_PROCESS_NAME_CHARS - 1, L'n');
+    events[1].sequence = 108;
+    events[1].flags = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PATH_PRESENT |
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PATH_TRUNCATED;
+    std::fill_n(events[1].path, KSWORD_ARK_CALLBACK_MONITOR_PATH_CHARS - 1, L'p');
+    events[2].sequence = 109;
+    events[2].flags = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PROCESS_NAME_PRESENT |
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_PATH_PRESENT;
+    events[2].processName[0] = L'n';
+    events[2].path[0] = L'p';
+    const ProjectCallbackEvidencePlan plan{"11111111-1111-4111-8111-111111111111", 106, 8};
+    const ProjectCallbackEvidenceEnd end{CallbackBatchState::CaughtUp, 109, 109, 3, 0, std::nullopt};
+    ProjectCallbackEvidenceReceipt receipt;
+    const auto written = WriteInitialCallbackEvidence(writer, sample.sampleId, plan, end, events, receipt);
+    Check(static_cast<bool>(written), "callback-raw-first-segment");
+    if (!written) return;
+    writer.Close();
+
+    ProjectDocument reader;
+    const auto opened = reader.Open(root.wstring());
+    Check(static_cast<bool>(opened), "callback-reopen-read-only");
+    if (!opened) return;
+    ArchivedGraphPage page;
+    const auto status = ReadArchivedEvidenceGraph(reader, {sample.sampleId, 1, 0, events.size(), receipt.prefixSha256}, page);
+    Check(status && page.source == ArchivedGraphSource::CallbackBatch && page.sha256 == receipt.prefixSha256 &&
+        page.segmentOrdinal == 1 && page.records.size() == events.size() && page.graph.nodes.empty() &&
+        page.graph.edges.empty(), "callback-first-segment-context-only");
+    const auto& observations = page.graph.observations;
+    Check(observations.size() == events.size(), "callback-observations-preserved");
+    if (observations.size() != events.size()) return;
+    Check(Gap(observations[0], Issue::SourcePayloadTruncated), "callback-process-name-truncation");
+    Check(Gap(observations[1], Issue::SourcePayloadTruncated), "callback-path-truncation");
+    Check(!Gap(observations[2], Issue::SourcePayloadTruncated), "callback-complete-text-no-truncation");
+    for (std::size_t index = 0; index < events.size(); ++index) {
+        const auto& row = observations[index];
+        Check(row.evidence && row.evidence->raw == RawLocator{1, receipt.records[index].rawSequence} &&
+            row.evidence->sourceSequence == events[index].sequence && !row.finding &&
+            row.actorPidHint == 10 && row.actorTidHint == 11 && row.targetPidHint == 20 && row.targetTidHint == 30 &&
+            Gap(row, Issue::ThreadInstanceUnknown) && Gap(row, Issue::ExecutionUnknown), "callback-weak-evidence-retains-anchor");
+    }
 }
 
 } // namespace
 
 // 运行离线断言，对外仅输出通过数和进程退出状态。
-int main()
+int wmain(int argc, wchar_t** argv)
 {
     TestNative();
     TestUnknowns();
-    TestSysmon();
+    TestUnknownMachine();
+    TestThreadCreationEvidence();
+    if (argc == 2) {
+        TestCallbackArchiveTruncation(argv[1]);
+    }
     std::printf("CrossProcessEvidenceGraph: %d/%d passed\n", assertions - failures, assertions);
     return failures == 0 ? 0 : 1;
 }

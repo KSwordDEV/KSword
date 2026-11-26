@@ -1,4 +1,5 @@
 #include "ArchivedEvidenceGraph.h"
+#include "InjectionTelemetry.h"
 
 #include "../Project/ProjectApiCheckpoint.h"
 #include "../Project/ProjectEtwCheckpoint.h"
@@ -34,7 +35,7 @@ ArchivedGraphRecord Location(const Archive::SegmentIdentity& identity, const Arc
 // 只留一页投影，观察计数覆盖整个已核验段。
 struct GraphPageDraft {
     ArchivedGraphPage page; // 归档读侧回执与本页原始坐标。
-    std::vector<GraphInput> inputs; // 与原始坐标同序的证据图输入。
+    std::vector<GraphEventInput> inputs; // 与原始坐标同序的证据图输入。
     bool more = false; // 本页之后还有已核验的观察。
 
     template<class Projection>
@@ -220,9 +221,18 @@ ProjectResult ReadCallbackGraph(const ProjectDocument& project, const SampleScop
             event.originatingThreadId ? std::optional<std::uint32_t>{event.originatingThreadId} : std::nullopt,
             event.targetProcessId, event.targetThreadId,
             time > 0 ? std::optional{static_cast<std::uint64_t>(time)} : std::nullopt};
-        draft.inputs.push_back(Context(scope, coordinate, kProjectCallbackSourceId, batch.plan.sourceEpoch,
-            kProjectCallbackSourceId, event.sequence, {Issue::SourceUnverified, Issue::ActorInstanceUnknown,
-                Issue::TargetInstanceUnknown, Issue::OutcomeUnknown, Issue::ThreadInstanceUnknown, Issue::ExecutionUnknown}));
+        EvidenceRef evidence;
+        evidence.projectId = scope.projectId;
+        evidence.sampleId = scope.sampleId;
+        evidence.sourceId = kProjectCallbackSourceId;
+        evidence.sourceEpoch = batch.plan.sourceEpoch;
+        evidence.sourceGroup = kProjectCallbackSourceId;
+        evidence.raw = RawLocator{coordinate.segmentOrdinal, coordinate.recordSequence};
+        auto projected = ProjectArchivedCallbackThreadCreation(scope, evidence, event);
+        if (projected.disposition != TelemetryDisposition::Projected) {
+            return Failure(ProjectError::Corrupt, "graphCallbackObservation");
+        }
+        draft.inputs.push_back({std::move(projected.event), std::nullopt});
         page.records.push_back(std::move(coordinate));
     }
     page.callbackBatch = ArchivedCallbackBatch{std::move(batch.plan), batch.end};

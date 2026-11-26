@@ -29,6 +29,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -36,14 +37,19 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="CrossProcessEvidenceGraphTests.cpp" />
+    <ClCompile Include="..\ArchivedEvidenceGraph.cpp" />
     <ClCompile Include="..\CrossProcessEvidenceGraph.cpp" />
     <ClCompile Include="..\InjectionDiscovery.cpp" />
-    <ClCompile Include="..\SysmonThreadSource.cpp" />
+    <ClCompile Include="..\InjectionTelemetry.cpp" />
+    <ClCompile Include="..\..\Project\ProjectApiCheckpoint.cpp;..\..\Project\ProjectCallbackEvidence.cpp;..\..\Project\ProjectDocument.cpp;..\..\Project\ProjectEtwCheckpoint.cpp;..\..\Project\ProjectLock.cpp;..\..\Project\ProjectRawEvidence.cpp;..\..\Project\ProjectStorage.cpp;..\..\Project\SampleCatalog.cpp" />
+    <ClCompile Include="..\..\Archive\RawEvidenceArchive.cpp;..\..\Archive\SegmentBodies.cpp;..\..\Archive\SegmentFormat.cpp;..\..\Archive\SegmentInspection.cpp;..\..\Archive\SegmentReader.cpp;..\..\Archive\SegmentWriter.cpp" />
+    <ClCompile Include="..\..\..\..\shared\evidence\EvidenceJson.cpp" />
     <ClCompile Include="..\..\..\..\shared\evidence\ObjectIdentity.cpp" />
     <ClCompile Include="..\..\..\..\shared\evidence\LosslessValue.cpp" />
+    <ClInclude Include="..\ArchivedEvidenceGraph.h" />
     <ClInclude Include="..\CrossProcessEvidenceGraph.h" />
     <ClInclude Include="..\InjectionDiscovery.h" />
-    <ClInclude Include="..\SysmonThreadSource.h" />
+    <ClInclude Include="..\InjectionTelemetry.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
