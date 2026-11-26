@@ -167,10 +167,11 @@ std::vector<n::ExecutionGroupSite> ReadSites(const std::wstring& path)
         const auto* address = value.find("address");
         const auto* rva = value.find("rva");
         const auto* name = value.find("exactExport");
-        const std::size_t expected = 4 + (expression ? 1 : 0);
+        const auto* imageHash = value.find("imageSha256"); // 可选输入约束独立于模块定位和条件。
+        const std::size_t expected = 4 + (expression ? 1 : 0) + (imageHash ? 1 : 0);
         if (object->size() != expected) throw std::invalid_argument("Site has unknown or missing fields");
         if (address) {
-            if (rva || name || value.find("module") || !Number(address, site.address) || !Number(value.find("rangeBytes"), site.rangeBytes, true))
+            if (rva || name || imageHash || value.find("module") || !Number(address, site.address) || !Number(value.find("rangeBytes"), site.rangeBytes, true))
                 throw std::invalid_argument("Private site requires decimal-string address and rangeBytes only");
         } else {
             std::string module;
@@ -180,6 +181,16 @@ std::vector<n::ExecutionGroupSite> ReadSites(const std::wstring& path)
                 throw std::invalid_argument("Image site requires absolute module and exactly one numeric rva or exactExport");
             site.modulePath = Wide(module);
             if (rva) site.rva = offset;
+            if (imageHash)
+            {
+                std::string hash; // 请求中的规范小写SHA256，不读取本地同名路径补值。
+                if (!String(imageHash, hash, 64) || hash.size() != 64 ||
+                    hash.find_first_not_of("0123456789abcdef") != std::string::npos)
+                {
+                    throw std::invalid_argument("imageSha256 requires 64 lowercase hexadecimal characters for an image site");
+                }
+                site.imageSha256 = std::move(hash);
+            }
         }
         if (expression) {
             std::string source;
@@ -238,6 +249,7 @@ JsonValue StopToken(const n::NativeControlResult& state)
             {"base", Count(range.base)}, {"bytes", Count(range.bytes)}, {"allocationBase", Count(range.allocationBase)}}));
         binding = V::makeObject({{"requestId", Text(state.breakpoint->requestId)}, {"state", V::makeUInt(static_cast<unsigned>(state.breakpoint->state))},
             {"address", Count(state.breakpoint->address)}, {"rangeBytes", Count(state.breakpoint->rangeBytes)},
+            {"imageSha256", state.breakpoint->imageSha256 ? Text(*state.breakpoint->imageSha256) : V::makeNull()},
             {"executionRanges", V::makeArray(std::move(ranges))}});
     }
     V pause = V::makeNull(); // 主动暂停回执保留原owner和pause/N，ManualPause继续仍须完整事件与停止组。
@@ -335,8 +347,22 @@ bool ParseStopToken(const V& token, n::NativeControlResult& state)
         !token.find("stepObservedEvent") || !token.find("stepObservedEvent")->isNull() ||
         !token.find("stepStopGroupId") || !token.find("stepStopGroupId")->isNull()) return false;
     if (!Optional(token.find("breakpoint"), state.breakpoint, [](const V* v, n::NativeBreakpointBinding& b) {
-        if (!Shape(*v, 5) || !String(v->find("requestId"), b.requestId) || !Enum(v->find("state"), b.state, 6) || !Number(v->find("address"), b.address, true) ||
+        if ((!Shape(*v, 5) && !Shape(*v, 6)) || !String(v->find("requestId"), b.requestId) || !Enum(v->find("state"), b.state, 6) || !Number(v->find("address"), b.address, true) ||
             !Number(v->find("rangeBytes"), b.rangeBytes, true)) return false;
+        if (const auto* hash = v->find("imageSha256"); hash && !hash->isNull())
+        {
+            std::string observed; // 票据携带实测值；不从当前owner补造历史显示字段。
+            if (!String(hash, observed, 64) || observed.size() != 64 ||
+                observed.find_first_not_of("0123456789abcdef") != std::string::npos)
+            {
+                return false;
+            }
+            b.imageSha256 = std::move(observed);
+        }
+        else if (!hash && !Shape(*v, 5))
+        {
+            return false; // 旧五字段只兼容无散列绑定，不能用额外未知字段代替缺失散列。
+        }
         const auto* ranges = v->find("executionRanges");
         if (!ranges || !ranges->asArray() || ranges->asArray()->size() > 64) return false;
         for (const auto& x : *ranges->asArray()) {

@@ -1,6 +1,7 @@
 #include "../Framework.h"
 #include "ExecutionGroupSiteEditor.h"
 #include "PrivateAddressWatchFields.h"
+#include "../../../KswordCLI/ActionAnalyze/Control/NativeBreakpointImageIdentity.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/SecondaryPageLayout.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -65,6 +66,11 @@ namespace ks::action_analyze
         m_location->setMaxLength(4096);
         addRow(QStringLiteral("导出名或 RVA"), m_location);
         language.bindToolTip(m_location, {}, QStringLiteral("导出名区分大小写；RVA 支持十进制或 0x 十六进制，须由用户确认指令边界。"));
+        m_imageSha256 = new QLineEdit(body); // 不采集文件散列，只编辑用户给出的可选约束。
+        m_imageSha256->setObjectName(QStringLiteral("execution_group_expected_image_sha256"));
+        m_imageSha256->setMaxLength(128); // 超过64位仍保留为非法输入，不能截成有效散列后发送。
+        addRow(QStringLiteral("期望映像 SHA256（可选）"), m_imageSha256);
+        language.bindToolTip(m_imageSha256, {}, QStringLiteral("仅模块导出或 RVA 可填写64位小写十六进制 SHA256；留空不设约束。原生所有者核验实际调试装载文件后才武装断点，不自动采集。"));
         m_condition = new QLineEdit(body);
         m_condition->setMaxLength(8192);
         addRow(QStringLiteral("命中条件"), m_condition);
@@ -89,6 +95,23 @@ namespace ks::action_analyze
         m_identity->SetPageExecutionMode(m_kind->currentIndex() == 3, image);
         m_form->setRowVisible(m_moduleRow, image);
         m_form->setRowVisible(m_location, image);
+        m_form->setRowVisible(m_imageSha256, image); // 不清除隐藏草稿；Prepare只在模块分支发送。
+    }
+
+    // 输入保存的单成员草稿，回填全部参数；实际绑定的测量散列不能覆盖期望值。
+    void ExecutionGroupSiteEditor::LoadDraft(const execution_group_native::ExecutionGroupSite& site)
+    {
+        const int kind = site.address ? (site.rangeBytes ? 3 : 2) : (site.rva ? 1 : 0); // 保存的机制决定可见参数。
+        m_identity->LoadDraft({site.pid, site.creationFileTime, site.address, site.rangeBytes});
+        m_module->setText(QString::fromStdWString(site.modulePath));
+        m_location->setText(site.rva ? QStringLiteral("0x%1").arg(*site.rva, 0, 16) : QString::fromStdString(site.exactExport));
+        if (!site.address)
+        {
+            m_imageSha256->setText(site.imageSha256 ? QString::fromStdString(*site.imageSha256) : QString());
+        }
+        m_condition->setText(QString::fromStdWString(site.conditionSource));
+        m_kind->setCurrentIndex(kind);
+        UpdateMode(); // 同模式重载也同步行可见性，私有站点保留现有隐藏散列草稿。
     }
 
     // 输入表单，输出冻结站点或明确错误；条件在任何附加前编译成功。
@@ -120,6 +143,16 @@ namespace ks::action_analyze
                 return false;
             }
             parsed.modulePath = module.toStdWString();
+            const auto imageSha256 = m_imageSha256->text().toUtf8().toStdString(); // 原文严格校验，不自动转小写或修剪。
+            if (!imageSha256.empty())
+            {
+                if (!execution_group_native::ValidNativeImageSha256(imageSha256))
+                {
+                    error = sourceText(QStringLiteral("映像 SHA256 须为空或64位小写十六进制。"));
+                    return false;
+                }
+                parsed.imageSha256 = imageSha256; // 后端从实际装载事件文件核验；此处不访问模块文件。
+            }
             if (m_kind->currentIndex() == 1)
             {
                 parsed.rva = ParseImageExecutionRva(m_location->text()); // 拒绝零、负数及32位溢出。

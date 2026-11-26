@@ -120,6 +120,8 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
             L" stage=" + Widen(binding.stage ? binding.stage : "") + L" Win32=" + std::to_wstring(binding.win32Error) +
             L"\r\nmoduleBase=" + Hex(binding.moduleBase) + L" address=" + Hex(binding.address) + L" RVA=" + Hex(binding.rva) +
             L" rangeBytes=" + std::to_wstring(binding.rangeBytes) + L" enrolledThreads=" + std::to_wstring(binding.enrolledThreads);
+        // 实际散列只取原生control的成功核验值，不以用户输入或磁盘路径查询替代。
+        text += L"\r\n实际装载文件 SHA256=" + (binding.imageSha256 ? Widen(*binding.imageSha256) : L"无实际测量值");
         std::uint64_t totalRangeBytes = 0;
         for (const auto& range : binding.executionRanges) {
             text += L"\r\n成功NX范围 base=" + Hex(range.base) + L" bytes=" + std::to_wstring(range.bytes) +
@@ -195,10 +197,16 @@ std::wstring Widen(std::string_view text)
     return value;
 }
 
+// 输入冻结站点，返回列表和草稿选择器的紧凑文本；期望散列不是原生测量结果。
 std::wstring SiteText(const execution_native::ExecutionGroupSite& site)
 {
     if (site.address) return L"私有 " + Hex(site.address) + (site.rangeBytes ? L" / " + std::to_wstring(site.rangeBytes) + L" 字节NX范围" : L" / 单地址");
-    return site.modulePath + (site.rva ? L" + " + Hex(*site.rva) : L" ! " + Widen(site.exactExport));
+    auto text = site.modulePath + (site.rva ? L" + " + Hex(*site.rva) : L" ! " + Widen(site.exactExport)); // 路径和站点保持原身份。
+    if (site.imageSha256)
+    {
+        text += L" / 期望 SHA256 " + Widen(site.imageSha256->substr(0, 12)) + L"…"; // 列表简写，完整值在同源正文保留。
+    }
+    return text;
 }
 
 std::wstring GroupStateText(execution_native::ExecutionGroupState state)
@@ -262,6 +270,15 @@ void RefreshText(Page& page)
         std::to_wstring(page.shown.observedFileTime) + L"\r\n状态=" + GroupStateText(result.state) + L" clean=" + std::to_wstring(result.clean);
     const bool fields = ::SendMessageW(page.textMode, CB_GETCURSEL, 0, 0) == 0;
     if (fields) {
+        // 草稿选择与右侧活成员分开显示；用户编辑输入不会改写此处已经保存的站点来源。
+        const auto draftIndex = ::SendMessageW(page.draft, CB_GETCURSEL, 0, 0); // 只定位保存草稿，不授活控制权。
+        if (draftIndex >= 0 && static_cast<std::size_t>(draftIndex) < page.sites.size())
+        {
+            const auto& site = page.sites[static_cast<std::size_t>(draftIndex)]; // 完整期望值随保存项保留。
+            text += L"\r\n\r\n选中草稿=" + std::to_wstring(site.pid) + L" / " + std::to_wstring(site.creationFileTime) +
+                L"\r\n草稿执行站点=" + SiteText(site) +
+                L"\r\n草稿期望映像 SHA256=" + (site.imageSha256 ? Widen(*site.imageSha256) : L"未指定");
+        }
         const auto selected = SelectedRows(page);
         if (selected.empty()) text += L"\r\n请选择成员查看冻结站点、原生身份和完整票据。";
         for (const auto index : selected) {
@@ -273,6 +290,7 @@ void RefreshText(Page& page)
                 L"\r\n初次附加受理=" + std::to_wstring(member.attachAccepted) + L" 条件 true/false/unknown=" +
                 std::to_wstring(member.condition.trueCount) + L"/" + std::to_wstring(member.condition.falseCount) + L"/" + std::to_wstring(member.condition.unknownCount);
             text += L"\r\n最近操作回执=" + MemberOutcomeText(result, member);
+            text += L"\r\n冻结期望映像 SHA256=" + (member.site.imageSha256 ? Widen(*member.site.imageSha256) : L"未指定"); // 与实际装载文件测量值分列。
             if (member.condition.last) {
                 const auto& last = *member.condition.last;
                 text += L"\r\n最近条件 event=" + std::to_wstring(last.event.serial) + L" group=" + Widen(last.groupId) +
@@ -289,6 +307,14 @@ void RefreshText(Page& page)
         for (const auto& outcome : operation.outcomes) {
             text += L"\r\n\r\n请求成员 " + std::to_wstring(outcome.pid) + L" / " + std::to_wstring(outcome.creationFileTime) +
                 L"\r\n成员操作结果=" + OutcomeText(outcome);
+            const auto member = std::find_if(result.members.begin(), result.members.end(), [&](const auto& item)
+            {
+                return item.site.pid == outcome.pid && item.site.creationFileTime == outcome.creationFileTime;
+            }); // 使用原集合冻结站点，不用下一轮草稿替换本次结果的期望散列。
+            if (member != result.members.end())
+            {
+                text += L"\r\n冻结期望映像 SHA256=" + (member->site.imageSha256 ? Widen(*member->site.imageSha256) : L"未指定");
+            }
             if (!outcome.actionAttempted)
                 text += L"\r\n以下为原会话回读快照；本成员未产生新的暂停或释放回执。";
             NativeText(text, outcome.control);

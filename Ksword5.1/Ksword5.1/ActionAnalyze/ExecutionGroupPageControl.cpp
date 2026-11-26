@@ -88,6 +88,19 @@ namespace ks::action_analyze
         Detail();
     }
 
+    // 显式载入唯一选中草稿；不从实际断点绑定反推期望散列，不改变保存的目录。
+    void ExecutionGroupPage::LoadSite()
+    {
+        const auto selected = Selected(); // 选择变化只展示详情，只有本动作会覆盖编辑表单。
+        if (m_session || selected.size() != 1)
+        {
+            return;
+        }
+        m_editor->LoadDraft(m_model->sites.at(selected.front()));
+        m_inputError.clear();
+        Render();
+    }
+
     // 移除未启动目录全部所选行，失败/活集合的原成员不会被删除以掩盖责任。
     void ExecutionGroupPage::RemoveSites()
     {
@@ -307,6 +320,7 @@ namespace ks::action_analyze
         m_authorized->setEnabled(editable);
         m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);
         m_replace->setEnabled(editable && selected.size() == 1);
+        m_load->setEnabled(editable && selected.size() == 1);
         m_remove->setEnabled(editable && !selected.empty());
         m_start->setEnabled(m_registered && editable && !m_model->sites.empty() && m_authorized->isChecked());
         m_newDraft->setEnabled(m_session && m_shown.retired);

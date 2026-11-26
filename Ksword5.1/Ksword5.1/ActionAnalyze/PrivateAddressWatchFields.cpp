@@ -158,6 +158,15 @@ namespace ks::action_analyze
         return parsed && rva ? std::optional<std::uint32_t>{rva} : std::nullopt;
     }
 
+    // 输入完整已保存目标，回填身份、地址与页数；仅由显式载入动作调用，无控制副作用。
+    void PrivateAddressWatchFields::LoadDraft(const PrivateAddressWatchTarget& target)
+    {
+        m_pid->setText(QString::number(target.pid));
+        m_creation->setText(QString::number(target.creation));
+        m_address->setText(target.address ? QStringLiteral("0x%1").arg(target.address, 0, 16) : QString());
+        m_pageCount->setValue(target.rangeBytes ? static_cast<int>(target.rangeBytes / 4096) : 1);
+    }
+
     // 不清空输入或修改结果，仅阻止活会话期间改写本轮目标草稿。
     void PrivateAddressWatchFields::SetActive(bool active)
     {

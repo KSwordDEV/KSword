@@ -19,6 +19,7 @@ struct ExecutionGroupSite {
     std::uint64_t rangeBytes = 0; // 非零时沿原 owner 的私有 NX 范围机制。
     std::wstring conditionSource; // 冻结原文，供端侧显示，不重新编译或热替换。
     Ksword::ActionAnalyze::Rules::PreparedPredicate condition;
+    std::optional<std::string> imageSha256; // 可选模块文件SHA256约束，由原owner对装载事件文件核验；私有地址不接受。
 };
 
 enum class ExecutionGroupState { Idle, Active, HeldPartial, HeldComplete, PartialFailure, RecoveryRequired, Closing, Closed };

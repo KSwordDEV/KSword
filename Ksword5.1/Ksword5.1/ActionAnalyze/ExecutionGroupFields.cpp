@@ -99,6 +99,8 @@ namespace ks::action_analyze
                     .field(QStringLiteral("断点状态码"), QString::number(static_cast<int>(binding.state)))
                     .field(QStringLiteral("断点诊断"), QString::fromLatin1(binding.stage))
                     .field(QStringLiteral("断点 Win32"), QString::number(binding.win32Error));
+                document.field(QStringLiteral("实际装载文件 SHA256"), binding.imageSha256
+                    ? QString::fromStdString(*binding.imageSha256) : sourceText(QStringLiteral("无实际测量值")));
                 document.field(QStringLiteral("已纳入执行范围"), QString::number(binding.executionRanges.size()));
                 std::uint64_t totalRangeBytes = 0; // 成功范围目录总量独立于初始站点，不计失败回滚中的页。
                 for (const auto& range : binding.executionRanges)
@@ -223,7 +225,14 @@ namespace ks::action_analyze
         }
         if (index.column() == 1)
         {
-            return SiteText(site);
+            auto text = SiteText(site); // 列表紧凑显示期望约束，tooltip保留完整64位；实际测量值只来自control。
+            if (site.imageSha256)
+            {
+                const auto expected = QString::fromStdString(*site.imageSha256); // 显示冻结站点的用户期望值。
+                text += sourceText(QStringLiteral(" · 期望 SHA256 %1"))
+                    .arg(role == Qt::ToolTipRole ? expected : expected.left(12) + QStringLiteral("…"));
+            }
+            return text;
         }
         if (member == result.members.end())
         {
@@ -290,6 +299,8 @@ namespace ks::action_analyze
                 .field(QStringLiteral("PID"), QString::number(site.pid))
                 .field(QStringLiteral("创建 FILETIME"), QString::number(site.creationFileTime))
                 .field(QStringLiteral("执行位置"), SiteText(site))
+                .field(QStringLiteral("期望映像 SHA256"), site.imageSha256
+                    ? QString::fromStdString(*site.imageSha256) : sourceText(QStringLiteral("未指定")))
                 .field(QStringLiteral("命中条件"), QString::fromStdWString(site.conditionSource));
             for (const auto& member : snapshot.result.members)
             {
@@ -331,6 +342,15 @@ namespace ks::action_analyze
                     .field(QStringLiteral("创建 FILETIME"), QString::number(outcome.creationFileTime))
                     .field(QStringLiteral("实际调用原会话"), outcome.actionAttempted ? QStringLiteral("是") : QStringLiteral("否"), true)
                     .field(QStringLiteral("成员操作分类"), QString::fromLatin1(outcome.disposition));
+                const auto member = std::find_if(snapshot.result.members.begin(), snapshot.result.members.end(), [&](const auto& item)
+                {
+                    return item.site.pid == outcome.pid && item.site.creationFileTime == outcome.creationFileTime;
+                }); // 操作详情只取同一冻结集合站点；不向可能已编辑的表单借用期望值。
+                if (member != snapshot.result.members.end())
+                {
+                    document.field(QStringLiteral("期望映像 SHA256"), member->site.imageSha256
+                        ? QString::fromStdString(*member->site.imageSha256) : sourceText(QStringLiteral("未指定")));
+                }
                 AppendControl(document, outcome.control); // 全部实际调用成员均可查，不以第一行代表整个批次。
             }
         }

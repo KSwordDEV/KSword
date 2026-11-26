@@ -69,6 +69,17 @@ void Layout(Page& page)
     move(page.hint, 0, y, bodyWidth, hintHeight);
     y += hintHeight + gap;
     for (std::size_t i = 0; i < FieldCount; ++i) {
+        // 私有地址只改变散列行可见性，不清空输入；重新回到模块站点时继续原草稿。
+        if (i == ImageSha256)
+        {
+            const bool image = InputText(page.inputs[Address]).empty(); // 现有页面用私有地址是否填写区分站点机制。
+            ::ShowWindow(page.labels[i], image ? SW_SHOW : SW_HIDE);
+            ::ShowWindow(page.inputs[i], image ? SW_SHOW : SW_HIDE);
+            if (!image)
+            {
+                continue;
+            }
+        }
         const int labelHeight = TextHeight(page.labels[i], bodyWidth);
         move(page.labels[i], 0, y, bodyWidth, labelHeight);
         y += labelHeight;
@@ -126,13 +137,16 @@ bool CreateControls(Page& page)
     Wrap(page.hint);
     constexpr std::array<const wchar_t*, FieldCount> names{L"PID（十进制）", L"创建 FILETIME（十进制）",
         L"普通模块绝对路径（与私有地址互斥）", L"模块 RVA（十六进制，与导出二选一）", L"精确导出名（区分大小写）",
-        L"私有地址 / 追加NX起点（十六进制）", L"私有范围 / 追加字节数（十进制）", L"命中条件（可空，启动时冻结）"};
+        L"私有地址 / 追加NX起点（十六进制）", L"私有范围 / 追加字节数（十进制）", L"命中条件（可空，启动时冻结）",
+        L"期望映像 SHA256（可选，仅模块导出/RVA）"};
     for (std::size_t i = 0; i < FieldCount; ++i) {
         page.labels[i] = Ui::CreateText(body, 0, names[i], 0, 0, 1, 1);
         Wrap(page.labels[i]);
-        page.inputs[i] = Edit(body, kPid + static_cast<int>(i), i == Condition ?
+        const int id = i == ImageSha256 ? kImageSha256 : kPid + static_cast<int>(i); // 保留现有按钮和身份输入ID。
+        page.inputs[i] = Edit(body, id, i == Condition ?
             ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL : ES_AUTOHSCROLL);
-        ::SendMessageW(page.inputs[i], EM_SETLIMITTEXT, i == Module ? 32767 : i == Condition ? 16384 : i == Export ? 4096 : 20, 0);
+        const int limit = i == Module ? 32767 : i == Condition ? 16384 : i == Export ? 4096 : i == ImageSha256 ? 128 : 20; // 超64位散列保留为非法值，不截成有效输入。
+        ::SendMessageW(page.inputs[i], EM_SETLIMITTEXT, limit, 0);
     }
     page.identify = Ui::CreateButton(body, kIdentify, L"读取 PID 身份", 0, 0, 1, 1);
     page.rangeHint = Ui::CreateText(body, 0,
@@ -198,6 +212,7 @@ bool CreateControls(Page& page)
         Tip(page, page.addRange, L"须单选原集合的完整Held NX成员，允许主动暂停。只使用私有地址/范围字节草稿和点击时的完整停点，向原owner追加；不读取PID、模块或条件草稿，不修改启动站点，不继续。失败保留草稿、原集合和回执，可刷新后重试。");
         Tip(page, page.inputs[Address], L"加入草稿时作为启动私有地址；追加选中NX范围时作为新增范围起点。追加目标由右侧单选成员的原停点决定，不由PID草稿决定。");
         Tip(page, page.inputs[Range], L"启动时0表示单地址；追加时必须填写非零字节数，4KiB整数倍且不超过256KiB。编辑不会修改已保存草稿项或旧集合来源。");
+        Tip(page, page.inputs[ImageSha256], L"只接受64位小写十六进制SHA256，留空不设约束。原生所有者核验实际调试装载文件后才武装DR0，不自动采集。私有地址时隐藏并保留草稿，不发送。");
         for (const auto button : {page.stepInto, page.stepOver, page.stepOut})
             Tip(page, button, L"只选一个当前断点或步进停点，命中条件须允许操作。主动暂停停点不支持步进。");
         Tip(page, page.cancelStep, L"只选一个仍在原生步进中的成员；中止复用该成员的原步进请求。");
@@ -206,6 +221,7 @@ bool CreateControls(Page& page)
         Tip(page, page.identify, L"在集合的同一个后台会话读取PID创建时间，不附加、不暂停；已有创建时间草稿不被覆盖。");
         Tip(page, page.add, L"将当前参数编译并加入下一轮草稿；不改变正在运行的成员或旧结果。修改已有项须先移除原草稿项。");
         Tip(page, page.draft, L"这里选择待执行的草稿项；原集合操作仅取右侧成员表选择。");
+        Tip(page, page.loadDraft, L"显式载回选中草稿的全部参数及期望映像SHA256，不使用实际测量值覆盖期望约束，不改变原集合。");
     }
     Ui::SetWindowFontRecursive(page.hwnd);
     RebuildColumns(page);

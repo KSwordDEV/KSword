@@ -76,7 +76,16 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
             else return 0;
             RebuildColumns(*page);
             Refresh(*page);
-        } else if (id == kTextMode && code == CBN_SELCHANGE) RefreshText(*page);
+        } else if ((id == kTextMode || id == kDraft) && code == CBN_SELCHANGE) RefreshText(*page);
+        else if (id == kAddress && code == EN_CHANGE)
+        {
+            const bool image = InputText(page->inputs[Address]).empty(); // 仅在机制可见性改变时重新布局，逐字符编辑不重排页面。
+            const bool shown = (::GetWindowLongPtrW(page->inputs[ImageSha256], GWL_STYLE) & WS_VISIBLE) != 0;
+            if (image != shown)
+            {
+                Layout(*page); // 地址切到私有机制时隐藏散列行，保留其文本和原集合结果。
+            }
+        }
         else if (id == kAuthorized && code == BN_CLICKED) Refresh(*page);
         else if (code == BN_CLICKED && (id == kIdentify || id == kAdd || id == kRemove || id == kLoadDraft ||
             id == kStart || id == kQuery || id == kPauseAll || id == kPauseSelected || id == kContinueAll ||

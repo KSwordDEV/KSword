@@ -29,6 +29,7 @@ namespace ks::action_analyze
         // 切换地址提示，不改写地址草稿；整页模式明确要求4KiB对齐并说明保护变化。
         void SetPageExecutionMode(bool pageExecution, bool imageExecution = false);
         void SetActive(bool active); // 活会话只读，保留下一轮之前的原始输入。
+        void LoadDraft(const PrivateAddressWatchTarget& target); // 显式回填保存的实例与范围草稿，不查询系统。
         std::function<void()> changed; // 草稿变化通知宿主页重算启动资格。
 
     private:

@@ -67,8 +67,9 @@ namespace ks::action_analyze
         auto* draftFlow = new ks::ui::FlowLayout(draft, 0, 8, 8);
         m_add = Action(draft, "execution_group_add", QStringLiteral("加入执行站点"), QStringLiteral("将完整表单加入草稿；同一 PID 只允许一个站点，不附加目标。"));
         m_replace = Action(draft, "execution_group_replace", QStringLiteral("替换选中草稿"), QStringLiteral("用当前完整表单替换唯一选中的草稿站点，不改变活集合。"));
+        m_load = Action(draft, "execution_group_load", QStringLiteral("载入选中草稿"), QStringLiteral("将唯一选中站点的完整草稿载回表单，包括期望映像 SHA256；仅编辑，不附加目标。"));
         m_remove = Action(draft, "execution_group_remove", QStringLiteral("移除选中目标"), QStringLiteral("只移除尚未配置的草稿成员。"));
-        for (auto* button : {m_add, m_replace, m_remove})
+        for (auto* button : {m_add, m_replace, m_load, m_remove})
         {
             draftFlow->addWidget(button);
         }
@@ -148,6 +149,7 @@ namespace ks::action_analyze
 
         connect(m_add, &QPushButton::clicked, this, [this] { AddSite(false); });
         connect(m_replace, &QPushButton::clicked, this, [this] { AddSite(true); });
+        connect(m_load, &QPushButton::clicked, this, [this] { LoadSite(); });
         connect(m_remove, &QPushButton::clicked, this, [this] { RemoveSites(); });
         connect(m_start, &QPushButton::clicked, this, [this] { Start(); });
         connect(m_newDraft, &QPushButton::clicked, this, [this]

@@ -28,6 +28,7 @@ namespace ks::action_analyze
 
     private:
         void AddSite(bool replace); // 冻结当前单站点表单，显式加入或替换草稿选中项。
+        void LoadSite(); // 显式载入唯一选中的完整草稿，不以列表选择覆盖未保存表单。
         void RemoveSites(); // 仅从未启动目录移除点击时选中行。
         void Start(); // 在原worker上创建并启动唯一集合。
         void AddRange(std::uint64_t address, std::uint64_t bytes); // 冻结单选成员的完整停点，将范围交原worker追加。
@@ -48,6 +49,7 @@ namespace ks::action_analyze
         QLabel* m_status = nullptr; // 草稿错误、回读时间、清退责任分层显示。
         QPushButton* m_add = nullptr; // 加入下一站点。
         QPushButton* m_replace = nullptr; // 用完整输入替换选中草稿行。
+        QPushButton* m_load = nullptr; // 将保存的完整成员草稿载回编辑器。
         QPushButton* m_remove = nullptr; // 移除选中草稿成员。
         QPushButton* m_start = nullptr; // 开始原生集合。
         QPushButton* m_newDraft = nullptr; // clean之后显式返回目录草稿。

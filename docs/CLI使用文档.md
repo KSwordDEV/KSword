@@ -253,6 +253,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 多实例执行集合的正式命令、站点格式和完整成员票据见[执行断点集合](cli/action-analyze-execution-group.md)。AAIM1 内存生命周期的只读范围目录、分页和显式草稿见[私有执行范围候选](cli/action-analyze-execution-candidates.md)。
 
+执行集合的模块站点可选 `imageSha256`（64个小写十六进制字符），支持精确导出及RVA。每个原成员owner对实际模块基址对应的调试装载事件文件核验后才武装DR0；期望值在 `site.imageSha256`，实测成功值在 `control.breakpoint.imageSha256`，私有地址禁止该字段。不能取得原事件文件或散列不符只清退对应成员，成功成员继续保留。该新增集合约束仍待构建和运行。
+
 执行集合也支持单成员 `control.execution.range.add`：`params:{address,bytes}` 用规范正十进制字符串，`expected:{collectionId,stops:[完整当前NX停点票据]}`。REPL为 `execution-range-add execution/N ADDRESS BYTES TOKENHEX`。它沿原成员owner追加明确整页范围，保留原停点、初始站点和总64页预算，不继续目标；ManualPause允许追加。`canAddRange`、实际 `executionRanges` 和独立 `executionRange` 回执分列。该新增入口尚未构建或实测。
 
 执行集合另支持 `pause execution/N all|selected TOKENHEX[,TOKENHEX...]`／JSONL `control.pause`：在各成员原执行 owner 内主动暂停，冻结完整 `pauseToken`，全部预核对后逐项提交；独立保留暂停回执。精确 `ManualPause` Held 可继续，本批拒绝步进，不能以创建执行绑定冒充主动暂停。参数及完整包络见上述执行集合文档。

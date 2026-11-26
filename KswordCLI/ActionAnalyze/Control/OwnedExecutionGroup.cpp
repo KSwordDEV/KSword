@@ -1,4 +1,5 @@
 #include "OwnedExecutionGroup.h"
+#include "NativeBreakpointImageIdentity.h"
 
 #include "../Project/ProjectStorage.h"
 
@@ -18,8 +19,12 @@ namespace storage = Ksword::ActionAnalyze::ProjectStorage;
 bool ValidSite(const ExecutionGroupSite& site)
 {
     if (!site.pid || !site.creationFileTime) return false;
+    if (site.imageSha256 && !ValidNativeImageSha256(*site.imageSha256))
+    {
+        return false; // 所有成员在任何附加前核对约束格式，不把空值或大写隐式改写。
+    }
     if (site.address) {
-        return site.modulePath.empty() && !site.rva && site.exactExport.empty() &&
+        return site.modulePath.empty() && !site.rva && site.exactExport.empty() && !site.imageSha256 &&
             (!site.rangeBytes || (!(site.address % 4096) && !(site.rangeBytes % 4096) &&
                 site.rangeBytes <= 64ull * 4096 && site.address <= UINT64_MAX - site.rangeBytes));
     }
@@ -45,6 +50,7 @@ bool SameBinding(const NativeControlResult& displayed, const NativeControlResult
         !displayed.clean && !current.clean && displayed.breakpoint && current.breakpoint &&
         !displayed.breakpoint->requestId.empty() && displayed.breakpoint->requestId == current.breakpoint->requestId &&
         displayed.breakpoint->address == current.breakpoint->address &&
+        displayed.breakpoint->imageSha256 == current.breakpoint->imageSha256 &&
         displayed.breakpoint->rangeBytes == current.breakpoint->rangeBytes &&
         displayed.breakpoint->executionRanges == current.breakpoint->executionRanges;
 }
@@ -203,7 +209,7 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
         auto state = site.address ? member.session->AttachPrivateAddress(site.pid, site.creationFileTime,
             site.address, 0, site.condition, sampleId, site.rangeBytes) :
             member.session->AttachImageExecution(site.pid, site.creationFileTime, site.modulePath,
-                site.rva, site.exactExport, site.condition, sampleId);
+                site.rva, site.exactExport, site.condition, sampleId, site.imageSha256);
         if (!state.pid) {
             state.pid = site.pid;
             state.processCreationTime = site.creationFileTime;

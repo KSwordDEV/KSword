@@ -11,9 +11,10 @@ enum : int {
     kIdentify, kAdd, kRemove, kDraft, kAuthorized, kStart, kQuery, kContinueAll,
     kContinueSelected, kStepInto, kStepOver, kStepOut, kCancelStep, kClose,
     kMembers, kPreset, kTextMode, kCopy, kExportText, kText, kStatus, kLoadDraft,
-    kPauseAll, kPauseSelected, kAddRange
+    kPauseAll, kPauseSelected, kAddRange, kImageSha256
 };
-enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, FieldCount };
+// 末尾增加输入字段，保留既有控件ID与字段顺序；散列使用独立kImageSha256标识。
+enum Field : std::size_t { Pid, Creation, Module, Rva, Export, Address, Range, Condition, ImageSha256, FieldCount };
 
 // 页面只保存纯值快照；原生集合、调试owner与清退责任属于会话worker。
 struct Page {

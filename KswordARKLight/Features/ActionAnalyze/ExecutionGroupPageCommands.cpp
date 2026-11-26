@@ -1,4 +1,5 @@
 #include "ExecutionGroupPageState.h"
+#include "../../../KswordCLI/ActionAnalyze/Control/NativeBreakpointImageIdentity.h"
 #include "../../Ui/ExportUtil.h"
 #include "../../../shared/evidence/NumericTextParse.h"
 #include <algorithm>
@@ -21,6 +22,7 @@ bool Number(HWND control, std::uint64_t& value, int radix, bool optional = false
     return ksword::evidence::NumericTextParseDigits(input, radix, value);
 }
 
+// 输入当前表单，成功输出冻结站点；失败在页面保留原因，不访问目标或模块文件。
 bool Site(Page& page, execution_native::ExecutionGroupSite& site)
 {
     std::uint64_t pid = 0, rva = 0;
@@ -71,6 +73,30 @@ bool Site(Page& page, execution_native::ExecutionGroupSite& site)
             return false;
         }
     }
+    // 模块站点才冻结用户期望散列；私有地址保留隐藏输入，但不会将其放入请求。
+    if (!site.address)
+    {
+        const auto expected = InputText(page.inputs[ImageSha256]); // 保留原文，不自动去空白或转小写。
+        if (!expected.empty())
+        {
+            std::string hash; // 仅将完整ASCII原文转为后端文本，拒绝宽字符截断造成的伪合法散列。
+            for (const auto character : expected)
+            {
+                if (character > 127)
+                {
+                    page.error = L"映像SHA256须为空或64位小写十六进制。";
+                    return false;
+                }
+                hash.push_back(static_cast<char>(character));
+            }
+            if (!execution_native::ValidNativeImageSha256(hash))
+            {
+                page.error = L"映像SHA256须为空或64位小写十六进制。";
+                return false;
+            }
+            site.imageSha256 = hash; // 只传约束，由原生owner核验实际装载文件；不按路径重新打开。
+        }
+    }
     site.conditionSource = InputText(page.inputs[Condition]);
     const auto prepared = execution_native::PrepareDataWatchCondition(site.conditionSource);
     if (prepared.diagnostic) {
@@ -81,6 +107,7 @@ bool Site(Page& page, execution_native::ExecutionGroupSite& site)
     return true;
 }
 
+// 显式载入所选保存草稿，包括模块期望散列；私有站点保留已有隐藏输入，不读取control测量值。
 void LoadDraft(Page& page)
 {
     const auto index = ::SendMessageW(page.draft, CB_GETCURSEL, 0, 0);
@@ -93,9 +120,11 @@ void LoadDraft(Page& page)
     };
     const std::array<std::wstring, FieldCount> values{std::to_wstring(site.pid), std::to_wstring(site.creationFileTime),
         site.modulePath, site.rva ? hex(*site.rva) : L"", Widen(site.exactExport), site.address ? hex(site.address) : L"",
-        site.rangeBytes ? std::to_wstring(site.rangeBytes) : L"", site.conditionSource};
+        site.rangeBytes ? std::to_wstring(site.rangeBytes) : L"", site.conditionSource,
+        site.address ? InputText(page.inputs[ImageSha256]) : site.imageSha256 ? Widen(*site.imageSha256) : L""};
     for (std::size_t i = 0; i < FieldCount; ++i) ::SetWindowTextW(page.inputs[i], values[i].c_str());
     // 载入只改变编辑草稿；旧集合来源和成员选择保持不变。
+    Layout(page); // 地址机制决定散列行显隐；私有站点载入不抹去之前隐藏的散列输入。
 }
 }
 
