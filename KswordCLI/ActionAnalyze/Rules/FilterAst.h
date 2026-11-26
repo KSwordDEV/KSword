@@ -52,8 +52,8 @@ struct FieldTest { FieldOp op; std::string field; Literal literal; };
 struct Not { std::size_t child; };
 enum class Logic { And, Or };
 struct Logical { Logic op; std::size_t left; std::size_t right; };
-// C#布尔 &、^、| 保留从左到右的非短路求值；与u64位运算分别进行静态类型检查。
-enum class BooleanBinaryOp { And, Xor, Or };
+// C#布尔二元操作保留从左到右的非短路求值；==/!=只比较已知真值，不把Unknown当成false。
+enum class BooleanBinaryOp { And, Xor, Or, Equal, NotEqual };
 struct BooleanBinary {
     BooleanBinaryOp op; // 明确的布尔非短路运算。
     std::size_t left; // 左侧布尔谓词索引。

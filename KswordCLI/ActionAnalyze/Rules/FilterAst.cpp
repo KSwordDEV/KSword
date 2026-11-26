@@ -229,6 +229,14 @@ private:
             case BooleanBinaryOp::Xor:
                 if (left == Truth::Unknown || right == Truth::Unknown) return Truth::Unknown;
                 return AsTruth(left != right);
+            case BooleanBinaryOp::Equal:
+            case BooleanBinaryOp::NotEqual:
+                // 比较必须取得两侧真实布尔值；两个未知也不能推断为相等。
+                if (left == Truth::Unknown || right == Truth::Unknown)
+                {
+                    return Truth::Unknown;
+                }
+                return AsTruth(binary->op == BooleanBinaryOp::Equal ? left == right : left != right);
             }
             fault_ = EvaluationFault::InvalidInput;
             return Truth::Unknown;
@@ -518,7 +526,8 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             }
         } else if (const auto* binary = std::get_if<BooleanBinary>(&node)) {
             if (binary->op != BooleanBinaryOp::And && binary->op != BooleanBinaryOp::Xor &&
-                binary->op != BooleanBinaryOp::Or)
+                binary->op != BooleanBinaryOp::Or && binary->op != BooleanBinaryOp::Equal &&
+                binary->op != BooleanBinaryOp::NotEqual)
             {
                 return {{}, PrepareError::UnsupportedOperator, i};
             }

@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-26 第10项bool等值比较新增源码。** 复用BooleanBinary扩展Equal/NotEqual，v3 bool字段保留原null测试，其它比较交共享优先级解析器，支持bool字段/括号/函数/三元谓词之间==/!=。两侧左到右，任一未知即Unknown、两个未知不推断相等；大小比较和bool/u64混用仍拒绝，v1/v2仍走原解析。三端提示、CLI内置help、规则README及双语同步。此前回执中bool字段间==为无的边界已由这批源码扩展，但未构建、测试、GUI或派发，不能改为运行已通过。
+
 - **2026-11-26 第10项布尔非短路源码闭合。** v3解析器按两侧静态输出选择BooleanBinary/u64 NumericBinary，解释器按左到右依次计算bool &/^/|，算术和预算故障仍使最终Unknown；同为bool或同为u64，混合拒绝，v1/v2不开放。Qt规则草稿、写入停点、Light说明与CLI内置help、两份文档及双语同步。CodeBuddy确认已有主体无新增行为缺口，仅修FilterAst契约注释，主代理补RuleExpression.h过时说明。只是有限C#风格谓词，不是完整C#执行环境；bool字段间==仍为无。无构建/运行/GUI/新增验收记录/推送。
 
 - **2026-11-26 第5/6项线程恢复源码整合。** 接收CodeBuddy原限定任务的两处改动：`NativeStepRuntime::Restore`在上下文失败时仍逐真实线程对象结清已signaled退出对象的暂停债，存活债保留；`NativeDebugOwner::RestoreStep`在step资源为空的返回之前先处理仍开放的NX页。主代理只整理新增注释和代码排版，没有重复完整审查或执行验收。历史线程退出/取消后Continue异常保持待验，未构建/测试/GUI/推送。

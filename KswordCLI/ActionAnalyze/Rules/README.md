@@ -20,6 +20,8 @@ v3 的 `&`、`^`、`|` 也接受两个 bool 谓词，按 C# 优先级从左到�
 
 主程序“监控 → 行为分析 → 行为规则草稿”使用相同解析器。草稿顶层可显式设置 `expressionProfile`；未设置时按 v2 读取，新的内置草稿明确使用 v3。字段类型从 `BehaviorRuleFields()` 取得；合成草稿输入和归档预置字段分别列出，不把 API 字段冒充合成事件输入。
 
+v3的 `==`、`!=` 支持两个bool字段或任意bool子树，如 `stop.firstChance == isKnown(stop.thread.rax)`、`(stop.firstChance & isKnown(stop.thread.rip)) != false`。两侧按左到右求值；任一未知即Unknown，包括两个未知值，不把未知当false或彼此相等。bool大小比较及bool/u64混用拒绝；旧 `field == null`／`!= null` 仍是原字段null测试，v1/v2维持字段对显式常量语法。新增源码未构建、未实测。
+
 `profiles/action_analyze_api_rules.json` 保留 `schemaVersion:1`，新增可选 `expressionProfile`；旧文件省略时为 v2。结构见 [API 预置 schema](../../../schemas/action_analyze/api-rule-presets.schema.json)。数据库仍冻结实际读取字节的 SHA-256，修改文件不替换已加载采样的准备结果。
 
 `BehaviorPresetFields.cpp/.h` 是规则专用投影，不建立跨事件候选链。`ReadApiPresetEvidence()` 调用专用协议严格读侧与普通强类型返回读侧；`ProjectApiPresetFields()` 只发布有效位、精确返回或通过严格 formatter 格式核对的字段。全部字段处于归档观察阶段；`evidence.phase == "return"` 只由通过返回核验的协议产生。缺字段为 `NotCollected`，不回填零、不做 raw substring 匹配、不解引用请求指针。API 报告的身份与返回不认证历史生产者，也不授予活控制权。

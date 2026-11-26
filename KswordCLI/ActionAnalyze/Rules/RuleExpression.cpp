@@ -366,7 +366,17 @@ private:
                     }
                     continue;
                 }
-                node = NumericComparison{*comparison, left, right};
+                if ((*comparison == FieldOp::Equal || *comparison == FieldOp::NotEqual) &&
+                    !HasNumericOperands(left) && !HasNumericOperands(right))
+                {
+                    const auto operation = *comparison == FieldOp::Equal
+                        ? BooleanBinaryOp::Equal : BooleanBinaryOp::NotEqual; // 只开放两侧布尔的等/不等，不赋予bool大小关系。
+                    node = BooleanBinary{operation, left, right};
+                }
+                else
+                {
+                    node = NumericComparison{*comparison, left, right};
+                }
             } else {
                 const auto operation = std::get<NumericBinaryOp>(op->operation); // 相同符号按两侧已生成子树选择bool/u64。
                 const bool bitwise = operation == NumericBinaryOp::BitAnd ||
@@ -494,7 +504,23 @@ private:
             position_ = saved;
             return Emit(NumericField{std::string(name)}, range);
         }
-        const auto op = allowComparison ? Comparison() : std::nullopt; // 裸字段必须是 Bool。
+        if (version_ >= 3 && fieldType == FieldType::Bool)
+        {
+            // bool右侧可以是字段、括号、函数或三元子树；统一交外层优先级解析，保留旧null测试。
+            const auto saved = position_; // 探查null比较之后恢复普通表达式的读取位置。
+            const auto op = allowComparison ? Comparison() : std::nullopt; // null仍只接显式==或!=。
+            SkipSpace();
+            const auto tail = source_.substr(position_); // 后缀边界防止把null字段名当作null常量。
+            if ((op == FieldOp::Equal || op == FieldOp::NotEqual) && tail.starts_with("null") &&
+                (tail.size() == 4 || (!IdentifierStart(tail[4]) && !Digit(tail[4]) && tail[4] != '.')))
+            {
+                position_ += 4;
+                return Emit(FieldTest{*op, std::string(name), std::monostate{}}, range);
+            }
+            position_ = saved;
+            return Emit(FieldTest{FieldOp::Equal, std::string(name), true}, range); // 读取已登记bool；未知质量仍返回Unknown。
+        }
+        const auto op = allowComparison ? Comparison() : std::nullopt; // 旧版本及文本字段仍使用字段对常量语法。
         Literal literal = true; // 布尔简写的右侧值。
         if (op && !ReadLiteral(literal)) {
             return false;
