@@ -222,8 +222,8 @@ namespace ks::action_analyze
         std::vector<Ksword::Evidence::ApiContextCandidateRows<SegmentRow>> contextTransferCandidates; // 最近 128 对上下文候选双方。
         quint64 contextTransferCandidateCount = 0; // 已核验前缀累计数，含窗口外候选。
         quint64 evictedTransferWrites = 0; // 共享 1024 写入链窗口已淘汰数。
-        std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<SegmentRow>> sectionMapRequests; // 独立映射原行窗口。
-        quint64 evictedSectionMaps = 0; // 映射输入裁剪数。
+        std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<SegmentRow>> sectionMapRequests; // 范围/入口各128条的独立原行窗口。
+        quint64 evictedSectionMaps = 0; // 范围及入口请求输入的累计裁剪数，沿用旧字段名。
         Ksword::Evidence::ApiNativeExecutionProjection<SegmentRow> nativeExecution; // 同采样后台执行候选与状态。
         bool nativeHistoryOnly = false; // 采样只有独立原生历史，普通raw缺失不伪造API/ETW终段。
     };

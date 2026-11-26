@@ -213,15 +213,47 @@ JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection
             {"oldProtection", (fields.flags & ApiMemoryOldProtection) ? count(fields.oldProtection) : JsonValue{}},
             {"newProtection", count(fields.newProtection)}, {"enterQpc", count(fields.enterQpc)}, {"returnQpc", count(fields.returnQpc)}});
     }
+    JsonValue entry = JsonValue::makeNull(); // 三类入口独立保留请求；没有写入也不借请求构造执行事实。
+    if (const auto fields = ActionAnalyze::Detection::ReadNativeExecutionRequest(requestRecord))
+    {
+        const auto& context = requestRecord.apiContext; // AACT1可选请求寄存器，非原生实际现场。
+        const auto& apc = requestRecord.apiApc; // AAAP1原参数，不表示已投递。
+        const auto inputHandle = fields->kind == 0 ? requestRecord.apiInjection->inputHandle :
+            fields->kind == 1 ? apc->inputThreadHandle : context->inputThreadHandle; // 仅显示原位模式，不作对象身份。
+        entry = JsonValue::makeObject({
+            {"operation", JsonValue::makeString(requestRecord.operation)},
+            {"flags", count(fields->flags)},
+            {"actorPid", count(fields->actorPid)},
+            {"actorCreationFileTime", count(fields->actorCreationFileTime)},
+            {"targetPid", count(fields->targetPid)},
+            {"targetCreationFileTime", count(fields->targetCreationFileTime)},
+            {"tid", count(fields->tid)},
+            {"threadCreationFileTime", count(fields->threadCreationFileTime)},
+            {"requestedAddress", count(fields->requestedAddress)},
+            {"inputHandle", count(inputHandle)},
+            {"enterQpc", count(fields->enterQpc)},
+            {"returnQpc", count(fields->returnQpc)},
+            {"contextFlags", context ? count(context->contextFlags) : JsonValue{}},
+            {"contextArchitecture", context ? count(context->contextArchitecture) : JsonValue{}},
+            {"requestedSp", context ? count(context->requestedSp) : JsonValue{}},
+            {"inputContextAddress", context ? count(context->inputContextAddress) : JsonValue{}},
+            {"argument1", apc ? count(apc->argument1) : JsonValue{}},
+            {"argument2", apc ? count(apc->argument2) : JsonValue{}},
+            {"argument3", apc ? count(apc->argument3) : JsonValue{}}
+        });
+    }
     return JsonValue::makeObject({
         {"kind", JsonValue::makeString("api-native-consistency-candidate")},
         {"candidateType", JsonValue::makeString(memoryRange ? "memory-range" : kinds[kind])},
         {"memoryRange", std::move(memory)},
+        {"entryRequest", std::move(entry)},
+        {"writeObserved", JsonValue::makeBool(write != nullptr)},
         {"write", write ? Reference(*write) : JsonValue{}},
         {"writeRecordOffset", writeOffset ? count(*writeOffset) : JsonValue{}},
         {"request", Reference(request)},
         {"requestRecordOffset", count(requestRecord.recordOffset)},
         {"mappingSha256", mappingSha256.empty() ? JsonValue{} : JsonValue::makeString(std::string(mappingSha256))},
+        {"requestSha256", mappingSha256.empty() ? JsonValue{} : JsonValue::makeString(std::string(mappingSha256))},
         {"nativeSegmentOrdinal", count(ordinal)},
         {"nativeRecordSequence", count(execution.end.lastSequence)},
         {"nativeRecordOffset", count(execution.recordOffset)},

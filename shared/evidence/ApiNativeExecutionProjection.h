@@ -56,7 +56,7 @@ inline bool SameNativeExecutionHistory(const NativeExecutionHistoryEntry& left,
 template<typename Row>
 struct ApiNativeExecutionCandidate {
     int kind = 0; // 0 创建，1 APC，2 上下文，3 内存范围（映射/分配/保护）。
-    std::optional<Row> write; // 映射没有写入前置条件，其余保留真实写入原行。
+    std::optional<Row> write; // 有写入链时保留原行；独立入口/范围关联不补造写入。
     Row request; // 实际 API 请求原行，支持主表窗口之外定位。
     std::uint64_t nativeOrdinal = 0; // 独立 raw-native 的真实段号。
     std::uint64_t nativeSequence = 0; // 原生记录的真实序号。
@@ -72,7 +72,7 @@ struct ApiNativeExecutionProjection {
     std::uint64_t failedOrdinal = 0; // 坏段或限额位置。
     std::uint64_t verifiedNativeCount = 0; // 实际通过核验的原生记录总数。
     std::uint64_t candidateCount = 0; // 当前 API 窗口内全部匹配数，包含结果裁剪。
-    std::uint64_t evictedMaps = 0; // API 映射输入窗口淘汰数。
+    std::uint64_t evictedMaps = 0; // 兼容字段名：范围与独立入口请求输入的累计淘汰数。
     std::deque<ApiNativeExecutionCandidate<Row>> candidates; // 最近 512 个一致性候选，常数开销淘汰旧项。
     std::deque<NativeExecutionHistoryEntry> observations; // 最近512条独立观察，匹配不到API也保留。
 };
@@ -99,12 +99,17 @@ ApiNativeExecutionProjection<Row> ProjectApiNativeExecution(
     {
         return result;
     }
+    std::vector<detection::EvidenceRef> matchedRequests; // 当前原生事件已有写入链的请求，避免额外发布无写入副本。
     // 每个候选保存类型、双方原坐标和独立原生坐标；绝不建立跨来源 QPC 排序。
     const auto append = [&](int kind, const Row* write, const Row& request,
         const detection::EvidenceRef* writeRef, const detection::EvidenceRef& requestRef,
         const detection::ArchivedGraphRecord& requestRecord,
         const ActionAnalyze::ArchivedNativeExecution& execution, std::uint64_t ordinal, std::string_view mappingSha256 = {}) {
         ++result.candidateCount;
+        if (writeRef)
+        {
+            matchedRequests.push_back(requestRef);
+        }
         if (result.candidates.size() == 512)
         {
             result.candidates.pop_front();
@@ -125,6 +130,7 @@ ApiNativeExecutionProjection<Row> ProjectApiNativeExecution(
             return result; // 取消只影响原生投影，API已核验窗口仍由原读任务保留。
         }
         const auto& native = history.records[index]; // 已从首段连续核验的原生文档。
+        matchedRequests.clear(); // 不让旧原生事件的匹配阻止本次独立入口关联。
         const auto ordinal = static_cast<std::uint64_t>(index + 1); // 不采用 UI 行号作为段号。
         if (result.observations.size() == 512)
         {
@@ -154,9 +160,19 @@ ApiNativeExecutionProjection<Row> ProjectApiNativeExecution(
                 append(2, &pair.write, pair.context, &pair.link.write, pair.link.context, pair.requestRecord, native, ordinal);
             }
         }
-        // 三种范围请求共用独立输入窗口；核心各自核对成功实际输出，不凭句柄或请求地址补造写入。
+        // 范围与入口各保留128条输入；入口先核对精确线程/IP，范围仍核对实际半开输出区间。
         for (const auto& mapping : maps)
         {
+            if (const auto entry = detection::AssociateNativeExecutionRequest(scope, mapping.evidence,
+                mapping.record, mapping.sha256, native, ordinal))
+            {
+                if (std::find(matchedRequests.begin(), matchedRequests.end(), mapping.evidence) == matchedRequests.end())
+                {
+                    append(entry->kind, nullptr, mapping.row, nullptr, mapping.evidence,
+                        mapping.record, native, ordinal, mapping.sha256);
+                }
+                continue; // 同一入口已有完整写入链时不再生成无写入副本。
+            }
             if (detection::AssociateNativeSectionMap(scope, mapping.evidence, mapping.record,
                 mapping.sha256, native, ordinal) || detection::AssociateNativeMemoryRange(scope, mapping.evidence,
                     mapping.record, mapping.sha256, native, ordinal))

@@ -60,7 +60,7 @@ QString NativeExecutionStatus(const Ksword::Evidence::ApiNativeExecutionProjecti
     {
         return sourceText(QStringLiteral("原生历史读取已取消。"));
     }
-    auto text = sourceText(QStringLiteral("原生历史：已核验 %1 条，执行候选保留 %2 / 匹配 %3；映射输入淘汰 %4。"))
+    auto text = sourceText(QStringLiteral("原生历史：已核验 %1 条，执行候选保留 %2 / 匹配 %3；请求输入淘汰 %4。"))
         .arg(projection.verifiedNativeCount).arg(projection.candidates.size()).arg(projection.candidateCount).arg(projection.evictedMaps);
     if (projection.state == NativeHistoryState::Limited)
     {

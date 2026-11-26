@@ -580,8 +580,8 @@ SegmentEvidence ReadStoredEvidence(std::uint64_t size, const ReadExact& read, co
             out.apcTransferCandidateCount = transfers.ApcCandidateCount();
             out.contextTransferCandidates.assign(transfers.ContextCandidates().begin(), transfers.ContextCandidates().end());
             out.contextTransferCandidateCount = transfers.ContextCandidateCount();
-            out.sectionMapRequests.assign(transfers.Maps().begin(), transfers.Maps().end());
-            out.evictedSectionMaps = transfers.EvictedMaps();
+            out.sectionMapRequests = transfers.Requests();
+            out.evictedSectionMaps = transfers.EvictedRequests();
             for (auto& mapping : out.sectionMapRequests)
             {
                 SetApiClueSourcePreview(mapping.row, api.source, true);

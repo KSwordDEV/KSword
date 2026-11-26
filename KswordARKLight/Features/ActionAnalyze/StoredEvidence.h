@@ -115,8 +115,8 @@ struct SegmentEvidence {
     std::vector<Ksword::Evidence::ApiContextCandidateRows<EvidenceRecord>> contextTransferCandidates; // 最近 128 对 write/context 原行。
     std::uint64_t contextTransferCandidateCount = 0; // 已核验前缀累计数，不随裁剪回退。
     std::uint64_t evictedTransferWrites = 0; // 共享 1024 写入窗口淘汰数。
-    std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<EvidenceRecord>> sectionMapRequests; // 独立映射原行窗口。
-    std::uint64_t evictedSectionMaps = 0; // 映射输入裁剪数。
+    std::vector<Ksword::Evidence::ApiSectionMapCandidateRow<EvidenceRecord>> sectionMapRequests; // 范围/入口各128条的独立原行窗口。
+    std::uint64_t evictedSectionMaps = 0; // 范围及入口请求累计裁剪数，沿用旧字段名。
     Ksword::Evidence::ApiNativeExecutionProjection<EvidenceRecord> nativeExecution; // 同采样执行候选及独立读取状态。
     bool nativeHistoryOnly = false; // 普通raw不存在，只展示独立原生归档，不表示API或ETW检查点通过。
 };

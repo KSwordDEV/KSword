@@ -189,8 +189,8 @@ ProjectReplayEvidence ReadApiProjectReplay(const Project::ProjectDocument& proje
     result.raw.apcTransferCandidateCount = transfers.ApcCandidateCount();
     result.raw.contextTransferCandidates.assign(transfers.ContextCandidates().begin(), transfers.ContextCandidates().end());
     result.raw.contextTransferCandidateCount = transfers.ContextCandidateCount();
-    result.raw.sectionMapRequests.assign(transfers.Maps().begin(), transfers.Maps().end());
-    result.raw.evictedSectionMaps = transfers.EvictedMaps();
+    result.raw.sectionMapRequests = transfers.Requests();
+    result.raw.evictedSectionMaps = transfers.EvictedRequests();
     for (auto& mapping : result.raw.sectionMapRequests) // 同一已核验前缀中的映射来源声明。
     {
         if (result.checkpoint.apiArchiveSource)

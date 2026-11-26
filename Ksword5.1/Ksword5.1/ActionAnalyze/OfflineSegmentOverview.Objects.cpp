@@ -335,7 +335,7 @@ public:
             }
             if (index.row() == 0)
             {
-                return sourceText(QStringLiteral("范围关联不要求写入前置条件。"));
+                return sourceText(QStringLiteral("本关联未绑定前置写入；不表示没有发生写入。"));
             }
             const auto* native = candidate->sourceDocument.find("native"); // 真实原生观察，不从请求地址填补。
             const auto* observation = native ? native->find("observation") : nullptr;

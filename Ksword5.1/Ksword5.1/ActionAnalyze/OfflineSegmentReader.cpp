@@ -518,8 +518,8 @@ SegmentSnapshot ReadStandalone(const QString& path, const CancelCheck& isCancele
                 candidate.context.archivedApi->archiveSource = api.source;
             }
             snapshot.evictedTransferWrites = transfers.EvictedWrites();
-            snapshot.sectionMapRequests.assign(transfers.Maps().begin(), transfers.Maps().end());
-            snapshot.evictedSectionMaps = transfers.EvictedMaps();
+            snapshot.sectionMapRequests = transfers.Requests();
+            snapshot.evictedSectionMaps = transfers.EvictedRequests();
             if (expected && !snapshot.sectionMapRequests.empty())
             {
                 std::string hash; // 同一只读文件句柄上的完整已验 API 段摘要。
@@ -885,8 +885,8 @@ SegmentSnapshot ReadApiFollowReplay(const QString& path, const CancelCheck& isCa
         snapshot.apcTransferCandidateCount = transfers.ApcCandidateCount();
         snapshot.contextTransferCandidates.assign(transfers.ContextCandidates().begin(), transfers.ContextCandidates().end());
         snapshot.contextTransferCandidateCount = transfers.ContextCandidateCount();
-        snapshot.sectionMapRequests.assign(transfers.Maps().begin(), transfers.Maps().end());
-        snapshot.evictedSectionMaps = transfers.EvictedMaps();
+        snapshot.sectionMapRequests = transfers.Requests();
+        snapshot.evictedSectionMaps = transfers.EvictedRequests();
         for (auto& mapping : snapshot.sectionMapRequests)
         {
             mapping.row.archivedApi->archiveSource = snapshot.apiArchiveSource;

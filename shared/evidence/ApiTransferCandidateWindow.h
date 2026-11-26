@@ -3,11 +3,13 @@
 #include "../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
 #include "ApiMonitorClue.h"
 #include "../../KswordCLI/ActionAnalyze/Detection/ArchivedEvidenceGraph.h"
+#include "../../KswordCLI/ActionAnalyze/Detection/NativeTransferAssociation.h"
 
 #include <algorithm>
 #include <deque>
 #include <limits>
 #include <utility>
+#include <vector>
 
 namespace Ksword::Evidence {
 
@@ -42,7 +44,7 @@ struct ApiContextCandidateRows {
     ActionAnalyze::Detection::ArchivedGraphRecord requestRecord; // 同一原包解析的匹配输入。
 };
 
-// 映射及AAIM1分配/保护无需先有写入；共用有界范围请求窗口，不从主表截断窗口补造。
+// 无写入前置的API请求保留原行及段摘要；范围与入口各有独立128条窗口。
 template<typename Row>
 struct ApiSectionMapCandidateRow {
     ActionAnalyze::Detection::EvidenceRef evidence; // 实际项目、采样、来源及 raw 坐标。
@@ -139,6 +141,16 @@ public:
                 ++evictedMaps_;
             }
             maps_.push_back({evidence, request, row, {}});
+        }
+        if (ActionAnalyze::Detection::ReadNativeExecutionRequest(request))
+        {
+            // 入口不依赖写入链；与范围窗口分别限额，避免高频分配挤掉全部线程请求。
+            if (entries_.size() == kApiContextCandidateRows)
+            {
+                entries_.pop_front();
+                ++evictedEntries_;
+            }
+            entries_.push_back({evidence, request, row, {}});
         }
         const auto links = chain_.Accept(evidence, clue.packet); // 唯一匹配器决定区间、实例和时序。
         for (const auto& link : links)
@@ -245,10 +257,28 @@ public:
                 mapping.sha256 = sha256;
             }
         }
+        for (auto& entry : entries_) // 同一段事务提交时才允许入口参与原生关联。
+        {
+            if (entry.record.segmentOrdinal == ordinal)
+            {
+                entry.sha256 = sha256;
+            }
+        }
     }
     // 无输入，返回共用范围窗口和容量淘汰数；保留Maps接口兼容原调用，不执行新的采集或读取。
     const std::deque<ApiSectionMapCandidateRow<Row>>& Maps() const noexcept { return maps_; }
     std::uint64_t EvictedMaps() const noexcept { return evictedMaps_; }
+
+    // 后台发布两个有界窗口；旧Maps接口只返回范围，既有调用语义不变。
+    std::vector<ApiSectionMapCandidateRow<Row>> Requests() const
+    {
+        std::vector<ApiSectionMapCandidateRow<Row>> result; // 至多256条真实API请求，不扫描归档。
+        result.reserve(maps_.size() + entries_.size());
+        result.insert(result.end(), maps_.begin(), maps_.end());
+        result.insert(result.end(), entries_.begin(), entries_.end());
+        return result;
+    }
+    std::uint64_t EvictedRequests() const noexcept { return evictedMaps_ + evictedEntries_; }
 
 private:
     // 仅缓存共享链路有资格保留的实际写入，避免失败包挤出有效写入详情。
@@ -284,6 +314,8 @@ private:
     std::uint64_t contextCandidateCount_ = 0; // 已核验前缀累计上下文候选数。
     std::deque<ApiSectionMapCandidateRow<Row>> maps_; // 最近128条映射/分配/保护范围请求及原始坐标。
     std::uint64_t evictedMaps_ = 0; // 映射窗口裁剪数，不能把未覆盖旧请求解释为无关联。
+    std::deque<ApiSectionMapCandidateRow<Row>> entries_; // 最近128条成功且强身份完整的入口请求。
+    std::uint64_t evictedEntries_ = 0; // 入口输入淘汰数，与范围分别维护。
 };
 
 } // namespace Ksword::Evidence

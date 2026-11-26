@@ -234,12 +234,12 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
                 }
                 if (pair.execution && side == 1 && pair.execution->kind == 3)
                 {
-                    text = L"节映射：raw/" + std::to_wstring(pair.request.segmentOrdinal) + L" #" +
+                    text = L"API 请求：raw/" + std::to_wstring(pair.request.segmentOrdinal) + L" #" +
                         std::to_wstring(pair.request.sequence) + L" · " + pair.request.apiClue;
                 }
                 if (pair.execution && side == 0 && !pair.execution->write)
                 {
-                    text = L"范围关联不要求写入前置条件。";
+                    text = L"本关联未绑定前置写入；不表示没有发生写入。";
                 }
                 const auto leaf = Insert(hwnd_, node, text,
                     static_cast<LPARAM>(index * 3 + side + 1)); // 三种角色分开编码，不保存行指针。
@@ -271,7 +271,7 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
         const auto& native = evidence->nativeExecution; // 独立读取状态，候选为空也不隐藏。
         auto status = L"原生历史：已核验 " + std::to_wstring(native.verifiedNativeCount) +
             L" 条；执行候选保留 " + std::to_wstring(native.candidates.size()) + L" / 匹配 " +
-            std::to_wstring(native.candidateCount) + L"；映射输入淘汰 " + std::to_wstring(native.evictedMaps);
+            std::to_wstring(native.candidateCount) + L"；请求输入淘汰 " + std::to_wstring(native.evictedMaps);
         if (native.state == Ksword::Evidence::NativeHistoryState::Failed)
         {
             const auto detail = std::string_view(native.problem.detail); // 项目错误阶段是静态 ASCII 文本。

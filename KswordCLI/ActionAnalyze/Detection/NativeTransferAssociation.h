@@ -73,4 +73,30 @@ std::optional<NativeContextTransferAssociation> AssociateNativeContextTransfer(c
     const ApiContextTransferLink& transfer, const ArchivedGraphRecord& context,
     const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal);
 
+// 无写入前置条件的入口请求。kind沿用桌面分类：0创建、1 APC、2上下文。
+// 只归一实际有效的请求字段；请求地址不因此成为已执行地址或活控制资格。
+struct NativeExecutionRequest {
+    int kind = 0; // 稳定的入口请求分类。
+    std::uint64_t flags = 0; // 原版本化协议有效位，不跨协议解释。
+    std::uint32_t actorPid = 0; // API包头声明的来源进程。
+    std::uint64_t actorCreationFileTime = 0; // 来源进程创建代次。
+    std::uint32_t targetPid = 0; // 原句柄解析出的目标进程。
+    std::uint64_t targetCreationFileTime = 0; // 稳定目标进程创建代次。
+    std::uint32_t tid = 0; // 原返回或输入线程句柄解析出的线程编号。
+    std::uint64_t threadCreationFileTime = 0; // 该强线程的创建代次。
+    std::uint64_t requestedAddress = 0; // 创建入口、APC例程或请求IP。
+    std::uint64_t enterQpc = 0; // API原进入时点，仅保留不跨源排序。
+    std::uint64_t returnQpc = 0; // API原返回时点，不作为原生执行的时间下界。
+};
+
+// 输入已解析的原API记录，返回成功且身份完整的跨进程入口请求；不需要写入记录。
+// 失败、同进程、缺身份、非AMD64上下文或未知接口返回空，不访问目标。
+std::optional<NativeExecutionRequest> ReadNativeExecutionRequest(const ArchivedGraphRecord& request);
+
+// 输入同采样已核验原包及独立原生段；要求强进程/线程和指令起点精确一致。
+// 返回请求归一值，原生坐标仍由调用方持有；不证明投递、上下文生效或执行因果。
+std::optional<NativeExecutionRequest> AssociateNativeExecutionRequest(const SampleScope& scope,
+    const EvidenceRef& evidence, const ArchivedGraphRecord& request, std::string_view requestSha256,
+    const ArchivedNativeExecution& execution, std::uint64_t nativeSegmentOrdinal);
+
 } // namespace Ksword::ActionAnalyze::Detection
