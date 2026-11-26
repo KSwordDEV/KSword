@@ -25,6 +25,8 @@
 
 ## 构建与验收产出位置（强制）
 
+- Windows GUI 自动化在独立、非输入桌面运行，测试期间不切换输入桌面或抢主屏幕焦点。ActionAnalyze 使用 `python -B tools/action_analyze_validation/isolated_desktop.py <GUI 脚本>`。独立桌面不可用时报告阻塞，继续源码和构建检查。
+
 - 编译、链接、测试及运行验收只使用工程的固定 `IntDir` / `OutDir` 和统一正式 `Release`。禁止在系统临时目录、`output/`、`.codex-build-logs/`、随机 `runtime-*` 或其它临时目录建立编译工程、写入编译产物、复制主程序或部署整套运行时。`.codex-build-logs/` 仅保存文本日志和小型诊断元数据。
 - 主程序只使用仓库 `tools/Invoke-KSwordBuildCheck.ps1`，构建前读回并打印绝对 `IntDir`、`OutDir` 和 HostX64；不得使用未经当前仓库校验的旧包装脚本。按改动做一次适用的增量构建，失败恢复依本文件既定流程执行。
 - 新增测试使用明确、固定、可清理的标准输出位置并复用已有依赖；禁止复制 Qt、创建运行副本或随机构建目录做重复验收。测试配置也放在该固定位置，结束时清除本次创建的测试配置。
@@ -272,6 +274,7 @@ Copy-Item 'third_party\zstd\LICENSE.txt' (Join-Path $licenseDir 'zstd-LICENSE.tx
 
 $profileDir=Join-Path $stage 'profiles'
 if (!(Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir | Out-Null }
+Copy-Item 'Ksword5.1\x64\Release\profiles\action_analyze_api_rules.json' $profileDir -Force -ErrorAction Stop
 Copy-Item 'Ksword5.1\x64\Release\profiles\ark_dyndata_pack_v4.json.qz' $profileDir -Force
 Copy-Item 'Ksword5.1\x64\Release\profiles\thread_layouts' $profileDir -Recurse -Force
 Copy-Item 'Ksword5.1\x64\Release\profiles\process_layouts' $profileDir -Recurse -Force
@@ -313,7 +316,7 @@ if ($exit -ne 0) { exit $exit }
 ```powershell
 $seven='C:\Users\Felix\CLionProjects\Wisdom-Weasel\7z.exe'
 & $seven t $archive
-& $seven l $archive 'Release\Launcher.exe' 'Release\Ksword5.1.exe' 'Release\KswordARKLight.exe' 'Release\Taskbar.exe' 'Release\KswordHUD.exe' 'Release\APIMonitor_x64.dll' 'Release\KswordARK.sys' 'Release\KswordARKDriver\KswordARK.sys' 'Release\Style\StartupLandscape.png' 'Release\Style\StartupWindows.png' 'Release\Style\KswordLogo.png' 'Release\LICENSE' 'Release\COMMUNITY_COVENANT.md' 'Release\licenses\third_party\systeminformer-LICENSE.txt' 'Release\licenses\third_party\easy-hwid-spoofer-LICENSE.txt' 'Release\licenses\third_party\fltk-LICENSE.txt' 'Release\licenses\third_party\qt-advanced-docking-system-LICENSE.txt' 'Release\licenses\third_party\zstd-LICENSE.txt' 'Release\profiles\launcher_support_manifest.json' 'Release\profiles\ark_dyndata_pack_v4.json.qz' 'Release\profiles\registry_optimization_items.json.qz' 'Release\profiles\registry_optimization_assets\Config\Data.zip' 'Release\languages\zh-CN.json' 'Release\languages\en-US.json' 'Release\platforms\qwindows.dll'
+& $seven l $archive 'Release\Launcher.exe' 'Release\Ksword5.1.exe' 'Release\KswordARKLight.exe' 'Release\Taskbar.exe' 'Release\KswordHUD.exe' 'Release\APIMonitor_x64.dll' 'Release\KswordARK.sys' 'Release\KswordARKDriver\KswordARK.sys' 'Release\Style\StartupLandscape.png' 'Release\Style\StartupWindows.png' 'Release\Style\KswordLogo.png' 'Release\LICENSE' 'Release\COMMUNITY_COVENANT.md' 'Release\licenses\third_party\systeminformer-LICENSE.txt' 'Release\licenses\third_party\easy-hwid-spoofer-LICENSE.txt' 'Release\licenses\third_party\fltk-LICENSE.txt' 'Release\licenses\third_party\qt-advanced-docking-system-LICENSE.txt' 'Release\licenses\third_party\zstd-LICENSE.txt' 'Release\profiles\action_analyze_api_rules.json' 'Release\profiles\launcher_support_manifest.json' 'Release\profiles\ark_dyndata_pack_v4.json.qz' 'Release\profiles\registry_optimization_items.json.qz' 'Release\profiles\registry_optimization_assets\Config\Data.zip' 'Release\languages\zh-CN.json' 'Release\languages\en-US.json' 'Release\platforms\qwindows.dll'
 ```
 
 校验通过时，`7z t` 输出应包含 `Everything is Ok`；另需确认主程序项目引用生成的 `Release\KswordDwmZOrder.dll` 已入包，窗口 DWM 排序功能从 exe 同目录加载该 DLL。若发行内核结构查看，另核对 `Release\profiles\thread_layouts\*.tsv` 和 `Release\profiles\process_layouts\*.tsv`；二者为用户态按需布局，不进入驱动 v4 数据。主程序顶部“许可证”页面从 exe 同目录读取根 `LICENSE`。本流程生成的包根目录必须是 `Release\`，不要把 `dist\KswordARK-release-work\` 或其它临时目录打进包里。

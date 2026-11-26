@@ -1,6 +1,12 @@
 # Memory Index
 
+- **2026-11-26 最新验收纠偏。** 用户批准「当前验收失败的…继续跑」，同时要求减少约70%的非必要门禁并明确CodeBuddy边界。授权仅恢复已有失败任务，不扩大为全部新验收；同一会话单实例、CLI单次共享构建、已过不整批重跑，失败不靠删断言或纯自旋绕过。[缩减任务边界](../../docs/action-analyze-planning/validation-reduced-batch.md)：原计划42→12；源码回执显示内存另执行错代次和raw保留两个调用，须按实际14/42（减少约67%，接近70%）登记，不能藏附加调用凑数字。产品已READY，同一旧会话开始串行focused运行；构建与通过凭本轮回执，不复用旧160/202/666数字。
+- **2026-11-26 最新用户限制，优先于当前 goal，交接必须保留。** 用户原话：「从现在开始暂时不允许派发CodeBuddy任务，我会在可用时告诉你」「这个限制在goal之上，记得在上下文中保留。旧的继续。」已派发旧任务继续运行；用户明确恢复前，禁止新增 CodeBuddy 派发、续接、重试和自动后续任务。功能开发继续，待验不得标通过；所有开发子代理同样遵守。
 - **用户持续推进要求，压缩和交接必留。**「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」。回答进度后继续当前工作。交接同时保留当前目标、未完项目和下一可执行步骤。ActionAnalyze 以[11 项产品验收清单](../../docs/ActionAnalyze产品验收清单.md)记录实证与缺口，验收闭合批次仅推送 `ActionAnalyze`。
+- **ActionAnalyze 产品来源只用 KSword 自有采集组件。** 用户明确禁止使用 Sysmon。旧查询、订阅、归档及三端回放回执只作历史，不算产品能力。自有回调 v1 的 PID/TID 和原包坐标只形成线索，不证明事件时强实例、写入或执行。[验收交接](../../docs/action-analyze-planning/validation-handoff.md#aa-10-ksword-自有线程创建证据)
+- **最新验收责任。** 用户原话：「以后谁写的代码谁来调用CodeBuddy测试和排查，不准出现subagent做了你又来看。」改动作者直接派发 CodeBuddy、排查及记录回执。主协调者汇总指标与集成，复用各作者的验收结论。
+- **ActionAnalyze 开发与验收分工。** 用户让当前开发会话继续写功能，由用户转交另一个模型运行构建及测试。开发会话将命令及通过条件写入[验收交接](../../docs/action-analyze-planning/validation-handoff.md)，验收模型直接追加[验收回执](../../docs/action-analyze-planning/validation-results.md)。AA-01 候选与来源标签已通过。AA-03 待验合作目标 Agent 就绪、CLI 线索归档和被动跟随，AA-04 待验 Qt／Light 同采样关系分组及定位。活采集、强关系、完整调试清退和发行仍按产品清单推进。
+- **ActionAnalyze 下一阶段 11 项各达到 70%。** 并行推进采集、停止与恢复、网络、关系图、规则五条线。关键路径和正式门槛写入[70% 路线图](../../docs/action-analyze-planning/roadmap-70.md)。用户明确要求验收提示词由其转交，开发会话按交付范围准备提示和落盘路径。
 
 - [隐藏进程检测方法与证据范围](../../docs/隐藏进程检测方法.md) — 1–66 逐项执行与回执、两个入口的独立默认值、真实位图转储及 Hyper-V 来宾验收、外部设备前提
 
@@ -35,6 +41,37 @@
 
 - [API Monitor 生命周期与事件协议](ksword-api-monitor.md) — GUI/GDI分类与Raw门禁、898项强类型、x86/x64逐项实测、自动注入、异步/覆盖协议、会话互斥与退役Hook保留
 - [Syscall 监控与 SysWhispers 兼容形态](ksword-syscall-monitor.md) — QPC 栈关联、进入/退出布局、系统映像信任、静态调用号边界与有界离线回归
+- [恶意行为单点追踪与调试能力规划](../../docs/恶意行为单点追踪与调试能力规划.md) — 非虚拟化、来源/区域版本/实际执行线程及多跳；2026-11-24 明确命中后可统一停止再按需放行；包含已答 UI/API/ETW 语义及结构、内存与 UI 性能预算，产品引擎未实施
+- [页面执行探针机制验证](../../docs/非虚拟化页面执行探针验证-20261124.md) — 2026-11-24 Win10 19045 自有夹具21项通过，夹具源码已随 `10e0f370f` 推送；Guard一次性/读取消耗、NX直接恢复X的漏报负控、两个自有线程停止后TF推进到页外重设NX再放行；控制器未停，不代表完整线程集合/新线程门控/驱动/代码洞篡改已覆盖
+- [Explorer复杂环境探针实测](../../docs/ActionAnalyzeExplorer复杂环境验证-20261124.md) — 用户授权本机Explorer结束/重启，排除DWM。历史本地夹具 `tools/explorer_probe_validation/` 持外部原生debug owner，不装目标VEH；最终PID8120/165线程五类正常场景79PASS：既有USER32页8次命中/510TF、真实私有代码两版本各四线程、跨页RIP≠faultVA、页内主动中止；8KiB已释放、无残留夹具。重要负控失败：持有NX事件时父监护恢复RX再杀debug子进程，即使kill-on-exit=false，目标线程0x5bb、原任务栏失效；按授权结束精确旧PID4000并重启8120后恢复。不能保证不崩溃，不能把默认PASS算owner死亡恢复通过；破坏负控默认禁用。修夹具提前关闭OS事件句柄和EXIT事件后Toolhelp迟留问题；creates_during_step=0，普通R0/任意死亡恢复/自动传播未验。正式测试EXE/PDB在统一Release，无产品改动/驱动加载
+- [行为语义规则模板收集与并入规划](../../docs/行为语义规则模板收集与并入规划.md) — 本地沙箱601条候选及公开上游、授权/字段/真实时序缺口；全类别收集，默认同线程、聚合可展开、缺字段逐规则配置；不直接执行上游Python，不将全部候选常驻加载
+- [ActionAnalyze 多通道通信与控制施工设计](../../docs/ActionAnalyze多通道通信与控制施工设计.md) — 2026-11-24 用户授权分支隔离和subagent验证；目标外控制所有者、传输/生效/回读分层、必需覆盖/配置/探针Ready屏障、恢复责任与三端内部模块；模型/自有IPC/产品验收分开，不因分管道假定暂停Agent仍可执行
+- [ActionAnalyze 普通 R0 恢复审计门槛](../../docs/ActionAnalyze多通道通信与控制施工设计.md#74-普通-r0-后端的静态审计门槛) — 2026-11-24 静态复核：单全局primary、批量Resume失败清账、R3原保护/临时挂起缺完整恢复账、租约只在异常循环检查、Qt客户端拒reason5及5–8记录；§5.1通知只唤醒/权威Query/per-file取消；29项R0用例全部待执行，未修产品未加载驱动
+- [ActionAnalyze R3／R0独立双后端](../../docs/ActionAnalyze双后端独立全流程设计.md) — R3 在本机验收无 KSword 驱动的受支持用户态全流程。普通 R0 仅在 `E:\VMs\Windows11-24H2` 验证，结果待验。采样显式选择，异常所有者唯一，活采样禁止静默切换。R0 辅助部署的用户 Agent 仍运行在 R3。Explorer 死亡负控未关闭。
+- [ActionAnalyze 挂起创建与最早窗口](../../docs/ActionAnalyze启动挂起注入与最早窗口验证-20261124.md) — 历史本地夹具 `tools/api_monitor_startup_validation/` 自有x64/x86六例68项/退出0：生产injectAgentNative在原始CREATE_SUSPENDED均299；调试到EXE入口再显式挂起/脱离可装真实Release Agent并捕获构造/main，但TLS已执行。独立CRT-free首导入/IAT测试bootstrap在首次Resume前布置，先于EXE TLS安装并捕获三阶段首调；不是完整898项Agent早期验证/依赖DLL覆盖。最终212423日志/metadata，exe87B48722…；固定IntDir/统一Release，无R0/Explorer/DWM/样本/产品改动，测试配置/标记/进程已清理。API Monitor可大量复用但启动/阶段/强类型/Ready交接需改造
+- [ActionAnalyze 工程开工基线](../../docs/ActionAnalyze工程开工基线.md) — 用户确认 Agent 命中线程直接进入已登记停点，由目标外所有者接管。主程序提交同一协调者。origin 与冻结停止组独立，R3 真实附带暂停、完整线程门控和死亡恢复分别核对。首批工单覆盖离线、R3、来源、规则、E01–E16、调查及三端接入。停点快照与向量已有 A0 草案，产品运行与性能阈值待实测。
+- [ActionAnalyze 工程推进记录](ksword-action-analyze-engineering.md) — 多 agent 并发实施，逻辑闭合的工作包可先提交到 `ActionAnalyze`，构建和验收逐项登记。最终关闭须完成全范围验收。文件上限 2000 行，重构登记受影响入口与复测。CLI 外壳 HostX64 Release 与 A0 基础／Stored／方法静态向量分别登记。
+- [ActionAnalyze 桌面总览交互与验收](../../docs/ActionAnalyze总览交互与验收.md) — Qt／Win32 作者先读 `design-taste-frontend`。离线切片分别验收项目采样与归档段。完整总览的时间／类别框选、证据锚点、12 项动作和实机验收待完成。
+- [ActionAnalyze SB02 同步停点夹具](../../tools/action_analyze_sync_stop_validation/README.md) — `055fef531` 已推送。x64/WOW64 自有目标 386 项断言通过，8 次停点、8 次旧代次或外来事件转交、4 个正常退出。并发命中、所有者死亡恢复与产品接入待验，本机证据路径见工程推进记录。
+- [ActionAnalyze 长程 CLI 会话与结构协议设计](../../docs/ActionAnalyze长程CLI会话与结构协议设计.md) — 用户明确长程不能仅启动参数；活进程内人工REPL/AI JSONL双向命令，独立输入/控制/输出，背压不等于ACK交付；禁止退出后凭sessionId接管；模块cpp/h清晰分工、无.inc堆叠、适度重构须标回归范围；命令和解析器尚未实施
+- [ActionAnalyze 分析项目与多次采样](../../docs/ActionAnalyze分析项目与多次采样设计.md) — 用户明确断点/采集结果等归分析项目，一个项目多次采样；项目配置修订、单次实际快照和活运行控制分开，新采样重绑断点不迁移stop/句柄/挂起权；横向比较暂列待做，非首版实现
+- [ActionAnalyze 完整开工审查](../../docs/ActionAnalyze完整开工审查与实施总表.md) — 2026-11-24第二轮设计盘点列 A0–A10、29 项不确定项及真实导航/调查后台化/仲裁/失联/预算/发行条件。R0 恢复另有 29 项判据，R3 的完整线程门控与快速下一跳独立验收。终止调试目标处置、步进依赖扩放两项默认待定，当前工程状态见开工基线。
+- [ActionAnalyze 下一层施工](../../docs/ActionAnalyze施工任务与契约落点.md) — A0–A10 拆为 33 项、12 类接口和 V1–V5 切片。首批按接口并发施工，CLI、Qt、Win32 各自持有本端会话，按端及后端逐项等待产品验收。
+- [ActionAnalyze 规划遗漏复查](../../docs/ActionAnalyze规划缺口复查与补齐任务.md) — G01–G16补两处规范/旧状态冲突、九处执行契约和五处未展开分支；机器契约唯一根schemas/action_analyze。KnaThreadNotify目前只处理退出，notify不作阻塞闸门；完整线程门控、普通store新区域发现、NX异常中关闭及sourceReady/regionReady启动与失效仍有机制门槛。补TF/DR预约、断点/步进、快照重入/TOCTOU、中介执行、CLR版本、absence水位、分析器真实入口、CLI查询/包搬运与驱动CI登记。关机前保存，开机续查补全部专项反链与实际frontend保护问题：write一律RO去X、execute一律RW可能加W、首段原保护/先改保护后注册/回滚失败清账；仅规划修复未改产品。Ex NonSystem在新线程回调仍不授阻塞等待；WMI的CIM_UINT64/VT_BSTR分开保存，callback读回不算目标seen。未实施/构建/运行/关机操作
+- [ActionAnalyze 执行覆盖](../../docs/ActionAnalyze执行覆盖与逐路径验收.md) — 用户追问依脏区机制是否直接覆盖各种注入：已设防实际区域的NX取指发现与CreateRemoteThreadEx/APC/劫持/Hollowing/反射DLL等调度手法无关；前提为先设防和完整线程/新线程门控。新复制/解码区与共享别名不自动跟随，ROP/正常模块可离开脏页；D区域/X执行/P后续/A归因四轴、P01–P16负控，未实现产品全覆盖
+- [ActionAnalyze 反反虚拟机行动](../../docs/ActionAnalyze反反虚拟机与环境实验行动方案.md) — 用户明确深入研究/行动方案、所有相关项不能停技术口号；E01–E16、15个RAV任务、X01–X07，具体字段/机制/旁路/跨接口profile/原始-substituted-seen-path四级/恢复。优先WMI同步Get→注册表value→固件一致组；CPUID/RDTSC内联和共享时钟页不由API或普通R0自动截获，有限DR/TF站点研究不宣称透明全覆盖，不重走旧HVM TSC_OFFSETTING路线。默认被动、不改真实固件/网卡/光标、不默认跳分支，三端各自owner；本轮只规划，无产品/新实验/R0
+- [ActionAnalyze 规则转换施工](../../docs/ActionAnalyze规则来源与转换施工清单.md) — 自有证据语义+声明式IR+开发期上游转换，9源固定SHA；规划资料docs/action-analyze-planning已存9完整blob树21468行/12810保守候选文件、本地601 ID/JSON Pointer、7份包级许可原字节hash。文件数不等规则数，上游bodySha256/ruleCount保留null；逐规则枚举/许可例外/三端字段/转换/真实回放未完成，不执行上游Python，不冒充产品schema或规则包
+- [ActionAnalyze 事件身份与协议](../../docs/ActionAnalyze事件身份与协议契约.md) — 字段/强实例/区域版本/阶段/入口族/方法及aa-cjson-v1；eventId=sample+ordinal，原source序号单列，JSONL严格无BOM、页500/max2000、输出硬限256KiB、乱序2秒且不凭空闲推进。A0 有机器契约和向量草案，产品读写接入与跨端验收待做。
+- [ActionAnalyze 筛选与规则语言](../../docs/ActionAnalyze筛选器与规则语言设计.md) — 六域条件分开，硬范围内P∨C保留、依赖冲突拒绝、保守超集下推；强Kleene三值、有限C#风格DSL/有界NFA、阶段白名单/count/sequence/lease游标；旧前置筛选是收包后归档前丢弃，非Hook开关/调用前停点，旧bool invert/坏regex回退不可照搬；活采样规则包冻结无热替换
+- [ActionAnalyze 项目存储与恢复](../../docs/ActionAnalyze项目存储格式与恢复设计.md) — 目录+小JSON+CRC32C分段/独立blob/可重建索引，Stored必备/zstd显式能力、系统SQLite仅可选cache、无QtSql/CBOR/外部7z必需；ksapack受限顺序容器、单写者/跨流依赖水位/坏尾/GC/满盘策略已建议，字节布局未作互读或掉电验收，旧stop文件不授控制权
+- [ActionAnalyze 栈破坏与控制流劫持](../../docs/ActionAnalyze栈破坏与控制流劫持发现设计.md) — 用户指出遗漏后补专项：栈耗尽/越界/GS与CFG/CET保护/pivot/ROP分开，同进程CPU写可无远程API或新RX页，返回地址等控制数据破坏在范围内；异常/保护源、有限现场、frame/slot生命周期、显式watch、真实转移/归因/负控分层。Minidump现有过强释义列修正待办，未改产品；无通用检测/攻击/R0实测
+- [Action Scope功能与实现核查](../../docs/ActionAnalyze对ActionScope功能与实现核查.md) — 2026-11-24用户授权subagent全面静态研究官方历史包，version=20191230/外hash e25903af…，内38文件/19PE与外安装器分开；pefile/Capstone及本机Ghidra12.1.4 headless已实跑。ROP现用NULL回调提前返回不构成10帧跟踪、shellCode用初始模块表、heapSpray扫描/输出门控未闭合；WMI方法与结果干预按架构配置核对，Get前后helper只格式化未发送。tcpLog/udpLog是日志客户端，WinINet字节只证x86专用路径；Loaded早于HookAll，PROCESS/FILE_NEW无成功门禁、双端口共用发送线程、wait队列空不等于交付。同步A0/A5/A6/A7/A9候选，不运行第三方/注入/驱动，不自动扩大首版；诊断文本在.codex-build-logs/behavior-planning
+- Action Scope返回契约补核 — 同上报告§3.2及SDK分路§9：x64默认After在引擎0x9118用回调RAX覆盖原结果，WMI Get尾部清EAX，Hook成功且正常返回时HRESULT低32位被改0，即使属性未命中；默认Before普通C返回值无所核跳过语义。不能泛推x86/自定义trampoline/异常路径；getReturnValue该实现只保留调用时RAX，不补造setReturnValue导出。
+- Action Scope主控分路已收尾 — 总报告§6.6/6.7：24入口证据分层、343映射/341唯一ID（不是346行规则）、Jet只读打开密码无效未读schema；x64 globalHook纯数据解压后证实globalhook管道→逗号两字段→LoadLibraryA/GetProcAddress/无参调用，exit只终辅助宿主。update配置/HTTP文本/版本包/终进程/停删syslist/备份/ZIP ExtractAll已静态核对；外install仅资源等有限识别。Python SDK仅市场安装配置未随包交付，主控受保护不搬旧RVA；五路静态研究范围收尾，动态/后端/规则正文未知保留，无第三方执行/激活/驱动/安装
+- [ActionAnalyze PPT工具栏逐项核对](../../docs/ActionAnalyze工具栏逐项功能核对.md) — 回滚外部操作和热重载延期，保留其余 12 项。网络作用于选中进程，链条为重新启用跟踪，三箭头为逐过程／逐语句／跳出。调试器保留自有恢复责任。两套后端按开工基线分别验收。
+- [ActionAnalyze 通信机制验证](../../docs/ActionAnalyze通信机制验证-20261124.md) — 原次离线模型31项、自有Windows IPC37项通过；同执行者背压负控/独立控制正控，冻结三个已声明应用线程后须外部放行控制线程才有新ACK；该次只验私有Job设置未注入杀父，后续故障实测见下一项，不作为生产恢复；4KiB配额可见1MiB待写；不证明全线程/驱动/生产Agent/CLI或性能
+- [ActionAnalyze R3补充验证](../../docs/ActionAnalyzeR3机制补充验证-20261124.md) — 历史自有 R3 授权下实测37项IPC正常回归，7项杀父Job终止自有冻结子进程（不是恢复，子exit可为0），EXE D95DFD61…替代83358064…；独立R3已知MASM调用步入/步过/跳出及提前断点/UD2/中止清理106断言通过，EXE 02E7F3E1…；进程TCP未提权317，12项权限负控通过、成功断连未测，不触碰SSH/规则；shared Connections.cpp将317固定归连接不存在需后续纠正。该轮未运行 R0。
+- [单点追踪共享采集架构与 CLI 设计](../../docs/单点追踪共享采集架构与CLI设计.md) — 2026-11-24 用户改为 Qt/Win32/CLI 各自组织业务与会话，停止共享宿主/公共追踪 DLL/统一 runtime 方案；原文为历史备选。自动调查不创建页面/Dock/隐藏控件；保留既有底层复用、唯一驱动协议及资源冲突检查，trace 命令仅历史草案，未实施
 
 - [欢迎页采样与 GPU 遥测蓝屏](ksword-welcome-gpu-telemetry.md) — 首页采样范围、GetNodePerfData 空指针现场、17763 系列禁用与 WDDM 2.4 门槛
 - [KSword UI/主题架构](ksword-ui-architecture.md) — theme.h 动态/静态 token 边界与构建期门禁、全局样式块链路、WindowChrome 标题栏染色、周期后台刷新与全局进度通知边界

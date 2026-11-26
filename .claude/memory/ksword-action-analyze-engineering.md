@@ -2,7 +2,21 @@
 
 ## 持续推进与交接
 
+用户2026-11-26最新明确「不需要测试」：当前阶段继续产品实现，不执行测试、不为测试构建、不新增CodeBuddy任务或验收回执。用户询问的五小时目标为第1、2、4、5、6、9、10项源码功能链路各推进到70%以上；这是开发目标，不能把新增代码当作运行通过。原生范围与TF推进、Light工具条及单页入口、AAIM1内存生命周期三位作者继续独立完整开发，主协调完成Qt/CLI及共享消费衔接。
+
 用户原话：「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」。进度答复后继续执行当前任务。该原话、未完成项目及下一可执行步骤须保留在压缩摘要和交接记录。按 [11 项产品验收清单](../../docs/ActionAnalyze产品验收清单.md) 更新状态，正式产品实证明确到入口、产物和测试范围，闭合批次仅推送 `ActionAnalyze`。
+
+- **2026-11-26 验收纠偏补充。** 用户批准当前失败的CodeBuddy验收继续，要求核验必要性、削减约70%非必要门禁并明确边界。只恢复已有失败任务；同会话唯一续跑、CLI单次共享构建、失败仅复跑受影响场景。主协调已唯一续接旧CLI步进会话，先裁剪默认场景42→12（计划减少约71%），暂不授予构建/运行工具，等并行产品源码完成再明确允许实测；不扩验新增协议或GUI，不再并行续接相同会话。边界见[缩减批次](../../docs/action-analyze-planning/validation-reduced-batch.md)。
+- 第4、5、6项本批新增源码：`CooperativeApiRequest::boundSampleId`复用原写租约和冻结采样，`RequireUnusedApiArchive`拒绝已有raw/checkpoints（含空目录或坏尾）；正式原生CLI的`control.api.capture`显式采另一来源实例，保留原native/memory控制。`BreakpointFollowProtocol`接`control.execution.follow`/`execution-follow`，独立128票据、原地址/完整当前停点核验、不Continue。原生作者已返回源码READY，新增`NativeWriteExecutionTransition.cpp`须由直接编译owner的自定义脚本一并链接。新功能、Qt/Light及新增协议仍未实测；旧失败续跑只按缩减范围，不自动扩大覆盖。
+- 缩减源码续跑已结束，默认focused/full及skip-build已落盘。其回执仍有full空跑选择错误和内存两附加调用未计数，已在同一旧CodeBuddy会话下一次续跑要求修正（实际14/42约减67%）、禁止零场景PASS/异常不计失败、跳构建不伪报exit0，并授权产品READY后的四入口串行实测。当前唯一运行`sh_21715e4b1001abcgnDQDC1IVN3`，会话`01a216aa-73ca-7be7-8ebd-495384c02f91`；不再另派同会话副本，最终结果到达前不重试或轮询。
+
+- **2026-11-26 最新限制优先于当前 goal，压缩与交接必留。** 用户原话：「从现在开始暂时不允许派发CodeBuddy任务，我会在可用时告诉你」「这个限制在goal之上，记得在上下文中保留。旧的继续。」已派发的旧任务继续运行；收到结果可登记，但用户明确恢复前不得新增派发、续接、失败重试或自动后续 CodeBuddy 任务。主协调与开发子代理继续写核心产品，未验部分保持待验，不自行替代原验收分工。
+- **2026-11-26 双端集合源码接线收尾。** Light原作者任务033240及内存审查034938均已结束，前者未交付SOURCE报告，后者70项静态检查仍有共享writer／CLI的F2发现。原作者结束后Light集合已接原worker的Held范围读取、完整capture保存、新项目sample、clean后writer释放和显式下一集合；业务／状态／布局分文件并登记工程。Qt／Light写入页真实执行保存沿原OwnedDataWatchSession，普通Pause不构成执行证据。全部后续源码、双语、构建、GUI与退出取消时序仍待验，不新增派发或替代测试；详见[双端集合交付记录](../../docs/action-analyze-planning/process-group-desktop.md)。
+- 最新优先级为「少在视图下功夫，多在全局调试和后端下功夫」。用户要求全部其他项完成前延后 Qt 和 Win32 GUI 桌面实测。现阶段允许相应正式构建、无窗口原生回归和正式 CLI 本机实测，历史桌面回执继续按各自范围记录。恢复 GUI 实测时复用 `tools/action_analyze_validation/isolated_desktop.py`，在独立非输入桌面执行。
+- 用户最新要求「全面减少构建，只有当真的需要实测的时候才构建」。Qt／Light 后续源码改动累积至恢复桌面实测再整合构建；CLI 与无窗口验证只为实际待实测的批次构建。第 3、7、8 项保留后置顺序。
+- 用户再次明确：主协调者优先写核心产品代码、整理职责；GUI 和 CLI 验收（包括夹具维护、实际执行、失败回执和落盘）交给子代理，由其用 CodeBuddy 在本机跑。复用已有效的回执，不为重复坐标和已覆盖行为追加轮次；改产品代码只做与实际变化相关的必要验收。
+- 项目是默认工作单位。入口必须可新建和打开项目，并保留新一轮扫描入口。每次扫描生成独立采样和冻结配置。目录选择只进行只读分析，证据回查继续绑定该采样真实坐标。Qt 在独立桌面已验证同一项目两轮扫描及重启回放，记录见产品验收清单。
+- 合作直连由 `Project/CooperativeApiCapture` 和 `Project/ProjectApiClueArchive` 复用采集与封段；CLI、Qt、Light 各保留本端会话、停止及项目租约。新桌面入口只编译合作控制分支（`KSWORD_APIMON_COOPERATIVE_ONLY`），不添加自动装载。合作流水号与 `raw` 坐标分列，规则在封段后回读；不得用已有同档回放、构建或静态门禁冒充桌面直连。[本批正式回执](../../docs/action-analyze-planning/validation-results.md#合作采集项目后端复验)
 
 ## 2026-11-24 首批工程启动
 
@@ -66,6 +80,8 @@ Light 与独立 Stored 验证器的正式 Release 构建均以 BelowNormal 优�
 
 旧 R3 `PacketRecord` 交付的实际字节最多 4,096，归档 writer 内联上限 65,536。ETW 计数按仅元数据处理。归档 writer 运行在样本单写者持有的串行通道，段刷新只产生文件前缀回执。实时接线、规范事件引用、BlobStore、检查点及跨端项目重开须单独验收。[网络草案](../../schemas/action_analyze/README.md#网络证据)
 
+CLI `analyze network-capture` 已接入源码。冻结单一进程实例，依赖系统接受 ETW 载荷 PID 和事件 ID 筛选，保存回环端点及方向，关档后核对 `raw/1` 并返回记录坐标。采集字段只含元数据，ETW 窄筛选兼容性与正式回查见待验 AA-06。[验收交接](../../docs/action-analyze-planning/validation-handoff.md#aa-06-cli-实时回环网络元数据归档)
+
 阶段依据保存在本地计划 `docs/ActionAnalyze工程开工基线.md`、`docs/ActionAnalyze施工任务与契约落点.md` 和 `docs/ActionAnalyze同步全局断点与性能复查.md`。首次启动时工作区有既有规划、验证夹具和资料目录尚未提交。集成须用限定路径提交，逐批核对来源、文档链接依赖、生成文件和行数。
 
 ## 被动 ETW 桌面回放
@@ -73,3 +89,20 @@ Light 与独立 Stored 验证器的正式 Release 构建均以 BelowNormal 优�
 - 2026-11-25 正式 CLI 与 Light 共用 9 段持续 ETW 项目。CLI 记录 624 条 ETW 观察并查询 4,101 个不同 ID。Light 检查终段、624 条 ETW 筛选结果、跨段末观察的归档坐标和重读选择。移走第 2 段检查点后窗口报告该段尚未发布并只显示第 1 段的 14 条原始记录。截断第 3 段覆盖流后报告核验失败并显示前两段的 28 条。恢复后读回全部 642 条。旧 ETW 单段与五类 API 归档在同一 Light 产物复测通过。窗口正常退出，测试配置恢复，固定目录清理完成。日志 `.codex-build-logs/action-analyze-light-continuous-etw.log`，构建产物位于 `Ksword5.1/x64/Release/`。指定普通 R0 及 Light 实时采集仍待验。
 - `3403fe3dc` 已推送至 `origin/ActionAnalyze`。Qt 项目入口重开冻结的项目及采样描述，再复用 CLI 校验 `raw/1` 与 `records/1`。只读句柄验证相同 raw 散列后，仅投影已提交前缀。标记缺失显示旧档回退，缺依赖或错采样保留原表和选择。独立段入口保留诊断式部分预览。
 - 正式 Qt HostX64 构建、双语及主题门禁通过。真实 Qt 复验 14／12 行、同一详情、未提交尾部、缺 Coverage、错采样、旧档回退和恢复重读。窗口退出 `0`，测试项目和配置均已清理或恢复。浅色及右侧详情已验，Light 项目回放及完整桌面矩阵继续验收。[Qt 回执](../../tools/action_analyze_validation/qt/ETW-Readback.md#qt-项目检查点)
+
+## 被动 API 检查点与离线规则
+
+- 正式 CLI、Qt、Light 回放同一四段采样，验证缺标记仅读首段、第三段坏尾只保留前两段、修复恢复六条并定位 `raw/3 #9`。CLI 后续图页又通过 SHA-256 续页、候选原始坐标、检查点缺口拒绝和终段空页。来源诊断仅给出读端状态和历史声明，生产方连接和覆盖保持未知。[三端回执](../../tools/action_analyze_validation/qt/ETW-Readback.md#项目工作台与三端同采样)
+- 正式 Qt 浅色独立桌面通过两组汇总、五类细分、原始坐标、坏尾重试和草稿保留。Qt 独立段网络读回通过双栈方向、实际 300 字节和 256 字节预览，完整／截断／坏 CRC 分别为 9／7／7 行。[规则回执](../../tools/action_analyze_validation/rules/README.md#协调登记与验收)
+- AA-01 已通过 Qt／Light 候选与来源标签。AA-03 的 CLI 合作目标 Agent 就绪、线索回查及被动 API 跟随，AA-04 的 Qt／Light 同采样关系浏览，以及 AA-05 的 CLI 项目规则回放均已接入源码，独立验收会话负责构建和实测。Sysmon 正例、指定来宾普通 R0、条件停点与发行范围继续记录在 11 项清单。用户原话继续保留于本页首节。[验收交接](../../docs/action-analyze-planning/validation-handoff.md)
+- 新版 `codebuddy-fast-dispatch` 已能用 `-Workspace` 和精确 `-AllowTools 'PowerShell(<命令>)'` 运行本机正式验收。命令不附加重定向、管道或其它语句；由派发宿主保存 JSON 回执。等 Release 链接完成后再启动对应产品测试，避免 Win32 32。AA-08 浅色隔离桌面和 AA-09 CLI 逐段命中已通过，[实测结果](../../docs/action-analyze-planning/validation-results.md#2026-11-25--codebuddy-本机-aa-08aa-09)。
+- 合作采集和已结束 JSONL 共用封装，只有整段与尾记通过后才展示输入方式。`cooperative-pipe` 的源序号是普通包流水号，`closed-jsonl` 是行号，缺字段兼容旧档；不凭尾记认证历史生产者。Qt 的总览、采样摘要、规则报告及 Light 详情沿用同一回读值。
+- 第 9 项跨段候选树在桌面既有归档扫描内消费共享 `ApiTransferChain`，每段暂存、整段检查点成功后提交；独立导入只在当前文件内串链。`shared/evidence/ApiTransferCandidateWindow.h` 保留 1024 写入行与 256 候选对，双方详情独立于 4096 主表窗口。恢复树选择需使用写入与创建双方坐标，不能只用创建包坐标（重叠写入可共用创建包）。来源声明不增加强对象或进程操作资格。[接口、CodeBuddy 回执及后置桌面范围](../../docs/action-analyze-planning/api-transfer-tree.md)；Qt／Light 构建和 GUI 仍后置，不能由源码接入推断通过。
+- APC 桌面增量已接入源码：`ApiTransferCandidateWindow` 在同一 `Accept` 后调用 `AcceptApc`，共用 1024 写状态／详情，不另建写窗口；APC 独立保留 128 对 `write`／`queue`，两端快照公开 `apcTransferCandidates`／`apcTransferCandidateCount`。树选择恢复必须含类型＋双方坐标；Qt 第四组与 Light 第二根不混入线程创建组。单行 AAAP1 字段走 Qt 原规范文档／Light 原文本详情，接受入队不证明投递或执行。遵守最新禁令，本批未派发／续接 CodeBuddy、未构建、未测试、未 GUI；旧线程创建回执不覆盖本批，恢复验收须等用户明确授权。
+- 上下文候选桌面后续源码已接入：共享窗口 `ContextCandidates()`／`ContextCandidateCount()` 独立 128 对 `write/context`，同一 `Accept` 后调用 `AcceptContext`，共用原 1024 写链和详情；Qt／Light 快照 `contextTransferCandidates`／`contextTransferCandidateCount`，独立树类型＋双方坐标恢复及 4096 外详情。活采从原 `contextCandidateCount/recentContext` 回执投影，Qt 本端 `contextTransferCandidates/latestContextTransfer` 及 `AppendApiContextProgress`，Light 原正文追加，无新 timer/query。不改布局，contextApplied/执行始终未知，不升级角色或控制权；七个双语键定点补齐，Detection/CLI/CooperativeApiCapture 未改。本批不构建、不测试、不 GUI、不 CodeBuddy，未提交暂存。
+- AACT1／AASM1 桌面仅接入单行详情：行字段 `apiContext`／`contextOutcome`、`apiSectionMap`／`sectionMapOutcome` 消费源端独立结果函数，Qt 在原 `FieldDocument` 追加、Light 从原 `ApiTransferDetails` 分派。缺位未知，输入句柄不授身份；上下文 IP/SP/flags/ABI 仅请求；映射请求／实际返回范围分列，sectionOffset 原输入，sectionHandle 非别名身份。未建立新候选树。APC 活采 progress 复用已发布回执：Qt 本端 receipt 新增 `apcTransferCandidates`／`latestApcTransfer`，Light 原 `ApiTransferProgress` 追加，无新 timer/query。27 个双语源键和两端工程/filters 已定点登记。当前仅源码完成，不 CodeBuddy、不构建、不 GUI、不测试；详情及回执实际验收待用户恢复授权。范围见 [跨段候选树记录](../../docs/action-analyze-planning/api-transfer-tree.md)。
+- 本批作者直接派发 CodeBuddy 后，候选树语言审计明确输出通过（32032 源文本），45 个相关双语键齐全、六份工程 XML／路径检查通过。专用无窗口工程首次 C4459 来自测试全局 `scope` 遮蔽，已改 `testScope`；唯一重试因真实 CLI 验收互斥占用退出 2，修正后工程未取得编译及运行通过。固定验证入口 `tools/action_analyze_validation/api_transfer_tree/run_validation.py`；后续由作者在空闲验收批次续接，不重复既有正式 CLI 整批。命名互斥的 `ERROR_ALREADY_EXISTS` 只证明对象存在，必须检查 `WaitForSingleObject(0)`，Python Win32 HANDLE 必须声明指针宽度。
+- `memory track`／`memory stream --observe-threads` 复用被动线程记录。`previousThreadObservationRound` 指前一次实际枚举尝试的轮号；首次或本轮没尝试时为空，无字节轮不会更新基准。只读轮询不是实际断点；正式回执与清理情况见[验收回执](../../docs/action-analyze-planning/validation-results.md)。
+- 本机 `python -B` 已通过 CodeBuddy 的精确命令授权，正式 CLI 流式观察三轮记录前序 `null / 1 / 2`；同一线程从首次可见到确认退出。该回执早于线程枚举失败的续持修补。修补后失败轮保留原线程句柄以确认其退出，但仍报告 `unknown`，不当作新线程的完整基准。
+- 选中内存产品实现使用 `Memory/SelectedMemorySnapshot` 复用 `PassiveDirtyMemory::PollCapture`，成功页才交真实字节；项目独立 `raw-memory` 流通过 `ProjectMemorySnapshot` 写入。集合调查保存必须传完整 `ProcessMemorySnapshotResult` 到 `WriteProcessGroupMemorySnapshot`，不能只提取 `snapshot` 而丢失原读取模式和读前/读后停点。`completeRange` 与 `heldAtBothChecks` 是独立结论，历史上下文不授活控制权；格式见 [selected-memory-v1](../../schemas/action_analyze/selected-memory-v1.md)。各作者直接调用 CodeBuddy 负责适用测试及回执，未有回执不按源码推断运行通过。
+- 原生执行证据入口为 `Control/NativeExecutionEvidence`，只从同一活原生所有者的当前精确事件提取 DR0 进入尝试或 Into 单指令完成。`Project/ProjectNativeExecution` 保存独立 `raw-native` 段，历史读取不构造活释放请求；格式见 [native-execution-v1](../../schemas/action_analyze/native-execution-v1.md)。`Detection/NativeTransferAssociation` 仅按已报告目标/线程代次与实际地址范围做一致性候选，两类档案尚无共同启动期时钟证明时不比较 QPC 先后，也不提升来源认证、区域版本或因果归因。
