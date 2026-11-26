@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- 专用无窗口工程的源码登记与 vcxproj 保持一致，不登记桌面或 CLI 产品消费者。 -->
+  <ItemGroup>
+    <ClCompile Include="ApiTransferCandidateWindowTests.cpp" />
+    <ClCompile Include="..\..\..\KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp" />
+    <ClCompile Include="..\..\..\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="..\..\..\shared\evidence\ObjectIdentity.cpp" />
+    <ClInclude Include="..\..\..\shared\evidence\ApiTransferCandidateWindow.h" />
+  </ItemGroup>
+</Project>

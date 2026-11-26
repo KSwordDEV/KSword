@@ -3,11 +3,17 @@
 from contextlib import ExitStack
 import hashlib
 import json
+from pathlib import Path
 from runpy import run_path
 import struct
+import subprocess
+import sys
 import time
 
+# 独立运行和桌面调用共用同一个源码规则库读侧。
+sys.path.insert(1, str(Path(__file__).resolve().parents[1]))
 from api_evidence import archive_line, packet
+from api_rule_profile import behavior_rule
 from continuous_etw import cleanup_child, shutdown
 from live_etw import CLI, call, controller, decode_raw
 from project_v1 import owned_project_path
@@ -18,12 +24,15 @@ CREATION = '134400565183024180'  # 合成归档中声明的调用方创建时间
 SESSION_ID = 1234  # packet() 写入相同的原包会话字段。
 
 
-def make_rows():
+def make_rows(*, behavior=False):
     """返回六条相互可辨的原始包及其生产形状 JSONL，不执行包内描述。"""
     packets = []  # 用时间戳区分包，验证归档顺序时比较完整字节。
     rows = []  # 同一个文件按三批追加的六个已换行记录。
     for sequence in range(1, 7):
-        wire = bytearray(packet('KernelBase', 'WriteProcessMemory', 8))  # 被动分类所需的固定长度测试包。
+        # 第 2 条与末条有显式拒绝返回；第 3 条代码相同但无返回标记。
+        marker = 0x52545631 if behavior and sequence in (2, 6) else 0
+        status = 5 if behavior and sequence in (2, 3, 6) else 0
+        wire = bytearray(packet('KernelBase', 'WriteProcessMemory', 8, marker=marker, status=status))
         struct.pack_into('<Q', wire, 16, int(CREATION) + sequence)
         packets.append(bytes(wire))
         rows.append(archive_line(sequence, wire, pid=42, processCreation100ns=CREATION))
@@ -181,9 +190,14 @@ def verify_readback(project, identity, opened, segments, markers, *, verify_grap
         assert shutdown(reader) == 0
 
 
-def run(project, *, verify_graph=False):
+def run(project, *, verify_graph=False, behavior=False):
     """创建专用项目并核对提交与截止。返回样本 ID、段、标记及原包供桌面共用。"""
-    packets, rows = make_rows()  # 同一文件的原始输入与预期包。
+    packets, rows = make_rows(behavior=behavior)  # 同一文件的原始输入与预期包。
+    if behavior:
+        behavior_id = 'ksword.behavior.memory-write-access-denied-return.v1'  # 夹具正例对应的规则。
+        definition = behavior_rule(behavior_id)
+        explanation = {'ruleId': behavior_id, 'evidence': 'reported-api-return',
+                       'summary': definition['summary'], 'summaryZh': definition.get('summaryZh')}
     source = project.parent / 'events.jsonl'  # 只使用项目夹具所在的固定目录。
     with source.open('xb') as stream:
         stream.write(b''.join(rows[:2]))
@@ -204,6 +218,8 @@ def run(project, *, verify_graph=False):
              error='source-not-authorized', **revision)
         opened = call(cli, 'open', 'session.open', options, **revision)  # 本次活会话回执。
         assert opened['capture'] == 'active' and opened['plan']['durationMs'] == 0 and opened['plan']['checkpointRequired'], opened
+        assert opened['plan']['rulePresetSet'] == opened['rules']['presetSet'] == 'ksword.api.behavior-presets.v1'
+        assert opened['rules']['matchedRows'] == '0' and opened['rules']['latest'] is None
         owner = {'session': opened['session']}  # 停止与关闭只提交给本次会话。
         sample = project / 'samples' / opened['sampleId']  # 实际采样根目录。
         raw = sample / 'raw'  # 输入原包的已写段。
@@ -211,16 +227,35 @@ def run(project, *, verify_graph=False):
 
         # 查询完全空闲时提交三批，其后再检查当前状态和尾读终点。
         wait_for_segment(checkpoints, 1)
+        first = call(cli, 'rules/1', 'session.query', {}, **owner)  # 首次发布后的已提交命中。
+        assert first['rules']['matchedRows'] == '2', first['rules']
+        if behavior:
+            assert first['rules']['latest'].get('behavior') == explanation, first['rules']
+        findings = call(cli, 'findings/active', 'session.findings', {}, **owner)  # 只读复用初次提交的规则视图。
+        assert findings == {'session': owner['session'], 'sampleId': opened['sampleId'],
+                            'state': first['rules']['state'], 'source': 'api-archive-follow',
+                            'observations': '2', 'latest': first['rules']['latest']}, findings
         for ordinal, batch in ((2, rows[2:4]), (3, rows[4:])):
             with source.open('ab') as stream:
                 stream.write(b''.join(batch))
             wait_for_segment(checkpoints, ordinal)
+            committed = call(cli, f'rules/{ordinal}', 'session.query', {}, **owner)  # 已发布段的累计计数。
+            assert committed['rules']['matchedRows'] == str(ordinal * 2), committed['rules']
+            if behavior and ordinal == 2:
+                assert 'behavior' not in committed['rules']['latest'], committed['rules']
         active = call(cli, 'status', 'session.query', {}, **owner)  # 以这一代次发起显式停止。
+        assert active['rules'] == committed['rules']
+        expected_latest = {'ruleId': 'ksword.api.memory-write-observed.v1',
+                           'segmentOrdinal': '3', 'rawSequence': '9', 'sourceSequence': '6'}
+        if behavior:
+            expected_latest['behavior'] = explanation
+        assert active['rules']['latest'] == expected_latest, active['rules']
         stopped = call(cli, 'stop', 'session.stop', {}, expected={'stateRevision': active['stateRevision']}, **owner)
         assert stopped['capture'] == 'stopped' and stopped['stopReason'] == 'requested', stopped
         assert stopped['archive']['recordedRows'] == stopped['source']['validatedRows'] == '6', stopped
         assert stopped['source']['cutoffBytes'] == str(sum(map(len, rows))) and stopped['source']['cutoffReached'], stopped
         assert stopped['source']['coverage'] == 'unknown' and stopped['source']['writerReceipt'] is None, stopped
+        assert stopped['rules'] == active['rules'] and stopped['rules']['coverage'] == 'unknown'
         if verify_graph:
             assert stopped['source']['diagnosis'] == {
                 'input': 'cutoff', 'prefixIdentity': 'prefix-consistent', 'producerConnection': 'unknown',
@@ -233,7 +268,10 @@ def run(project, *, verify_graph=False):
         assert len(segments) == int(stopped['archive']['segmentOrdinal']) == 4, segments
         with source.open('ab') as stream:
             stream.write(archive_line(7, packets[-1], pid=42, processCreation100ns=CREATION))
-        assert call(cli, 'status-after-stop', 'session.query', {}, **owner)['archive'] == stopped['archive']
+        terminal = call(cli, 'status-after-stop', 'session.query', {}, **owner)  # 终态后的只读核对。
+        assert terminal['archive'] == stopped['archive'] and terminal['rules'] == stopped['rules']
+        findings = call(cli, 'findings/stopped', 'session.findings', {}, **owner)  # 查询不计入停止后追加的输入行。
+        assert findings['observations'] == '6' and findings['latest'] == expected_latest, findings
         assert call(cli, 'close', 'session.close', {}, expected={'stateRevision': stopped['stateRevision']}, **owner)['closed']
         frozen = call(cli, 'frozen', 'sample.query', identity | {'sampleId': opened['sampleId']})  # 回读采样描述及冻结设置。
         assert frozen['frozenSettings'] == settings and frozen['revisionId'] == saved['revisionId'], frozen
@@ -253,6 +291,18 @@ def run(project, *, verify_graph=False):
         assert len(markers) == len(segments), markers
         source.unlink()  # 项目通过原包独立重开，无需再次访问输入文件。
         verify_readback(project, identity, opened, segments, markers, verify_graph=verify_graph)
+        if behavior:
+            # 让正式离线命令按同一采样重算，并以保存的坐标比对正例和缺返回标记的负例。
+            replay = subprocess.run([CLI, 'analyze', 'replay-api-rules', '--project', project, '--sample',
+                                     opened['sampleId'], '--profile', 'by-category', '--json'],
+                                    capture_output=True, timeout=15)
+            assert replay.returncode == 0, (replay.returncode, replay.stderr, replay.stdout)
+            matches = json.loads(replay.stdout)['data']['matches']
+            assert [row['sourceSequence'] for row in matches] == list(map(str, range(1, 7))), matches
+            hits = [row for row in matches if 'behavior' in row]
+            assert [(row['sourceSequence'], row['raw']['segment'], row['raw']['sequence'], row['behavior'])
+                    for row in hits] == [('2', '1', '3', explanation), ('6', '3', '9', explanation)], matches
+            print(f'CLI_API_BEHAVIOR_EXPLANATION=PASS SAMPLE={opened["sampleId"]} RAW=1#3,3#9', flush=True)
     print(json.dumps({'cliSha256': hashlib.sha256(CLI.read_bytes()).hexdigest(),
                       'sampleId': opened['sampleId'], 'segments': len(segments), 'rows': len(recorded),
                       'cutoffBytes': stopped['source']['cutoffBytes']}), flush=True)
@@ -261,5 +311,5 @@ def run(project, *, verify_graph=False):
 
 if __name__ == '__main__':
     with owned_project_path() as project:
-        run(project, verify_graph=True)
+        run(project, verify_graph=True, behavior=True)
     print('CLI_PASSIVE_API_SESSION=PASS', flush=True)

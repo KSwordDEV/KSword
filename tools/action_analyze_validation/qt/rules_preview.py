@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from archive_api_preview import RELEASE, fixture_directory, import_fixture, test_window
+from api_rule_profile import display_summary, read_rule_profile
 from live_preview import dispatch, open_overview, unique, until
 
 
@@ -173,14 +174,27 @@ def verify_presets(page, manifest, segment, rows, draft_path, draft_bytes, moder
         "memory-write": "memory-operation", "section-map": "memory-operation",
         "apc-queue": "thread-control", "thread-create": "thread-control", "thread-context": "thread-control",
     }
-    assert sorted(row["family"] for row in rows) == sorted(families), rows  # 夹具包含五个不同类别各一条。
+    # 命中数量、原包顺序和跳号的源行由夹具确定，独立于规则库和产品回执。
+    coordinates = [(1, 1, 2, "memory-write"), (1, 2, 3, "apc-queue"), (1, 3, 5, "thread-create"),
+                   (1, 4, 6, "thread-context"), (1, 5, 7, "section-map")]
+    assert [(int(row["rawSegment"]), int(row["rawSequence"]), int(row["sourceSequence"]), row["family"])
+            for row in rows] == coordinates, rows
+    profile = read_rule_profile()  # 只用源码定义提供名称、顺序和规则集标识。
+    grouped_counts = {"ksword.api.memory-operation-observed.v1": 2, "ksword.api.thread-control-observed.v1": 3}
+    category_counts = {f"ksword.api.{family}-observed.v1": 1 for family in families}
+    summaries = []  # 按规则定义顺序逐条拼出准确的预期计数行。
+    for key, title, counts in (("grouped", "汇总", grouped_counts), ("by-category", "细分", category_counts)):
+        rules = profile["profiles"][key]
+        assert len(rules) == len(counts) and {rule["ruleId"] for rule in rules} == set(counts), rules
+        items = [f'{display_summary(rule)} {counts[rule["ruleId"]]} 条' for rule in rules]
+        summaries.append(f"{title}：{' · '.join(items)}")
     project_id = json.loads(manifest.read_bytes())["projectId"]
     sample_id = segment.parents[1].name  # 复用 CLI 实际导入采样 ID。
     expected = [
         f"项目 {project_id} · 采样 {sample_id}",
         "已分析最近 5 条，共验证 5 条归档线索。命中 5 条。",
-        "汇总：内存操作 2 条 · 线程控制 3 条",
-        "细分：内存写入 1 条 · 节映射 1 条 · 线程创建 1 条 · 线程上下文修改 1 条 · APC 入队 1 条",
+        f'规则集：{profile["presetSet"]}',
+        *summaries,
         "以下为 API 观测。目标身份、调用效果和采集覆盖未知。",
     ]
     for row in rows:

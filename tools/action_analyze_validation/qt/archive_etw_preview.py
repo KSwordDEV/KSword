@@ -13,27 +13,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 from live_etw import run
 
 
-def preview_continuous(segment, *, etw_segments):
+def recent_etw_window(etw_segments):
+    """由 CLI 已核验的段回执返回最近 4096 条的起始序号和窗口内 ETW 数。"""
+    total = int(etw_segments[-1]["lastSequence"])  # 终段的全采样原始水位。
+    assert total > 4096, total  # 必须实际发生窗口淘汰。
+    first = total - 4095  # 窗口含终段尾记，序号两端均包含。
+    observations = previous = 0  # 已计入的观察数与上一段的原始水位。
+    for part in etw_segments:
+        end = int(part["lastSequence"])  # 当前段尾记的原始序号。
+        count = int(part["observationCount"])  # 当前段纯 ETW 观察数。
+        # 每段为计划、连续 ETW 观察、尾记；只计算观察范围与窗口的交集。
+        assert end == previous + count + 2, part
+        observations += max(0, end - max(first, previous + 2))
+        previous = end
+    return first, observations
+
+
+def preview_continuous(segment, *, etw_segments, long_window=None):
     """接收 CLI 的首段和检查点回执，用正式 Qt 核对同一采样的终段和最后一条 ETW 坐标。"""
     sample_id = segment.parents[1].name  # CLI 生成的真实采样标识。
     manifest = segment.parents[3] / "project.ksaproj"  # 同一夹具内由 CLI 发布的目录。
     total = int(etw_segments[-1]["lastSequence"])  # 包括每段首尾记录。
-    observations = sum(int(part["observationCount"]) for part in etw_segments)  # ETW 独立筛选预期。
+    first, observations = long_window or (1, sum(int(part["observationCount"]) for part in etw_segments))
+    window_rows = total - first + 1  # 未筛选时实际保留的原始行数。
     with test_window() as client:
         nodes = open_project_sample(client, manifest, sample_id, title="Owned file I/O")  # 沿真实目录按 UUID 打开。
         table = unique(nodes(), lambda node: node["visible"] and node["class"] == "QTableView"
                        and {"PID", "TID"} <= set(read_table(client, node)["headers"]))  # 回放记录表。
-        until(lambda: read_table(client, table), lambda model: model["row_total"] == total)
-        assert any(node["visible"] and f"已验证至第 {len(etw_segments)} 段。" in node["name"] for node in nodes())
+        full = until(lambda: read_table(client, table), lambda model: model["row_total"] == window_rows)
+        terminal = f"已验证至第 {len(etw_segments)} 段。"  # 状态标签中的终段编号。
+        assert any(node["visible"] and terminal in node["name"] for node in nodes())
 
-        # 用正式工具栏过滤 ETW，并读取该筛选下的末行。
-        etw = unique(nodes(), lambda node: node["visible"] and node["type"] == "button" and node["name"] == "ETW")
-        dispatch(client, "set_field", object_id=etw["id"], value=True, confirmed=True)
-        filtered = until(lambda: read_table(client, table), lambda model: model["row_total"] == observations)
-        dispatch(client, "select_row", object_id=table["id"], row=observations - 1,
-                 revision=filtered["revision"], confirmed=True)
-
-        def fields():
+        def fields(required="ETW 来源代次"):
             """回读可见归档详情，返回字段映射或空字典。"""
             for view in nodes():  # 忽略主表及隐藏的字段模型。
                 if not view["visible"] or view["type"] != "item_view" or view["id"] == table["id"]:
@@ -44,14 +55,37 @@ def preview_continuous(segment, *, etw_segments):
                         rows = read_table(client, view, [index])["rows"]
                         break
                 values = {str(row[0]): str(row[1]) for row in rows if len(row) >= 2}  # 从正式字段模型取值。
-                if "ETW 来源代次" in values:
+                if required in values:
                     return values
             return {}
 
+        if long_window is not None:
+            # 核对正式检查点状态及最近窗口的两端，而不是只断言列表有 4096 行。
+            visible = {node["name"] for node in nodes() if node["visible"]}
+            assert any("已验证项目检查点。" in label and terminal in label for label in visible), visible
+            assert any(f"已验证 {total} 条归档记录。" in label for label in visible), visible
+            for row, sequence in ((0, first), (window_rows - 1, total)):
+                dispatch(client, "select_row", object_id=table["id"], row=row,
+                         revision=full["revision"], confirmed=True)
+                endpoint = until(lambda: fields("记录序号"), lambda value: value.get("记录序号") == str(sequence))
+                assert endpoint["采样 ID"] == sample_id, endpoint
+
+        # 用正式工具栏过滤 ETW，并读取该筛选下的末行。
+        etw = unique(nodes(), lambda node: node["visible"] and node["type"] == "button" and node["name"] == "ETW")
+        dispatch(client, "set_field", object_id=etw["id"], value=True, confirmed=True)
+        filtered = until(lambda: read_table(client, table), lambda model: model["row_total"] == observations)
+        dispatch(client, "select_row", object_id=table["id"], row=observations - 1,
+                 revision=filtered["revision"], confirmed=True)
         # 终段只有收尾元数据，最后一次观察在倒数第二段的尾记之前。
-        last_sequence = str(int(etw_segments[-2]["lastSequence"]) - 1)
+        last_part = etw_segments[-2]
+        last_sequence = str(int(last_part["lastSequence"]) - 1)
         selected = until(fields, lambda value: value.get("记录序号") == last_sequence)
-        assert selected["采样 ID"] == sample_id and selected["归档段号"] == str(len(etw_segments) - 1), selected
+        assert selected["采样 ID"] == sample_id and selected["归档段号"] == last_part["segmentOrdinal"], selected
+        if long_window is not None:
+            print(f"QT_CONTINUOUS_ETW_LONG_REPLAY=PASS SAMPLE={sample_id} SEGMENTS={len(etw_segments)} "
+                  f"RAW_WINDOW={first}:{total} ROWS={window_rows} ETW={observations} "
+                  f"LAST=raw/{selected['归档段号']}#{last_sequence}", flush=True)
+            return
         dispatch(client, "set_field", object_id=etw["id"], value=False, confirmed=True)
         until(lambda: read_table(client, table), lambda model: model["row_total"] == total)
         assert fields() == selected

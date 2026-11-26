@@ -45,9 +45,9 @@ def artifact_sha():
 
 def contract():
     schemas = [read(name) for name in ('value.schema.json', 'request.schema.json', 'request-message.schema.json')]
-    # Older checkpoints lack the archive schema. The registry stays local to this repository.
-    archive_schema = SCHEMAS / 'archive-inspect-method.schema.json'
-    resources = schemas + ([read(archive_schema.name)] if archive_schema.is_file() else [])
+    # Older checkpoints lack archive schemas. Resolve available dependencies locally.
+    archive_names = ('archive-inspect-method.schema.json', 'network-evidence-draft.schema.json')
+    resources = schemas + [read(name) for name in archive_names if (SCHEMAS / name).is_file()]
     registry = Registry().with_resources((schema['$id'], Resource.from_contents(schema)) for schema in resources)
     return Draft202012Validator(schemas[-1], registry=registry), read('method-catalog.json')['methods']
 

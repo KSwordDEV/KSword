@@ -115,6 +115,7 @@ def check_graph(project, project_id, sample, segment, packets):
     assert (head['nextAfterSequence'], tail['nextAfterSequence']) == ('1', None)
     for page in (head, tail):
         assert (page['archiveSource'], page['observationCount'], page['sourceCoverage']) == ('api-import', '5', 'unknown')
+        assert page['apiInputKind'] == 'closed-jsonl'
         assert page['prefix']['sha256'] == digest and page['nodes'] == [] and page['relations'] == []
     rows = head['observations'] + tail['observations']
     assert [(row['sourceSequence'], row['apiFamily'], row['apiCategory'], row['operation']) for row in rows] == [

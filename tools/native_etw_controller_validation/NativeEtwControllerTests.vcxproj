@@ -57,6 +57,7 @@
     <ClCompile Include="..\..\KswordCLI\CommandRegistry.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Cli\PassiveApiCapture.cpp;$(ActionAnalyzeSource)\Cli\Transport.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Detection\InjectionDiscovery.cpp;$(ActionAnalyzeSource)\Detection\CrossProcessEvidenceGraph.cpp;$(ActionAnalyzeSource)\Detection\ArchivedEvidenceGraph.cpp;$(ActionAnalyzeSource)\Detection\EvidenceRelationTree.cpp" />
+    <ClCompile Include="$(ActionAnalyzeSource)\Detection\ApiTransferChain.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Project\ProjectCallbackEvidence.cpp;$(ActionAnalyzeSource)\Detection\InjectionTelemetry.cpp" />
     <ClCompile Include="$(ActionAnalyzeSource)\Archive\NetworkEvidenceArchive.cpp" />

@@ -250,13 +250,13 @@ class Workspace:
 
 
 @contextmanager
-def light_window():
+def light_window(*, env=None):
     """只关闭本次启动的 Light 并恢复原工作区状态。"""
     existing = subprocess.run(['tasklist.exe', '/fi', 'IMAGENAME eq KswordARKLight.exe', '/fo', 'csv', '/nh'],
                               check=True, capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
     assert b'"kswordarklight.exe"' not in existing.stdout.lower(), '请先结束其它 Light 实例'
     saved = workspace_state()
-    process = launch_gui([BINARY, '--no-auto-elevation'], cwd=RELEASE)
+    process = launch_gui([BINARY, '--no-auto-elevation'], cwd=RELEASE, env=env)
     try:
         yield Workspace(process)
     finally:

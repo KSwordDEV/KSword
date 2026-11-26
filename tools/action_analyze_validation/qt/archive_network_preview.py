@@ -1,14 +1,20 @@
 """在正式 Qt 归档总览中回读既有的合成网络 Stored 夹具。"""
 
 import hashlib
+import json
 import os
 import subprocess
+from contextlib import ExitStack
+from runpy import run_path
 from uuid import UUID
 
 from archive_api_preview import check_location, choose_project_path, fixture_directory, read_table, test_window
+from continuous_etw import cleanup_child, shutdown
 from isolated_desktop import require_isolated_desktop
+from live_etw import call, controller
 from live_preview import RELEASE, ROOT, dispatch, open_overview, unique, until
 from project_v1 import regular_identity
+from smoke import SCHEMAS, artifact_sha, contract, invoke
 
 
 SCRATCH = RELEASE / "action-analyze-qt-network-validation"  # 一次回读独占的固定资料目录。
@@ -149,6 +155,68 @@ def verify_window(client, complete, truncated, corrupt, original, first_end, lar
         check_payload(path, fields, PAYLOAD)
 
 
+def verify_cli(directory, original, damaged, first_end):
+    """把同一份合成段加入正式项目，核对完整字节、末块边界及错误坐标。"""
+    crc32c = run_path(str(SCHEMAS / 'check_base_v1.py'))['crc32c']  # 独立 Stored CRC 实现。
+    envelope, methods = contract()  # 使用正式方法响应 schema 校验完整字段。
+    schema = 'https://ksword.invalid/schemas/action_analyze/' + methods['archive.inspect']['resultSchema']
+    validator = envelope.evolve(schema={'$ref': schema})
+    project = directory / 'network-project'  # 由正式 CLI 登记的专用项目。
+
+    with ExitStack() as children:
+        cli = controller('offline')  # 不启动实时来源或读取其他项目。
+        children.callback(cleanup_child, cli)
+        created = call(cli, 'create-network-project', 'project.create', {'path': str(project),
+                       'settings': {'title': 'Network archive validation', 'notes': ''}})
+        sample = call(cli, 'create-network-sample', 'sample.create', {'projectId': created['projectId'],
+                      'expectedRevisionId': created['revisionId'], 'title': 'Synthetic network archive'})
+        identity = {'projectId': created['projectId'], 'sampleId': sample['sampleId']}
+        raw = project / 'samples' / sample['sampleId'] / 'raw'  # 文件名由项目规则固定。
+        raw.mkdir(exist_ok=True)
+
+        # 仅重建归档段头中的项目、采样、段号和段头 CRC。正文及坏块保持原样。
+        for ordinal, source in enumerate((original, damaged), 1):
+            data = bytearray(source)
+            data[24:32] = ordinal.to_bytes(8, 'little')
+            data[32:48] = UUID(identity['projectId']).bytes
+            data[48:64] = UUID(identity['sampleId']).bytes
+            data[92:96] = crc32c(data[:92]).to_bytes(4, 'little')
+            with (raw / f'{ordinal:020d}.ksaseg').open('xb') as stream:
+                stream.write(data)
+
+        def inspect(label, ordinal, sequence, offset, error=None):
+            params = identity | {'stream': 'raw', 'ordinal': str(ordinal), 'view': 'network',
+                                 'recordSequence': str(sequence), 'recordOffset': str(offset)}
+            result = call(cli, label, 'archive.inspect', params, error=error)
+            if error is None:
+                validator.validate(result)
+            return result
+
+        first_record = 96 + BLOCK_HEADER_BYTES  # 第一个块的首条记录。
+        long_record = first_end + BLOCK_HEADER_BYTES  # 第二块首个原始网络流。
+        complete = inspect('network-complete', 1, 8, long_record)
+        assert bytes.fromhex(complete['bytesHex']) == LARGE_PAYLOAD, complete
+        assert complete['metadata']['capturedLength'] == '300' and complete['metadata']['direction'] == '1', complete
+        assert complete['sourceTrust'] == 'recorded-declaration' and complete['metadata']['family'] == '6', complete
+        metadata = inspect('network-verified-first-block', 2, 1, first_record)
+        assert metadata['bytesHex'] == '' and metadata['verifiedBlockEnd'] == str(first_end), metadata
+        assert metadata['metadata']['destinationAddress'] == 'c633640c' and metadata['metadata']['direction'] == '2', metadata
+        inspect('network-invalid-pair', 1, 8, first_record, error='invalid-params')
+        inspect('network-unreadable-block', 2, 8, long_record, error='project-corrupt')
+        inspect('network-missing-record', 1, 99, long_record + 1, error='project-data-not-found')
+        inspect('network-offset-before-records', 1, 1, first_record - 1, error='invalid-params')
+        assert shutdown(cli) == 0
+
+    # 重开同一项目，验证 REPL 参数与 JSONL 返回相同的记录和字节。
+    commands = (f'project open "{project}"\n'
+                f'archive inspect {identity["sampleId"]} raw 1 network 8 {long_record}\nquit\n')
+    stdout, stderr = invoke(('analyze', 'session', '--backend', 'offline'), commands.encode('utf-8'),
+                            label='Archive network REPL')
+    replies = [json.loads(line) for line in stdout.decode('utf-8').splitlines() if line.startswith('{')]
+    assert not stderr and len(replies) == 2 and replies[1] == complete, (stdout, stderr)
+    print(f"CLI_NETWORK_ARCHIVE_REPLAY=PASS BYTES=300 SAMPLE={identity['sampleId']} CLI_SHA256={artifact_sha()}", flush=True)
+
+
 def main():
     """只在隔离桌面运行，清理三份固定夹具后给出正式窗口回执。"""
     require_isolated_desktop()
@@ -157,6 +225,7 @@ def main():
     damaged[large_offset] ^= 1
     cutoff = large_offset + len(LARGE_PAYLOAD) - 1  # 在第二块载荷最后一字节前物理截断。
     with fixture_directory(SCRATCH) as directory:
+        verify_cli(directory, original, damaged, first_end)
         complete = directory / "complete.ksaseg"  # 一次运行独占的三份候选文件。
         truncated = directory / "truncated.ksaseg"
         corrupt = directory / "corrupt.ksaseg"

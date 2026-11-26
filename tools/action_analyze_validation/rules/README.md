@@ -99,12 +99,14 @@ $sources = @(
     'shared/evidence/LosslessValue.cpp'
     'tools/action_analyze_validation/rules/RuleExpressionValidation.cpp'
 ) | ForEach-Object { '"' + (Resolve-Path -LiteralPath $_).Path + '"' }
-$build = 'cl.exe /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /O2 /DNOMINMAX /Fo"{0}\\" /Fe"{1}" {2}' -f $intDir, $exe, ($sources -join ' ')
+$build = 'cl.exe /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /O2 /DNOMINMAX /Fo"{0}\\" /Fe"{1}" bcrypt.lib' -f $intDir, $exe, ($sources -join ' ')
 & cmd.exe /d /c $build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $exe $intDir
 exit $LASTEXITCODE
 ```
+
+`bcrypt.lib` 是 Windows CNG 平台依赖，供夹具自带的 SHA-256 计算使用，没有引入任何第三方库。
 
 夹具基线读取 Release 中已部署的规则。缺失、损坏和重新装载用例只读写 `IntDir/test-api-presets.json`，并核对两次加载分别保留自己的版本、释义和原包坐标。
 
@@ -113,6 +115,45 @@ exit $LASTEXITCODE
 本次给上述执行命令追加 `--offline-evidence-only`，在同一 HostX64 工具链下通过 **58 项局部断言**，包括质量条件、窗口 Replay、五类预置及 Stored 段原始坐标。范围限于规则和归档验证。夹具 EXE 的 SHA-256 为 `5A0555C002E192CEC5586F7B2A142E5FB4CB82013F9B0457262933DA2A19F5F9`，固定中间文件、测试段和夹具 EXE 已清理。
 
 2026-11-25 正式 Qt 在独立桌面通过「监控 → 行为分析 → 行为规则」验收。`运行归档预置` 对采样 `9c95b560-781d-486f-9d6a-d585f6ac559a` 显示两组汇总、五类各一条和五个原始坐标，截断重试与未保存草稿保留通过。入口沿用 `ParameterWorkspace` 和 `CodeEditorWidget`。窗口退出 `0`，配置恢复，固定夹具删除。HostX64 构建日志为 `.codex-build-logs/ksword-build-check-20261125-074133.raw.log`，Qt SHA-256 为 `1fdb0e556422f7f6105efecd7435c17ec64581a7321ff43ac4c675449ad5b459`。复跑命令为 `python -B tools/action_analyze_validation/isolated_desktop.py tools/action_analyze_validation/qt/rules_preview.py`。本次窗口使用浅色主题，窄窗、高 DPI、背景模式和深色视觉验收仍待覆盖。
+
+### 规则身份契约夹具
+
+产品规则库的 `ApiPresetDatabase::sourceSha256` 契约：完整加载成功时是实际解析的文件原始字节摘要（小写 64 位 SHA-256），任一失败为空；已装载对象的身份与已准备谓词冻结。本节记录夹具扩展、构建运行脚本及 2026-11-26 实测回执。只构建独立夹具，未构建产品、GUI 或驱动。
+
+`tools/action_analyze_validation/rules/RuleExpressionValidation.cpp` 的扩展：
+
+- `TestPresetIdentity` 复用固定夹具文件 `IntDir/test-api-presets.json`，覆盖：同一 `presetSet=test.v1` 只改 `summaryZh` 必须得到不同身份；同一字节再次加载身份相同；仅在 JSON 文档外部增加空白仍可解析但身份不同；文件被覆盖或删除后旧对象的身份与规则结果仍不变；缺失、坏 JSON、坏 header、坏 predicate 四类失败都是错误且身份为空、不留部分规则。
+- 摘要由夹具自带的 Windows CNG SHA-256 计算，并与三个**预先独立计算**的常量比较，不只断言长度。三个测试向量的常量由 PowerShell 的 `.NET SHA256` 计算后写死在源码中：
+
+  | 向量 | 字节数 | SHA-256 |
+  | --- | --- | --- |
+  | `base`（`test.v1`，`summaryZh=old-summary`） | 339 | `c554271721e6882e242951cd02e543517cfd44feff2b4f30574927569a24c8cf` |
+  | `revised`（同一 `presetSet`，`summaryZh=new-summary`） | 339 | `3fcdaed50e333d84bc1b26f3d4ec502963fcd5a0e44a53fe8fd9dfd9780240b2` |
+  | `spaced`（`base` 外部加 `\n`） | 341 | `26ddee915e7cb21ef95f64a64c958f3f07ffa2f66f0e66a1f4870823b0b25657` |
+
+  写入文件的实际字节先读回核对，再参与摘要计算，避免只比较字符串长度。
+- `TestStoredPreset` 增加错误规则数据库路径：用缺失规则文件得到的错误库分析同一个成功归档的原包，断言 `InvalidPreset`；随后重新扫描同一归档，断言 Stored 边界、导入尾记与原始坐标仍可读。原归档保持成功，产品写端未改动。
+- 产品库已正式实现 `sourceSha256`（见 [第 11 项外置规则内容身份](../../../docs/action-analyze-planning/rule-profile-identity.md)）：完整加载成功后是实际解析的同一份原始字节摘要，失败为空。夹具直接访问 `database.sourceSha256` 断言身份，不再使用 `requires` 兼容探测、`pending` 状态或通行开关；标准输出固定为 `ActionAnalyze preset identity contract: active`。
+
+`tools/action_analyze_validation/rules/Invoke-RuleProfileIdentityValidation.ps1` 是对应的构建运行脚本：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/action_analyze_validation/rules/Invoke-RuleProfileIdentityValidation.ps1
+```
+
+脚本行为：
+
+- 复用上节的 13 个源文件与 `/W4 /WX`，固定 `IntDir=tools/action_analyze_validation/rules/x64/Release/RuleExpressionValidation`、`OutDir=Ksword5.1/x64/Release`、产物 `ActionAnalyzeRuleExpressionValidation.exe`。
+- 自动寻找本机 `vcvars64` 或 `VsDevCmd`（`-arch=x64 -host_arch=x64`），先探测再编译；`cl.exe` 与 `link.exe` 必须位于 `Hostx64\x64`，否则报错退出。
+- 构建宿主使用 `BelowNormal` 优先级；编译前打印绝对 `IntDir`、`OutDir`、`HostX64`。
+- 只构建夹具，不调用产品构建脚本，不构建产品、GUI 或驱动，也不写 shared 验证结果。
+- 固定位置已被占用时报错退出并报告，不删除任何既有产物或其它作者的测试文件。
+- 成功时只清理本次运行确切创建的 13 个中间对象、两份测试 `.ksaseg`、`test-api-presets.json` 和夹具 EXE；删除前核对绝对路径边界、Git 跟踪状态和同名运行进程；中间目录只在为空时删除，不递归。失败时保留产物并在回执中给出确切路径。
+- 文本日志与 JSON 回执写入 `.codex-build-logs/action-analyze-rule-profile-identity-<时间戳>.{log,json}`。
+
+预定通过条件：脚本输出 `RESULT=PASSED EXIT_CODE=0`，夹具输出 `ActionAnalyze rule expression: N checks, 0 failures` 与 `ActionAnalyze preset identity contract: active`。脚本只接受 active 且夹具零失败，不再提供身份缺失的降级通行开关。
+
+2026-11-26 实测回执：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/action_analyze_validation/rules/Invoke-RuleProfileIdentityValidation.ps1` 由 Windows PowerShell 5.1 执行，`RESULT=PASSED EXIT_CODE=0`。BelowNormal，HostX64 为 MSVC 14.51 `Hostx64\x64\cl.exe`／`link.exe`（`D:\Software\VS2026\VC\Tools\MSVC\14.51.36231`）；13 源 `/W4 /WX` 构建退出 0，完整夹具退出 0，输出 `261 checks, 0 failures` 与 `active`。EXE SHA-256 `52764072BF189BE468A1D553E64B24C197DB1E66CB79619274E93D82589CF48E`，随后已清理。成功日志与回执位于 `.codex-build-logs/action-analyze-rule-profile-identity-20261126-024314.{log,json,cmd,vcvars.log}`；首轮清理阶段失败的日志 `...-20261126-024226.*` 同样保留。实测发现 `Test-GitTracked` 的 `git ls-files --error-unmatch` 在 PowerShell 5.1 `Stop` 偏好下把未跟踪文件的 stderr 变成终止错误，已改为按 `git ls-files -- <path>` 输出判定并在函数内局部放宽偏好。完整路径、退出码、清理与范围声明见 [第 11 项外置规则内容身份](../../../docs/action-analyze-planning/rule-profile-identity.md#本次实测回执2026-11-26)。夹具通过不代表正式 CLI／Qt／Light 验收通过。
 
 ### 协调登记与验收
 

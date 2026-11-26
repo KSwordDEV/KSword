@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{76F43DBB-D3F9-45E6-8361-BF519739D571}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\$(Platform)\Release\</IntDir>
+    <OutDir>$(MSBuildProjectDirectory)\..\..\Ksword5.1\x64\Release\</OutDir>
+    <TargetName Condition="'$(Platform)'=='x64'">ApiMonitorStartupValidation</TargetName>
+    <TargetName Condition="'$(Platform)'=='Win32'">ApiMonitorStartupTarget_x86</TargetName>
+  </PropertyGroup>
+  <Import Project="..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><RuntimeLibrary>MultiThreaded</RuntimeLibrary><Optimization>MaxSpeed</Optimization><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="StartupProbe.cpp" /><ClInclude Include="ProbeStages.h" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.targets" />
+  <Target Name="PrintStartupProbePaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="PROBE_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="PROBE_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="PROBE_HOSTX64=$(VCToolsInstallDir)bin\HostX64\$(PlatformTarget)\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64'" Text="HostX64 is required." />
+  </Target>
+</Project>

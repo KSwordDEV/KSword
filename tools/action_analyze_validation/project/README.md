@@ -49,3 +49,9 @@ if ($LASTEXITCODE) { throw 'Independent format check failed' }
 Previously validated on the integrated Release working tree: native fixture and CLI both exited `0`. The nonempty sample `7df25ff0-b8ae-4c0d-91da-276dba502214` returned `raw/1 #2`, source sequence `107`, record offset `472`, packet offset `566`, length `1264`, and the notification time `133000000000000123`. The initial page, continuation, and complete empty sample `ebffbb80-7ca6-40ce-b990-ba6754605c2c` matched the raw batch counters. A conflicting batch returned `project-corrupt`; a changed cursor digest returned `stale-revision`. The CLI verified that all source files remained byte-for-byte unchanged. See the recorded `CLI_CALLBACK_ARCHIVE_GRAPH=PASS` in `.codex-build-logs/action-analyze-item4-callback-batch-notification-codebuddy.json`.
 
 This receipt covers synthetic project archive readback. `sourceCoverage` remains `unknown`; callback hints do not identify process or thread instances or establish creation outcome or execution.
+
+## 退役来源
+
+Sysmon 已退出活动验证范围。项目验证器不再登记该来源，也不再提供旧正例生成入口；Light Stored 验证工程同步移除旧来源的源码和头文件登记。历史文件、既有用户档与历史回执保留，不计作当前采集、订阅、回放验收或发行能力。
+
+本次仅检查退役接线，复用第 4 项正式 CLI 的自有回调回执，不重复构建或运行 GUI。实际修改和静态检查范围见[退役验证接线记录](../../../docs/action-analyze-planning/retired-validation-wiring.md)。

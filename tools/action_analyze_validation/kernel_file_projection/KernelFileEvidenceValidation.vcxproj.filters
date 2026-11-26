@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- 夹具、来源投影和共享证据类型按职责分组。 -->
+  <ItemGroup>
+    <Filter Include="Validation"><UniqueIdentifier>{6F59E263-5758-4936-9D48-B415E2A23AEA}</UniqueIdentifier></Filter>
+    <Filter Include="Projection"><UniqueIdentifier>{597AF016-DBAA-4B32-BCAD-CC975AB5799E}</UniqueIdentifier></Filter>
+    <Filter Include="Evidence"><UniqueIdentifier>{4E61F7F6-4C47-4CA4-996D-D72416EAAB82}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="KernelFileEvidenceValidation.cpp"><Filter>Validation</Filter></ClCompile>
+    <ClCompile Include="PassiveEtwValidation.cpp"><Filter>Validation</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\PassiveEtwSource.cpp"><Filter>Projection</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\EtwSessionController.cpp"><Filter>Projection</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\EtwFilterModel.cpp"><Filter>Projection</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\EtwEventModel.cpp"><Filter>Projection</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.cpp"><Filter>Projection</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\evidence\EvidenceJson.cpp"><Filter>Evidence</Filter></ClCompile>
+    <ClCompile Include="..\..\..\shared\evidence\LosslessValue.cpp"><Filter>Evidence</Filter></ClCompile>
+    <ClInclude Include="..\..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h"><Filter>Projection</Filter></ClInclude>
+    <ClInclude Include="..\..\..\shared\usermode\backend\monitor\PassiveEtwSource.h"><Filter>Projection</Filter></ClInclude>
+  </ItemGroup>
+</Project>

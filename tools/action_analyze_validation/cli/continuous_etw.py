@@ -18,7 +18,7 @@ import time
 from uuid import UUID, uuid4
 
 import live_etw
-from live_etw import CLI, PAYLOAD, PROVIDER, RELEASE, REPO, Child, call, controller, decode_raw, sample
+from live_etw import CLI, PAYLOAD, PROVIDER, RELEASE, REPO, Child, call, controller, decode_raw, sample, verify_findings
 
 
 SCRATCH = RELEASE / 'ActionAnalyzeContinuousEtwValidation'
@@ -206,18 +206,6 @@ def readback(reader, sample_identity, segment, plan):
     return capture
 
 
-def verify_missing_sysmon(cli, opened, target_guid):
-    report = call(cli, 'findings', 'session.findings', {}, session=opened['session'])
-    assert report['session'] == opened['session'] and report['sampleId'] == opened['sampleId'], report
-    assert report['state'] == 'requested' and report['observations'] == '0' and report['latest'] is None, report
-    source = report['source']
-    assert source['state'] == 'channel-unavailable' and not source['subscribed'], report
-    assert source['targetProcessGuid'] == target_guid and source['channel'] == 'Microsoft-Windows-Sysmon/Operational', report
-    assert source['nativeStage'] == 'subscribe' and source['win32Error'] == 15007, report
-    assert source['captureCoverage'] == 'unknown', report
-    print(json.dumps({'findingsBeforeRemainingWaves': report}), flush=True)
-
-
 def verify_long_archive(reader, identity, opened, sample_path, segments, emitted):
     cumulative = max_queued = raw_bytes = coverage_bytes = live_stats_known = 0
     for segment in segments:
@@ -244,9 +232,9 @@ def verify_long_archive(reader, identity, opened, sample_path, segments, emitted
             'liveSegmentsWithNativeLossStatistics': live_stats_known, 'maxQueuedAfterSegmentDrain': max_queued}
 
 
-def run(expect_missing_sysmon=False, inspect_gui=None, *, long_seconds=None):
+def run(inspect_gui=None, *, long_seconds=None):
     """采集并回读自有 ETW 样本。可在测试目录清理前交给正式桌面入口复验。"""
-    assert long_seconds is None or (long_seconds > 0 and not expect_missing_sysmon)
+    assert long_seconds is None or long_seconds > 0
     long_run = long_seconds is not None
     digest = hashlib.sha256(CLI.read_bytes()).hexdigest()
     with owned_scratch(LONG_SCRATCH if long_run else SCRATCH) as scratch, ExitStack() as children:
@@ -264,9 +252,6 @@ def run(expect_missing_sysmon=False, inspect_gui=None, *, long_seconds=None):
                        'settings': {'title': 'Continuous owned ETW', 'notes': ''}})
         identity = {'projectId': created['projectId']}
         options = dict(identity, **target, title='Owned file I/O', providerId=str(provider))
-        if expect_missing_sysmon:
-            # A fresh selector exercises subscription reporting without requiring a Sysmon event.
-            options['sysmonTargetGuid'] = str(uuid4())
         opened = call(cli, 'open', 'session.open', options, expected={'revisionId': created['revisionId']})
         assert opened['capture'] == 'active' and opened['plan']['durationMs'] == 0, opened
         assert opened['archive']['recordedObservations'] == '0' and opened['stopReason'] is None, opened
@@ -311,8 +296,10 @@ def run(expect_missing_sysmon=False, inspect_gui=None, *, long_seconds=None):
             if wave <= 2:
                 print(json.dumps({'commandFreeWave': wave, 'committedObservations': committed,
                                   'publishedSegments': len(segments)}), flush=True)
-            if wave == 2 and expect_missing_sysmon:
-                verify_missing_sysmon(cli, opened, options['sysmonTargetGuid'])
+            if wave == 2 and not long_run:
+                report = call(cli, 'findings', 'session.findings', {}, session=opened['session'])
+                verify_findings(report, opened)
+                print(json.dumps({'findingsBeforeRemainingWaves': report}), flush=True)
         if long_run:
             end_metrics = metrics()
             elapsed = time.monotonic() - started
@@ -398,11 +385,9 @@ if __name__ == '__main__':
         sample(Path(sys.argv[2]), batched=True)
     else:
         parser = argparse.ArgumentParser(description=__doc__)
-        mode = parser.add_mutually_exclusive_group()
-        mode.add_argument('--expect-missing-sysmon', action='store_true')
-        mode.add_argument('--long-seconds', type=int, metavar='SECONDS',
-                          help='capture for at least SECONDS with paced 200-event waves and process counters')
+        parser.add_argument('--long-seconds', type=int, metavar='SECONDS',
+                            help='capture for at least SECONDS with paced 200-event waves and process counters')
         args = parser.parse_args()
         if args.long_seconds is not None and args.long_seconds < 1:
             parser.error('--long-seconds must be positive')
-        run(args.expect_missing_sysmon, long_seconds=args.long_seconds)
+        run(long_seconds=args.long_seconds)

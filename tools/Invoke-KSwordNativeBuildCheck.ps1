@@ -37,6 +37,14 @@ if ($Product -eq 'Light') {
     $buildArgs += @('/p:KswordArkLightEnsureDriverBuilt=false', '/p:KswordArkLightReuseSignedDriver=true',
         '/p:KswordArkLightSkipDriverSign=true')
 }
+# Windows PowerShell 5.1 没有 Path.GetFullPath(string, string) 重载，这里显式拼接工程基准。
+function Resolve-ProjectPath([string]$path, [string]$base) {
+    if ([IO.Path]::IsPathRooted($path)) {
+        return [IO.Path]::GetFullPath($path)
+    }
+    return [IO.Path]::GetFullPath((Join-Path $base $path))
+}
+
 $buildHost = [Diagnostics.Process]::GetCurrentProcess()
 $previousPriority = $buildHost.PriorityClass
 try {
@@ -48,8 +56,8 @@ try {
 
     # 以工程为基准解析相对目录；在任何编译或链接前打印并校验实际路径。
     $properties = ($values -join "`n" | ConvertFrom-Json).Properties
-    $intDir = [IO.Path]::GetFullPath($properties.IntDir, $properties.ProjectDir).TrimEnd('\')
-    $outDir = [IO.Path]::GetFullPath($properties.OutDir, $properties.ProjectDir).TrimEnd('\')
+    $intDir = (Resolve-ProjectPath $properties.IntDir $properties.ProjectDir).TrimEnd('\')
+    $outDir = (Resolve-ProjectPath $properties.OutDir $properties.ProjectDir).TrimEnd('\')
     "IntDir=$intDir"
     "OutDir=$outDir"
     "VC_ExecutablePath_x64=$($properties.VC_ExecutablePath_x64)"

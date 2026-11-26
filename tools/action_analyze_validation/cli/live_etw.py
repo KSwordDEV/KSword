@@ -148,11 +148,13 @@ class Child:
         self.process.stdout.close()
 
 
-def call(cli, request_id, method, params, error=None, **fields):
+def call(cli, request_id, method, params, error=None, *, error_code=None, **fields):
     cli.send(json.dumps(dict(schemaVersion=1, requestId=request_id, method=method, params=params, **fields)))
     message = cli.next()
     assert (message['type'], message['requestId']) == ('response', request_id), message
     assert (message['error']['errorId'] if message['error'] else None) == error, message
+    if error_code is not None:
+        assert message['error']['code'] == error_code and message['result'] is None, message
     if cli.validate and not error:
         cli.validate(message, method)
     return message['result']
@@ -271,7 +273,24 @@ def verify_checkpoint(reader, query, capture, segment):
     alter(marker, None, 'checkpoint-not-published', {key: value for key, value in capture.items() if key != 'checkpoint'})
 
 
+def verify_removed_sysmon_commands():
+    """Check command metadata without invoking a legacy source handler."""
+    family = subprocess.run([CLI, 'help', 'analyze'], cwd=RELEASE, capture_output=True, timeout=15, check=True)
+    assert b'sysmon-thread-create' not in family.stdout and not family.stderr, family
+    for suffix in ((), ('follow',), ('archive',), ('replay',)):
+        command = ('analyze', 'sysmon-thread-create', *suffix)
+        result = subprocess.run([CLI, 'help', *command], cwd=RELEASE, capture_output=True, timeout=15)
+        expected = f"error: unknown command '{' '.join(command)}'".encode()
+        assert result.returncode == 1 and not result.stdout and expected in result.stderr, result
+
+
+def verify_findings(report, opened):
+    assert report == {'session': opened['session'], 'sampleId': opened['sampleId'],
+                      'state': 'not-configured', 'source': None, 'observations': '0', 'latest': None}, report
+
+
 def run(readback=(), inspect_gui=None, validate=None):
+    verify_removed_sysmon_commands()
     relative = PROJECT.relative_to(REPO).as_posix()
     assert not PROJECT.exists() and not PROJECT.is_symlink()
     tracked = subprocess.run(['git', 'ls-files', '--', relative], cwd=REPO, check=True, capture_output=True)
@@ -294,6 +313,14 @@ def run(readback=(), inspect_gui=None, validate=None):
         options = dict(identity, **target, title='Owned file writes', providerId=str(PROVIDER), durationMs=12000)
         bad = dict(options, creationFileTime=str(int(target['creationFileTime']) + 1))
         call(cli, 'bad', 'session.open', bad, error='target-identity-mismatch', **revision)
+        # Stale self-owned identity also prevents an older binary from starting a source.
+        legacy_guid = '00000000-0000-0000-0000-000000000005'
+        legacy = dict(bad, sysmonTargetGuid=legacy_guid)
+        call(cli, 'removed-timed-selector', 'session.open', legacy, error='invalid-params', error_code=1, **revision)
+        del legacy['durationMs']
+        call(cli, 'removed-continuous-selector', 'session.open', legacy, error='invalid-params', error_code=1, **revision)
+        call(cli, 'removed-provider', 'session.open', dict(bad, providerId='5770385f-c22a-43e0-bf4c-06f5698ffbd9'),
+             error='invalid-params', error_code=1, **revision)
         assert call(cli, 'p0', 'project.query', identity)['sampleCount'] == '0'
         opened = call(cli, 'start', 'session.open', options, **revision)
         assert opened['capture'] == 'active', opened
@@ -306,6 +333,7 @@ def run(readback=(), inspect_gui=None, validate=None):
         call(cli, 'start', 'session.open', options, error='request-id-conflict',
              expected={'revisionId': '00000000-0000-0000-0000-000000000001'})
         owner = {'session': opened['session']}
+        verify_findings(call(cli, 'findings', 'session.findings', {}, **owner), opened)
         call(cli, 'pbusy', 'project.close', identity, error='project-session-open')
         call(cli, 'wrong-epoch', 'session.query', {}, error='session-id-mismatch',
              session=dict(opened['session'], epoch='wrong'))
@@ -405,12 +433,18 @@ def run(readback=(), inspect_gui=None, validate=None):
         assert reader.next()['reason'] == 'shutdown'
         assert reader.process.wait(timeout=10) == 0
 
+        stale_target = f'{target["pid"]} {bad["creationFileTime"]}'
         repl = subprocess.run([CLI, 'analyze', 'session', '--backend', 'r3'], cwd=RELEASE,
                               input='\n'.join(['help open', f'project open "{PROJECT}" read-write',
+                                               f'open {stale_target} {PROVIDER} sysmon={legacy_guid} "Rejected selector"',
+                                               f'open {stale_target} 5770385f-c22a-43e0-bf4c-06f5698ffbd9 "Rejected provider"',
                                                f'open {target["pid"]} {target["creationFileTime"]} {PROVIDER} 1000 "REPL sample"',
                                                'status', 'stop', 'close', 'project close', 'quit', '']),
                               text=True, encoding='utf-8', capture_output=True, timeout=20, check=True)
-        assert not repl.stderr and 'error:' not in repl.stdout, repl
+        assert not repl.stderr and 'sysmon=' not in repl.stdout, repl
+        errors = [line for line in repl.stdout.splitlines() if line.startswith('error:')]
+        assert len(errors) == 2 and 'optional durationMs in 1000..120000' in errors[0], repl
+        assert errors[1] == 'error: Sysmon is not a supported ActionAnalyze provider', repl
         repl_objects = [json.loads(line) for line in repl.stdout.splitlines() if line.startswith('{')]
         assert len(repl_objects) == 6 and repl_objects[3]['archive']['status'] == 'raw-verified', repl.stdout
         assert repl_objects[4]['closed'] and repl_objects[5]['closed'], repl.stdout
@@ -432,6 +466,8 @@ def run(readback=(), inspect_gui=None, validate=None):
         repl_live.send(f'open {target["pid"]} {target["creationFileTime"]} {PROVIDER} 12000 "REPL observed sample"')
         repl_opened = read_repl(repl_live)  # 冻结本次人工会话的采样 ID。
         assert repl_opened['capture'] == 'active', repl_opened
+        repl_live.send('findings')
+        verify_findings(read_repl(repl_live), repl_opened)
         for _ in range(40):
             repl_live.send('status')
             repl_status = read_repl(repl_live)  # 等待原生消费线程进入 ProcessTrace。
@@ -499,6 +535,7 @@ def run(readback=(), inspect_gui=None, validate=None):
              expected={'stateRevision': exit_receipt['stateRevision']})
         call(exit_controller, 'exit-shutdown', 'controller.shutdown', {})
         assert exit_controller.next()['clean'] and exit_controller.process.wait(timeout=10) == 0
+        print('AA_CLI_SYSMON_REMOVED=PASS JSONL_REPL_FINDINGS=not-configured')
         print(json.dumps({'cliSha256': hashlib.sha256(CLI.read_bytes()).hexdigest(), 'pid': target['pid'],
                           'sampleId': sample_id, 'observations': len(events), 'rawSha256': digest,
                           'stopReceipt': stopped, 'reopened': reopened, 'deadlineReceipt': timed_result,

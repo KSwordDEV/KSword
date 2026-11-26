@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{264320FD-E9A2-4A2D-8F04-026502A5F74D}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><PlatformToolset>v143</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\bootstrap\$(Platform)\Release\</IntDir>
+    <OutDir>$(MSBuildProjectDirectory)\..\..\Ksword5.1\x64\Release\</OutDir>
+    <TargetName Condition="'$(Platform)'=='x64'">StartupProbeBootstrap_x64</TargetName>
+    <TargetName Condition="'$(Platform)'=='Win32'">StartupProbeBootstrap_x86</TargetName>
+  </PropertyGroup>
+  <Import Project="..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><Optimization>MaxSpeed</Optimization><PrecompiledHeader>NotUsing</PrecompiledHeader><BufferSecurityCheck>false</BufferSecurityCheck><IntrinsicFunctions>true</IntrinsicFunctions><ExceptionHandling>false</ExceptionHandling></ClCompile>
+    <Link><SubSystem>Windows</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation><EntryPointSymbol>DllMain</EntryPointSymbol><IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries><AdditionalDependencies>kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies><ModuleDefinitionFile>StartupBootstrap.def</ModuleDefinitionFile></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="StartupBootstrap.cpp" /><ClInclude Include="ProbeStages.h" /><None Include="StartupBootstrap.def" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.targets" />
+  <Target Name="PrintBootstrapPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="PROBE_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="PROBE_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="PROBE_HOSTX64=$(VCToolsInstallDir)bin\HostX64\$(PlatformTarget)\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64'" Text="HostX64 is required." />
+  </Target>
+</Project>

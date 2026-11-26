@@ -46,6 +46,8 @@ $sources = @(
     'KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp',
+    'KswordCLI\ActionAnalyze\Detection\ApiTransferChain.cpp', # 读侧候选窗口复用正式有界匹配器。
+    'KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.cpp', # Qt 回调档与正式项目共用整批读侧。
     'KswordCLI\ActionAnalyze\Project\ProjectLock.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectRawEvidence.cpp',
     'KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp',

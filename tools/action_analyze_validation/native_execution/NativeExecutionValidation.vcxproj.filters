@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Fixture"><UniqueIdentifier>{3C1A0F62-6D2B-4A83-9E71-2B4F5C8D1A02}</UniqueIdentifier></Filter>
+    <Filter Include="Validation"><UniqueIdentifier>{3C1A0F62-6D2B-4A83-9E71-2B4F5C8D1A03}</UniqueIdentifier></Filter>
+    <Filter Include="Product"><UniqueIdentifier>{3C1A0F62-6D2B-4A83-9E71-2B4F5C8D1A04}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="NativeExecutionFixture.asm"><Filter>Fixture</Filter></MASM>
+    <ClInclude Include="NativeExecutionFixture.h"><Filter>Fixture</Filter></ClInclude>
+    <ClCompile Include="NativeExecutionValidation.cpp"><Filter>Validation</Filter></ClCompile>
+    <None Include="Invoke-Validation.ps1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(ControlSource)\NativeDebugOwner.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativePrivateExecutionSite.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativeWriteExecutionTransition.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativeStepRuntime.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativeBreakpointImage.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\StopLedger.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ControlSource)\NativeExecutionEvidence.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\ProjectNativeExecution.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\ProjectRawEvidence.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\ProjectDocument.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\ProjectLock.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\SampleCatalog.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ProjectSource)\ProjectStorage.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\RawEvidenceArchive.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\SegmentBodies.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\SegmentFormat.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\SegmentInspection.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\SegmentReader.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(ArchiveSource)\SegmentWriter.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(SharedSource)\evidence\EvidenceJson.cpp"><Filter>Product</Filter></ClCompile>
+    <ClCompile Include="$(SharedSource)\evidence\LosslessValue.cpp"><Filter>Product</Filter></ClCompile>
+    <ClInclude Include="$(ControlSource)\NativeDebugOwner.h"><Filter>Product</Filter></ClInclude>
+    <ClInclude Include="$(ControlSource)\NativeWriteExecutionTransition.h"><Filter>Product</Filter></ClInclude>
+    <ClInclude Include="$(ControlSource)\NativePrivateExecutionSite.h"><Filter>Product</Filter></ClInclude>
+    <ClInclude Include="$(ControlSource)\NativeExecutionEvidence.h"><Filter>Product</Filter></ClInclude>
+    <ClInclude Include="$(ProjectSource)\ProjectNativeExecution.h"><Filter>Product</Filter></ClInclude>
+  </ItemGroup>
+</Project>

@@ -92,7 +92,7 @@ def restore_state(original):
 
 def verify_api_navigation(segment, page, records, detail, status, api, filter_edit, rows):
     """经真实 Tab、方向键和 Enter 定位当前窗口中每个类别的最新原始行。"""
-    family, locate = control(page, 58323), control(page, 58324)
+    family, locate, group_record = (control(page, identifier) for identifier in (58323, 58324, 58325))
     assert gui.IsWindowVisible(family) and gui.IsWindowVisible(locate) and not gui.IsWindowEnabled(locate)
     latest = {row['family']: (index, row) for index, row in enumerate(rows)}
     assert gui.SendMessage(family, con.CB_GETCOUNT, 0, 0) == len(latest) + 1
@@ -123,6 +123,8 @@ def verify_api_navigation(segment, page, records, detail, status, api, filter_ed
             assert gui.SendMessage(family, con.CB_GETCURSEL, 0, 0) == choice
             assert gui.IsWindowEnabled(locate) and text(detail) == before  # 改分类只是草稿。
             gui.SendMessage(family, con.WM_KEYDOWN, con.VK_TAB, 0)
+            assert focus() == group_record
+            gui.SendMessage(group_record, con.WM_KEYDOWN, con.VK_TAB, 0)
             assert focus() == locate
             gui.SendMessage(locate, con.WM_KEYDOWN, con.VK_RETURN, 0)
             current = text(detail)
@@ -145,6 +147,9 @@ def verify_api_navigation(segment, page, records, detail, status, api, filter_ed
         gui.SendMessage(family, con.WM_KEYDOWN, con.VK_UP, 0)
         assert text(detail) == current
         gui.SendMessage(family, con.WM_KEYDOWN, con.VK_TAB, 0)
+        assert focus() == group_record
+        gui.SendMessage(group_record, con.WM_KEYDOWN, con.VK_TAB, 0)
+        assert focus() == locate
     gui.SendMessage(locate, con.WM_KEYDOWN, con.VK_RETURN, 0)
     current = text(detail)
     assert f"归档记录序号：{row['rawSequence']} " in current and selected() == -1
@@ -166,6 +171,8 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
     gui.SendMessage(records, con.WM_KEYDOWN, con.VK_END, 0)
     detail_text = wait_for('last ETW observation', lambda: text(detail) if f'所属段号：{len(segments)-1}' in text(detail) else '')
     assert f'归档记录序号：{counts[-2]-1}' in detail_text
+    # 来源上下文与选中 ETW 行共享最后一个运行段的归档坐标。
+    assert f'来源上下文 · raw/{len(segments)-1} #{counts[-2]-1}\r\n' in detail_text, detail_text
     gui.SendMessage(etw, con.BM_CLICK, 0, 0)
     gui.SendMessage(records, con.WM_KEYDOWN, con.VK_HOME, 0)
     wait_for('first record', lambda: '归档记录序号：1 ' in text(detail))
@@ -201,8 +208,40 @@ def verify_continuous(binary, segment, segments, records, detail, status, etw, r
     print('LIGHT_CONTINUOUS_ETW_REPLAY=PASS', flush=True)
 
 
+def verify_continuous_long(segment, segments, long_window, records, detail, status, etw, item_count, verified):
+    """用正式 Light 回放同一长档，只对账 CLI 核验的终段、窗口与末观察。"""
+    sample_id = segment.parents[1].name  # CLI 回执和本次回放共同绑定的采样。
+    first, observations = long_window  # 由 CLI 段回执推得，不读取或写入项目文件。
+    terminal = segments[-1]  # 正式停止发布的空观察终段。
+    total = int(terminal['lastSequence'])  # 全采样已核验的原始记录数。
+    window_rows = total - first + 1  # 只计入最近窗口的可见行。
+    terminal_label = f"records/{terminal['segmentOrdinal']} "  # Light 的终段检查点状态。
+    wait_for('verified long terminal segment', lambda: verified() and terminal_label in text(status))
+    assert item_count() == window_rows and f'已核验 {total} 条' in text(status)
+
+    # 从实际列表两端回读同一采样的原始序号，再启用 ETW 来源筛选。
+    for key, sequence in ((con.VK_HOME, first), (con.VK_END, total)):
+        gui.SendMessage(records, con.WM_KEYDOWN, key, 0)
+        wait_for('long raw window endpoint', lambda: f'归档记录序号：{sequence} ' in text(detail))
+        assert f'当前归档 · 采样：{sample_id}\r\n' in text(detail)
+
+    gui.SendMessage(etw, con.BM_CLICK, 0, 0)
+    assert item_count() == observations
+    gui.SendMessage(records, con.WM_KEYDOWN, con.VK_END, 0)
+    last_part = segments[-2]  # 终段没有观察，末观察位于上一段尾记之前。
+    last_sequence = int(last_part['lastSequence']) - 1  # 排除运行段尾记。
+    last_ordinal = last_part['segmentOrdinal']  # 末观察实际所属的原始段。
+    coordinate = f'归档记录序号：{last_sequence}    所属段号：{last_ordinal} '  # 详情中配对的原始坐标。
+    wait_for('last long ETW observation', lambda: coordinate in text(detail))
+    assert f'当前归档 · 采样：{sample_id}\r\n' in text(detail)
+    assert f'来源上下文 · raw/{last_ordinal} #{last_sequence}\r\n' in text(detail)
+    print(f'LIGHT_CONTINUOUS_ETW_LONG_REPLAY=PASS SAMPLE={sample_id} SEGMENTS={len(segments)} '
+          f'RAW_WINDOW={first}:{total} ROWS={window_rows} ETW={observations} '
+          f'LAST=raw/{last_ordinal}#{last_sequence}', flush=True)
+
+
 def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_window_total=None, api_read_only=False,
-            check_project_replay=None):
+            check_project_replay=None, etw_long_window=None):
     """用正式窗口打开指定项目段，核对 ETW 原样回放或 API 线索。"""
     require_isolated_desktop()
     # 测试桌面的窗口枚举无法发现其它桌面的实例，共用配置按真实进程检查。
@@ -293,6 +332,11 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
             # 专用回归接管回放断言，继续复用正式入口、窗口退出和设置恢复。
             check_project_replay(process, page, records, detail, status, api, replay, retry, item_count)
             return
+        if etw_long_window is not None:
+            # 长档直接走显式回放，不等待或验收首段快速预览。
+            gui.SendMessage(replay, con.BM_CLICK, 0, 0)
+            verify_continuous_long(segment, etw_segments, etw_long_window, records, detail, status, etw, item_count, verified)
+            return
         api_navigation = None
         if api_window_total is None:
             can_preview = not api_read_only or segment.stat().st_size <= 16 * 1024 * 1024
@@ -341,7 +385,7 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
                 verify_api_navigation(segment, page, records, detail, status, api, filter_edit, api_rows)
             gui.SetWindowPos(main, 0, 0, 0, 800, 650, con.SWP_NOZORDER | con.SWP_NOACTIVATE | con.SWP_NOMOVE)
             page_box = gui.GetWindowRect(page)
-            for hwnd in (control(page, 58323), control(page, 58324)):
+            for hwnd in (control(page, 58323), control(page, 58324), control(page, 58325)):
                 left, top, right, bottom = gui.GetWindowRect(hwnd)
                 assert page_box[0] <= left < right <= page_box[2] and page_box[1] <= top < bottom <= page_box[3]
             print(f'LIGHT_API_EVIDENCE_NAVIGATION=PASS SAMPLE={sample_id}', flush=True)
@@ -390,7 +434,8 @@ def preview(segment, first_event=None, api_rows=None, etw_segments=None, api_win
 
         wait_for('verified project checkpoint', verified)
         assert item_count() == 14 and not gui.IsWindowEnabled(api)
-        assert all(not gui.IsWindowVisible(control(page, identifier)) for identifier in (58323, 58324))
+        assert all(gui.IsWindowVisible(control(page, identifier)) for identifier in (58323, 58324, 58325))
+        assert gui.SendMessage(control(page, 58323), con.CB_GETCOUNT, 0, 0) == 2  # 占位项与 ETW 来源上下文。
 
         gui.SendMessage(etw, con.BM_CLICK, 0, 0)
         assert item_count() == 12
@@ -503,22 +548,29 @@ if __name__ == '__main__':
             with test_window() as client:
                 verify_window(client, manifest, segment, expected)
             preview(segment, api_rows=expected)
-    elif sys.argv[1:] == ['--cross-client']:
+    elif sys.argv[1:] in (['--cross-client'], ['--cross-client-long']):
         # Qt 和 Light 在同一 CLI 项目仍存在时串行回放，避免同时操作窗口配置。
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'qt'))
-        from archive_etw_preview import preview_continuous
+        from archive_etw_preview import preview_continuous, recent_etw_window
         from continuous_etw import run as run_continuous
+
+        long_run = sys.argv[1] == '--cross-client-long'
+        if long_run:
+            require_isolated_desktop()
 
         def preview_clients(segment, *, etw_segments):
             """把同一个 CLI 首段和检查点回执交给两个正式桌面端。"""
-            preview_continuous(segment, etw_segments=etw_segments)
-            preview(segment, etw_segments=etw_segments)
+            long_window = recent_etw_window(etw_segments) if long_run else None  # 两端共享同一窗口预期。
+            preview_continuous(segment, etw_segments=etw_segments, long_window=long_window)
+            preview(segment, etw_segments=etw_segments, etw_long_window=long_window)
 
-        run_continuous(inspect_gui=preview_clients)
+        run_continuous(inspect_gui=preview_clients, long_seconds=180 if long_run else None)
+        if long_run:
+            print('CROSS_CLIENT_LONG_ETW=PASS', flush=True)
     elif sys.argv[1:] == ['--continuous']:
         from continuous_etw import run as run_continuous
         run_continuous(inspect_gui=preview)
     elif not sys.argv[1:]:
         run(inspect_gui=preview)
     else:
-        raise SystemExit('Usage: archive_etw_preview.py [--continuous|--cross-client|--api]')
+        raise SystemExit('Usage: archive_etw_preview.py [--continuous|--cross-client|--cross-client-long|--api]')
