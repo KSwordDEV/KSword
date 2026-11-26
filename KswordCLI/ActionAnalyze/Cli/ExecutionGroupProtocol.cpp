@@ -155,8 +155,8 @@ std::vector<n::ExecutionGroupSite> ReadSites(const std::wstring& path)
     const auto* listValue = parsed.value.find("sites");
     const auto* list = listValue ? listValue->asArray() : nullptr;
     if (!parsed.ok() || !Shape(parsed.value, 2) || !UInt(parsed.value.find("schemaVersion"), version) || version != 1 ||
-        !list || list->empty() || list->size() > n::kOwnedExecutionGroupLimit)
-        throw std::invalid_argument("--sites requires {schemaVersion:1,sites:[1..16 explicit site objects]}");
+        !list || list->empty())
+        throw std::invalid_argument("--sites requires {schemaVersion:1,sites:[one or more explicit site objects]}");
     std::vector<n::ExecutionGroupSite> result;
     for (const auto& value : *list) {
         n::ExecutionGroupSite site;
@@ -373,7 +373,7 @@ bool ParseStopToken(const V& token, n::NativeControlResult& state)
             b.imageSha256 = std::move(observed);
         }
         const auto* ranges = v->find("executionRanges");
-        if (!ranges || !ranges->asArray() || ranges->asArray()->size() > 64) return false;
+        if (!ranges || !ranges->asArray()) return false;
         for (const auto& x : *ranges->asArray()) {
             n::NativeExecutionRange r;
             if (!Shape(x, 3) || !Number(x.find("base"), r.base) || !Number(x.find("bytes"), r.bytes) ||

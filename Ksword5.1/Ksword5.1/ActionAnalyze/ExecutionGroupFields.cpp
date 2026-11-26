@@ -107,14 +107,22 @@ namespace ks::action_analyze
                     ? QString::fromStdString(*binding.imageSha256) : sourceText(QStringLiteral("无实际测量值")));
                 document.field(QStringLiteral("已纳入执行范围"), QString::number(binding.executionRanges.size()));
                 std::uint64_t totalRangeBytes = 0; // 成功范围目录总量独立于初始站点，不计失败回滚中的页。
+                bool totalValid = true; // 超过数值可表示范围时显示不可用，不能发布回绕总量。
                 for (const auto& range : binding.executionRanges)
                 {
                     document.field(QStringLiteral("范围起点 / 字节数 / 分配基址"),
                         QStringLiteral("%1 / %2 / %3").arg(Hex(range.base)).arg(range.bytes).arg(Hex(range.allocationBase)));
-                    totalRangeBytes += range.bytes;
+                    if (range.bytes > UINT64_MAX - totalRangeBytes)
+                    {
+                        totalValid = false;
+                    }
+                    else
+                    {
+                        totalRangeBytes += range.bytes;
+                    }
                 }
-                document.field(QStringLiteral("已纳入范围总字节数"), QString::number(totalRangeBytes))
-                    .field(QStringLiteral("已纳入范围总页数"), QString::number(totalRangeBytes / 4096));
+                document.field(QStringLiteral("已纳入范围总字节数"), totalValid ? QString::number(totalRangeBytes) : sourceText(QStringLiteral("不可用")))
+                    .field(QStringLiteral("已纳入范围总页数"), totalValid ? QString::number(totalRangeBytes / 4096) : sourceText(QStringLiteral("不可用")));
             }
             if (state.executionRange)
             {

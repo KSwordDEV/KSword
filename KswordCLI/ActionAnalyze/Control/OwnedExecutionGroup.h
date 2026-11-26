@@ -6,7 +6,6 @@
 
 namespace ks::cli::action_analyze::control {
 
-inline constexpr std::size_t kOwnedExecutionGroupLimit = 16;
 
 // 一个显式进程实例只接一份执行站点。条件与站点在Start或显式追加时按值冻结。
 struct ExecutionGroupSite {
@@ -87,7 +86,7 @@ public:
     // 输入新实例站点、显式授权及原集合ID；沿本轮sample追加独立owner，不释放或替换原成员。
     [[nodiscard]] ExecutionGroupResult AppendMembers(std::vector<ExecutionGroupSite> sites,
         bool explicitlyAuthorized, std::string_view collectionId);
-    [[nodiscard]] static bool CanAppendMembers(const ExecutionGroupResult& current); // 当前集合仍活跃、无待恢复且未满16成员。
+    [[nodiscard]] static bool CanAppendMembers(const ExecutionGroupResult& current); // 当前集合仍活跃且无待恢复，无固定成员额度。
     [[nodiscard]] ExecutionGroupResult Query();
     // 仅回读原成员，不执行命中条件或自动Continue；用于显式保存/调查的前置核对。
     [[nodiscard]] ExecutionGroupResult QueryWithoutCondition();

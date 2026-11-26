@@ -1,5 +1,6 @@
 #include "../Framework.h"
 #include "PrivateExecutionCandidatesPane.h"
+#include "PrivateAddressWatchFields.h"
 #include "PrivateExecutionCandidatesFields.h"
 #include "../UI/StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
@@ -31,7 +32,7 @@ namespace ks::action_analyze
         connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, [this] { SelectionChanged(); });
         connect(m_address, &QLineEdit::textEdited, this, [this] { BindEditedDraft(); });
-        connect(m_pages, &QSpinBox::valueChanged, this, [this] { BindEditedDraft(); });
+        connect(m_pages, &QLineEdit::textChanged, this, [this] { BindEditedDraft(); });
         connect(m_through, &QSpinBox::valueChanged, this, [this] { Render(); });
         RenderRows();
         Render();
@@ -189,7 +190,7 @@ namespace ks::action_analyze
         }
         const QSignalBlocker blocked(m_pages); // 程序式填值只绑定一次来源，不冒充用户逐步编辑。
         m_address->setText(QStringLiteral("0x%1").arg(QString::number(row.wholeRangeDraft->address, 16)));
-        m_pages->setValue(static_cast<int>(row.wholeRangeDraft->bytes / 4096));
+        m_pages->setText(QString::number(row.wholeRangeDraft->bytes / 4096));
         BindEditedDraft();
     }
 
@@ -236,11 +237,12 @@ namespace ks::action_analyze
         std::uint64_t address = 0; // 成功解析后才交共享范围门禁。
         const auto parsed = std::from_chars(text.data() + offset, text.data() + text.size(), address, hex ? 16 : 10);
         detection::PrivateExecutionRangeDraft draft; // 输出完整原调用，不剥离历史来源和实际范围。
+        std::uint64_t bytes = 0; // 完整页数字节数，不使用SpinBox的32位范围。
         if (text.isEmpty() || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
-            !detection::PreparePrivateExecutionRangeDraft(row, address,
-                static_cast<std::uint64_t>(m_pages->value()) * 4096, draft))
+            !ParsePrivateExecutionPageBytes(m_pages->text(), bytes) ||
+            !detection::PreparePrivateExecutionRangeDraft(row, address, bytes, draft))
         {
-            m_notice = QStringLiteral("请输入实际输出范围内部的 4KiB 对齐子范围，长度为 1–64 页；不自动扩大或裁剪。");
+            m_notice = QStringLiteral("请输入实际输出范围内部的 4KiB 对齐子范围和正十进制页数，换算不能溢出；不自动扩大或裁剪。");
             Render();
             return false;
         }

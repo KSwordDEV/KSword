@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 #include <objbase.h>
 #include <charconv>
+#include <new>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "ole32.lib")
@@ -420,11 +421,22 @@ NativeControlResult NativeExecutionRangeHistory::Apply(const OwnerIdentity& owne
         return finish("private-execution-range-process-not-live", ERROR_PROCESS_ABORTED, LedgerResult::IdentityMismatch);
     if (const auto error = page->Verify(process))
         return finish("private-execution-range-existing-pages-changed", error, LedgerResult::IdentityMismatch, true, true);
-    current.breakpoint->executionRanges.reserve(64); // 快照发布存储先取得，保护事务后不再扩容。
+    // 按本次实际目录预留下一项，解除64页限制后也保证保护事务之后不再扩容。
+    auto& publishedRanges = current.breakpoint->executionRanges; // 仍发布原owner的完整范围目录。
+    if (page->Ranges().size() >= publishedRanges.max_size())
+        return finish("private-execution-range-capacity-exhausted", ERROR_NOT_ENOUGH_MEMORY, LedgerResult::Capacity);
+    try
+    {
+        publishedRanges.reserve(page->Ranges().size() + 1);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return finish("private-execution-range-allocation-failed", ERROR_NOT_ENOUGH_MEMORY, LedgerResult::Capacity);
+    }
     bool rollback = true;
     const auto error = page->AddRange(process, current.pid, request.address, request.bytes, rollback);
     if (error) return finish("private-execution-range-add-failed", error,
-        error == ERROR_BUFFER_OVERFLOW ? LedgerResult::Capacity : LedgerResult::InvalidTransition, rollback,
+        error == ERROR_NOT_ENOUGH_MEMORY ? LedgerResult::Capacity : LedgerResult::InvalidTransition, rollback,
         page->Verify(process) != ERROR_SUCCESS);
     current.breakpoint->executionRanges = page->Ranges();
     current.stage = "private-execution-range-added";

@@ -102,11 +102,13 @@ V ControlReport(const n::NativeControlResult& s)
         const auto& b = *s.breakpoint;
         JsonArray ranges;
         std::uint64_t totalRangeBytes = 0; // 当前已成功纳入的真实范围，初始rangeBytes不是动态范围总量。
+        bool totalValid = true; // 解除页数额度后，汇总不能回绕成较小的有效数字。
         for (const auto& r : b.executionRanges)
         {
             ranges.push_back(V::makeObject({{"base", Count(r.base)}, {"bytes", Count(r.bytes)},
                 {"pages", Count(r.bytes / 4096)}, {"allocationBase", Count(r.allocationBase)}}));
-            totalRangeBytes += r.bytes;
+            if (r.bytes > UINT64_MAX - totalRangeBytes) totalValid = false;
+            else totalRangeBytes += r.bytes;
         }
         fields.emplace_back("breakpoint", V::makeObject({{"requestId", Text(b.requestId)},
             {"state", V::makeUInt(static_cast<unsigned>(b.state))}, {"stage", Text(b.stage)}, {"win32Error", V::makeUInt(b.win32Error)},
@@ -115,7 +117,8 @@ V ControlReport(const n::NativeControlResult& s)
             {"allocationBase", Count(b.allocationBase)}, {"regionBase", Count(b.regionBase)}, {"regionBytes", Count(b.regionBytes)},
             {"regionProtection", V::makeUInt(b.regionProtection)}, {"explicitPrivateAddress", V::makeBool(b.explicitPrivateAddress)},
             {"executionRanges", V::makeArray(std::move(ranges))}, {"allocationGenerationVerified", V::makeBool(false)},
-            {"totalRangeBytes", Count(totalRangeBytes)}, {"totalRangePages", Count(totalRangeBytes / 4096)},
+            {"totalRangeBytes", totalValid ? Count(totalRangeBytes) : V::makeNull()},
+            {"totalRangePages", totalValid ? Count(totalRangeBytes / 4096) : V::makeNull()},
             {"imageSha256", b.imageSha256 ? Text(*b.imageSha256) : V::makeNull()}})); // 与单目标一致，实测值归属breakpoint。
     }
     if (s.breakpointHit) fields.emplace_back("hit", V::makeObject({{"requestId", Text(s.breakpointHit->requestId)},

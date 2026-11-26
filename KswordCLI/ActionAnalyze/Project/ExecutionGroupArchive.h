@@ -50,7 +50,7 @@ struct ExecutionGroupArchiveView {
     bool autoSaveStopped = false; // 本策略首次失败后停止自动尝试，控制及手动保存仍独立可用。
     ProjectResult automaticStatus; // 自动保存本身的失败/中断，不污染手动saved和原生控制状态。
     std::uint64_t verifiedExecutionSaves = 0; // 本writer实际新写并核验通过的执行事件总数，不计重放。
-    std::vector<std::shared_ptr<const ExecutionGroupExecutionSave>> automatic; // 最近非空自动批次，最多16个原成员回执。
+    std::vector<std::shared_ptr<const ExecutionGroupExecutionSave>> automatic; // 最近非空自动批次的原成员回执，不按固定成员数裁剪。
 };
 
 // 输入原worker纯值投影，输出同一规范JSON；三端正文、复制、导出与CLI响应共用字段。

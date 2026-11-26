@@ -92,10 +92,10 @@ namespace ks::cli::action_analyze
         const auto base = Decimal(address); // 输入地址必须已对齐，不隐式扩大请求范围。
         const auto length = Decimal(bytes);
         const auto stateRevision = Decimal(revision);
-        if (!base || !length || !stateRevision || *base % 4096 || *length % 4096 || *length > 64 * 4096 ||
+        if (!base || !length || !stateRevision || *base % 4096 || *length % 4096 ||
             *length > (std::numeric_limits<std::uint64_t>::max)() - *base || stop.empty() || stop.size() > kRequestIdBytes)
         {
-            return fail("invalid-execution-range", "Require aligned positive address and 1..64 pages, exact stopId and positive revision");
+            return fail("invalid-execution-range", "Require aligned positive address and whole pages without uint64 overflow, exact stopId and positive revision");
         }
         if (!jsonl && highWater_ == (std::numeric_limits<std::uint64_t>::max)())
         {
@@ -168,7 +168,7 @@ namespace ks::cli::action_analyze
     JsonValue BreakpointRangeProtocol::Capabilities()
     {
         return V::makeObject({{"method", Text("control.execution.range.add")}, {"firstRequestId", Text("range/1")},
-            {"replayEntries", Count(kReceipts)}, {"maximumTotalPages", Count(64)}, {"pageBytes", Count(4096)},
+            {"replayEntries", Count(kReceipts)}, {"maximumTotalPages", V::makeNull()}, {"pageBytes", Count(4096)},
             {"addressEncoding", Text("positive-decimal-string")}, {"continuesTarget", V::makeBool(false)}});
     }
 }

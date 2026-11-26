@@ -411,7 +411,7 @@ void UpdateControls(Page& page) {
     enable(page.pid, !retiring && editable);
     enable(page.creation, !retiring && editable);
     enable(page.identityButton, !retiring && editable && !busy);
-    enable(page.addButton, !retiring && editable && page.draft.size() < group_native::kOwnedProcessGroupLimit);
+    enable(page.addButton, !retiring && editable);
     enable(page.removeButton, !retiring && editable && !selected.empty());
     enable(page.authorized, !retiring && editable);
     enable(page.configureButton, !retiring && editable && !busy && !page.draft.empty() &&
@@ -539,11 +539,6 @@ void AddTarget(Page& page) {
         [&](const group_native::ProcessGroupTarget& item) { return item.pid == target.pid; });
     if (duplicate) {
         page.inputError = L"同一 PID 只能加入一次。";
-        Refresh(page);
-        return;
-    }
-    if (page.draft.size() >= group_native::kOwnedProcessGroupLimit) {
-        page.inputError = L"集合上限为 16 个进程实例。";
         Refresh(page);
         return;
     }

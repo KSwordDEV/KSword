@@ -26,7 +26,7 @@ bool ValidSite(const ExecutionGroupSite& site)
     if (site.address) {
         return site.modulePath.empty() && !site.rva && site.exactExport.empty() && !site.imageSha256 && site.definitionId.empty() &&
             (!site.rangeBytes || (!(site.address % 4096) && !(site.rangeBytes % 4096) &&
-                site.rangeBytes <= 64ull * 4096 && site.address <= UINT64_MAX - site.rangeBytes));
+                site.address <= UINT64_MAX - site.rangeBytes));
     }
     if (!site.definitionId.empty() && (!Ksword::ActionAnalyze::ProjectStorage::IsUuid(site.definitionId) || !site.rva))
     {
@@ -289,7 +289,7 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     if (self.started || self.closing)
         return self.Reject(ExecutionGroupAction::Start, "execution-group-already-used", ERROR_BUSY);
     if (!explicitlyAuthorized || disposition != NativeTargetDisposition::ResumeAndDetach ||
-        sites.empty() || sites.size() > kOwnedExecutionGroupLimit || (!sampleId.empty() && !storage::IsUuid(sampleId)))
+        sites.empty() || (!sampleId.empty() && !storage::IsUuid(sampleId)))
         return self.Reject(ExecutionGroupAction::Start, "execution-group-explicit-sites-required", ERROR_INVALID_PARAMETER);
     std::set<std::uint32_t> pids;
     for (const auto& site : sites) {
@@ -322,7 +322,7 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
 // 输入当前纯值快照，返回是否可显式追加；清退/恢复阶段不扩张原控制责任。
 bool OwnedExecutionGroup::CanAppendMembers(const ExecutionGroupResult& current)
 {
-    return !current.collectionId.empty() && !current.clean && current.members.size() < kOwnedExecutionGroupLimit &&
+    return !current.collectionId.empty() && !current.clean &&
         (current.state == ExecutionGroupState::Active || current.state == ExecutionGroupState::HeldPartial ||
             current.state == ExecutionGroupState::HeldComplete || current.state == ExecutionGroupState::PartialFailure);
 }
@@ -337,9 +337,14 @@ ExecutionGroupResult OwnedExecutionGroup::AppendMembers(std::vector<ExecutionGro
     {
         return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-append-unavailable", ERROR_INVALID_STATE);
     }
-    if (!explicitlyAuthorized || sites.empty() || sites.size() > kOwnedExecutionGroupLimit - self.members.size())
+    if (!explicitlyAuthorized || sites.empty())
     {
         return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-append-explicit-sites-required", ERROR_INVALID_PARAMETER);
+    }
+    // 先按容器真实剩余容量比较，后续reserve相加不会溢出；没有人为成员额度。
+    if (sites.size() > self.members.max_size() - self.members.size())
+    {
+        return self.Reject(ExecutionGroupAction::AppendMembers, "execution-group-member-capacity-exhausted", ERROR_NOT_ENOUGH_MEMORY);
     }
     std::set<std::uint32_t> pids; // 同PID也不替换旧代次；原成员必须先沿原owner清退。
     for (const auto& member : self.members)
@@ -604,13 +609,13 @@ ExecutionGroupResult OwnedExecutionGroup::AddRange(const NativeControlResult& di
     {
         return self.Reject(ExecutionGroupAction::AddRange, "execution-group-range-stale-stop", ERROR_INVALID_STATE);
     }
-    if (!address || address % 4096 || !bytes || bytes % 4096 || bytes > 64ull * 4096 || address > UINT64_MAX - bytes)
+    if (!address || address % 4096 || !bytes || bytes % 4096 || address > UINT64_MAX - bytes)
     {
         return self.Reject(ExecutionGroupAction::AddRange, "execution-group-range-invalid-range", ERROR_INVALID_PARAMETER);
     }
     self.operation = ExecutionGroupOperation{ExecutionGroupAction::AddRange, true, "execution-group-range-submitted", 0, {}};
     self.Outcome(*member, member->session->AddPrivateExecutionRange(displayedStop, address, bytes));
-    return self.Result(); // 原生层负责总64页预算与新增页回滚，site保留Start时初始配置。
+    return self.Result(); // 原生层负责实际页准入与新增页回滚，site保留Start时初始配置。
 }
 
 // 原集合只核对成员目录和精确事件；实际前后停点、强实例及逐页读取由原会话负责。

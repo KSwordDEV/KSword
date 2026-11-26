@@ -7,7 +7,6 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QSpinBox;
 
 namespace ks::action_analyze
 {
@@ -32,7 +31,7 @@ namespace ks::action_analyze
         void SubmitRange();
 
         QLineEdit* m_address = nullptr; // 新范围起点，不对输入地址隐式向下取整。
-        QSpinBox* m_pages = nullptr; // 新增1..64页；与已有范围合计上限由原生owner核对。
+        QLineEdit* m_pages = nullptr; // 新增正十进制uint64页数，实际范围由原生owner核对。
         QPushButton* m_add = nullptr; // 显式追加范围动作，不能隐式Continue。
         QLabel* m_status = nullptr; // 输入错误及当前动作不可用原因。
         QLabel* m_origin = nullptr; // 仅记录当前草稿的原API坐标，手工编辑后清除。

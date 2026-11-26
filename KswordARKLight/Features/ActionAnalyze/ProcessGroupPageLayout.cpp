@@ -130,7 +130,7 @@ bool CreateControls(Page& page)
         return false;
     }
     const HWND body = page.parameters.Body(); // 所有参数均直接进入唯一共享滚动正文。
-    page.hint = Ui::CreateText(body, 0, L"仅控制明确授权的最多16个进程实例。配置只核验，不暂停。Held范围逐页读取不是原子进程转储；失败不转实时，不补零。", 0, 0, 1, 1);
+    page.hint = Ui::CreateText(body, 0, L"仅控制明确授权的进程实例。配置只核验，不暂停。Held范围逐页读取不是原子进程转储；失败不转实时，不补零。", 0, 0, 1, 1);
     page.pidLabel = Ui::CreateText(body, 0, L"目标 PID", 0, 0, 1, 1);
     page.pid = Edit(body, kPid, ES_AUTOHSCROLL | ES_NUMBER);
     page.creationLabel = Ui::CreateText(body, 0, L"创建 FILETIME", 0, 0, 1, 1);
@@ -216,7 +216,7 @@ bool CreateControls(Page& page)
     Tip(page, page.memoryBase, L"非零起始地址，0x前缀按十六进制，其余按十进制；修改不改写旧结果。");
     Tip(page, page.memoryBytes, L"非零十进制字节数；读取前复核完整停点，访问失败保留真实错误。");
     Tip(page, page.history, L"选择原票据仅切换详情，Recover只复用本集合的原Continue票据。");
-    Tip(page, page.addButton, L"加入精确PID与创建时间草稿，同PID只保留一次，最多16个。");
+    Tip(page, page.addButton, L"加入精确PID与创建时间草稿，同PID只保留一次。");
     Tip(page, page.removeButton, L"只移除未冻结草稿的选中实例，不影响旧结果。");
     Tip(page, page.configureButton, L"冻结全部实例、授权与新项目目录；先登记真实sample，再核对集合身份，不暂停。");
     Tip(page, page.pauseAll, L"按全部冻结成员请求暂停，不宣称原子同步停住。");

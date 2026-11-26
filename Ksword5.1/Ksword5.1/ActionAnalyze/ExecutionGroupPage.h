@@ -54,7 +54,7 @@ namespace ks::action_analyze
         ProcessGroupMemoryPane* m_memoryPane = nullptr; // 复用原停点范围输入，隐藏重复项目字段。
         QPushButton* m_captureApi = nullptr; // 固定动作栏的同采样采集入口，所属原成员在点击时冻结。
         QLabel* m_rangeTarget = nullptr; // 明确本次追加动作的真实实例和停点，与Start草稿分开。
-        ExecutionGroupMemberModel* m_model = nullptr; // Start冻结的1..16行目录。
+        ExecutionGroupMemberModel* m_model = nullptr; // Start冻结的明确成员目录，无固定成员上限。
         ks::ui::TableActionTableView* m_members = nullptr; // 多选管理表，操作条None。
         ks::ui::StructuredFieldView* m_fields = nullptr; // 所选成员和全部操作回执的唯一字段源。
         QCheckBox* m_authorized = nullptr; // 对完整目录的显式控制授权。
@@ -86,7 +86,7 @@ namespace ks::action_analyze
         std::unique_ptr<ExecutionGroupSession> m_session; // clean前不替换的本端原生会话。
         ExecutionGroupSessionSnapshot m_shown; // 用户当前实际看到的完整结果，动作据此冻结。
         QString m_inputError; // 输入或入队失败，不覆盖原生结果。
-        std::vector<Ksword::Evidence::NativeExecutionSiteDraft> m_evidenceDrafts; // 最多当前目录的16份原证据来源，不授控制权。
+        std::vector<Ksword::Evidence::NativeExecutionSiteDraft> m_evidenceDrafts; // 当前目录的原证据来源，不授控制权。
         bool m_registered = false; // 单例常驻所有者登记准入。
     };
 }

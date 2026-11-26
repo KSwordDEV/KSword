@@ -780,7 +780,7 @@ void OfflineSegmentOverview::prepareSelectedExecutionDraft(bool range)
     const auto draft = source ? Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, range) : std::nullopt;
     if (draft && prepareExecutionDraft && !prepareExecutionDraft(*draft))
     {
-        m_objectStatus->setText(sourceText(QStringLiteral("执行集合未接收草稿：请先清退并返回草稿，检查重复 PID 或 16 个成员上限。")));
+        m_objectStatus->setText(sourceText(QStringLiteral("执行集合未接收草稿：请先清退并返回草稿，检查重复 PID。")));
     }
 }
 

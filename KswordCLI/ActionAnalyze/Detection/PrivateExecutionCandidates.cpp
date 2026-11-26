@@ -126,7 +126,7 @@ ProjectResult PreparePrivateExecutionRangeDraft(const PrivateExecutionCandidate&
     if (!ActualRange(fields) || fields.operation == ApiMemoryOperation::Free ||
         (fields.operation != ApiMemoryOperation::Allocate && fields.operation != ApiMemoryOperation::Protect) ||
         (fields.operation == ApiMemoryOperation::Protect && !ExecutableProtection(fields.newProtection)) ||
-        !address || !bytes || address % kPageBytes || bytes % kPageBytes || bytes > 64 * kPageBytes ||
+        !address || !bytes || address % kPageBytes || bytes % kPageBytes ||
         address < fields.outputBase || address - fields.outputBase > fields.outputBytes ||
         bytes > fields.outputBytes - (address - fields.outputBase))
     {

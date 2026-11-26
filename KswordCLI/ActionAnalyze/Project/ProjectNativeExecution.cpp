@@ -115,7 +115,7 @@ bool Identifier(const V& object, std::string_view key)
     return GetString(object, key, value) && IsText(value, 1024) && !value.empty();
 }
 
-// 输入v3归档绑定，核对字段与页预算；只验证历史自洽，不回读目标进程或重新授予设防资格。
+// 输入v3归档绑定，核对字段及可表示的真实范围；只验证历史自洽，不授予现场控制资格。
 bool ValidBinding(const V& doc)
 {
     const auto* binding = doc.find("binding"); // v3固定具有该字段，未知原绑定显式为null。
@@ -147,12 +147,12 @@ bool ValidBinding(const V& doc)
 
     const auto* ranges = binding->find("executionRanges"); // 原接纳成功的完整NX范围目录。
     const auto* list = ranges ? ranges->asArray() : nullptr;
-    if (!list || list->size() > 64 || (!bytes && !list->empty()) ||
+    if (!list || (!bytes && !list->empty()) ||
         (bytes && width))
     {
         return false;
     }
-    std::uint64_t totalPages = 0, instruction = 0; // 当前总页数及被保存的实际执行地址。
+    std::uint64_t instruction = 0; // 被保存的实际执行地址；不再累计人为页数额度。
     if (!Positive(doc, "instructionAddress", &instruction))
     {
         return false;
@@ -165,11 +165,10 @@ bool ValidBinding(const V& doc)
         if (!Fields(range, {"base", "bytes", "allocationBase"}) || !Positive(range, "base", &base) ||
             !Positive(range, "bytes", &length) || !Positive(range, "allocationBase", &allocation) ||
             base % 4096 || length % 4096 || allocation > base || length > UINT64_MAX - base ||
-            length / 4096 > 64 - totalPages || (i == 0 && (base != address || length != bytes)))
+            (i == 0 && (base != address || length != bytes)))
         {
             return false;
         }
-        totalPages += length / 4096;
         includesInstruction = includesInstruction || (instruction >= base && instruction - base < length);
     }
     // Into的指令可已离开原绑定；进入尝试必须落在保存的当时已纳入范围。

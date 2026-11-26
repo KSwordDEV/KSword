@@ -1,6 +1,6 @@
 # 显式多进程执行断点集合
 
-正式命令为 `KswordCLI.exe analyze execution-group session`。一次配置 1–16 个不同 PID 的明确实例，每个实例冻结一份执行站点和可选条件，逐项真实附加。每个成员使用独立的 `OwnedDataWatchSession` 和 `NativeDebugOwner`，可共享采样 ID，成员的 session、epoch、backend ID 与原生停止组独立。
+正式命令为 `KswordCLI.exe analyze execution-group session`。一次配置一个或多个不同 PID 的明确实例，无固定成员数上限；每个实例冻结一份执行站点和可选条件，逐项真实附加。每个成员使用独立的 `OwnedDataWatchSession` 和 `NativeDebugOwner`，可共享采样 ID，成员的 session、epoch、backend ID 与原生停止组独立。
 
 ```powershell
 KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.json --confirm --disposition resume-detach --input jsonl --backend r3
@@ -12,9 +12,9 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 可选 `--hold-peers-on-hit`（Qt／Light：开始前勾选“成员命中后暂停其他成员”）冻结本轮联停策略。原查询先处理各成员条件，假条件照常继续；真条件或未知条件保留的新断点触发一次联停，已持有成员保持原事件，可暂停的运行成员经各自原 owner 请求 `pause/N`。主动暂停、步进停止不触发联停。`holdPeersOnHit` 报告实际策略，独立 `peerHold` 保留触发 owner、事件及逐项初始回执：`already-held`、`member-clean`、`pause-unavailable`、`pause-requested`。接纳后还须读成员当前状态确认 Held；不保证同时冻结，部分拒绝不释放命中成员。显式继续所选成员后，同一个原命中事件不会把它再次暂停；要重试请显式“暂停全部成员”。追加成员继承策略，但不补发过去事件的联停。本扩展仅源码接入，运行待验。
 
-运行中的集合支持显式追加新实例。REPL 使用 `members-append execution/N SITES_PATH confirm COLLECTION_ID`；JSONL 使用 `control.members.append`，`params:{"sites":"配置文件路径","confirm":true}`、`expected:{"collectionId":"原集合ID"}` 和当前 hello session。文件复用下方完整站点 schema，按本次请求一次读入，追加后总数最多16个不同PID；既有PID即使填写另一创建时间也不能替换。重放仍用原128条 `execution/N` 回执，相同请求不重读文件、不重复附加。配置解析失败同样保留该请求ID的失败结果，修正后须用更大的ID。
+运行中的集合支持显式追加新实例。REPL 使用 `members-append execution/N SITES_PATH confirm COLLECTION_ID`；JSONL 使用 `control.members.append`，`params:{"sites":"配置文件路径","confirm":true}`、`expected:{"collectionId":"原集合ID"}` 和当前 hello session。文件复用下方完整站点 schema，按本次请求一次读入，追加不设固定成员额度；既有PID即使填写另一创建时间也不能替换。重放仍用原128条 `execution/N` 回执，相同请求不重读文件、不重复附加。配置解析失败同样保留该请求ID的失败结果，修正后须用更大的ID。
 
-新增成员沿用本轮采样，拥有独立session/epoch/backend，目录仅在原成员后追加；原owner、停点、范围、条件与保存结果保持各自身份。新成员的附加部分失败逐项报告，保留成功及失败项，不清退原成员。清退中、全体已退出、恢复责任未结清或达到16个成员时不接受追加；不会自动跟随所有后代。可选定义仍从本轮sample冻结配置解析；错误记录在 `executionArchive.memberSetupError`，不覆盖初始 `setupError`、释放已有writer或阻止旧成员保存。Qt／Light 的“追加表单目标到本轮集合”冻结当前表单，和下一轮草稿列表分开；Qt只在表尾增行，不重置已有选区。本扩展已接源码，运行结论以独立测试回执为准。
+新增成员沿用本轮采样，拥有独立session/epoch/backend，目录仅在原成员后追加；原owner、停点、范围、条件与保存结果保持各自身份。新成员的附加部分失败逐项报告，保留成功及失败项，不清退原成员。清退中、全体已退出或恢复责任未结清时不接受追加；不会自动跟随所有后代。可选定义仍从本轮sample冻结配置解析；错误记录在 `executionArchive.memberSetupError`，不覆盖初始 `setupError`、释放已有writer或阻止旧成员保存。Qt／Light 的“追加表单目标到本轮集合”冻结当前表单，和下一轮草稿列表分开；Qt只在表尾增行，不重置已有选区。本扩展已接源码，运行结论以独立测试回执为准。
 
 模块 RVA 站点可再指定可选 `definitionId`（规范 UUID）。必须同时配置项目；启动时读取本轮新采样冻结配置中的同 ID 启用 RVA 定义，并核对模块文件名及填写的 RVA。定义中的映像 SHA256 自动继承；手填散列与冻结散列冲突时拒绝。全部成员解析成功才开始附加，任一失败不附加任何成员，详情保留 `executionArchive.setupError`，可清退空集合后修改草稿重试。精确导出和私有站点不接受定义 ID；此入口不解析 PDB、不自动枚举全系统实例。
 
@@ -26,7 +26,7 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 可选 `--auto-save-execution`（Qt／Light：开始前勾选“自动保存新的执行观察”）必须同时提供项目目录，Start 冻结策略。正常查询完成条件处理后，以及步进／取消步进回读后，原 worker 将尚未写入的真实执行观察保存到本轮 `raw-native`；仍使用原 writer、原事件去重和统一递增段号。进入尝试与真实单条指令完成分别保存，主动暂停、普通写入停点、CALL 返回和跳出边界不补造执行证据；假条件已继续的事件不保存，未知条件仍持有的执行事件可保存。
 
-`executionArchive.autoSaveExecution` 报告本轮策略，`automatic` 保留最近一次非空自动批次中逐成员的原事件、段号、散列和 written／flushed／verified（最多16条），`verifiedExecutionSaves` 是本采样手动＋自动新写核验通过的总数，不计重复事件。手动 `saved`／`duplicate` 保持独立；自动已保存事件再手动保存返回原段，不重复写。完整历史仍通过 `analyze execution history/read` 查看。
+`executionArchive.autoSaveExecution` 报告本轮策略，`automatic` 保留最近一次非空自动批次中逐成员的原事件、段号、散列和 written／flushed／verified，不按固定成员数裁剪；`verifiedExecutionSaves` 是本采样手动＋自动新写核验通过的总数，不计重复事件。手动 `saved`／`duplicate` 保持独立；自动已保存事件再手动保存返回原段，不重复写。完整历史仍通过 `analyze execution history/read` 查看。
 
 首次自动保存失败或异常后 `autoSaveStopped=true`，`automaticError` 保留失败阶段，停止自动尝试；实际写段失败同时沿原 `appendBlocked`／`firstFailure` 保留坏尾，不跳段、不重建 writer、不自动 Continue。控制、内存与手动保存入口仍按各自真实资格处理。采集 API、读取／保存内存及关闭的无条件查询不顺带自动保存；清退不会为归档继续挂住目标。本扩展仅源码完成，尚未构建或实测。
 
@@ -76,7 +76,7 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 | `rva` | 与 `exactExport` 二选一，正 uint32 JSON 整数；调用者确认该 RVA 是指令边界。 |
 | `imageSha256` | 映像站点可选，64 个小写十六进制字符。原成员 owner 对实际模块基址对应调试装载事件文件计算散列，相符后才武装 DR0；私有地址站点拒绝此字段。 |
 | `address` | 私有站点必填，正 uint64 规范十进制字符串；与模块、RVA、导出互斥。 |
-| `rangeBytes` | 私有站点必填，uint64 规范十进制字符串；`"0"` 表示单地址 DR0 执行停点。非零为 4096 的倍数，最多 64 页，地址也须 4096 对齐；实际区域与保护由原 owner 核对。 |
+| `rangeBytes` | 私有站点必填，uint64 规范十进制字符串；`"0"` 表示单地址 DR0 执行停点。非零为 4096 的倍数，地址也须 4096 对齐且地址加长度不能溢出；无固定NX页数上限，实际区域与保护由原 owner 核对。 |
 | `condition` | 可选、非空 UTF-8 条件表达式，最多 8192 字节；复用 `PrepareDataWatchCondition` 的字段、类型、三值及预算规则。 |
 
 启动只冻结上述明确输入，实际模块、进程架构、访问权、用户/会话和执行位置的准入以成员原生回执为准。部分附加失败时保留已成功成员，继续处理余下目标；不以回滚整组的方式丢掉成功附加者。`attachAccepted` 表示初次接纳，武装进度和真实命中请看 `control`。条件只处理该成员真实执行进入事件，假值沿原会话自动继续并保留求值报告；未知值保留原停点，不自动继续。普通步进停点沿原会话独立处理。
@@ -180,7 +180,7 @@ session: {"id":"<hello.session.id>","epoch":"<hello.session.epoch>"}
 expected: {"collectionId":"<current collectionId>","stops":[<complete current NX Held stopToken>]}
 ```
 
-`address/bytes` 为规范正十进制字符串，起点与长度均须 4096 对齐，不溢出，长度最多64页。原 owner 核验实际私有页、同一分配及所有范围合计64页预算。追加在成员原 `OwnedDataWatchSession` 内分配独立 `range/N`，不调用 Continue，不改变原停止事件、初始地址或 `site`。完整 ManualPause 可追加；运行、步进在途、恢复未决及旧范围快照均拒绝。核验采用无条件回读，不触发其它成员条件自动继续。实际范围见 `control.breakpoint.executionRanges`，该次范围与回滚结果见 `control.executionRange` 和 `operation.outcomes`；失败不能用请求已受理冒充范围已纳入。同ID重放沿原128回执窗口返回原结果，不重复追加。
+`address/bytes` 为规范正十进制字符串，起点与长度均须 4096 对齐，不溢出，不设单段或累计NX页数额度。原 owner 核验实际私有页、同一分配、重叠及实际容器容量。追加在成员原 `OwnedDataWatchSession` 内分配独立 `range/N`，不调用 Continue，不改变原停止事件、初始地址或 `site`。完整 ManualPause 可追加；运行、步进在途、恢复未决及旧范围快照均拒绝。核验采用无条件回读，不触发其它成员条件自动继续。实际范围见 `control.breakpoint.executionRanges`，该次范围与回滚结果见 `control.executionRange` 和 `operation.outcomes`；失败不能用请求已受理冒充范围已纳入。同ID重放沿原128回执窗口返回原结果，不重复追加。
 
 ### 保存成员执行观察
 
@@ -264,7 +264,7 @@ Pause/Continue 的 `TOKENHEX` 推荐复制同次当前成员输出的完整 `rep
 
 `quit`、EOF、Ctrl-Break、输入/输出断开或处理异常均先关闭全组新操作准入，再逐成员调用原 `Close`，由原 owner 取消步进、恢复断点资源并恢复/脱离目标。未确认 clean 时不销毁成员，不将 summary 当作清退证明；仍存活的输入可查询或重试清退。无法确定的原生责任可能使 CLI 长期保留，强杀控制器不属于已提供的恢复机制。
 
-单条输出保持正式 256 KiB 硬上限；完整线程/停止投影过大时输出明确超限诊断并进入原 owner 清退，不截断票据继续授控制。该限制与 16 进程上限同时存在。
+`hello.result.protocol.maxMembers` 为 `null`，表示没有固定成员数上限。NX初始范围及运行中追加也没有固定页数上限；这不表示内存、句柄或系统调用一定成功，容器容量和真实系统失败仍沿原回执报告。单条输出保持正式 256 KiB 硬上限；完整线程/停止投影过大时输出明确超限诊断并进入原 owner 清退，不截断票据继续授控制。配置文件和传输预算独立存在。内存快照读取仍保留原有独立64页限制，不能因NX解除上限而扩大读取。
 
 本功能不提供跨进程原子继续、同刻冻结保证、自动系统/后代跟踪、同 PID 多站点或控制器死亡恢复。本命令的状态及票据只属于当前活会话，不能从历史 JSON 或停止文件重建 native owner。
 

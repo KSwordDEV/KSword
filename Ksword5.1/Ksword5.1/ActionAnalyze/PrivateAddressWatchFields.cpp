@@ -5,11 +5,34 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QSpinBox>
 #include <limits>
 
 namespace ks::action_analyze
 {
+    // 三个NX参数入口共用完整十进制解析，不经32位SpinBox或浮点转换。
+    bool ParsePrivateExecutionPageBytes(const QString& text, std::uint64_t& bytes)
+    {
+        if (text.isEmpty())
+        {
+            return false;
+        }
+        std::uint64_t pages = 0; // 完整页数；逐位检查乘加，非法文本不会被截短后接受。
+        for (const auto character : text)
+        {
+            const auto code = character.unicode(); // 只允许ASCII数字，不接受符号或空白。
+            if (code < '0' || code > '9' || pages > ((std::numeric_limits<std::uint64_t>::max)() - (code - '0')) / 10)
+            {
+                return false;
+            }
+            pages = pages * 10 + (code - '0');
+        }
+        if (!pages || pages > (std::numeric_limits<std::uint64_t>::max)() / 4096)
+        {
+            return false;
+        }
+        bytes = pages * 4096; // 乘法已验证，地址半开区间由各调用入口另行检查。
+        return true;
+    }
     namespace
     {
         // 解析完整无符号数字，拒绝符号、尾随字符和溢出；仅地址允许0x前缀。
@@ -71,17 +94,16 @@ namespace ks::action_analyze
         addField(m_pid, "action_analyze_watch_pid", QStringLiteral("目标 PID"));
         addField(m_creation, "action_analyze_watch_creation", QStringLiteral("进程创建 FILETIME"));
         addField(m_address, "action_analyze_watch_private_address", QStringLiteral("私有地址"));
-        m_pageCount = new QSpinBox(this); // 标准输入主题与宿主参数布局负责尺寸和底色。
+        m_pageCount = new QLineEdit(this); // 标准输入主题与宿主参数布局负责尺寸和底色。
         m_pageCount->setObjectName(QStringLiteral("action_analyze_watch_execution_pages"));
-        m_pageCount->setRange(1, 64);
-        m_pageCount->setValue(1);
+        m_pageCount->setText(QStringLiteral("1"));
         auto* pageLabel = new QLabel(this); // 页数是显式草稿，不查询或枚举目标的实际区域。
         pageLabel->setBuddy(m_pageCount);
         language.bindText(pageLabel, {}, QStringLiteral("执行关注页数"));
-        language.bindToolTip(m_pageCount, {}, QStringLiteral("每页4096字节，最多64页。范围必须属于同一私有分配；保留各页原保护，拒绝空洞。"));
+        language.bindToolTip(m_pageCount, {}, QStringLiteral("每页4096字节，页数填写正十进制整数。范围必须属于同一私有分配且不溢出；保留各页原保护，拒绝空洞。"));
         form->addRow(pageLabel, m_pageCount);
         form->setRowVisible(m_pageCount, false);
-        connect(m_pageCount, &QSpinBox::valueChanged, this, [this]
+        connect(m_pageCount, &QLineEdit::textChanged, this, [this]
         {
             if (changed)
             {
@@ -108,11 +130,12 @@ namespace ks::action_analyze
         {
             // 单页参数由模式显式选择；后端负责真实MEM_PRIVATE、提交状态及原保护核验。
             constexpr std::uint64_t pageBytes = 4096; // 当前AMD64执行页关注的页大小。
-            if (selected.address % pageBytes != 0)
+            if (selected.address % pageBytes != 0 ||
+                !ParsePrivateExecutionPageBytes(m_pageCount->text(), selected.rangeBytes) ||
+                selected.address > (std::numeric_limits<std::uint64_t>::max)() - selected.rangeBytes)
             {
                 return false;
             }
-            selected.rangeBytes = pageBytes * static_cast<std::uint64_t>(m_pageCount->value());
         }
         selected.pid = static_cast<std::uint32_t>(pid);
         target = selected;
@@ -164,7 +187,7 @@ namespace ks::action_analyze
         m_pid->setText(QString::number(target.pid));
         m_creation->setText(QString::number(target.creation));
         m_address->setText(target.address ? QStringLiteral("0x%1").arg(target.address, 0, 16) : QString());
-        m_pageCount->setValue(target.rangeBytes ? static_cast<int>(target.rangeBytes / 4096) : 1);
+        m_pageCount->setText(QString::number(target.rangeBytes ? target.rangeBytes / 4096 : 1));
     }
 
     // 不清空输入或修改结果，仅阻止活会话期间改写本轮目标草稿。

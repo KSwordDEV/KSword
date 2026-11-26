@@ -76,7 +76,6 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
         const auto* draft = reinterpret_cast<const Ksword::Evidence::NativeExecutionSiteDraft*>(lp); // 当前同步调用的来源值。
         const auto state = page->session.ReadStatus(); // 读取原worker已公布状态，不发原生Query。
         if (!draft || page->retiring || !state.canStart || state.busy || state.active || state.closing ||
-            page->sites.size() >= execution_native::kOwnedExecutionGroupLimit ||
             std::any_of(page->sites.begin(), page->sites.end(), [&](const auto& site) { return site.pid == draft->pid; }))
         {
             return FALSE;

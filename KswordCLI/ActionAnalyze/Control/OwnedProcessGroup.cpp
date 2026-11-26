@@ -161,7 +161,7 @@ ProcessGroupResult OwnedProcessGroup::Impl::Configure(std::vector<ProcessGroupTa
 {
     if (configured_ || closing_) return Reject("process-group-already-configured", ERROR_INVALID_STATE, LedgerResult::Conflict);
     if (!authorized || disposition != NativeTargetDisposition::ResumeAndDetach || targets.empty() ||
-        targets.size() > kOwnedProcessGroupLimit || identity_.sampleId.empty() || identity_.sessionId.empty() ||
+        identity_.sampleId.empty() || identity_.sessionId.empty() ||
         identity_.epoch.empty() || identity_.backendInstanceId.empty()) {
         return Reject("process-group-explicit-instances-required", ERROR_INVALID_PARAMETER, LedgerResult::InvalidEvidence);
     }

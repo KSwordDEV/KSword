@@ -117,19 +117,19 @@ namespace ks::action_analyze
         language.bindText(addressLabel, {}, QStringLiteral("候选子范围起点"));
         addressLabel->setBuddy(m_address);
         rangeForm->addRow(addressLabel, m_address);
-        m_pages = new QSpinBox(section);
+        m_pages = new QLineEdit(section); // NX页数使用完整十进制输入，沿用标准主题。
         m_pages->setObjectName(QStringLiteral("private_candidates_pages"));
-        m_pages->setRange(1, 64);
+        m_pages->setText(QStringLiteral("1"));
         m_pages->setMaximumWidth(180);
         auto* pagesLabel = new QLabel(section); // 长度明确以4KiB整页表达。
-        language.bindText(pagesLabel, {}, QStringLiteral("页数（4KiB，1–64）"));
+        language.bindText(pagesLabel, {}, QStringLiteral("页数（4KiB，正十进制）"));
         pagesLabel->setBuddy(m_pages);
         rangeForm->addRow(pagesLabel, m_pages);
         body->addLayout(rangeForm);
         auto* drafts = new QWidget(section);
         auto* draftFlow = new ks::ui::FlowLayout(drafts, 0, 8, 8);
         m_load = CandidateAction(drafts, "private_candidates_load", QStringLiteral("填入候选整段"),
-            QStringLiteral("仅将符合整页和 64 页上限的实际整段填入草稿；不裁剪、不扩大范围。"));
+            QStringLiteral("仅将符合整页且地址不溢出的实际整段填入草稿；不裁剪、不扩大范围。"));
         m_prepare = CandidateAction(drafts, "private_candidates_prepare", QStringLiteral("准备选中范围草稿"),
             QStringLiteral("核对本轮项目、采样和目标强实例后交回原范围草稿区；仍需原追加按钮显式提交。"));
         draftFlow->addWidget(m_load);

@@ -75,7 +75,6 @@ bool TargetValue(const V& value, native::ProcessGroupTarget& target)
 bool TargetList(std::string_view text, std::vector<native::ProcessGroupTarget>& targets)
 {
     const auto pieces = Split(text, ',');
-    if (pieces.size() > native::kOwnedProcessGroupLimit) return false;
     for (const auto piece : pieces) {
         native::ProcessGroupTarget target;
         if (!TargetText(piece, target)) return false;
@@ -407,7 +406,7 @@ public:
                 {"sampleId", Text(identity_.sampleId)}, {"memoryArchive", archive_.Describe()},
                 {"groupProtocol", V::makeObject({{"requestIdFormat", Text("group/<strictly increasing positive uint64 decimal>")},
                     {"firstRequestId", Text("group/1")}, {"replayEntries", Count(128)},
-                    {"maxMembers", Count(native::kOwnedProcessGroupLimit)}, {"configurationPauses", V::makeBool(false)},
+                    {"maxMembers", V::makeNull()}, {"configurationPauses", V::makeBool(false)},
                     {"memorySnapshot", V::makeBool(true)}, {"memorySave", V::makeBool(!archive_.SampleId().empty())},
                     {"memorySources", V::makeArray({Text("live-read"), Text("held-event")})},
                     {"memorySaveRequires", Text("displayed captureId and frozen sampleId; never rereads")}})}})))
@@ -689,7 +688,7 @@ private:
                 if (!fields->empty()) {
                     const auto* value = request.params.find("targets");
                     const auto* list = value ? value->asArray() : nullptr;
-                    if (!list || list->empty() || list->size() > native::kOwnedProcessGroupLimit)
+                    if (!list || list->empty())
                         return Invalid(request, "invalid-targets", "Require a nonempty explicit target array");
                     selected.clear();
                     for (const auto& item : *list) {
@@ -716,7 +715,7 @@ private:
             const auto* expected = request.expected ? request.expected->asObject() : nullptr;
             const auto* value = request.expected ? request.expected->find("stops") : nullptr;
             const auto* list = value ? value->asArray() : nullptr;
-            if (!empty || !expected || expected->size() != 1 || !list || list->empty() || list->size() > native::kOwnedProcessGroupLimit)
+            if (!empty || !expected || expected->size() != 1 || !list || list->empty())
                 return Invalid(request, "invalid-continue", "Continue requires params:{} and expected:{stops:[exact ProcessGroupStop,...]}");
             for (const auto& item : *list) {
                 native::ProcessGroupStop stop;
@@ -728,7 +727,6 @@ private:
             if (args->size() != 2 || !(*args)[1].tryGetString(text))
                 return Invalid(request, "invalid-continue", "Usage: continue group/N PID:CREATION:GROUP_ID:STOP_ID:BACKEND_ID:SERIAL:REVISION,...");
             const auto list = Split(text, ',');
-            if (list.size() > native::kOwnedProcessGroupLimit) return Invalid(request, "invalid-stops", "Too many stop tokens");
             for (const auto item : list) {
                 native::ProcessGroupStop stop;
                 if (!StopText(item, stop)) return Invalid(request, "invalid-stop", "Require all seven token fields");
@@ -762,7 +760,7 @@ int Run(const Args& args)
         text.push_back(static_cast<char>(character));
     }
     std::vector<native::ProcessGroupTarget> targets;
-    if (!TargetList(text, targets)) throw std::invalid_argument("Require 1-16 canonical positive decimal PID:CREATION pairs");
+    if (!TargetList(text, targets)) throw std::invalid_argument("Require one or more canonical positive decimal PID:CREATION pairs");
     const auto projectPath = args.has(L"--project") ? args.require(L"--project") : std::wstring{}; // 可选项目，空值不隐式创建。
     const auto wideSample = args.has(L"--sample") ? args.require(L"--sample") : std::wstring{}; // 只接受启动时指定的规范 UUID。
     std::string sampleId; // 项目绑定前无损校验的 ASCII 样本 UUID。
@@ -794,7 +792,7 @@ void RegisterProcessGroupCommand()
     command.path = L"analyze process-group session";
     command.syntax = L"KswordCLI.exe analyze process-group session --targets PID:CREATION,PID:CREATION --confirm --disposition resume-detach [--input repl|jsonl] [--project PATH [--sample UUID]]";
     command.summary = L"Control an explicit fixed collection of authorized AMD64 process instances with independent native owners.";
-    command.options = L"--targets contains 1-16 exact PID and creation FILETIME pairs in canonical decimal. "
+    command.options = L"--targets contains one or more exact PID and creation FILETIME pairs in canonical decimal, without a fixed member limit. hello.groupProtocol.maxMembers is null; transport byte budgets remain independent. "
         L"Configuration pins exact live identities without pausing; each actual Pause independently checks native AMD64, same user/session and native admission. "
         L"Optional --project opens an existing project with its single-writer lease before creating the controller. "
         L"--sample selects an existing frozen sample; omission creates a sample from the current committed revision. "

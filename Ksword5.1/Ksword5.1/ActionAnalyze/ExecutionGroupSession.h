@@ -28,7 +28,7 @@ namespace ks::action_analyze
         bool holdPeersOnHit = false; // Start冻结的命中联停策略，参数编辑不改写活集合。
         bool autoSaveExecution = false; // 本轮正常查询后的执行观察自动归档，必须提供项目目录。
         std::uint64_t rangeAddress = 0; // AddRange点击时冻结的整页起点，不替换Start站点。
-        std::uint64_t rangeBytes = 0; // AddRange明确新增字节数，原owner核验总页数预算。
+        std::uint64_t rangeBytes = 0; // AddRange明确新增字节数，原owner核验实际范围和恢复责任。
         bool all = false; // Pause/Continue显式区分固定全集与所选子集。
         bool authorized = false; // Start时冻结的用户授权。
         Ksword::ActionAnalyze::NativeBoundApiRequest api; // 显式来源身份与有限时长，只用于CaptureApi。

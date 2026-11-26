@@ -166,7 +166,7 @@ bool CreateControls(Page& page)
     if (!page.parameters.Create(page.hwnd)) return false;
     const auto body = page.parameters.Body();
     page.hint = Ui::CreateText(body, 0,
-        L"显式执行站点：每进程一个，最多16个。填写模块路径及RVA或导出名，或填写私有地址及可选范围。加入草稿后显式启动；逐成员回读不证明同时冻结。", 0, 0, 1, 1);
+        L"显式执行站点：每进程一个。填写模块路径及RVA或导出名，或填写私有地址及可选范围。加入草稿后显式启动；逐成员回读不证明同时冻结。", 0, 0, 1, 1);
     Wrap(page.hint);
     constexpr std::array<const wchar_t*, FieldCount> names{L"PID（十进制）", L"创建 FILETIME（十进制）",
         L"普通模块绝对路径（与私有地址互斥）", L"模块 RVA（十六进制，与导出二选一）", L"精确导出名（区分大小写）",
@@ -184,7 +184,7 @@ bool CreateControls(Page& page)
     }
     page.identify = Ui::CreateButton(body, kIdentify, L"读取 PID 身份", 0, 0, 1, 1);
     page.rangeHint = Ui::CreateText(body, 0,
-        L"启动草稿：范围为0时使用单地址。追加范围：复用上方起点和字节数，点击底栏“追加选中NX范围”，仅追加到右侧单选的完整Held NX成员（允许主动暂停）。起点、长度须4KiB对齐，长度1–64页；不修改启动站点或条件，不继续目标。", 0, 0, 1, 1);
+        L"启动草稿：范围为0时使用单地址。追加范围：复用上方起点和字节数，点击底栏“追加选中NX范围”，仅追加到右侧单选的完整Held NX成员（允许主动暂停）。起点、长度须非零且4KiB对齐，地址范围不能溢出；不修改启动站点或条件，不继续目标。", 0, 0, 1, 1);
     Wrap(page.rangeHint);
     page.identity = Ui::CreateText(body, 0, L"尚未读取身份；读取后显式加入草稿。", 0, 0, 1, 1);
     Wrap(page.identity);
@@ -279,15 +279,15 @@ bool CreateControls(Page& page)
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, page.hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
     if (page.tooltip) {
         ::SendMessageW(page.tooltip, TTM_SETMAXTIPWIDTH, 0, Scale(440));
-        Tip(page, page.start, L"须有1–16个草稿站点、全集授权及已结清的旧集合。启动按值冻结全部参数，部分失败保留成功成员。");
-        Tip(page, page.appendMembers, L"明确授权后，冻结当前表单的新进程实例与条件，追加到本轮同一采样。已有成员和停点不替换、不继续。累计最多16个不同PID；失败保留原集合与恢复责任，可修改表单后重试。");
+        Tip(page, page.start, L"须有明确草稿站点、全集授权及已结清的旧集合。启动按值冻结全部参数，部分失败保留成功成员。");
+        Tip(page, page.appendMembers, L"明确授权后，冻结当前表单的新进程实例与条件，追加到本轮同一采样。已有成员和停点不替换、不继续。同一PID只能登记一次；失败保留原集合与恢复责任，可修改表单后重试。");
         Tip(page, page.pauseAll, L"全部成员须可暂停或已持有停点，且至少一个需要暂停。整批核对身份后只向运行成员请求暂停；已停成员单列already-held回执。不证明同时冻结。");
         Tip(page, page.pauseSelected, L"所选成员须可暂停或已持有停点，且至少一个需要暂停。提交整个选区的完整快照；已停成员不重复请求暂停。");
         Tip(page, page.continueAll, L"全部成员须可继续或已运行，且至少一个需要继续。只继续精确Held停点；运行成员单列already-running回执，不伪造释放。");
         Tip(page, page.continueSelected, L"所选成员须可继续或已运行，且至少一个需要继续。提交整个选区的完整快照；运行成员不生成释放请求。");
         Tip(page, page.addRange, L"须单选原集合的完整Held NX成员，允许主动暂停。只使用私有地址/范围字节草稿和点击时的完整停点，向原owner追加；不读取PID、模块或条件草稿，不修改启动站点，不继续。失败保留草稿、原集合和回执，可刷新后重试。");
         Tip(page, page.inputs[Address], L"加入草稿时作为启动私有地址；追加选中NX范围时作为新增范围起点。追加目标由右侧单选成员的原停点决定，不由PID草稿决定。");
-        Tip(page, page.inputs[Range], L"启动时0表示单地址；追加时必须填写非零字节数，4KiB整数倍且不超过256KiB。编辑不会修改已保存草稿项或旧集合来源。");
+        Tip(page, page.inputs[Range], L"启动时0表示单地址；追加时必须填写非零字节数，为4KiB整数倍且地址范围不能溢出。编辑不会修改已保存草稿项或旧集合来源。");
         Tip(page, page.inputs[ImageSha256], L"只接受64位小写十六进制SHA256，留空不设约束。原生所有者核验实际调试装载文件后才武装DR0，不自动采集。私有地址时隐藏并保留草稿，不发送。");
         Tip(page, page.inputs[Module], L"选择模块绝对路径；尚未加载时沿本轮会话等待首次加载，设点成功前不提供执行覆盖。关闭集合可取消等待，已设点模块卸载后清退，不自动重绑。");
         Tip(page, page.inputs[DefinitionId], L"仅模块RVA站点可填写规范UUID，并须配置项目。全部成员在附加前核对本轮采样冻结定义的启用状态、模块、RVA和映像散列；不解析PDB或激活系统所有实例。");

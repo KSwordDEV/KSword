@@ -30,7 +30,7 @@ struct PrivateExecutionRangeDraft {
     std::uint32_t targetPid = 0; // 原调用查询到的目标PID，不能用裸pid候选补值。
     std::uint64_t targetCreationFileTime = 0; // 原目标创建代次，现场仍需复核。
     std::uint64_t address = 0; // 显式选择的4KiB整页子范围起点。
-    std::uint64_t bytes = 0; // 显式选择的整页子范围字节数，最多64页。
+    std::uint64_t bytes = 0; // 显式选择的整页子范围字节数，无固定页数上限。
     PrivateMemoryCall origin; // 产生范围的唯一原调用，选择不剥离来源依据。
 };
 
@@ -70,7 +70,7 @@ struct PrivateExecutionCandidatesPage {
 };
 
 // 输入已核验候选和用户明确选定的子范围；不查询、不控制目标。
-// 成功才替换out；仅整页包含在实际输出内部且<=64页时通过，不向外自动对齐。
+// 成功才替换out；仅整页包含在实际输出内部时通过，不向外自动对齐。
 ProjectResult PreparePrivateExecutionRangeDraft(const PrivateExecutionCandidate& candidate,
     std::uint64_t address, std::uint64_t bytes, PrivateExecutionRangeDraft& out);
 

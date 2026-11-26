@@ -126,15 +126,17 @@ void NativeText(std::wstring& text, const execution_native::NativeControlResult&
         // 实际散列只取原生control的成功核验值，不以用户输入或磁盘路径查询替代。
         text += L"\r\n实际装载文件 SHA256=" + (binding.imageSha256 ? Widen(*binding.imageSha256) : L"无实际测量值");
         std::uint64_t totalRangeBytes = 0;
+        bool totalValid = true; // 汇总只在uint64可表示时显示，不能因解除页数额度而回绕。
         for (const auto& range : binding.executionRanges) {
             text += L"\r\n成功NX范围 base=" + Hex(range.base) + L" bytes=" + std::to_wstring(range.bytes) +
                 L" pages=" + std::to_wstring(range.bytes / 4096) + L" allocationBase=" + Hex(range.allocationBase);
-            totalRangeBytes += range.bytes;
+            if (range.bytes > UINT64_MAX - totalRangeBytes) totalValid = false;
+            else totalRangeBytes += range.bytes;
         }
         if (!binding.executionRanges.empty())
         {
-            text += L"\r\n已纳入范围合计=" + std::to_wstring(totalRangeBytes) + L" 字节 / " +
-                std::to_wstring(totalRangeBytes / 4096) + L" 页"; // 与CLI/Qt相同，汇总实际成功目录。
+            text += L"\r\n已纳入范围合计=" + (totalValid ? std::to_wstring(totalRangeBytes) + L" 字节 / " +
+                std::to_wstring(totalRangeBytes / 4096) + L" 页" : std::wstring(L"不可用")); // 与CLI/Qt相同，汇总实际成功目录。
         }
     }
     if (state.executionRange) {
@@ -405,7 +407,7 @@ void Refresh(Page& page)
         for (const auto column : page.columns) visible.push_back(cells[static_cast<std::size_t>(column)]);
         nextRows.push_back(std::move(visible));
     }
-    // 相同状态不重建清单，保留键盘多选锚点及列宽；成员最多16个。
+    // 相同状态不重建清单，保留键盘多选锚点及列宽，不按固定成员数裁剪。
     if (nextRows != page.displayedRows) {
         page.publishing = true;
         Ui::ScopedListViewRedrawLock lock(page.members);

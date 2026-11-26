@@ -45,7 +45,7 @@ struct Page {
     LightExecutionGroupSession session;
     LightExecutionGroupSnapshot shown;
     std::vector<execution_native::ExecutionGroupSite> sites;
-    std::vector<Ksword::Evidence::NativeExecutionSiteDraft> evidenceDrafts; // 当前目录最多16份证据来源，不转成控制票据。
+    std::vector<Ksword::Evidence::NativeExecutionSiteDraft> evidenceDrafts; // 当前目录的证据来源，不转成控制票据。
     std::array<bool, 11> visibleColumns{true, true, true, true, true, false, false, false, false, false, true};
     std::vector<int> columns;
     std::vector<std::vector<std::wstring>> displayedRows;

@@ -60,7 +60,7 @@ namespace ks::action_analyze
         root->addWidget(workspace);
         auto* hint = new QLabel(workspace); // 范围和执行机制说明放在参数滚动正文。
         hint->setWordWrap(true);
-        language.bindText(hint, {}, QStringLiteral("为 1–16 个明确进程实例各配置一个执行站点。开始冻结目录和条件；各成员独立命中，逐项回读，不保证同时冻结。"));
+        language.bindText(hint, {}, QStringLiteral("为明确选择的进程实例各配置一个执行站点。开始冻结目录和条件；各成员独立命中，逐项回读，不保证同时冻结。"));
         workspace->parameters()->addWidget(hint);
         auto* section = new QGroupBox(workspace); // 自然高度参数分区，长窗口不拉伸字段。
         language.bindText(section, {}, QStringLiteral("执行站点草稿"));
@@ -146,7 +146,7 @@ namespace ks::action_analyze
         };
         m_start = Action(workspace, "execution_group_start", QStringLiteral("开始执行集合"), QStringLiteral("在原后台线程冻结全部站点并逐成员附加，部分失败仍保留成功成员和恢复责任。"));
         m_append = Action(workspace, "execution_group_append", QStringLiteral("追加表单目标到本轮集合"),
-            QStringLiteral("冻结当前表单中的新进程实例与条件，沿同一采样追加成员；保留已有停点，不替换原成员。最多 16 个不同 PID。"));
+            QStringLiteral("冻结当前表单中的新进程实例与条件，沿同一采样追加成员；保留已有停点，不替换原成员。同一 PID 只能登记一次。"));
         m_newDraft = Action(workspace, "execution_group_new", QStringLiteral("返回站点草稿"), QStringLiteral("仅在原集合确认清退后返回原站点目录；新开始创建新的集合身份。"));
         workspace->actions()->addWidget(m_start);
         workspace->actions()->addWidget(m_append); // 复杂控制动作保留文字，沿共享固定动作区自然换行。

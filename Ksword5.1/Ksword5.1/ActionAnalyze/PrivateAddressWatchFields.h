@@ -6,17 +6,18 @@
 #include <optional>
 
 class QLineEdit;
-class QSpinBox;
 
 namespace ks::action_analyze
 {
+    // 输入严格ASCII正十进制uint64页数，成功输出不溢出的4KiB字节数；失败不修改输出。
+    bool ParsePrivateExecutionPageBytes(const QString& text, std::uint64_t& bytes);
     // 启动点击时冻结的实例与地址；不包含任何进程或线程控制句柄。
     struct PrivateAddressWatchTarget
     {
         std::uint32_t pid = 0; // 用户明确选择的进程编号。
         std::uint64_t creation = 0; // 进程创建FILETIME，防止PID复用。
         std::uint64_t address = 0; // 本轮选择的单个私有关注地址。
-        std::uint64_t rangeBytes = 0; // 零为单地址DR0；非零为明确选择的1..64页NX范围。
+        std::uint64_t rangeBytes = 0; // 零为单地址DR0；非零为明确选择的整页NX范围，无固定页数上限。
     };
 
     // 写入停点页的已有实例参数行；分区和滚动由宿主ParameterWorkspace拥有。
@@ -36,7 +37,7 @@ namespace ks::action_analyze
         QLineEdit* m_pid = nullptr; // 十进制PID输入。
         QLineEdit* m_creation = nullptr; // 十进制创建时间输入。
         QLineEdit* m_address = nullptr; // 十进制或0x十六进制地址输入。
-        QSpinBox* m_pageCount = nullptr; // 显式NX范围页数，默认1，不自动扩大目标范围。
+        QLineEdit* m_pageCount = nullptr; // 严格十进制uint64页数，默认1，不自动扩大目标范围。
     };
 
     // 解析模块RVA草稿，接受十进制或0x前缀十六进制；失败为空，不访问映像或目标进程。

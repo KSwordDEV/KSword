@@ -80,7 +80,7 @@ namespace ks::action_analyze
         QTableView* m_table = nullptr; // 有界候选列表，表格操作条None，保留真实原行索引。
         QStandardItemModel* m_model = nullptr; // 最多8×3个只读单元格，不缓存原始API包。
         QLineEdit* m_address = nullptr; // 用户明确子范围起点，支持十进制或0x。
-        QSpinBox* m_pages = nullptr; // 明确长度1..64页，不自动外扩原实际范围。
+        QLineEdit* m_pages = nullptr; // 明确正十进制uint64页数，不自动外扩原实际范围。
         QPushButton* m_load = nullptr; // 显式填入候选可用整段；选择本身不覆盖输入。
         QPushButton* m_prepare = nullptr; // 只生成草稿供原范围Pane接收。
         QLabel* m_draftSource = nullptr; // 输入归属的原调用坐标，切行时仍保留旧草稿身份。

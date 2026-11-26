@@ -6,7 +6,6 @@
 
 namespace ks::cli::action_analyze::control {
 
-inline constexpr std::size_t kOwnedProcessGroupLimit = 16; // 单次显式集合的进程上限，不隐式扩展后代。
 
 // 进程集合按真实实例固定。历史图中的 PID 提示不能直接转换为本类型。
 struct ProcessGroupTarget {

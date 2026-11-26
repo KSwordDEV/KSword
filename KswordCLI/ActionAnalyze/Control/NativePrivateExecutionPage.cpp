@@ -2,24 +2,35 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
 #include <utility>
 
 namespace ks::cli::action_analyze::control {
 namespace {
 constexpr std::uint64_t kPageBytes = 4096;
-constexpr std::uint64_t kMaxBytes = 64 * kPageBytes;
 DWORD LastError() { const auto error = GetLastError(); return error ? error : ERROR_GEN_FAILURE; }
 }
 
 DWORD NativePrivateExecutionPage::ParseRange(HANDLE process, DWORD pid, std::uint64_t address, std::uint64_t bytes,
     std::vector<Page>& resolved) const
 {
-    if (!address || address % kPageBytes || !bytes || bytes % kPageBytes || bytes > kMaxBytes ||
+    if (!address || address % kPageBytes || !bytes || bytes % kPageBytes ||
+        bytes > (std::numeric_limits<std::uintptr_t>::max)() ||
         address > (std::numeric_limits<std::uintptr_t>::max)() - bytes) return ERROR_INVALID_PARAMETER;
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
     if (system.dwPageSize != kPageBytes) return ERROR_NOT_SUPPORTED;
-    resolved.reserve(static_cast<std::size_t>(bytes / kPageBytes));
+    // 只按容器可表示容量拒绝；实际分配失败转换成原所有者可发布的Win32错误。
+    const auto pageCount = bytes / kPageBytes; // 整页数量保持64位，不截断成控件整数。
+    if (pageCount > resolved.max_size()) return ERROR_NOT_ENOUGH_MEMORY;
+    try
+    {
+        resolved.reserve(static_cast<std::size_t>(pageCount));
+    }
+    catch (const std::bad_alloc&)
+    {
+        return ERROR_NOT_ENOUGH_MEMORY; // 分配失败发生在任何页保护改动之前。
+    }
     for (std::uint64_t offset = 0; offset < bytes; offset += kPageBytes) {
         Page page;
         if (const auto error = ResolveNativeExplicitMemorySite(process, pid, address + offset, 0, page.site)) return error;
@@ -46,7 +57,15 @@ DWORD NativePrivateExecutionPage::Resolve(HANDLE process, DWORD pid, std::uint64
     if (OwnsProtection()) return ERROR_INVALID_STATE;
     std::vector<Page> resolved;
     if (const auto error = ParseRange(process, pid, address, bytes, resolved)) return error;
-    std::vector<NativeExecutionRange> ranges{{address, bytes, resolved.front().site.site.allocationBase}};
+    std::vector<NativeExecutionRange> ranges; // 在取得任何保护责任之前准备完整初始目录。
+    try
+    {
+        ranges.push_back({address, bytes, resolved.front().site.site.allocationBase});
+    }
+    catch (const std::bad_alloc&)
+    {
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
     site_ = resolved.front().site; // 绑定元数据保留起始页的原区域，rangeBytes另外描述整个关注范围。
     pages_ = std::move(resolved);
     ranges_ = std::move(ranges);
@@ -58,18 +77,28 @@ DWORD NativePrivateExecutionPage::AddRange(HANDLE process, DWORD pid, std::uint6
 {
     rollbackComplete = true;
     if (const auto error = Verify(process)) return error;
-    if (!address || address % kPageBytes || !bytes || bytes % kPageBytes || bytes > kMaxBytes ||
+    if (!address || address % kPageBytes || !bytes || bytes % kPageBytes ||
+        bytes > (std::numeric_limits<std::uintptr_t>::max)() ||
         address > (std::numeric_limits<std::uintptr_t>::max)() - bytes) return ERROR_INVALID_PARAMETER;
     for (const auto& page : pages_) {
         if (!page.active || !page.owned || page.expected != page.nonExecutable) return ERROR_INVALID_STATE;
         if (page.site.site.address >= address && page.site.site.address - address < bytes) return ERROR_ALREADY_EXISTS;
     }
-    if (pages_.size() + bytes / kPageBytes > 64) return ERROR_BUFFER_OVERFLOW;
+    // 用剩余容器容量比较，避免累计页数先相加后溢出；不设固定页数额度。
+    if (bytes / kPageBytes > pages_.max_size() - pages_.size() || ranges_.size() == ranges_.max_size())
+        return ERROR_NOT_ENOUGH_MEMORY;
     std::vector<Page> resolved;
     if (const auto error = ParseRange(process, pid, address, bytes, resolved)) return error;
     const auto originalCount = pages_.size();
-    pages_.reserve(originalCount + resolved.size());
-    ranges_.reserve(ranges_.size() + 1); // 所有存储先取得，再开始保护事务。
+    try
+    {
+        pages_.reserve(originalCount + resolved.size());
+        ranges_.reserve(ranges_.size() + 1); // 所有存储先取得，再开始保护事务。
+    }
+    catch (const std::bad_alloc&)
+    {
+        return ERROR_NOT_ENOUGH_MEMORY; // 原范围和保护保持原样，交原回执发布真实失败。
+    }
     const NativeExecutionRange range{address, bytes, resolved.front().site.site.allocationBase};
     pages_.insert(pages_.end(), resolved.begin(), resolved.end()); // 先登记原Protect及责任位置再Set。
     DWORD failure = ERROR_SUCCESS;

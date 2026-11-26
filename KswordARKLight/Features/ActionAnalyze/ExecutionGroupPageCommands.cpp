@@ -61,8 +61,8 @@ bool Site(Page& page, execution_native::ExecutionGroupSite& site)
     if (site.address) {
         if (!site.modulePath.empty() || hasRva || !exportName.empty() ||
             (site.rangeBytes && (site.address % 4096 || site.rangeBytes % 4096 ||
-                site.rangeBytes > 64ull * 4096 || site.address > UINT64_MAX - site.rangeBytes))) {
-            page.error = L"私有站点不能同时填写模块。范围非零时起点及长度须4KiB对齐，最大256KiB且不能溢出。";
+                site.address > UINT64_MAX - site.rangeBytes))) {
+            page.error = L"私有站点不能同时填写模块。范围非零时起点及长度须4KiB对齐，地址范围不能溢出。";
             return false;
         }
     } else {
@@ -189,8 +189,7 @@ void Command(Page& page, int id)
     }
     else if (id == kAdd) {
         execution_native::ExecutionGroupSite site;
-        if (page.sites.size() >= execution_native::kOwnedExecutionGroupLimit) page.error = L"草稿最多16个进程站点。";
-        else if (Site(page, site)) {
+        if (Site(page, site)) {
             if (std::any_of(page.sites.begin(), page.sites.end(), [&](const auto& prior) { return prior.pid == site.pid; }))
                 page.error = L"每个PID只能登记一个站点；请先移除原草稿项。";
             else { page.sites.push_back(std::move(site)); RefreshDraft(page); }
@@ -229,7 +228,7 @@ void Command(Page& page, int id)
             request.holdPeersOnHit = ::SendMessageW(page.holdPeersOnHit, BM_GETCHECK, 0, 0) == BST_CHECKED; // 冻结本轮策略。
             request.autoSaveExecution = ::SendMessageW(page.autoSaveExecution, BM_GETCHECK, 0, 0) == BST_CHECKED; // 与项目目录一同冻结。
             if (request.sites.empty() || !request.authorized) {
-                page.error = L"请加入1–16个站点并明确授权整个集合。";
+                page.error = L"请加入明确站点并明确授权整个集合。";
                 submit = false;
             }
             else if (request.autoSaveExecution && request.projectDirectory.empty())
@@ -316,9 +315,9 @@ void Command(Page& page, int id)
                 request.stops.push_back(page.shown.result.members[static_cast<std::size_t>(rows.front())].control);
                 if (!Number(page.inputs[Address], request.address, 16) || !request.address ||
                     !Number(page.inputs[Range], request.bytes, 10) || !request.bytes ||
-                    request.address % 4096 || request.bytes % 4096 || request.bytes > 64ull * 4096 ||
+                    request.address % 4096 || request.bytes % 4096 ||
                     request.address > UINT64_MAX - request.bytes) {
-                    page.error = L"追加NX范围：起点按十六进制、长度按十进制字节填写；均须4KiB对齐，长度1–64页且地址不能溢出。";
+                    page.error = L"追加NX范围：起点按十六进制、长度按十进制字节填写；均须非零且4KiB对齐，地址范围不能溢出。";
                     submit = false;
                 }
             }

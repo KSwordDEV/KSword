@@ -7,7 +7,7 @@
 
 namespace ks::cli::action_analyze::control {
 
-// 总计最多64页，每个范围属于同一私有分配；范围间可不连续/不同分配。
+// 无固定页数上限；每个范围属于同一私有分配，范围间可不连续/不同分配。
 class NativePrivateExecutionPage final {
 public:
     [[nodiscard]] DWORD Resolve(HANDLE process, DWORD pid, std::uint64_t address, std::uint64_t bytes);

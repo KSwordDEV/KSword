@@ -35,7 +35,9 @@ KswordCLI.exe analyze execution candidates --project PATH --sample UUID --throug
 
 ## 范围草稿与现有 held 纳入流程
 
-`wholeRangeDraft` 仅在整个实际输出范围已满足以下条件时出现：原目标强身份有效并在调用前后稳定、地址和长度均 4KiB 对齐、非空、长度至多 64 页。否则保持 null，不自动裁剪或扩大范围。用户可通过 select/address/bytes 明确选择实际输出内部满足相同约束的子范围，得到 `selectedRangeDraft`；选择必须命中当前页中的真实原调用，并传回已显示页的 `snapshot`，防止同坐标文件变化后静默沿用旧选择。
+`wholeRangeDraft` 仅在整个实际输出范围已满足以下条件时出现：原目标强身份有效并在调用前后稳定、地址和长度均 4KiB 对齐、非空、地址加长度不溢出。NX草稿无固定页数上限。否则保持 null，不自动裁剪或扩大范围。用户可通过 select/address/bytes 明确选择实际输出内部满足相同约束的子范围，得到 `selectedRangeDraft`；选择必须命中当前页中的真实原调用，并传回已显示页的 `snapshot`，防止同坐标文件变化后静默沿用旧选择。
+
+Qt 与 Light 的页数参数使用正十进制uint64输入，先检查页数乘4096再检查完整地址范围；整段回填不经过32位整数。实际纳入仍可能因原分配、保护、容器容量或系统资源失败而拒绝。这里解除的是NX执行关注范围额度，内存快照的独立64页读取限制保持原语义。
 
 Qt/Light 在原归档 worker 调用共享接口：
 

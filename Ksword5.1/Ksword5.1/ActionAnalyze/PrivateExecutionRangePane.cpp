@@ -1,5 +1,6 @@
 #include "../Framework.h"
 #include "PrivateExecutionRangePane.h"
+#include "PrivateAddressWatchFields.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/ParameterWorkspace.h"
 #include "../UI/SecondaryPageLayout.h"
@@ -16,7 +17,6 @@
 #include <QPushButton>
 #include <QPointer>
 #include <QSignalBlocker>
-#include <QSpinBox>
 #include <QVBoxLayout>
 #include <charconv>
 #include <limits>
@@ -37,10 +37,9 @@ namespace ks::action_analyze
         m_address = new QLineEdit(section);
         m_address->setObjectName(QStringLiteral("action_analyze_execution_add_range_base"));
         m_address->setMaxLength(20);
-        m_pages = new QSpinBox(section);
+        m_pages = new QLineEdit(section); // 独立输入继续由标准主题和共享参数分区接入。
         m_pages->setObjectName(QStringLiteral("action_analyze_execution_add_range_pages"));
-        m_pages->setRange(1, 64);
-        m_pages->setValue(1);
+        m_pages->setText(QStringLiteral("1"));
 
         // 起点与页数是待执行草稿，编辑时不读取目标或改动已设防范围。
         auto* addressLabel = new QLabel(section); // 起点标签与输入建立键盘定位关系。
@@ -58,7 +57,7 @@ namespace ks::action_analyze
         form->addRow(m_origin);
         auto* hint = new QLabel(section); // 说明操作边界，不把请求已接受解释为实际执行。
         hint->setWordWrap(true);
-        language.bindText(hint, {}, QStringLiteral("在当前完整执行停点下显式纳入另一段私有执行页，不继续目标。单段必须来自同一分配，全部范围合计最多64页。"));
+        language.bindText(hint, {}, QStringLiteral("在当前完整执行停点下显式纳入另一段私有执行页，不继续目标。单段必须来自同一分配，范围须为整页且地址不能溢出。"));
         form->addRow(hint);
 
         m_add = new QPushButton(section); // 简单追加动作使用统一图标和释义。
@@ -79,7 +78,7 @@ namespace ks::action_analyze
             m_origin->hide();
         };
         connect(m_address, &QLineEdit::textChanged, this, edited);
-        connect(m_pages, &QSpinBox::valueChanged, this, edited);
+        connect(m_pages, &QLineEdit::textChanged, this, edited);
         m_add->setEnabled(false);
     }
 
@@ -98,15 +97,15 @@ namespace ks::action_analyze
     bool PrivateExecutionRangePane::SetDraft(std::uint64_t address, std::uint64_t bytes, const QString& origin,
         const std::function<bool()>& stillCurrent)
     {
-        if (!address || address % 4096 || !bytes || bytes % 4096 || bytes > 64 * 4096 ||
+        if (!address || address % 4096 || !bytes || bytes % 4096 ||
             bytes > (std::numeric_limits<std::uint64_t>::max)() - address)
         {
             return false;
         }
         const auto selectedAddress = QStringLiteral("0x%1").arg(address, 0, 16); // 保持用户可辨的真实地址。
-        const auto selectedPages = static_cast<int>(bytes / 4096); // 已由整页及64页上限校验。
+        const auto selectedPages = QString::number(bytes / 4096); // 完整64位页数，不经过int截断。
         if (!m_address->text().trimmed().isEmpty() &&
-            (m_address->text().compare(selectedAddress, Qt::CaseInsensitive) != 0 || m_pages->value() != selectedPages))
+            (m_address->text().compare(selectedAddress, Qt::CaseInsensitive) != 0 || m_pages->text() != selectedPages))
         {
             const QPointer<PrivateExecutionRangePane> alive(this); // 模态期间父页可被关闭。
             const auto answer = QMessageBox::question(this, ks::i18n::sourceText(QStringLiteral("载入执行范围草稿")),
@@ -124,7 +123,7 @@ namespace ks::action_analyze
         const QSignalBlocker addressBlock(m_address); // 两个参数一次更新，不触发手动编辑的来源清除。
         const QSignalBlocker pagesBlock(m_pages);
         m_address->setText(selectedAddress);
-        m_pages->setValue(selectedPages);
+        m_pages->setText(selectedPages);
         m_origin->setText(origin);
         m_origin->setVisible(!origin.isEmpty());
         return true; // 只有草稿已加载；显式纳入按钮另行冻结当时的完整停止票据。
@@ -146,11 +145,12 @@ namespace ks::action_analyze
         }
         std::uint64_t address = 0; // 完整64位地址，不经过浮点或32位转换。
         const auto parsed = std::from_chars(text.constData(), text.constData() + text.size(), address, radix);
-        const auto bytes = static_cast<std::uint64_t>(m_pages->value()) * 4096; // 页数由控件范围约束。
+        std::uint64_t bytes = 0; // 先严格解析页数并检查乘法，再检查地址加法。
         if (text.isEmpty() || parsed.ec != std::errc{} || parsed.ptr != text.constData() + text.size() ||
-            !address || address % 4096 || bytes > (std::numeric_limits<std::uint64_t>::max)() - address)
+            !address || address % 4096 || !ParsePrivateExecutionPageBytes(m_pages->text(), bytes) ||
+            bytes > (std::numeric_limits<std::uint64_t>::max)() - address)
         {
-            m_status->setText(ks::i18n::sourceText(QStringLiteral("请输入非零、4KiB对齐且范围不溢出的起点地址。")));
+            m_status->setText(ks::i18n::sourceText(QStringLiteral("请输入非零、4KiB对齐的起点及正十进制页数，页数字节换算和地址范围均不能溢出。")));
             m_status->show();
             ks::ui::ApplyStatusRole(m_status, ks::ui::StatusRole::Error);
             m_address->setFocus(Qt::OtherFocusReason);

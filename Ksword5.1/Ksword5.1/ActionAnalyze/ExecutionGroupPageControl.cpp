@@ -28,7 +28,7 @@ namespace ks::action_analyze
     // 工作台显式转交纯值草稿；只追加目录，不覆盖编辑器或启动任何原生会话。
     bool ExecutionGroupPage::AddEvidenceDraft(const Ksword::Evidence::NativeExecutionSiteDraft& draft)
     {
-        if (m_session || m_model->sites.size() >= native::kOwnedExecutionGroupLimit ||
+        if (m_session ||
             std::any_of(m_model->sites.begin(), m_model->sites.end(), [&](const auto& site) { return site.pid == draft.pid; }))
         {
             return false;
@@ -82,7 +82,7 @@ namespace ks::action_analyze
     // 输入加入/替换语义，完整校验单站点再变更草稿；活集合始终不可重配置。
     void ExecutionGroupPage::AddSite(bool replace)
     {
-        if (m_session || (!replace && m_model->sites.size() >= native::kOwnedExecutionGroupLimit))
+        if (m_session)
         {
             return;
         }
@@ -472,7 +472,7 @@ namespace ks::action_analyze
         m_autoSaveExecution->setEnabled(editable); // 策略属于本轮采样，不热更新writer或结果身份。
         m_authorized->setEnabled(editable || appendable);
         m_append->setEnabled(appendable && m_authorized->isChecked());
-        m_add->setEnabled(editable && m_model->sites.size() < native::kOwnedExecutionGroupLimit);
+        m_add->setEnabled(editable);
         m_replace->setEnabled(editable && selected.size() == 1);
         m_load->setEnabled(editable && selected.size() == 1);
         m_remove->setEnabled(editable && !selected.empty());

@@ -230,7 +230,7 @@ std::optional<NativeExecutionSiteDraft> PrepareNativeExecutionSiteDraft(const Js
         {
             std::uint64_t base = 0, bytes = 0; // 每个原范围独立核对，不合并相邻分配。
             if (storage::GetNumber(item, "base", base) && storage::GetNumber(item, "bytes", bytes) &&
-                base && bytes && base % 4096 == 0 && bytes % 4096 == 0 && bytes <= 64ull * 4096 &&
+                base && bytes && base % 4096 == 0 && bytes % 4096 == 0 &&
                 base <= UINT64_MAX - bytes && instruction >= base && instruction - base < bytes)
             {
                 draft.address = base;

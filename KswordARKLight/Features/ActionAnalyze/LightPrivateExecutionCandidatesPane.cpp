@@ -124,7 +124,7 @@ void Layout(Pane& pane) {
     };
     field(pane.throughLabel, pane.through, true);
     field(pane.baseLabel, pane.base, false);
-    field(pane.pagesLabel, pane.pages, true);
+    field(pane.pagesLabel, pane.pages, false); // 页数现为编辑框，只占自然行高，不沿用下拉列表展开高度。
     move(pane.whole, 0, y, (std::min)(Scale(200), bodyWidth), row);
     y += row + gap;
     const int statusHeight = Height(pane.status, bodyWidth);
@@ -326,7 +326,7 @@ void Whole(Pane& pane) {
     const auto& draft = *row->wholeRangeDraft;
     pane.loading = true;
     ::SetWindowTextW(pane.base, PrivateCandidateHex(draft.address).c_str());
-    ::SendMessageW(pane.pages, CB_SETCURSEL, static_cast<WPARAM>(draft.bytes / 4096 - 1), 0);
+    ::SetWindowTextW(pane.pages, std::to_wstring(draft.bytes / 4096).c_str());
     pane.loading = false;
     pane.draftPage = pane.page;
     pane.draftRow = Selected(pane);
@@ -338,13 +338,16 @@ void Prepare(Pane& pane) {
     const auto* row = Row(pane);
     if (!SelectReady(pane) || !row || pane.draftPage != pane.page || pane.draftRow != Selected(pane) || !pane.port.prepare) return;
     std::uint64_t base = 0;
-    const auto pages = ::SendMessageW(pane.pages, CB_GETCURSEL, 0, 0);
-    if (!Memory::ParseUnsignedInteger(Text(pane.base), (std::numeric_limits<std::uint64_t>::max)(), L"子范围起点", base, pane.error) || pages < 0 || pages >= 64) {
-        if (pane.error.empty()) pane.error = L"请选择1..64个整页。";
+    std::uint64_t pages = 0; // 完整正十进制页数；先核对uint64乘法再生成范围字节数。
+    const auto pageText = Text(pane.pages); // 保留完整输入，不能把宽字符或符号折算成有效数字。
+    if (!Memory::ParseUnsignedInteger(Text(pane.base), (std::numeric_limits<std::uint64_t>::max)(), L"子范围起点", base, pane.error) ||
+        pageText.empty() || pageText.find_first_not_of(L"0123456789") != std::wstring::npos ||
+        !Memory::ParseUnsignedInteger(pageText, (std::numeric_limits<std::uint64_t>::max)() / 4096, L"子范围页数", pages, pane.error) || !pages) {
+        if (pane.error.empty()) pane.error = L"请输入正十进制整页数，页数字节换算不能溢出。";
         Refresh(pane);
         return;
     }
-    const auto bytes = (static_cast<std::uint64_t>(pages) + 1) * 4096;
+    const auto bytes = pages * 4096; // 上方已验证乘法，原候选服务核对实际输出内的完整半开范围。
     private_execution::PrivateExecutionRangeDraft draft;
     const auto status = private_execution::PreparePrivateExecutionRangeDraft(*row, base, bytes, draft);
     if (!status) { pane.error = L"子范围不在成功实际输出内部，或未整页对齐：" + Wide(status.detail); Refresh(pane); return; }
@@ -386,11 +389,13 @@ bool Create(Pane& pane) {
     pane.status = Ui::CreateText(body, 0, L"", 0, 0, 1, 1);
     pane.throughLabel = Ui::CreateText(body, 0, L"显式截止raw段（从1连续核验）", 0, 0, 1, 1);
     pane.baseLabel = Ui::CreateText(body, 0, L"所选调用的整页子范围起点（不取整）", 0, 0, 1, 1);
-    pane.pagesLabel = Ui::CreateText(body, 0, L"子范围4 KiB页数（最多64页）", 0, 0, 1, 1);
+    pane.pagesLabel = Ui::CreateText(body, 0, L"子范围4 KiB页数（正十进制）", 0, 0, 1, 1);
     const auto combo = [&](int id) { return ::CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
         0, 0, 1, 1, body, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), ::GetModuleHandleW(nullptr), nullptr); };
     pane.through = combo(kThrough);
-    pane.pages = combo(kPages);
+    // 页数使用原生共享主题输入，解除下拉框1..64的固定业务上限。
+    pane.pages = ::CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"1", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+        0, 0, 1, 1, body, reinterpret_cast<HMENU>(kPages), ::GetModuleHandleW(nullptr), nullptr);
     pane.base = ::CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
         0, 0, 1, 1, body, reinterpret_cast<HMENU>(kBase), ::GetModuleHandleW(nullptr), nullptr);
     pane.whole = Ui::CreateButton(body, kWhole, L"采用所选实际整段", 0, 0, 1, 1);
@@ -415,10 +420,8 @@ bool Create(Pane& pane) {
     for (unsigned i = 1; i <= 128; ++i) {
         const auto label = std::to_wstring(i);
         if (::SendMessageW(pane.through, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())) < 0) return false;
-        if (i <= 64 && ::SendMessageW(pane.pages, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())) < 0) return false;
     }
     ::SendMessageW(pane.through, CB_SETCURSEL, 0, 0);
-    ::SendMessageW(pane.pages, CB_SETCURSEL, 0, 0);
     // 所有列只创建一次，显示组各自精简；操作条None，业务动作在固定参数footer。
     for (int index = 0; index < static_cast<int>(kColumnNames.size()); ++index) {
         pane.columnWidths[index] = Scale(kColumnWidths[index]);
@@ -441,7 +444,7 @@ bool Create(Pane& pane) {
     };
     tip(pane.read, L"从raw段1到明确选择的截止段完整核验，读取首8行。失败保留旧目录和身份；不自动查找未来段。");
     tip(pane.next, L"冻结当前成功目录的截止段、完整snapshot及nextAfter续读8行；不采用后来编辑的截止段。失败可原位重试。");
-    tip(pane.whole, L"仅在整个实际输出满足4 KiB对齐和1..64页时，将该范围填入本页子范围草稿；不纳入目标。");
+    tip(pane.whole, L"仅在整个实际输出满足4 KiB对齐且范围不溢出时，将该范围填入本页子范围草稿；不纳入目标。");
     tip(pane.prepare, L"共享Prepare核验所选整页子范围，再匹配原native PID+创建时间及项目/sample，仅载入原AddRange草稿；旧草稿需确认替换。不会暂停、继续或自动纳入。");
     tip(pane.columns, L"A：精简实际范围视角，含目标强实例、成功实际输出及原执行保护。表头右键可逐列选择。");
     tip(pane.columnsB, L"B：精简原调用来源视角，含raw坐标、来源代次、源序号及Free仅请求计数。自定义列后A/B均不强调。");
@@ -449,7 +452,7 @@ bool Create(Pane& pane) {
     tip(pane.exportText, L"将同一完整详情正文导出为UTF-8文本；不重新读取项目或目标。");
     tip(pane.through, L"显式选择1..128段；只有点击读取才生效，修改不改变旧结果来源或续页游标。");
     tip(pane.base, L"显式输入非零4 KiB对齐起点，必须完整包含在所选成功实际输出中，不向外取整。");
-    tip(pane.pages, L"选择1..64个4 KiB页。实际MEM_PRIVATE、allocation、重叠和总页预算由原Held owner最终核验。");
+    tip(pane.pages, L"输入正十进制4 KiB页数，页数字节换算不能溢出。实际MEM_PRIVATE、allocation和重叠由原Held owner最终核验。");
     ::SendMessageW(pane.tooltip, TTM_SETMAXTIPWIDTH, 0, Scale(460));
     ::SendMessageW(pane.details, EM_SETLIMITTEXT, 0, 0);
     ::SendMessageW(pane.base, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"非零4 KiB对齐，十进制或0x"));
@@ -517,7 +520,7 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         break;
     }
     case WM_COMMAND:
-        if (!pane->loading && ((LOWORD(wp) == kBase && HIWORD(wp) == EN_CHANGE) || (LOWORD(wp) == kPages && HIWORD(wp) == CBN_SELCHANGE))) {
+        if (!pane->loading && ((LOWORD(wp) == kBase || LOWORD(wp) == kPages) && HIWORD(wp) == EN_CHANGE)) {
             pane->draftPage = pane->page;
             pane->draftRow = Selected(*pane);
             pane->error.clear();

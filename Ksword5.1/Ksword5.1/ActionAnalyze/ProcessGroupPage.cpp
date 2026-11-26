@@ -230,7 +230,7 @@ namespace
         root->setContentsMargins(0, 0, 0, 0);
         auto* workspace = new ks::ui::ParameterWorkspace(this, 340); // 参数滚动，结果占主要空间。
         root->addWidget(workspace);
-        m_hint = new QLabel(sourceText(QStringLiteral("仅控制本会话显式选择的最多 16 个进程实例。配置只核对身份；暂停与继续需另行执行。")), workspace);
+        m_hint = new QLabel(sourceText(QStringLiteral("仅控制本会话显式选择的进程实例。配置只核对身份；暂停与继续需另行执行。")), workspace);
         m_hint->setWordWrap(true);
         workspace->parameters()->addWidget(m_hint);
 
@@ -435,7 +435,7 @@ namespace
 
     void ProcessGroupPage::AddTarget()
     {
-        if (m_session || m_model->targets.size() >= native::kOwnedProcessGroupLimit) return;
+        if (m_session) return;
         bool pidValid = false, creationValid = false; // 两字段均必须是非零十进制无符号数。
         const auto pid = m_pid->text().trimmed().toUInt(&pidValid, 10);
         const auto creation = m_creation->text().trimmed().toULongLong(&creationValid, 10);
@@ -542,7 +542,7 @@ namespace
                 return std::any_of(m_shown.result.members.begin(), m_shown.result.members.end(), [&](const auto& member) { return member.target == target && member.stop.has_value(); });
             });
         };
-        m_add->setEnabled(editable && m_model->targets.size() < native::kOwnedProcessGroupLimit);
+        m_add->setEnabled(editable);
         m_remove->setEnabled(editable && !selected.empty());
         m_configure->setEnabled(m_registered && editable && !m_model->targets.empty() && m_authorized->isChecked());
         m_newDraft->setEnabled(ended);
@@ -563,7 +563,7 @@ namespace
             ProcessGroupToolbarState state; // 只有原页已有值参与投影，不调用Query或枚举进程。
             const auto describe = [](const auto& targets)
             {
-                QStringList values; // 最大16个冻结成员的精确身份，便于用户确认工具条范围。
+                QStringList values; // 冻结成员的精确身份，便于用户确认工具条范围。
                 for (const auto& target : targets)
                 {
                     values.append(QStringLiteral("PID %1 / FILETIME %2").arg(target.pid).arg(target.creationFileTime));

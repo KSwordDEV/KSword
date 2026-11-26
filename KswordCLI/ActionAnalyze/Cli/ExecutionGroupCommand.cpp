@@ -59,7 +59,7 @@ public:
                 identity_.sampleId, holdPeersOnHit_); // 显式启动策略沿整个会话冻结，重放不重配。
             collectionId_ = started.collectionId; // 仅校验包络用，不因校验或请求重放触发条件Query。
             if (!Emit("hello", {}, V::makeObject({{"sampleId", Text(identity_.sampleId)}, {"control", Report(started)},
-                {"protocol", V::makeObject({{"maxMembers", V::makeUInt(n::kOwnedExecutionGroupLimit)},
+                {"protocol", V::makeObject({{"maxMembers", V::makeNull()},
                     {"mutationRequestId", Text("execution/<strictly increasing canonical positive uint64>")},
                      {"replayEntries", V::makeUInt(128)}, {"stopToken", Text("Mixed pause/continue copy complete member.sessionToken entries; legacy lists combine pauseToken for running members and stopToken for Held; step/cancel retain stopToken/stepToken")},
                     {"pauseScope", Text("all/selected validate every explicit session first; exact Held is already-held; Armed bindings call original Pause")},
@@ -70,7 +70,7 @@ public:
                       {"memoryRead", Text("control.memory.read params:{address:decimal-string,bytes:decimal-string}; expected:{collectionId,stops:[one complete stopToken]}; no automatic save or Continue")},
                       {"memorySave", Text("control.memory.save params:{}; expected:{collectionId,trackingEpoch}; save the current original read to raw-memory, independent of member selection")},
                        {"apiCapture", Text("control.api.capture requires one complete sessionToken in expected.sessions and a confirmed explicit source outside all members; shared sample writer, never Continue")},
-                       {"membersAppend", Text("control.members.append params:{sites:UTF-8-config-path,confirm:true}; expected:{collectionId}; append explicit new instances to the same sample, at most 16 total")},
+                       {"membersAppend", Text("control.members.append params:{sites:UTF-8-config-path,confirm:true}; expected:{collectionId}; append explicit new instances to the same sample, no fixed member limit")},
                     {"outcomes", Text("Every requested member has actionAttempted and disposition; already-held/already-running never fabricate a release")},
                     {"membersShareOwner", V::makeBool(false)}, {"simultaneousFreeze", V::makeBool(false)}})}}))) return End("output-lost", 3);
             // 部分启动失败仍进入命令循环，保留成功附加者供状态、继续、步进及清退。
@@ -406,20 +406,19 @@ private:
                 if (!p::ParseTokenText(std::string_view(tokenText).substr(0, at), token))
                     return Invalid(request, "invalid-stop-token", "TOKENHEX must contain the complete reported token bytes");
                 tokens.push_back(std::move(token));
-                if (tokens.size() > n::kOwnedExecutionGroupLimit) return Invalid(request, "too-many-stops", "At most 16 tokens");
                 if (at == std::string::npos) break;
                 tokenText.erase(0, at + 1);
             }
         }
         // 范围先完成协议校验再消费execution/N；只有NX追加要求整页，内存读取保留精确字节子范围。
         if (rangeInput && (!RangeNumber(addressText, address) || !RangeNumber(bytesText, bytes) ||
-            (range && (address % 4096 || bytes % 4096)) || bytes > 64ull * 4096 || address > UINT64_MAX - bytes))
+            (range && (address % 4096 || bytes % 4096)) || (!range && bytes > 64ull * 4096) || address > UINT64_MAX - bytes))
         {
             return Invalid(request, "invalid-execution-range", range
-                ? "Require positive aligned address, 1..64 whole pages and no uint64 overflow"
+                ? "Require positive aligned address, whole pages and no uint64 overflow"
                 : "Require positive decimal address and 1..262144 bytes with no uint64 overflow");
         }
-        if (tokens.empty() || tokens.size() > n::kOwnedExecutionGroupLimit || (!scoped && tokens.size() != 1) ||
+        if (tokens.empty() || (!scoped && tokens.size() != 1) ||
             (scoped && scope != "all" && scope != "selected") || (step && mode != "into" && mode != "over-call" && mode != "out"))
             return Invalid(request, "invalid-selection", "Provide explicit nonempty stops and valid scope or mode; step/cancel select exactly one");
         // 输入完整批次令牌；输出只含同一种形状的值数组，不借用现场状态补票。
@@ -587,11 +586,11 @@ void RegisterExecutionGroupCommand()
     command.syntax = L"KswordCLI.exe analyze execution-group session --sites PATH --confirm --disposition resume-detach [--input repl|jsonl] [--backend r3] [--project PATH [--open-project] [--auto-save-execution]] [--hold-peers-on-hit]";
     command.summary = L"Attach one frozen execution site per explicit process instance, with independent native owners and conditions.";
     command.options = L"--sites is a UTF-8 JSON disk file without BOM, at most 128 KiB: {schemaVersion:1,sites:[...]}. "
-        L"1-16 distinct PIDs; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
+        L"One or more distinct PIDs, without a fixed member limit; each item requires numeric pid and canonical positive decimal-string creationFileTime. "
         L"Image: absolute DOS module plus exactly one numeric uint32 rva or case-sensitive exactExport. "
         L"An absent exact-path image waits in the original owner until a LOAD_DLL event permits full resolution and thread enrollment. control.breakpoint.waitingForModule distinguishes waiting from armed; no breakpoint covers the waiting interval. Close cancels waiting, and unload after activation retires the binding instead of rebinding. "
         L"Optional imageSha256 is exactly 64 lowercase hex characters; the original member owner verifies the actual debug-load event file before arming DR0. Private sites reject this field. "
-        L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples up to 64 pages). "
+        L"Private: decimal-string address and rangeBytes (0 for one DR0 site, otherwise aligned 4 KiB multiples without address overflow or a fixed page limit). "
         L"Optional condition uses the shared typed data-watch expression compiler; configuration is frozen before attach. "
         L"A referenced frozen definition may supply condition:{expressionProfile:predicate-expr-v3,source:TEXT}. An empty site condition inherits it; a different manual condition rejects the new batch before attach. "
         L"Optional definitionId requires module+rva and --project. Every referenced enabled RVA definition is verified in the new sample's frozen settings before any member attaches, inheriting its image SHA256 constraint. "
@@ -602,7 +601,7 @@ void RegisterExecutionGroupCommand()
         L"Explicit selected Continue is respected: querying the same trigger does not pause peers again. Use Pause all to retry unavailable members. "
         L"--auto-save-execution requires --project and freezes automatic archival of new retained execution observations after normal query or step readback. "
         L"It reuses the original writer, event journal and raw-native ordinal; manual pauses never produce execution evidence. "
-        L"executionArchive.automatic retains the last nonempty batch (max 16), verifiedExecutionSaves counts unique verified writes, autoSaveStopped reports the first automatic failure. No automatic Continue or retry; manual saved remains independent.";
+        L"executionArchive.automatic retains the last nonempty member batch, verifiedExecutionSaves counts unique verified writes, autoSaveStopped reports the first automatic failure. No automatic Continue or retry; manual saved remains independent. hello.protocol.maxMembers is null, meaning no fixed member limit; transport byte budgets remain independent.";
     command.notes = L"over-call steps over decoded CALLs at their return boundary and performs one TF step for supported non-CALL instructions, retaining the original requested mode and destination:null. "
         L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"members-append execution/N SITES_PATH confirm COLLECTION_ID; step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
@@ -617,7 +616,7 @@ void RegisterExecutionGroupCommand()
         L"Pause checks all selected live owner/PID/creation/binding request IDs before original session.Pause; no old stop is required. "
         L"ManualPause receipts remain separate; exact Held ManualPause can continue but cannot step in this version. "
         L"Range-add requires exactly one complete current NX Held stopToken, including ManualPause; canAddRange reports eligibility. "
-        L"It uses the original member owner, adds only explicit 4 KiB pages within the total 64-page budget, and never continues the target. "
+        L"It uses the original member owner, adds only explicit 4 KiB pages without a fixed page limit, and never continues the target. "
         L"Execution-save writes the current original member event to the configured project's new sample raw-native stream, preserving registers and event-time binding. "
         L"ManualPause is not execution evidence. executionArchive reports saved/firstFailure, written/flushed/verified separately; duplicate events reuse the original ordinal. "
         L"Memory read uses one complete current stopToken, decimal address and byte count (1..262144); ManualPause is allowed. It checks the original owner before and after reading without Continue. "
@@ -629,7 +628,7 @@ void RegisterExecutionGroupCommand()
         L"128 replay receipts, strictly increasing IDs; replay returns original result and does not repeat actions. "
         L"All stop identities/events/revisions are checked before any selected continue; actual calls remain sequential and may partly fail. "
         L"control.members.append uses params:{sites:PATH,confirm:true}, expected:{collectionId}, current session and execution/N. "
-        L"It reads the same sites schema once, appends new distinct PIDs to the same sample (16 total), and retains all original owners/stops. "
+        L"It reads the same sites schema once, appends new distinct PIDs to the same sample without a fixed member limit, and retains all original owners/stops. "
         L"Frozen definitions resolve against the current sample; definition failures preserve the existing writer and memberSetupError. "
         L"Partial attach and continue retain successful members and original responsibility. No automatic descendants or system-wide attachment. "
         L"Close/EOF/break/output loss close admission, cancel steps and retain original owners until clean; owner-death recovery is not promised. "
