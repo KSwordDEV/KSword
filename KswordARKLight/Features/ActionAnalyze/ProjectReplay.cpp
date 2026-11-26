@@ -168,6 +168,11 @@ ProjectReplayEvidence ReadApiProjectReplay(const Project::ProjectDocument& proje
         result.apiSourcePackets = committed.lastSourceSequence;
 
         if (committed.finalSegment) {
+            if (!committed.startup.isNull())
+            {
+                // 原回放worker在终段验证后冻结快照，不回查当前PID或调用Agent。
+                result.checkpoint.apiStartupJson = Ksword::Evidence::WriteJson(committed.startup);
+            }
             result.checkpoint.state = CheckpointState::Verified;
             break;
         }

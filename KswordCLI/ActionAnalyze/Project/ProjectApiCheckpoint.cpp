@@ -142,6 +142,53 @@ bool ReadPacket(const JsonValue& metadata, std::string_view bytes, const ApiSour
         packet.resultKind <= static_cast<std::uint32_t>(Monitor::EventResultKind::StatusUnknown);
 }
 
+// 输入终段及已核验计划身份，输出可回放的启动快照；旧档缺项成功且保持null。
+// 这里只核对归档内声明的一致性，不把历史Ready变成当前Agent就绪或控制资格。
+bool ReadStartup(const JsonValue& end, const ApiSource& source, JsonValue& out)
+{
+    const auto* startup = end.find("startup"); // 原始终段的可选回执，不从本机状态补造。
+    if (!startup || startup->isNull())
+    {
+        return true;
+    }
+    const auto* fields = startup->asObject(); // 固定投影只有十一项，避免残缺回执显示成完整阶段。
+    std::string stage; // 归档声明的最后阶段ID，沿生产端有限阶段集合读取。
+    std::uint64_t value = 0; // 顺序复用的身份、计时与覆盖数值。
+    constexpr std::string_view stages[]{"identity-verified", "agent-resolved", "config-published",
+        "agent-load-started", "agent-module-verified", "pipe-connected", "session-ready", "hooks-installed", "ready"};
+    if (!source.cooperative || !fields || fields->size() != 11 ||
+        !GetString(*startup, "stage", stage) ||
+        std::find(std::begin(stages), std::end(stages), stage) == std::end(stages) ||
+        !ReadUInt(*startup, "pid", value) || value != source.pid ||
+        !GetNumber(*startup, "creationFileTime", value) || value != source.creation ||
+        !GetNumber(*startup, "elapsedMs", value))
+    {
+        return false;
+    }
+
+    // session在管道核验前可未知；已有值必须仍属于段首冻结的同一来源会话。
+    const auto* session = startup->find("sessionIdentity"); // 生产端在管道核验后才提供的会话ID。
+    const auto* coverage = startup->find("coverageRevision"); // 未到Ready时仍为null的覆盖修订。
+    if (!session || (!session->isNull() &&
+        (!GetNumber(*startup, "sessionIdentity", value) || value != source.sessionIdentity)) ||
+        !coverage || (!coverage->isNull() && (!GetNumber(*startup, "coverageRevision", value) || !value)))
+    {
+        return false;
+    }
+    for (const std::string_view key : {"attachmentIdentityVerified", "agentLoadAttempted",
+        "agentModuleVerified", "reusedResident", "configPublished"})
+    {
+        const auto* field = startup->find(key); // 各事实独立保留，不按最后阶段推断缺失值。
+        bool fact = false; // 仅用于确认原字段为bool，投影仍保留原值。
+        if (!field || !field->tryGetBool(fact))
+        {
+            return false;
+        }
+    }
+    out = *startup;
+    return true;
+}
+
 // 核对终段的源计数和身份，保留本端截止状态供读端展示。
 bool ReadEnd(const JsonValue& end, const ApiSource& source, ProjectApiCheckpoint& draft)
 {
@@ -157,7 +204,8 @@ bool ReadEnd(const JsonValue& end, const ApiSource& source, ProjectApiCheckpoint
             GetNumber(*report, "agentReportedDrops", value) && GetNumber(*report, "invalidPackets", value) &&
             GetString(*report, "state", draft.sourceState) &&
             (draft.sourceState == "pipe-eof" || draft.sourceState == "unconfirmed-end") &&
-            GetString(end, "stopReason", draft.stopReason) && IsText(draft.stopReason, 64);
+            GetString(end, "stopReason", draft.stopReason) && IsText(draft.stopReason, 64) &&
+            ReadStartup(end, source, draft.startup);
     }
     if (!report || !IsString(*report, "kind", "passive-api-archive") || !IsString(*report, "identity", kIdentity) ||
         !IsString(*report, "coverage", "unknown") || !IsNull(*report, "writerReceipt") ||

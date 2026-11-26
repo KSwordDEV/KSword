@@ -155,6 +155,7 @@ JsonObject ReadApiCapture(const Ksword::ActionAnalyze::ProjectDocument& project,
     auto terminal = V::makeNull(); // 普通分段没有终态回执。
     if (committed.finalSegment) {
         terminal = Object({{"stopReason", Text(committed.stopReason)}, {"sourceState", Text(committed.sourceState)},
+            {"startup", committed.startup},
             {"sourceCutoffReached", V::makeBool(committed.sourceCutoffReached)},
             {"partialLineBytes", Number(committed.partialLineBytes)}});
     }

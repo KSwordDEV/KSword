@@ -201,6 +201,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 最终 `startup` 保存最后真实到达阶段及其 `elapsedMs`，失败或取消不把最后阶段改成 Ready，清退期晚到的安装包也不追认启动成功。原生同采样 `control.api.capture` 的 `capture.startup` 使用同一投影。已连接采样的终段保存 `startup` 供历史回查，不授予新控制资格。Qt／Light 在原采样回执刷新内显示同一启动事实；本次扩展尚未构建或运行。
 
+重开归档后，`sample status SAMPLE_ID capture ORDINAL` 或 `sample.query` 启用 `includeCapture` 并选择终段时，`captureArchive.terminal.startup` 返回已核验终段里的原快照；旧档没有该字段时为 `null`。Qt 的归档记录详情和 Light 原有详情文本保留同一历史启动回执，复制与导出沿原详情来源。快照只随完整终段发布，缺标记或坏尾不能从未提交内容补出启动成功；回放不查询当前同PID进程，也不恢复控制权。
+
 清退时，`stopMarkerWritten` 表示控制端已发布停止标记。`hooksRemoved` 表示收到本会话的停钩回执，`cleanPipeEof` 表示管道在原包边界正常结束。未建立连接时后两项为 `null`。目标退出后，CLI 仍会在清退时限内读取已连接的管道，并保留异常读取或截断末包的 `pipeError`。不能单凭 `cleanupComplete` 判定 Agent 确认停钩。`coverageRevision` 是最近完整读回的覆盖快照修订，`requiredFinalCoverageRevision` 仅在停钩回执声明时有值；`coverageSnapshotCurrent` 为真也不意味着所有 Hook 均安装成功。
 
 `api-evidence replay` 和 `replay-api-rules` 的 `archiveSource` 区分关闭文件导入（`closed-jsonl`）、合作管道采集（`cooperative-pipe`）及未记录来源的旧档（`legacy-unspecified`）；规则回放的文件跟随为 `jsonl-follow`。合作管道的 `sourceSequence` 是普通 API 包流水号。合作分段归档按全采样的 `rawSequence` 分页，每条线索另有 `rawSegment`。未见终段时返回 `readback-prefix`；后续段损坏时保留此前已核验的页，退出 `4` 并返回 `failedSegment`。来源字段来自已核验的归档声明，覆盖范围仍为 `unknown`。

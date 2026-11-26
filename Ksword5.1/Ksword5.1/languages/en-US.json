@@ -163,6 +163,8 @@
     "选择同名模块后带入实时控制页，再填写目标实例并显式附加。": "Select the matching module to prepare live control, then enter the process instance and attach explicitly.",
     "请选择非零RVA定义。调试符号及固定映像散列定义尚不支持此入口。": "Select a nonzero RVA definition. This entry does not yet support debug symbols or pinned image hashes.",
     "载入断点定义": "Load breakpoint definition",
+    "采集启动回执（历史）": "Capture startup receipt (historical)",
+    "启动回执 JSON": "Startup receipt JSON",
     "替换当前模块与位置草稿？目标实例、条件和已有结果将保留。": "Replace the module and location draft? The process instance, condition and existing results will be retained.",
     "断点定义 ID": "Breakpoint definition ID",
     "API 与原生执行一致性候选": "API and native execution consistency candidate",

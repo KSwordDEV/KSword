@@ -741,6 +741,11 @@ void UpdateDetails(Page& page) {
         text = (page.samplePreview ? L"选中采样预览 · 采样：" : L"当前归档 · 采样：") + WideAscii(identity.sampleId) + L"\r\n";
         if (snapshot.callback) text += CallbackReplayDetails(*snapshot.callback);
         else text += snapshot.classification + L"\r\n" + kRelationshipCoverage + L"\r\n";
+        if (!snapshot.checkpoint.apiStartupJson.empty())
+        {
+            // 与当前采样一起复制/导出历史回执，既不读取活PID，也不授予控制入口。
+            text += L"采集启动回执（历史）：\r\n" + Utf8ToWide(snapshot.checkpoint.apiStartupJson) + L"\r\n";
+        }
         if (snapshot.sample && (evidence.apiClues || snapshot.checkpoint.kind == ReplayCheckpointKind::PassiveApi)) {
             text += L"采集覆盖：未知。规则使用已核验的归档 API 观测。\r\n";
             if (!snapshot.rulePresetSet.empty()) {

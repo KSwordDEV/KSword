@@ -861,6 +861,11 @@ SegmentSnapshot ReadApiFollowReplay(const QString& path, const CancelCheck& isCa
         snapshot.prefixBytes = checkpoint.rawEnd.byteOffset;
         if (checkpoint.finalSegment)
         {
+            if (!checkpoint.startup.isNull())
+            {
+                // 只在完整终段核验成功后发布，详情、复制和导出共用此份回执。
+                snapshot.apiStartupJson = QString::fromStdString(Ksword::Evidence::WriteJson(checkpoint.startup));
+            }
             snapshot.end = SegmentEnd::Complete;
             break;
         }

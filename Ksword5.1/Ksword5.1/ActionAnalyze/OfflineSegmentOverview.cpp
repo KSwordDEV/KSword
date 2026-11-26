@@ -1341,6 +1341,12 @@ void OfflineSegmentOverview::updateDetails()
     }
     ks::ui::FieldDocument document; // 详情、查找和导出共享的真实字段。
     document.title = m_snapshot && m_snapshot->live ? QStringLiteral("记录详情") : QStringLiteral("归档记录详情");
+    if (m_snapshot && !m_snapshot->apiStartupJson.isEmpty())
+    {
+        // 归档回执属于当前采样，与下方所选单包的事件字段分开；不增加页面或刷新任务。
+        document.section(QStringLiteral("采集启动回执（历史）"))
+            .field(QStringLiteral("启动回执 JSON"), m_snapshot->apiStartupJson);
+    }
     if (m_snapshot && m_selection)
     {
         const auto current = std::find_if(m_snapshot->rows.cbegin(), m_snapshot->rows.cend(), [this](const SegmentRow& row) {

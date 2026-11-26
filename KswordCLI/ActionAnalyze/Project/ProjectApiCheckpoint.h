@@ -41,6 +41,7 @@ struct ProjectApiCheckpoint {
     std::string sourceState; // 终段归档声明的源读取状态。
     bool sourceCutoffReached = false; // 已读到本端冻结的字节截止点。
     std::uint64_t partialLineBytes = 0; // 已读入但未形成完整行的字节数。
+    Evidence::JsonValue startup = Evidence::JsonValue::makeNull(); // 仅终段携带的历史启动快照；旧档为null，不授予活控制权。
 };
 
 // 只从第一个标记或 raw 首块探测格式。结果只用于选择读路径，不授予已提交水位。

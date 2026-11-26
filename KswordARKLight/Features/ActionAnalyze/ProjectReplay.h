@@ -44,6 +44,7 @@ struct ReplayCheckpoint {
     std::uint64_t rawEnd = 0; // 最近核验段的 raw 文件端点。
     std::optional<Ksword::Evidence::ApiMonitorArchiveSource> apiArchiveSource; // 经已核验的 API 检查点计划声明。
     std::string recordedRuleSourceSha256; // 已核验计划内的采集规则内容摘要，旧档为空。
+    std::string apiStartupJson; // 已核验API终段的历史启动快照全文，非终段和旧档为空。
 };
 
 // 独立归档批次，不是持续采样的终态检查点，也不代表采集覆盖。
