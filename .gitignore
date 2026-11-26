@@ -103,3 +103,7 @@ docs/next/logs/*full*.dmp
 /tools/tests/candidate_reference_generated/
 /tools/tests/process_lifetime_profile/
 /tools/tests/dyndata_profile_loader/
+
+# 启动验收工程的 Win32 中间目录：保留源码及项目文件，不跟踪编译缓存。
+/tools/api_monitor_startup_validation/Win32/Release/
+/tools/api_monitor_startup_validation/bootstrap/Win32/Release/
