@@ -10,6 +10,10 @@ KswordCLI.exe analyze execution-group session --sites C:\Work\execution-sites.js
 
 ## 配置文件
 
+集合的 `recovery-required` 同时保留成员原回执中的断点、步进、主动暂停、范围回滚与不确定事件继续责任；不能只看顶层状态而把完整 Held 数量当作已可恢复运行。首次恢复失败在成功清退后仍保留为历史诊断，`clean=true` 后不因此阻止集合进入 Closed。集合只呈现责任，实际恢复仍由各成员原 owner 的 Close 执行。
+
+单成员 `control.step` 与 `control.step.cancel` 的前置回读使用无条件查询，不会顺带处理其它成员的假条件并自动继续；错误或过期票据拒绝也不释放其它成员。条件自动处理仍在明确的集合查询路径执行。
+
 `--sites PATH` 读入 1–131072 字节的普通磁盘文件。文件必须为严格 UTF-8、无 BOM，JSON 不接受重复键、浮点、超限深度或多余字段。读取期间不允许其他写入或替换；文件读取和所有条件编译在任何附加前完成。根对象只含 `schemaVersion` 与 `sites`。
 
 ```json

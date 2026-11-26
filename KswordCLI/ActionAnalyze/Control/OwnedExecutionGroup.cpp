@@ -55,14 +55,28 @@ bool SameBinding(const NativeControlResult& displayed, const NativeControlResult
         displayed.breakpoint->executionRanges == current.breakpoint->executionRanges;
 }
 
-// 明确恢复失败不能被已有Held或运行状态覆盖；原控制回执和恢复责任原样保留。
-bool Unresolved(const NativeControlResult& state)
+// 输入成员原回执，返回当前是否仍承担失败的恢复责任；clean后的首次失败只作历史保留。
+// 此函数只聚合已有原生事实，不执行恢复，也不按错误文本推断资源已归还。
+bool NeedsRecovery(const NativeControlResult& state)
 {
-    return state.status == NativeControlStatus::RecoveryRequired || state.status == NativeControlStatus::Rejected ||
-        state.status == NativeControlStatus::ClosePending || state.firstRecoveryFailure.has_value() ||
+    if (state.clean)
+    {
+        return false;
+    }
+    return state.status == NativeControlStatus::RecoveryRequired || state.firstRecoveryFailure.has_value() ||
         (state.breakpoint && state.breakpoint->state == NativeBreakpointState::RecoveryRequired) ||
         (state.step && state.step->state == NativeStepState::RecoveryRequired) ||
-        (state.armedPause && state.armedPause->state == NativeArmedPauseState::RecoveryRequired);
+        (state.armedPause && state.armedPause->state == NativeArmedPauseState::RecoveryRequired) ||
+        (state.pending && state.pending->continuationIndeterminate) ||
+        (state.executionRange && !state.executionRange->rollbackComplete) ||
+        (state.executionFollow && !state.executionFollow->rollbackComplete);
+}
+
+// 明确恢复失败和未决清退不能被Held或运行状态覆盖；原控制回执和恢复责任原样保留。
+bool Unresolved(const NativeControlResult& state)
+{
+    return NeedsRecovery(state) || state.status == NativeControlStatus::Rejected ||
+        state.status == NativeControlStatus::ClosePending;
 }
 
 // 输入成员条件和完整Held回执，只允许本事件同修订真条件；手动暂停与步进不沿用执行条件。
@@ -139,7 +153,10 @@ public:
             result.clean = result.clean && member.current.clean;
             if (DataWatchHeldStop(member.current)) ++held;
             failure = failure || !member.accepted || member.current.status == NativeControlStatus::Rejected;
-            recovery = recovery || member.current.status == NativeControlStatus::RecoveryRequired;
+            // 嵌套步进、范围回滚及事件继续失败的责任优先于Held数量；历史错误在clean后不阻塞关闭。
+            recovery = recovery || NeedsRecovery(member.current) ||
+                (!member.current.clean && member.session->ConditionReport().last &&
+                    member.session->ConditionReport().last->failureStage);
         }
         if (!started) result.state = closing ? ExecutionGroupState::Closed : ExecutionGroupState::Idle;
         else if (closing) result.state = result.clean ? ExecutionGroupState::Closed :
@@ -164,7 +181,7 @@ public:
         member.current = std::move(state);
         operation->outcomes.push_back({member.site.pid, member.site.creationFileTime, member.current});
         if (member.current.win32Error || member.current.status == NativeControlStatus::Rejected ||
-            member.current.status == NativeControlStatus::RecoveryRequired) {
+            NeedsRecovery(member.current)) {
             operation->stage = "execution-group-partial-operation";
             if (!operation->win32Error) operation->win32Error = member.current.win32Error ?
                 member.current.win32Error : ERROR_INVALID_STATE;
@@ -414,7 +431,7 @@ ExecutionGroupResult OwnedExecutionGroup::Continue(std::span<const NativeControl
 ExecutionGroupResult OwnedExecutionGroup::Step(const NativeControlResult& displayedStop, NativeStepMode mode)
 {
     auto& self = *impl_;
-    self.Observe();
+    self.Observe(false); // 单成员动作只核对现状，失败准入不能触发其它成员条件自动继续。
     auto* member = self.Find(displayedStop);
     if (self.closing || !member || member->current.stopReason == NativeStopReason::ManualPause ||
         !Matches(displayedStop, member->current) || !self.Eligible(*member) ||
@@ -428,7 +445,7 @@ ExecutionGroupResult OwnedExecutionGroup::Step(const NativeControlResult& displa
 ExecutionGroupResult OwnedExecutionGroup::CancelStep(const NativeControlResult& displayedStep)
 {
     auto& self = *impl_;
-    self.Observe();
+    self.Observe(false); // 中止原成员步进时不替其它成员执行条件；控制副作用只属于明确目标。
     auto* member = self.Find(displayedStep);
     if (self.closing || !member || !MatchesStep(displayedStep, member->current))
         return self.Reject(ExecutionGroupAction::CancelStep, "execution-group-step-request-stale", ERROR_INVALID_STATE);
