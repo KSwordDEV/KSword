@@ -67,6 +67,25 @@ std::wstring Wide(std::string_view text)
     }
     return result;
 }
+
+// 输入同一累计规则回执，输出最近命中原坐标及释义；进度和最终详情共用，不查询归档或重跑规则。
+std::wstring LatestRuleText(const project::CooperativeApiRuleReceipt& rules)
+{
+    if (!rules.latest)
+    {
+        return {};
+    }
+    const auto& match = *rules.latest; // 原命中的段号和原序号，不用当前最终段补值。
+    std::wstring text = L"\r\n最近命中=raw/" + std::to_wstring(rules.latestSegment) + L" #" +
+        std::to_wstring(match.rawSequence) + L" · " + Wide(match.api) + L" · " + Wide(match.ruleId); // 规范文档正文。
+    if (match.behavior)
+    {
+        text += L"\r\n行为释义=" + Wide(match.behavior->summaryZh.empty()
+            ? match.behavior->summary : match.behavior->summaryZh);
+        text += L"\r\n规则证据=" + Wide(match.behavior->evidence);
+    }
+    return text;
+}
 } // namespace
 
 // 将在途身份与最后阶段写入原详情文本，保留完整来源，避免把旧最终回执归到新请求。
@@ -102,20 +121,7 @@ std::wstring FormatLightNativeSessionApiCheckpoint(const project::ProjectApiChec
     {
         text += L"\r\n规则派生失败=" + Wide(rules.configError);
     }
-    if (!rules.latest)
-    {
-        return text;
-    }
-
-    const auto& match = *rules.latest; // 最近命中保留自己的原段坐标，不贴到当前checkpoint。
-    text += L"\r\n最近命中=raw/" + std::to_wstring(rules.latestSegment) + L" #" +
-        std::to_wstring(match.rawSequence) + L" · " + Wide(match.api) + L" · " + Wide(match.ruleId);
-    if (match.behavior)
-    {
-        text += L"\r\n行为释义=" + Wide(match.behavior->summaryZh.empty()
-            ? match.behavior->summary : match.behavior->summaryZh);
-        text += L"\r\n规则证据=" + Wide(match.behavior->evidence);
-    }
+    text += LatestRuleText(rules);
     return text;
 }
 
@@ -270,6 +276,7 @@ std::wstring FormatLightNativeSessionApi(const project::NativeBoundApiResult& re
     boolean(L"规则失败", run.rules.failed);
     text += L"\r\n规则配置错误：" + Wide(run.rules.configError);
     number(L"规则命中行数", run.rules.matchedRows);
+    text += LatestRuleText(run.rules); // 最终回执替换进度文本后，行为释义及其原坐标仍可搜索、复制和导出。
     number(L"线程创建候选数", run.transfers.candidateCount);
     number(L"APC 候选数", run.transfers.apcCandidateCount);
     number(L"上下文候选数", run.transfers.contextCandidateCount);

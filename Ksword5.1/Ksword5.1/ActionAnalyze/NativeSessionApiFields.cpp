@@ -22,6 +22,31 @@ void AppendStatus(ks::ui::FieldDocument& document, const QString& title, const p
     document.field(QStringLiteral("阶段"), QString::fromLatin1(status.detail));
     document.field(QStringLiteral("Win32 错误"), QString::number(status.nativeError));
 }
+
+// 输入原worker累计规则回执，向同一详情文档追加最近命中；运行进度与最终回执共用原坐标和释义。
+void AppendLatestRule(ks::ui::FieldDocument& document, const project::CooperativeApiRuleReceipt& rules)
+{
+    if (!rules.latest)
+    {
+        return;
+    }
+    const auto& match = *rules.latest; // 最近命中可能来自较早段，不改挂到最终段。
+    document.field(QStringLiteral("API 最近命中坐标"), QStringLiteral("raw/%1 #%2")
+        .arg(rules.latestSegment).arg(match.rawSequence));
+    document.field(QStringLiteral("API 最近命中规则"), QString::fromStdString(match.ruleId));
+    if (!match.behavior)
+    {
+        return;
+    }
+
+    // 只在UI生成文档时按当前语言选择原释义，不触碰采集线程、不重新求值。
+    const bool useChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
+        .compare(QStringLiteral("zh-CN"), Qt::CaseInsensitive) == 0; // 本次字段文档的应用语言。
+    const auto& summary = useChinese && !match.behavior->summaryZh.empty()
+        ? match.behavior->summaryZh : match.behavior->summary; // 中文缺失时使用原英文。
+    document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
+    document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
+}
 } // namespace
 
 // 由原字段视图消费同一值快照，搜索、复制、导出包括实际在途来源，不读取参数控件。
@@ -62,27 +87,7 @@ void NativeSessionApiPane::AppendCheckpoint(ks::ui::FieldDocument& document,
     {
         document.field(QStringLiteral("规则配置错误"), QString::fromStdString(rules.configError));
     }
-    if (!rules.latest)
-    {
-        return;
-    }
-
-    const auto& match = *rules.latest; // 最近命中可来自较早段，坐标沿用规则原回执。
-    document.field(QStringLiteral("API 最近命中坐标"), QStringLiteral("raw/%1 #%2")
-        .arg(rules.latestSegment).arg(match.rawSequence));
-    document.field(QStringLiteral("API 最近命中规则"), QString::fromStdString(match.ruleId));
-    if (!match.behavior)
-    {
-        return;
-    }
-
-    // 本函数在页面构建字段文档时调用；仅选取回执原释义，不在采集线程访问语言管理器。
-    const bool useChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
-        .compare(QStringLiteral("zh-CN"), Qt::CaseInsensitive) == 0; // 当前页面采用的应用语言。
-    const auto& summary = useChinese && !match.behavior->summaryZh.empty()
-        ? match.behavior->summaryZh : match.behavior->summary; // 中文缺失时沿用原英文，不重新运行规则。
-    document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
-    document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
+    AppendLatestRule(document, rules);
 }
 
 // 输入原文档和worker冻结回执，追加同一规范字段；不创建第二份详情或查询当前草稿。
@@ -185,6 +190,7 @@ void NativeSessionApiPane::AppendFields(ks::ui::FieldDocument& document, const p
     document.field(QStringLiteral("规则失败"), YesNo(run.rules.failed), true);
     document.field(QStringLiteral("规则配置错误"), QString::fromStdString(run.rules.configError));
     document.field(QStringLiteral("规则命中行数"), QString::number(run.rules.matchedRows));
+    AppendLatestRule(document, run.rules); // 最终详情替换在途文档时仍保留释义，不退化为只有计数。
     document.field(QStringLiteral("线程创建候选数"), QString::number(run.transfers.candidateCount));
     document.field(QStringLiteral("APC 候选数"), QString::number(run.transfers.apcCandidateCount));
     document.field(QStringLiteral("上下文候选数"), QString::number(run.transfers.contextCandidateCount));
