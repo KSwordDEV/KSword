@@ -55,7 +55,7 @@ constexpr FieldBinding Catalog[] = {
     {"system.informationClass", FieldType::U64, Phase::Observation},
     {"process.informationClass", FieldType::U64, Phase::Observation}, // NtQueryInformationProcess请求信息类。
     {"process.debugQueryOutputValid", FieldType::U64, Phase::Observation}, // 新版摘要的安全输出标量有效位，0不是输出数值。
-    {"process.debugQueryOutputBits", FieldType::U64, Phase::Observation}, // 输出标量原生类型位数，指针类随目标位数。
+    {"process.debugQueryOutputBits", FieldType::U64, Phase::Observation}, // 输出标量原生类型位数，指针类随调用端ABI位数。
     {"process.debugQueryOutput", FieldType::U64, Phase::Observation}, // 仅安全读取成功时存在，零值也是真实采样。
     {"process.application", FieldType::Text, Phase::Observation},
     {"process.applicationBaseLower", FieldType::Text, Phase::Observation},

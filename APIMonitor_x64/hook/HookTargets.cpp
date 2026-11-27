@@ -5414,6 +5414,8 @@ namespace apimon
             std::uint64_t debugOutputValue = 0; // 三种调试查询的成功标量；有效位关闭时不发布此占位零值。
             bool debugOutputValid = false; // 仅原查询成功且长度、地址和安全读回均有效时置位。
             unsigned debugOutputBits = processInformationClass == 31 ? 32u : static_cast<unsigned>(sizeof(ULONG_PTR) * 8); // 输出类型的位宽。
+            ULONG returnLength = 0; // 安全读回的可选结果长度；不可读时回退到调用输入容量。
+            const bool returnLengthValid = returnLengthPointer && TrySafeIoValue(returnLengthPointer, &returnLength); // 不直接解引用调用方指针。
             if (statusValue >= 0 && processInformationClass == 31 && processInformationLength >= sizeof(ULONG)) {
                 ULONG outputFlags = 0; // ProcessDebugFlags 的 ULONG 输出副本。
                 debugOutputValid = TrySafeIoValue(static_cast<const ULONG*>(processInformationPointer), &outputFlags);
@@ -5434,7 +5436,7 @@ namespace apimon
             AppendWideText(detailBuffer, L" class=");
             AppendUnsignedText(detailBuffer, processInformationClass);
             AppendWideText(detailBuffer, L" size=");
-            AppendUnsignedText(detailBuffer, returnLengthPointer != nullptr ? *returnLengthPointer : processInformationLength);
+            AppendUnsignedText(detailBuffer, returnLengthValid ? returnLength : processInformationLength);
             if (processInformationClass == 7 || processInformationClass == 30 || processInformationClass == 31) {
                 AppendWideText(detailBuffer, L" outputValid=");
                 AppendUnsignedText(detailBuffer, debugOutputValid ? 1u : 0u);
