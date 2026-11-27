@@ -331,32 +331,6 @@ std::string FormatApiPresetFields(std::span<const FieldSample> fields)
             {
                 value.assign(string->data(), string->size());
             }
-            std::string escaped; // 控制字符转义后维持一字段一行。
-            escaped.reserve(value.size());
-            for (const char ch : value) // ch为需保留或转义的单个UTF-8字节。
-            {
-                if (ch == '\r')
-                {
-                    escaped += "\\r";
-                }
-                else if (ch == '\n')
-                {
-                    escaped += "\\n";
-                }
-                else if (ch == '\0')
-                {
-                    escaped += "\\0";
-                }
-                else if (ch == '\t')
-                {
-                    escaped += "\\t";
-                }
-                else
-                {
-                    escaped += ch;
-                }
-            }
-            value = std::move(escaped);
             type = "text";
         }
         else
