@@ -730,6 +730,10 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
     }
     Evidence::JsonArray admissions;
     for (const auto& transfer : s.transfers)
+    {
+        const auto* member = s.Member(transfer.request); // 当前原 owner 快照，用于解释准入失败码。
+        const auto* recovery = member && member->control.firstRecoveryFailure
+            ? &*member->control.firstRecoveryFailure : nullptr;
         admissions.push_back(V::makeObject({{"sourcePid", V::makeUInt(transfer.source)},
             {"sourceCreationFileTime", V::makeString(std::to_string(transfer.request.sourceCreation))},
             {"targetPid", V::makeUInt(transfer.request.targetPid)},
@@ -738,7 +742,14 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"rangeBase", V::makeString(std::to_string(transfer.base))},
             {"rangeBytes", V::makeString(std::to_string(transfer.bytes))},
             {"requestPauseOutstanding", V::makeBool(transfer.ownPause)},
-            {"completed", V::makeBool(transfer.stage == Impl::Admission::Done)}, {"error", V::makeUInt(transfer.error)}}));
+            {"completed", V::makeBool(transfer.stage == Impl::Admission::Done)}, {"error", V::makeUInt(transfer.error)},
+            {"nativeOwnerStage", member && member->control.stage
+                ? V::makeString(member->control.stage) : V::makeNull()},
+            {"nativeOwnerError", V::makeUInt(member ? member->control.win32Error : 0)},
+            {"nativeRecoveryFailureStage", recovery && recovery->stage
+                ? V::makeString(recovery->stage) : V::makeNull()},
+            {"nativeRecoveryFailureError", V::makeUInt(recovery ? recovery->win32Error : 0)}}));
+    }
     return V::makeObject({{"kind", V::makeString("api-transfer-handoff-v1")}, {"enabled", V::makeBool(s.started)},
         {"sourcePid", V::makeUInt(s.sourcePid)}, {"sourceCreationFileTime", V::makeString(std::to_string(s.sourceCreation))},
         {"requests", V::makeUInt(s.requests)}, {"armed", V::makeUInt(s.armed)}, {"rejected", V::makeUInt(s.rejected)},
