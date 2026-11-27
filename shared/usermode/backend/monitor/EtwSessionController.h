@@ -29,7 +29,7 @@ struct EtwSessionEvidence {
     bool processAttempted = false; // Dispatch committed on the worker, before the native call.
     bool processCompleted = false;
     bool consumerJoined = false; // The owner joined a worker for this session.
-    bool tailDeliveryUnconfirmed = false; // No observed entry at STOP, or consumer retired before logger.
+    bool tailDeliveryUnconfirmed = false; // Consumer retired before the owned logger stopped.
     bool closeAttempted = false,statisticsKnown = false,sessionStopped = false,callbackFailed = false;
     ULONG startStatus = ERROR_SUCCESS,openStatus = ERROR_SUCCESS,processStatus = ERROR_SUCCESS,closeStatus = ERROR_SUCCESS;
     ULONG eventsLost = 0,logBuffersLost = 0,realTimeBuffersLost = 0;

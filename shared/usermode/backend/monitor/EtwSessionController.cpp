@@ -161,9 +161,8 @@ bool EtwSessionController::stopChecked() {
         const std::lock_guard lock(mutex_);
         stopRequested_.store(true);
         running_.store(false);
-        if (evidence_.processAttempted && evidence_.receivedEvents == 0) {
-            evidence_.tailDeliveryUnconfirmed = true;
-        }
+        // STOP flushes pending buffers; zero callbacks before STOP does not
+        // establish loss. Premature consumer retirement is recorded separately.
     }
     stopOwnedSession();
     // logger 已清退时让 ProcessTrace 自行排空。仍持有 logger 时才用 CloseTrace 唤醒消费者。

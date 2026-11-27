@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第8项显式附加遥测修正。** etw-stream最终回执已到：CLI正式Build成功，发布29条规则已接受；B目标stubRan/counter/exit0及清退成立，但配套ETW零观察、tailDeliveryUnconfirmed使CLI退出3。既有持续ETW9普通段+1终段及历史回读通过，不能替代混采。主协调定位MonitorAgent只在合作目录模式登记ETW，显式附加跳过；现统一为管道连接后的SessionEtw，合作/附加共用生命周期提供程序。EtwSessionController移除STOP前零回调即尾丢失的推断，仍保留消费者先退/ProcessTrace错误及丢包。CodeBuddy唯一任务sh_21b8358880012S8I4dF3IB4tso负责一次两Agent+CLI正式增量及一次原带ETW的B，回执etw-attach-fix/receipt.md；无GUI/持续ETW重跑/C。产品输入构建期间冻结，完成后继续456核心，不借源码修正声称已通过。全部测试落盘由CodeBuddy负责，原脏文件保留。
+
 - **2026-11-27 凌晨主协调直接开发。** `98f018cb4`提前冻结异常CONTEXT，记录单步事件自己的EFLAGS/DR7并供Observe和临时页TF共同消费；仍严格要求BS，不按RIP移动吞单步。`3f41e3c2f`单来源递归Agent ETW及三端参数、计划/历史读取已接线；`dfa9d06ef`AAAP1追加queueFlags有效位/第16字段，兼容14/15字段旧包，原APC2 flags贯通三端；`e8769313e`统一ApiCaptureEtwJson并在API终段之前完成ETW封段，终段agentEtw保留独立阶段，不维护第二份桌面投影。`054bffda5`允许本轮已登记的递归来源在Ready前发送Pending下一跳，Advance仍等真实Ready后才推进。`c97eafb71`内部TF占用已核验空闲DR1、地址0须MEM_FREE，用活动调试槽维持状态回读，完成仍只认真实纯BS，退出/取消/错误沿原账归还DR1/TF；运行效果待验。`395040043`将已过严格Ready的自动接管HooksPartial非致命语义同步到根capture最终判定，仍保留partialHooks及硬错误。均本地提交未推送，原用户脏文件保留。
 
 - **2026-11-27 最新方向及实际结果。** 用户明确「你把第八个弄完过后就去直接打通456」，第8项完成后集中第4/5/6项连续接管、脏页/新线程与统一停止恢复，暂不扩其他板块。integrated-status-slot已结束：两Agent及CLI正式Build成功；目标stubRan=true/counter=1/exit0，NX step-completed/nativeExit0/资源归还与自有清退成立；唯一强判据失败CLI6，C未运行。CodeBuddy回执在`.codex-build-logs/codebuddy-five-tests/apc-context-handoff/integrated-status-slot/receipt.md`，不是整链PASS。随包三条规则四处startsWith已改支持的Text.StartsWith并提交d2ac3532c，待规则目录复核，不重建Agent。用户明确CodeBuddy额度消耗可不计，旧数量限制不适用；所有测试/夹具/回执仍交CodeBuddy，主协调写产品，不自行替测。

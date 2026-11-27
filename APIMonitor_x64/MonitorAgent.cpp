@@ -31,19 +31,19 @@ namespace apimon
 
         namespace Etw = ks::action_analyze::etw;
 
-        // 只在已连接的合作会话内登记提供程序。采集方的缺失或 ETW 写入失败不会影响管道控制。
-        class CooperativeEtw final
+        // 已连接的监控会话均发布生命周期；显式附加与合作启动使用相同提供程序。
+        class SessionEtw final
         {
         public:
-            explicit CooperativeEtw(bool cooperative) noexcept
+            SessionEtw() noexcept
             {
-                if (cooperative && ::EventRegister(&Etw::kProviderGuid, nullptr, nullptr, &registration_) != ERROR_SUCCESS)
+                if (::EventRegister(&Etw::kProviderGuid, nullptr, nullptr, &registration_) != ERROR_SUCCESS)
                 {
                     registration_ = 0;
                 }
             }
 
-            ~CooperativeEtw()
+            ~SessionEtw()
             {
                 if (registration_)
                 {
@@ -51,8 +51,8 @@ namespace apimon
                 }
             }
 
-            CooperativeEtw(const CooperativeEtw&) = delete;
-            CooperativeEtw& operator=(const CooperativeEtw&) = delete;
+            SessionEtw(const SessionEtw&) = delete;
+            SessionEtw& operator=(const SessionEtw&) = delete;
 
             // 发布实际发生的状态转换，正文为空。ETW 上下文独立于管道确认及完整覆盖。
             void Write(Etw::AgentEvent kind) const noexcept
@@ -373,7 +373,7 @@ namespace apimon
                     continue;
                 }
 
-                const CooperativeEtw telemetry(cooperative != nullptr); // 只跟踪已验证的合作连接。
+                const SessionEtw telemetry; // 管道连接成功后才登记，覆盖显式附加及合作启动。
                 telemetry.Write(Etw::AgentEvent::PipeReady);
                 SendMonitorEvent(
                     ks::winapi_monitor::EventCategory::Internal,
