@@ -68,15 +68,10 @@ std::wstring Wide(std::string_view text)
     return result;
 }
 
-// 输入同一累计规则回执，输出最近命中原坐标及释义；进度和最终详情共用，不查询归档或重跑规则。
-std::wstring LatestRuleText(const project::CooperativeApiRuleReceipt& rules)
+// 输入原命中及所在段，返回同一详情中的原坐标与释义，不查询归档或重跑规则。
+std::wstring RuleMatchText(std::uint64_t segment, const Ksword::ActionAnalyze::Rules::ApiPresetMatch& match)
 {
-    if (!rules.latest)
-    {
-        return {};
-    }
-    const auto& match = *rules.latest; // 原命中的段号和原序号，不用当前最终段补值。
-    std::wstring text = L"\r\n最近命中=raw/" + std::to_wstring(rules.latestSegment) + L" #" +
+    std::wstring text = L"\r\n最近命中=raw/" + std::to_wstring(segment) + L" #" +
         std::to_wstring(match.rawSequence) + L" · " + Wide(match.api) + L" · " + Wide(match.ruleId); // 规范文档正文。
     if (match.behavior)
     {
@@ -85,6 +80,30 @@ std::wstring LatestRuleText(const project::CooperativeApiRuleReceipt& rules)
         text += L"\r\n规则证据=" + Wide(match.behavior->evidence);
     }
     return text;
+}
+
+// 运行与最终详情共用行为窗口，较早释义不因普通分类到达而消失，窗口外记录仍留在原归档。
+std::wstring LatestRuleText(const project::CooperativeApiRuleReceipt& rules)
+{
+    std::wstring text = L"\r\n行为命中数：" + std::to_wstring(rules.behaviorMatches); // 本次详情文档正文。
+    text += L"\r\n行为窗口截断：" + std::wstring(rules.behaviorMatches > rules.recentBehaviors.size() ? L"是" : L"否");
+    for (const auto& behavior : rules.recentBehaviors)
+    {
+        text += RuleMatchText(behavior.segmentOrdinal, behavior.match);
+    }
+    if (!rules.latest)
+    {
+        return text;
+    }
+    if (!rules.recentBehaviors.empty())
+    {
+        const auto& last = rules.recentBehaviors.back(); // 仅同段同原记录才去掉最新项重复。
+        if (last.segmentOrdinal == rules.latestSegment && last.match.rawSequence == rules.latest->rawSequence)
+        {
+            return text;
+        }
+    }
+    return text + RuleMatchText(rules.latestSegment, *rules.latest);
 }
 } // namespace
 

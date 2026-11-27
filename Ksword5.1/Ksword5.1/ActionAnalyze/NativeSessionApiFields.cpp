@@ -23,16 +23,12 @@ void AppendStatus(ks::ui::FieldDocument& document, const QString& title, const p
     document.field(QStringLiteral("Win32 错误"), QString::number(status.nativeError));
 }
 
-// 输入原worker累计规则回执，向同一详情文档追加最近命中；运行进度与最终回执共用原坐标和释义。
-void AppendLatestRule(ks::ui::FieldDocument& document, const project::CooperativeApiRuleReceipt& rules)
+// 输入一条已提交原命中与段号，追加原坐标及双语释义；不查询当前规则或归档。
+void AppendRuleMatch(ks::ui::FieldDocument& document, std::uint64_t segment,
+    const Ksword::ActionAnalyze::Rules::ApiPresetMatch& match)
 {
-    if (!rules.latest)
-    {
-        return;
-    }
-    const auto& match = *rules.latest; // 最近命中可能来自较早段，不改挂到最终段。
     document.field(QStringLiteral("API 最近命中坐标"), QStringLiteral("raw/%1 #%2")
-        .arg(rules.latestSegment).arg(match.rawSequence));
+        .arg(segment).arg(match.rawSequence));
     document.field(QStringLiteral("API 最近命中规则"), QString::fromStdString(match.ruleId));
     if (!match.behavior)
     {
@@ -46,6 +42,30 @@ void AppendLatestRule(ks::ui::FieldDocument& document, const project::Cooperativ
         ? match.behavior->summaryZh : match.behavior->summary; // 中文缺失时使用原英文。
     document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
     document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
+}
+
+// 输入累计回执，保留有界行为历史及最后普通分类；最新记录与窗口最后一条相同时不重复显示。
+void AppendLatestRule(ks::ui::FieldDocument& document, const project::CooperativeApiRuleReceipt& rules)
+{
+    document.field(QStringLiteral("行为命中数"), QString::number(rules.behaviorMatches));
+    document.field(QStringLiteral("行为窗口截断"), YesNo(rules.behaviorMatches > rules.recentBehaviors.size()), true);
+    for (const auto& behavior : rules.recentBehaviors)
+    {
+        AppendRuleMatch(document, behavior.segmentOrdinal, behavior.match);
+    }
+    if (!rules.latest)
+    {
+        return;
+    }
+    if (!rules.recentBehaviors.empty())
+    {
+        const auto& last = rules.recentBehaviors.back(); // 原窗口末项身份，不用释义相等代替坐标相等。
+        if (last.segmentOrdinal == rules.latestSegment && last.match.rawSequence == rules.latest->rawSequence)
+        {
+            return;
+        }
+    }
+    AppendRuleMatch(document, rules.latestSegment, *rules.latest);
 }
 } // namespace
 

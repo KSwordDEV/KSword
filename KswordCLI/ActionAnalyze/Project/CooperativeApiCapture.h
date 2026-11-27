@@ -45,6 +45,12 @@ struct CooperativeEtwReceipt {
     bool Incomplete() const noexcept;
 };
 
+// 已提交原包上的行为命中，段号与匹配值一起保留，不借当前段或当前UI选择补坐标。
+struct CooperativeApiBehaviorMatch {
+    std::uint64_t segmentOrdinal = 0; // 命中所在的真实API段。
+    Rules::ApiPresetMatch match; // 原求值结果及双语行为释义，独立拥有其字符串。
+};
+
 // 按段求值的累计回执。失败时保留已完成段的命中及坐标。
 struct CooperativeApiRuleReceipt {
     std::string presetSet; // 本次开始时加载的规则版本。
@@ -53,6 +59,8 @@ struct CooperativeApiRuleReceipt {
     std::uint64_t matchedRows = 0; // 已求值并命中的分类线索数。
     std::uint64_t latestSegment = 0; // 最近命中所在的段号。
     std::optional<Rules::ApiPresetMatch> latest; // 最近命中的原始坐标及规则解释。
+    std::uint64_t behaviorMatches = 0; // 实际具有行为释义的累计命中数，与普通分类命中数分开。
+    std::vector<CooperativeApiBehaviorMatch> recentBehaviors; // 最近至多32条行为命中，普通分类不挤掉行为释义。
     bool failed = false; // 规则失败与存储失败独立报告。
 };
 

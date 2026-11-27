@@ -425,6 +425,20 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
                 out.rules.failed = evaluated.error != Rules::ApiPresetError::None;
                 if (!evaluated.matches.empty()) {
                     out.rules.matchedRows += evaluated.matches.size();
+                    // 只有行为释义进入独立窗口；高频普通分类不会抹掉较早的环境探测等命中。
+                    for (const auto& match : evaluated.matches)
+                    {
+                        if (!match.behavior)
+                        {
+                            continue;
+                        }
+                        ++out.rules.behaviorMatches;
+                        if (out.rules.recentBehaviors.size() == 32)
+                        {
+                            out.rules.recentBehaviors.erase(out.rules.recentBehaviors.begin());
+                        }
+                        out.rules.recentBehaviors.push_back({checkpoint.ordinal, match});
+                    }
                     out.rules.latestSegment = checkpoint.ordinal;
                     out.rules.latest = std::move(evaluated.matches.back());
                 }

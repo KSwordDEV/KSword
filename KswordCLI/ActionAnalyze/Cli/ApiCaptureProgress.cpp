@@ -18,22 +18,23 @@ Value Number(std::uint64_t value)
 }
 
 // 输入累计规则回执，输出最近命中的原坐标与原释义；本段无命中不把旧命中改挂到新段。
-Value LatestRule(const CooperativeApiRuleReceipt& rules)
+Value RuleMatch(std::uint64_t segment, const Rules::ApiPresetMatch& match)
 {
-    if (!rules.latest)
-    {
-        return Value::makeNull();
-    }
-    const auto& match = *rules.latest; // 已提交原包的唯一规则匹配，不重新执行表达式。
     const auto behavior = match.behavior ? Value::makeObject({
         {"ruleId", Value::makeString(match.behavior->ruleId)},
         {"evidence", Value::makeString(match.behavior->evidence)},
         {"summary", Value::makeString(match.behavior->summary)},
         {"summaryZh", Value::makeString(match.behavior->summaryZh)}}) : Value::makeNull(); // 缺释义保持null。
-    return Value::makeObject({{"segmentOrdinal", Number(rules.latestSegment)},
+    return Value::makeObject({{"segmentOrdinal", Number(segment)},
         {"rawSequence", Number(match.rawSequence)}, {"sourceSequence", Number(match.sourceSequence)},
         {"api", Value::makeString(match.api)}, {"ruleId", Value::makeString(match.ruleId)},
         {"behavior", behavior}});
+}
+
+// 最近普通分类仍保持原兼容字段；行为窗口单独保留，不能从最新一次命中倒推出历史释义。
+Value LatestRule(const CooperativeApiRuleReceipt& rules)
+{
+    return rules.latest ? RuleMatch(rules.latestSegment, *rules.latest) : Value::makeNull();
 }
 
 // 输入已提交原包引用，输出段号、原序号及独立来源序号；不采用UI行号或当前PID补值。
@@ -63,11 +64,19 @@ Ksword::Evidence::JsonObject CandidateFields(const Link& link, const char* reque
 // 只投影原writer已匹配的规则；失败仍保留此前命中，不在CLI再次运行谓词或读规则文件。
 Value ApiCaptureRulesJson(const CooperativeApiRuleReceipt& rules)
 {
+    Ksword::Evidence::JsonArray behaviors; // 原writer的有界行为窗口，不重跑规则或从UI文本反解析。
+    for (const auto& behavior : rules.recentBehaviors)
+    {
+        behaviors.push_back(RuleMatch(behavior.segmentOrdinal, behavior.match));
+    }
     return Value::makeObject({{"presetSet", Value::makeString(rules.presetSet)},
         {"sourceSha256", rules.sourceSha256.empty() ? Value::makeNull() : Value::makeString(rules.sourceSha256)},
         {"configError", rules.configError.empty() ? Value::makeNull() : Value::makeString(rules.configError)},
         {"failed", Value::makeBool(rules.failed)}, {"matchedRows", Number(rules.matchedRows)},
-        {"latestSegment", Number(rules.latestSegment)}, {"latest", LatestRule(rules)}});
+        {"latestSegment", Number(rules.latestSegment)}, {"latest", LatestRule(rules)},
+        {"behaviorMatches", Number(rules.behaviorMatches)},
+        {"behaviorWindowTruncated", Value::makeBool(rules.behaviorMatches > rules.recentBehaviors.size())},
+        {"recentBehaviors", Value::makeArray(std::move(behaviors))}});
 }
 
 // 三类候选各自保留原窗口和累计数量；JSON消费者可在运行期间按坐标回读，而非只有一个计数。
@@ -174,6 +183,7 @@ void ApiCaptureProgress::Committed(const SampleInfo& sample, const ProjectApiChe
         {"ruleMatchedRows", Number(rules.matchedRows)}, {"ruleSourceSha256", Value::makeString(rules.sourceSha256)},
         {"rulesFailed", Value::makeBool(rules.failed)}, {"ruleConfigError", Value::makeString(rules.configError)},
         {"latestRule", LatestRule(rules)},
+        {"rules", ApiCaptureRulesJson(rules)},
         {"candidateCount", Number(candidateCount_)}, {"apcCandidateCount", Number(apcCandidateCount_)},
          {"contextCandidateCount", Number(contextCandidateCount_)}}));
     if (pendingTransfers_)
