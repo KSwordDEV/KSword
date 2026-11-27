@@ -103,7 +103,7 @@ public:
     std::optional<std::uint64_t> previousSequence;
     ProjectResult archiveStatus;
     std::map<std::string, n::NativeEventKey> observed;
-    std::map<std::string, bool> failedOwnerRecovery; // 已发单成员清退的原owner，后续仅回读，不反复提交Close。
+    std::map<std::string, ULONGLONG> failedOwnerRecovery; // 原owner下一次允许重试清退的时刻；存在即永久撤销本轮准入资格。
     std::wstring agentPath; // 主capture使用的同一产品Agent路径，不另接受用户DLL参数。
     SourcePacket onPacket; // 借原worker合并到唯一API归档流。
     TargetDiscovered onTarget; // 同一worker登记网络目标，不等待目标首个API包。
@@ -405,8 +405,12 @@ public:
                 source.result = std::move(batch.finished);
                 const auto& result = *source.result;
                 // 持续采集由本轮Close取消，不拿code=6/未到时作为伪失败，也不掩盖清退和实际丢失。
-                bool failed = !result.started || !result.cleanupComplete || !result.errors.empty() ||
+                bool failed = !result.started || !result.cleanupComplete ||
                     result.bufferDropped || result.invalidPackets;
+                const bool stopRequested = closing || source.stopping || result.cancelled; // 只有本轮明确请求停止才允许预期Stop诊断。
+                failed = failed || std::any_of(result.errors.begin(), result.errors.end(), [&](const auto& message) {
+                    return !stopRequested || message != L"Agent stopped before requested interval";
+                }); // 自发停钩仍判失败；请求停止也不能覆盖其它控制器错误。
                 bool exited = false;
                 for (const auto& process : result.processes)
                 {
@@ -416,6 +420,7 @@ public:
                     // revoke an otherwise valid handoff because an unrelated optional
                     // hook was unavailable; pipe loss, install failure and stale coverage
                     // remain hard failures.
+                    // 精确的预期Stop诊断已在上方排除；管道、安装和覆盖仍由结构化事实判失败。
                     failed = failed || process.pipeError || process.agentDropped ||
                         process.installFailed || !process.installed || !process.coverageComplete || process.coverageStale ||
                         (process.connected && !process.cleanPipeEof);
@@ -709,8 +714,19 @@ public:
             const auto member = std::find_if(current.members.begin(), current.members.end(), [&](const auto& entry) {
                 return entry.owner.backendInstanceId == owner.backendInstanceId;
             });
-            if (member == current.members.end() || owner.backendInstanceId.empty() ||
-                failedOwnerRecovery.contains(owner.backendInstanceId)) continue;
+            if (member == current.members.end() || owner.backendInstanceId.empty()) continue;
+            const auto recovery = failedOwnerRecovery.find(owner.backendInstanceId); // 原身份的恢复责任不随准入记录淘汰。
+            if (recovery != failedOwnerRecovery.end())
+            {
+                // 首次Close可能只提交恢复请求或返回可重试失败；沿同一会话继续，不能用“已请求”代替clean。
+                const auto now = GetTickCount64(); // 仅限制重试频率，不改变恢复错误和原生票据。
+                if (!member->control.clean && now >= recovery->second)
+                {
+                    recovery->second = now + 500;
+                    current = group.CloseMember(owner);
+                }
+                continue;
+            }
             const auto pid = member->site.pid;
             const auto creation = member->site.creationFileTime;
             const auto source = sources.find(pid);
@@ -726,7 +742,7 @@ public:
                     other.request.targetCreation == creation;
             }); // 同一实例尚有准入在推进时，不撤掉其仍需使用的NX范围。
             if (pendingTarget) continue;
-            failedOwnerRecovery.emplace(owner.backendInstanceId, true);
+            failedOwnerRecovery.emplace(owner.backendInstanceId, GetTickCount64() + 500);
             if (source != sources.end() && source->second.creation == creation)
             {
                 // 先撤来源资格并通知停止，再撤NX/debug owner；不能同步等待被冻结的卸钩helper。
