@@ -254,7 +254,7 @@ public:
         // 输入已接收请求；先核验来源和目标对象，再查询入口所在MEM_PRIVATE范围。
         ULONG client = 0;
         if (request.size != sizeof(request) || request.version != m::kTransferHandoffVersion ||
-            request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion) ||
+            request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ExecutableWritePrepare) ||
             !std::wmemchr(request.token, 0, std::size(request.token)) ||
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
             !SourceAuthenticated(client, request.sourceCreation) || !request.address || !request.operationId ||
@@ -835,7 +835,8 @@ public:
                 if (transfer.request.targetPid != execution->pid ||
                     transfer.request.targetCreation != execution->processCreationFileTime) continue;
                 // 分配/改保护/写入请求中的address不是线程入口，只能按已登记范围关联观察。
-                const bool rangeRequest = transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion);
+                const bool rangeRequest = transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion) ||
+                    transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableWritePrepare);
                 auto& observation = rangeRequest ? transfer.rangeObservation : transfer.entryObservation;
                 if (observation.type() != Evidence::JsonType::Null) continue;
                 if (rangeRequest)
@@ -1147,7 +1148,9 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"trackedRangeRearmed", V::makeBool(transfer.rearmedTrackedRange)},
             {"handoffKind", V::makeUInt(transfer.request.kind)},
             {"handoffPhase", V::makeString(transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)
-                ? "after-memory-operation-before-return" : "before-execution-dispatch")},
+                ? "after-memory-operation-before-return" :
+                transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableWritePrepare)
+                    ? "before-memory-write" : "before-execution-dispatch")},
             {"entryObservation", transfer.entryObservation},
             {"rangeObservation", transfer.rangeObservation},
             {"nativePageAdvanceScope", V::makeString("target-owner-latest")},

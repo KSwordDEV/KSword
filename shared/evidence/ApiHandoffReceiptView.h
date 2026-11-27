@@ -222,8 +222,8 @@ namespace Ksword::Evidence
                 group.failed = Failed(admission, "error") || Failed(admission, "nativeRecoveryFailureError");
 
                 const auto* kind = admission.find("handoffKind"); // 准入种类决定观察口径，旧档缺失时保留入口显示。
-                std::uint64_t handoffKind = 0; // 接收原始种类值，仅明确为4时采用内存范围观察。
-                if (kind && kind->tryGetU64(handoffKind) && handoffKind == 4)
+                std::uint64_t handoffKind = 0; // 写前请求与写后发现都只有范围身份，没有调度入口。
+                if (kind && kind->tryGetU64(handoffKind) && (handoffKind == 4 || handoffKind == 5))
                 {
                     ObservationFields(group, admission, "rangeObservation", L"范围执行观察",
                         "尚无已归档范围执行观察");

@@ -3179,7 +3179,8 @@ namespace apimon
 
         // 输入原远程句柄及待检查范围，只按实时回读的MEM_PRIVATE执行页交接。
         // 写前请求与写后实际前缀、分配/改保护共用扫描；不接管当前Hook/助手自身所在进程。
-        void PrepareRemotePrivateExecutableRange(HANDLE processHandle, const void* address, SIZE_T bytes)
+        void PrepareRemotePrivateExecutableRange(HANDLE processHandle, const void* address, SIZE_T bytes,
+            ks::winapi_monitor::TransferHandoffKind kind = ks::winapi_monitor::TransferHandoffKind::ExecutableRegion)
         {
             const DWORD savedError = GetLastError(); // 观察查询及交接不得改变原内存API的LastError。
             if (ActiveConfig().transferHandoff.pipeName.empty() || !address || !bytes)
@@ -3214,8 +3215,7 @@ namespace apimon
                         (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
                     {
                         std::uint64_t armedThrough = 0; // 同一系统区域可能只有前半段已被原owner登记。
-                        PrepareTransferExecution(pid, creation, cursor,
-                            ks::winapi_monitor::TransferHandoffKind::ExecutableRegion, &armedThrough);
+                        PrepareTransferExecution(pid, creation, cursor, kind, &armedThrough);
                         if (armedThrough > cursor && armedThrough < next)
                         {
                             next = static_cast<std::uintptr_t>(armedThrough); // 继续检查未覆盖尾部，不跨过新出现的相邻X页。
@@ -3249,7 +3249,7 @@ namespace apimon
             }
             PrepareRemotePrivateExecutableRange(processHandle,
                 reinterpret_cast<const void*>(static_cast<std::uintptr_t>(fields.address)),
-                static_cast<SIZE_T>(fields.requestedBytes));
+                static_cast<SIZE_T>(fields.requestedBytes), ks::winapi_monitor::TransferHandoffKind::ExecutableWritePrepare);
         }
 
         // 成功写入既有执行页也须自动接管，不能要求随后一定出现改保护或新线程API。

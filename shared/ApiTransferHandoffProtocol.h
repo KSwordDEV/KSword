@@ -4,7 +4,10 @@
 namespace ks::winapi_monitor {
 // 独立于原观察包ABI。调度请求在原API前交接；新执行区域在成功分配/改保护后、返回调用者前交接。
 inline constexpr DWORD kTransferHandoffVersion = 2; // operationId区分同入口的不同内存API调用及Pending重连。
-enum class TransferHandoffKind : DWORD { ThreadCreate = 1, Apc = 2, Context = 3, ExecutableRegion = 4 };
+enum class TransferHandoffKind : DWORD {
+    ThreadCreate = 1, Apc = 2, Context = 3, ExecutableRegion = 4,
+    ExecutableWritePrepare = 5 // 写前请求范围设防，不代表原写入成功或实际完成长度。
+};
 struct TransferHandoffRequest {
     DWORD size = sizeof(TransferHandoffRequest), version = kTransferHandoffVersion;
     DWORD kind = 0, targetPid = 0;
