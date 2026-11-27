@@ -622,6 +622,23 @@ ExecutionGroupResult OwnedExecutionGroup::AddRange(const NativeControlResult& di
     return self.Result(); // 原生层负责实际页准入与新增页回滚，site保留Start时初始配置。
 }
 
+// 输入原成员身份及Held快照，只沿原session恢复保护；不释放任何手动或真实NX事件。
+ExecutionGroupResult OwnedExecutionGroup::RearmPrivateExecutionPages(const ExecutionGroupSessionEntry& displayed)
+{
+    auto& self = *impl_; // 原集合继续拥有成员及全部恢复责任。
+    self.Observe(false); // 不对其它成员求条件或自动Continue。
+    auto* member = self.Find(displayed.control); // 先定位，再核对完整owner与绑定。
+    if (self.closing || !member || member->session->Identity() != displayed.owner ||
+        !SameBinding(displayed.control, member->current) || !Matches(displayed.control, member->current) ||
+        !member->current.breakpoint || !member->current.breakpoint->rangeBytes || !self.Eligible(*member))
+    {
+        return self.Reject(ExecutionGroupAction::Rearm, "execution-group-rearm-stale-stop", ERROR_INVALID_STATE);
+    }
+    self.operation = ExecutionGroupOperation{ExecutionGroupAction::Rearm, true, "execution-group-rearm-submitted", 0, {}};
+    self.Outcome(*member, member->session->RearmPrivateExecutionPages(displayed.control));
+    return self.Result(); // 同一停止组和票据原样保留，调用方再核对实际页保护。
+}
+
 // 原集合只核对成员目录和精确事件；实际前后停点、强实例及逐页读取由原会话负责。
 ProcessMemorySnapshotResult OwnedExecutionGroup::CaptureMemory(const ExecutionGroupSessionEntry& displayed,
     const memory::Plan& plan, const std::atomic_bool* cancel)

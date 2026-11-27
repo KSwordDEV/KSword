@@ -23,7 +23,7 @@ struct ExecutionGroupSite {
 };
 
 enum class ExecutionGroupState { Idle, Active, HeldPartial, HeldComplete, PartialFailure, RecoveryRequired, Closing, Closed };
-enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause, AddRange, AppendMembers };
+enum class ExecutionGroupAction { Start, Continue, Step, CancelStep, Close, Pause, AddRange, AppendMembers, Rearm };
 
 struct ExecutionGroupMember {
     ExecutionGroupSite site;
@@ -106,6 +106,8 @@ public:
     // 输入唯一成员的完整Held快照及明确整页范围，沿原session追加NX页；不继续或改变初始站点。
     [[nodiscard]] ExecutionGroupResult AddRange(const NativeControlResult& displayedStop,
         std::uint64_t address, std::uint64_t bytes);
+    // 精确成员保持Held并恢复已有NX页，暂停票据及其它成员不发生执行动作。
+    [[nodiscard]] ExecutionGroupResult RearmPrivateExecutionPages(const ExecutionGroupSessionEntry& displayed);
     // 输入原owner、完整Held快照及冻结范围，复用该成员的原会话逐页读取；不求条件、不Continue。
     [[nodiscard]] ProcessMemorySnapshotResult CaptureMemory(const ExecutionGroupSessionEntry& displayed,
         const memory::Plan& plan, const std::atomic_bool* cancel = nullptr);

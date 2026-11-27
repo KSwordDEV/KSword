@@ -798,6 +798,25 @@ NativeControlResult OwnedDataWatchSession::AddPrivateExecutionRange(const Native
     return owner_->AddPrivateExecutionRange(request); // 页保护核验、回滚及责任保留只由原owner完成。
 }
 
+// 输入同一会话的Held快照，返回原owner恢复保护后的回读；条件和停止身份保持不变。
+NativeControlResult OwnedDataWatchSession::RearmPrivateExecutionPages(const NativeControlResult& displayedStop)
+{
+    if (!owner_ || closing_)
+    {
+        return Reject({}, "data-watch-rearm-owner-unavailable", ERROR_INVALID_STATE, LedgerResult::InvalidTransition);
+    }
+    auto current = QueryWithoutCondition(); // 重设NX不触发条件为假时的隐式继续。
+    if (current.status == NativeControlStatus::RecoveryRequired)
+    {
+        return current;
+    }
+    if (!MatchesDisplayedStop(displayedStop, current) || !current.breakpoint || !current.breakpoint->rangeBytes)
+    {
+        return Reject(std::move(current), "data-watch-rearm-stale-stop", ERROR_INVALID_DATA, LedgerResult::StaleRevision);
+    }
+    return owner_->RearmPrivateExecutionPages(identity_, current);
+}
+
 NativeControlResult OwnedDataWatchSession::Step(const NativeControlResult& displayedStop, NativeStepMode mode)
 {
     auto current = Query(); // 与 Continue 相同，先处理条件，再核对显示快照是否仍有效。

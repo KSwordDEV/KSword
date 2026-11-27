@@ -301,6 +301,9 @@ public:
     // 仅修改原owner既有DR0类型；输入当前完整写入停点，输出转换/回滚回执，不Continue。
     [[nodiscard]] NativeControlResult FollowPrivateExecution(const NativeExecutionFollowRequest& request);
     [[nodiscard]] NativeControlResult AddPrivateExecutionRange(const NativeExecutionRangeRequest& request);
+    // 输入原owner和完整Held快照，只恢复既有页的NX；保留原事件、暂停票据及停止组修订。
+    [[nodiscard]] NativeControlResult RearmPrivateExecutionPages(const OwnerIdentity& owner,
+        const NativeControlResult& displayedStop);
     [[nodiscard]] NativeControlResult Query(std::string_view groupId = {}, std::string_view releaseRequestId = {});
     [[nodiscard]] NativeControlResult Continue(const ReleaseRequest& request);
     [[nodiscard]] NativeControlResult Recover(const ReleaseRequest& request);

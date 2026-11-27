@@ -95,6 +95,7 @@ public:
     NativeControlResult ArmBreakpoint(const NativeBreakpointRequest& request);
     NativeControlResult FollowPrivateExecution(const NativeExecutionFollowRequest& request); // 同owner串行转换，不释放事件。
     NativeControlResult AddPrivateExecutionRange(const NativeExecutionRangeRequest& request);
+    NativeControlResult RearmPrivateExecutionPages(const OwnerIdentity& owner, const NativeControlResult& displayedStop);
     NativeControlResult Query(std::string_view groupId, std::string_view releaseRequestId = {}) const;
     NativeControlResult Release(const ReleaseRequest& request, bool recover, bool internal = false);
     NativeControlResult Close();
@@ -611,6 +612,45 @@ NativeControlResult NativeDebugOwner::Impl::AddPrivateExecutionRange(const Nativ
     }
     if (page) breakpoint_->binding.executionRanges = page->Ranges();
     return result; // 原停止记录、账本及事件未修改；重放直接返回首次操作的快照。
+}
+
+// 在原调试线程核对同一停止令牌后重设NX；不调用Continue，也不生成第二个停止事件。
+NativeControlResult NativeDebugOwner::Impl::RearmPrivateExecutionPages(const OwnerIdentity& owner,
+    const NativeControlResult& displayedStop) {
+    auto current = Snapshot(latest_); // 当前原生事件和账本是唯一可写现场。
+    const auto& selected = displayedStop.responsibility; // 调用时冻结的停止责任。
+    const auto& live = current.responsibility; // 本线程仍持有的真实停止责任。
+    if (owner != owner_ || !selected || !live || !displayedStop.group || !current.group ||
+        displayedStop.pid != current.pid || displayedStop.processCreationTime != current.processCreationTime ||
+        displayedStop.group->groupId != current.group->groupId ||
+        displayedStop.group->stateRevision != current.group->stateRevision ||
+        current.group->sampleId != owner_.sampleId || current.group->sessionId != owner_.sessionId ||
+        current.group->epoch != owner_.epoch || selected->event != live->event ||
+        selected->groupId != live->groupId || selected->stopId != live->stopId ||
+        live->event.backendInstanceId != owner_.backendInstanceId) {
+        return Reject({"private-execution-rearm-stale-stop", ERROR_INVALID_DATA}, LedgerResult::StaleRevision);
+    }
+    // 只有完整持有的原NX事件可修改保护；正在执行或清退的owner仍由原恢复流程负责。
+    if (closing_ || !breakpoint_ || !breakpoint_->executionPage || breakpoint_->retire ||
+        breakpoint_->pageAdvancing || step_.Running() || step_.HasResources() ||
+        current.status != NativeControlStatus::Held || !current.attached || current.clean ||
+        current.firstRecoveryFailure || current.group->historical || current.group->state != GroupState::HeldComplete ||
+        !current.pending || !current.pending->ledgerOwned || current.pending->continuationIndeterminate ||
+        current.pending->event != live->event || live->state != EventState::Held ||
+        failedContinueSerial_ == eventSerial_) {
+        return Reject({"private-execution-rearm-held-stop-required", ERROR_INVALID_STATE}, LedgerResult::InvalidTransition);
+    }
+    if (const auto error = CheckProcessIdentity(process_.Get(), breakpoint_->request.target); error) {
+        return Reject(error, LedgerResult::IdentityMismatch);
+    }
+    if (const auto error = EnsureExecutionPageArmed(); error) {
+        return Reject(error, LedgerResult::InvalidTransition); // 原事件及逐页恢复责任保持在原owner。
+    }
+    current = Snapshot(latest_); // 成功后回读同一事件；不消费任何Continue/Step流水。
+    current.stage = "private-execution-pages-rearmed-held";
+    current.win32Error = ERROR_SUCCESS;
+    current.ledgerResult = LedgerResult::Applied;
+    return current;
 }
 
 NativeControlResult NativeDebugOwner::Impl::PauseArmed(const OwnerIdentity& owner, const NativePauseRequest& request) {
@@ -2196,6 +2236,12 @@ NativeControlResult NativeDebugOwner::Query(std::string_view groupId, std::strin
 
 NativeControlResult NativeDebugOwner::AddPrivateExecutionRange(const NativeExecutionRangeRequest& request) {
     return impl_->Invoke([&] { return impl_->AddPrivateExecutionRange(request); });
+}
+
+// 将保护恢复提交到已有调试线程；调用方等待该次操作回执，不启动新的调试附加。
+NativeControlResult NativeDebugOwner::RearmPrivateExecutionPages(const OwnerIdentity& owner,
+    const NativeControlResult& displayedStop) {
+    return impl_->Invoke([&] { return impl_->RearmPrivateExecutionPages(owner, displayedStop); });
 }
 
 NativeControlResult NativeDebugOwner::Continue(const ReleaseRequest& request) {

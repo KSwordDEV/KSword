@@ -621,8 +621,20 @@ public:
             if (protectionError) { Finish(transfer, protectionError); return; }
             if (executableNeedsRearm)
             {
-                // 已有真实事件由Observe沿原owner恢复；暂停票据尚在途时也不能重复申请。
-                if (member->control.status == n::NativeControlStatus::Held && n::DataWatchHeldStop(member->control)) return;
+                if (member->control.status == n::NativeControlStatus::Held && n::DataWatchHeldStop(member->control))
+                {
+                    // Held后外部仍可改保护，不能等待第二个事件；先在原事件内重设NX，保持原暂停不动。
+                    const n::ExecutionGroupSessionEntry held{member->owner, member->control};
+                    current = group.RearmPrivateExecutionPages(held);
+                    const auto* rearmed = Member(r); // 集合回读后重新定位，不借用失效成员指针。
+                    if (!current.operation || !current.operation->admitted || !rearmed || rearmed->control.win32Error)
+                    {
+                        const auto error = rearmed && rearmed->control.win32Error ? rearmed->control.win32Error :
+                            current.operation && current.operation->win32Error ? current.operation->win32Error : ERROR_INVALID_STATE;
+                        Finish(transfer, error);
+                    }
+                    return; // 下一轮整段NX回读通过后，才结清本请求的Pause并进入ACK路径。
+                }
                 if (transfer.ownPause && member->control.armedPause &&
                     member->control.armedPause->request.requestId == transfer.pauseRequestId)
                 {

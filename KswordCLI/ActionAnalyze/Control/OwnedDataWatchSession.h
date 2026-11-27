@@ -107,6 +107,8 @@ public:
     // 完整Held下纳入新的NX范围；输入点击时原停止快照及范围，不执行条件自动继续。
     [[nodiscard]] NativeControlResult AddPrivateExecutionRange(const NativeControlResult& displayedStop,
         std::uint64_t address, std::uint64_t bytes);
+    // 原停止令牌下重新武装已有NX页；不应用条件、不继续，也不新增范围或暂停责任。
+    [[nodiscard]] NativeControlResult RearmPrivateExecutionPages(const NativeControlResult& displayedStop);
     // 用点击时快照中的精确事件线程提交原生步进；继续与步进共用单调释放序列。
     [[nodiscard]] NativeControlResult Step(const NativeControlResult& displayedStop, NativeStepMode mode);
     // 取消当前显示的步进请求。旧请求不能中止后来发起的步进；取消后仍回读实际停点。
