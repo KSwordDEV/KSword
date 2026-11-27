@@ -126,7 +126,8 @@ bool CooperativeEtwReceipt::Incomplete() const noexcept
 {
     const auto& native = source.native; // 队列和原生丢失分别判为缺口。
     return !setup || !started || !stopped || !archiveStatus || !checkpointStatus || !raw.flushed ||
-        source.state != Etw::PassiveEtwState::Stopped || !source.enqueued || !native.statisticsKnown ||
+        // 合法空区间也必须有已核验终段、已知损失和完整清退；不能仅因没有观察而把采集判失败。
+        source.state != Etw::PassiveEtwState::Stopped || !native.statisticsKnown ||
         !native.processCompleted || native.processStatus != ERROR_SUCCESS || native.tailDeliveryUnconfirmed ||
         native.callbackFailed || native.eventsLost || native.logBuffersLost || native.realTimeBuffersLost ||
         source.queueDropped || source.payloadTruncated || source.malformedPayload ||

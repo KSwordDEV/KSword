@@ -42,7 +42,7 @@ struct CooperativeEtwReceipt {
     std::string rawSha256; // 同一已发布ETW段的原字节摘要，不以当前文件重新计算。
     bool finalSegment = false; // 来源停止并排空后才封ETW终段。
 
-    // 当配套 ETW 仍有未完成的责任、缺失观察或来源丢失时返回真。
+    // 当配套ETW仍有未完成责任、缺失观察或来源丢失时返回真；完整封段的零观察区间不单独判失败。
     bool Incomplete() const noexcept;
 };
 
