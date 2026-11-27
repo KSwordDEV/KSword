@@ -531,8 +531,11 @@ def main():
             for raw in cli.stderr:
                 text = raw.decode('utf-8', errors='replace').strip(); err_lines.append(text); emit('CLI_STDERR=' + text)
         def drain_out(): out_chunks.append(cli.stdout.read())
-        threading.Thread(target=drain_err, daemon=True).start()
-        threading.Thread(target=drain_out, daemon=True).start()
+        # 分别保存标准错误和标准输出读取线程，供进程退出后排空尾部数据。
+        stderr_thread = threading.Thread(target=drain_err, daemon=True)
+        stdout_thread = threading.Thread(target=drain_out, daemon=True)
+        stderr_thread.start()
+        stdout_thread.start()
         deadline = time.monotonic() + 120
         ready = False
         ready_record = None
@@ -583,6 +586,13 @@ def main():
             cli.wait(timeout=270)
         except subprocess.TimeoutExpired:
             raise RuntimeError('formal CLI did not naturally finish')
+        # Process exit closes the pipes, but does not guarantee the reader thread
+        # has copied the final bytes before wait() returns.
+        # 等待读取线程排空两个管道，避免进程退出时遗漏最后一段输出。
+        stdout_thread.join(timeout=10)
+        stderr_thread.join(timeout=10)
+        if stdout_thread.is_alive() or stderr_thread.is_alive():
+            raise RuntimeError('formal CLI output reader did not drain after process exit')
         check('formal-cli-exit-success', cli.returncode == 0, cli.returncode)
         stdout = (out_chunks[0] if out_chunks else b'').decode('utf-8', errors='replace')
         (EVIDENCE / 'cli-stdout.json').write_text(stdout, encoding='utf-8')
