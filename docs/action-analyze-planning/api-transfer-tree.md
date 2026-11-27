@@ -78,7 +78,7 @@
 
 - 导航与类型沿用原入口：Qt「监控 → 行为分析 → 总览 → 归档关系」为结果树及字段详情，继续使用 `TablePresentation` 的 `None` 模式、原关系树、`selectRecord`、`FieldDocument`／`StructuredFieldView`；Light「监控 → ActionAnalyze → 回放采样 → 底部候选树」沿用同一原生 TreeView、系统字体、共享主题、虚拟列表与原详情文本。本批无新页面、布局、按钮、菜单或操作资格。
 - 对照了 Qt `OfflineObjectEvidence`／已有归档关系树，以及 Light 旧线程创建候选树与原包详情；复读 `UI/StructuredFieldView.h`、Light `Ui/Theme.h` 和根 UI 规范。交互仍为选择已核验采样 → 浏览来源候选 → Enter／双击定位原包 → 同一详情；筛选草稿独立，坏段按既有读侧保留已核验前缀／旧结果。
-- `SegmentApiClue`／`EvidenceRecord` 新增 `apiApc` 与 `apcOutcome`，调用共享 `ReadApiApcFields`／`ApiApcCallOutcome`；原协议与 Hook 不在本批所有权。Qt `AppendApiApcFields` 将 AAAP1 十四字段及结果加入唯一规范文档；Light `ApiApcDetails` 经原 `ApiTransferDetails` 调用链进入既有文本详情。缺身份有效位显示未知，合法零请求地址保留，Win32 的第二／第三 APC 参数显示不适用。
+- `SegmentApiClue`／`EvidenceRecord` 新增 `apiApc` 与 `apcOutcome`，调用共享 `ReadApiApcFields`／`ApiApcCallOutcome`；AAAP1 当前保留 `NtQueueApcThreadEx` 的 Reserve 句柄并兼容旧十四字段档案。Qt `AppendApiApcFields` 将 AAAP1 字段及结果加入唯一规范文档；Light `ApiApcDetails` 经原 `ApiTransferDetails` 调用链进入既有文本详情。缺身份有效位显示未知，合法零请求地址保留，Win32 的第二／第三 APC 参数显示不适用。
 - `ApiTransferCandidateWindow` 每包先 `Accept` 再 `AcceptApc`，复用同一链的 1024 写入状态及既有详情缓存；独立保留 `ApiApcCandidateRows<Row>{link, write, queue}` 最多 128 对，公开 `ApcCandidates()`／`ApcCandidateCount()`。线程创建仍保留 256 对。两端快照新增 `apcTransferCandidates`／`apcTransferCandidateCount`，写入淘汰继续共用 `evictedTransferWrites`。
 - 独立导入仅在整文件／尾记核验通过后发布；连续项目仍复制整段候选状态，检查点通过后提交，APC 状态与线程创建一同回滚。两端发布时同步写入／入队双方的来源标签，不读取未核验的其它段。
 - Qt 原关系树新增第四根「写入 → APC 入队候选」，与线程创建第三根分离；Light 在同一控件中新增独立根。双方叶项保留真实 raw 段号／序号及 API 名，按候选类型＋双方坐标恢复父项、叶项和展开，不将重叠写入或跨组同写入合并。主表仍为 4096 行，双方详情在独立候选窗口内续持，定位不修改筛选。
