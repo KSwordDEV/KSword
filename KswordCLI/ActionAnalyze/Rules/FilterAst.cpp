@@ -653,14 +653,15 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
                 return {{}, PrepareError::TypeMismatch, i};
             }
             outputs[i] = FieldType::U64;
-        } else if (const auto* binary = std::get_if<NumericBinary>(&node)) {
-            if (!IsValidNumericOperator(binary->op)) {
+        } else if (const auto* numericBinary = std::get_if<NumericBinary>(&node)) {
+            // 数值二元节点与前面的布尔二元节点分名，避免if初始化作用域遮蔽。
+            if (!IsValidNumericOperator(numericBinary->op)) {
                 return {{}, PrepareError::UnsupportedOperator, i};
             }
-            if (!attach(binary->left) || !attach(binary->right)) {
+            if (!attach(numericBinary->left) || !attach(numericBinary->right)) {
                 return {{}, PrepareError::InvalidTree, i};
             }
-            if (outputs[binary->left] != FieldType::U64 || outputs[binary->right] != FieldType::U64) {
+            if (outputs[numericBinary->left] != FieldType::U64 || outputs[numericBinary->right] != FieldType::U64) {
                 return {{}, PrepareError::TypeMismatch, i};
             }
             outputs[i] = FieldType::U64;
@@ -674,13 +675,13 @@ Preparation PreparePredicate(Phase phase, std::span<const FieldBinding> catalog,
             if (outputs[comparison->left] != FieldType::U64 || outputs[comparison->right] != FieldType::U64) {
                 return {{}, PrepareError::TypeMismatch, i};
             }
-        } else if (const auto* comparison = std::get_if<TextFieldComparison>(&node)) {
+        } else if (const auto* textComparison = std::get_if<TextFieldComparison>(&node)) {
             // 文本比较是布尔叶节点；同时核对两字段及当前阶段，不能按运行值临时决定类型。
-            if (comparison->op != FieldOp::Equal && comparison->op != FieldOp::NotEqual)
+            if (textComparison->op != FieldOp::Equal && textComparison->op != FieldOp::NotEqual)
             {
                 return {{}, PrepareError::UnsupportedOperator, i};
             }
-            for (const auto field : {std::string_view(comparison->left), std::string_view(comparison->right)}) // 借用当前需要绑定的字段ID。
+            for (const auto field : {std::string_view(textComparison->left), std::string_view(textComparison->right)}) // 借用当前需要绑定的字段ID。
             {
                 if (!ValidKey(field))
                 {
