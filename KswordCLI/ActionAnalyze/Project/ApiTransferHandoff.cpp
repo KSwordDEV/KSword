@@ -471,6 +471,14 @@ public:
                 transfer.stage = Admission::Paused;
                 return;
             } else if (n::OwnedExecutionGroup::CanAddRangeMember(*member)) { AddRange(transfer, *member); return; }
+            else if (member->control.pageAdvance &&
+                member->control.pageAdvance->receipt.state == n::NativeStepState::Running &&
+                !member->control.pageAdvance->receipt.resourcesRestored)
+            {
+                // 前一NX命中正推进一条指令，暂时不能Pause/AddRange不代表下一范围准入失败。
+                // 请求仍留在原Hook屏障内，沿已有时限等待原owner关回NX并归还同伴暂停。
+                return;
+            }
             else { Finish(transfer, member->control.win32Error ? member->control.win32Error : ERROR_BUSY); return; }
         }
         if (transfer.stage == Admission::Armed) {
@@ -489,6 +497,13 @@ public:
         }
         if (transfer.stage == Admission::Running) {
             if (!member || !Covered(*member, transfer.base, transfer.bytes)) return;
+            if (transfer.ownPause)
+            {
+                // 追加范围的保护已生效，但本请求主动暂停尚未确认归还时不能发成功ACK。
+                // RestoreRequestPauses继续处理原票据，下一轮只接受真实Armed运行状态。
+                if (!n::CanPauseDataWatchSession(member->control)) return;
+                transfer.ownPause = false;
+            }
             if (SourceReady(r.targetPid, r.targetCreation)) { Finish(transfer, ERROR_SUCCESS); return; }
             auto found = sources.find(r.targetPid);
             if (found == sources.end()) {
@@ -585,6 +600,11 @@ public:
             previousSequence = receipt.raw.flushed->lastSequence;
             ++saved;
             observed[member.owner.backendInstanceId] = execution->event;
+        }
+        if (closing)
+        {
+            // Close只保存当前已持有的执行事件，接着直接恢复/脱离；不再开页、置TF或放行业务。
+            return;
         }
         // 追踪模式只在执行停点保存后沿原NX owner的TF/重设防路径继续，不伪造令牌。
         std::vector<n::ExecutionGroupSessionEntry> resume;
@@ -712,7 +732,11 @@ bool ApiTransferHandoff::Incomplete() const
             return source.failed || source.dropped || source.deliveryDropped || !source.ready ||
                 !source.ended || !source.result || !source.result->cleanupComplete;
         }) ||
-        (!self.current.collectionId.empty() && !self.current.clean);
+        (!self.current.collectionId.empty() && !self.current.clean) ||
+        std::any_of(self.current.members.begin(), self.current.members.end(), [](const auto& member) {
+            // 资源最终归还与执行期间故障分别报告；Close成功不能抹掉真实恢复失败。
+            return member.control.firstRecoveryFailure.has_value();
+        });
 }
 bool ApiTransferHandoff::HasActiveAgents() const
 {

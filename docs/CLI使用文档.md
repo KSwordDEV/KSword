@@ -217,6 +217,10 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `--auto-transfer` 明确开启本轮跨进程私有执行接管：已覆盖的 `CreateRemoteThread`、`CreateRemoteThreadEx`、`NtCreateThreadEx`、APC 和上下文 Hook 在原调用前向目标外 owner 同步请求，自动查询请求入口所在完整已提交可执行 `MEM_PRIVATE` 区域，在原执行集合新增目标或范围。成功 ACK 同时要求原 NX 设防回读及下一目标真实 Agent Ready、有效覆盖修订；下一目标继续使用同一交接端点，后续多跳不需要手填私有地址。正在安装的请求返回 Pending 使管道可以服务其它来源，Hook 仍等待最终结果。命中由原 owner 生成真实执行停点，保存到同一 sample 的 `raw-native` 后才沿原 TF／重设防路径自动继续；保存失败保留停点。各来源原包共用原 `raw/checkpoints`，每包分别保存实际 PID、创建 FILETIME 和 session，源序号在整流连续。根进程退出后，已接管来源持续到原根 Ready 起算的时长到期、用户停止或整条链退出；结束先停止并排空各来源再发布终段。`transferHandoff.sources` 分别报告实例、Ready、会话、启动、丢失、结束和清退事实；每条 `admissions` 另报告当前 `nativeOwnerStage`／`nativeOwnerError` 与可用的 `nativeRecoveryFailureStage`／`nativeRecoveryFailureError`，用于区分原生 owner 故障和接管准入错误。拒绝、超时和未完成清退会令本轮为部分结果；交接失败后原 API 仍执行，参数和返回语义保留。此路径尚不能承诺全部入口和任意多跳零窗口；已有 NX 范围可复用，未知目标仍重新核验 PID＋创建时间及内存。Qt／Light 使用同名选项，开始时冻结。
 
+自动接管中的来源随后通过 `CreateThread`、同进程 `NtCreateThreadEx`、APC 或上下文入口调度私有代码时，也复用同一调用前屏障自动追加范围。普通模块入口不发同进程交接请求；已有 NX 私有入口不因当前 X 位被去掉而漏掉复用。来源 Agent 保留原会话，真实新线程仍由原 debug owner 的创建事件纳入覆盖与恢复账。此接续仅覆盖已 Hook 的调度入口，不代表任意 CPU 写入产生的新区域都能自动发现。
+
+同一目标的前一个 NX 事件正在内部单步时，下一范围保持 Pending，等待原 owner 关回保护并恢复同伴；不因暂时不能暂停而立即拒绝。追加范围引入的主动暂停须真实归还后才允许成功 ACK。用户停止后只保存已持有的执行停点，再撤销原调试／保护责任，不再自动开启下一次单步。最终清退成功不会掩盖采集中已报告的原生恢复失败，该次仍为部分结果。
+
 普通 EXE 可用 `analyze breakpoint session --exe PATH --launch-suspended --confirm --disposition resume-detach --input jsonl` 启动并停在入口；可选 `--rva RVA`，省略时使用 PE `AddressOfEntryPoint`。不要求合作导出。原主线程创建时挂起，原 owner 在 `CREATE_PROCESS_DEBUG_EVENT` 核验实例并设置入口 DR0、登记线程，回读 Armed 后才释放一次初始挂起。`control.launch` 区分创建挂起、所有者附加、入口武装、初始挂起释放和诊断；`earliestTlsCovered=false`、`apiAgentReady=null`。此入口不覆盖此前 TLS／loader，Agent部署与Ready须看独立API回执。失败仅撤销本次尚未释放初始挂起的自有启动，不操作已有实例。
 
 需要自动进入 API 采集时使用 `analyze api-evidence launch`，不必另查 PID 或手动附加。后端先沿上述普通 EXE 入口停止，在真实原主线程入口额外持有一次挂起，再由原调试 owner 恢复断点并脱离；显式装载同目录正式 Agent，确认 SessionReady、HooksInstalled 和有效覆盖后才归还本次额外挂起。`launch` 回执分别保留实际实例、`entryHeld`、`agentReadyBeforeMainResume`、`initialMainSuspendReleased`、`bootstrapClean` 及失败阶段；这仍是入口之后的覆盖，不包括更早 TLS／loader。入口交接或 Ready 失败只撤销本次自有启动，未完整步骤不会显示为完成。可与 `--auto-transfer` 同时使用，最终原包仍由同一采样的 `api-evidence replay` 读取。

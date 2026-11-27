@@ -8,6 +8,10 @@
 
 - **第8项源码收尾。** 新ProjectEtwStream复用原单writer/ETW checkpoint，每段最多512条，原worker阈值256或约一秒排空，停止后循环封尾且只有最后段finalSegment；失败保留前缀且不跳段。CooperativeApiCapture三端共用入口及CLI原持续ETW已接同一游标，计划segmented=true保留请求durationMs，检查点及CLI历史读侧接受有限分段及实际报头PID目录，三端工程/filters登记。agentEtw增加segmentOrdinal/archivedObservations/finalSegment并沿原共享文档入API终段。当前仅源码，待CodeBuddy一次CLI构建和最小真实混采/历史回读；Qt/Light GUI后置。原用户脏文件保留，未推送。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」继续有效。
 
+- **第8项已提交7a355534b，4/5/6开始接续。** CodeBuddy唯一ETW验收宿主sh_21b65ed28001I0QJp8W3SLu13b/PID40492，续原会话；实际build-cli.console.log已记录CLI一次正式Build成功，hash C13E7EEBDD035CC6DEC03B15EBC7EC49F7071A081FB98C3DBFC5EF2DE3B3A1B5，Release规则hash与d2ac3532c源相同，两Agent复用旧已验版本。运行及最终receipt仍待自动通知，不借构建作ETW通过。后续053a33b仅改Agent Hook，新增CreateThread私有入口调用前接管，同进程Nt/APC/Context也可共用，模块入口本地快速跳过，不重装来源Agent；该增量不在旧Agent产物中。CLI构建已明确结束后主协调继续ApiTransferHandoff：NX内部推进时下一范围Pending而非Busy拒绝、主动暂停真正归还后才ACK、Close仅保存Held不再自动单步、清退成功不抹掉firstRecoveryFailure。源码待下一批456构建实测。
+
+- **456夹具编写任务。** CodeBuddy宿主sh_21b671b36001dGZJzgK0FzsVoy/PID4872只在tools/action_analyze_validation/api_handoff_chain/写最小三目标两跳/第二范围夹具及独立receipt，禁构建运行和产品改动；不借此标运行通过。等待其自动完成后按新CreateThread同进程接续要求收齐，不提前Qt/Light GUI。下一执行：先读取ETW最终回执并修实际失败，再限定456一次整合构建与两跳/新范围实测；主协调持续写产品，全部测试记录仍由CodeBuddy承担。
+
 - **2026-11-26 深夜核心继续。** 用户重申全流程目标，当前优先调用前同步自动接管。已提交`6468f5237`：NetworkTrafficSession单来源追加PID+创建时间窗口、原writer同采样归档、根退出后整链继续、独立追加失败、检查点及CLI回读范围，Qt/Light仅同步原网络说明和同源字段。两个网络作者并发增量已收齐，不覆盖用户文件。`20cd5b5c4`补原有QueueUserAPC2专用Hook，在原调用前执行APC交接；共享ApiApcCallOutcome及NativeTransferAssociation补QueueUserAPC2/NtQueueApcThreadEx准入，三端沿同源matcher，API原参数/返回/错误保留。源码均提交未推送；这两板块未有完整运行结论，GUI按用户要求后置。
 
 - **NX定位当前交接。** `df5e9a971`和`6468f5237`保留内部NX推进的stage/error/原始DR6/continuation与目标退出码。最近完成B的真实回执见`.codex-build-logs/codebuddy-five-tests/apc-context-handoff/partial-hooks-fix/receipt.md`，B端到端仍失败。旧回执EFlags66054=0x10206，TF位实际为0，不能据该字段说已单步。一次性诊断任务首次宿主错误设120秒被结束，未构建/运行；确认无相关活进程后续接同会话，当前宿主`sh_21b1a4c0b001KF2rg1t1HlQza9`。只准一次当前正式CLI增量（BuildProjectReferences=false，复用旧Agent）、一次原B及一次i18n，失败不重跑、不扩探针、不找C、不GUI；所有脚本/回执由CodeBuddy写。下一步读取自动最终回执的nativePageAdvance，按实际异常归属修正续行，不吞未知STATUS_SINGLE_STEP。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」仍有效；原11:54冻结是早前收工历史，不是当前停止指令。
