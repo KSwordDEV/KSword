@@ -37,6 +37,39 @@ namespace
         return field && field->tryGetU64(value) ? value : 0;
     }
 
+    // 输入后端同次规则 JSON，更新拥有型行为窗口；只消费原求值结果，不访问规则库或归档。
+    void ReadBehaviorHistory(const Json& rules, PassiveApiCaptureReceipt& out)
+    {
+        out.behaviorMatches = Count(rules, "behaviorMatches");
+        out.recentBehaviors.clear();
+        const auto* history = rules.find("recentBehaviors"); // 已提交原包上的有界匹配列表。
+        const auto* entries = history ? history->asArray() : nullptr; // 缺少窗口的旧后端保持空列表。
+        if (!entries)
+        {
+            return;
+        }
+
+        // 后端已经限为32条；保留原顺序与独立坐标，不从最后命中补造其它记录。
+        for (const auto& entry : *entries)
+        {
+            const auto* behavior = entry.find("behavior"); // 本条匹配的原行为释义。
+            if (!behavior || behavior->isNull())
+            {
+                continue;
+            }
+            PassiveApiBehaviorMatch match; // 独立拥有字符串，发布后不借用后端 JSON。
+            match.segment = Count(entry, "segmentOrdinal");
+            match.rawSequence = Count(entry, "rawSequence");
+            match.sourceSequence = Count(entry, "sourceSequence");
+            match.ruleId = Text(entry, "ruleId");
+            match.behaviorId = Text(*behavior, "ruleId");
+            match.evidence = Text(*behavior, "evidence");
+            match.summary = Text(*behavior, "summary");
+            match.summaryZh = Text(*behavior, "summaryZh");
+            out.recentBehaviors.push_back(std::move(match));
+        }
+    }
+
     // 给启动失败保留所属阶段、项目错误和原生错误码，供 GUI 诊断。
     QString StartError(backend::PassiveApiStartStage stage, const project::ProjectResult& result)
     {
@@ -69,6 +102,7 @@ namespace
         out.ruleConfigError = Text(rules, "configError");
         out.ruleMatches = Count(rules, "matchedRows");
         out.ruleFailed = Text(rules, "state") == QStringLiteral("evaluation-failed");
+        ReadBehaviorHistory(rules, out);
         // 每次按同一份回执刷新坐标和释义；缺字段时清除上一条命中的值。
         out.latestRuleId.clear();
         out.ruleSegment = 0;
@@ -112,6 +146,27 @@ namespace
         out.ruleConfigError = QString::fromStdString(rules.configError);
         out.ruleMatches = rules.matchedRows;
         out.ruleFailed = rules.failed;
+        out.behaviorMatches = rules.behaviorMatches;
+        out.recentBehaviors.clear();
+        // 活采与 JSONL 最终投影到相同快照，普通分类的到达不再清掉较早行为。
+        for (const auto& entry : rules.recentBehaviors)
+        {
+            if (!entry.match.behavior)
+            {
+                continue;
+            }
+            const auto& behavior = *entry.match.behavior; // 原 writer 已冻结的释义，不在此重新匹配。
+            PassiveApiBehaviorMatch match; // GUI 读回期间独立拥有的单条行为。
+            match.segment = entry.segmentOrdinal;
+            match.rawSequence = entry.match.rawSequence;
+            match.sourceSequence = entry.match.sourceSequence;
+            match.ruleId = QString::fromStdString(entry.match.ruleId);
+            match.behaviorId = QString::fromStdString(behavior.ruleId);
+            match.evidence = QString::fromStdString(behavior.evidence);
+            match.summary = QString::fromStdString(behavior.summary);
+            match.summaryZh = QString::fromStdString(behavior.summaryZh);
+            out.recentBehaviors.push_back(std::move(match));
+        }
         out.ruleSegment = rules.latestSegment;
         const auto& latest = rules.latest; // 最近命中的实际原包坐标，可为空。
         out.ruleRawSequence = latest ? latest->rawSequence : 0;

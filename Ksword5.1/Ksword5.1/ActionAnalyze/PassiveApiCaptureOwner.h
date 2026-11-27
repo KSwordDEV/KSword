@@ -8,6 +8,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <QVector>
 
 namespace ks::ui
 {
@@ -39,6 +40,21 @@ namespace ks::action_analyze
         bool captureAgentEtw = false; // 本轮冻结的自有Agent配套ETW策略，JSONL不得启用。
     };
 
+    // 单条已提交行为释义的拥有型快照；工作线程填充，界面仅按当前语言选择文本。
+    struct PassiveApiBehaviorMatch
+    {
+        quint64 segment = 0; // 命中所属的实际 raw 段。
+        quint64 rawSequence = 0; // 段内原包序号，不是界面行号。
+        quint64 sourceSequence = 0; // 原普通包流水号或 JSONL 来源行。
+        QString ruleId; // 原分类规则 ID。
+        QString behaviorId; // 原行为释义规则 ID。
+        QString evidence; // 该释义的证据级别。
+        QString summary; // 冻结规则库的默认释义。
+        QString summaryZh; // 同一释义的可选中文文本。
+
+        bool operator==(const PassiveApiBehaviorMatch&) const = default;
+    };
+
     // GUI 只读快照。数据水位与归档状态来自同一轮后端回读。
     struct PassiveApiCaptureReceipt
     {
@@ -54,6 +70,8 @@ namespace ks::action_analyze
         QString latestBehaviorEvidence; // 行为释义依赖的证据级别。
         QString latestBehaviorSummary; // 规则库中的默认释义。
         QString latestBehaviorSummaryZh; // 同一释义的可选简体中文文本。
+        quint64 behaviorMatches = 0; // 同次采样中实际附带释义的累计命中数。
+        QVector<PassiveApiBehaviorMatch> recentBehaviors; // 最近至多32条行为，不被普通分类挤出。
         QString error; // 后端阶段、失败细节及原生错误码。
         quint64 validatedRows = 0; // 已核验的来源行。
         quint64 recordedRows = 0; // 已提交且读回的原始包。

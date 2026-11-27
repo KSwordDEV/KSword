@@ -852,6 +852,27 @@ void PassiveApiCapturePane::renderReceipt()
                 }
             }
         }
+        document.field(QStringLiteral("行为命中数"), QString::number(m_receipt.behaviorMatches));
+        document.field(QStringLiteral("行为窗口截断"),
+            m_receipt.behaviorMatches > static_cast<quint64>(m_receipt.recentBehaviors.size())
+                ? QStringLiteral("是") : QStringLiteral("否"), true);
+        // 原共享字段文档承载全部窗口，搜索、复制和导出与屏幕展示保持一致。
+        const bool historyChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
+            .compare(QStringLiteral("zh-CN"), Qt::CaseInsensitive) == 0; // 仅在 UI 线程选择显示语言。
+        for (const auto& behavior : m_receipt.recentBehaviors)
+        {
+            document.section(QStringLiteral("行为释义"));
+            document.field(QStringLiteral("最近命中的规则"), behavior.ruleId);
+            document.field(QStringLiteral("行为规则 ID"), behavior.behaviorId);
+            document.field(live ? QStringLiteral("命中坐标（段 / 原包 / 普通包流水号）")
+                : QStringLiteral("命中坐标（段 / 原包 / 来源行）"), QStringLiteral("%1 / %2 / %3")
+                .arg(behavior.segment).arg(behavior.rawSequence).arg(behavior.sourceSequence));
+            // 每条释义只使用自身原坐标，不把当前最终段或后续草稿挂到旧命中上。
+            const auto& summary = historyChinese && !behavior.summaryZh.isEmpty()
+                ? behavior.summaryZh : behavior.summary; // 中文缺失时显示原默认释义。
+            document.field(QStringLiteral("行为释义"), summary);
+            document.field(QStringLiteral("证据级别"), behavior.evidence);
+        }
         if (!m_receipt.error.isEmpty())
         {
             document.field(QStringLiteral("采样诊断"), m_receipt.error);
