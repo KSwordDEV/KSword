@@ -8262,6 +8262,7 @@
     "入口交接回执": "Entry handoff receipt",
     "已有实例附加需要本次确认；JSONL、合作已装载、显式附加与启动EXE来源不能混用。": "Attaching to an existing instance requires confirmation for this request. Choose one source: JSONL, a cooperative resident Agent, explicit attachment, or EXE launch.",
     "网络流量": "Network traffic",
+    "%1 %2 %3 → %4 · PID %5（%6）": "%1 %2 %3 → %4 · PID %5 (%6)",
     "已有采样 UUID": "Existing sample UUID",
     "采集来源": "Capture source",
     "采集时长": "Capture duration",
