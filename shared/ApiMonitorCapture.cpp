@@ -90,6 +90,9 @@ bool hasActiveObservation(const CaptureProcess& process) {
 void finishPipeRead(Reader& reader, CaptureResult& result, DWORD failure) {
     auto& state = reader.evidence;
     const bool eof = failure == ERROR_BROKEN_PIPE || failure == ERROR_PIPE_NOT_CONNECTED || failure == ERROR_HANDLE_EOF;
+    // 读包期间目标可能已退出；EOF按保留的同一进程对象重读，不能用本轮读包前的存活快照误记故障。
+    if (eof && !state.exited)
+        state.exited = ::WaitForSingleObject(reader.process.value, 0) == WAIT_OBJECT_0;
     if (reader.offset) { ++result.invalidPackets; state.coverageStale = true; }
     // 目标退出可解释正常 EOF，不能掩盖读取失败或截断包。
     if ((!state.exited && !state.removed) || !eof || reader.offset) {

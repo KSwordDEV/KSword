@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 已有Ex2任务结束，失败保留。** sh_21bf01c6f001ZBf4KG8eDPYaTt自动回执已到，仅一次运行，目标stubRan/counter1/exit0、admission armed1/rejected0、entryObservation入口2251867357184及坐标段1/序号1/hash保留；CLI6，递归源37036 ready=true但failed=true/error31，process exited=true/cleanPipeEof=true/pipeError109/coverageStale=true，不能按26/27判通过。回执native-ex2-build/runtime-receipt.md、原日志scenario-ex2.log及完整project-root-9ba37cab-e046-4025-9cf0-b3c9c5442534保留。回执仅凭原包marker不能独立证明flags0有效位，源端exit1也不满足所有目标exit0，仍待正式闭合；禁止重跑和新增CodeBuddy。主协调沿失败路径发现finishPipeRead沿用pollReader读包前的exited快照，新增EOF时由保留的同一进程句柄即时重读，继续严格保留截断包/非EOF/覆盖接收器失效。只修已知快照时序，不承诺关闭EOF后才真正退出的全部竞态，源码待构建和运行。
+
 - **2026-11-27 最新禁止调用CodeBuddy。** 用户原话「从现在开始不得调用codebudy，已有的不管，等新的通知下发。继续」。即刻禁止新增/续接/重试，已有sh_21bf01c6f001ZBf4KG8eDPYaTt/PID8608的Ex2定向运行按原范围继续，仅等待自动回执，不派后续。前Ex2构建已完成：native-ex2-build/receipt.md及三份日志，两Agent/CLI各一次Build成功，正式Release CLI49F3EA35…/x649AA8AA5C…/x860DD058BC…，只证明构建，不证明运行。主协调继续第6项产品：Observe在closing或cancel时只保存已持有事件，不再启动NX推进；提交Continue前再查cancel，关闭收到取消但Close尚未到达时自动放行的窗口。源码待构建实测，不自行替测、不启动GUI；持续推进要求与用户原有脏文件/证据保护保持。
 
 - **2026-11-27 第4/5项直接NT Ex2入口开发。** 4c57b774e为NtQueueApcThreadEx2登记API994/独立special Hook，沿现有调用前PrepareTransferExecution与AAAP1保存Reserve、ULONG flags及三个参数、NTSTATUS；共享分类/outcome及NativeTransferAssociation接入，Qt/Light仅扩展原APC字段文档的API条件以显示flags/Reserve/参数2/3，未新增布局/文案/协议。CLI help notes及使用文档同步。参考phnt ntpsapi.h七参数签名；尚待构建和真实调用，不能借旧APC2/456通过。当前CodeBuddy唯一必要构建sh_21bec46130013Dh5kCaf4Em70G/PID4392，hy4flash，限定新目录native-ex2-build复制既有构建包装器、两Agent及CLI各一次，禁止目标/GUI/探针/重跑；等待自动回执，期间产品输入冻结。前APC2契约space-bunny任务19372/node10548运行约20分钟仅查询工具链，无构建/测试结果；主协调核对只有宿主/node/conhost后结束精确node10548，status最终failed/exit-1，不计通过。APC2驱动准备sh_21bd9dba8001Stll3ep4eTvPS1也900秒超时仅读取，无run_apc2.py，不重复同任务。保留apc2_stop源码及apc2_contract已有用户/任务文件，整体目标继续，GUI后置。
