@@ -202,10 +202,52 @@
   },
   "behaviorRules": [
     {
+      "ruleId": "ksword.behavior.process-debug-output-not-collected.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.debugQueryOutputValid == 0u64 && (process.informationClass == 7u64 || process.informationClass == 30u64 || process.informationClass == 31u64)",
+      "summary": "The debug-query output scalar was not captured. Its class-specific type width is recorded; no zero or nonzero output is inferred.",
+      "summaryZh": "调试查询输出标量未采集；已记录该信息类的类型位数，但不推断输出为零或非零"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-port-zero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 7u64 && process.debugQueryOutputValid == 1u64 && (process.debugQueryOutputBits == 32u64 || process.debugQueryOutputBits == 64u64) && process.debugQueryOutput == 0u64",
+      "summary": "ProcessDebugPort returned a captured zero pointer-sized value. This alone does not establish the caller's conclusion, target identity or malicious intent.",
+      "summaryZh": "ProcessDebugPort 返回了已采集的指针宽度零值；单独不证明调用方结论、目标身份或恶意意图"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-port-nonzero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 7u64 && process.debugQueryOutputValid == 1u64 && (process.debugQueryOutputBits == 32u64 || process.debugQueryOutputBits == 64u64) && process.debugQueryOutput != 0u64",
+      "summary": "ProcessDebugPort returned a captured nonzero pointer-sized value. This is a query result, not proof of malicious intent or caller interpretation.",
+      "summaryZh": "ProcessDebugPort 返回了已采集的指针宽度非零值；这是查询结果，不证明恶意意图或调用方如何解释"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-object-zero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 30u64 && process.debugQueryOutputValid == 1u64 && (process.debugQueryOutputBits == 32u64 || process.debugQueryOutputBits == 64u64) && process.debugQueryOutput == 0u64",
+      "summary": "ProcessDebugObjectHandle returned a captured zero pointer-sized value. This alone does not establish the caller's conclusion, target identity or malicious intent.",
+      "summaryZh": "ProcessDebugObjectHandle 返回了已采集的指针宽度零值；单独不证明调用方结论、目标身份或恶意意图"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-object-nonzero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 30u64 && process.debugQueryOutputValid == 1u64 && (process.debugQueryOutputBits == 32u64 || process.debugQueryOutputBits == 64u64) && process.debugQueryOutput != 0u64",
+      "summary": "ProcessDebugObjectHandle returned a captured nonzero pointer-sized value. This is a query result, not proof of malicious intent or caller interpretation.",
+      "summaryZh": "ProcessDebugObjectHandle 返回了已采集的指针宽度非零值；这是查询结果，不证明恶意意图或调用方如何解释"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-flags-zero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 31u64 && process.debugQueryOutputValid == 1u64 && process.debugQueryOutputBits == 32u64 && process.debugQueryOutput == 0u64",
+      "summary": "ProcessDebugFlags returned ULONG zero: the NoDebugInherit bit is clear, so debug inheritance is not disabled. This is not a false NTSTATUS and does not alone prove debugger presence or caller intent.",
+      "summaryZh": "ProcessDebugFlags 返回 ULONG 零值：NoDebugInherit 位未置位，因此未禁用调试继承；这不是失败 NTSTATUS，单独不证明调试器存在或调用方意图"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-flags-nonzero.v1",
+      "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.informationClass == 31u64 && process.debugQueryOutputValid == 1u64 && process.debugQueryOutputBits == 32u64 && process.debugQueryOutput != 0u64",
+      "summary": "ProcessDebugFlags returned a nonzero ULONG. The scalar is preserved as returned; this does not establish which reserved bits are meaningful, caller intent or debugger presence.",
+      "summaryZh": "ProcessDebugFlags 返回非零 ULONG；按原值保留，不据此判断保留位含义、调用方意图或调试器是否存在"
+    },
+    {
       "ruleId": "ksword.behavior.process-debug-information-query-returned.v1",
       "predicate": "api.family == \"process-query\" && api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && (process.informationClass == 7u64 || process.informationClass == 30u64 || process.informationClass == 31u64)",
-      "summary": "NtQueryInformationProcess reported NT_SUCCESS for a ProcessDebugPort (7), ProcessDebugObjectHandle (30) or ProcessDebugFlags (31) query. This is a debugging-environment query clue; output values, debugger presence, the target process identity and malicious intent remain unknown.",
-      "summaryZh": "NtQueryInformationProcess 对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）或 ProcessDebugFlags（31）查询报告 NT_SUCCESS；属于调试环境查询线索，输出值、调试器是否存在、目标进程身份及恶意意图仍未知"
+      "summary": "NtQueryInformationProcess reported NT_SUCCESS for a ProcessDebugPort (7), ProcessDebugObjectHandle (30) or ProcessDebugFlags (31) query. Any output scalar is a separate observation; debugger presence, target identity and malicious intent are not inferred.",
+      "summaryZh": "NtQueryInformationProcess 对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）或 ProcessDebugFlags（31）查询报告 NT_SUCCESS；输出标量须以独立证据确认，不推断调试器存在、目标身份或恶意意图"
     },
     {
       "ruleId": "ksword.behavior.process-debug-information-query-rejected.v1",

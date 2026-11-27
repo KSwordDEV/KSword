@@ -392,10 +392,83 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
         decoded = Layout(result, detail, ansi, {{L"class=", E::Decimal, "system.informationClass"},
             {L" length=", E::Decimal}, {L" return=", E::Decimal}});
     } else if (api == L"NtQueryInformationProcess") {
-        // 专用Hook只保存process/class/size及NTSTATUS；信息类是请求值，不是输出调试状态。
-        // size来自可选返回长度或输入容量，语义不唯一，仅核验布局，不发布为结果字段。
-        decoded = Layout(result, detail, ansi, {{L"process=", E::Hex},
-            {L" class=", E::Decimal, "process.informationClass"}, {L" size=", E::Decimal}});
+        // 旧摘要仍按原三字段读取；追加字段只接受三种已知调试查询的精确可选格式。
+        const auto base = std::initializer_list<Part>{{L"process=", E::Hex},
+            {L" class=", E::Decimal, "process.informationClass"}, {L" size=", E::Decimal}};
+        ApiBehaviorObservation legacyOutput = result; // 旧三字段摘要的候选结果。
+        decoded = Layout(legacyOutput, detail, ansi, base);
+        std::uint64_t informationClass = UINT64_MAX; // 完整摘要解码出的请求信息类。
+        if (decoded) {
+            result.parameters = std::move(legacyOutput.parameters);
+            for (const auto& parameter : result.parameters) {
+                if (parameter.id == "process.informationClass") {
+                    informationClass = std::get<std::uint64_t>(parameter.value);
+                    break;
+                }
+            }
+        }
+        ApiBehaviorObservation missingOutput = result; // 追加格式的无值候选，不污染旧摘要结果。
+        const bool missingLayout = Layout(missingOutput, detail, ansi, {{L"process=", E::Hex},
+                {L" class=", E::Decimal, "process.informationClass"}, {L" size=", E::Decimal},
+                {L" outputValid=", E::Decimal, "process.debugQueryOutputValid"},
+                {L" outputBits=", E::Decimal, "process.debugQueryOutputBits"}}); // 只带有效位与类型宽度的追加摘要。
+        ApiBehaviorObservation observedOutput = result; // 追加完整输出值的候选结果。
+        const bool observedLayout = Layout(observedOutput, detail, ansi, {{L"process=", E::Hex},
+            {L" class=", E::Decimal, "process.informationClass"}, {L" size=", E::Decimal},
+            {L" outputValid=", E::Decimal, "process.debugQueryOutputValid"},
+            {L" outputBits=", E::Decimal, "process.debugQueryOutputBits"},
+            {L" output=", E::Decimal, "process.debugQueryOutput"}}); // 带实际标量的追加摘要。
+        if (missingLayout || observedLayout) {
+            const auto& candidate = observedLayout ? observedOutput : missingOutput; // 选择已完整解码的追加布局。
+            for (const auto& parameter : candidate.parameters) {
+                if (parameter.id == "process.informationClass") {
+                    informationClass = std::get<std::uint64_t>(parameter.value);
+                    break;
+                }
+            }
+        }
+        if (informationClass == 7 || informationClass == 30 || informationClass == 31) {
+            const unsigned expectedBits = informationClass == 31 ? 32u : 0u; // 指针类宽度由摘要明确给出。
+            if (missingLayout) {
+                std::uint64_t valid = UINT64_MAX; // 输出标量是否实际安全读取的显式标记。
+                std::uint64_t bits = 0; // 本次输出的原生标量类型宽度。
+                for (const auto& parameter : missingOutput.parameters) {
+                    if (parameter.id == "process.debugQueryOutputValid") {
+                        valid = std::get<std::uint64_t>(parameter.value);
+                    } else if (parameter.id == "process.debugQueryOutputBits") {
+                        bits = std::get<std::uint64_t>(parameter.value);
+                    }
+                }
+                const bool widthValid = expectedBits ? bits == expectedBits : bits == 32 || bits == 64; // flags固定32位，其余仅接受指针宽度。
+                if (valid == 0 && widthValid) {
+                    result.parameters = std::move(missingOutput.parameters);
+                    decoded = true;
+                }
+            }
+            if (!decoded && observedLayout) {
+                std::uint64_t valid = UINT64_MAX; // 仅字面量 1 表示后续输出是已捕获值。
+                std::uint64_t bits = 0; // 用于拒绝与信息类不符的标量宽度。
+                std::uint64_t output = 0; // 已核验的完整输出数字，允许真实零值。
+                for (const auto& parameter : observedOutput.parameters) {
+                    if (parameter.id == "process.debugQueryOutputValid") {
+                        valid = std::get<std::uint64_t>(parameter.value);
+                    } else if (parameter.id == "process.debugQueryOutputBits") {
+                        bits = std::get<std::uint64_t>(parameter.value);
+                    } else if (parameter.id == "process.debugQueryOutput") {
+                        output = std::get<std::uint64_t>(parameter.value);
+                    }
+                }
+                const bool widthValid = expectedBits ? bits == expectedBits : bits == 32 || bits == 64; // 拒绝信息类与类型宽度不匹配。
+                const bool valueFits = bits == 32 ? output <= UINT32_MAX : bits == 64; // 32位输出不可携带越界高位。
+                if (observedOutput.succeeded && valid == 1 && widthValid && valueFits) {
+                    result.parameters = std::move(observedOutput.parameters);
+                    decoded = true;
+                }
+            }
+        }
+        if (!decoded) {
+            decoded = Layout(result, detail, ansi, base); // 非调试类或旧摘要仍沿原三字段兼容路径。
+        }
     } else if (api == L"CreateProcessW" || api == L"CreateProcessA") {
         // 应用参数和命令行是两份独立数据；不根据命令行头词猜实际映像。
         decoded = Layout(result, detail, ansi, {{L"app=", E::Text, "process.application"},

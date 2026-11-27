@@ -36,7 +36,7 @@ v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == fil
 
 普通强类型参数由 `ApiBehaviorObservation.cpp/.h` 消费已有采集格式，而非执行上游脚本。读侧要求同模块、精确 API、类别、Strong、非零源会话、显式返回标记，并按 API 分别解释 BOOL／HANDLE／LSTATUS／NTSTATUS／GetAddrInfo 返回。`StatusUnknown` 不发布错误码；GetAddrInfo 的错误来自函数返回，不能把包装器残留的 WSA LastError 当成原因。返回字段可独立存在，参数无效不回填假值。
 
-`NtQueryInformationProcess` 独立归类为 `process-query`，由同一 `ReadApiPresetEvidence()` 发布真实 NTSTATUS 返回观察；32位返回位和原包状态必须一致，按 `NT_SUCCESS` 解释。`process.informationClass` 只来自完整 `process/class/size` 数值布局中的请求信息类；末尾 size 可能是输出长度或输入容量，不发布为结果。正式双语谓词只对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）、ProcessDebugFlags（31）的成功／失败查询解释为调试环境查询线索。生产 Hook 未保存三类输出值，故不提供 `debuggerPresent` 或调试器存在／不存在结论，也不从句柄推断目标身份。
+`NtQueryInformationProcess` 独立归类为 `process-query`，由同一 `ReadApiPresetEvidence()` 发布真实 NTSTATUS 返回观察；32位返回位和原包状态必须一致，按 `NT_SUCCESS` 解释。`process.informationClass` 只来自完整 `process/class/size` 数值布局中的请求信息类；旧摘要继续兼容，末尾 size 可能是输出长度或输入容量，不发布为结果。新版 Hook 只对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）、ProcessDebugFlags（31）在成功且长度充足时安全读取标量，并追加 `outputValid`、`outputBits` 和有效时的 `output`；7/30 是目标指针宽度，31 是 32 位 ULONG。有效零值与非零值分别保留；未读到输出时保留显式有效位 0，不补造数值，旧摘要及其它信息类也不回填字段。ProcessDebugFlags 的零值表示 NoDebugInherit 位未置位，即没有禁用调试继承；它不是 NTSTATUS 失败值。双语规则只描述本次返回标量及位语义，不从单次查询推断调试器存在、调用方结论、目标身份或恶意意图。
 
 现有生产声明、Hook 与 formatter 没有 `IsDebuggerPresent`／`CheckRemoteDebuggerPresent` 强类型采集，不能为它们创建可触发谓词或伪字段。若后续增加 `IsDebuggerPresent` 的可信返回，FALSE 应解释为查询成功且调试器不存在，不能复用普通 BOOL 的失败约定；本次不增加 Hook 或修改协议。
 

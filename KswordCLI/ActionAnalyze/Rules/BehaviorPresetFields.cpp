@@ -53,7 +53,10 @@ constexpr FieldBinding Catalog[] = {
     {"module.name", FieldType::Text, Phase::Observation},
     {"module.nameLower", FieldType::Text, Phase::Observation},
     {"system.informationClass", FieldType::U64, Phase::Observation},
-    {"process.informationClass", FieldType::U64, Phase::Observation}, // NtQueryInformationProcess请求信息类，不含输出值。
+    {"process.informationClass", FieldType::U64, Phase::Observation}, // NtQueryInformationProcess请求信息类。
+    {"process.debugQueryOutputValid", FieldType::U64, Phase::Observation}, // 新版摘要的安全输出标量有效位，0不是输出数值。
+    {"process.debugQueryOutputBits", FieldType::U64, Phase::Observation}, // 输出标量原生类型位数，指针类随目标位数。
+    {"process.debugQueryOutput", FieldType::U64, Phase::Observation}, // 仅安全读取成功时存在，零值也是真实采样。
     {"process.application", FieldType::Text, Phase::Observation},
     {"process.applicationBaseLower", FieldType::Text, Phase::Observation},
     {"process.commandLine", FieldType::Text, Phase::Observation},
@@ -158,7 +161,16 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
         return "Successful ResumeThread DWORD return only; zero is valid, 0xffffffff is failure; NtResumeThread optional output and current suspend state are not inferred.";
     }
     if (id == "process.informationClass") {
-        return "Strict NtQueryInformationProcess process/class/size formatter layout; input information class only; NTSTATUS is separate; no debug port, debug object, DebugFlags, debugger presence or target identity is inferred.";
+        return "Strict NtQueryInformationProcess process/class/size formatter layout; input information class; appended debug output is separately marked; NTSTATUS is separate.";
+    }
+    if (id == "process.debugQueryOutputValid") {
+        return "Appended NtQueryInformationProcess output marker for classes 7/30/31; 1 means a successful, sufficiently sized, safely read scalar follows; 0 means no scalar was captured; legacy summaries omit this field.";
+    }
+    if (id == "process.debugQueryOutputBits") {
+        return "Appended NtQueryInformationProcess scalar width; ProcessDebugPort (7) and ProcessDebugObjectHandle (30) use target pointer width, ProcessDebugFlags (31) uses 32-bit ULONG.";
+    }
+    if (id == "process.debugQueryOutput") {
+        return "Appended NtQueryInformationProcess scalar only when outputValid=1; zero and nonzero are preserved, missing remains NotCollected; no debugger presence, target identity or intent is inferred.";
     }
     if (id.starts_with("process.")) {
         return "Strict CreateProcess application/command-line layout; basename is from application argument, not executable identity.";
