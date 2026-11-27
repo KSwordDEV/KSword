@@ -406,6 +406,19 @@ namespace
             AppendApiNumber(text, L"请求 CONTEXT ABI（位）", latest.contextArchitecture);
         }
         text += L"\r\n上下文已生效：未知\r\n上下文请求后的执行：未知";
-        return text + L"\r\nIP、SP、ContextFlags 和 ABI 仅描述请求；接受请求不证明上下文已生效或发生执行。输入句柄和 CONTEXT 地址不授予对象身份。";
+        text += L"\r\nIP、SP、ContextFlags 和 ABI 仅描述请求；接受请求不证明上下文已生效或发生执行。输入句柄和 CONTEXT 地址不授予对象身份。";
+
+        // 同一不可变回执分别保留网络与ETW原文；各自为空时不显示，不借用UI选择推断采样来源。
+        if (receipt.networkTraffic.type() != Ksword::Evidence::JsonType::Null)
+        {
+            text += L"\r\n\r\n同采样网络回执：\r\n" + ks::r3::process::Utf8ToWide(
+                Ksword::Evidence::WriteJson(receipt.networkTraffic));
+        }
+        if (receipt.agentEtw.type() != Ksword::Evidence::JsonType::Null)
+        {
+            text += L"\r\n\r\n同采样 ETW 回执：\r\n" + ks::r3::process::Utf8ToWide(
+                Ksword::Evidence::WriteJson(receipt.agentEtw));
+        }
+        return text;
     }
 }
