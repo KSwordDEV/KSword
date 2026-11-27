@@ -437,7 +437,7 @@ NativeStepError NativeStepRuntime::RetireExitedThread(const DEBUG_EVENT& event, 
     // 绝不能把selected退出当作整个进程退出，从而清掉其它仍存在线程的计数。
     if (selectedMatch) {
         selectedExited_ = true;
-        contextOwned_ = pageTrapOwned_ = false;
+        contextOwned_ = pageTrapOwned_ = tfStatusSlot_ = false;
         selectedSuspendDebt_ = selectedSuspendConflict_ = false;
     }
     if (peer != peers_.end()) {
@@ -471,6 +471,7 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     cancelRequested_ = false;
     timeoutRequested_ = false;
     pageTrapOwned_ = false;
+    tfStatusSlot_ = false;
     selectedExited_ = false;
     selectedEventStopped_ = true;
     selectedSuspendDebt_ = false;
@@ -509,6 +510,17 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     originalDr1_ = context.Dr1;
     originalDr7_ = context.Dr7 & kSlot1Control;
     originalFlags_ = context.EFlags;
+    if (tfOnly)
+    {
+        // 无活动DR槽时，Windows的线程上下文可能不返回TF产生的DR6原因。
+        // 内部推进占用已核验空闲的DR1，地址0必须未提交；不用预测下一IP或放宽BS判定。
+        MEMORY_BASIC_INFORMATION nullMapping{}; // 仅确认哨兵不是可执行目标，不取得页保护责任。
+        if (VirtualQueryEx(process_, nullptr, &nullMapping, sizeof(nullMapping)) != sizeof(nullMapping))
+            return Error("page-step-query-status-slot");
+        if (nullMapping.State != MEM_FREE)
+            return {"page-step-status-slot-not-free", ERROR_NOT_SUPPORTED};
+        tfStatusSlot_ = true; // Arm取得上下文责任后统一恢复原DR1和原槽配置。
+    }
     for (const auto peer : peers) {
         if (const auto error = HoldPeer(peer, true); error) {
             return error;
@@ -582,16 +594,25 @@ NativeStepError NativeStepRuntime::Arm(CONTEXT context, std::optional<std::uint6
     contextOwned_ = true; // write failures retain restoration responsibility
     // Over/Out只拥有DR1；不能因安装执行槽而重写RIP/RSP或其它控制寄存器。
     context.ContextFlags = destination ? CONTEXT_DEBUG_REGISTERS : CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
-    const auto ownedReason = destination ? DWORD64{2} : kBs; // 本轮只清理自己使用的原因位。
+    const auto ownedReason = (destination || tfStatusSlot_ ? DWORD64{2} : 0) |
+        (!destination ? kBs : 0); // 内部状态槽同样清除旧B1，不把旧原因混进本轮BS。
     context.Dr6 = static_cast<decltype(context.Dr6)>(context.Dr6 & ~ownedReason);
     if (destination) {
         context.Dr1 = static_cast<decltype(context.Dr1)>(*destination);
         context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~kSlot1Control) | kSlot1Enable);
-    } else context.EFlags |= kTf;
+    } else {
+        context.EFlags |= kTf;
+        if (tfStatusSlot_) {
+            context.Dr1 = 0;
+            context.Dr7 = static_cast<decltype(context.Dr7)>((context.Dr7 & ~kSlot1Control) | kSlot1Enable);
+        }
+    }
     if (!SetThreadContext(selected_, &context)) return Error("step-arm-context");
     if (!GetThreadContext(selected_, &context)) return Error("step-read-armed-context");
     if (destination ? (context.Dr1 != *destination || (context.Dr7 & kSlot1Control) != kSlot1Enable) : !(context.EFlags & kTf))
         return {"step-verify-armed-context", ERROR_INVALID_DATA};
+    if (tfStatusSlot_ && (context.Dr1 != 0 || (context.Dr7 & kSlot1Control) != kSlot1Enable))
+        return {"page-step-verify-status-slot", ERROR_INVALID_DATA};
     return {};
 }
 
@@ -646,6 +667,8 @@ void NativeStepRuntime::DischargeExitedHold(HANDLE thread, bool& debt, bool& con
 NativeStepError NativeStepRuntime::RestoreSelectedContext() {
     if (selectedSuspendConflict_) return {"step-selected-suspend-count-conflict", ERROR_INVALID_DATA};
     const bool temporary = receipt_.destination.has_value();
+    const bool slotOwned = temporary || tfStatusSlot_; // 用户目的地和内部状态槽均沿同一DR1恢复账。
+    const auto slotAddress = receipt_.destination.value_or(0); // 空地址只用于内部TF，不是完成目的地。
     const bool flagsOwned = !temporary || pageTrapOwned_;
     if (flagsOwned && !selectedEventStopped_ && !selectedSuspendDebt_) {
         if (SuspendThread(selected_) == static_cast<DWORD>(-1)) return Error("step-suspend-selected-for-restore");
@@ -655,14 +678,14 @@ NativeStepError NativeStepRuntime::RestoreSelectedContext() {
     context.ContextFlags = flagsOwned ? CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS : CONTEXT_DEBUG_REGISTERS;
     if (!GetThreadContext(selected_, &context)) return Error("step-read-restore-context");
     const auto bits = context.Dr7 & kSlot1Control;
-    if (temporary && !((context.Dr1 == *receipt_.destination && bits == kSlot1Enable) ||
+    if (slotOwned && !((context.Dr1 == slotAddress && bits == kSlot1Enable) ||
         (context.Dr1 == originalDr1_ && bits == originalDr7_))) return {"step-dr-restore-conflict", ERROR_INVALID_DATA};
-    const auto ownedReason = (temporary ? DWORD64{2} : kBs) | (pageTrapOwned_ ? kBs : 0);
-    if ((context.Dr6 & ownedReason) || (temporary && (context.Dr1 != originalDr1_ || bits != originalDr7_))) {
+    const auto ownedReason = (slotOwned ? DWORD64{2} : 0) | (!temporary || pageTrapOwned_ ? kBs : 0);
+    if ((context.Dr6 & ownedReason) || (slotOwned && (context.Dr1 != originalDr1_ || bits != originalDr7_))) {
         // DR1和DR6只写DEBUG_REGISTERS；不携带内核等待线程的RIP/RSP/段寄存器。
         CONTEXT debug = context;
         debug.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-        if (temporary) {
+        if (slotOwned) {
             debug.Dr1 = static_cast<decltype(debug.Dr1)>(originalDr1_);
             debug.Dr7 = static_cast<decltype(debug.Dr7)>((debug.Dr7 & ~kSlot1Control) | originalDr7_);
         }
@@ -670,7 +693,7 @@ NativeStepError NativeStepRuntime::RestoreSelectedContext() {
         if (!SetThreadContext(selected_, &debug)) return Error("step-restore-debug-context");
         debug.ContextFlags = CONTEXT_DEBUG_REGISTERS;
         if (!GetThreadContext(selected_, &debug)) return Error("step-read-restored-debug-context");
-        if ((debug.Dr6 & ownedReason) || (temporary &&
+        if ((debug.Dr6 & ownedReason) || (slotOwned &&
             (debug.Dr1 != originalDr1_ || (debug.Dr7 & kSlot1Control) != originalDr7_)))
             return {"step-verify-restored-debug-context", ERROR_INVALID_DATA};
     }
@@ -692,7 +715,7 @@ NativeStepError NativeStepRuntime::RestoreSelectedContext() {
         if ((context.EFlags & kTf) != (originalFlags_ & kTf) || Ip(context) != ip || Sp(context) != sp ||
             context.SegCs != cs || context.SegSs != ss) return {"step-verify-restored-control-context", ERROR_INVALID_DATA};
     }
-    contextOwned_ = pageTrapOwned_ = false;
+    contextOwned_ = pageTrapOwned_ = tfStatusSlot_ = false;
     return {};
 }
 
@@ -732,7 +755,7 @@ NativeStepError NativeStepRuntime::Restore(bool processExited, const DEBUG_EVENT
     bool contextPending = false;
     if (contextOwned_) {
         const auto wait = processExited || selectedExited_ ? WAIT_OBJECT_0 : WaitForSingleObject(selected_, 0);
-        if (wait == WAIT_OBJECT_0) { contextOwned_ = false; pageTrapOwned_ = false; }
+        if (wait == WAIT_OBJECT_0) { contextOwned_ = pageTrapOwned_ = tfStatusSlot_ = false; }
         else if (wait == WAIT_TIMEOUT)
         {
             if (const auto error = RestoreSelectedContext()) // 上下文未恢复时保留所有存活对象的暂停责任。

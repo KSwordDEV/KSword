@@ -122,6 +122,7 @@ private:
     std::uint64_t expectedSp_ = 0;
     bool contextOwned_ = false;
     bool pageTrapOwned_ = false; // DR1步进叠加TF，恢复时须额外归还该位。
+    bool tfStatusSlot_ = false; // 内部TF临时启用空地址DR1，维持Windows调试寄存器状态回读。
     bool running_ = false;
     bool cancelRequested_ = false;
     bool timeoutRequested_ = false;
