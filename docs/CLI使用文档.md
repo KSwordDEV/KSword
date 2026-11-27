@@ -245,6 +245,8 @@ Qt／Light 的原调试会话与执行集合详情在采集结束后仍保留最
 
 运行检查点的 `payload.rules` 与原生最终响应的 `rules` 同时保留 `behaviorMatches`、`recentBehaviors` 和 `behaviorWindowTruncated`：仅具有行为释义的命中进入最近 32 条窗口，每条含自身段号、原序号、来源序号和双语释义；普通分类命中不挤掉这个窗口。累计数大于窗口长度时截断标志为真，完整历史仍按原坐标从归档读取。旧 `latest`／`latestRule` 保持兼容。Qt／Light 同采样详情同步显示该有界窗口，不把最近普通调用当作整轮唯一行为。
 
+`analyze api-evidence replay` 的每条 `rows[].rule` 直接附带当前回放的分类 ID 与可空 `behavior`（规则 ID、证据强度及双语释义），并保留该行原 `rawSegment/rawSequence/sourceSequence`。顶层 `ruleProfile` 标明本次冻结的规则文件 SHA-256；这是用当前规则重新解释原包，不能冒充采集时的规则版本。规则配置或求值失败在规则对象中单独呈现，已核验原包仍可读取，分页方式不变。
+
 独立 `analyze api-evidence capture`／`launch`／`attach` 的最终 `rules` 也投影同一行为窗口，保留原 `profile`、`coverage`、`state` 及 `latest` 外壳；未订阅 stderr 进度仍可读取最近释义及原坐标。
 
 本地 API JSONL 跟随的 `rules` 也使用相同的累计与有界行为窗口字段；其中 `sourceSequence` 是原文件来源行，活管道的该字段则是原普通包流水号，二者不得混用。Qt／Light 的主采集、调试会话与执行集合详情均消费对应采样的冻结规则结果，切换显示语言仅选择原双语释义，完整行为历史仍由归档回放读取。窗口没有命中与规则加载／求值失败分别保留状态。

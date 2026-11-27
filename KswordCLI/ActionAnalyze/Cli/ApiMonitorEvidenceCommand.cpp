@@ -184,9 +184,61 @@ Result Failure(int code, const wchar_t* status, std::uint64_t sequence = 0,
     return {code, Json::object(fields), {status}};
 }
 
+// 输入本页冻结规则库和已核验原包坐标，返回本条分类及行为；失败不妨碍原包回读。
+Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
+    const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequence)
+{
+    // 单条沿生产页投影器求值，不从API名称、预览文本或活采latest推导历史行为。
+    if (!database.error.empty())
+    {
+        return Json::object({{L"status", Json::string(L"configuration-failed")},
+            {L"error", Json::string(ks::str::Utf8ToUtf16(database.error))}});
+    }
+    const auto api = ks::str::Utf16ToUtf8(std::wstring(row.clue->api)); // 同步求值期间持有精确API名。
+    const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(row.packet); // 独立的真实返回证据。
+    const project::Rules::ArchivedApiObservation observation{
+        rawSequence, row.sourceSequence, api, row.clue->family,
+        returned ? std::optional{project::Rules::ArchivedApiMemoryWriteReturn{
+            returned->returned, returned->statusCode}} : std::nullopt,
+        project::Rules::ReadApiPresetEvidence(row.packet)}; // 不套用活采计划序号，兼容首条导入记录#1。
+    const auto report = project::Rules::AnalyzeVerifiedApiPresetPage(database,
+        std::span<const project::Rules::ArchivedApiObservation>(&observation, 1), 1,
+        project::Rules::ApiPresetProfile::ByCategory);
+    if (report.error != project::Rules::ApiPresetError::None || report.matches.size() != 1)
+    {
+        return Json::object({{L"status", Json::string(L"evaluation-failed")},
+            {L"error", Json::number(static_cast<std::uint32_t>(report.error))}});
+    }
+    const auto& match = report.matches.front(); // 同一原包的拥有型分类及可选行为释义。
+    Json behavior; // 普通分类未附行为时保持null，不冒充无意义的空释义。
+    if (match.behavior)
+    {
+        const auto& hit = *match.behavior; // 规则文件实际提供的双语文本与证据强度。
+        behavior = Json::object({
+            {L"ruleId", Json::string(ks::str::Utf8ToUtf16(hit.ruleId))},
+            {L"evidence", Json::string(ks::str::Utf8ToUtf16(hit.evidence))},
+            {L"summary", Json::string(ks::str::Utf8ToUtf16(hit.summary))},
+            {L"summaryZh", Json::string(ks::str::Utf8ToUtf16(hit.summaryZh))}});
+    }
+    return Json::object({{L"status", Json::string(L"evaluated")},
+        {L"ruleId", Json::string(ks::str::Utf8ToUtf16(match.ruleId))},
+        {L"behavior", behavior}});
+}
+
+// 输入本页冻结库，输出当前回放规则身份；不把重新求值的结果冒充采集时规则。
+Json ReplayRuleProfile(const project::Rules::ApiPresetDatabase& database)
+{
+    return Json::object({
+        {L"presetSet", Json::string(ks::str::Utf8ToUtf16(database.presetSet))},
+        {L"sourceSha256", database.sourceSha256.empty() ? Json{} :
+            Json::string(ks::str::Utf8ToUtf16(database.sourceSha256))},
+        {L"configError", database.error.empty() ? Json{} :
+            Json::string(ks::str::Utf8ToUtf16(database.error))}});
+}
+
 // 将原包事实和未知项投影成 CLI 值。原包序号与 Stored 序号分别引用。
 Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequence, bool includePacket,
-    std::uint64_t rawSegment = 1)
+    std::uint64_t rawSegment = 1, const project::Rules::ApiPresetDatabase* database = nullptr)
 {
     const auto& packet = row.packet; // 原始调用来源头与回包字段。
     const auto family = row.clue->family; // 稳定线索类别。
@@ -208,6 +260,10 @@ Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequ
         {L"targetIdentity", Json{}}, {L"completedWriteBytes", Json{}}, {L"executed", Json{}}, {L"attribution", Json{}},
         {L"apiMemoryLifecycle", ks::cli::action_analyze::ApiMemoryLifecycleCliJson(packet)}, // 生命周期原请求和成功输出。
     }; // 未知字段显式为空，旧摘要不会升级成跨进程事实。
+    if (database)
+    {
+        fields.emplace_back(L"rule", ReplayRuleJson(*database, row, rawSequence)); // 行为与原行共用坐标，不另读档。
+    }
     if (includePacket) {
         const auto* begin = reinterpret_cast<const std::uint8_t*>(&packet); // 已核对的原包字节范围。
         fields.emplace_back(L"packet", Json::bytes({begin, begin + sizeof(packet)}, sizeof(packet)));
@@ -219,6 +275,7 @@ Json ClueJson(const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequ
 Result Replay(const project::ProjectDocument& document, const std::string& sample, std::uint64_t after,
     std::uint64_t limit, bool includePacket, const archive::RawEvidenceBoundary* expected = nullptr)
 {
+    const auto database = project::Rules::LoadApiPresetDatabase(); // 一页内固定同一规则内容身份。
     std::vector<Json> page; // 流扫描时只保存本页范围。
     evidence::ApiMonitorClueReadback readback; // 线索与尾记语义由三端共用的读状态校验。
     std::uint64_t lastShown = after; // 上一个已显示的原始序号。
@@ -235,7 +292,7 @@ Result Replay(const project::ProjectDocument& document, const std::string& sampl
                 return false;
             }
             if (row && record.recordSequence > after && page.size() < limit) {
-                page.push_back(ClueJson(*row, record.recordSequence, includePacket));
+                page.push_back(ClueJson(*row, record.recordSequence, includePacket, 1, &database));
                 lastShown = record.recordSequence;
             }
         }
@@ -259,6 +316,7 @@ Result Replay(const project::ProjectDocument& document, const std::string& sampl
         {L"mixedEtw", Json::boolean(readback.mixedEtw)},
         {L"sourceRows", Json::count(readback.sourceRows)}, {L"clueRows", Json::count(readback.clues)},
         {L"coverage", Json::string(L"unknown")},
+        {L"ruleProfile", ReplayRuleProfile(database)},
         {L"nextAfter", !page.empty() && lastShown < readback.clues ? Json::count(lastShown) : Json{}},
         {L"rows", Json::array(page)}}), {}};
 }
@@ -267,6 +325,7 @@ Result Replay(const project::ProjectDocument& document, const std::string& sampl
 std::optional<Result> ReplayCooperative(const project::ProjectDocument& document, const std::string& sample,
     std::uint64_t after, std::uint64_t limit, bool includePacket, std::uint64_t through = 0)
 {
+    const auto database = project::Rules::LoadApiPresetDatabase(); // 各段沿本次回放冻结库，不读取采集时latest。
     project::ProjectApiCheckpoint checkpoint; // 上一次完整核验的有效水位。
     std::vector<Json> page; // 本页只保留有限条分类线索。
     std::uint64_t clues = 0; // 连续前缀中的线索数。
@@ -289,7 +348,7 @@ std::optional<Result> ReplayCooperative(const project::ProjectDocument& document
                     ++segmentClues;
                     if (record.recordSequence > after) {
                         if (page.size() + rows.size() < limit) {
-                            rows.push_back(ClueJson(*clue, record.recordSequence, includePacket, ordinal));
+                            rows.push_back(ClueJson(*clue, record.recordSequence, includePacket, ordinal, &database));
                             segmentLast = record.recordSequence;
                         } else {
                             segmentMore = true;
@@ -326,6 +385,7 @@ std::optional<Result> ReplayCooperative(const project::ProjectDocument& document
         {L"sourceRows", Json::count(checkpoint.lastSourceSequence)}, {L"clueRows", Json::count(clues)},
         {L"coverage", Json::string(L"unknown")}, {L"sourceState", checkpoint.sourceState.empty() ? Json{} :
             Json::string(project::ProjectStorage::WideAscii(checkpoint.sourceState))},
+        {L"ruleProfile", ReplayRuleProfile(database)},
         {L"failedSegment", invalid ? Json::count(checkpoint.ordinal + 1) : Json{}},
         {L"nextAfter", !page.empty() && more ? Json::count(lastShown) : Json{}}, {L"rows", Json::array(page)}}), {}};
 }
@@ -753,7 +813,7 @@ void RegisterApiMonitorEvidenceCommands()
     replay.syntax = L"KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]";
     replay.options = L"Required: --project and --sample. Optional: --after, --limit (1-100) and --packet 1.";
     replay.summary = L"Read a verified page of archived WinAPI clues.";
-    replay.notes = L"Use the returned nextAfter as the next page's --after value.";
+    replay.notes = L"Use the returned nextAfter as the next page's --after value. Each row.rule contains classification and an optional bilingual behavior explanation evaluated from that verified packet. ruleProfile identifies the current replay rules; rule errors do not prevent reading the archived packet.";
     replay.run = RunReplay;
     addCommand(std::move(replay));
 }
