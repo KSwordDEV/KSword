@@ -945,6 +945,8 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\ArchivedSampleAnalysis.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\BehaviorPresetReplay.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentBehavior.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\OfflineSegmentBehaviorPresentation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\BehaviorRuleDraft.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\BehaviorRulesPage.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\LiveEtwCapture.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -3016,6 +3018,8 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Control\StopLedger.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ArchivedSampleAnalysis.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\BehaviorPresetReplay.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineSegmentBehavior.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\OfflineSegmentBehaviorPresentation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\BehaviorRuleDraft.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\BehaviorRulesPage.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.h"><Filter>Header Files</Filter></ClInclude>

@@ -515,6 +515,8 @@
     <ClCompile Include="ActionAnalyze\OfflineSegmentOverview.Objects.cpp" />
     <ClCompile Include="ActionAnalyze\OfflineObjectEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\OfflineSegmentReader.cpp" />
+    <ClCompile Include="ActionAnalyze\OfflineSegmentBehavior.cpp" />
+    <ClCompile Include="ActionAnalyze\OfflineSegmentBehaviorPresentation.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentBodies.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Archive\SegmentFormat.cpp" />
@@ -1165,6 +1167,8 @@
     <ClInclude Include="ActionAnalyze\OfflineSegmentOverview.h" />
     <ClInclude Include="ActionAnalyze\OfflineObjectEvidence.h" />
     <ClInclude Include="ActionAnalyze\OfflineSegmentReader.h" />
+    <ClInclude Include="ActionAnalyze\OfflineSegmentBehavior.h" />
+    <ClInclude Include="ActionAnalyze\OfflineSegmentBehaviorPresentation.h" />
     <ClInclude Include="ActionAnalyze\CallbackArchivePresentation.h" />
     <ClInclude Include="ActionAnalyze\ApiTransferPresentation.h" />
     <ClInclude Include="ActionAnalyze\ApiHandoffPresentation.h" />

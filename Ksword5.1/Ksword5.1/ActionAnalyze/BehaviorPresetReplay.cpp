@@ -82,7 +82,7 @@ PresetReplayResult ReadBehaviorPresets(const PresetReplayRequest& request, const
     const auto segment = sample
         ? ReadOfflineSegment(SampleRawSegmentPath(*sample), isCanceled, sample, kRuleReplaySegments,
             SegmentProjection::ApiClues)
-        : ReadOfflineSegment(request.path, isCanceled); // 独立段沿用原有读取配额与验证口径。
+        : ReadOfflineSegment(request.path, isCanceled, nullptr, 0, SegmentProjection::ApiClues); // 本入口自行求值，不额外生成总览行为窗口。
     PresetReplayResult result; // 只保留已核验证据和读取边界。
     result.end = segment.end;
     const bool verifiedFollow = sample && segment.checkpoint == SegmentCheckpoint::ApiRawVerified &&

@@ -2,6 +2,7 @@
 #include "CallbackArchivePresentation.h"
 #include "ObjectContextMenu.h"
 #include "NativeExecutionPresentation.h"
+#include "OfflineSegmentBehaviorPresentation.h"
 #include "../UI/StructuredFieldView.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -177,7 +178,7 @@ namespace
     }
 }
 
-// 归档关系借用当前有界快照；前两组索引事件表，后两组分别展开创建与 APC 双方原包。
+// 归档关系借用当前有界快照；行为组与普通 API 组分别索引同一原包，不生成第二份读档。
 class ArchiveRelationModel final : public QAbstractItemModel
 {
     using Groups = std::array<QList<qsizetype>, 2>; // 两组在当前快照中的行索引。
@@ -208,6 +209,7 @@ public:
         const bool hasGroups = !next[0].isEmpty() || !next[1].isEmpty() ||
             (snapshot && (!snapshot->transferCandidates.empty() || !snapshot->apcTransferCandidates.empty() ||
                 !snapshot->contextTransferCandidates.empty() || snapshot->evictedTransferWrites ||
+                snapshot->behavior.state != SegmentBehaviorState::NotRequested ||
                 snapshot->nativeExecution.state != Ksword::Evidence::NativeHistoryState::NotRequested)); // 原生失败和成功空结果也保留入口。
         if (sameScope && m_hasGroups && hasGroups &&
             m_snapshot->checkpoint == SegmentCheckpoint::ApiRawVerified && snapshot->checkpoint == SegmentCheckpoint::ApiRawVerified &&
@@ -222,7 +224,7 @@ public:
         endResetModel();
     }
 
-    // 十根含独立原生历史；200000为历史叶，不与候选双方或四类执行编号混用。
+    // 十一根含独立原生历史及行为；200000/300000 分别为历史叶和行为叶。
     QModelIndex index(int row, int column, const QModelIndex& parent = {}) const override
     {
         if (!hasIndex(row, column, parent))
@@ -230,6 +232,10 @@ public:
             return {};
         }
         // 执行候选使用独立 ID 空间，保留既有 API 三类分支的身份和定位语义。
+        if (parent.isValid() && parent.internalId() == 0 && parent.row() == 10)
+        {
+            return createIndex(row, column, quintptr(300000));
+        }
         if (parent.isValid() && parent.internalId() == 0 && parent.row() == 9)
         {
             return createIndex(row, column, quintptr(200000));
@@ -251,6 +257,10 @@ public:
     // 把叶项的内部 ID 转回分组节点，顶级分组没有父节点。
     QModelIndex parent(const QModelIndex& index) const override
     {
+        if (index.internalId() == 300000)
+        {
+            return createIndex(10, 0, quintptr(0));
+        }
         if (index.internalId() == 200000)
         {
             return createIndex(9, 0, quintptr(0));
@@ -277,7 +287,11 @@ public:
     {
         if (!parent.isValid())
         {
-            return m_hasGroups ? 10 : 0;
+            return m_hasGroups ? 11 : 0;
+        }
+        if (parent.internalId() == 300000)
+        {
+            return 0;
         }
         if (parent.internalId() == 200000)
         {
@@ -301,6 +315,10 @@ public:
         }
         if (parent.row() >= 2)
         {
+            if (parent.row() == 10)
+            {
+                return static_cast<int>(m_snapshot->behavior.matches.size());
+            }
             if (parent.row() == 9)
             {
                 return static_cast<int>(m_snapshot->nativeExecution.observations.size());
@@ -330,6 +348,12 @@ public:
     const SegmentRow* record(const QModelIndex& index, const SegmentSnapshot* snapshot) const
     {
         const auto groupId = index.internalId(); // 0 根，1/2 普通叶，3/4/5 候选父，6 起为双方叶项。
+        if (groupId == 300000)
+        {
+            const auto* match = behavior(index); // 行下标只属于模型当前持有的不可变快照。
+            return match && (!snapshot || snapshot == m_snapshot.get())
+                ? &m_snapshot->rows.at(match->rowOffset) : nullptr;
+        }
         if (groupId >= 100000)
         {
             const auto* candidate = execution(index, snapshot); // 原生分支 API 叶仍返回原行而不是投影行。
@@ -375,6 +399,16 @@ public:
         if (!index.isValid() || (role != Qt::DisplayRole && role != Qt::ToolTipRole))
         {
             return {};
+        }
+        if ((!index.internalId() && index.row() == 10) || index.internalId() == 300000)
+        {
+            if (!index.internalId())
+            {
+                return m_snapshot->behavior.state == SegmentBehaviorState::NotRequested
+                    ? sourceText(QStringLiteral("行为规则未请求")) : SegmentBehaviorStatus(m_snapshot->behavior);
+            }
+            const auto* match = behavior(index); // 只显示真实 behavior 命中，不使用普通分类代替。
+            return match ? SegmentBehaviorRowText(*match) : QString();
         }
         if ((!index.internalId() && index.row() == 9) || index.internalId() == 200000)
         {
@@ -521,6 +555,17 @@ public:
             : sourceText(QStringLiteral("来源上下文（%1）")).arg(count);
     }
 
+    // 输入当前树叶索引，返回同一快照拥有的行为结果；失败和未请求没有叶项。
+    const SegmentBehaviorMatch* behavior(const QModelIndex& index) const
+    {
+        if (!m_snapshot || index.model() != this || index.internalId() != 300000 || index.row() < 0 ||
+            index.row() >= m_snapshot->behavior.matches.size())
+        {
+            return nullptr;
+        }
+        return &m_snapshot->behavior.matches.at(index.row());
+    }
+
     // 更新本地化投影时保留展开状态与当前叶项。
     void retranslate()
     {
@@ -561,7 +606,8 @@ public:
     const Ksword::Evidence::ApiNativeExecutionCandidate<SegmentRow>* execution(
         const QModelIndex& index, const SegmentSnapshot* snapshot) const
     {
-        if (!m_snapshot || (snapshot && snapshot != m_snapshot.get()) || index.model() != this || index.internalId() < 100000)
+        if (!m_snapshot || (snapshot && snapshot != m_snapshot.get()) || index.model() != this ||
+            index.internalId() < 100000 || index.internalId() == 300000)
         {
             return nullptr;
         }
@@ -588,6 +634,11 @@ public:
         if (!index.parent().isValid())
         {
             return QStringLiteral("root:%1").arg(index.row());
+        }
+        if (const auto* match = behavior(index))
+        {
+            return QStringLiteral("behavior:%1:%2:%3:%4:%5").arg(match->segment).arg(match->rawSequence)
+                .arg(match->sourceSequence).arg(QString::fromStdString(match->behavior.ruleId), m_snapshot->behavior.sourceSha256);
         }
         if (const auto* entry = history(index))
         {
@@ -619,6 +670,18 @@ private:
     // 候选拓扑未变时才能复用旧树持久索引；来源计数变化通过根文字刷新。
     bool sameCandidates(const SegmentSnapshot& next) const
     {
+        const auto& beforeBehavior = m_snapshot->behavior; // 旧快照中的规则内容身份与行为叶顺序。
+        const auto& afterBehavior = next.behavior; // 新快照下标允许变化，叶项仍须对应原坐标。
+        if (beforeBehavior.state != afterBehavior.state || beforeBehavior.error != afterBehavior.error ||
+            beforeBehavior.sourceSha256 != afterBehavior.sourceSha256 ||
+            !std::ranges::equal(beforeBehavior.matches, afterBehavior.matches,
+                [](const SegmentBehaviorMatch& before, const SegmentBehaviorMatch& after) {
+                    return before.segment == after.segment && before.rawSequence == after.rawSequence &&
+                        before.sourceSequence == after.sourceSequence && before.behavior.ruleId == after.behavior.ruleId;
+                }))
+        {
+            return false; // 拓扑或规则改变才重置，稳定叶项继续沿用原增量发布链。
+        }
         if (!m_snapshot->nativeExecution.observations.empty() || !next.nativeExecution.observations.empty() ||
             !m_snapshot->nativeExecution.candidates.empty() || !next.nativeExecution.candidates.empty() ||
             m_snapshot->nativeExecution.state != next.nativeExecution.state)
@@ -679,6 +742,7 @@ private:
         // 同时切换两组保留叶项的下标，保证新增信号期间只借用这份新快照。
         m_snapshot = snapshot;
         emit dataChanged(index(2, 0), index(4, 0), {Qt::DisplayRole, Qt::ToolTipRole});
+        emit dataChanged(index(10, 0), index(10, 0), {Qt::DisplayRole, Qt::ToolTipRole}); // 行为数与分析窗口随同一快照刷新。
         for (int group = 0; group < static_cast<int>(m_groups.size()); ++group)
         {
             auto& members = m_groups[group]; // 仍存的叶项由 Qt 持久索引保持选中。
@@ -845,6 +909,13 @@ QWidget* OfflineSegmentOverview::createObjectEvidence(QWidget* parent)
                     selectNativeExecution(*candidate);
                 }
             }
+            else if (m_archiveRelationModel->behavior(index))
+            {
+                if (const auto* row = m_archiveRelationModel->record(index, m_snapshot.get()))
+                {
+                    selectRecord(RowAnchor(*row), false); // 鼠标或方向键选择沿原 API 字段详情入口。
+                }
+            }
         });
     updateExecutionDraftActions(); // 首次无来源时禁用动作，不将空树冒充可执行草稿。
     retranslateArchiveRelations();
@@ -886,7 +957,7 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
     std::optional<std::pair<SegmentRowAnchor, SegmentRowAnchor>> selectedCandidate; // 重叠候选需双方坐标区分所在分支。
     int selectedGroup = -1; // 普通叶项恢复到原分类，候选叶项不跳到同坐标的普通行。
     bool selectedRoot = false; // 分类根的键盘选择也在模型重置后保留。
-    std::array<bool, 10> expanded{}; // 原有候选与独立历史分别恢复。
+    std::array<bool, 11> expanded{}; // 原有候选、独立历史与行为组分别恢复。
     QString selectedNativeKey; // 完整分支来源键，不将原生坐标误作 API 坐标。
     QSet<QString> expandedNativeKeys; // 新旧模型之间不保存节点地址或 QModelIndex。
     std::array<QList<std::pair<SegmentRowAnchor, SegmentRowAnchor>>, 3> expandedCandidates; // 类型及双方坐标共同区分候选。
@@ -914,7 +985,7 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
             selected = RowAnchor(*row);
             const auto parent = current.parent(); // 普通叶项的分类根，或候选叶项的候选父项。
             selectedGroup = parent.parent().isValid() ? parent.parent().row() : parent.row();
-            if (selectedGroup >= 2)
+            if (selectedGroup >= 2 && selectedGroup < 5)
             {
                 const auto* write = m_archiveRelationModel->record(m_archiveRelationModel->index(0, 0, parent), nullptr);
                 const auto* create = m_archiveRelationModel->record(m_archiveRelationModel->index(1, 0, parent), nullptr);
@@ -928,7 +999,7 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
         {
             selectedRoot = !current.parent().isValid();
             selectedGroup = selectedRoot ? current.row() : current.parent().row();
-            if (!selectedRoot && selectedGroup >= 2)
+            if (!selectedRoot && selectedGroup >= 2 && selectedGroup < 5)
             {
                 const auto* write = m_archiveRelationModel->record(m_archiveRelationModel->index(0, 0, current), nullptr);
                 const auto* create = m_archiveRelationModel->record(m_archiveRelationModel->index(1, 0, current), nullptr);
@@ -1018,6 +1089,15 @@ void OfflineSegmentOverview::updateArchiveRelations(bool sameScope)
     for (int member = 0; member < m_archiveRelationModel->rowCount(historyRoot); ++member)
     {
         const auto leaf = m_archiveRelationModel->index(member, 0, historyRoot); // 新快照的历史叶。
+        if (!selectedNativeKey.isEmpty() && selectedNativeKey == m_archiveRelationModel->identity(leaf))
+        {
+            m_archiveRelationTree->setCurrentIndex(leaf);
+        }
+    }
+    const auto behaviorRoot = m_archiveRelationModel->index(10, 0); // 行为叶还须匹配同一规则内容身份。
+    for (int member = 0; member < m_archiveRelationModel->rowCount(behaviorRoot); ++member)
+    {
+        const auto leaf = m_archiveRelationModel->index(member, 0, behaviorRoot); // 新冻结窗口中的行为结果。
         if (!selectedNativeKey.isEmpty() && selectedNativeKey == m_archiveRelationModel->identity(leaf))
         {
             m_archiveRelationTree->setCurrentIndex(leaf);
@@ -1128,6 +1208,12 @@ void OfflineSegmentOverview::updateObjectEvidence(const SegmentRow* row, bool fi
         if (!nativeStatus.isEmpty())
         {
             m_archiveRelationStatus->setText(m_archiveRelationStatus->text() + u' ' + nativeStatus);
+        }
+        if (m_snapshot->behavior.state != SegmentBehaviorState::NotRequested)
+        {
+            // 规则加载失败保留原始诊断；成功空结果明确显示当前窗口零命中。
+            m_archiveRelationStatus->setText(m_archiveRelationStatus->text() + u' ' +
+                SegmentBehaviorStatus(m_snapshot->behavior));
         }
     }
     const bool viewing = m_viewedObject && matchesSample(*m_viewedObject); // 显式查看的对象身份。

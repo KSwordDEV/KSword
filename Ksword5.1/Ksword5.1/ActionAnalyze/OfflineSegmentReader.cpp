@@ -1226,8 +1226,17 @@ SegmentSnapshot ReadOfflineSegment(const QString& path, const CancelCheck& isCan
         {
             snapshot.sampleDescriptionHash = expected->sample.descriptionHash;
         }
+        if (projection == SegmentProjection::Overview)
+        {
+            ProjectOfflineSegmentBehavior(snapshot, isCanceled); // 原后台读档完成后只投影最终窗口一次。
+        }
         return snapshot;
     }
-    return ReadStandalone(path, isCanceled, expected);
+    auto snapshot = ReadStandalone(path, isCanceled, expected); // 独立段沿用原包解码结果。
+    if (projection == SegmentProjection::Overview)
+    {
+        ProjectOfflineSegmentBehavior(snapshot, isCanceled);
+    }
+    return snapshot;
 }
 }

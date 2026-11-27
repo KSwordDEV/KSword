@@ -2,6 +2,7 @@
 #include "NativeExecutionPresentation.h"
 #include "CallbackArchivePresentation.h"
 #include "ApiTransferPresentation.h"
+#include "OfflineSegmentBehaviorPresentation.h"
 #include "LiveEtwCapture.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -1535,6 +1536,8 @@ void OfflineSegmentOverview::updateDetails()
                 {
                     document.note(QStringLiteral("目标身份、实际写入范围、执行和归因未知。"));
                 }
+                // 原行为树与 API 表行共用同一份冻结证据，语言切换只更新显示。
+                AppendSegmentBehaviorFields(document, *m_snapshot, *selected);
                 m_details->setDocument(document);
                 return;
             }

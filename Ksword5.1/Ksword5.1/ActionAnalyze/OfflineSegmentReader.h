@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OfflineProjectReader.h"
+#include "OfflineSegmentBehavior.h"
 #include "../../../KswordCLI/ActionAnalyze/Archive/NetworkEvidenceArchive.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectCallbackEvidence.h"
 #include "../../../shared/evidence/ApiMonitorClue.h"
@@ -226,6 +227,7 @@ namespace ks::action_analyze
         quint64 evictedSectionMaps = 0; // 范围及入口请求输入的累计裁剪数，沿用旧字段名。
         Ksword::Evidence::ApiNativeExecutionProjection<SegmentRow> nativeExecution; // 同采样后台执行候选与状态。
         bool nativeHistoryOnly = false; // 采样只有独立原生历史，普通raw缺失不伪造API/ETW终段。
+        SegmentBehaviorProjection behavior; // 原后台读取最终窗口中的真实行为命中及规则失败状态。
     };
 
     // 从已冻结的目录请求计算 raw/1 的规范路径，非法项目或采样标识返回空字符串。
