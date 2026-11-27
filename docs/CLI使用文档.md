@@ -221,6 +221,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 每条准入的 `handoffKind` 保留原请求类型。`entryObservation` 只有在同一目标 PID＋创建时间、实际 `instructionAddress` 精确等于该请求入口，且 `raw-native` 已封段核验成功后才填写；包含实际线程 TID＋创建时间、观察阶段、段号、记录序号及 SHA256。未观察到入口时为 `null`，不能拿 `armed` 或范围目录替代执行。它表示入口一致性，不证明该 API 导致执行。`nativePageAdvanceScope=target-owner-latest` 明确原 `nativePageAdvance` 是目标 owner 最后状态，不是每条准入各自的执行线程；同进程第二范围不能借此改写首范围的 `entryObservation`。此共享回执同时供 CLI、Qt 和 Light 使用。
 
+`requestOperationId` 区分同一来源向同一地址发起的不同交接；同一次 Pending 重连沿用原编号。Agent 的 `ActionAnalyze!TransferHandoff` 原包在结构化 `operationId` 中保存该编号，关联时同时核对来源 PID、创建时间和会话，不能只按裸编号跨来源匹配。一次内存操作覆盖多个私有执行区域时可产生多个交接编号。已有范围被改回执行保护时仍由原 owner 恢复 NX；在 Held 事件内恢复保护不释放该事件，也不消费继续或单步令牌。扫描以每次 ACK 的实际范围终点重新查询未覆盖尾部，避免系统合并区域后跳过相邻的新执行页。
+
 自动接管中的来源随后通过 `CreateThread`、同进程 `NtCreateThreadEx`、APC 或上下文入口调度私有代码时，也复用同一调用前屏障自动追加范围。普通模块入口不发同进程交接请求；已有 NX 私有入口不因当前 X 位被去掉而漏掉复用。来源 Agent 保留原会话，真实新线程仍由原 debug owner 的创建事件纳入覆盖与恢复账。此接续仅覆盖已 Hook 的调度入口，不代表任意 CPU 写入产生的新区域都能自动发现。
 
 远程分配、改保护成功后的新执行区域沿同一同步端点自动接管。`WriteProcessMemory` 和直接 `NtWriteVirtualMemory` 成功后，也会对安全读回的实际写入前缀检查当前 `MEM_PRIVATE` 执行保护，使写入既有执行页不必等下一次改保护或调度 API 才建立 owner。目标身份不稳定、缺实际完成长度、零长度或超出请求长度时不以请求范围补造写入；本地写入和非执行页不走此发现入口。交接发生在原内存操作成功之后、Hook 返回之前，不能据此声称原系统调用前已设防或消除了并发执行窗口。新写入入口需由对应 Agent 构建与实测覆盖，旧回执不自动适用。
