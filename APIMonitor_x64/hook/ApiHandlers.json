@@ -815,6 +815,7 @@
   "HookedOpenTraceA",
   "HookedOpenTraceW",
   "HookedQueueUserAPC",
+  "HookedQueueUserAPC2",
   "HookedReadFile",
   "HookedReadFileEx",
   "HookedReadProcessMemory",

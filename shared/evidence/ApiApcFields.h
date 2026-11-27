@@ -198,7 +198,8 @@ inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitor
         }
         return packet.resultCode >= 0 ? ApiApcQueueOutcome::Accepted : ApiApcQueueOutcome::Failed;
     }
-    if (api != L"QueueUserAPC" ||
+    // 两个Win32入口均以非零返回表示入队已接受；特殊APC标志不改变执行证据边界。
+    if ((api != L"QueueUserAPC" && api != L"QueueUserAPC2") ||
         (!moduleIs(L"kernelbase") && !moduleIs(L"kernelbase.dll") &&
          !moduleIs(L"kernel32") && !moduleIs(L"kernel32.dll")) || packet.hookAddress > UINT32_MAX ||
         (packet.hookAddress && packet.resultCode)) {

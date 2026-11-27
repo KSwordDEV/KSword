@@ -3310,6 +3310,31 @@ namespace apimon
             return resultValue;
         }
 
+        // QueueUserAPC2 的特殊 APC 也可能立即投递，必须在原调用前同步交接。
+        // 保留 SDK 签名和全部原参数；AAAP1 仅记录入队请求及真实目标代次，不证明执行。
+        BOOL WINAPI HookedQueueUserAPC2(PAPCFUNC callback, HANDLE thread, ULONG_PTR data, QUEUE_USER_APC_FLAGS flags)
+        {
+            ScopedHookGuard guardValue; // 覆盖身份查询、交接及内部 Nt APC Hook，避免重复观察。
+            if (guardValue.bypass()) {
+                return g_queueUserAPC2Original(callback, thread, data, flags);
+            }
+            ApiApcObservation observation(thread, reinterpret_cast<std::uintptr_t>(callback), data);
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                reinterpret_cast<std::uintptr_t>(callback), ks::winapi_monitor::TransferHandoffKind::Apc);
+            const auto callClock = BeginApiCallClock(); // 交接等待不计入原 API 耗时。
+            observation.MarkEntry();
+            const BOOL resultValue = g_queueUserAPC2Original(callback, thread, data, flags);
+            const DWORD lastError = ::GetLastError(); // 先冻结原调用错误，观察及发包后恢复。
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock);
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"QueueUserAPC2",
+                resultValue != FALSE ? 0 : lastError, L"", true, ApiReturnBits(resultValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, &observation.fields());
+            ::SetLastError(lastError);
+            return resultValue;
+        }
+
         // HookedGetThreadContext 作用：
         // - 输入：线程句柄和 CONTEXT 输出缓冲；
         // - 处理：记录线程上下文读取，便于识别调试/劫持前置动作；

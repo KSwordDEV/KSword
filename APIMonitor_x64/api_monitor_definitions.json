@@ -40141,9 +40141,8 @@
         "scope": "targets"
       },
       "wrapper": {
-        "kind": "generated",
-        "policy": "bool",
-        "capture_handler": "CaptureQueueUserAPC2"
+        "kind": "special",
+        "handler": "HookedQueueUserAPC2"
       }
     },
     {

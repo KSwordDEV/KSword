@@ -281,7 +281,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `analyze execution memory-range --project PATH --sample UUID --api-ordinal N --native-ordinal N [--after N --limit N] [--json]` 关联同采样AAIM1分配／保护成功输出与独立原生指令观察。两路从首段核验，API最多128段、原生最多4096段；API观察分页默认100、最多4096，零匹配仍保留原`nextAfter`。要求源创建时间、稳定目标PID＋创建FILETIME及完整实际输出范围，实际指令起点落入该半开范围；Free／Unmap、失败及缺输出不匹配。输出保留两路坐标、散列和各自原时钟，不宣称调用导致执行、区域/内容版本、当前仍分配或MEM_PRIVATE。Qt／Light原生一致性树的“内存范围（映射／分配／保护）”使用同一核心，最近128条范围输入共享窗口、最多512个匹配结果；独立原生历史不受是否匹配影响。原`analyze execution map`仍只查询节映射；本扩展源码待验。
 
-`analyze execution entry` 独立接受成功的AAIP1 `CreateRemoteThread/NtCreateThreadEx`、已接受的AAAP1 `QueueUserAPC/NtQueueApcThread`、已接受且含AMD64 CONTROL请求的AACT1 `SetThreadContext/NtSetContextThread`。要求来源创建代次、稳定目标PID＋创建FILETIME、目标TID＋创建FILETIME完整，且原生实际指令起点**精确等于**请求入口／例程／IP；不要求先捕获写入，也不退化为同进程、同页或仅地址匹配。同进程请求、失败、缺字段、WOW64上下文及错误线程代次不匹配。原生进入尝试与单条完成保持原阶段，不把API接受或同地址观察解释为APC投递、上下文已生效、共同源时钟或因果。输出保留两路坐标、段散列、原时钟及请求字段；`writeObserved=false` 只表示本候选未绑定写入，不能解释为没有发生写入。
+`analyze execution entry` 独立接受成功的AAIP1 `CreateRemoteThread/CreateRemoteThreadEx/NtCreateThreadEx`、已接受的AAAP1 `QueueUserAPC/QueueUserAPC2/NtQueueApcThread/NtQueueApcThreadEx`、已接受且含AMD64 CONTROL请求的AACT1 `SetThreadContext/NtSetContextThread`。`QueueUserAPC2` 在原调用前同步交接私有范围，特殊APC也不等原调用返回后才布防。要求来源创建代次、稳定目标PID＋创建FILETIME、目标TID＋创建FILETIME完整，且原生实际指令起点**精确等于**请求入口／例程／IP；不要求先捕获写入，也不退化为同进程、同页或仅地址匹配。同进程请求、失败、缺字段、WOW64上下文及错误线程代次不匹配。原生进入尝试与单条完成保持原阶段，不把API接受或同地址观察解释为APC投递、上下文已生效、共同源时钟或因果。输出保留两路坐标、段散列、原时钟及请求字段；`writeObserved=false` 只表示本候选未绑定写入，不能解释为没有发生写入。
 
 Qt／Light沿原归档后台读任务保存最近128条完整入口请求，独立于最近128条范围请求窗口；整段核验后才赋予API段摘要并发布。原生一致性树沿用线程创建／APC／上下文三个根，已有完整写入链匹配的同一请求/原生事件不另加无写入副本，其他精确入口匹配以空写入、原请求和完整原生文档呈现。三端不新增owner或采集循环；桌面总候选仍最多512条，状态中的“请求输入淘汰”包含两个窗口的淘汰数。`execution correlate/map/memory-range` 的既有判据不改变。此扩展仅源码接线，未构建、实测或GUI验收。
 
