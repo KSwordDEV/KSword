@@ -1,6 +1,6 @@
 # Memory Index
 
-- **2026-11-27 当前优先级。** 用户明确「你把第八个弄完过后就去直接打通456」。第8项配套ETW运行中分段/尾包排空及有限时长历史回读源码收尾后，集中4/5/6自动接管、脏页新线程和统一下断恢复；GUI继续后置。最新整合真实目标stubRan=true/counter=1/exit0且清退成立，B仍因CLI6失败，发布规则函数名已修d2ac3532c待复核。当前用户允许CodeBuddy额度消耗可不计，旧数量限制为历史；测试/夹具/回执全交CodeBuddy，主协调继续写核心。详见[工程记录](ksword-action-analyze-engineering.md)。
+- **2026-11-27 当前优先级。** 用户明确「你把第八个弄完过后就去直接打通456」。集中4/5/6自动接管、脏页新线程和统一下断恢复；GUI继续后置。etw-stream回执已确认发布规则修正生效、持续ETW9普通段+1终段与历史回读通过；B目标stubRan/counter/exit0与清退成立，但配套ETW零观察使CLI退出3。9f0b1d35f修正显式附加遗漏生命周期ETW及STOP前零回调误判，CodeBuddy本批一次两Agent+CLI构建和原B待回执，后接456两跳/同进程新范围。053a33b6c/5a429796e已提交本地私有线程调用前设防、暂停归还及Close语义。额度消耗可不计，旧数量限制为历史；测试/夹具/回执全交CodeBuddy，主协调写核心。详见[工程记录](ksword-action-analyze-engineering.md)。
 
 - **2026-11-27 凌晨源码接续。** 用户要求主协调直接写核心，仍用stop-that-shit，测试/脚本/回执交CodeBuddy且GUI后置。`98f018cb4`在ReceiveBreakpoint最先冻结所选线程异常CONTEXT，Observe/叠加TF共用原值，新增observedFlags/observedDr7供解释零DR6，不改变未知异常分派。`3f41e3c2f`自有Agent ETW单来源追加报头PID、三端参数及混合计划/读取、双语，`dfa9d06ef`保留APC2原flags并兼容14/15/16字段AAAP1、三端详情，`e8769313e`ETW先封段再把独立agentEtw结果写入API终段并复用三端同一文档，均已本地提交未推送。新CodeBuddy异常原值任务`sh_21b2548f1001sDFyGw787OfnyS`仅一次CLI增量(跳引用复用旧Agent)、B一次、i18n一次，等自动最终回执；后续APC2/终段增量不借其旧Agent或不明编译时序算通过。原用户脏文件仍保留。当前重点仍为NX第一条指令后中断，待原始事件值定位；全部目标未完成，不停止开发。
 
