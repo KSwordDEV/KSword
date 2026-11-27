@@ -130,6 +130,26 @@ bool CooperativeEtwReceipt::Incomplete() const noexcept
         source.queueDropped || source.payloadTruncated || source.malformedPayload;
 }
 
+// 输入本轮独立ETW终态；输出完整阶段和原生来源，历史回放不查询当前PID或新会话。
+Evidence::JsonValue ApiCaptureEtwJson(const std::optional<CooperativeEtwReceipt>& receipt)
+{
+    if (!receipt)
+    {
+        return JsonValue::makeNull();
+    }
+    const auto result = [](const ProjectResult& status) { // 每个阶段保留自己的失败码和错误位置。
+        return Object({{"ok", JsonValue::makeBool(static_cast<bool>(status))},
+            {"error", Text(ProjectErrorName(status.error))}, {"detail", Text(status.detail)},
+            {"nativeError", JsonValue::makeUInt(status.nativeError)}});
+    };
+    const auto& etw = *receipt; // 只借用同一次采集已清退的来源和已发布检查点。
+    return Object({{"receiptAvailable", JsonValue::makeBool(true)}, {"source", EtwSourceReceipt(etw.source)},
+        {"setup", result(etw.setup)}, {"started", JsonValue::makeBool(etw.started)},
+        {"stopped", JsonValue::makeBool(etw.stopped)}, {"archive", result(etw.archiveStatus)},
+        {"checkpoint", result(etw.checkpointStatus)}, {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())},
+        {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
+}
+
 Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup)
 {
     if (!startup)
@@ -578,6 +598,20 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             out.capture.errors.emplace_back(L"network capture incomplete; inspect networkTraffic receipt");
         }
     }
+    // 先清退和封存ETW，API终段才能冻结其独立结果；两路仍复用原worker串行写入。
+    if (etwSource && etwTarget) {
+        auto& etw = *out.etw;
+        etw.stopped = etwSource->stop();
+        etw.source = etwSource->status();
+        if (etw.started && etw.stopped) {
+            const auto etwPlan = AgentEtwPlan(etwSample, target, etwEpoch, etw.source, etwOptions);
+            const auto* reason = out.capture.cancelled ? "cancelled" :
+                out.capture.completedInterval ? "duration-limit" : "cooperative-ended";
+            etw.archiveStatus = CommitFiniteEtwEvidence(document, out.sample.sampleId, ProjectEvidenceLane::MixedEtw,
+                etwPlan, reason, *etwSource, etw.raw, etw.checkpointStatus);
+            etw.source = etwSource->status();
+        }
+    }
     if (out.archiveStatus && !out.capture.processes.empty() && out.capture.processes.front().connected) {
         const auto& process = out.capture.processes.front(); // 合作入口固定单个进程实例。
         if (plan.empty()) {
@@ -590,6 +624,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             {"startup", ApiCaptureStartupJson(out.capture.startup)},
             {"transferHandoff", out.transferHandoff},
             {"networkTraffic", ApiCaptureNetworkJson(out.networkTraffic)},
+            {"agentEtw", ApiCaptureEtwJson(out.etw)},
             {"source", Object({{"kind", Text("cooperative-pipe")}, {"readerPid", JsonValue::makeUInt(process.pid)},
                 {"readerCreation100ns", Number(process.creation)}, {"sessionIdentity", Number(process.session)},
                 {"validatedRows", Number(out.ordinaryPackets)}, {"agentReportedDrops", Number(process.agentDropped)},
@@ -610,19 +645,6 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         commit(end);
     }
     out.omittedClues = receivedClues - out.retainedClues;
-    if (etwSource && etwTarget) {
-        auto& etw = *out.etw; // 原生状态与 API 管道回执分别保存。
-        etw.stopped = etwSource->stop();
-        etw.source = etwSource->status();
-        if (etw.started && etw.stopped) {
-            const auto etwPlan = AgentEtwPlan(etwSample, target, etwEpoch, etw.source, etwOptions); // 冻结 ETW 段头。
-            const auto* reason = out.capture.cancelled ? "cancelled" :
-                out.capture.completedInterval ? "duration-limit" : "cooperative-ended"; // API 区间结束原因。
-            etw.archiveStatus = CommitFiniteEtwEvidence(document, out.sample.sampleId, ProjectEvidenceLane::MixedEtw,
-                etwPlan, reason, *etwSource, etw.raw, etw.checkpointStatus);
-            etw.source = etwSource->status();
-        }
-    }
     out.capture.elapsedMs = GetTickCount64() - captureStarted; // 包含网络与ETW实际清退/封段；Ready区间仍用intervalElapsedMs。
     return out;
 }

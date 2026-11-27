@@ -37,26 +37,6 @@ namespace
         return field && field->tryGetU64(value) ? value : 0;
     }
 
-    // 原worker在采集Close后调用；输入独立ETW回执，输出保留来源全文及各阶段的规范JSON。
-    Json AgentEtwReceipt(const std::optional<project::CooperativeEtwReceipt>& receipt)
-    {
-        if (!receipt)
-        {
-            return Json::makeObject({{"receiptAvailable", Json::makeBool(false)}, {"incomplete", Json::makeBool(true)}});
-        }
-        const auto result = [](const project::ProjectResult& status) { // 阶段错误独立保存，不从API状态推断。
-            return Json::makeObject({{"ok", Json::makeBool(static_cast<bool>(status))},
-                {"error", Json::makeString(project::ProjectErrorName(status.error))},
-                {"detail", Json::makeString(status.detail)}, {"nativeError", Json::makeUInt(status.nativeError)}});
-        };
-        const auto& etw = *receipt; // 仅借用本轮已关闭来源，不读取现场或页面草稿。
-        return Json::makeObject({{"receiptAvailable", Json::makeBool(true)},
-            {"source", project::EtwSourceReceipt(etw.source)}, {"setup", result(etw.setup)},
-            {"started", Json::makeBool(etw.started)}, {"stopped", Json::makeBool(etw.stopped)},
-            {"archive", result(etw.archiveStatus)}, {"checkpoint", result(etw.checkpointStatus)},
-            {"flushed", Json::makeBool(etw.raw.flushed.has_value())}, {"incomplete", Json::makeBool(etw.Incomplete())}});
-    }
-
     // 给启动失败保留所属阶段、项目错误和原生错误码，供 GUI 诊断。
     QString StartError(backend::PassiveApiStartStage stage, const project::ProjectResult& result)
     {
@@ -373,7 +353,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     document.Close(); // 回读前先交还写租约。
     if (m_request.captureAgentEtw || run.etw)
     {
-        out.agentEtw = QString::fromStdString(Ksword::Evidence::WriteJson(AgentEtwReceipt(run.etw)));
+        out.agentEtw = QString::fromStdString(Ksword::Evidence::WriteJson(project::ApiCaptureEtwJson(run.etw)));
         out.incomplete = out.incomplete || !run.etw || run.etw->Incomplete(); // API成功不能清除ETW缺口。
     }
     if (m_request.networkTraffic || run.networkTraffic)

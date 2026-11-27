@@ -96,6 +96,8 @@ using CooperativeApiStartup = std::function<void(const ks::winapi_monitor::Captu
 Evidence::JsonValue ApiCaptureStartupJson(const std::optional<ks::winapi_monitor::CaptureStartupProgress>& startup);
 // 输入同采样网络终态，输出三端共用JSON；未启用时返回null，不重新查询现场。
 Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCaptureReceipt>& network);
+// 三端与API终段共用同一ETW结果文档；缺回执返回null，阶段失败不被API成功覆盖。
+Evidence::JsonValue ApiCaptureEtwJson(const std::optional<CooperativeEtwReceipt>& receipt);
 CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const CooperativeApiRequest& target,
     const std::atomic_bool& cancel, const CooperativeApiReady& onReady = {},
     const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {},

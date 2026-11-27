@@ -199,6 +199,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 三个实时 API 入口均可使用 `--agent-etw 1`，在根 Agent Ready 前启动 KSword 自有生命周期 Provider，使用原项目写者向同一采样的 `raw-etw`、`records-etw` 和 `checkpoints-etw` 写入。与 `--auto-transfer` 同用时，强实例准入后的目标报头 PID 在调用前 ACK 之前追加到同一 ETW 来源，不重启会话、不丢弃已入队记录；根退出后沿原 API 整链生命周期清退。计划和来源回执中的 `headerPidFilters` 保存实际筛选目录；原 `headerPid/processCreationFileTime` 仍描述根请求，不能套用为每条子来源事件的创建身份。旧单 PID 计划继续按原规则读取。追加或来源失败由 ETW 独立结果报告，不撤销原生接管。
 
+API 终段的 `agentEtw` 保存同次 ETW 的 setup、来源、清退、归档及检查点结果；先完成 ETW 清退封段，再发布 API 终段。Qt／Win32 活采详情与此字段使用同一文档投影，历史回放无需查询当前进程。未启用时为 `null`，旧归档缺少该字段不推定已启用或已成功。
+
 `QueueUserAPC2` 的调用前接管沿 AAAP1 保存请求例程、data 和独立 `queueFlags`。原包回放及入口关联 JSON 仅在调度标志有效位存在时返回 `queueFlags`，因此旧 Agent 未采集的值为 `null`，新 Agent 明确传入的零仍为 `0`。解码兼容原14字段、含 Reserve 的15字段及追加调度标志的16字段布局；入队成功仍不表示已投递或执行。
 
 `api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒；`--duration-ms 0` 持续到控制台取消（Ctrl+C／Ctrl+Break）或该目标实例退出，启动就绪及停止清退仍受各自超时约束。持续模式的 `completedInterval` 始终为 `false`，明确停止或目标退出沿用部分采样退出码 `6`，分别以 `cancelled`、`targetExited` 和独立清退回执说明实际结果。普通 `monitor api capture` 仍只接受原有有限时范围。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。

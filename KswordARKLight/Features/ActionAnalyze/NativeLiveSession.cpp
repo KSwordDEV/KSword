@@ -64,27 +64,6 @@ namespace Passive = ks::cli::action_analyze;
 using Ksword::Evidence::JsonValue;
 using ks::r3::process::Utf8ToWide;
 
-// 原worker在采集Close后调用；输入独立ETW回执，输出完整来源及各阶段事实，不查询当前进程。
-JsonValue AgentEtwReceipt(const std::optional<Ksword::ActionAnalyze::CooperativeEtwReceipt>& receipt)
-{
-    namespace Project = Ksword::ActionAnalyze;
-    if (!receipt)
-    {
-        return JsonValue::makeObject({{"receiptAvailable", JsonValue::makeBool(false)}, {"incomplete", JsonValue::makeBool(true)}});
-    }
-    const auto result = [](const Project::ProjectResult& status) { // 归档及检查点错误分别保存，API状态不能覆盖。
-        return JsonValue::makeObject({{"ok", JsonValue::makeBool(static_cast<bool>(status))},
-            {"error", JsonValue::makeString(Project::ProjectErrorName(status.error))},
-            {"detail", JsonValue::makeString(status.detail)}, {"nativeError", JsonValue::makeUInt(status.nativeError)}});
-    };
-    const auto& etw = *receipt; // 本轮Close后的冻结来源，不从草稿补值。
-    return JsonValue::makeObject({{"receiptAvailable", JsonValue::makeBool(true)},
-        {"source", Project::EtwSourceReceipt(etw.source)}, {"setup", result(etw.setup)},
-        {"started", JsonValue::makeBool(etw.started)}, {"stopped", JsonValue::makeBool(etw.stopped)},
-        {"archive", result(etw.archiveStatus)}, {"checkpoint", result(etw.checkpointStatus)},
-        {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())}, {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
-}
-
 std::string ReportString(const JsonValue& report, std::string_view name) {
     std::string value;
     if (const auto* field = report.find(name)) (void)field->tryGetString(value);
@@ -685,7 +664,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     if (request.api->captureAgentEtw || run.etw)
                     {
                         // 原采集已Close；全文保留setup/archive/checkpoint及Incomplete，页面沿原详情复制导出。
-                        api.agentEtw = Utf8ToWide(Ksword::Evidence::WriteJson(AgentEtwReceipt(run.etw)));
+                        api.agentEtw = Utf8ToWide(Ksword::Evidence::WriteJson(Project::ApiCaptureEtwJson(run.etw)));
                     }
                     ApplyCooperativeReceipt(next, run);
                     if (last.processError)
