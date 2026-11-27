@@ -3171,13 +3171,12 @@ namespace apimon
             return resultHandle;
         }
 
-        // 远程内存操作成功后调用：只发现私有可执行范围，沿原同步端点自动解析和设防，无返回值。
-        // 不接管本进程改保护，避免把当前Hook/助手正在执行的页纳入本次同步等待。
-        void PrepareRemoteExecutableRegion(HANDLE processHandle, const void* address, SIZE_T bytes, DWORD protection)
+        // 输入原远程句柄和已完成操作的实际范围，只按实时回读的MEM_PRIVATE执行页交接。
+        // 分配、改保护与写入共用此扫描；不接管当前Hook/助手自身所在进程。
+        void PrepareRemotePrivateExecutableRange(HANDLE processHandle, const void* address, SIZE_T bytes)
         {
             const DWORD savedError = GetLastError(); // 观察查询及交接不得改变原内存API的LastError。
-            if (ActiveConfig().transferHandoff.pipeName.empty() || !address || !bytes ||
-                !(protection & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+            if (ActiveConfig().transferHandoff.pipeName.empty() || !address || !bytes)
             {
                 return;
             }
@@ -3214,6 +3213,33 @@ namespace apimon
                 }
             }
             SetLastError(savedError);
+        }
+
+        // 分配/改保护入口先用原请求快速排除非执行操作；实际状态仍交共享扫描重新核验。
+        void PrepareRemoteExecutableRegion(HANDLE processHandle, const void* address, SIZE_T bytes, DWORD protection)
+        {
+            if (protection & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))
+            {
+                PrepareRemotePrivateExecutableRange(processHandle, address, bytes);
+            }
+        }
+
+        // 成功写入既有执行页也须自动接管，不能要求随后一定出现改保护或新线程API。
+        // 输入安全回读的AAIP1实际长度和强身份；缺长度时保持原证据未知，不用请求长度补造。
+        void PrepareWrittenExecutableRegion(HANDLE processHandle, const Ksword::Evidence::ApiInjectionFieldsV1& fields)
+        {
+            constexpr auto required = Ksword::Evidence::ApiInjectionTargetIdentity |
+                Ksword::Evidence::ApiInjectionTargetStable | Ksword::Evidence::ApiInjectionCompletedLength;
+            if ((fields.flags & required) != required || !fields.completedBytes ||
+                fields.completedBytes > fields.requestedBytes ||
+                static_cast<std::uint64_t>(static_cast<std::uintptr_t>(fields.address)) != fields.address ||
+                static_cast<std::uint64_t>(static_cast<SIZE_T>(fields.completedBytes)) != fields.completedBytes)
+            {
+                return;
+            }
+            PrepareRemotePrivateExecutableRange(processHandle,
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(fields.address)),
+                static_cast<SIZE_T>(fields.completedBytes)); // 只扫描实际写入前缀，不扩大到未完成尾部。
         }
 
         // 直接Nt内存入口成功后调用；输入已安全读回的AAIM1值，只交接强身份稳定且输出完整的实际范围。
@@ -3307,6 +3333,10 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"WriteProcessMemory",
                 resultValue != FALSE ? 0 : lastError, L"", true, ApiReturnBits(resultValue), duration,
                 0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
+            if (resultValue != FALSE)
+            {
+                PrepareWrittenExecutableRegion(processHandle, observation.fields()); // 原返回前发现既有X私有页中的新写入。
+            }
             ::SetLastError(lastError);
             return resultValue;
         }
@@ -5196,6 +5226,10 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtWriteVirtualMemory",
                 statusValue, L"", true, ApiReturnBits(statusValue), duration,
                 0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
+            if (NT_SUCCESS(statusValue))
+            {
+                PrepareWrittenExecutableRegion(processHandle, observation.fields()); // 直接NT入口复用同一实际范围交接。
+            }
             ::SetLastError(lastError);
             return statusValue;
         }

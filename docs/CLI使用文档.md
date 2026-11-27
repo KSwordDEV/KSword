@@ -223,6 +223,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 自动接管中的来源随后通过 `CreateThread`、同进程 `NtCreateThreadEx`、APC 或上下文入口调度私有代码时，也复用同一调用前屏障自动追加范围。普通模块入口不发同进程交接请求；已有 NX 私有入口不因当前 X 位被去掉而漏掉复用。来源 Agent 保留原会话，真实新线程仍由原 debug owner 的创建事件纳入覆盖与恢复账。此接续仅覆盖已 Hook 的调度入口，不代表任意 CPU 写入产生的新区域都能自动发现。
 
+远程分配、改保护成功后的新执行区域沿同一同步端点自动接管。`WriteProcessMemory` 和直接 `NtWriteVirtualMemory` 成功后，也会对安全读回的实际写入前缀检查当前 `MEM_PRIVATE` 执行保护，使写入既有执行页不必等下一次改保护或调度 API 才建立 owner。目标身份不稳定、缺实际完成长度、零长度或超出请求长度时不以请求范围补造写入；本地写入和非执行页不走此发现入口。交接发生在原内存操作成功之后、Hook 返回之前，不能据此声称原系统调用前已设防或消除了并发执行窗口。新写入入口需由对应 Agent 构建与实测覆盖，旧回执不自动适用。
+
 同一目标的前一个 NX 事件正在内部单步时，下一范围保持 Pending，等待原 owner 关回保护并恢复同伴；不因暂时不能暂停而立即拒绝。追加范围引入的主动暂停须真实归还后才允许成功 ACK。用户停止后只保存已持有的执行停点，再撤销原调试／保护责任，不再自动开启下一次单步。最终清退成功不会掩盖采集中已报告的原生恢复失败，该次仍为部分结果。
 
 普通 EXE 可用 `analyze breakpoint session --exe PATH --launch-suspended --confirm --disposition resume-detach --input jsonl` 启动并停在入口；可选 `--rva RVA`，省略时使用 PE `AddressOfEntryPoint`。不要求合作导出。原主线程创建时挂起，原 owner 在 `CREATE_PROCESS_DEBUG_EVENT` 核验实例并设置入口 DR0、登记线程，回读 Armed 后才释放一次初始挂起。`control.launch` 区分创建挂起、所有者附加、入口武装、初始挂起释放和诊断；`earliestTlsCovered=false`、`apiAgentReady=null`。此入口不覆盖此前 TLS／loader，Agent部署与Ready须看独立API回执。失败仅撤销本次尚未释放初始挂起的自有启动，不操作已有实例。
