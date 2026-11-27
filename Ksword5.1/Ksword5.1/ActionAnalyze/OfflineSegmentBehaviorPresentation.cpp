@@ -85,6 +85,16 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
         {
             document.field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
         }
+        const auto& recordedSha = snapshot.recordedRuleSourceSha256; // 已核验计划中的采集规则内容摘要。
+        document.field(QStringLiteral("采集规则 SHA-256"), recordedSha.isEmpty()
+            ? sourceText(QStringLiteral("未记录")) : recordedSha);
+        QString identityMatch = sourceText(QStringLiteral("未知")); // 任一侧缺少真实摘要时不推断相同或不同。
+        if (!recordedSha.isEmpty() && !snapshot.behavior.sourceSha256.isEmpty())
+        {
+            identityMatch = sourceText(recordedSha == snapshot.behavior.sourceSha256
+                ? QStringLiteral("一致") : QStringLiteral("不一致"));
+        }
+        document.field(QStringLiteral("规则内容一致性"), identityMatch);
         if (!snapshot.behavior.error.isEmpty())
         {
             document.field(QStringLiteral("规则库诊断"), snapshot.behavior.error);

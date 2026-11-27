@@ -966,13 +966,26 @@ void UpdateDetails(Page& page) {
             text += L"采集覆盖：未知。规则使用已核验的归档 API 观测。\r\n";
         }
         if (hasRuleReplay) {
+            const bool chinese = PRIMARYLANGID(page.behaviorLanguage) == LANG_CHINESE; // 详情语言与行为树使用同一快照。
             if (!snapshot.rulePresetSet.empty()) {
                 text += L"规则集：" + snapshot.rulePresetSet + L"\r\n";
                 text += L"SHA-256：" + snapshot.ruleSourceSha256 + L"\r\n";
-                if (!snapshot.checkpoint.recordedRuleSourceSha256.empty()) {
-                    // 旧档不显示推断值，已记录的摘要与当前规则内容并列供回放核对。
-                    text += L"采集规则 SHA-256：" + Utf8ToWide(snapshot.checkpoint.recordedRuleSourceSha256) + L"\r\n";
-                }
+            }
+            const auto& recordedSha = snapshot.checkpoint.recordedRuleSourceSha256; // 采集计划实际记录的内容摘要。
+            if (recordedSha.empty()) {
+                text += chinese ? L"采集规则 SHA-256：未记录\r\n" : L"Recorded rule SHA-256: not recorded\r\n";
+                text += chinese ? L"规则内容一致性：未知\r\n" : L"Rule content match: unknown\r\n";
+            } else {
+                text += chinese ? L"采集规则 SHA-256：" : L"Recorded rule SHA-256: ";
+                text += Utf8ToWide(recordedSha) + L"\r\n";
+                const bool currentShaKnown = !snapshot.ruleSourceSha256.empty(); // 加载失败或旧配置缺少摘要时不比较。
+                const auto recordedWideSha = Utf8ToWide(recordedSha); // 用同一 UTF-8 转换器比较两个摘要文本。
+                const bool sameRuleContent = currentShaKnown && recordedWideSha == snapshot.ruleSourceSha256;
+                const auto comparison = !currentShaKnown ? (chinese ? L"未知" : L"unknown") :
+                    sameRuleContent ? (chinese ? L"一致" : L"Match") : (chinese ? L"不一致" : L"Mismatch");
+                text += chinese ? L"规则内容一致性：" : L"Rule content match: ";
+                text += comparison;
+                text += L"\r\n";
             }
             if (!snapshot.ruleConfigError.empty()) {
                 text += L"规则库加载失败：" + snapshot.ruleConfigError + L"\r\n";
