@@ -438,7 +438,7 @@ public:
             updated->control.executionRange->added && Covered(*updated, transfer.base, transfer.bytes);
         const auto error = updated && updated->control.win32Error ? updated->control.win32Error : ERROR_NOT_SUPPORTED;
         // 仅归还本请求主动暂停；真实NX事件必须走归档，并等Agent Ready后才继续。
-        if (transfer.ownPause && updated && updated->control.armedPause &&
+        if (!cancel.load() && !closing && transfer.ownPause && updated && updated->control.armedPause &&
             updated->control.armedPause->request.requestId == transfer.pauseRequestId &&
             updated->control.stopReason == n::NativeStopReason::ManualPause &&
             n::OwnedExecutionGroup::CanContinueMember(*updated)) {
@@ -614,6 +614,7 @@ public:
     {
         // 超时/拒绝不能遗留本请求引入的手动暂停；真实执行停点仍由归档及Ready策略持有。
         for (auto& transfer : transfers) {
+            if (cancel.load() || closing) return; // 取消后的暂停责任统一交Close恢复，不再继续业务。
             if (!transfer.ownPause || transfer.stage == Admission::Paused) continue;
             current = group.QueryWithoutCondition();
             const auto* member = Member(transfer.request);
@@ -636,6 +637,7 @@ public:
                 member->control.armedPause->request.requestId == transfer.pauseRequestId &&
                 member->control.stopReason == n::NativeStopReason::ManualPause &&
                 n::OwnedExecutionGroup::CanContinueMember(*member)) {
+                if (cancel.load() || closing) return;
                 const n::ExecutionGroupSessionEntry entry{member->owner, member->control};
                 current = group.Continue(std::span(&entry, 1), false);
             }
