@@ -9641,6 +9641,7 @@
     "APC 参数 1": "APC argument 1",
     "APC 参数 2": "APC argument 2",
     "APC 参数 3": "APC argument 3",
+    "APC Reserve 句柄": "APC reserve handle",
     "接受入队不证明 APC 已投递或执行；请求例程地址不是实际执行地址。": "Queue acceptance does not prove APC delivery or execution; the requested routine is not an observed execution address.",
     "APC 来源声明候选 · PID %1 → %2 / TID %3 · 例程 %4": "APC source claim candidate · PID %1 → %2 / TID %3 · routine %4",
     "APC 入队：": "APC queue request: ",

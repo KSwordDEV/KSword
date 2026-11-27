@@ -226,6 +226,7 @@ Result Map(const Args& args, NativeMatchMode mode = NativeMatchMode::SectionMap)
                 {L"argument1", apc ? Json::count(apc->argument1) : Json{}},
                 {L"argument2", apc ? Json::count(apc->argument2) : Json{}},
                 {L"argument3", apc ? Json::count(apc->argument3) : Json{}},
+                {L"reserveHandle", apc ? Json::count(apc->reserveHandle) : Json{}},
                 {L"writeObserved", Json::boolean(false)},
                 {L"commonClockVerified", Json::boolean(false)},
                 {L"sourceAuthenticated", Json::boolean(false)},

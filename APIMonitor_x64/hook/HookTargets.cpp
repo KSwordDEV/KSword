@@ -5289,7 +5289,8 @@ namespace apimon
             // 扩展APC也先用原线程句柄查询强实例；Reserve和三个参数仍原样传递。
             ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer),
                 reinterpret_cast<std::uintptr_t>(argument1Pointer), reinterpret_cast<std::uintptr_t>(argument2Pointer),
-                reinterpret_cast<std::uintptr_t>(argument3Pointer)); // 本轮冻结目标身份，不读取参数正文。
+                reinterpret_cast<std::uintptr_t>(argument3Pointer),
+                reinterpret_cast<std::uintptr_t>(reserveHandle)); // 本轮冻结目标身份，不读取参数正文。
             PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
                 reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock();

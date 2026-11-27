@@ -153,7 +153,7 @@ namespace
         return text + L"\r\n字段来自本次 API 调用；请求线程入口不代表实际执行。\r\n";
     }
 
-    // 输入已解码 AAAP1 行，输出原生只读文本；十四字段仅表示调用参数和队列返回。
+    // 输入已解码 AAAP1 行，输出原生只读文本；旧档案的 Reserve 字段保持零值。
     std::wstring ApiApcDetails(const EvidenceRecord& record)
     {
         if (!record.apiApc)
@@ -171,6 +171,10 @@ namespace
         append(L"APC 操作类型", static_cast<std::uint64_t>(fields.operation));
         append(L"APC 字段有效位", fields.flags);
         append(L"API 输入线程句柄", fields.inputThreadHandle);
+        if (record.apiClue == L"NtQueueApcThreadEx")
+        {
+            append(L"APC Reserve 句柄", fields.reserveHandle);
+        }
         append(L"调用进入 QPC", fields.enterQpc);
         append(L"调用返回 QPC", fields.returnQpc);
 
@@ -189,7 +193,7 @@ namespace
 
         // Win32 没有第二、第三参数，不能把保留零显示成真实 API 输入。
         append(L"APC 参数 1", fields.argument1);
-        if (record.apiClue == L"NtQueueApcThread")
+        if (record.apiClue == L"NtQueueApcThread" || record.apiClue == L"NtQueueApcThreadEx")
         {
             append(L"APC 参数 2", fields.argument2);
             append(L"APC 参数 3", fields.argument3);

@@ -4,12 +4,14 @@
 namespace apimon {
 // 构造时冻结 thread 的调用前身份及 routine、argument1/2/3 原参数。
 ApiApcObservation::ApiApcObservation(HANDLE thread, std::uint64_t routine,
-    std::uint64_t argument1, std::uint64_t argument2, std::uint64_t argument3) noexcept : identity_(thread)
+    std::uint64_t argument1, std::uint64_t argument2, std::uint64_t argument3,
+    std::uint64_t reserveHandle) noexcept : identity_(thread)
 {
     fields_.routineAddress = routine;
     fields_.argument1 = argument1;
     fields_.argument2 = argument2;
     fields_.argument3 = argument3;
+    fields_.reserveHandle = reserveHandle;
     // 调用前交接读取同一份冻结身份；Stable 仍只在原 API 返回并完成复核后产生。
     CopyIdentity();
 }

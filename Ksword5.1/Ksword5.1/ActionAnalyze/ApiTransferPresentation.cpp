@@ -96,7 +96,7 @@ namespace
         {
             return;
         }
-        const auto& fields = *clue.apiApc; // 十四字段值均来自同一完整原包。
+        const auto& fields = *clue.apiApc; // AAAP1字段值均来自同一完整原包，旧档扩展字段为零。
         using namespace Ksword::Evidence;
         const auto outcome = clue.apcOutcome == ApiApcQueueOutcome::Accepted ? QStringLiteral("接受入队")
             : clue.apcOutcome == ApiApcQueueOutcome::Failed ? QStringLiteral("失败") : QStringLiteral("未知"); // 只说明返回语义。
@@ -123,8 +123,14 @@ namespace
                 ? QStringLiteral("是") : QStringLiteral("否"), true);
 
         // QueueUserAPC 只有 data；NT 的额外参数不凭协议中的保留零伪造成 Win32 参数。
-        const bool native = clue.api == QLatin1String("NtQueueApcThread"); // 仅控制两个额外参数的适用性。
-        document.field(QStringLiteral("APC 参数 1"), QString::number(fields.argument1, 16))
+        const bool native = clue.api == QLatin1String("NtQueueApcThread") ||
+            clue.api == QLatin1String("NtQueueApcThreadEx"); // 两个原生入口都有参数2/3。
+        document.field(QStringLiteral("APC 参数 1"), QString::number(fields.argument1, 16));
+        if (clue.api == QLatin1String("NtQueueApcThreadEx"))
+        {
+            document.field(QStringLiteral("APC Reserve 句柄"), QString::number(fields.reserveHandle, 16), true);
+        }
+        document
             .field(QStringLiteral("APC 参数 2"), native ? QString::number(fields.argument2, 16) : QStringLiteral("不适用"), true)
             .field(QStringLiteral("APC 参数 3"), native ? QString::number(fields.argument3, 16) : QStringLiteral("不适用"), true)
             .note(QStringLiteral("接受入队不证明 APC 已投递或执行；请求例程地址不是实际执行地址。"));

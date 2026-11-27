@@ -44,13 +44,18 @@ struct ApiApcFieldsV1 {
     std::uint64_t argument1 = 0; // 原始第一个 APC 参数；Win32 接口对应 data。
     std::uint64_t argument2 = 0; // NT 原始第二个参数；Win32 接口不存在此参数。
     std::uint64_t argument3 = 0; // NT 原始第三个参数；Win32 接口不存在此参数。
+    std::uint64_t reserveHandle = 0; // NtQueueApcThreadEx 的 Reserve 句柄位模式，其它接口保持零。
 };
 
-// kApiApcValueCount：文本中固定编码的数值个数。
-inline constexpr std::size_t kApiApcValueCount = 14;
-// kApiApcTextLength：前缀、十六进制字段及分隔符的总字符数，不含终止符。
+// kApiApcValueCount：当前 AAAP1 文本编码的数值个数；旧档案仍按14个字段读取。
+inline constexpr std::size_t kApiApcValueCount = 15;
+inline constexpr std::size_t kApiApcLegacyValueCount = 14;
+// 文本长度由前缀、十六进制字段和分隔符共同决定，不含终止符。
 inline constexpr std::size_t kApiApcTextLength = kApiApcFieldsPrefix.size() + kApiApcValueCount * 17 - 1;
+inline constexpr std::size_t kApiApcLegacyTextLength =
+    kApiApcFieldsPrefix.size() + kApiApcLegacyValueCount * 17 - 1;
 static_assert(kApiApcTextLength < ks::winapi_monitor::kMaxDetailChars);
+static_assert(kApiApcLegacyTextLength < ks::winapi_monitor::kMaxDetailChars);
 
 // StoreApiApcFields：把 fields 按固定顺序写入 packet，保留包中原返回、耗时和定义摘要。
 inline void StoreApiApcFields(ks::winapi_monitor::ApiMonitorEventPacket& packet,
@@ -72,6 +77,7 @@ inline void StoreApiApcFields(ks::winapi_monitor::ApiMonitorEventPacket& packet,
         fields.argument1,
         fields.argument2,
         fields.argument3,
+        fields.reserveHandle,
     };
     std::fill(std::begin(packet.detailText), std::end(packet.detailText), L'\0');
     std::copy(kApiApcFieldsPrefix.begin(), kApiApcFieldsPrefix.end(), packet.detailText);
@@ -103,9 +109,12 @@ inline std::optional<ApiApcFieldsV1> ReadApiApcFields(
         packet.detailText[kApiApcTextLength] != L'\0') {
         return std::nullopt;
     }
+    // 先按终止位置识别新旧布局；旧包的扩展字段保持零，保证历史档案可回读。
+    const std::size_t valueCount = packet.detailText[kApiApcLegacyTextLength] == L'\0'
+        ? kApiApcLegacyValueCount : kApiApcValueCount;
     std::array<std::uint64_t, kApiApcValueCount> values{}; // 验证成功前的局部解码值。
     std::size_t cursor = kApiApcFieldsPrefix.size(); // 下一处文本读取位置。
-    for (std::size_t index = 0; index < values.size(); ++index) { // 当前字段序号。
+    for (std::size_t index = 0; index < valueCount; ++index) { // 当前字段序号。
         if (index && packet.detailText[cursor++] != L'|') {
             return std::nullopt;
         }
@@ -146,6 +155,7 @@ inline std::optional<ApiApcFieldsV1> ReadApiApcFields(
         values[11],
         values[12],
         values[13],
+        values[14],
     };
 }
 
