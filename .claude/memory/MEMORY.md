@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 最新用户限制，优先于持续推进目标。** 用户原话「从现在开始不得调用codebudy，已有的不管，等新的通知下发。继续」。禁止新增、续接、重试任何CodeBuddy调用，直到用户明确恢复；已有任务不干预。当前已有Ex2定向任务sh_21bf01c6f001ZBf4KG8eDPYaTt/PID8608可按原范围结束，仅接收自动回执，不能自动派后续。测试/构建/夹具/回执仍由CodeBuddy承担，因此本会话继续产品源码开发，不自行替测，待验如实保留。用户持续推进原话仍有效，限制必须随交接保留。
+
 - **2026-11-27 NT Ex2最新续跑。** 产品4c57b774e新增NtQueueApcThreadEx2调用前同步接管、AAAP1全部参数/flags/NTSTATUS及三端原展示/关联接入，尚未构建实测；唯一构建sh_21bec46130013Dh5kCaf4Em70G/PID4392使用hy4flash，只两Agent+CLI各一次，日志native-ex2-build，不运行目标/GUI。原APC2契约任务在约20分钟仅工具链查询后已核对精确进程并结束，最终failed；APC2驱动任务超时无文件，不重复。详见[工程记录](ksword-action-analyze-engineering.md)。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」有效；测试/夹具/回执仍全部交CodeBuddy，主协调写产品，等待时不虚构通过或扩充无关防御。
 
 - **2026-11-27 03时接续优先。** CLI30313DBE…/Agent40372585…新包三目标链一次实际运行9/9、CLI0、A/B/C退出0、三个计数各1；样本5505df0a-91e2-4e04-a439-8ee0d3a0a553，B第二范围tid41928/create134402358157052790，三范围各5条真实IP，清退leftOwned0。回执local-thread-integrated/runtime-receipt.md。原夹具只留samples导致正式CLI replay缺项目根，AAIP1离线核对待sh_21bcdb6710011ny1zT3pU2kpIo，不再重复replay或整链。5bde7e334逐入口entryObservation已一次正式CLI构建成功，hash4F1C01D0…4002339、entry-build.log；未实测该增量，不借旧链覆盖。APC2/主动停止准备旧任务超时仅有读取；同短批重新限定只写APC2源码，禁止运行。所有验收及记录仍CodeBuddy负责，主协调写产品，GUI继续后置；完整11项未闭合，持续推进要求有效。

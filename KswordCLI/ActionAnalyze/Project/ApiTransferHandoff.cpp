@@ -657,9 +657,9 @@ public:
                     {"sha256", V::makeString(receipt.sha256)}});
             }
         }
-        if (closing)
+        if (closing || cancel.load())
         {
-            // Close只保存当前已持有的执行事件，接着直接恢复/脱离；不再开页、置TF或放行业务。
+            // 取消可能早于Close到达；只保存已持有事件，随后由Close恢复/脱离，不再开页或置TF。
             return;
         }
         // 追踪模式只在执行停点保存后沿原NX owner的TF/重设防路径继续，不伪造令牌。
@@ -671,7 +671,8 @@ public:
                 found != observed.end() && found->second == execution->event &&
                 n::OwnedExecutionGroup::CanContinueMember(member)) resume.push_back({member.owner, member.control});
         }
-        if (!resume.empty()) current = group.Continue(resume, false);
+        // 归档和构造继续列表期间也可能收到取消；提交前再次检查，避免继续已经要求停止的采样。
+        if (!resume.empty() && !cancel.load()) current = group.Continue(resume, false);
     }
     void Poll()
     {
