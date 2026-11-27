@@ -16,13 +16,18 @@
 .PARAMETER KeepArtifacts
     保留本次创建的夹具文件，便于人工核对。失败时无论如何都保留并报告确切路径。
 
+.PARAMETER FocusedEight
+    仅执行现有二进制字面量四项和 WriteFile 四项；复用固定目录对象进行增量构建。
+
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools/action_analyze_validation/rules/Invoke-RuleProfileIdentityValidation.ps1
 #>
 [CmdletBinding()]
 param(
     [string]$RepositoryRoot = '',
-    [switch]$KeepArtifacts
+    [switch]$KeepArtifacts,
+    [Alias('focused-eight')]
+    [switch]$FocusedEight
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +51,12 @@ $logPath = Join-Path $logDir "$stem.log"
 $receiptPath = Join-Path $logDir "$stem.json"
 $batchPath = Join-Path $logDir "$stem.cmd"
 $vcvarsLogPath = Join-Path $logDir "$stem.vcvars.log"
+$fixtureStdoutPath = Join-Path $logDir "$stem.fixture.stdout.log"
+$fixtureStderrPath = Join-Path $logDir "$stem.fixture.stderr.log"
+$exeHash = ''
+$fixtureCode = $null
+$fixtureLines = @()
+$build = $null
 
 # 与 README 相同的十三个源文件。夹具自带 main，不登记到任何产品工程。
 $sources = @(
@@ -82,6 +93,13 @@ function Stop-WithFailure {
         intDir = $intDir
         outDir = $outDir
         executable = $exe
+        executableSha256 = $exeHash
+        focusedEight = [bool]$FocusedEight
+        buildExitCode = if ($build) { $build.ExitCode } else { $null }
+        fixtureExitCode = $fixtureCode
+        fixtureOutput = $fixtureLines
+        fixtureStdout = $fixtureStdoutPath
+        fixtureStderr = $fixtureStderrPath
         result = 'failed'
         exitCode = $Code
         detail = $Message
@@ -135,11 +153,42 @@ function Find-HostToolchain {
     return $null
 }
 
+function Invoke-NativeCaptured {
+    param([string]$FilePath, [string]$Arguments)
+    # 独立读取两个 native 管道；stderr 不经过 PowerShell 的 ErrorActionStop。
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $FilePath
+    $start.Arguments = $Arguments
+    $start.WorkingDirectory = $RepositoryRoot
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $start.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { throw "Unable to start $FilePath" }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Stdout = $stdout
+            Stderr = $stderr
+            Lines = @((($stdout + "`n" + $stderr) -split '\r?\n') | Where-Object { $_.Length -gt 0 })
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-Batch {
     param([string]$Mode)
-    $output = & cmd.exe /d /c "`"$batchPath`" $Mode" 2>&1
-    $code = $LASTEXITCODE
-    return [pscustomobject]@{ ExitCode = $code; Lines = @($output | ForEach-Object { "$_" }) }
+    return Invoke-NativeCaptured 'cmd.exe' ('/d /c ""{0}" {1}"' -f $batchPath, $Mode)
 }
 
 # 相对仓库根的路径，用于核对 Git 跟踪状态。
@@ -176,6 +225,7 @@ try {
     Write-Log "OutDir=$outDir"
     Write-Log "Executable=$exe"
     Write-Log "Log=$logPath"
+    Write-Log "FocusedEight=$([bool]$FocusedEight)"
 
     # 占用检查：固定位置已有内容时报错退出，不删除任何既有产物。
     if (-not (Test-Path -LiteralPath $outDir -PathType Container)) {
@@ -184,15 +234,18 @@ try {
     if (-not (Test-Path -LiteralPath $profile -PathType Leaf)) {
         Stop-WithFailure 3 "产品规则配置缺失：$profile。本脚本不构建产品，请先部署统一 Release 的规则配置。"
     }
-    if (Test-Path -LiteralPath $intDir) {
+    if (-not $FocusedEight -and (Test-Path -LiteralPath $intDir)) {
         Stop-WithFailure 3 "固定中间目录已被占用：$intDir。请人工确认后自行处理，脚本不会删除。"
     }
-    if (Test-Path -LiteralPath $exe) {
+    if (-not $FocusedEight -and (Test-Path -LiteralPath $exe)) {
         Stop-WithFailure 3 "固定产物名已被占用：$exe。请人工确认后自行处理，脚本不会删除。"
     }
     $running = @(Get-Process -Name 'ActionAnalyzeRuleExpressionValidation' -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
         Stop-WithFailure 3 "已有同名夹具进程在运行（PID $($running.Id -join ',')），脚本不接管也不终止。"
+    }
+    if ($FocusedEight -and -not $KeepArtifacts) {
+        Stop-WithFailure 3 '定向增量模式复用既有对象，必须指定 KeepArtifacts，避免清理前作者的固定产物。'
     }
 
     # 工具链定位。
@@ -219,6 +272,27 @@ try {
 
     $defines = '/DNOMINMAX'
     $clCommand = ('cl.exe /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /O2 {0} /Fo"{1}\\" /Fe"{2}" {3} bcrypt.lib' -f $defines, $intDir, $exe, $quotedSources)
+    if ($FocusedEight) {
+        # 仅编译较新的源文件，再链接原闭包；本模式不删除旧对象或测试文件。
+        $compileSources = @()
+        $objectPaths = @()
+        foreach ($full in $resolvedSources) {
+            $object = Join-Path $intDir ([IO.Path]::GetFileNameWithoutExtension($full) + '.obj')
+            $objectPaths += '"' + $object + '"'
+            if ($full -eq $resolvedSources[-1] -or -not (Test-Path -LiteralPath $object) -or
+                (Get-Item -LiteralPath $full).LastWriteTimeUtc -gt (Get-Item -LiteralPath $object).LastWriteTimeUtc) {
+                $compileSources += '"' + $full + '"'
+            }
+        }
+        $commands = @()
+        if ($compileSources.Count -gt 0) {
+            $commands += ('cl.exe /c /nologo /std:c++20 /EHsc /utf-8 /W4 /WX /O2 {0} /Fo"{1}\\" {2}' -f $defines, $intDir, ($compileSources -join ' '))
+            $commands += 'if errorlevel 1 exit /b %ERRORLEVEL%'
+        }
+        $commands += ('link.exe /nologo /OUT:"{0}" {1} bcrypt.lib' -f $exe, ($objectPaths -join ' '))
+        $clCommand = $commands -join "`r`n"
+        Write-Log "IncrementalCompileSources=$($compileSources -join ', ')"
+    }
 
     $batch = @"
 @echo off
@@ -284,9 +358,13 @@ exit /b %ERRORLEVEL%
     $exeHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
     Write-Log "ExecutableBytes=$($exeInfo.Length) SHA256=$exeHash"
 
-    $fixtureOutput = & $exe $intDir 2>&1
-    $fixtureCode = $LASTEXITCODE
-    $fixtureLines = @($fixtureOutput | ForEach-Object { "$_" })
+    $fixtureArgs = '"' + $intDir + '"'
+    if ($FocusedEight) { $fixtureArgs += ' --focused-eight' }
+    $fixture = Invoke-NativeCaptured $exe $fixtureArgs
+    $fixtureCode = $fixture.ExitCode
+    $fixtureLines = $fixture.Lines
+    [IO.File]::WriteAllText($fixtureStdoutPath, $fixture.Stdout, (New-Object System.Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText($fixtureStderrPath, $fixture.Stderr, (New-Object System.Text.UTF8Encoding($false)))
     foreach ($line in $fixtureLines) { Write-Log "fixture: $line" }
     Write-Log "FixtureExitCode=$fixtureCode"
 
@@ -294,10 +372,17 @@ exit /b %ERRORLEVEL%
     $identityState = 'unknown'
     foreach ($line in $fixtureLines) {
         if ($line -like 'ActionAnalyze rule expression:*') { $summary = $line }
+        if ($line -like 'ActionAnalyze focused eight:*') { $summary = $line }
         if ($line -like 'ActionAnalyze preset identity contract:*') { $identityState = $line }
     }
     # sourceSha256 已正式存在：只接受 identity active 且夹具零失败，不保留兼容通行开关。
-    if ($identityState -notlike '*active*') {
+    if ($FocusedEight) {
+        $identityState = 'not-run-focused-eight'
+        $itemLines = @($fixtureLines | Where-Object { $_ -match '^(PASS|FAIL) ' })
+        if ($itemLines.Count -ne 8 -or $summary -notmatch '^ActionAnalyze focused eight: 8 checks, [0-8] failures$') {
+            Stop-WithFailure 7 '定向八项回执不完整，保留真实输出及进程退出码。' -KeepFiles
+        }
+    } elseif ($identityState -notlike '*active*') {
         Stop-WithFailure 7 "身份契约未生效：$identityState。产品需要提供 ApiPresetDatabase::sourceSha256。" -KeepFiles
     }
     if ($fixtureCode -ne 0) {
@@ -361,6 +446,10 @@ exit /b %ERRORLEVEL%
         outDir = $outDir
         executable = $exe
         executableSha256 = $exeHash
+        focusedEight = [bool]$FocusedEight
+        fixtureOutput = $fixtureLines
+        fixtureStdout = $fixtureStdoutPath
+        fixtureStderr = $fixtureStderrPath
         hostX64Compiler = $compiler
         hostX64Linker = $linker
         sources = $sources

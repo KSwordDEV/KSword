@@ -33,6 +33,7 @@ constexpr rule::FieldBinding Catalog[] = {
 };
 std::size_t checks = 0; // 总断言数。
 std::size_t failures = 0; // 失败后继续报告剩余断言。
+bool focusedEightOutput = false; // 定向模式逐项回执，不改变旧套件的输出。
 
 // 出现失败时打印稳定断言名称，计数供调用方检查。
 void Check(bool ok, std::string_view name)
@@ -40,6 +41,10 @@ void Check(bool ok, std::string_view name)
     ++checks;
     if (!ok) {
         ++failures;
+    }
+    if (focusedEightOutput) {
+        std::cout << (ok ? "PASS " : "FAIL ") << name << '\n';
+    } else if (!ok) {
         std::cerr << "FAIL " << name << '\n';
     }
 }
@@ -750,6 +755,20 @@ void TestDeployedProfileIdentity(const rule::ApiPresetDatabase& database)
 // 运行无窗口夹具。失败向命令行返回非零。
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 3 && std::wstring_view(argv[2]) == L"--focused-eight") {
+        focusedEightOutput = true;
+        TestBinaryNumericLiterals();
+        const auto database = rule::LoadApiPresetDatabase();
+        if (!database.error.empty()) {
+            std::cerr << "API preset load failed: " << database.error << '\n';
+        }
+        std::cout << "FocusedEightProfileSha256=" << database.sourceSha256 << '\n';
+        TestWriteFileBehavior(database);
+        const int exitCode = failures == 0 && database.error.empty() && checks == 8 ? 0 : 1;
+        std::cout << "ActionAnalyze focused eight: " << checks << " checks, " << failures << " failures\n";
+        std::cout << "FocusedEightFixtureExitCode=" << exitCode << '\n';
+        return exitCode;
+    }
     const bool evidenceOnly = argc == 3 && std::wstring_view(argv[2]) == L"--offline-evidence-only";
     if (argc != 2 && !evidenceOnly) {
         std::cerr << "Expected the dedicated fixture IntDir and optional --offline-evidence-only.\n";

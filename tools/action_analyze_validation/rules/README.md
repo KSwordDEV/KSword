@@ -157,6 +157,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/action_analyze_validat
 
 ### 协调登记与验收
 
+定向验证已有二进制字面量四项及 WriteFile 行为四项时，使用 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/action_analyze_validation/rules/Invoke-RuleProfileIdentityValidation.ps1 -FocusedEight -KeepArtifacts`。包装器在原固定 IntDir/Release 复用对象进行增量构建，再仅一次透传 `--focused-eight`；夹具逐项输出 PASS/FAIL 和八项汇总，包装器保存独立 stdout/stderr 与真实进程退出码，不运行旧完整套件或身份契约。定向模式不生成测试配置，也不清理前作者既有产物；八项实现及构建源闭包沿用前作者工作。
+
+2026-11-27 定向模式一次增量构建、一次运行：`8 checks, 0 failures`，夹具及包装器退出码均为 `0`。实测使用 BelowNormal／MSVC 14.51 HostX64，重编译夹具并复用其余 15 个对象；原始输出及产物摘要见 `.codex-build-logs/action-analyze-rule-profile-identity-20261127-131519.{log,json,fixture.stdout.log,fixture.stderr.log}`。本结论仅覆盖这八项，旧完整套件的失败记录保留。
+
 Qt 工程和 `.filters` 已由协调者登记 `..\..\KswordCLI\ActionAnalyze\Rules\RuleExpression.cpp`、`BehaviorPresets.cpp` 及对应头文件。已有 `BehaviorRuleDraft`、`BehaviorRulesPage`、`FilterAst` 与 `AnalysisRun` 的登记继续使用。CLI 路由接入时登记对应源文件和帮助。双语源文案集中于 `BehaviorRulesPage.cpp` 的谓词位置、表达式说明和归档预置回执。
 
 正式窗口验收用同一合法 API Monitor 导入段，先检查默认草稿的三条合成事件，再执行归档预置并回查显示的源行号。损坏尾记、其它来源和取消选择分别检查上次结果是否保留。随后核对草稿编辑与提交期间的回执身份、窄窗、DPI、深浅主题和首帧。同步断点的后续切片只接受显式启动的自有合作夹具目标，准备时绑定该夹具已登记的入参、阶段和预算。三值中只有确定命中可以提交给既有会话所有者，停点与恢复由所有者验证。
