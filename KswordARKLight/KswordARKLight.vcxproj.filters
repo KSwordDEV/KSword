@@ -239,6 +239,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\InjectionDiscovery.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="..\shared\evidence\ApiNativeExecutionProjection.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\ObjectIdentity.cpp"><Filter>Shared Evidence</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\LightNativeStopArchive.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\NativeSessionApiFields.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\LightProcessGroupMemory.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
@@ -261,6 +262,7 @@
     <ClInclude Include="Features\ActionAnalyze\ApiTransferCandidateTree.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ApiTransferCandidateWindow.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ApiNativeExecutionProjection.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ObjectIdentity.h"><Filter>Shared Evidence</Filter></ClInclude>
     <ClCompile Include="Features\ActionAnalyze\NativeExecutionPresentation.cpp"><Filter>Features\ActionAnalyze</Filter></ClCompile>
     <ClInclude Include="Features\ActionAnalyze\NativeExecutionPresentation.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

@@ -914,6 +914,10 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleImageDefinition.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\ArchivedEvidenceGraph.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\CrossProcessEvidenceGraph.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\InjectionTelemetry.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\InjectionDiscovery.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\shared\evidence\ApiNativeExecutionProjection.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\NativeExecutionPresentation.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -1023,6 +1027,10 @@
     <ClInclude Include="..\..\shared\evidence\ApiNativeExecutionProjection.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\ArchivedEvidenceGraph.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\CrossProcessEvidenceGraph.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\InjectionTelemetry.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\InjectionDiscovery.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\NativeExecutionPresentation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\evidence\ApiApcFields.h"><Filter>Header Files</Filter></ClInclude>

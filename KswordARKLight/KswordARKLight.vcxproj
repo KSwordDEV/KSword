@@ -150,6 +150,7 @@
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\InjectionDiscovery.cpp" />
     <ClCompile Include="..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.cpp" />
     <ClCompile Include="..\shared\evidence\ApiNativeExecutionProjection.cpp" />
+    <ClCompile Include="..\shared\evidence\ObjectIdentity.cpp" />
     <ClCompile Include="Features\ActionAnalyze\LightNativeStopArchive.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\NativeSessionApiFields.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
     <ClCompile Include="Features\ActionAnalyze\LightProcessGroupMemory.cpp"><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
@@ -187,6 +188,7 @@
     <ClInclude Include="Features\ActionAnalyze\ApiTransferCandidateTree.h" />
     <ClInclude Include="..\shared\evidence\ApiTransferCandidateWindow.h" />
     <ClInclude Include="..\shared\evidence\ApiNativeExecutionProjection.h" />
+    <ClInclude Include="..\shared\evidence\ObjectIdentity.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Detection\NativeTransferAssociation.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Detection\PrivateExecutionCandidates.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Detection\NativeSectionMapAssociation.h" />

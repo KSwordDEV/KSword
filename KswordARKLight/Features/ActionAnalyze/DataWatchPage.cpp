@@ -41,7 +41,7 @@ enum : int { kPath = 58401, kBrowse, kExport, kBytes, kStart, kContinue, kClose,
 constexpr UINT_PTR kDisplayTimer = 1;
 constexpr UINT kDisplayIntervalMs = 200;
 constexpr UINT kPrepareImageDraft = WM_APP + 973; // 同线程同步传纯值，未保存指针。
-constexpr UINT kCandidateContext = WM_APP + 978, kReadCandidates = WM_APP + 979, kPrepareRangeDraft = WM_APP + 980;
+constexpr UINT kCandidateContext = WM_APP + 981, kReadCandidates = WM_APP + 982, kPrepareRangeDraft = WM_APP + 983;
 struct CandidateReadCommand {
     std::shared_ptr<const std::uint8_t> sessionIdentity;
     LightPrivateExecutionCandidatesRequest request;
