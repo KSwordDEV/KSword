@@ -240,6 +240,7 @@ Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
     {
         return Json::object({{L"status", Json::string(L"configuration-failed")},
             {L"error", Json::string(ks::str::Utf8ToUtf16(database.error))},
+            {L"ruleId", Json{}}, {L"behavior", Json{}},
             {L"observedFields", observed}});
     }
     const auto report = project::Rules::AnalyzeVerifiedApiPresetPage(database,
@@ -249,6 +250,7 @@ Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
     {
         return Json::object({{L"status", Json::string(L"evaluation-failed")},
             {L"error", Json::number(static_cast<std::uint32_t>(report.error))},
+            {L"ruleId", Json{}}, {L"behavior", Json{}},
             {L"observedFields", observed}});
     }
     const auto& match = report.matches.front(); // 同一原包的拥有型分类及可选行为释义。
@@ -275,7 +277,8 @@ Json ReplayRuleProfile(const project::Rules::ApiPresetDatabase& database,
     const bool recorded = checkpoint && !checkpoint->ruleSourceSha256.empty(); // 旧导入档没有规则内容身份。
     const bool replayKnown = database.error.empty() && !database.sourceSha256.empty(); // 配置失败不能当作已知不匹配。
     return Json::object({
-        {L"presetSet", Json::string(ks::str::Utf8ToUtf16(database.presetSet))},
+        {L"presetSet", database.presetSet.empty() ? Json{} :
+            Json::string(ks::str::Utf8ToUtf16(database.presetSet))},
         {L"sourceSha256", database.sourceSha256.empty() ? Json{} :
             Json::string(ks::str::Utf8ToUtf16(database.sourceSha256))},
         {L"recordedPresetSet", checkpoint && !checkpoint->rulePresetSet.empty() ?
