@@ -3212,7 +3212,8 @@ namespace apimon
                 Ksword::Evidence::ApiMemoryTargetStable | Ksword::Evidence::ApiMemoryOutputBase |
                 Ksword::Evidence::ApiMemoryOutputBytes; // 缺输出时不能用调用前请求补造实际设防范围。
             if ((fields.flags & required) != required || fields.status < 0 ||
-                fields.outputBase > UINTPTR_MAX || fields.outputBytes > SIZE_MAX)
+                static_cast<std::uint64_t>(static_cast<std::uintptr_t>(fields.outputBase)) != fields.outputBase ||
+                static_cast<std::uint64_t>(static_cast<SIZE_T>(fields.outputBytes)) != fields.outputBytes)
             {
                 return;
             }
