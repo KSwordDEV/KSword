@@ -16,6 +16,7 @@ struct NativeSessionApiReply {
 struct NativeSessionApiInput {
     std::optional<Ksword::ActionAnalyze::NativeBoundApiRequest> capture; // 成功时含明确确认的来源，不访问目标。
     bool startupProgress = false; // 调用端显式订阅在途进度。
+    bool captureProgress = false; // 独立订阅已提交检查点与候选，不把启动通知当成运行水位。
     JsonValue error; // 解析失败的同源协议诊断。
 };
 NativeSessionApiInput PrepareNativeSessionApi(const Request& request, bool jsonl); // 输入原请求，返回值参数或错误。

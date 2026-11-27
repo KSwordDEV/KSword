@@ -301,7 +301,8 @@ native::ExecutionGroupResult ExecutionGroupArchive::AppendMembers(native::OwnedE
 // 输入本次原成员和明确来源请求，输出独立API回执；原调试线程继续持有全部停止责任。
 void ExecutionGroupArchive::CaptureApi(native::OwnedExecutionGroup& group,
     const native::ExecutionGroupSessionEntry& displayed, const NativeBoundApiRequest& request,
-    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup)
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup,
+    const CooperativeApiCommitted& onCommitted, const CooperativeApiTransferCommitted& onTransfers)
 {
     auto result = std::make_shared<NativeBoundApiResult>(); // 先公布本次身份，任何拒绝不能沿用上轮成功。
     result->request = request;
@@ -342,7 +343,9 @@ void ExecutionGroupArchive::CaptureApi(native::OwnedExecutionGroup& group,
         return;
     }
     result->admission = {ProjectError::IoError, 0, "executionGroupApiCaptureInterrupted"}; // 异常路径不留下默认成功诊断。
-    *result = CaptureNativeBoundApi(*project_, view_.sampleId, request, result->nativeTarget, cancel, onStartup);
+    // 原项目与成员身份准入完成后才发布运行通知，不以输入草稿构造已提交水位。
+    *result = CaptureNativeBoundApi(*project_, view_.sampleId, request, result->nativeTarget, cancel,
+        onStartup, onCommitted, onTransfers);
     const auto after = group.QueryWithoutCondition(); // API清退后只回读，不Continue、不保存成员执行事件。
     const auto current = std::find_if(after.members.begin(), after.members.end(), [&](const auto& item) {
         return item.owner == displayed.owner;

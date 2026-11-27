@@ -72,7 +72,8 @@ public:
     void CaptureApi(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed,
         const NativeBoundApiRequest& request, const std::atomic_bool& cancel,
-        const NativeBoundApiStartup& onStartup = {});
+        const NativeBoundApiStartup& onStartup = {}, const CooperativeApiCommitted& onCommitted = {},
+        const CooperativeApiTransferCommitted& onTransfers = {});
     // 用点击冻结的范围读取唯一成员；plan从原owner强身份构造，不打开第二个项目或owner。
     void CaptureMemory(ks::cli::action_analyze::control::OwnedExecutionGroup& group,
         const ks::cli::action_analyze::control::ExecutionGroupSessionEntry& displayed,

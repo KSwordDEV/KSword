@@ -47,7 +47,8 @@ int NativeBoundApiResult::ExitCode() const noexcept
 
 NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::string_view sampleId,
     const NativeBoundApiRequest& request, const NativeBoundApiTarget& nativeTarget,
-    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup)
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup,
+    const CooperativeApiCommitted& onCommitted, const CooperativeApiTransferCommitted& onTransfers)
 {
     NativeBoundApiResult result; // 所有失败路径也保留实际请求和原目标。
     result.request = request;
@@ -99,7 +100,8 @@ NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::strin
             onStartup({result.projectId, result.sampleId, request, nativeTarget, startup});
         };
     }
-    result.receipt = CaptureAttachedApi(document, capture, cancel, {}, {}, {}, publish);
+    // 运行通知沿原writer同步传递，调用者仅复制值；不增加owner、采样或后台轮询。
+    result.receipt = CaptureAttachedApi(document, capture, cancel, {}, onCommitted, onTransfers, publish);
     return result;
 }
 

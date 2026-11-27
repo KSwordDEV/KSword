@@ -221,7 +221,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 未启用自动接管时仍可订阅采集进度：检查点通知保留创建、APC、上下文三类累计候选数，后续 `kind=api-transfer-candidates` 只表示已提交 API 原包的范围一致性候选，不包含原生执行确认。候选通知早于首个检查点通知时先保留计数，由首个检查点携带，不凭命令行草稿补造采样身份。
 
-原生单目标和执行集合长程会话的有限 `api-capture ... [progress]`／`startupProgress:true` 也复用此有界 stderr 输出队列，保留原启动字段；正常采集响应附加 `captureProgress` 交付摘要。它们仍不支持零时长，在同步采集返回前不处理其它控制命令；旁路输出不负责继续、关闭或保存原生停点，stderr消费者停读不会卡住原控制线程。
+原生单目标和执行集合长程会话的有限 `api-capture` 也复用此有界 stderr 输出队列：REPL `[progress]`／JSONL `startupProgress:true` 保留原启动字段；新增 REPL `[capture-progress]`／JSONL `captureProgress:true` 独立订阅同格式 `api-checkpoint` 和 `api-transfer-candidates` 运行帧。两个选项可独立或并用，重复或未知 REPL 选项拒绝；JSONL 两个字段都必须为 bool。采样、项目、修订及规则坐标来自原 writer 的已提交值；不启用自动接管。正常采集响应附加 `captureProgress` 交付摘要。它们仍不支持零时长，在同步采集返回前不处理其它控制命令；旁路输出不负责继续、关闭或保存原生停点，stderr消费者停读不会卡住原控制线程。
 
 进度为旁路通知：有界输出队列满、stderr断开或单帧超限时丢弃该通知，不阻塞接管、保护恢复或原归档。序号缺口及最终 `captureProgress.droppedFrames` 可识别未接纳的帧；启动进度通道后即使采样创建、Agent 路径或启动交接失败，错误响应也保留交付摘要。`enqueuedFrames` 只表示进队，`outputDrained` 才表示队列已写完，均不等于下游已处理。采集清退结束后最多沿传输层五秒等待排空，交付失败不改变采集退出码；最终 `transferHandoff` 和正式归档仍是回查依据。与 `--startup-progress 1` 同用时，启动原文和运行快照共用同一队列，避免两条JSON互相穿插。两种进度选项均不提供时不增加 `captureProgress` 字段，保留原输出行为。
 
@@ -329,7 +329,7 @@ Qt／Light沿原归档后台读任务保存最近128条完整入口请求，独�
 
 执行集合的模块 RVA 站点支持可选 `definitionId`。它引用本轮采样冻结的启用 RVA 定义，要求项目、模块名及 RVA 一致，并继承定义的映像 SHA256；冲突或缺失在任何附加前拒绝。Qt/Light 提供相同字段；手工导出和私有站点不发送隐藏定义草稿。完整全局定义自动激活及 PDB 符号解析仍未实现。
 
-执行集合的同采样API入口为 REPL `api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]` 或 JSONL `control.api.capture`。JSONL params沿用明确 `sourcePid/sourceCreationFileTime/durationMs/confirm` 及可选 `startupProgress`；expected为 `{collectionId,sessions:[唯一完整sessionToken]}`。来源必须在集合全部成员以外，复用原项目writer和sample，Ready后采集1000–10000毫秒，CLI返回后再处理排队控制。`apiCapture/apiOwner` 保留采集、归档、清退及原目标前后回读；不Continue同伴、不自动保存执行事件。Qt/Light同步提供参数、确认、阶段、完整详情及关闭取消。新增接线未构建、未实测。
+执行集合的同采样API入口为 REPL `api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] [capture-progress]` 或 JSONL `control.api.capture`。JSONL params沿用明确 `sourcePid/sourceCreationFileTime/durationMs/confirm` 及可选 bool `startupProgress`、`captureProgress`；expected为 `{collectionId,sessions:[唯一完整sessionToken]}`。来源必须在集合全部成员以外，复用原项目writer和sample，Ready后采集1000–10000毫秒，CLI返回后再处理排队控制。`apiCapture/apiOwner` 保留采集、归档、清退及原目标前后回读；不Continue同伴、不自动保存执行事件。Qt/Light同步提供参数、确认、阶段、完整详情及关闭取消。新增接线未构建、未实测。
 
 执行集合内存入口为 `memory-read execution/N ADDRESS BYTES TOKENHEX`／`control.memory.read`（params含十进制字符串address/bytes，expected含collectionId及唯一完整stopToken），以及 `memory-save execution/N TRACKING_EPOCH`／`control.memory.save`（空params，expected含collectionId/trackingEpoch）。读取沿原成员会话核对读前后停点，允许主动暂停；保存冻结原字节到本轮sample独立raw-memory，切换选择不改来源。结果独立保留逐页诊断、字节预览、savedSource及写入/刷盘/核验，同读取重复保存返回原段，真实追加失败停止后续写入。Qt/Light原参数页和worker同步接入，新增源码未构建、未实测。
 
@@ -388,7 +388,7 @@ REPL 使用 `execution-save STOP_ID STATE_REVISION` 显式保存当前仍持有�
 
 当前新写入升级为 `native-execution-v3`，在v2寄存器之外增加 `binding`：同一事件时的原请求ID、绑定地址、初始范围、模块基址、RVA、关注宽度、实测文件 `imageSha256` 及已纳入 `executionRanges`。动态NX追加后保存实际范围列表，旧事件保持旧范围；进入尝试必须落在当时已纳入范围或精确DR0地址，Into完成可已离开初始站点。v1/v2仍按原字段读取，不用当前绑定补旧档；历史绑定不授予活控制权，也不证明区域代次、因果或运行时页面散列。三端复用原历史文档消费；新增v3尚未构建或运行。
 
-项目单目标会话提供 REPL `api-capture PID FILETIME DURATION confirm [progress]`，或 JSONL `control.api.capture`：携带当前 `session`，不带 `expected`，`params` 必须含 `sourcePid`（UInt）、`sourceCreationFileTime`（规范正十进制字符串）、`durationMs`（UInt，1000..10000）、`confirm:true`，另外可含 `startupProgress`（bool）。显式来源必须是另一进程实例，不得使用当前原生目标；调用前从原 owner 的 Query 实读目标 PID，来源 PID＋FILETIME 再由既有显式 R3 附加控制器核对。不从关联候选自动选进程，也不默换采样。
+项目单目标会话提供 REPL `api-capture PID FILETIME DURATION confirm [progress] [capture-progress]`，或 JSONL `control.api.capture`：携带当前 `session`，不带 `expected`，`params` 必须含 `sourcePid`（UInt）、`sourceCreationFileTime`（规范正十进制字符串）、`durationMs`（UInt，1000..10000）、`confirm:true`，另外可含 `startupProgress`、`captureProgress`（均为 bool）。显式来源必须是另一进程实例，不得使用当前原生目标；调用前从原 owner 的 Query 实读目标 PID，来源 PID＋FILETIME 再由既有显式 R3 附加控制器核对。不从关联候选自动选进程，也不默换采样。
 
 REPL 末尾加 `progress` 或 JSONL 指定 `startupProgress:true` 时，原采集线程在阶段实际前进后向 stderr 输出一行 JSON，字段为 `projectId`、`sampleId`、`nativeTarget:{pid,creationFileTime}` 和 `startup`。`startup` 沿用九阶段及原来源身份投影；stdout 仍只返回原命令响应，不产生额外控制事件或ACK。Qt／Light 同采样API沿同一回调更新现有字段详情，保留本次来源与原采样；原最终回执保留至新结果返回，Ready不代表完整采集或归档成功。仅源码接入，尚未构建或实测。
 

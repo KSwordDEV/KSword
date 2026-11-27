@@ -69,6 +69,7 @@ NativeBoundApiRejection ValidateNativeBoundApiRequest(const NativeBoundApiReques
 // 返回纯值完整回执；已有raw/checkpoints由原采集归档链拒绝，禁止覆盖或跳段。
 NativeBoundApiResult CaptureNativeBoundApi(ProjectDocument& document, std::string_view sampleId,
     const NativeBoundApiRequest& request, const NativeBoundApiTarget& nativeTarget,
-    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup = {});
+    const std::atomic_bool& cancel, const NativeBoundApiStartup& onStartup = {},
+    const CooperativeApiCommitted& onCommitted = {}, const CooperativeApiTransferCommitted& onTransfers = {});
 
 } // namespace Ksword::ActionAnalyze

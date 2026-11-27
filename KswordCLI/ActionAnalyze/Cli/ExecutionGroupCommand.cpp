@@ -188,19 +188,19 @@ private:
         }
         else
         {
-            const auto* args = request.params.asArray(); // 格式：流水 PID FILETIME 时长 confirm TOKENHEX [progress]。
+            const auto* args = request.params.asArray(); // 原六参数后可独立选择启动与运行进度。
             std::string tokenText;
             V token; // 完整sessionToken只从用户复制的字节解析，不补造现场字段。
-            if (request.expected || !args || (args->size() != 6 && args->size() != 7) ||
+            if (request.expected || !args || args->size() < 6 || args->size() > 8 ||
                 !(*args)[0].tryGetString(id) || !(*args)[5].tryGetString(tokenText) ||
                 !p::ParseTokenText(tokenText, token) || !p::ParseSessionToken(token, member))
             {
-                return Invalid(request, "invalid-api-member", "Use api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]");
+                return Invalid(request, "invalid-api-member", "Use api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] [capture-progress]");
             }
             JsonArray values(args->begin() + 1, args->begin() + 5); // 去掉修改流水和目标令牌，复用来源参数语法。
-            if (args->size() == 7)
+            for (std::size_t index = 6; index < args->size(); ++index)
             {
-                values.push_back(args->back());
+                values.push_back((*args)[index]); // 两个可选参数统一交原单目标解析器，避免集合另设语法。
             }
             parameters.params = V::makeArray(std::move(values));
         }
@@ -212,7 +212,23 @@ private:
         const auto signature = CanonicalParams(V::makeObject({{"action", Text("api-capture")},
             {"params", request.params}, {"expected", request.expected ? *request.expected : V::makeNull()}})); // 令牌和来源均纳入重放冲突判定。
         return Mutate(request, std::move(id), signature, [&] {
-            ApiCaptureProgress progressOutput(input.startupProgress, {}); // 同一有限采集只建旁路writer，不增控制循环。
+            ApiCaptureProgress progressOutput(input.startupProgress || input.captureProgress,
+                archive_.View().projectId); // 使用原writer项目身份，不从当前成员草稿生成新sample。
+            Ksword::ActionAnalyze::CooperativeApiCommitted onCommitted; // 本次有限采集的已提交水位订阅。
+            Ksword::ActionAnalyze::CooperativeApiTransferCommitted onTransfers; // 原回执计数，不新增归档写者。
+            if (input.captureProgress)
+            {
+                onCommitted = [&](const Ksword::ActionAnalyze::SampleInfo& sample,
+                    const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+                    const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules)
+                {
+                    progressOutput.Committed(sample, checkpoint, rules);
+                };
+                onTransfers = [&](const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers)
+                {
+                    progressOutput.Transfers(transfers);
+                };
+            }
             Ksword::ActionAnalyze::NativeBoundApiStartup onStartup; // 显式订阅时仅向stderr输出真实阶段。
             if (input.startupProgress)
             {
@@ -227,7 +243,7 @@ private:
                 };
             }
             const std::atomic_bool cancel{false}; // 原CLI串行有限采集；输入在返回后继续处理，不声称在途取消。
-            archive_.CaptureApi(group_, member, *input.capture, cancel, onStartup);
+            archive_.CaptureApi(group_, member, *input.capture, cancel, onStartup, onCommitted, onTransfers);
             return progressOutput.AttachDelivery(Report(group_.QueryWithoutCondition())); // 不处理同伴条件，不Continue或自动保存执行观察。
         });
     }
@@ -357,7 +373,7 @@ private:
         const bool rangeInput = range || readMemory; // 两种动作共用数值输入，但内存读取不要求整页对齐。
         const bool save = method == "execution-save" || method == "control.execution.save"; // 原事件显式归档，不释放成员。
         if (!jsonl_ && method == "help" && Empty(request)) return Emit("response", {}, Text(
-            "status | members-append execution/N SITES_PATH confirm COLLECTION_ID | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] | quit"));
+            "status | members-append execution/N SITES_PATH confirm COLLECTION_ID | pause execution/N all|selected TOKENHEX[,TOKENHEX...] | continue execution/N all|selected TOKENHEX[,TOKENHEX...] | step execution/N into|over-call|out TOKENHEX | step-cancel execution/N TOKENHEX | execution-range-add execution/N ADDRESS BYTES TOKENHEX | execution-save execution/N TOKENHEX | memory-read execution/N ADDRESS BYTES TOKENHEX | memory-save execution/N TRACKING_EPOCH | api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] [capture-progress] | quit"));
         if (query && Empty(request) && !request.expected) return Emit("response", request.id, Report(Query()));
         if (jsonl_ && !request.session) return Invalid(request, "session-required", "Control requires the current hello session identity");
         if (close && Empty(request) && !request.expected) {
@@ -608,7 +624,7 @@ void RegisterExecutionGroupCommand()
         L"REPL: status; pause execution/N all|selected TOKENHEX[,TOKENHEX...]; continue execution/N all|selected TOKENHEX[,TOKENHEX...]; step execution/N into|over-call|out TOKENHEX; "
         L"members-append execution/N SITES_PATH confirm COLLECTION_ID; step-cancel execution/N TOKENHEX; execution-range-add execution/N ADDRESS BYTES TOKENHEX; execution-save execution/N TOKENHEX; "
         L"memory-read execution/N ADDRESS BYTES TOKENHEX; memory-save execution/N TRACKING_EPOCH; "
-        L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress]; quit. Copy full replToken bytes, never a member index. "
+        L"api-capture execution/N PID FILETIME DURATION confirm REPLSESSIONTOKEN [progress] [capture-progress]; quit. Copy full replToken bytes, never a member index. "
         L"JSONL: control.query; control.pause params:{scope:all|selected}; control.continue params:{scope:all|selected}; control.step params:{mode:into|over-call|out}; "
         L"control.step.cancel params:{}; control.execution.range.add params:{address,bytes} (canonical positive decimal strings); control.execution.save params:{} with one complete current execution stop; controller.shutdown params:{}. Mutations require current hello session id/epoch, "
         L"execution/N request IDs, and expected:{collectionId,stops:[complete current member.pauseToken, stopToken or stepToken]}. "
@@ -623,7 +639,8 @@ void RegisterExecutionGroupCommand()
         L"ManualPause is not execution evidence. executionArchive reports saved/firstFailure, written/flushed/verified separately; duplicate events reuse the original ordinal. "
         L"Memory read uses one complete current stopToken, decimal address and byte count (1..262144); ManualPause is allowed. It checks the original owner before and after reading without Continue. "
         L"control.memory.save params:{} expected:{collectionId,trackingEpoch} saves the displayed original snapshot to raw-memory. memory reports source, page states, bounded hex previews and separate write/flush/verification. "
-        L"API capture uses control.api.capture params:{sourcePid:UInt,sourceCreationFileTime:decimal-string,durationMs:UInt,confirm:true,startupProgress?:bool}, expected:{collectionId,sessions:[one complete sessionToken]}. "
+        L"API capture uses control.api.capture params:{sourcePid:UInt,sourceCreationFileTime:decimal-string,durationMs:UInt,confirm:true,startupProgress?:bool,captureProgress?:bool}, expected:{collectionId,sessions:[one complete sessionToken]}. "
+        L"capture-progress emits committed API checkpoint/rule/candidate snapshots to stderr through a bounded queue; progress/startupProgress independently selects startup stages. Both may be combined; final captureProgress reports delivery, not target execution. "
         L"Source must be outside every execution group member; duration is 1000..10000 ms after Ready, with startup/drain time separate. The original writer/sample is reused. "
         L"CLI handles queued control after the finite capture returns; progress is stderr JSONL, apiCapture reports independent admission/capture/archive/cleanup and before/after member state. "
         L"site retains initial configuration; control.breakpoint.executionRanges and control.executionRange show actual ranges and the native range/N receipt. "

@@ -216,35 +216,56 @@ NativeSessionApiInput PrepareNativeSessionApi(const Request& request, bool jsonl
     std::uint64_t pid = 0, creation = 0, duration = 0; // 显式来源身份及有限采集时长。
     bool confirmed = false;
     bool startupProgress = false; // 显式选择才向stderr输出本次启动阶段，stdout仍是原命令响应。
+    bool captureProgress = false; // 与原启动选项独立，支持只查看运行中已归档水位。
     const auto invalid = [](const char* id, const char* message) {
-        return NativeSessionApiInput{std::nullopt, false, Invalid(id, message).result};
+        return NativeSessionApiInput{std::nullopt, false, false, Invalid(id, message).result};
     }; // 参数错误沿用原协议结构，不为不同控制页面复制一套解析规则。
     if (jsonl) {
         const auto* params = request.params.asObject();
         const auto* confirm = request.params.find("confirm");
-        const auto* progress = request.params.find("startupProgress"); // 可选bool，不接受未知第五字段。
-        if (!params || params->size() != (progress ? 5u : 4u) ||
+        const auto* progress = request.params.find("startupProgress"); // 仅接受两个明确进度字段，其余未知字段拒绝。
+        const auto* running = request.params.find("captureProgress"); // 运行进度开关必须为bool，不接受数值代替。
+        if (!params || params->size() != 4u + (progress ? 1u : 0u) + (running ? 1u : 0u) ||
             (progress && !progress->tryGetBool(startupProgress)) ||
+            (running && !running->tryGetBool(captureProgress)) ||
             !UIntField(request.params.find("sourcePid"), pid) ||
             !DecimalField(request.params.find("sourceCreationFileTime"), creation) ||
             !UIntField(request.params.find("durationMs"), duration) || !confirm ||
             !confirm->tryGetBool(confirmed) || !confirmed) {
-            return invalid("invalid-api-capture", "Require sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true, optional startupProgress:bool");
+            return invalid("invalid-api-capture", "Require sourcePid:UInt, sourceCreationFileTime:decimal-string, durationMs:UInt, confirm:true, optional startupProgress:bool and captureProgress:bool");
         }
     } else {
         const auto* args = request.params.asArray();
         std::string pidText, creationText, durationText, confirmText;
-        std::string progressText; // REPL第五参数只接受字面progress，原四参数形式继续兼容。
-        if (!args || (args->size() != 4 && args->size() != 5) ||
-            (args->size() == 5 && (!(*args)[4].tryGetString(progressText) || progressText != "progress")) ||
+        if (!args || args->size() < 4 || args->size() > 6 ||
             !(*args)[0].tryGetString(pidText) ||
             !(*args)[1].tryGetString(creationText) || !(*args)[2].tryGetString(durationText) ||
             !(*args)[3].tryGetString(confirmText) || confirmText != "confirm" ||
             !Decimal(pidText, pid) || !Decimal(creationText, creation) || !Decimal(durationText, duration)) {
-            return invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm [progress] (positive decimal numbers)");
+            return invalid("invalid-api-capture", "Usage: api-capture PID FILETIME DURATION confirm [progress] [capture-progress] (positive decimal numbers)");
+        }
+        // 兼容原progress；两个选项可独立或并用，重复项与未知项均拒绝。
+        for (std::size_t index = 4; index < args->size(); ++index)
+        {
+            std::string option; // 当前可选字面参数，不包含来源身份或控制令牌。
+            if (!(*args)[index].tryGetString(option))
+            {
+                return invalid("invalid-api-capture", "Progress options must be strings");
+            }
+            if (option == "progress" && !startupProgress)
+            {
+                startupProgress = true;
+            }
+            else if (option == "capture-progress" && !captureProgress)
+            {
+                captureProgress = true;
+            }
+            else
+            {
+                return invalid("invalid-api-capture", "Unknown or duplicate progress option");
+            }
         }
         confirmed = true; // REPL字面confirm与JSONL confirm:true具有相同授权语义。
-        startupProgress = args->size() == 5;
     }
     if (pid <= 4 || pid > MAXDWORD || pid == GetCurrentProcessId() || !creation || duration < 1000 || duration > 10000) {
         return invalid("invalid-api-source", "Select another explicit process instance and durationMs 1000..10000; zero or continuous capture is not supported");
@@ -254,7 +275,7 @@ NativeSessionApiInput PrepareNativeSessionApi(const Request& request, bool jsonl
     capture.sourceCreationFileTime = creation;
     capture.durationMs = static_cast<DWORD>(duration);
     capture.confirmed = confirmed;
-    return {capture, startupProgress, V::makeNull()};
+    return {capture, startupProgress, captureProgress, V::makeNull()};
 }
 
 // 输入共享完整回执及前后原owner快照，输出原JSON结构，保持单目标和集合字段一致。
@@ -285,7 +306,22 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
     const auto& capture = *input.capture; // CLI只解析协议，writer/sample及采集均由共享服务复用。
     const project::NativeBoundApiTarget nativeTarget{before.pid, before.processCreationTime, before.attached}; // 活owner纯值。
     const std::atomic_bool cancel{false}; // 有限同步区间，不在回调中接管控制指令或保存执行事件。
-    ApiCaptureProgress progressOutput(input.startupProgress, {}); // 只旁听已有启动事实，不读stdin或接管原owner。
+    ApiCaptureProgress progressOutput(input.startupProgress || input.captureProgress,
+        document.Info() ? document.Info()->projectId : std::string{}); // 原打开文档身份，不新开项目或接管owner。
+    project::CooperativeApiCommitted onCommitted; // 复用三种独立采集入口的同一帧格式。
+    project::CooperativeApiTransferCommitted onTransfers; // 仅记录已归档候选，不授予因果或执行确认。
+    if (input.captureProgress)
+    {
+        onCommitted = [&](const project::SampleInfo& sample, const project::ProjectApiCheckpoint& checkpoint,
+            const project::CooperativeApiRuleReceipt& rules)
+        {
+            progressOutput.Committed(sample, checkpoint, rules);
+        };
+        onTransfers = [&](const project::CooperativeApiTransferReceipt& transfers)
+        {
+            progressOutput.Transfers(transfers);
+        };
+    }
     project::NativeBoundApiStartup onStartup; // 未订阅时不输出阶段，不改变原JSONL请求响应次序。
     if (input.startupProgress)
     {
@@ -299,7 +335,8 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
             progressOutput.Publish(value); // stderr满时丢通知，不把原生停点恢复绑到终端读者。
         };
     }
-    const auto result = project::CaptureNativeBoundApi(document, sampleId, capture, nativeTarget, cancel, onStartup);
+    const auto result = project::CaptureNativeBoundApi(document, sampleId, capture, nativeTarget, cancel,
+        onStartup, onCommitted, onTransfers);
     if (result.rejection == project::NativeBoundApiRejection::NativeUnavailable) {
         return Invalid("native-owner-unavailable", "Query an attached native owner before capturing another source process");
     }
@@ -312,8 +349,8 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
     // 原采样本身读失败保留原短错误响应；采集与封段后的失败仍使用完整Report。
     if (!result.receipt.sampleStatus && result.receipt.sample.sampleId.empty())
     {
-        return {true, V::makeObject({{"exitCode", V::makeUInt(3)}, {"sampleId", Text(sampleId)},
-            {"sampleError", Issue(result.receipt.sampleStatus)}})};
+        return {true, progressOutput.AttachDelivery(V::makeObject({{"exitCode", V::makeUInt(3)}, {"sampleId", Text(sampleId)},
+            {"sampleError", Issue(result.receipt.sampleStatus)}}))};
     }
     const auto after = owner.Query(); // 仅回读原owner；API停止不释放原调试事件。
     return {true, progressOutput.AttachDelivery(Report(result, before, after))};
