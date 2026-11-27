@@ -14,6 +14,7 @@
 
 #include <QAbstractItemModel>
 #include <QHeaderView>
+#include <QHostAddress>
 #include <QLabel>
 #include <QPushButton>
 #include <QItemSelectionModel>
@@ -30,6 +31,7 @@ namespace ks::action_analyze
 {
 namespace
 {
+    namespace archive = ks::cli::action_analyze::archive;
     using ks::i18n::sourceText;
 
     // 返回对象类型与编号，用于筛选摘要和选中证据范围。
@@ -61,6 +63,81 @@ namespace
         return std::nullopt;
     }
 
+    // 按已核验的归档地址字段解码数字端点；不做 DNS 或实时查询。
+    QString NetworkEndpointText(archive::NetworkFamily family, const archive::NetworkEndpointMetadata& endpoint)
+    {
+        QHostAddress address; // 当前归档端点对应的 IPv4 或 IPv6 地址。
+        if (family == archive::NetworkFamily::IPv4)
+        {
+            quint32 ipv4 = 0; // 将网络字节序的四个地址字节折叠为 IPv4 数值。
+            for (std::size_t index = 0; index < 4; ++index)
+            {
+                ipv4 = (ipv4 << 8) | endpoint.address[index];
+            }
+            address.setAddress(ipv4);
+        }
+        else
+        {
+            Q_IPV6ADDR ipv6{}; // 保留归档中的十六进制 IPv6 地址字节顺序。
+            std::copy(endpoint.address.cbegin(), endpoint.address.cend(), ipv6.c);
+            address.setAddress(ipv6);
+        }
+        if (!endpoint.port)
+        {
+            return address.toString();
+        }
+        return family == archive::NetworkFamily::IPv6
+            ? QStringLiteral("[%1]:%2").arg(address.toString()).arg(*endpoint.port)
+            : QStringLiteral("%1:%2").arg(address.toString()).arg(*endpoint.port);
+    }
+
+    // 将归档中的 PID 归属强度转成可见线索，避免把弱线索说成强实例。
+    QString NetworkAttributionText(archive::NetworkFlowMetadata::ProcessAttribution attribution)
+    {
+        using Attribution = archive::NetworkFlowMetadata::ProcessAttribution;
+        switch (attribution)
+        {
+        case Attribution::VerifiedInstance:
+            return sourceText(QStringLiteral("已核验进程实例"));
+        case Attribution::EndpointTableHint:
+            return sourceText(QStringLiteral("端口表 PID 线索"));
+        case Attribution::NativePidHint:
+            return sourceText(QStringLiteral("原生 PID 线索"));
+        }
+        return sourceText(QStringLiteral("未知"));
+    }
+
+    // 生成关系树中网络叶项的紧凑标题，保留协议、方向、端点和 PID 线索。
+    QString NetworkRelationTitle(const SegmentNetworkEvidence& evidence)
+    {
+        const auto& flow = evidence.flow.observation; // 读取归档检查后的网络流元数据。
+        const auto protocol = flow.transport == archive::NetworkTransport::Tcp ? QStringLiteral("TCP") : QStringLiteral("UDP"); // 传输协议名称。
+        const auto direction = flow.direction == archive::NetworkDirection::Outbound ? sourceText(QStringLiteral("出站")) : sourceText(QStringLiteral("入站")); // 记录方向。
+        const auto source = NetworkEndpointText(flow.family, flow.sourceField); // 数字源端点。
+        const auto destination = NetworkEndpointText(flow.family, flow.destinationField); // 数字目的端点。
+        const auto attribution = NetworkAttributionText(flow.processAttribution); // PID 归属强度。
+        return QStringLiteral("%1 %2 %3 → %4 · PID %5（%6）")
+            .arg(protocol).arg(direction).arg(source).arg(destination).arg(flow.processId).arg(attribution);
+    }
+
+    // 生成悬停详情，补充端点、PID 归属及可选的采样内进程对象线索。
+    QString NetworkRelationTooltip(const SegmentNetworkEvidence& evidence)
+    {
+        const auto& flow = evidence.flow.observation; // 复用同一条已核验网络流，不重新读取来源。
+        const auto protocol = flow.transport == archive::NetworkTransport::Tcp ? QStringLiteral("TCP") : QStringLiteral("UDP"); // 协议字段。
+        const auto direction = flow.direction == archive::NetworkDirection::Outbound ? sourceText(QStringLiteral("出站")) : sourceText(QStringLiteral("入站")); // 方向字段。
+        const auto source = NetworkEndpointText(flow.family, flow.sourceField); // 源端点的数字显示。
+        const auto destination = NetworkEndpointText(flow.family, flow.destinationField); // 目的端点的数字显示。
+        QString tooltip = sourceText(QStringLiteral("协议：%1 · 方向：%2\n源端点：%3\n目的端点：%4\nPID：%5 · %6"))
+            .arg(protocol).arg(direction).arg(source).arg(destination).arg(flow.processId)
+            .arg(NetworkAttributionText(flow.processAttribution)); // 悬停主信息。
+        if (flow.processObjectId)
+        {
+            tooltip += sourceText(QStringLiteral("\n进程对象 ID：%1")).arg(*flow.processObjectId); // 仅展示归档中实际存在的对象线索。
+        }
+        return tooltip;
+    }
+
     // 给定类型化的归档叶项，返回带真实段号和序号的浏览名称。
     QString RelationRowText(const SegmentRow& row)
     {
@@ -78,11 +155,25 @@ namespace
         {
             label = CallbackArchiveRowLabel();
         }
+        else if (row.network)
+        {
+            label = NetworkRelationTitle(*row.network);
+        }
         else
         {
-            label = row.network ? sourceText(QStringLiteral("网络通信记录")) : QStringLiteral("ETW");
+            label = QStringLiteral("ETW");
         }
         return QStringLiteral("%1/%2 #%3 · %4").arg(RawLaneName(row.evidenceLane)).arg(row.segmentOrdinal).arg(row.sequence).arg(label);
+    }
+
+    // 为网络叶项追加详情；其它记录沿用原来的关系树文案。
+    QString RelationRowTooltip(const SegmentRow& row)
+    {
+        if (!row.network)
+        {
+            return RelationRowText(row);
+        }
+        return RelationRowText(row) + QStringLiteral("\n") + NetworkRelationTooltip(*row.network);
     }
 }
 
@@ -328,12 +419,14 @@ public:
             }
             if (index.internalId() < 1000000)
             {
-                return RelationRowText(candidate->request) + QStringLiteral(" → raw-native/%1 #%2")
+                const auto requestText = role == Qt::ToolTipRole ? RelationRowTooltip(candidate->request) : RelationRowText(candidate->request); // 请求叶项按角色选择标题或详情。
+                return requestText + QStringLiteral(" → raw-native/%1 #%2")
                     .arg(candidate->nativeOrdinal).arg(candidate->nativeSequence);
             }
             if (const auto* row = record(index, m_snapshot.get()))
             {
-                return (index.row() == 0 ? sourceText(QStringLiteral("写入：")) : sourceText(QStringLiteral("API 请求："))) + RelationRowText(*row);
+                const auto rowText = role == Qt::ToolTipRole ? RelationRowTooltip(*row) : RelationRowText(*row); // 候选侧网络叶项悬停时显示端点详情。
+                return (index.row() == 0 ? sourceText(QStringLiteral("写入：")) : sourceText(QStringLiteral("API 请求："))) + rowText;
             }
             if (index.row() == 0)
             {
@@ -405,7 +498,8 @@ public:
                     ? sourceText(QStringLiteral("上下文请求：")) : kind == 1
                         ? sourceText(QStringLiteral("APC 入队：")) : sourceText(QStringLiteral("线程创建："));
             }
-            return prefix + RelationRowText(*row);
+            const auto rowText = role == Qt::ToolTipRole ? RelationRowTooltip(*row) : RelationRowText(*row); // 普通关系叶项按展示角色保留身份前缀。
+            return prefix + rowText;
         }
         if (index.row() == 2)
         {
