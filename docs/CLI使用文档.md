@@ -233,6 +233,8 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 配套网络或 Agent ETW 开启时，`capture-progress` 还会沿原采集 worker 发布 `api-source-progress`：`payload.networkTraffic` 和 `payload.agentEtw` 分别保留该来源已发布的独立段号、字节／观察数、损失及清退状态。自动接管同时启用时，这两个字段随 `transfer-handoff` 一起交付。没有 API 包也可收到来源状态变化；通知不额外采集、不读归档、不新开 writer，最多每 500ms 检查一次已有值，仅变化时发送。清退终态在各原来源停止并封段后交付，未启用的来源字段为 `null`。
 
+自有 WFP 抓包在原 IPPACKET 路径之外，增加仅匹配回环的 IPv4／IPv6 入站 TRANSPORT 观察；只有能够回退并核对真实 IP、TCP／UDP 头及端点时才保留报文字节，缺头不拼造 IP 包。记录仍使用原 `ip-packet` 捕获层和原 ring 协议，既有客户端可读；此路径只表示入站观察，不承诺双向完整覆盖。`existing-wfp` 仍只读取已经启用的抓包来源，不自动加载新驱动或改换来源；`raw-socket` 的回环能力不因这项改动而改变。
+
 线程恢复的预置释义按成功 `ResumeThread` 的旧挂起计数区分：`0` 为调用时没有挂起计数，`1` 为本次解除最后一层计数，`>1` 为本次递减后仍有挂起计数。这里描述调用返回的计数变化，不以此替代实际执行观察；直接 `NtResumeThread` 未投影可选旧计数时沿用成功／失败释义。
 
 文件写入的行为字段 `file.requestedBytes`／`file.transferredBytes` 仅来自成功 `WriteFile` 的完整 `handle/request/transferred` 数值布局，分别保留请求与完成字节数；仅接受短于现有生产配置最小摘要限制64字符的布局，达到该长度及更长时保留未知，避免最终数字被截短而误判。现有 Agent 仅在非 OVERLAPPED 成功调用且安全读回输出时记录完成数字；失败、异步成功及不可读输出保持未知，不补零。预置释义在原通用返回规则前按 `zero-completed`（完成为零，含零请求）、`partial`（完成大于零且小于请求）、`full`（完成等于正数请求）首条命中；缺计数或其它关系沿用原 fallback。计数不确认文件路径、内容或持久落盘，也不关联后续异步完成。

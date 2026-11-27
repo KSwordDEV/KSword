@@ -7,7 +7,8 @@
 
 namespace Ksword::ActionAnalyze {
 
-// RawSocket 直接复用网络 Tab 的服务；ExistingWfp 只读既有 ring，不重置全局抓包开关。
+// RawSocket复用网络Tab服务；ExistingWfp只读既有ring，不重置全局开关、加载驱动或静默切源。
+// 支持回环的新WFP采集器仅提交入站可回退的真实IP字节；此用户态入口不据Ready推断双向覆盖。
 enum class NetworkTrafficBackend { RawSocket, ExistingWfp };
 
 struct NetworkTrafficCapturePlan {
