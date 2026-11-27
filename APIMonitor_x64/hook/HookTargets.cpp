@@ -5280,7 +5280,7 @@ namespace apimon
 
         // HookedNtQueueApcThreadEx 作用：
         // - 输入：线程句柄、Reserve 句柄、APC 例程和三个参数；
-        // - 处理：记录扩展 APC 排队路径；
+        // - 处理：记录扩展 APC 排队路径并附带结构化目标身份；
         // - 返回：保持原始 NTSTATUS。
         NTSTATUS NTAPI HookedNtQueueApcThreadEx(HANDLE threadHandle, HANDLE reserveHandle, PVOID apcRoutinePointer, PVOID argument1Pointer, PVOID argument2Pointer, PVOID argument3Pointer)
         {
@@ -5293,9 +5293,12 @@ namespace apimon
             PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
                 reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock();
+            observation.MarkEntry();
             const NTSTATUS statusValue = g_ntQueueApcThreadExOriginal(threadHandle, reserveHandle, apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            observation.MarkReturn();
             const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError(); // 身份观察和发包后恢复原调用错误值。
+            observation.Complete();
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
@@ -5305,7 +5308,8 @@ namespace apimon
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(apcRoutinePointer));
             AppendWideText(detailBuffer, L" arg1=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(argument1Pointer));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, &observation.fields());
             ::SetLastError(lastError);
             return statusValue;
         }
