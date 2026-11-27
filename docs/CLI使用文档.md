@@ -243,6 +243,8 @@ Qt／Light 的原调试会话与执行集合详情在采集结束后仍保留最
 
 运行检查点的 `payload.rules` 与原生最终响应的 `rules` 同时保留 `behaviorMatches`、`recentBehaviors` 和 `behaviorWindowTruncated`：仅具有行为释义的命中进入最近 32 条窗口，每条含自身段号、原序号、来源序号和双语释义；普通分类命中不挤掉这个窗口。累计数大于窗口长度时截断标志为真，完整历史仍按原坐标从归档读取。旧 `latest`／`latestRule` 保持兼容。Qt／Light 同采样详情同步显示该有界窗口，不把最近普通调用当作整轮唯一行为。
 
+独立 `analyze api-evidence capture`／`launch`／`attach` 的最终 `rules` 也投影同一行为窗口，保留原 `profile`、`coverage`、`state` 及 `latest` 外壳；未订阅 stderr 进度仍可读取最近释义及原坐标。
+
 配套 ETW 的零观察窗口不单独视作失败：仍须成功启动、清退、发布终段，原生处理成功、损失统计已知且无损失，已入队观察全部归档。空归档只表示此来源在该区间没有交付观察，不证明目标未产生活动；`incomplete` 在运行中仍包含待清退／封段责任，须结合来源阶段读取，不能当成即时失败标记。
 
 自有 WFP 抓包在原 IPPACKET 路径之外，增加仅匹配回环的 IPv4／IPv6 入站 TRANSPORT 观察；只有能够回退并核对真实 IP、TCP／UDP 头及端点时才保留报文字节，缺头不拼造 IP 包。记录仍使用原 `ip-packet` 捕获层和原 ring 协议，既有客户端可读；此路径只表示入站观察，不承诺双向完整覆盖。`existing-wfp` 仍只读取已经启用的抓包来源，不自动加载新驱动或改换来源；`raw-socket` 的回环能力不因这项改动而改变。

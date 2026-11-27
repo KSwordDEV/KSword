@@ -380,6 +380,7 @@ Result Import(const Args& args)
 Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
 {
     using project::ProjectStorage::WideAscii;
+    const auto shared = ApiCaptureRulesJson(rules); // 行为窗口沿实时及原生同一投影，不再维护第四份坐标/双语转换。
     Json latest; // 最近命中及原始坐标；没有命中时为空。
     if (rules.latest) {
         const auto& match = *rules.latest; // 已提交原包中的末条匹配结果。
@@ -401,7 +402,10 @@ Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
         {L"configError", rules.configError.empty() ? Json{} : Json::string(ks::str::Utf8ToUtf16(rules.configError))},
         {L"profile", Json::string(L"by-category")}, {L"coverage", Json::string(L"unknown")},
         {L"state", Json::string(rules.failed ? L"evaluation-failed" : L"ready")},
-        {L"matchedRows", Json::count(rules.matchedRows)}, {L"latest", std::move(latest)}});
+        {L"matchedRows", Json::count(rules.matchedRows)}, {L"latest", std::move(latest)},
+        {L"behaviorMatches", CaptureReceiptJson(*shared.find("behaviorMatches"))},
+        {L"behaviorWindowTruncated", CaptureReceiptJson(*shared.find("behaviorWindowTruncated"))},
+        {L"recentBehaviors", CaptureReceiptJson(*shared.find("recentBehaviors"))}});
 }
 
 // 输入共享候选文档与种类，输出原命令的兼容外壳；原坐标、身份和请求值只有一处投影所有者。
