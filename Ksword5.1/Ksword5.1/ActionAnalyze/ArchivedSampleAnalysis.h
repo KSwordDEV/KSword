@@ -34,6 +34,7 @@ namespace ks::action_analyze
         NetworkRequest, // HTTP 请求构造或发送。
         MemoryUnmapRequest, // 解除映射请求；不代表已知解除映射字节范围。
         ThreadResume, // 线程恢复请求；不以调用返回推断实际执行。
+        ProcessQuery, // 进程调试信息类查询；结果只按原始返回证据解释。
         Count // 分类计数数组的容量。
     };
 

@@ -327,6 +327,7 @@ std::wstring ApiFamilyLabel(std::wstring_view family) {
         {L"network-name-query", L"名称解析调用"},
         {L"network-session", L"网络会话句柄"},
         {L"network-request", L"HTTP 请求调用"},
+        {L"process-query", L"进程信息查询"},
     }; // 已核验分类键与用户可见名称的固定映射，不改变现有页面结构。
     for (const auto& [key, label] : labels)
     {
