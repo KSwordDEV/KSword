@@ -40,7 +40,7 @@ QString SegmentBehaviorRowText(const SegmentBehaviorMatch& match)
             SegmentBehaviorSummary(match));
 }
 
-// 原详情文档按实际原包坐标关联；字段和树文案共用同一冻结结果，不重新解释原包。
+// 原详情文档按实际原包坐标关联；输入显示复用生产投影，命中说明只用冻结结果。
 void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
     const SegmentSnapshot& snapshot, const SegmentRow& row)
 {
@@ -50,6 +50,15 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
                 match.segment == row.segmentOrdinal && match.rawSequence == row.sequence &&
                 match.sourceSequence == row.archivedApi->sourceSequence;
         }); // 不用窗口下标或同 PID 替代原坐标。
+
+    // 当前规则求值成功时，命中与未命中的 API 行都展示同一实际 Known 字段投影。
+    if (snapshot.behavior.state == SegmentBehaviorState::Ready && row.archivedApi &&
+        row.evidenceLane == Ksword::ActionAnalyze::ProjectEvidenceLane::Primary)
+    {
+        const auto inputs = OfflineSegmentBehaviorInputs(row); // 不重新读取原包或当前系统。
+        document.section(QStringLiteral("规则求值输入字段"))
+            .field(QStringLiteral("已知字段（缺失字段未输出）"), inputs);
+    }
     if (found == snapshot.behavior.matches.cend())
     {
         return;
@@ -60,13 +69,5 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
         .field(QStringLiteral("行为释义"), SegmentBehaviorSummary(*found))
         .field(QStringLiteral("规则集"), snapshot.behavior.presetSet)
         .field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
-
-    // 直接展示原读取器解码的规则输入；不从当前系统、预览摘要或其它事件补值。
-    if (row.archivedApi)
-    {
-        const auto inputs = OfflineSegmentBehaviorInputs(row); // 复用规则执行器字段投影，不重读或重新求值。
-        document.section(QStringLiteral("规则比对输入"))
-            .field(QStringLiteral("已采集条件字段"), inputs.trimmed());
-    }
 }
 }
