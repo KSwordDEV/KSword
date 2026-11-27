@@ -1,4 +1,5 @@
 #include "LightExecutionGroupSession.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h" // make_shared复制原检查点纯值，显式包含完整类型定义。
 #include "../../Ui/BackgroundWork.h"
 #include <chrono>
 #include <condition_variable>

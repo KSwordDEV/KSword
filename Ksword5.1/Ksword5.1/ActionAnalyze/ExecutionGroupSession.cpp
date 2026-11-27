@@ -1,5 +1,6 @@
 #include "../Framework.h"
 #include "ExecutionGroupSession.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h" // worker复制已提交水位时需要完整类型，不能只用前置声明。
 #include "../UI/AsyncCleanupRegistry.h"
 
 #include <chrono>
