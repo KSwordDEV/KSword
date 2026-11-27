@@ -127,6 +127,7 @@ public:
         Admission stage = Admission::Initial;
         bool ownPause = false;
         std::string pauseRequestId; // 只结清本次主动暂停票据，不按ManualPause标签释放其它请求。
+        V entryObservation = V::makeNull(); // 精确请求入口的首份已核验执行坐标，不借用同进程最后一个停点。
     };
     std::deque<Transfer> transfers; // 处理中请求与终态短窗口；Hook重连不会重复建owner。
     bool callbackFailed = false;
@@ -637,6 +638,24 @@ public:
             previousSequence = receipt.raw.flushed->lastSequence;
             ++saved;
             observed[member.owner.backendInstanceId] = execution->event;
+            for (auto& transfer : transfers)
+            {
+                if (transfer.entryObservation.type() != Evidence::JsonType::Null ||
+                    transfer.request.targetPid != execution->pid ||
+                    transfer.request.targetCreation != execution->processCreationFileTime ||
+                    transfer.request.address != execution->instructionAddress) continue;
+                transfer.entryObservation = V::makeObject({
+                    {"instructionAddress", V::makeString(std::to_string(execution->instructionAddress))},
+                    {"observation", V::makeString(execution->kind == n::NativeExecutionKind::EnterAttempt
+                        ? "execution-enter-attempt" : "instruction-completed")},
+                    {"pid", V::makeUInt(execution->pid)},
+                    {"creationFileTime", V::makeString(std::to_string(execution->processCreationFileTime))},
+                    {"tid", V::makeUInt(execution->thread.tid)},
+                    {"threadCreationFileTime", V::makeString(std::to_string(execution->thread.creationTime))},
+                    {"segmentOrdinal", V::makeString(std::to_string(receipt.ordinal))},
+                    {"recordSequence", V::makeString(std::to_string(receipt.raw.flushed->lastSequence))},
+                    {"sha256", V::makeString(receipt.sha256)}});
+            }
         }
         if (closing)
         {
@@ -863,6 +882,9 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"address", V::makeString(std::to_string(transfer.request.address))},
             {"rangeBase", V::makeString(std::to_string(transfer.base))},
             {"rangeBytes", V::makeString(std::to_string(transfer.bytes))},
+            {"handoffKind", V::makeUInt(transfer.request.kind)},
+            {"entryObservation", transfer.entryObservation},
+            {"nativePageAdvanceScope", V::makeString("target-owner-latest")},
             {"requestPauseOutstanding", V::makeBool(transfer.ownPause)},
             {"completed", V::makeBool(transfer.stage == Impl::Admission::Done)}, {"error", V::makeUInt(transfer.error)},
             {"nativeOwnerStage", member && member->control.stage

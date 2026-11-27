@@ -217,6 +217,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 `--auto-transfer` 明确开启本轮跨进程私有执行接管：已覆盖的 `CreateRemoteThread`、`CreateRemoteThreadEx`、`NtCreateThreadEx`、APC 和上下文 Hook 在原调用前向目标外 owner 同步请求，自动查询请求入口所在完整已提交可执行 `MEM_PRIVATE` 区域，在原执行集合新增目标或范围。成功 ACK 同时要求原 NX 设防回读及下一目标真实 Agent Ready、有效覆盖修订；下一目标继续使用同一交接端点，后续多跳不需要手填私有地址。正在安装的请求返回 Pending 使管道可以服务其它来源，Hook 仍等待最终结果。命中由原 owner 生成真实执行停点，保存到同一 sample 的 `raw-native` 后才沿原 TF／重设防路径自动继续；保存失败保留停点。各来源原包共用原 `raw/checkpoints`，每包分别保存实际 PID、创建 FILETIME 和 session，源序号在整流连续。根进程退出后，已接管来源持续到原根 Ready 起算的时长到期、用户停止或整条链退出；结束先停止并排空各来源再发布终段。`transferHandoff.sources` 分别报告实例、Ready、会话、启动、丢失、结束和清退事实；每条 `admissions` 另报告当前 `nativeOwnerStage`／`nativeOwnerError` 与可用的 `nativeRecoveryFailureStage`／`nativeRecoveryFailureError`，用于区分原生 owner 故障和接管准入错误。拒绝、超时和未完成清退会令本轮为部分结果；交接失败后原 API 仍执行，参数和返回语义保留。此路径尚不能承诺全部入口和任意多跳零窗口；已有 NX 范围可复用，未知目标仍重新核验 PID＋创建时间及内存。Qt／Light 使用同名选项，开始时冻结。
 
+每条准入的 `handoffKind` 保留原请求类型。`entryObservation` 只有在同一目标 PID＋创建时间、实际 `instructionAddress` 精确等于该请求入口，且 `raw-native` 已封段核验成功后才填写；包含实际线程 TID＋创建时间、观察阶段、段号、记录序号及 SHA256。未观察到入口时为 `null`，不能拿 `armed` 或范围目录替代执行。它表示入口一致性，不证明该 API 导致执行。`nativePageAdvanceScope=target-owner-latest` 明确原 `nativePageAdvance` 是目标 owner 最后状态，不是每条准入各自的执行线程；同进程第二范围不能借此改写首范围的 `entryObservation`。此共享回执同时供 CLI、Qt 和 Light 使用。
+
 自动接管中的来源随后通过 `CreateThread`、同进程 `NtCreateThreadEx`、APC 或上下文入口调度私有代码时，也复用同一调用前屏障自动追加范围。普通模块入口不发同进程交接请求；已有 NX 私有入口不因当前 X 位被去掉而漏掉复用。来源 Agent 保留原会话，真实新线程仍由原 debug owner 的创建事件纳入覆盖与恢复账。此接续仅覆盖已 Hook 的调度入口，不代表任意 CPU 写入产生的新区域都能自动发现。
 
 同一目标的前一个 NX 事件正在内部单步时，下一范围保持 Pending，等待原 owner 关回保护并恢复同伴；不因暂时不能暂停而立即拒绝。追加范围引入的主动暂停须真实归还后才允许成功 ACK。用户停止后只保存已持有的执行停点，再撤销原调试／保护责任，不再自动开启下一次单步。最终清退成功不会掩盖采集中已报告的原生恢复失败，该次仍为部分结果。
