@@ -63,6 +63,27 @@ namespace Ksword::Evidence
             Field(network, segmentLoss, L"本段队列计数饱和", "queueCounterSaturated");
             network.failed = Failed(networkTraffic, "win32Error");
             sections.push_back(std::move(network));
+
+            // 每个目标窗口来自同一来源回执；根退出后的追加目标也能在两端详情中查到原身份。
+            const auto* targets = networkTraffic.find("targets"); // 已登记的过滤范围，不是逐包事件时强归属。
+            if (targets && targets->asArray())
+            {
+                for (const auto& target : *targets->asArray())
+                {
+                    if (!target.asObject())
+                    {
+                        continue;
+                    }
+                    HandoffReceiptSection window{L"网络目标采集窗口"}; // 每个实例保留自身起止及结束原因。
+                    Field(window, target, L"目标 PID", "pid");
+                    Field(window, target, L"进程创建 FILETIME", "creationFileTime");
+                    Field(window, target, L"采集开始 FILETIME", "startUtc");
+                    Field(window, target, L"采集结束 FILETIME", "endUtc");
+                    Field(window, target, L"根目标", "root");
+                    Field(window, target, L"结束原因", "endReason");
+                    sections.push_back(std::move(window));
+                }
+            }
         }
 
         // ETW字段只读取ETW回执及其自己的published坐标，不借用网络来源坐标。
