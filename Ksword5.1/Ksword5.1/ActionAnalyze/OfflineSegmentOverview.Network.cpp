@@ -75,6 +75,23 @@ namespace
         }
         return sourceText(QStringLiteral("未知"));
     }
+
+    // 输入归档采集层，输出当前记录中字节的真实口径；IP包不冒充应用负载或解密后的HTTPS。
+    QString CaptureLayerText(archive::NetworkCaptureLayer layer)
+    {
+        switch (layer)
+        {
+        case archive::NetworkCaptureLayer::FlowMetadata:
+            return sourceText(QStringLiteral("流元数据"));
+        case archive::NetworkCaptureLayer::TransportPayload:
+            return sourceText(QStringLiteral("传输层负载"));
+        case archive::NetworkCaptureLayer::IpPacket:
+            return sourceText(QStringLiteral("IP 包"));
+        case archive::NetworkCaptureLayer::LinkFrame:
+            return sourceText(QStringLiteral("链路帧"));
+        }
+        return sourceText(QStringLiteral("未知"));
+    }
 }
 
 // 使用共享详情文档，同时展示记录级捕获状态及界面实际显示的字节。
@@ -98,6 +115,7 @@ void OfflineSegmentOverview::appendNetworkEvidence(ks::ui::FieldDocument& docume
         .field(QStringLiteral("网络来源绑定"), evidence.sourceTrust == archive::NetworkSourceTrust::MatchedVerifiedBinding
             ? QStringLiteral("已核验来源绑定") : QStringLiteral("仅归档来源声明"), true)
         .field(QStringLiteral("来源时间刻度"), QString::number(flow.sourceTimestamp))
+        .field(QStringLiteral("网络采集层"), CaptureLayerText(capture.layer))
         .field(QStringLiteral("归档载荷状态"), CaptureState(capture.state))
         .field(QStringLiteral("归档保留字节数"), QString::number(capture.capturedLength))
         .field(QStringLiteral("来源采集字节数"), QString::number(capture.producerCapturedLength));

@@ -26,6 +26,23 @@ QString PayloadState(archive::NetworkPayloadState state)
     return QStringLiteral("unknown");
 }
 
+// 将归档采集层转为详情源文案；只接受本条记录的层级，不根据端口猜测应用协议。
+QString CaptureLayer(archive::NetworkCaptureLayer layer)
+{
+    switch (layer)
+    {
+    case archive::NetworkCaptureLayer::FlowMetadata:
+        return QStringLiteral("流元数据");
+    case archive::NetworkCaptureLayer::TransportPayload:
+        return QStringLiteral("传输层负载");
+    case archive::NetworkCaptureLayer::IpPacket:
+        return QStringLiteral("IP 包");
+    case archive::NetworkCaptureLayer::LinkFrame:
+        return QStringLiteral("链路帧");
+    }
+    return QStringLiteral("未知");
+}
+
 // 仅格式化归档中的网络序地址，不做DNS或实时连接查询。
 QString Endpoint(const archive::NetworkEndpointMetadata& endpoint, archive::NetworkFamily family)
 {
@@ -118,12 +135,18 @@ void Present(NetworkTrafficView& view)
         const auto attribution = flow.processAttribution == archive::NetworkFlowMetadata::ProcessAttribution::VerifiedInstance ?
             QStringLiteral("verified-instance") : flow.processAttribution == archive::NetworkFlowMetadata::ProcessAttribution::NativePidHint ?
             QStringLiteral("native-pid-hint") : QStringLiteral("endpoint-table-hint");
+        const bool instanceKnown = flow.processAttribution == archive::NetworkFlowMetadata::ProcessAttribution::VerifiedInstance &&
+            flow.processCreatedUtc100ns != 0; // PID线索中占位的零不作为真实进程创建时间展示。
         fields.section(QStringLiteral("网络记录"))
             .field(QStringLiteral("记录序号"), QString::number(record.flow.recordSequence))
             .field(QStringLiteral("记录偏移"), QString::number(record.flow.recordOffset))
             .field(QStringLiteral("PID 归属"), attribution)
             .field(QStringLiteral("PID"), QString::number(flow.processId))
-            .field(QStringLiteral("创建 FILETIME"), QString::number(flow.processCreatedUtc100ns))
+            .field(QStringLiteral("创建 FILETIME"), instanceKnown ? QString::number(flow.processCreatedUtc100ns) : QStringLiteral("未知"), !instanceKnown)
+            .field(QStringLiteral("来源 ID"), QString::fromStdString(record.source.sourceId))
+            .field(QStringLiteral("网络来源绑定"), record.sourceTrust == archive::NetworkSourceTrust::MatchedVerifiedBinding ?
+                QStringLiteral("已核验来源绑定") : QStringLiteral("仅归档来源声明"), true)
+            .field(QStringLiteral("网络采集层"), CaptureLayer(record.flow.capture.layer), true)
             .field(QStringLiteral("源端点"), Endpoint(flow.sourceField, flow.family))
             .field(QStringLiteral("目的端点"), Endpoint(flow.destinationField, flow.family))
             .field(QStringLiteral("协议与方向"), QStringLiteral("%1 / %2").arg(
