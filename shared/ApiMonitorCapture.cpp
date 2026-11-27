@@ -75,6 +75,7 @@ struct Reader {
     DWORD offset = 0;
     bool disconnected = false, agentFailed = false;
     std::uint64_t installRevision = 0;
+    DWORD pendingEofError = 0; // 包边界EOF先留原错误，沿既有清退流程等待同一进程对象的最终退出事实。
 };
 
 bool hasActiveObservation(const CaptureProcess& process) {
@@ -94,8 +95,13 @@ void finishPipeRead(Reader& reader, CaptureResult& result, DWORD failure) {
     if (eof && !state.exited)
         state.exited = ::WaitForSingleObject(reader.process.value, 0) == WAIT_OBJECT_0;
     if (reader.offset) { ++result.invalidPackets; state.coverageStale = true; }
-    // 目标退出可解释正常 EOF，不能掩盖读取失败或截断包。
-    if ((!state.exited && !state.removed) || !eof || reader.offset) {
+    // 关闭管道可能先于进程对象置为signaled；只有完整包EOF延后归因，不能延后真实读错或截断包。
+    if (eof && !reader.offset)
+    {
+        reader.pendingEofError = failure ? failure : ERROR_HANDLE_EOF;
+    }
+    else
+    {
         state.pipeError = failure ? failure : ERROR_HANDLE_EOF;
         state.coverageStale = true;
     }
@@ -574,7 +580,7 @@ CaptureResult Capture::run() {
                 poll();
                 const auto& reader = *readers.front();
                 const auto& root = reader.evidence;
-                if (callbackFailed || root.exited || root.pipeError || root.removed
+                if (callbackFailed || root.exited || root.pipeError || root.removed || reader.disconnected
                     || (strictObservation() && reader.agentFailed)) {
                     if (root.removed) error(L"Agent stopped before requested interval");
                     endedEarly = true;
@@ -600,7 +606,13 @@ CaptureResult Capture::run() {
     const bool handoffReady = strictObservation() && result.started && result.readyCoverageRevision &&
         !request.transferHandoff.pipeName.empty();
     for (auto& reader : readers) {
-        const auto& state = reader->evidence;
+        auto& state = reader->evidence; // 清退已按原超时排空，最终EOF只由同一个保留进程对象解释。
+        if (reader->pendingEofError && !state.exited && !state.removed)
+        {
+            // 活目标断开不能冒充正常退出；原管道错误和覆盖失效仍写入最终回执。
+            state.pipeError = reader->pendingEofError;
+            state.coverageStale = true;
+        }
         partial = partial || state.pipeError || state.agentDropped || (state.partialHooks && !handoffReady) ||
             state.installFailed || !state.installed || !state.coverageComplete || state.coverageStale;
         result.processes.push_back(std::move(reader->evidence));
