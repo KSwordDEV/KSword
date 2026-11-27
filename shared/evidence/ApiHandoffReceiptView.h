@@ -71,6 +71,27 @@ namespace Ksword::Evidence
                 (value->tryGetU64(code) && code != 0));
         }
 
+        // 输入原协议kind，输出触发动作的说明；文字仅表达观测入口，不把请求说成执行成功。
+        inline const char* TriggerText(std::uint64_t kind)
+        {
+            switch (kind)
+            {
+            case 1:
+                return "线程创建请求";
+            case 2:
+                return "APC 入队请求";
+            case 3:
+                return "线程上下文请求";
+            case 4:
+                return "内存操作后发现私有执行范围";
+            case 5:
+                return "内存写入前请求范围设防";
+            case 6:
+                return "线程恢复前观测私有指令地址";
+            }
+            return "未知";
+        }
+
         // 调用时传入目标分组、冻结准入、观察键、类型标签及缺值提示；原位追加同源观察字段，无返回值。
         // 入口与范围观察复用字段格式，调用者明确选择语义，不将范围命中解释为精确入口或API因果。
         inline void ObservationFields(HandoffReceiptSection& section, const JsonValue& admission,
@@ -223,7 +244,10 @@ namespace Ksword::Evidence
 
                 const auto* kind = admission.find("handoffKind"); // 准入种类决定观察口径，旧档缺失时保留入口显示。
                 std::uint64_t handoffKind = 0; // 写前请求与写后发现都只有范围身份，没有调度入口。
-                if (kind && kind->tryGetU64(handoffKind) && (handoffKind == 4 || handoffKind == 5))
+                const bool hasKind = kind && kind->tryGetU64(handoffKind); // 旧档缺值保留未知，不猜测线程创建。
+                Field(group, admission, L"handoffKind", "handoffKind");
+                group.fields.push_back({L"接管触发类型", hasKind ? TriggerText(handoffKind) : "未知", true});
+                if (hasKind && (handoffKind == 4 || handoffKind == 5))
                 {
                     ObservationFields(group, admission, "rangeObservation", L"范围执行观察",
                         "尚无已归档范围执行观察");
