@@ -35,6 +35,8 @@ struct LightExecutionGroupSnapshot {
     execution_native::ExecutionGroupResult result;
     Ksword::ActionAnalyze::ExecutionGroupArchiveView archive; // 原worker公布的归档身份及独立存储结果。
     std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> apiStartup; // 原展示周期读取的不可变启动快照。
+    std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> apiCheckpoint; // 最新已核验API水位，不借用正在写入的段。
+    std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> apiRules; // 与该检查点同时冻结的规则释义与原坐标。
     std::uint64_t revision = 0;
     std::uint64_t observedFileTime = 0;
     std::uint64_t operationFileTime = 0;

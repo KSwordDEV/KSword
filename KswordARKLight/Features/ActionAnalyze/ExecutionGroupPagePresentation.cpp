@@ -310,6 +310,34 @@ void RefreshText(Page& page)
     {
         text += FormatLightNativeSessionApiProgress(*page.shown.apiStartup); // 同一250ms展示周期读取在途进度。
     }
+    if (page.shown.apiCheckpoint && page.shown.apiRules)
+    {
+        // 复用原字段正文和完整复制/导出路径，不增加第二个日志窗口或现场读盘。
+        const auto& checkpoint = *page.shown.apiCheckpoint; // 该通知实际完成发布的段，不是当前收包计数。
+        const auto& rules = *page.shown.apiRules; // 最近命中可来自较早段，始终显示它自己的原段号。
+        text += L"\r\n\r\n[API已提交运行进度]\r\n采样=" + Widen(checkpoint.sampleId) +
+            L"\r\n归档坐标=raw/" + std::to_wstring(checkpoint.ordinal) + L" #" +
+            std::to_wstring(checkpoint.rawEnd.lastSequence) + L"\r\n原包序号=" +
+            std::to_wstring(checkpoint.lastSourceSequence) + L"\r\n段SHA256=" + Widen(checkpoint.rawSha256);
+        text += L"\r\n终段=" + std::wstring(checkpoint.finalSegment ? L"是" : L"否") +
+            L"\r\n规则命中=" + std::to_wstring(rules.matchedRows) +
+            L"\r\n规则内容SHA256=" + Widen(rules.sourceSha256);
+        if (rules.failed)
+        {
+            text += L"\r\n规则派生失败=" + Widen(rules.configError); // 原包已发布与派生失败分别呈现。
+        }
+        if (rules.latest)
+        {
+            const auto& match = *rules.latest; // 原规则回执，不在UI线程重新求值或升级行为结论。
+            text += L"\r\n最近命中=raw/" + std::to_wstring(rules.latestSegment) + L" #" +
+                std::to_wstring(match.rawSequence) + L" · " + Widen(match.api) + L" · " + Widen(match.ruleId);
+            if (match.behavior)
+            {
+                text += L"\r\n行为释义=" + Widen(match.behavior->summaryZh) +
+                    L"\r\n规则证据=" + Widen(match.behavior->evidence);
+            }
+        }
+    }
     const bool fields = ::SendMessageW(page.textMode, CB_GETCURSEL, 0, 0) == 0;
     if (fields) {
         // 草稿选择与右侧活成员分开显示；用户编辑输入不会改写此处已经保存的站点来源。

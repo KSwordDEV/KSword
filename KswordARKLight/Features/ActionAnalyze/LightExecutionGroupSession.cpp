@@ -167,6 +167,21 @@ struct LightExecutionGroupSession::Shared {
                                     std::lock_guard lock(mutex); // 不持状态锁执行采集或原生回读。
                                     status.apiStartup = std::move(value);
                                     ++status.revision;
+                                },
+                                [this](const Ksword::ActionAnalyze::SampleInfo& sample,
+                                    const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+                                    const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules) {
+                                    // 原writer已回读检查点才发布；不读取UI草稿，不查询或继续native成员。
+                                    auto savedCheckpoint = std::make_shared<const Ksword::ActionAnalyze::ProjectApiCheckpoint>(checkpoint);
+                                    auto savedRules = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt>(rules);
+                                    std::lock_guard lock(mutex); // 仅替换两份不可变值，完整归档仍由原worker负责。
+                                    if (sample.sampleId != status.archive.sampleId)
+                                    {
+                                        return; // 不把旧采样的迟到回调挂到下一轮集合。
+                                    }
+                                    status.apiCheckpoint = std::move(savedCheckpoint);
+                                    status.apiRules = std::move(savedRules);
+                                    ++status.revision;
                                 });
                             Publish(group->QueryWithoutCondition(), true, &archive->View()); // 不求值同伴条件或Continue。
                         }
@@ -265,11 +280,18 @@ bool LightExecutionGroupSession::Submit(LightExecutionGroupRequest request)
         shared_->status.closedClean = false;
         shared_->status.canStart = false;
         shared_->status.apiStartup.reset(); // 新采样不沿用上轮采集阶段。
+        shared_->status.apiCheckpoint.reset();
+        shared_->status.apiRules.reset(); // 规则释义与检查点作为同一份结果一起换代。
     }
     if (request.command == LightExecutionGroupCommand::CaptureApi || request.command == LightExecutionGroupCommand::ReadMemory)
     {
         shared_->apiCancel.store(false); // 已通过关闭/单在途准入后才归属本请求。
         shared_->status.apiStartup.reset();
+        if (request.command == LightExecutionGroupCommand::CaptureApi)
+        {
+            shared_->status.apiCheckpoint.reset();
+            shared_->status.apiRules.reset(); // 新API请求不沿用上次结果；普通内存读取不清除API水位。
+        }
     }
     shared_->pending = std::move(request);
     shared_->status.busy = true;
@@ -325,6 +347,8 @@ void LightExecutionGroupSession::CancelRetirement()
             shared_->status.result = previous.result;
             shared_->status.archive = previous.archive; // 重建已clean的展示worker也保留历史保存坐标。
             shared_->status.apiStartup = previous.apiStartup;
+            shared_->status.apiCheckpoint = previous.apiCheckpoint;
+            shared_->status.apiRules = previous.apiRules; // 已clean展示worker重建时保留结果原身份。
             shared_->status.observedFileTime = previous.observedFileTime;
             shared_->status.operationFileTime = previous.operationFileTime;
             shared_->status.revision = previous.revision + 1;
