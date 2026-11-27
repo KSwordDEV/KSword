@@ -373,6 +373,7 @@
     <ClCompile Include="src\features\network\network_wfp.c" />
     <ClCompile Include="src\features\network\network_managed.c" />
     <ClCompile Include="src\features\network\network_traffic.c" />
+    <ClCompile Include="src\features\network\network_traffic_loopback.c" />
     <ClCompile Include="src\features\network\network_ioctl.c" />
     <ClCompile Include="src\features\keyboard\keyboard_query.c" />
     <ClCompile Include="src\features\keyboard\keyboard_ioctl.c" />
@@ -609,6 +610,7 @@
     <ClInclude Include="..\shared\driver\KswordArkUnloadedDriverIoctl.h" />
     <ClInclude Include="src\features\redirect\redirect_internal.h" />
     <ClInclude Include="src\features\network\network_internal.h" />
+    <ClInclude Include="src\features\network\network_traffic.h" />
     <ClInclude Include="src\features\network\network_inventory.h" />
     <ClInclude Include="src\features\network\network_inventory_internal.h" />
     <ClInclude Include="src\features\kernel\hook_scan_support.h" />

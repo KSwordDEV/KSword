@@ -6,7 +6,7 @@ Module Name:
 
 Abstract:
 
-    WFP IPv4/IPv6 IP-packet inspection capture and cursor-based packet query.
+    WFP IPv4/IPv6 IP-packet ring shared with loopback transport inspection.
 
 Environment:
 
@@ -14,32 +14,8 @@ Environment:
 
 --*/
 
-#include <ntddk.h>
-
-// WFP packet-layer ABI exposes NET_BUFFER/NET_BUFFER_LIST.  ndis.h requires
-// an explicit NDIS contract before it can provide those definitions.
-#ifndef NDIS630
-#define NDIS630
-#endif
-#include <ndis.h>
-
-// 中文说明：WDK WFP/NDIS 头使用匿名 union/bit-field；只在系统头范围关闭对应告警。
-#pragma warning(push)
-#pragma warning(disable:4201 4214)
-#include <fwpsk.h>
-#include <fwpmk.h>
-#pragma warning(pop)
-
-#include "network_internal.h"
-
-// 中文说明：四个 runtime callout/filter 槽位必须与注册配置数组保持一致。
-typedef enum _KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_INDEX
-{
-    KswordArkTrafficInboundV4 = 0,
-    KswordArkTrafficOutboundV4 = 1,
-    KswordArkTrafficInboundV6 = 2,
-    KswordArkTrafficOutboundV6 = 3
-} KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_INDEX;
+// 中文说明：普通 IP 层与独立回环模块使用同一内部 NDIS/WFP 合约。
+#include "network_traffic.h"
 
 // 中文说明：解析器只接受 TCP/UDP，并显式遍历这些 IPv6 扩展头。
 #define KSWORD_ARK_IP_PROTOCOL_HOPOPTS 0U
@@ -95,7 +71,7 @@ typedef struct _KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_CONFIG
     PCWSTR FilterName; // FilterName：BFE filter 诊断名称。
 } KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_CONFIG;
 
-// 中文说明：数组索引与 KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_INDEX、runtime ID 数组一致。
+// 中文说明：数组索引与原有四个 IPPACKET runtime ID 槽位一致。
 static const KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_CONFIG g_KswordArkTrafficCalloutConfigs[
     KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_COUNT] =
 {
@@ -192,7 +168,7 @@ Routine Description:
     }
 }
 
-static BOOLEAN
+BOOLEAN
 KswordARKNetworkTrafficParseTransport(
     _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* Row,
     _In_ ULONG TransportOffset,
@@ -216,7 +192,7 @@ Routine Description:
     USHORT sourcePort = 0U;
     // 中文说明：保存传输层目的端口。
     USHORT destinationPort = 0U;
-    // 中文说明：保存 L4 payload 在完整 IP 报文内的偏移。
+    // 中文说明：保存 L4 payload 相对真实捕获层起点的偏移。
     ULONG payloadOffset = 0UL;
 
     // 中文说明：所有协议解析都至少需要源/目的端口四字节。
@@ -297,7 +273,7 @@ Routine Description:
     Row->protocol = (ULONG)Protocol;
     // 中文说明：保存 payload 偏移。
     Row->payloadOffset = payloadOffset;
-    // 中文说明：TCP payload 使用 IP 总长减去 TCP 首部；UDP 已在上面按 UDP length 设置。
+    // 中文说明：TCP payload 使用捕获层总长减去首部；UDP 已按自身 length 设置。
     if (Protocol == KSWORD_ARK_IP_PROTOCOL_TCP) {
         // 中文说明：前置检查保证 payloadOffset 不大于 PacketLength。
         Row->payloadLength = PacketLength - payloadOffset;
@@ -561,7 +537,7 @@ Routine Description:
         16UL);
 }
 
-static BOOLEAN
+BOOLEAN
 KswordARKNetworkTrafficParsePacket(
     _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* Row
     )
@@ -604,7 +580,7 @@ Routine Description:
     return TRUE;
 }
 
-static VOID
+VOID
 KswordARKNetworkTrafficRecordPacket(
     _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* PacketRow,
     _In_ ULONG CaptureGeneration
@@ -679,29 +655,6 @@ Routine Description:
     KeReleaseSpinLock(&runtime->TrafficLock, oldIrql);
 }
 
-static ULONG
-KswordARKNetworkTrafficReadProcessId(
-    _In_opt_ const FWPS_INCOMING_METADATA_VALUES0* Metadata
-    )
-/*++
-
-Routine Description:
-
-    尝试读取 WFP metadata PID；IP packet 层通常缺失时返回 0，由 R3 连接表补全。
-
---*/
-{
-    // 中文说明：metadata 和 PROCESS_ID 能力位必须存在。
-    if (Metadata == NULL ||
-        (Metadata->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID) == 0U ||
-        Metadata->processId > MAXULONG) {
-        // 中文说明：缺失或超出共享协议宽度时保持未知 PID。
-        return 0UL;
-    }
-    // 中文说明：边界已验证，可安全收窄到共享 32 位 PID。
-    return (ULONG)Metadata->processId;
-}
-
 static VOID
 KswordARKNetworkTrafficCaptureNetBuffer(
     _Inout_ NET_BUFFER* NetBuffer,
@@ -741,7 +694,7 @@ Routine Description:
     // 中文说明：入站 IPPACKET 数据偏移位于传输头，必须暂时回退 ipHeaderSize。
     if (Inbound) {
         // 中文说明：metadata 必须给出非零 IP 首部长度。
-        if (IpHeaderSize == 0UL) {
+        if (IpHeaderSize == 0UL || NET_BUFFER_DATA_OFFSET(NetBuffer) < IpHeaderSize) {
             // 中文说明：无法恢复完整 IP 包时不伪造逐包数据。
             return;
         }
@@ -971,7 +924,7 @@ KswordARKNetworkTrafficRegisterRuntimeCallouts(
 
 Routine Description:
 
-    为 IPv4/IPv6 入站/出站 IPPACKET 层注册四个 runtime callout。
+    注册四个普通 IPPACKET callout，再接入四个回环 TRANSPORT callout。
 
 --*/
 {
@@ -1014,6 +967,17 @@ Routine Description:
         }
     }
 
+    // 中文说明：回环 transport 单独持有四个槽位，不扩大原 runtime 结构。
+    status = KswordARKNetworkTrafficLoopbackRegister(Runtime);
+    // 中文说明：回环注册失败与普通层共用原子回滚路径。
+    if (!NT_SUCCESS(status)) {
+        // 中文说明：保留真实失败状态，不能把部分来源报告为就绪。
+        Runtime->TrafficCaptureStatus = status;
+        // 中文说明：统一清理普通层及回环层的部分注册。
+        KswordARKNetworkTrafficUnregisterRuntimeCallouts(Runtime);
+        // 中文说明：让父注册终止。
+        return status;
+    }
     // 中文说明：runtime callout 阶段成功，engine/filter 阶段稍后继续。
     Runtime->TrafficCaptureStatus = STATUS_SUCCESS;
     // 中文说明：返回成功。
@@ -1028,7 +992,7 @@ KswordARKNetworkTrafficAddEngineObjects(
 
 Routine Description:
 
-    在父级 BFE 事务内添加四个 callout 对象和观察型 inspection filter。
+    在父级 BFE 事务内添加普通 IP 与回环 TRANSPORT 的观察对象。
 
 --*/
 {
@@ -1064,10 +1028,12 @@ Routine Description:
         }
     }
 
-    // 中文说明：再为每个 callout 添加匹配全部流量的 inspection filter。
+    // 中文说明：普通 IPPACKET 排除 loopback，与回环 TRANSPORT 分工不重叠。
     for (index = 0UL; index < KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_COUNT; ++index) {
         // 中文说明：构造官方 FWPM_FILTER0。
         FWPM_FILTER0 filter = { 0 };
+        // 中文说明：显式排除回环，即使某条路径也经过 IPPACKET 也只记录一次。
+        FWPM_FILTER_CONDITION0 condition = { 0 };
         // 中文说明：绑定当前 IPPACKET layer。
         filter.layerKey = *g_KswordArkTrafficCalloutConfigs[index].LayerKey;
         // 中文说明：设置诊断名称。
@@ -1080,10 +1046,18 @@ Routine Description:
         filter.action.type = FWP_ACTION_CALLOUT_INSPECTION;
         // 中文说明：关联当前 callout GUID。
         filter.action.calloutKey = *g_KswordArkTrafficCalloutConfigs[index].CalloutKey;
-        // 中文说明：无条件匹配该层全部包。
-        filter.numFilterConditions = 0U;
-        // 中文说明：无条件数组。
-        filter.filterCondition = NULL;
+        // 中文说明：与回环模块共用 WDK FLAGS 条件键。
+        condition.fieldKey = KswordARKNetworkTrafficFlagsCondition;
+        // 中文说明：保留所有未标记 IS_LOOPBACK 的普通 IP 包。
+        condition.matchType = FWP_MATCH_FLAGS_NONE_SET;
+        // 中文说明：FLAGS 使用 WFP UINT32 类型。
+        condition.conditionValue.type = FWP_UINT32;
+        // 中文说明：只排除回环位，不改变其它过滤条件。
+        condition.conditionValue.uint32 = FWP_CONDITION_FLAG_IS_LOOPBACK;
+        // 中文说明：单条件栈数组供同步添加调用使用。
+        filter.numFilterConditions = 1U;
+        // 中文说明：条件只影响观察入口，不影响防火墙判定。
+        filter.filterCondition = &condition;
         // 中文说明：添加 filter 并保存 ID 供显式卸载。
         status = FwpmFilterAdd0(
             Runtime->EngineHandle,
@@ -1099,6 +1073,15 @@ Routine Description:
         }
     }
 
+    // 中文说明：回环对象仍属于同一父事务，失败时由父事务统一撤销。
+    status = KswordARKNetworkTrafficLoopbackAdd(Runtime);
+    // 中文说明：回环来源不可用时不报告逐包能力全部就绪。
+    if (!NT_SUCCESS(status)) {
+        // 中文说明：保存真实 BFE 错误。
+        Runtime->TrafficCaptureStatus = status;
+        // 中文说明：交由父层 abort，禁止半套来源。
+        return status;
+    }
     // 中文说明：callout/filter 均已加入当前事务。
     Runtime->TrafficCaptureStatus = STATUS_SUCCESS;
     // 中文说明：返回成功。
@@ -1126,6 +1109,8 @@ Routine Description:
         return;
     }
 
+    // 中文说明：先清理同一动态会话中的回环管理对象。
+    KswordARKNetworkTrafficLoopbackDelete(Runtime);
     // 中文说明：先删 filter，避免仍引用 callout。
     for (index = (LONG)KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_COUNT - 1; index >= 0; --index) {
         // 中文说明：只删除已获得非零 ID 的 filter。
@@ -1159,7 +1144,7 @@ KswordARKNetworkTrafficUnregisterRuntimeCallouts(
 
 Routine Description:
 
-    注销四个 runtime callout，支持部分初始化与重复清理。
+    注销普通 IP 和回环 TRANSPORT callout，支持部分初始化与重复清理。
 
 --*/
 {
@@ -1172,6 +1157,8 @@ Routine Description:
         return;
     }
 
+    // 中文说明：先清退回环回调，原 ring 和捕获代次仍保持有效。
+    KswordARKNetworkTrafficLoopbackUnregister();
     // 中文说明：逆序注销已注册 runtime callout。
     for (index = (LONG)KSWORD_ARK_NETWORK_TRAFFIC_CALLOUT_COUNT - 1; index >= 0; --index) {
         // 中文说明：0 表示该槽位未注册或已清理。
@@ -1260,7 +1247,7 @@ Routine Description:
     response->entrySize = sizeof(KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW);
     // 中文说明：公开固定 ring 容量。
     response->capacity = KSWORD_ARK_NETWORK_TRAFFIC_RING_CAPACITY;
-    // 中文说明：只有四个 packet filter 已提交后才报告可用。
+    // 中文说明：只有普通 IP 和回环 transport filter 一并提交后才报告可用。
     response->status =
         ((runtime->RuntimeFlags & KSWORD_ARK_NETWORK_RUNTIME_PACKET_CAPTURE_STARTED) == 0UL) ?
         KSWORD_ARK_NETWORK_STATUS_WFP_UNAVAILABLE :

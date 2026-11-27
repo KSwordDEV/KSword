@@ -180,6 +180,9 @@
     <ClInclude Include="src\features\network\network_internal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\features\network\network_traffic.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\features\network\network_inventory.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1327,6 +1330,9 @@
     </ClCompile>
     <ClCompile Include="src\features\network\network_managed.c"><Filter>Source Files\Features\Network</Filter></ClCompile>
     <ClCompile Include="src\features\network\network_traffic.c">
+      <Filter>Source Files\Features\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\network\network_traffic_loopback.c">
       <Filter>Source Files\Features\Network</Filter>
     </ClCompile>
     <ClCompile Include="src\features\keyboard\keyboard_query.c">
