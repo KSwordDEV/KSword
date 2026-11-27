@@ -260,6 +260,10 @@ NativeControlResult NativeDebugOwner::Impl::Snapshot(const PauseRecord* record) 
     result.breakpointHit = record->hit;
     result.registers = record->registers;
     if (!step_.Receipt().request.release.requestId.empty()) { result.step = step_.Receipt(); }
+    else if (breakpoint_ && breakpoint_->executionPage && step_.Receipt().request.tid) {
+        // 内部推进始终与用户step分开，Close之后仍保留最后的原生原因，避免只剩owner-closed。
+        result.pageAdvance = NativePageAdvanceState{step_.Receipt(), step_.ObservedDr6(), step_.Disposition()};
+    }
     if (record->lastReleaseRequestId) {
         result.release = ledger_.QueryRelease(*record->lastReleaseRequestId, record->groupId);
         if (result.release) { result.releaseRequestId = record->lastReleaseRequestId; }

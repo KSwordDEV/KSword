@@ -231,6 +231,13 @@ struct NativeExecutionRangeReceipt {
     std::uint32_t win32Error = 0;
 };
 
+// 内部NX续行的最近原生状态，仅供诊断；不授予用户Step、完成证据或释放资格。
+struct NativePageAdvanceState {
+    NativeStepReceipt receipt;
+    std::uint64_t observedDr6 = 0;
+    std::uint32_t continuation = 0;
+};
+
 struct NativeControlResult {
     NativeControlStatus status = NativeControlStatus::Idle;
     LedgerResult ledgerResult = LedgerResult::Applied;
@@ -249,6 +256,7 @@ struct NativeControlResult {
     std::optional<NativeBreakpointBinding> breakpoint;
     std::optional<NativeBreakpointHit> breakpointHit;
     std::optional<NativeStepReceipt> step;
+    std::optional<NativePageAdvanceState> pageAdvance;
     NativeStopTiming timing;
     bool attached = false;
     bool clean = true; // no native obligations or attachment, not proof the target executed
