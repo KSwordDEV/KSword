@@ -1,6 +1,7 @@
 #include "../Framework.h"
 #include "NativeSessionApiPane.h"
 #include "../UI/StructuredFieldView.h"
+#include "../Internationalization/LanguageManager.h"
 
 #include <algorithm>
 
@@ -75,8 +76,11 @@ void NativeSessionApiPane::AppendCheckpoint(ks::ui::FieldDocument& document,
         return;
     }
 
-    const auto& summary = match.behavior->summaryZh.empty()
-        ? match.behavior->summary : match.behavior->summaryZh; // 优先使用回执中文，缺失时保留英文原文。
+    // 本函数在页面构建字段文档时调用；仅选取回执原释义，不在采集线程访问语言管理器。
+    const bool useChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
+        .compare(QStringLiteral("zh-CN"), Qt::CaseInsensitive) == 0; // 当前页面采用的应用语言。
+    const auto& summary = useChinese && !match.behavior->summaryZh.empty()
+        ? match.behavior->summaryZh : match.behavior->summary; // 中文缺失时沿用原英文，不重新运行规则。
     document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
     document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
 }
