@@ -8,7 +8,7 @@
 4. 跨进程转移：两跳、新范围、Kind5 WPM/NTWrite 各有窄场景实证，不宣全类方法。
 5. 脏内存断点与新线程：Kind6 Resume/NTResume 及相关窄场景已有实证，不宣全类方法。
 6. 全局下断及恢复：held Continue 25/25、Step、活 F source 失败单成员清退各有窄实证，不宣全类方法。
-7. 流量抓取：真实 5 秒 localhost raw-socket 仍为 0 包并遇到实际阻力；ae15 WFP 入站 loopback 仅源码待编译/加载，不能称修复通过。
+7. 流量抓取：旧宿主 localhost raw-socket 零包 FAIL 保留；用户授权的 Win10-20H2 19042 来宾已真实加载驱动，显式 `existing-wfp` 单次取得 3 包/191 字节，正式 `network-read` 回读原 IPv4/TCP 头及唯一 marker，本窄场景 PASS。逐包仍为 `endpoint-table-hint`、creation 未知，coverage 为 `unknown`、`sourceLossUnquantified=true`；不宣称第7项全量或11项完成，详见下方本批追加摘要。
 8. ETW 遥测：真实单跳 Agent ETW 混采 5 次观察、2 段通过；dbe 运行进度仍为源码状态。
 9. 底部树状图：Qt/Light 原坐标已有旧实测；beee+affa 两端新实时接线 Release 构建成功，无新 GUI 结论。
 10. C# 语法及复杂条件：复杂 v3 三元/位运算三值已落地；22f 二进制 mask 仍为源码待最小验。
@@ -17,8 +17,12 @@
 ### 2026-11-27 本批来源坐标与运行前提补记
 
 - CLI Release|x64 增量构建一次成功，正式产物 `Ksword5.1/x64/Release/KswordCLI.exe` SHA256 为 `816BDA24663C8E19FB497096B613C807E0B53D51501DCB01FE8E41A8F4788A65`；使用固定 IntDir/OutDir、HostX64、BelowNormal、`BuildProjectReferences=false`，来源坐标登记为 `e9d06d342`、`ecf708084`、`532d00fe2`、`4e34a9883`、`7b4b6a006`、`35825a4d9`，覆盖 `35825a4d9` 及以前的空 ETW/警告修复。其后 `ae42a9c21`、`fd7d548e7` 的行为窗口和 `e4f3ec24d` 的桌面释义仍是源码待必要整合，不能由本次新 hash 覆盖；本批未测试、未运行、未做 GUI 验收。
-- driver 前提保持未满足：`KswordARK` 未注册、未加载，正式 driver 已编译链接且 WDK `Driver is 'Universal'.` 校验通过，但后置签名被中断；当前 `.sys` unsigned，Secure Boot 为 true，未安装、未改启动策略，不能据此产生 loopback 运行通过结论。第 7 项原有 raw-socket/ae15 事实与 FAIL 保留。
+- 当时宿主 driver 前提未满足（历史状态保留）：`KswordARK` 未注册、未加载，正式 driver 已编译链接且 WDK `Driver is 'Universal'.` 校验通过，但后置签名被中断；宿主 `.sys` unsigned，Secure Boot 为 true，未安装、未改启动策略。该宿主前提不代表下方独立来宾实测的状态；第 7 项原有 raw-socket FAIL 保留。
 - 原生 attempt06 已真实收终态，但因 source 合作模式与显式附加不符而启动失败；Held 与 owner 仍保持独立实证，下一次正确 source 原场景由对应执行者负责原证据。此记录不把该点扩写为“CLI 全部不好用”，也不引入项目百分比结论。
+
+### 2026-11-27 本批追加：Win10 来宾 WFP 回环归档窄场景 PASS
+
+- 用户明确授权快照回滚及 VM 操作；在 Win10-20H2 build 19042 来宾中，仅为正式 sys 副本测试签名并真实加载，显式选择 `existing-wfp`，单次 5.009 秒采集退出0、取得3包/191字节。sample `206326a5-a1cf-4bb8-95c4-eb775d8675be`，接收端 PID/create `1648/134402717995665643`；正式 `network-read` 核验第1段第3条、offset `2092`、producer sequence `4012` 的99字节原 IPv4/TCP 包及59字节唯一 marker 正文。逐包归属为 `endpoint-table-hint`、creation 未知，coverage 为 `unknown`、`sourceLossUnquantified=true`；client 在60秒兜底清退中退出 `-1`，非自然退出。抓包、临时服务和证书已清退，证据导出后回滚 `AA-WFP-before-20261127`、运行 VM 数0；宿主产物及策略未改。**仅该窄场景 PASS，旧宿主 raw-socket 零包 FAIL 保留，不宣称第7项全量或11项完成。** 夹具与详细回执提交 `246346b3b`，见 [VM回执](../tools/action_analyze_validation/network_traffic_vm/README.md)，原档与命令证据在 `.codex-build-logs/action-analyze-wfp-vm/`。本次仅同步既有结果，未重跑、未扩探针。
 
 用户原话：「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」。进度答复后继续当前工作。压缩上下文和交接时保留原话、未完项目与下一可执行步骤。验收闭合的批次仅推送 `ActionAnalyze`。
 

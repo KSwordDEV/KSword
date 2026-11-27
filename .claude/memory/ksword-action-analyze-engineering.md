@@ -1,5 +1,7 @@
 # ActionAnalyze 工程推进记录
 
+- **2026-11-27 第7项 Win10 来宾 WFP 窄场景 PASS。** 用户授权 VM/快照回滚操作；Win10-20H2 19042 真实加载驱动，显式 `existing-wfp`，3包/191字节，正式 `network-read` 回读原 IPv4/TCP+唯一 marker。逐包 `endpoint-table-hint`/creation未知，coverage `unknown`、`sourceLossUnquantified=true`；client兜底退出 `-1`，非自然退出。已清退并回滚、运行VM数0，宿主未改，旧宿主 raw-socket 零包 FAIL 保留；仅本窄场景，不宣称第7项全量/11项完成。回执 `tools/action_analyze_validation/network_traffic_vm/README.md`（`246346b3b`），证据 `.codex-build-logs/action-analyze-wfp-vm/`；本次仅同步，不重跑。
+
 - **2026-11-27 本批来源坐标与前提记录。** CLI Release|x64 一次增量成功，正式 CLI SHA256 `816BDA24663C8E19FB497096B613C807E0B53D51501DCB01FE8E41A8F4788A65`；固定 IntDir/OutDir、HostX64、BelowNormal、`BuildProjectReferences=false`，来源坐标为 `e9d06d342`、`ecf708084`、`532d00fe2`、`4e34a9883`、`7b4b6a006`、`35825a4d9`，覆盖 `35825a4d9` 及以前空 ETW/警告修复。`ae42a9c21`/`fd7d548e7` 行为窗口和 `e4f3ec24d` 桌面释义仍源码待必要整合，不能借该 hash 覆盖；本批未测试、未运行、未做 GUI 验收。driver 已编译链接且 WDK `Driver is 'Universal'.` 通过，后置签名中断；当前无 service/加载、unsigned、Secure Boot true，未改启动策略，loopback 运行前提仍不满足。原生 attempt06 真实收终态但因 source 合作模式与显式附加不符而启动失败；Held/owner 保持独立实证。原 FAIL 与独立证据保留，不写成“CLI 全部不好用”，不写百分比。
 
 - **2026-11-27 最新状态优先旧历史。** 当前正式范围按已有窄场景事实记录，不用旧主表 2025 历史百分比作当前结论；run02 旧 FAIL 保留，不被阶段 `expectation addendum` 覆盖。当前 CLI `68FEC...`；`affa` 对应 Qt `2D4CB...`、Light `6F0...` 的 Release 构建已通过。driver/CLI 唯一必要构建和作者待追加结果属于待办，不写成阻塞；旧未提交事实保留，不改写。
