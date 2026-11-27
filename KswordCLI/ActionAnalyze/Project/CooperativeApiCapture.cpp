@@ -204,13 +204,23 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
             {"endUtc", window.endUtc ? Number(window.endUtc) : JsonValue::makeNull()},
             {"root", JsonValue::makeBool(window.root)}, {"endReason", Text(window.endReason)}}));
     }
+    // 本段损失只从最后成功检查点取值；来源观测累计与本段已归档增量分别保留。
+    const auto& loss = receipt.checkpoint.loss; // 原网络读侧已核验的损失及计数饱和位。
+    const auto publishedLoss = receipt.checkpoint.ordinal ? Object({
+        {"queueDropped", Number(loss.queueDropped)},
+        {"sourceLost", Number(loss.sourceLost)},
+        {"sourceLossUnquantified", JsonValue::makeBool(loss.sourceLossUnquantified)},
+        {"queueCounterSaturated", JsonValue::makeBool(loss.queueCounterSaturated)},
+        {"sourceCounterSaturated", JsonValue::makeBool(loss.sourceCounterSaturated)}}) :
+        JsonValue::makeNull();
     // 网络检查点自带独立序号及摘要，实时消费者不必误用API段号或等结束后扫描目录。
     const auto published = receipt.checkpoint.ordinal ? Object({
         {"stream", Text("raw-network")}, {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
         {"sourceId", Text(receipt.checkpoint.source.sourceId)},
         {"clockId", Text(receipt.checkpoint.source.clockId)},
         {"lastRawSequence", Number(receipt.checkpoint.lastSequence)},
-        {"endOffset", Number(receipt.checkpoint.endOffset)}, {"sha256", Text(receipt.checkpoint.sha256)}}) :
+        {"endOffset", Number(receipt.checkpoint.endOffset)}, {"sha256", Text(receipt.checkpoint.sha256)},
+        {"loss", publishedLoss}}) :
         JsonValue::makeNull();
     return Object({
         {"requestedBackend", backend},

@@ -239,6 +239,8 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 配套网络的 `requestedBackend` 在启动之前就保留原显式选择（`raw-socket`／`existing-wfp`），与实际 `sourceReady` 独立；成功段的 `published.sourceId`／`clockId` 来自该段原来源绑定。请求来源不是覆盖证明，不能因当前来源失败静默改换后端。
 
+网络的 `published.loss` 与正式 `network-read` 的 `loss` 使用同一已核验段结果，包含 `queueDropped`、`sourceLost`、`sourceLossUnquantified` 及两个计数饱和位。这里的损失数是该段增量，根级 `queueDropped`／`sourceGap` 仍为采集来源累计；发布失败不把未归档的计数移进最近成功段。两桌面端在同采样来源详情中显示该段损失和覆盖状态。旧回执缺失损失对象时显示未知，不能由缺口计数为零推断完整覆盖。
+
 Qt／Light 的原调试会话与执行集合详情在采集结束后仍保留最近行为释义、规则 ID 和命中的原 `raw/段 #序号`，不因最终回执替换运行进度而只剩计数。运行和最终详情复用各端同一字段投影，仍由原共享详情文档负责搜索、复制和导出；没有命中时不补造释义。
 
 运行检查点的 `payload.rules` 与原生最终响应的 `rules` 同时保留 `behaviorMatches`、`recentBehaviors` 和 `behaviorWindowTruncated`：仅具有行为释义的命中进入最近 32 条窗口，每条含自身段号、原序号、来源序号和双语释义；普通分类命中不挤掉这个窗口。累计数大于窗口长度时截断标志为真，完整历史仍按原坐标从归档读取。旧 `latest`／`latestRule` 保持兼容。Qt／Light 同采样详情同步显示该有界窗口，不把最近普通调用当作整轮唯一行为。

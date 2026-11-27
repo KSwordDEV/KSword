@@ -18,7 +18,10 @@ namespace Ksword::Evidence
             Field(network, networkTraffic, L"请求来源", "requestedBackend");
             Field(network, networkTraffic, L"来源已就绪", "sourceReady");
             Field(network, networkTraffic, L"采集状态", "status");
+            Field(network, networkTraffic, L"来源诊断", "detail");
+            Field(network, networkTraffic, L"来源错误码", "win32Error");
             Field(network, networkTraffic, L"终态原因", "reason");
+            Field(network, networkTraffic, L"流量覆盖", "coverage");
             Field(network, networkTraffic, L"清退已确认", "cleanupConfirmed");
             Field(network, networkTraffic, L"已提交段号", "segmentOrdinal");
             Field(network, networkTraffic, L"已提交包数", "packets");
@@ -49,6 +52,16 @@ namespace Ksword::Evidence
                 network.fields.push_back({L"归档结束偏移", "未知", true});
                 network.fields.push_back({L"归档 SHA-256", "未知", true});
             }
+            // 与network-read保持同一段损失口径；旧回执缺字段时显示未知，不以零缺口推断无丢失。
+            const auto* loss = published ? published->find("loss") : nullptr; // 仅借用最后成功发布段的损失对象。
+            const auto unknownLoss = JsonValue::makeNull(); // 兼容历史回执，不为缺失损失补造零或false。
+            const auto& segmentLoss = loss && loss->asObject() ? *loss : unknownLoss; // 段增量不同于根级累计。
+            Field(network, segmentLoss, L"本段来源损失数", "sourceLost");
+            Field(network, segmentLoss, L"本段队列丢弃数", "queueDropped");
+            Field(network, segmentLoss, L"来源损失无法量化", "sourceLossUnquantified");
+            Field(network, segmentLoss, L"本段来源计数饱和", "sourceCounterSaturated");
+            Field(network, segmentLoss, L"本段队列计数饱和", "queueCounterSaturated");
+            network.failed = Failed(networkTraffic, "win32Error");
             sections.push_back(std::move(network));
         }
 
