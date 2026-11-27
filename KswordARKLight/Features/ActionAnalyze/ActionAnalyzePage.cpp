@@ -860,7 +860,7 @@ const EvidenceRecord* SelectedRecord(const Page& page) {
     return &evidence->rows[*page.selected];
 }
 
-// 通过归档行的稳定坐标查找规则结果，兼容表内选择和行为树表外选择。
+// UpdateDetails 传入当前快照与详情行；按稳定坐标返回规则结果，未匹配时返回空。
 const ApiRuleDetails* RuleDetailsForRecord(const Snapshot& snapshot, const EvidenceRecord& record)
 {
     if (!snapshot.apiRules)
