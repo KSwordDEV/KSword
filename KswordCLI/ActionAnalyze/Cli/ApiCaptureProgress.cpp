@@ -126,4 +126,15 @@ Value ApiCaptureProgress::Finish()
         {"droppedFrames", Number(dropped_)}, {"outputDrained", Value::makeBool(drained)}});
 }
 
+Value ApiCaptureProgress::AttachDelivery(Value result)
+{
+    if (!requested_ || !result.asObject())
+    {
+        return result;
+    }
+    auto fields = *result.asObject(); // 原响应保序复制，仅补本次输出通道事实，不重建控制回执。
+    fields.emplace_back("captureProgress", Finish());
+    return Value::makeObject(std::move(fields));
+}
+
 } // namespace ks::cli::action_analyze

@@ -24,6 +24,8 @@ public:
     void Transfers(const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers);
     // 采集和恢复结束后有限等待stderr排空，返回独立交付摘要；失败不改采集退出码。
     Ksword::Evidence::JsonValue Finish();
+    // 给已有对象响应附加旁路交付摘要；不订阅时原样返回，控制响应仍由原stdout传输发送。
+    Ksword::Evidence::JsonValue AttachDelivery(Ksword::Evidence::JsonValue result);
 
 private:
     // 输入通知类别、实际采样及纯值正文，输出含连续尝试序号的JSONL进度帧。

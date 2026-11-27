@@ -1,4 +1,5 @@
 #include "ExecutionGroupCommand.h"
+#include "ApiCaptureProgress.h"
 
 #include "ExecutionGroupProtocol.h"
 #include "NativeSessionApiCapture.h"
@@ -211,22 +212,23 @@ private:
         const auto signature = CanonicalParams(V::makeObject({{"action", Text("api-capture")},
             {"params", request.params}, {"expected", request.expected ? *request.expected : V::makeNull()}})); // 令牌和来源均纳入重放冲突判定。
         return Mutate(request, std::move(id), signature, [&] {
+            ApiCaptureProgress progressOutput(input.startupProgress, {}); // 同一有限采集只建旁路writer，不增控制循环。
             Ksword::ActionAnalyze::NativeBoundApiStartup onStartup; // 显式订阅时仅向stderr输出真实阶段。
             if (input.startupProgress)
             {
-                onStartup = [](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
+                onStartup = [&](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
                     const auto value = V::makeObject({{"projectId", Text(progress.projectId)},
                         {"sampleId", Text(progress.sampleId)}, {"sourcePid", V::makeUInt(progress.request.sourcePid)},
                         {"sourceCreationFileTime", Count(progress.request.sourceCreationFileTime)},
                         {"nativePid", V::makeUInt(progress.nativeTarget.pid)},
                         {"nativeCreationFileTime", Count(progress.nativeTarget.creationFileTime)},
                         {"startup", Ksword::ActionAnalyze::ApiCaptureStartupJson(progress.startup)}}); // 不生成stdout控制ACK。
-                    std::wcerr << Ksword::ActionAnalyze::ProjectStorage::WideAscii(Ksword::Evidence::WriteJson(value)) << L'\n';
+                    progressOutput.Publish(value); // 不等待stderr消费，完整控制ACK仍走原Transport。
                 };
             }
             const std::atomic_bool cancel{false}; // 原CLI串行有限采集；输入在返回后继续处理，不声称在途取消。
             archive_.CaptureApi(group_, member, *input.capture, cancel, onStartup);
-            return Report(group_.QueryWithoutCondition()); // 不处理同伴条件，不Continue或自动保存执行观察。
+            return progressOutput.AttachDelivery(Report(group_.QueryWithoutCondition())); // 不处理同伴条件，不Continue或自动保存执行观察。
         });
     }
 

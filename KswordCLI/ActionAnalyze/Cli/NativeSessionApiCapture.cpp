@@ -1,4 +1,5 @@
 #include "NativeSessionApiCapture.h"
+#include "ApiCaptureProgress.h"
 
 #include "../Project/NativeBoundApiCapture.h"
 #include "../Project/ProjectStorage.h"
@@ -284,17 +285,18 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
     const auto& capture = *input.capture; // CLI只解析协议，writer/sample及采集均由共享服务复用。
     const project::NativeBoundApiTarget nativeTarget{before.pid, before.processCreationTime, before.attached}; // 活owner纯值。
     const std::atomic_bool cancel{false}; // 有限同步区间，不在回调中接管控制指令或保存执行事件。
+    ApiCaptureProgress progressOutput(input.startupProgress, {}); // 只旁听已有启动事实，不读stdin或接管原owner。
     project::NativeBoundApiStartup onStartup; // 未订阅时不输出阶段，不改变原JSONL请求响应次序。
     if (input.startupProgress)
     {
-        onStartup = [](const project::NativeBoundApiProgress& progress) {
+        onStartup = [&](const project::NativeBoundApiProgress& progress) {
             // 每行包括原项目/采样身份；同一控制线程串行输出，不制造stdout响应或控制ACK。
             const auto value = V::makeObject({{"projectId", Text(progress.projectId)},
                 {"sampleId", Text(progress.sampleId)},
                 {"nativeTarget", V::makeObject({{"pid", V::makeUInt(progress.nativeTarget.pid)},
                     {"creationFileTime", Count(progress.nativeTarget.creationFileTime)}})},
                 {"startup", project::ApiCaptureStartupJson(progress.startup)}});
-            std::wcerr << project::ProjectStorage::WideAscii(Ksword::Evidence::WriteJson(value)) << L'\n';
+            progressOutput.Publish(value); // stderr满时丢通知，不把原生停点恢复绑到终端读者。
         };
     }
     const auto result = project::CaptureNativeBoundApi(document, sampleId, capture, nativeTarget, cancel, onStartup);
@@ -314,6 +316,6 @@ NativeSessionApiReply CaptureNativeSessionApi(project::ProjectDocument& document
             {"sampleError", Issue(result.receipt.sampleStatus)}})};
     }
     const auto after = owner.Query(); // 仅回读原owner；API停止不释放原调试事件。
-    return {true, Report(result, before, after)};
+    return {true, progressOutput.AttachDelivery(Report(result, before, after))};
 }
 } // namespace ks::cli::action_analyze
