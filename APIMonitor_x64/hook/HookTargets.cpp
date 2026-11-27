@@ -5376,6 +5376,36 @@ namespace apimon
             return statusValue;
         }
 
+        NTSTATUS NTAPI HookedNtQueueApcThreadEx2(HANDLE threadHandle, HANDLE reserveHandle, ULONG apcFlags,
+            PVOID apcRoutinePointer, PVOID argument1Pointer, PVOID argument2Pointer, PVOID argument3Pointer)
+        {
+            ScopedHookGuard guardValue;
+            if (guardValue.bypass()) {
+                return g_ntQueueApcThreadEx2Original(threadHandle, reserveHandle, apcFlags,
+                    apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            }
+            // Ex2可直接请求特殊APC，不经过Win32包装器；所有原参数在调用前冻结，原样转发。
+            ApiApcObservation observation(threadHandle, reinterpret_cast<std::uintptr_t>(apcRoutinePointer),
+                reinterpret_cast<std::uintptr_t>(argument1Pointer), reinterpret_cast<std::uintptr_t>(argument2Pointer),
+                reinterpret_cast<std::uintptr_t>(argument3Pointer),
+                reinterpret_cast<std::uintptr_t>(reserveHandle), apcFlags);
+            PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
+                reinterpret_cast<std::uintptr_t>(apcRoutinePointer), ks::winapi_monitor::TransferHandoffKind::Apc);
+            const auto callClock = BeginApiCallClock();
+            observation.MarkEntry();
+            const NTSTATUS statusValue = g_ntQueueApcThreadEx2Original(threadHandle, reserveHandle, apcFlags,
+                apcRoutinePointer, argument1Pointer, argument2Pointer, argument3Pointer);
+            const DWORD lastError = ::GetLastError();
+            observation.MarkReturn();
+            const auto duration = EndApiCallClock(callClock);
+            observation.Complete();
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtQueueApcThreadEx2",
+                statusValue, L"", true, ApiReturnBits(statusValue), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, nullptr, &observation.fields());
+            ::SetLastError(lastError);
+            return statusValue;
+        }
+
         // HookedNtSuspendThread 作用：
         // - 输入：线程句柄和可选旧挂起计数输出；
         // - 处理：记录 Nt 层线程挂起；

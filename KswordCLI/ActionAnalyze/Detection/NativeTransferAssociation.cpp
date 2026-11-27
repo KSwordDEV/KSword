@@ -230,7 +230,8 @@ std::optional<NativeExecutionRequest> ReadNativeExecutionRequest(const ArchivedG
     else if (request.apiApc && request.apiFamily == "apc-queue" &&
         // Ex与特殊APC走同一AAAP1身份和入口核验，不按入队成功推定已经投递。
         (request.operation == "QueueUserAPC" || request.operation == "QueueUserAPC2" ||
-            request.operation == "NtQueueApcThread" || request.operation == "NtQueueApcThreadEx") &&
+            request.operation == "NtQueueApcThread" || request.operation == "NtQueueApcThreadEx" ||
+            request.operation == "NtQueueApcThreadEx2") &&
         request.apcOutcome == ApiApcQueueOutcome::Accepted)
     {
         const auto& fields = *request.apiApc; // AAAP1只证明队列接受，不证明投递。

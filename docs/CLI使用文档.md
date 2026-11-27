@@ -205,6 +205,8 @@ API 终段的 `agentEtw` 保存同次 ETW 的 setup、来源、清退、归档�
 
 `QueueUserAPC2` 的调用前接管沿 AAAP1 保存请求例程、data 和独立 `queueFlags`。原包回放及入口关联 JSON 仅在调度标志有效位存在时返回 `queueFlags`，因此旧 Agent 未采集的值为 `null`，新 Agent 明确传入的零仍为 `0`。解码兼容原14字段、含 Reserve 的15字段及追加调度标志的16字段布局；入队成功仍不表示已投递或执行。
 
+直接调用 `ntdll!NtQueueApcThreadEx2` 也沿同一 APC 调用前屏障接管，不依赖调用先经过 `QueueUserAPC2`。原始 Reserve、ULONG flags、例程及三个参数在 AAAP1 中保留，返回按 NTSTATUS 判断而非 BOOL；flags 有效位包括显式零。CLI 原包、写入到 APC 候选和 `analyze execution entry`，以及 Qt/Light 现有 APC 字段详情、候选树和入口一致性匹配均复用此记录。API 导出是否可用由当前系统实际 Hook 覆盖报告决定；缺导出不代表已经接管。此新增入口尚待构建及真实调用验收，不沿用旧 APC2 或三目标链的通过结论。
+
 `api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒；`--duration-ms 0` 持续到控制台取消（Ctrl+C／Ctrl+Break）或该目标实例退出，启动就绪及停止清退仍受各自超时约束。持续模式的 `completedInterval` 始终为 `false`，明确停止或目标退出沿用部分采样退出码 `6`，分别以 `cancelled`、`targetExited` 和独立清退回执说明实际结果。普通 `monitor api capture` 仍只接受原有有限时范围。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。
 
 目标和 CLI 须通过 `KSWORD_APIMON_COOPERATIVE_SESSION_V1` 使用同一个绝对路径，目录名为 `KswordApiMonCooperative`。该目录由本轮发起者准备，访问仅限当前用户和 SYSTEM；目录不合格时拒绝发布配置，不回退到共享目录。`configPublished`、`sessionReady`、`hooksInstalled` 分别表示配置已发布、收到同会话就绪回执、收到安装回执。收到安装回执不代表全部 Hook 成功，仍须看 `partialHooks`。

@@ -19302,6 +19302,91 @@
       }
     },
     {
+      "id": 994,
+      "module": "ntdll.dll",
+      "export": "NtQueueApcThreadEx2",
+      "category": "Thread",
+      "architectures": [
+        "x86",
+        "x64"
+      ],
+      "calling_convention": "NTAPI",
+      "return_type": "NTSTATUS",
+      "parameters": [
+        {
+          "name": "threadHandle",
+          "type": "HANDLE",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "reserveHandle",
+          "type": "HANDLE",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "apcFlags",
+          "type": "ULONG",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "apcRoutinePointer",
+          "type": "PVOID",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "argument1Pointer",
+          "type": "PVOID",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "argument2Pointer",
+          "type": "PVOID",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "argument3Pointer",
+          "type": "PVOID",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        }
+      ],
+      "return": {
+        "success": "handler",
+        "error_source": "handler"
+      },
+      "binding": {
+        "type_alias": "NtQueueApcThreadEx2Fn",
+        "record": "g_ntQueueApcThreadEx2Hook",
+        "original": "g_ntQueueApcThreadEx2Original",
+        "hook": "HookedNtQueueApcThreadEx2",
+        "scope": "targets"
+      },
+      "wrapper": {
+        "kind": "special",
+        "handler": "HookedNtQueueApcThreadEx2"
+      }
+    },
+    {
       "id": 299,
       "module": "ntdll.dll",
       "export": "NtSuspendThread",

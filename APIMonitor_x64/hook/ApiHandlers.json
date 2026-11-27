@@ -791,6 +791,7 @@
   "HookedNtQueryVirtualMemory",
   "HookedNtQueueApcThread",
   "HookedNtQueueApcThreadEx",
+  "HookedNtQueueApcThreadEx2",
   "HookedNtReadFile",
   "HookedNtReadVirtualMemory",
   "HookedNtRenameKey",

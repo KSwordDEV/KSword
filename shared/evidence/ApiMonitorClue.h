@@ -46,6 +46,7 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
         {L"QueueUserAPC2", "apc-queue", C::Thread, false},
         {L"NtQueueApcThread", "apc-queue", C::Thread, true},
         {L"NtQueueApcThreadEx", "apc-queue", C::Thread, true},
+        {L"NtQueueApcThreadEx2", "apc-queue", C::Thread, true},
         {L"SetThreadContext", "thread-context", C::Thread, false},
         {L"Wow64SetThreadContext", "thread-context", C::Thread, false},
         {L"NtSetContextThread", "thread-context", C::Thread, true},

@@ -8,7 +8,7 @@ namespace apimon {
 class ApiApcObservation {
 public:
     // thread 为原线程句柄，routine 为请求例程，argument1/2/3 为原始参数位模式。
-    // reserveHandle 只由 NtQueueApcThreadEx 传入；其它 APC 接口保持零，不解引用参数。
+    // reserveHandle 由 NtQueueApcThreadEx/Ex2 传入；queueFlags由Win32 APC2/NT Ex2传入。
     ApiApcObservation(HANDLE thread, std::uint64_t routine, std::uint64_t argument1,
         std::uint64_t argument2 = 0, std::uint64_t argument3 = 0,
         std::uint64_t reserveHandle = 0, std::optional<std::uint32_t> queueFlags = std::nullopt) noexcept;

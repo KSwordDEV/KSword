@@ -171,7 +171,7 @@ namespace
         append(L"APC 操作类型", static_cast<std::uint64_t>(fields.operation));
         append(L"APC 字段有效位", fields.flags);
         append(L"API 输入线程句柄", fields.inputThreadHandle);
-        if (record.apiClue == L"NtQueueApcThreadEx")
+        if (record.apiClue == L"NtQueueApcThreadEx" || record.apiClue == L"NtQueueApcThreadEx2")
         {
             append(L"APC Reserve 句柄", fields.reserveHandle);
         }
@@ -189,7 +189,7 @@ namespace
         identity(L"APC 目标线程 TID", ApiApcThreadIdentity, fields.targetTid);
         identity(L"目标线程创建 FILETIME", ApiApcThreadIdentity, fields.targetThreadCreationFileTime);
         identity(L"请求 APC 例程地址", ApiApcRoutineAddress, fields.routineAddress);
-        if (record.apiClue == L"QueueUserAPC2")
+        if (record.apiClue == L"QueueUserAPC2" || record.apiClue == L"NtQueueApcThreadEx2")
         {
             identity(L"APC 调度标志", ApiApcQueueFlags, fields.queueFlags); // 旧包缺有效位显示未知，零仍可知。
         }
@@ -197,7 +197,8 @@ namespace
 
         // Win32 没有第二、第三参数，不能把保留零显示成真实 API 输入。
         append(L"APC 参数 1", fields.argument1);
-        if (record.apiClue == L"NtQueueApcThread" || record.apiClue == L"NtQueueApcThreadEx")
+        if (record.apiClue == L"NtQueueApcThread" || record.apiClue == L"NtQueueApcThreadEx" ||
+            record.apiClue == L"NtQueueApcThreadEx2")
         {
             append(L"APC 参数 2", fields.argument2);
             append(L"APC 参数 3", fields.argument3);

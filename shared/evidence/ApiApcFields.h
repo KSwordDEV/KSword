@@ -21,7 +21,7 @@ enum ApiApcFieldFlag : std::uint64_t {
     ApiApcThreadIdentity = 1ull << 2, // 已从输入句柄采到目标 TID 和创建时间。
     ApiApcRoutineAddress = 1ull << 3, // 已记录原请求例程地址，允许请求值为零。
     ApiApcTargetStable = 1ull << 4, // 调用前后的目标进程和线程身份复核一致。
-    ApiApcQueueFlags = 1ull << 5, // QueueUserAPC2的原始调度flags已采集；零也是已知值。
+    ApiApcQueueFlags = 1ull << 5, // QueueUserAPC2/NT Ex2的原始调度flags已采集；零也是已知值。
 };
 
 // ApiApcOperation：本版本只表达一次入队请求，不能解释为其它协议的 operation。
@@ -45,8 +45,8 @@ struct ApiApcFieldsV1 {
     std::uint64_t argument1 = 0; // 原始第一个 APC 参数；Win32 接口对应 data。
     std::uint64_t argument2 = 0; // NT 原始第二个参数；Win32 接口不存在此参数。
     std::uint64_t argument3 = 0; // NT 原始第三个参数；Win32 接口不存在此参数。
-    std::uint64_t reserveHandle = 0; // NtQueueApcThreadEx 的 Reserve 句柄位模式，其它接口保持零。
-    std::uint64_t queueFlags = 0; // QueueUserAPC2的ULONG flags，不与协议有效位混用。
+    std::uint64_t reserveHandle = 0; // NtQueueApcThreadEx/Ex2 的 Reserve 句柄位模式，其它接口保持零。
+    std::uint64_t queueFlags = 0; // Win32 APC2/NT Ex2的ULONG flags，不与协议有效位混用。
 };
 
 // 新包追加调度flags；原14字段和含Reserve的15字段历史布局均继续读取。
@@ -202,9 +202,10 @@ inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitor
                 return (value >= L'A' && value <= L'Z' ? value + (L'a' - L'A') : value) == lower;
             });
     };
-    if (api == L"NtQueueApcThread" || api == L"NtQueueApcThreadEx") {
+    const bool nativeEx2 = api == L"NtQueueApcThreadEx2";
+    if (api == L"NtQueueApcThread" || api == L"NtQueueApcThreadEx" || nativeEx2) {
         if ((!moduleIs(L"ntdll") && !moduleIs(L"ntdll.dll")) ||
-            (fields->flags & ApiApcQueueFlags) ||
+            (nativeEx2 != ((fields->flags & ApiApcQueueFlags) != 0)) ||
             (api == L"NtQueueApcThread" && fields->reserveHandle)) {
             return ApiApcQueueOutcome::Unknown;
         }

@@ -124,14 +124,15 @@ namespace
 
         // QueueUserAPC 只有 data；NT 的额外参数不凭协议中的保留零伪造成 Win32 参数。
         const bool native = clue.api == QLatin1String("NtQueueApcThread") ||
-            clue.api == QLatin1String("NtQueueApcThreadEx"); // 两个原生入口都有参数2/3。
+            clue.api == QLatin1String("NtQueueApcThreadEx") ||
+            clue.api == QLatin1String("NtQueueApcThreadEx2"); // 原生入口都有参数2/3。
         document.field(QStringLiteral("APC 参数 1"), QString::number(fields.argument1, 16));
-        if (clue.api == QLatin1String("QueueUserAPC2"))
+        if (clue.api == QLatin1String("QueueUserAPC2") || clue.api == QLatin1String("NtQueueApcThreadEx2"))
         {
             // 有效位区分原始零flags与旧Agent未采集；不从接受入队推断投递方式已生效。
             document.field(QStringLiteral("APC 调度标志"), identity(ApiApcQueueFlags, fields.queueFlags), true);
         }
-        if (clue.api == QLatin1String("NtQueueApcThreadEx"))
+        if (clue.api == QLatin1String("NtQueueApcThreadEx") || clue.api == QLatin1String("NtQueueApcThreadEx2"))
         {
             document.field(QStringLiteral("APC Reserve 句柄"), QString::number(fields.reserveHandle, 16), true);
         }
