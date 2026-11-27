@@ -251,7 +251,7 @@
     },
     {
       "ruleId": "ksword.behavior.module-enumeration-returned.v1",
-      "predicate": "api.family == \"module-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && startsWith(api.name, \"Module32\") && module.name != \"\"",
+      "predicate": "api.family == \"module-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && Text.StartsWith(api.name, \"Module32\") && module.name != \"\"",
       "summary": "A module enumeration step reported success with a decoded module name; this is a single observation, not a complete module inventory.",
       "summaryZh": "一次模块枚举步骤报告成功且解码到模块名；只是单条观察，不是完整模块清单"
     },
@@ -305,13 +305,13 @@
     },
     {
       "ruleId": "ksword.behavior.service-image-registry-write.v1",
-      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && startsWith(registry.pathLower, @\"hklm\\system\\currentcontrolset\\services\\\") && registry.valueNameLower == \"imagepath\"",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && Text.StartsWith(registry.pathLower, @\"hklm\\system\\currentcontrolset\\services\\\") && registry.valueNameLower == \"imagepath\"",
       "summary": "An ImagePath value write below the services registry branch reported success; whether it configures a service, the binary contents and execution remain unknown.",
       "summaryZh": "服务注册表分支下的 ImagePath 值写入报告成功；是否构成服务配置、二进制内容及执行仍未知"
     },
     {
       "ruleId": "ksword.behavior.taskcache-registry-write.v1",
-      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (startsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tree\\\") || startsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tasks\\\")) && registry.valueName != \"\"",
+      "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (Text.StartsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tree\\\") || Text.StartsWith(registry.pathLower, @\"hklm\\software\\microsoft\\windows nt\\currentversion\\schedule\\taskcache\\tasks\\\")) && registry.valueName != \"\"",
       "summary": "A write below a TaskCache registry branch reported success; this alone does not prove that a scheduled task was registered or executed.",
       "summaryZh": "TaskCache 注册表分支下的值写入报告成功；单独不能证明计划任务已注册或执行"
     },
