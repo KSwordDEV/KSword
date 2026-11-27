@@ -2,6 +2,10 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 凌晨主协调直接开发。** `98f018cb4`提前冻结异常CONTEXT，记录单步事件自己的EFLAGS/DR7并供Observe和临时页TF共同消费；仍严格要求BS，不按RIP移动吞单步。`3f41e3c2f`单来源递归Agent ETW及三端参数、计划/历史读取已接线；`dfa9d06ef`AAAP1追加queueFlags有效位/第16字段，兼容14/15字段旧包，原APC2 flags贯通三端；`e8769313e`统一ApiCaptureEtwJson并在API终段之前完成ETW封段，终段agentEtw保留独立阶段，不维护第二份桌面投影。`054bffda5`允许本轮已登记的递归来源在Ready前发送Pending下一跳，Advance仍等真实Ready后才推进。`c97eafb71`内部TF占用已核验空闲DR1、地址0须MEM_FREE，用活动调试槽维持状态回读，完成仍只认真实纯BS，退出/取消/错误沿原账归还DR1/TF；运行效果待验。`395040043`将已过严格Ready的自动接管HooksPartial非致命语义同步到根capture最终判定，仍保留partialHooks及硬错误。均本地提交未推送，原用户脏文件保留。
+
+- **当前执行步骤。** 异常原值任务已正常结束，CodeBuddy回执在`.codex-build-logs/codebuddy-five-tests/apc-context-handoff/event-context/receipt.md`；仍B失败、事件DR6=0/EFLAGS=514/DR7=0，i18n通过。已唯一续接原会话`01a21b25-505e-76a7-af39-7c0c656e3aed`为收敛整合批次`sh_21b54657a0017ZBA0EjjhY1QLj`：两架构Agent各一次正式增量、最新CLI一次、原B一次；B强判据全通过后才C一次，失败不重跑不扩场景。输出目录`integrated-status-slot/`，等自动最终通知、不轮询。现有产品编译输入冻结；主协调先准备未登记的ETW分段复用模块，待构建结束再接线，不借旧Agent或混杂构建算通过。测试/夹具/回执全部CodeBuddy负责，主协调不自行跑。Qt/Light GUI后置，整体十一项不宣称完成。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」继续有效。
+
 - **2026-11-26 深夜核心继续。** 用户重申全流程目标，当前优先调用前同步自动接管。已提交`6468f5237`：NetworkTrafficSession单来源追加PID+创建时间窗口、原writer同采样归档、根退出后整链继续、独立追加失败、检查点及CLI回读范围，Qt/Light仅同步原网络说明和同源字段。两个网络作者并发增量已收齐，不覆盖用户文件。`20cd5b5c4`补原有QueueUserAPC2专用Hook，在原调用前执行APC交接；共享ApiApcCallOutcome及NativeTransferAssociation补QueueUserAPC2/NtQueueApcThreadEx准入，三端沿同源matcher，API原参数/返回/错误保留。源码均提交未推送；这两板块未有完整运行结论，GUI按用户要求后置。
 
 - **NX定位当前交接。** `df5e9a971`和`6468f5237`保留内部NX推进的stage/error/原始DR6/continuation与目标退出码。最近完成B的真实回执见`.codex-build-logs/codebuddy-five-tests/apc-context-handoff/partial-hooks-fix/receipt.md`，B端到端仍失败。旧回执EFlags66054=0x10206，TF位实际为0，不能据该字段说已单步。一次性诊断任务首次宿主错误设120秒被结束，未构建/运行；确认无相关活进程后续接同会话，当前宿主`sh_21b1a4c0b001KF2rg1t1HlQza9`。只准一次当前正式CLI增量（BuildProjectReferences=false，复用旧Agent）、一次原B及一次i18n，失败不重跑、不扩探针、不找C、不GUI；所有脚本/回执由CodeBuddy写。下一步读取自动最终回执的nativePageAdvance，按实际异常归属修正续行，不吞未知STATUS_SINGLE_STEP。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」仍有效；原11:54冻结是早前收工历史，不是当前停止指令。
