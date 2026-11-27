@@ -158,6 +158,14 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
     {
         diagnostics.push_back(Text(diagnostic));
     }
+    JsonArray targets; // 原归档同步保存的强实例采集窗口，不给逐包PID线索补造创建身份。
+    for (const auto& window : receipt.targets)
+    {
+        targets.push_back(Object({{"pid", JsonValue::makeUInt(window.pid)},
+            {"creationFileTime", Number(window.creationFileTime)}, {"startUtc", Number(window.startUtc)},
+            {"endUtc", window.endUtc ? Number(window.endUtc) : JsonValue::makeNull()},
+            {"root", JsonValue::makeBool(window.root)}, {"endReason", Text(window.endReason)}}));
+    }
     return Object({
         {"status", Text(ProjectErrorName(receipt.status.error))},
         {"detail", Text(receipt.status.detail)},
@@ -171,7 +179,8 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
         {"sourceGap", Number(receipt.sourceGap)},
         {"unsupportedPackets", Number(receipt.unsupportedPackets)},
         {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
-        {"targetScope", Text("root-process-pid-hints")},
+        {"targetScope", Text(receipt.targets.size() > 1 ? "registered-process-pid-hints" : "root-process-pid-hints")},
+        {"targets", JsonValue::makeArray(std::move(targets))},
         {"eventTimeProcessIdentity", JsonValue::makeNull()},
         {"coverage", Text("unknown")},
         {"diagnostics", JsonValue::makeArray(std::move(diagnostics))}
@@ -426,6 +435,28 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         acceptPacket(packet, target.creationFileTime);
     };
 
+    // network先构造，保证handoff清退及其登记回调结束后才销毁原网络会话。
+    std::optional<NetworkTrafficSession> network; // 同一writer、单一来源覆盖根及明确接管的目标。
+    std::uint64_t networkTargetFailures = 0; // 追加失败独立使网络结果不完整，不阻止原生目标清退。
+    if (target.networkTraffic)
+    {
+        NetworkTrafficCapturePlan networkPlan; // 时长及整链退出由原API所有者控制。
+        networkPlan.sampleId = out.sample.sampleId;
+        networkPlan.bootId = ReadNetworkTrafficBootId();
+        networkPlan.pid = target.pid;
+        networkPlan.creationFileTime = target.creationFileTime;
+        networkPlan.durationMs = 0;
+        networkPlan.backend = *target.networkTraffic;
+        networkPlan.keepAliveForAppendedTargets = target.autoTransfer;
+        network.emplace(document, std::move(networkPlan), cancel);
+        const auto beforePublish = request.beforeResidentPublish;
+        request.beforeResidentPublish = [&, beforePublish](HANDLE verifiedTarget)
+        {
+            if (beforePublish) beforePublish(verifiedTarget);
+            // 挂起启动主线程尚未放行；网络先于Agent Ready及根业务执行启动。
+            network->Start();
+        };
+    }
     // 服务须晚于其回调借用的批次容器构造，异常析构也先排空来源再销毁归档缓冲。
     std::optional<ApiTransferHandoff> handoff; // 唯一writer线程的自动接管所有者。
     if (target.autoTransfer)
@@ -440,6 +471,14 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
                     return;
                 }
                 acceptPacket(packet, creation);
+            }, [&](DWORD pid, std::uint64_t creation)
+            {
+                // 在调用前交接期间登记，不能等目标首包到达后才开始保留网络流量。
+                // 采集失败由networkTraffic独立回执报告，不撤销已承担恢复责任的原生owner。
+                if (network && !network->AppendTarget(pid, creation))
+                {
+                    ++networkTargetFailures;
+                }
             });
         activeHandoff = &*handoff;
         if (!target.boundSampleId.empty() || !handoff->Start())
@@ -450,28 +489,6 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             return out;
         }
         request.transferHandoff = handoff->Endpoint();
-    }
-    std::optional<NetworkTrafficSession> network; // 不申请新writer；原worker同时写API与独立网络流。
-    if (target.networkTraffic)
-    {
-        NetworkTrafficCapturePlan networkPlan; // 绑定根来源，时长由整条API链统一结束。
-        networkPlan.sampleId = out.sample.sampleId;
-        networkPlan.bootId = ReadNetworkTrafficBootId();
-        networkPlan.pid = target.pid;
-        networkPlan.creationFileTime = target.creationFileTime;
-        networkPlan.durationMs = 0;
-        networkPlan.backend = *target.networkTraffic;
-        network.emplace(document, std::move(networkPlan), cancel);
-        const auto beforePublish = request.beforeResidentPublish; // 配套ETW仍沿原核验句柄启动。
-        request.beforeResidentPublish = [&, beforePublish](HANDLE verifiedTarget)
-        {
-            if (beforePublish)
-            {
-                beforePublish(verifiedTarget);
-            }
-            // 新建EXE主线程此时仍挂起，网络源先于Agent Ready后恢复主线程。
-            network->Start();
-        };
     }
     request.onControlPoll = [&]
     {
@@ -530,6 +547,11 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     {
         network->Close(); // 抓包回调结束、队列排空并发布最后网络段后才能封API终段。
         out.networkTraffic = network->Receipt();
+        if (networkTargetFailures && out.networkTraffic->status)
+        {
+            // 来源可正常清退但下一目标未加入时仍报告部分结果；具体准入原因保留在diagnostics。
+            out.networkTraffic->status = Failure(ProjectError::InvalidArgument, "networkTargetAdmission");
+        }
         const auto& receipt = *out.networkTraffic; // 网络失败保留API已发布前缀并单独报告。
         const bool failed = !receipt.status || !receipt.sourceReady || !receipt.cleanupConfirmed ||
             receipt.queueDropped || receipt.sourceGap || receipt.unsupportedPackets ||

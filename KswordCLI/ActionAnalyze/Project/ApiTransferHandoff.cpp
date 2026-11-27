@@ -97,6 +97,7 @@ public:
     std::map<std::string, n::NativeEventKey> observed;
     std::wstring agentPath; // 主capture使用的同一产品Agent路径，不另接受用户DLL参数。
     SourcePacket onPacket; // 借原worker合并到唯一API归档流。
+    TargetDiscovered onTarget; // 同一worker登记网络目标，不等待目标首个API包。
     struct Source {
         DWORD pid = 0;
         std::uint64_t creation = 0, session = 0, revision = 0, dropped = 0, deliveryDropped = 0;
@@ -123,9 +124,9 @@ public:
     bool callbackFailed = false;
 
     Impl(ProjectDocument& p, std::string s, DWORD pid, std::uint64_t creation, const std::atomic_bool& c,
-        const std::wstring& path, SourcePacket packets)
+        const std::wstring& path, SourcePacket packets, TargetDiscovered targets)
         : project(p), sample(std::move(s)), sourcePid(pid), sourceCreation(creation), cancel(c),
-          agentPath(path), onPacket(std::move(packets)) {}
+          agentPath(path), onPacket(std::move(packets)), onTarget(std::move(targets)) {}
     ~Impl() { ClosePipe(); if (io.hEvent) CloseHandle(io.hEvent); }
 
     void PipeFailure(DWORD error)
@@ -294,6 +295,7 @@ public:
         transfer.base = base; transfer.bytes = bytes; transfer.started = GetTickCount64();
         transfer.target = std::move(target);
         transfers.push_back(std::move(transfer));
+        if (onTarget) onTarget(request.targetPid, request.targetCreation);
         return ERROR_IO_PENDING;
     }
     void Finish(Transfer& transfer, DWORD error)
@@ -636,8 +638,9 @@ public:
 
 ApiTransferHandoff::ApiTransferHandoff(ProjectDocument& project, std::string sampleId,
     DWORD pid, std::uint64_t creation, const std::atomic_bool& cancel,
-    const std::wstring& agentPath, SourcePacket onPacket)
-    : impl_(std::make_unique<Impl>(project, std::move(sampleId), pid, creation, cancel, agentPath, std::move(onPacket))) {}
+    const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget)
+    : impl_(std::make_unique<Impl>(project, std::move(sampleId), pid, creation, cancel, agentPath,
+        std::move(onPacket), std::move(onTarget))) {}
 ApiTransferHandoff::~ApiTransferHandoff() { Close(); }
 bool ApiTransferHandoff::Start() { return impl_->Start(); }
 void ApiTransferHandoff::Poll() { impl_->Poll(); }
@@ -761,6 +764,20 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         const auto* member = s.Member(transfer.request); // 当前原 owner 快照，用于解释准入失败码。
         const auto* recovery = member && member->control.firstRecoveryFailure
             ? &*member->control.firstRecoveryFailure : nullptr;
+        V pageAdvance = V::makeNull();
+        if (member && member->control.pageAdvance)
+        {
+            const auto& advance = *member->control.pageAdvance;
+            pageAdvance = V::makeObject({{"stage", V::makeString(advance.receipt.stage)},
+                {"error", V::makeUInt(advance.receipt.win32Error)},
+                {"tid", V::makeUInt(advance.receipt.request.tid)},
+                {"threadCreationFileTime", V::makeString(std::to_string(advance.receipt.request.threadCreationTime))},
+                {"startIp", V::makeString(std::to_string(advance.receipt.startIp))},
+                {"observedIp", advance.receipt.observedIp ? V::makeString(std::to_string(*advance.receipt.observedIp)) : V::makeNull()},
+                {"observedDr6", V::makeString(std::to_string(advance.observedDr6))},
+                {"continuation", V::makeUInt(advance.continuation)},
+                {"resourcesRestored", V::makeBool(advance.receipt.resourcesRestored)}});
+        }
         admissions.push_back(V::makeObject({{"sourcePid", V::makeUInt(transfer.source)},
             {"sourceCreationFileTime", V::makeString(std::to_string(transfer.request.sourceCreation))},
             {"targetPid", V::makeUInt(transfer.request.targetPid)},
@@ -773,6 +790,9 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"nativeOwnerStage", member && member->control.stage
                 ? V::makeString(member->control.stage) : V::makeNull()},
             {"nativeOwnerError", V::makeUInt(member ? member->control.win32Error : 0)},
+            {"nativePageAdvance", std::move(pageAdvance)},
+            {"nativeExitCode", member && member->control.retirement && member->control.retirement->exitCode
+                ? V::makeUInt(*member->control.retirement->exitCode) : V::makeNull()},
             {"nativeRecoveryFailureStage", recovery && recovery->stage
                 ? V::makeString(recovery->stage) : V::makeNull()},
             {"nativeRecoveryFailureError", V::makeUInt(recovery ? recovery->win32Error : 0)}}));

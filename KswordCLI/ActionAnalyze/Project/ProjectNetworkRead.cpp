@@ -41,6 +41,47 @@ bool Binding(const JsonValue& marker, const ProjectInfo& project, std::string_vi
     out.clockDomain = static_cast<Archive::NetworkTimeDomain>(domain);
     return true;
 }
+
+// v1检查点允许没有成员窗口；新字段只恢复筛选身份，不提升原包的归属等级。
+bool TargetWindows(const JsonValue& marker, std::vector<ProjectNetworkTargetWindow>& out)
+{
+    const auto* value = marker.find("targetWindows"); // 旧单目标档没有该可选字段。
+    if (!value)
+    {
+        return true;
+    }
+    const auto* windows = value->asArray(); // 新检查点中声明的全部已接管实例。
+    if (!windows)
+    {
+        return false;
+    }
+    for (const auto& item : *windows)
+    {
+        ProjectNetworkTargetWindow window; // 逐项验证后才加入可发布快照。
+        std::uint64_t pid = 0; // 无损读取后校验Win32 PID范围。
+        const auto* root = item.find("root"); // 根成员标志必须是原生布尔值。
+        if (!GetNumber(item, "pid", pid) || !pid || pid >= UINT32_MAX ||
+            !GetNumber(item, "creationFileTime", window.creationFileTime) || !window.creationFileTime ||
+            !GetNumber(item, "startUtc", window.startUtc) || !window.startUtc ||
+            (!IsNull(item, "endUtc") && (!GetNumber(item, "endUtc", window.endUtc) ||
+                !window.endUtc || window.endUtc < window.startUtc)) ||
+            !root || !root->tryGetBool(window.root) ||
+            !GetString(item, "endReason", window.endReason) || !IsText(window.endReason, 64))
+        {
+            return false;
+        }
+        window.pid = static_cast<std::uint32_t>(pid);
+        for (const auto& previous : out)
+        {
+            if (previous.pid == window.pid && previous.creationFileTime == window.creationFileTime)
+            {
+                return false;
+            }
+        }
+        out.push_back(std::move(window));
+    }
+    return true;
+}
 } // namespace
 
 // 校验标记、完整网络正文、前段序号与散列。回调借用字节，仅在本函数成功后才能对外发布。
@@ -66,7 +107,7 @@ ProjectResult ReadNetworkEvidence(const ProjectDocument& project, std::string_vi
         !GetHash(marker, "sha256", draft.sha256) || !GetNumber(marker, "requestedPid", pid) || !pid || pid >= UINT32_MAX ||
         !GetNumber(marker, "requestedCreation", draft.requestedCreation) || !draft.requestedCreation ||
         !GetString(marker, "stopReason", draft.stopReason) || !IsText(draft.stopReason, 64) ||
-        !Binding(marker, *project.Info(), sampleId, draft.source)) {
+        !Binding(marker, *project.Info(), sampleId, draft.source) || !TargetWindows(marker, draft.targetWindows)) {
         return Failure(ProjectError::Corrupt, "networkCheckpointDocument");
     }
     draft.requestedPid = static_cast<std::uint32_t>(pid);

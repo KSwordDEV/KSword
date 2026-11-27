@@ -135,7 +135,8 @@ ProjectResult CommitNetworkEvidence(ProjectDocument& project, std::string_view s
     const ks::cli::action_analyze::archive::NetworkLoss& loss,
     ks::cli::action_analyze::archive::NetworkArchiveEnd end,
     std::uint32_t requestedPid, std::uint64_t requestedCreation, std::string_view stopReason,
-    ProjectNetworkCheckpoint& checkpoint, ProjectNetworkEvidenceReceipt& out)
+    ProjectNetworkCheckpoint& checkpoint, ProjectNetworkEvidenceReceipt& out,
+    std::span<const ProjectNetworkTargetWindow> targetWindows)
 {
     namespace Archive = ks::cli::action_analyze::archive;
     using namespace ProjectStorage;
@@ -145,6 +146,19 @@ ProjectResult CommitNetworkEvidence(ProjectDocument& project, std::string_view s
     if (project.Info()->access != ProjectAccess::ReadWrite) return Failure(ProjectError::ReadOnly, "networkProject");
     if (!requestedPid || !requestedCreation || !IsText(stopReason, 64) || checkpoint.ordinal >= 4096) {
         return Failure(ProjectError::InvalidArgument, "networkCheckpointInput");
+    }
+    for (std::size_t index = 0; index < targetWindows.size(); ++index) {
+        const auto& window = targetWindows[index]; // 当前归档段内已核验的目标实例窗口。
+        if (!window.pid || window.pid == UINT32_MAX || !window.creationFileTime || !window.startUtc ||
+            (window.endUtc && window.endUtc < window.startUtc) || !IsText(window.endReason, 64)) {
+            return Failure(ProjectError::InvalidArgument, "networkTargetWindow");
+        }
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            if (targetWindows[previous].pid == window.pid &&
+                targetWindows[previous].creationFileTime == window.creationFileTime) {
+                return Failure(ProjectError::InvalidArgument, "networkTargetWindowDuplicate");
+            }
+        }
     }
     SampleRecord sample; // 检查点绑定原 sample 的冻结描述，绝不另建采样。
     if (const auto status = project.ReadSample(sampleId, sample); !status) return status;
@@ -184,6 +198,14 @@ ProjectResult CommitNetworkEvidence(ProjectDocument& project, std::string_view s
         epoch.push_back(hex[source.sourceEpoch[index] >> 4]);
         epoch.push_back(hex[source.sourceEpoch[index] & 15]);
     }
+    Evidence::JsonArray windows; // 检查点中的成员窗口是诊断身份，不改写网络记录元数据。
+    windows.reserve(targetWindows.size());
+    for (const auto& window : targetWindows) {
+        windows.push_back(JsonValue::makeObject({{"pid", Number(window.pid)},
+            {"creationFileTime", Number(window.creationFileTime)}, {"startUtc", Number(window.startUtc)},
+            {"endUtc", window.endUtc ? Number(window.endUtc) : JsonValue::makeNull()},
+            {"root", JsonValue::makeBool(window.root)}, {"endReason", Text(window.endReason)}}));
+    }
     const auto marker = Object({{"kind", Text("network-archive-checkpoint-v1")},
         {"projectId", Text(project.Info()->projectId)}, {"sampleId", Text(sample.info.sampleId)},
         {"descriptionHash", Text(sample.info.descriptionHash)}, {"ordinal", Number(ordinal)},
@@ -194,10 +216,11 @@ ProjectResult CommitNetworkEvidence(ProjectDocument& project, std::string_view s
         {"clockDomain", Number(static_cast<std::uint8_t>(source.clockDomain))},
         {"frequencyHz", source.frequencyHz ? Number(*source.frequencyHz) : JsonValue::makeNull()},
         {"requestedPid", Number(requestedPid)}, {"requestedCreation", Number(requestedCreation)},
-        {"stopReason", Text(stopReason)}});
+        {"stopReason", Text(stopReason)}, {"targetWindows", JsonValue::makeArray(std::move(windows))}});
     if (const auto published = Publish(*root, dirs, NumberFile(ordinal), marker, false); !published) return published;
     checkpoint = {ordinal, out.raw.flushedBytes, *out.raw.lastFlushedSequence, std::move(hash), source,
-        requestedPid, requestedCreation, std::string(stopReason)};
+        requestedPid, requestedCreation, std::string(stopReason),
+        std::vector<ProjectNetworkTargetWindow>(targetWindows.begin(), targetWindows.end())};
     return {};
 }
 

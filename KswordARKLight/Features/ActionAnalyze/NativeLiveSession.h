@@ -28,7 +28,7 @@ struct NativeLiveApiSource {
     bool launched = false; // 第四来源：入口停止后自动附加API Agent。
     std::wstring executable; // 普通EXE独立路径，不借用JSONL草稿。
     std::optional<std::uint32_t> entryRva; // 空值使用PE AddressOfEntryPoint。
-    std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 冻结同采样根PID网络源，空值关闭。
+    std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 冻结同采样网络源，自动接管追加目标，空值关闭。
 };
 
 struct NativeLiveRequest {

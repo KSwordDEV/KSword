@@ -20,17 +20,25 @@ namespace {
 namespace Archive = ks::cli::action_analyze::archive;
 using namespace ProjectStorage;
 
-// 有界邮箱只复制目标 PID 线索，所有磁盘写入都由外部串行归档通道完成。
+// 有界邮箱只复制已准入成员的 PID 线索，所有磁盘写入都由外部串行归档通道完成。
 struct CapturedRecord {
     ks::network::PacketRecord packet; // 原抓包器交付的统一报文，不重建字节。
     bool nativePid = false; // WFP row 原生 PID 与 R3 端口表补全明确区分。
     std::optional<std::uint64_t> timestamp100ns; // WFP 原始 FILETIME，不丢失到毫秒。
+    std::size_t targetIndex = 0; // 固定准入窗口下标，只筛选原包，不作为事件时强实例证明。
+};
+
+// 每个准入成员持续持有自己的真实对象；历史窗口保留到排空结束，防止PID复用串入尾包。
+struct CapturedTarget {
+    Handle object; // OpenProcess并核验创建时间得到的同一对象。
+    ProjectNetworkTargetWindow window; // 精确身份和本会话实际接受区间。
 };
 
 struct Mailbox {
-    std::mutex mutex; // 保护原生回调与归档线程之间的包队列。
+    std::mutex mutex; // 同时保护原生回调看到的成员目录与包队列。
+    std::vector<CapturedTarget> targets; // 目录、句柄与退出边界均在此锁内访问，清退前不销毁。
     std::deque<CapturedRecord> rows; // 仅拥有现有 PacketRecord 提供的字节。
-    std::uint64_t dropped = 0; // 邮箱容量满后未能保留的本目标线索。
+    std::uint64_t dropped = 0; // 邮箱容量满后未能保留的成员线索。
     std::vector<std::string> diagnostics; // 最多保存 16 条服务状态。
     bool failed = false; // 回调分配异常，交给所有者停止并报告部分结果。
 };
@@ -39,6 +47,73 @@ struct Mailbox {
 std::uint64_t FileTime(const FILETIME& time)
 {
     return (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
+}
+
+// 调用方持邮箱锁；只从已持有对象回读退出，不按PID重新打开其它实例。
+void RefreshTarget(CapturedTarget& target)
+{
+    if (target.window.endUtc)
+    {
+        return;
+    }
+    const auto waited = WaitForSingleObject(target.object.get(), 0); // 仅观察已登记对象，不打开新PID。
+    if (waited == WAIT_TIMEOUT)
+    {
+        return;
+    }
+    auto end = UtcNow(); // 无精确退出时间时只记录观察截止，endReason明确区分。
+    const char* reason = "target-wait-failed"; // 独立窗口状态，不代表网络包归属证明。
+    if (waited == WAIT_OBJECT_0)
+    {
+        FILETIME created{}, exited{}, kernel{}, user{}; // 同一对象的真实生命周期时间。
+        reason = "target-exited-time-unavailable";
+        if (GetProcessTimes(target.object.get(), &created, &exited, &kernel, &user) &&
+            FileTime(created) == target.window.creationFileTime && FileTime(exited))
+        {
+            end = FileTime(exited);
+            reason = "target-exited";
+        }
+    }
+    target.window.endUtc = (std::max)(target.window.startUtc, end);
+    target.window.endReason = reason;
+}
+
+// 毫秒时间戳无法分辨跨越准入/退出的同一毫秒，保守排除边界桶；WFP保留精确FILETIME。
+bool WithinTarget(const ProjectNetworkTargetWindow& window, std::uint64_t timestamp, bool precise)
+{
+    if (timestamp < window.startUtc)
+    {
+        return false;
+    }
+    if (!window.endUtc)
+    {
+        return true;
+    }
+    if (timestamp >= window.endUtc)
+    {
+        return false;
+    }
+    return precise || window.endUtc - timestamp >= 10000;
+}
+
+// 必须在邮箱锁内调用；记录稳定窗口下标，旧PID窗口永不被新实例替换。
+std::optional<std::size_t> MatchTarget(Mailbox& mailbox, std::uint32_t pid,
+    std::uint64_t timestamp, bool precise)
+{
+    for (std::size_t index = 0; index < mailbox.targets.size(); ++index)
+    {
+        auto& target = mailbox.targets[index]; // 固定下标用于批次重新核对同一窗口。
+        if (target.window.pid != pid)
+        {
+            continue;
+        }
+        RefreshTarget(target);
+        if (WithinTarget(target.window, timestamp, precise))
+        {
+            return index;
+        }
+    }
+    return std::nullopt;
 }
 
 // 从现有 PacketRecord 构造可归档视图；端口表只产生 PID 线索，不构造强实例 proof。
@@ -128,11 +203,10 @@ ks::network::PacketRecord WfpRecord(const KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW&
 // 状态只借用原worker的项目与取消位；目标/邮箱先于服务构造，保证回调清退期间仍然有效。
 struct NetworkTrafficSession::State {
     ProjectDocument& project; // 已由原API或独立入口持有的唯一项目写租约。
-    NetworkTrafficCapturePlan plan; // 构造时冻结的单目标与来源，不接入子进程自动跟随。
+    NetworkTrafficCapturePlan plan; // 构造时冻结的根目标与来源；显式追加不修改原请求。
     const std::atomic_bool& cancelled; // 所有者控制的取消位，生命周期覆盖整个会话。
     NetworkTrafficCaptureReceipt out; // 已提交水位及实时来源状态，不返回旧段冒充本次结果。
-    Handle target; // 经过PID/创建时间复核的同一进程对象。
-    Mailbox mailbox; // 来源线程只接触此邮箱及固定目标，不访问项目。
+    Mailbox mailbox; // 来源线程只接触此邮箱及已核验成员，不访问项目。
     ks::network::TrafficMonitorService service; // 原Raw Socket来源，Join仅由Close执行。
     ksword::ark::DriverClient driver; // 仅只读既有WFP ring，不改变全局来源状态。
     ks::network::detail::ConnectionPidResolver resolver; // 原弱PID解析器，不补造强实例身份。
@@ -164,6 +238,10 @@ struct NetworkTrafficSession::State {
     {
         return plan.backend == NetworkTrafficBackend::ExistingWfp;
     }
+    // 在唯一worker内核验并接纳真实对象，返回独立准入回执；root只由Start使用。
+    NetworkTrafficTargetReceipt AdmitTarget(std::uint32_t pid, std::uint64_t creation, bool root);
+    // 刷新真实退出时刻并回读成员快照；返回是否仍有活动成员，waitFailed单独报告对象错误。
+    bool ObserveTargets(bool& waitFailed);
     // 当前允许的最晚来源时间；无时限时使用实际当前时刻。
     std::uint64_t EndUtc() const;
     // 检查取消、目标退出、时长及来源状态，只请求停止而不阻塞join。
@@ -181,6 +259,161 @@ NetworkTrafficSession::NetworkTrafficSession(ProjectDocument& project, NetworkTr
     const std::atomic_bool& cancel)
     : state_(std::make_unique<State>(project, std::move(plan), cancel))
 {
+}
+
+// 只取得查询/同步句柄，创建时间与存活状态均从该对象读回；失败不改变其它成员和来源。
+NetworkTrafficTargetReceipt NetworkTrafficSession::State::AdmitTarget(
+    std::uint32_t pid, std::uint64_t creation, bool root)
+{
+    NetworkTrafficTargetReceipt receipt; // 每次请求独立返回，主会话继续保留自己的归档状态。
+    receipt.pid = pid;
+    receipt.creationFileTime = creation;
+    if (!pid || pid == UINT32_MAX || !creation)
+    {
+        receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetIdentity");
+        receipt.reason = "invalid-target";
+        return receipt;
+    }
+    Handle object(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid)); // 固定真实对象。
+    if (!object || !object.get())
+    {
+        receipt.status = WinFailure("networkCaptureTarget", GetLastError());
+        receipt.reason = "target-open-failed";
+        return receipt;
+    }
+    FILETIME created{}, exited{}, kernel{}, user{}; // 仅以本次打开的同一对象复核请求身份。
+    if (!GetProcessTimes(object.get(), &created, &exited, &kernel, &user))
+    {
+        receipt.status = WinFailure("networkCaptureTargetTimes", GetLastError());
+        receipt.reason = "target-query-failed";
+        return receipt;
+    }
+    if (FileTime(created) != creation)
+    {
+        receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetIdentity");
+        receipt.reason = "target-identity-failed";
+        return receipt;
+    }
+    const auto waited = WaitForSingleObject(object.get(), 0); // 准入前不接受已退出的历史对象。
+    if (waited != WAIT_TIMEOUT)
+    {
+        receipt.status = waited == WAIT_FAILED ? WinFailure("networkCaptureTargetWait", GetLastError()) :
+            Failure(ProjectError::InvalidArgument, "networkCaptureTargetExited");
+        receipt.reason = waited == WAIT_FAILED ? "target-wait-failed" : "target-exited";
+        return receipt;
+    }
+    std::lock_guard lock(mailbox.mutex); // 原回调与追加成员共享此短锁，不在锁内写档或等待。
+    for (auto& target : mailbox.targets)
+    {
+        if (target.window.pid != pid)
+        {
+            continue;
+        }
+        RefreshTarget(target);
+        if (target.window.pid == pid && target.window.creationFileTime == creation)
+        {
+            receipt.startUtc = target.window.startUtc;
+            receipt.alreadyPresent = true;
+            receipt.accepted = !target.window.endUtc;
+            receipt.reason = receipt.accepted ? "already-present" : "target-window-closed";
+            if (!receipt.accepted)
+            {
+                receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetClosed");
+            }
+            return receipt;
+        }
+        if (!target.window.endUtc)
+        {
+            receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetPidConflict");
+            receipt.reason = "target-pid-conflict";
+            return receipt;
+        }
+    }
+    const auto now = UtcNow(); // 新成员保留精确准入时间，毫秒来源通过WithinTarget排除边界桶。
+    if (creation > now || WaitForSingleObject(object.get(), 0) != WAIT_TIMEOUT)
+    {
+        receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetIdentity");
+        receipt.reason = "target-identity-failed";
+        return receipt;
+    }
+    receipt.startUtc = root ? (std::max)(creation, now / 10000 * 10000) : now;
+    mailbox.targets.reserve(mailbox.targets.size() + 1);
+    out.targets.reserve(mailbox.targets.size() + 1); // 分配失败发生在发布新目录成员之前。
+    mailbox.targets.push_back({std::move(object), {pid, creation, receipt.startUtc, 0, root, "active"}});
+    out.targets.push_back(mailbox.targets.back().window);
+    receipt.accepted = true;
+    receipt.reason = "added";
+    return receipt;
+}
+
+// 在每次消费前收紧所有对象的真实退出边界，排空期间仍保留句柄和历史窗口。
+bool NetworkTrafficSession::State::ObserveTargets(bool& waitFailed)
+{
+    waitFailed = false;
+    bool alive = false; // 根退出策略由ObserveStop读取冻结plan决定。
+    std::lock_guard lock(mailbox.mutex); // 与来源回调共享目录，不在锁内执行IOCTL或归档。
+    for (auto& target : mailbox.targets)
+    {
+        RefreshTarget(target);
+        alive = alive || !target.window.endUtc;
+        waitFailed = waitFailed || target.window.endReason == "target-wait-failed" ||
+            target.window.endReason == "target-exited-time-unavailable";
+    }
+    out.targets.clear();
+    out.targets.reserve(mailbox.targets.size());
+    for (const auto& target : mailbox.targets)
+    {
+        out.targets.push_back(target.window);
+    }
+    return alive;
+}
+
+// 接管方在Ready/ACK前调用；仅扩展当前会话筛选目录，不另起抓包、reader或writer。
+NetworkTrafficTargetReceipt NetworkTrafficSession::AddTarget(std::uint32_t pid, std::uint64_t creationFileTime)
+{
+    auto& state = *state_; // 方法与Poll/Close同属原项目worker，不能由接管后台线程调用。
+    if (!state.active || state.stopping || state.closed || state.cancelled.load() || !state.out.status ||
+        (state.plan.durationMs && GetTickCount64() - state.started >= state.plan.durationMs))
+    {
+        NetworkTrafficTargetReceipt receipt; // 失败仅返回本次请求，主采集的真实终态保持原值。
+        receipt.pid = pid;
+        receipt.creationFileTime = creationFileTime;
+        receipt.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetAdmission");
+        receipt.reason = state.closed ? "session-closed" : !state.active ? "session-not-active" :
+            state.cancelled.load() ? "cancelled" : "session-stopping";
+        return receipt;
+    }
+    return state.AdmitTarget(pid, creationFileTime, false);
+}
+
+// 原worker同步调用并返回是否准入；异常也隔离在网络回执内，不使原生接管回滚。
+bool NetworkTrafficSession::AppendTarget(std::uint32_t pid, std::uint64_t creationFileTime)
+{
+    try
+    {
+        const auto receipt = AddTarget(pid, creationFileTime); // 沿同一强身份准入，不创建新来源。
+        if (!receipt.accepted && state_->out.diagnostics.size() < 16)
+        {
+            state_->out.diagnostics.push_back("target-append:" + std::to_string(pid) + ":" +
+                std::to_string(creationFileTime) + ":" + receipt.reason);
+        }
+        return receipt.accepted;
+    }
+    catch (...)
+    {
+        try
+        {
+            if (state_->out.diagnostics.size() < 16)
+            {
+                state_->out.diagnostics.push_back("target-append-exception");
+            }
+        }
+        catch (...)
+        {
+            // 分配失败时仍返回false，禁止网络诊断分配再次穿透原生接管调用。
+        }
+        return false;
+    }
 }
 
 // 复用原sample与网络尾链，不申请第二writer；Raw Socket真实就绪由Poll回读。
@@ -220,18 +453,12 @@ bool NetworkTrafficSession::Start()
         out.status = Failure(info ? ProjectError::ReadOnly : ProjectError::NotOpen, "networkCaptureProject");
         return failStart(info ? "project-read-only" : "project-not-open");
     }
-    state.target = Handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, plan.pid));
-    if (!state.target || state.target.get() == nullptr)
+    const auto root = state.AdmitTarget(plan.pid, plan.creationFileTime, true); // 根同样走强身份准入。
+    if (!root.accepted)
     {
-        out.status = WinFailure("networkCaptureTarget", GetLastError());
-        return failStart("target-open-failed");
-    }
-    FILETIME created{}, exited{}, kernel{}, user{}; // 同一对象创建时间及存活状态，拒绝PID复用。
-    if (!GetProcessTimes(state.target.get(), &created, &exited, &kernel, &user) ||
-        FileTime(created) != plan.creationFileTime || WaitForSingleObject(state.target.get(), 0) != WAIT_TIMEOUT)
-    {
-        out.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetIdentity");
-        return failStart("target-identity-failed");
+        out.status = root.status;
+        out.reason = root.reason;
+        return false;
     }
     out.status = LoadNetworkEvidenceTail(state.project, plan.sampleId, state.checkpoint);
     if (!out.status)
@@ -248,17 +475,24 @@ bool NetworkTrafficSession::Start()
         state.Wfp() ? "ksword-r0-wfp-existing" : "ksword-r3-raw-socket", UuidBytes(epoch), epoch,
         plan.bootId, Archive::NetworkTimeDomain::FileTime, std::nullopt};
 
-    // 回调只复制目标线索到原有界邮箱；捕获稳定State指针，绝不访问ProjectDocument。
+    // 回调只复制已准入成员线索到原有界邮箱；捕获稳定State指针，绝不访问ProjectDocument。
     state.service.SetPacketCallback([owner = &state](const ks::network::PacketRecord& packet) noexcept
     {
-        if (packet.processId != owner->plan.pid || WaitForSingleObject(owner->target.get(), 0) != WAIT_TIMEOUT)
+        constexpr std::uint64_t epoch = 116444736000000000ULL; // 原来源Unix毫秒转换为归档FILETIME。
+        if (!packet.processId || packet.captureTimestampMs > (UINT64_MAX - epoch) / 10000)
         {
             return;
         }
         try
         {
-            std::lock_guard lock(owner->mailbox.mutex); // 与worker交换当前目标字节的唯一锁。
+            std::lock_guard lock(owner->mailbox.mutex); // 成员追加和包入队使用同一锁，准入前不收包。
             if (owner->mailbox.failed)
+            {
+                return;
+            }
+            const auto target = MatchTarget(owner->mailbox, packet.processId,
+                epoch + packet.captureTimestampMs * 10000, false);
+            if (!target)
             {
                 return;
             }
@@ -268,7 +502,7 @@ bool NetworkTrafficSession::Start()
             }
             else
             {
-                owner->mailbox.rows.push_back({packet, false, std::nullopt});
+                owner->mailbox.rows.push_back({packet, false, std::nullopt, *target});
             }
         }
         catch (...)
@@ -341,13 +575,36 @@ void NetworkTrafficSession::State::RequestStop(const char* reason)
     }
     out.reason = reason;
     cutoffUtc = EndUtc();
+    bool waitFailed = false; // 截止前再核对一次对象退出，不把所有成员一律扩到来源停止时刻。
+    ObserveTargets(waitFailed);
     if (out.reason == "target-exited")
     {
-        FILETIME created{}, exited{}, kernel{}, user{}; // 同一对象的真实退出时刻收紧边界。
-        if (GetProcessTimes(target.get(), &created, &exited, &kernel, &user) && FileTime(exited))
+        std::uint64_t lastExit = 0; // 多成员正常退出使用最后一个对象的实际结束，不截断根之后的尾包。
+        for (const auto& window : out.targets)
         {
-            cutoffUtc = (std::min)(*cutoffUtc, FileTime(exited));
+            lastExit = (std::max)(lastExit, window.endUtc);
         }
+        if (lastExit)
+        {
+            cutoffUtc = (std::min)(*cutoffUtc, lastExit);
+        }
+    }
+    {
+        std::lock_guard lock(mailbox.mutex); // 原回调随后只保留各成员截止前已捕获的尾包。
+        out.targets.clear();
+        for (auto& target : mailbox.targets)
+        {
+            if (!target.window.endUtc || target.window.endUtc > *cutoffUtc)
+            {
+                target.window.endUtc = (std::max)(target.window.startUtc, *cutoffUtc);
+                target.window.endReason = reason;
+            }
+            out.targets.push_back(target.window);
+        }
+    }
+    if (waitFailed && out.reason == "target-exited")
+    {
+        out.reason = "target-wait-failed";
     }
     stopping = true;
     if (!Wfp())
@@ -364,18 +621,19 @@ void NetworkTrafficSession::State::ObserveStop()
         return;
     }
     out.sourceReady = out.sourceReady || (!Wfp() && service.IsCaptureReady());
-    const auto alive = WaitForSingleObject(target.get(), 0); // 只观察已持有对象，不重新按PID查询。
+    bool waitFailed = false; // 任何对象退出核验错误都明确终止，不伪装为全部正常退出。
+    const bool alive = ObserveTargets(waitFailed); // 即使根退出也持续收紧其它已接管成员的独立窗口。
     if (cancelled.load())
     {
         RequestStop("cancelled");
     }
-    else if (alive == WAIT_OBJECT_0)
-    {
-        RequestStop("target-exited");
-    }
-    else if (alive != WAIT_TIMEOUT)
+    else if (waitFailed)
     {
         RequestStop("target-wait-failed");
+    }
+    else if (!plan.keepAliveForAppendedTargets && !alive)
+    {
+        RequestStop("target-exited");
     }
     else if (plan.durationMs && GetTickCount64() - started >= plan.durationMs)
     {
@@ -435,16 +693,18 @@ bool NetworkTrafficSession::State::ReadBatch(std::deque<CapturedRecord>& batch)
     }
     cursor = queried.nextSequence;
     out.sourceGap += queried.cursorGapCount;
-    for (const auto& row : queried.entries) // 只保留原目标PID线索，保持原WFP前缀和时间。
+    for (const auto& row : queried.entries) // 全部成员共用同一个ring游标，保持原WFP前缀和时间。
     {
         if (drainThrough && row.sequence > *drainThrough)
         {
             break;
         }
         auto packet = WfpRecord(row, resolver); // 复用网络页原弱PID映射。
-        if (packet.processId == plan.pid)
+        std::lock_guard lock(mailbox.mutex); // 与Raw Socket使用同一成员窗口筛选，不另启reader。
+        const auto target = MatchTarget(mailbox, packet.processId, row.timestamp100ns, true);
+        if (target)
         {
-            batch.push_back({std::move(packet), row.processId != 0, row.timestamp100ns});
+            batch.push_back({std::move(packet), row.processId != 0, row.timestamp100ns, *target});
         }
     }
     if (stopping)
@@ -463,6 +723,7 @@ bool NetworkTrafficSession::State::ReadBatch(std::deque<CapturedRecord>& batch)
 // 仅在原项目worker上同步提交。批次拥有正文，span有效期覆盖归档核验返回。
 void NetworkTrafficSession::State::Commit(const std::deque<CapturedRecord>& batch, bool finished)
 {
+    ObserveStop(); // 查询/搬移期间刚退出的对象须先收紧窗口，再提交本轮尾包。
     std::vector<ProjectNetworkObservation> observations; // 原字节视图，不创建第二套包存储。
     std::uint64_t bytes = 0; // 此段实际保留的IP字节数。
     const auto endUtc = EndUtc(); // 本批次使用同一截止值，结束后不追随新流量。
@@ -484,9 +745,25 @@ void NetworkTrafficSession::State::Commit(const std::deque<CapturedRecord>& batc
         {
             continue;
         }
+        {
+            std::lock_guard lock(mailbox.mutex); // 再核对最新对象窗口，避免退出与队列交付之间的PID复用。
+            if (captured.targetIndex >= mailbox.targets.size())
+            {
+                continue;
+            }
+            auto& target = mailbox.targets[captured.targetIndex]; // 旧包只能回读首次匹配的对象窗口。
+            RefreshTarget(target);
+            if (target.window.pid != packet.processId || !WithinTarget(target.window,
+                observation.flow.sourceTimestamp, captured.timestamp100ns.has_value()))
+            {
+                continue;
+            }
+        }
         bytes += observation.capture.bytes.size();
         observations.push_back(observation);
     }
+    // 回调也会发现刚退出的成员；归档快照必须在这些边界收紧之后更新。
+    ObserveStop();
     if (observations.empty() && !finished)
     {
         return;
@@ -501,7 +778,7 @@ void NetworkTrafficSession::State::Commit(const std::deque<CapturedRecord>& batc
     const auto end = failed ? Archive::NetworkArchiveEnd::SourceFailed : out.sourceReady ?
         Archive::NetworkArchiveEnd::Stopped : Archive::NetworkArchiveEnd::SourceUnavailable;
     out.status = CommitNetworkEvidence(project, plan.sampleId, binding, observations, loss, end,
-        plan.pid, plan.creationFileTime, reason, checkpoint, receipt);
+        plan.pid, plan.creationFileTime, reason, checkpoint, receipt, out.targets);
     if (!out.status)
     {
         RequestStop("archive-failed");
@@ -552,6 +829,11 @@ void NetworkTrafficSession::Close()
         // 这是防御性兜底，覆盖未来新增启动分支忘记填写原因的情况。
         state.out.reason = "start-failed";
     }
+    if (state.attempted && !state.active)
+    {
+        const auto reason = state.out.reason; // 启动失败也关闭已准入窗口，但不创建未启动来源的归档段。
+        state.RequestStop(reason.c_str());
+    }
 
     if (state.active)
     {
@@ -562,7 +844,15 @@ void NetworkTrafficSession::Close()
             state.out.cleanupConfirmed = state.service.StopCapture();
             // Join之后不会再进回调，尾部诊断和失败标记均来自原邮箱。
             std::lock_guard lock(state.mailbox.mutex); // 短锁不跨归档提交。
-            state.out.diagnostics = std::move(state.mailbox.diagnostics);
+            for (auto& diagnostic : state.mailbox.diagnostics)
+            {
+                if (state.out.diagnostics.size() == 16)
+                {
+                    break;
+                }
+                state.out.diagnostics.push_back(std::move(diagnostic));
+            }
+            state.mailbox.diagnostics.clear();
             if (state.mailbox.failed && state.out.status)
             {
                 state.out.reason = "callback-failed";
@@ -587,7 +877,13 @@ void NetworkTrafficSession::Close()
     // 写档失败时也已先停止来源，未提交邮箱不重试；保留真实错误及最后成功水位。
     state.active = false;
     state.closed = true;
-    state.target.reset();
+    {
+        std::lock_guard lock(state.mailbox.mutex); // 来源已join，回执保留窗口，真实对象到此统一释放。
+        for (auto& target : state.mailbox.targets)
+        {
+            target.object.reset();
+        }
+    }
 }
 
 // 返回同一worker读取的原回执；不翻译、不回读项目、不改变来源状态。

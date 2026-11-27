@@ -8188,7 +8188,7 @@
     "网络采集": "Network capture",
     "不采集": "Off",
     "同采样网络回执": "Network receipt for this sample",
-    "与 API 使用同一采样和写入线程，网络从 Agent Ready 前开始并随采集清退；仅根 PID 线索，不包含后代归属。JSONL 跟随不启用。": "Uses the same sample and writer as API capture. The network source starts before Agent Ready and stops with capture. Attribution covers root-PID hints only, excluding descendants. Unavailable for JSONL follow.",
+    "与 API 使用同一采样和写入线程；自动接管时在调用放行前追加目标，根进程退出后继续采集。报文归属仍为 PID 线索，不解密 HTTPS。JSONL 跟随不启用。": "Uses the same sample and writer as API capture. Automatic handoff adds targets before the intercepted call proceeds and keeps capture active after the root exits. Packet attribution remains a PID hint; HTTPS is not decrypted. Unavailable for JSONL follow.",
     "选择普通 AMD64 EXE": "Select AMD64 EXE",
     "程序 (*.exe)": "Programs (*.exe)",
     "启动 EXE 并采集 API": "Launch EXE and capture API calls",

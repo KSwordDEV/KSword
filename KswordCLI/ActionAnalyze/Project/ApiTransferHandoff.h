@@ -12,9 +12,11 @@ public:
     // 同一原worker串行交付，含Ready前控制/coverage原包；回调异常停止递归采集并记Incomplete。
     using SourcePacket = std::function<void(DWORD, std::uint64_t,
         const ks::winapi_monitor::ApiMonitorEventPacket&)>;
+    // 强实例及私有范围准入后、原API收到成功ACK前，在原writer线程登记同采样采集对象。
+    using TargetDiscovered = std::function<void(DWORD, std::uint64_t)>;
     ApiTransferHandoff(ProjectDocument& project, std::string sampleId, DWORD sourcePid,
         std::uint64_t sourceCreation, const std::atomic_bool& cancel,
-        const std::wstring& agentPath, SourcePacket onPacket);
+        const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget = {});
     ~ApiTransferHandoff();
     bool Start();
     void Poll();

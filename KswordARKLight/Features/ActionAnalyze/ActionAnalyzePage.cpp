@@ -2412,7 +2412,7 @@ bool CreateControls(Page& page) {
     AddButtonTip(page.tooltip, page.hwnd, page.apiPid, L"填写明确授权目标或 JSONL 来源的十进制 PID，创建时间不匹配时拒绝采集。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiBrowse, L"选择明确授权的本地 API JSONL；切到活采时保留文件草稿但不提交它。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiDuration, L"从 Agent Ready 与覆盖核验通过后计时，最多 120 秒；0 表示持续采集。");
-    AddButtonTip(page.tooltip, page.hwnd, page.apiNetworkTraffic, L"与 API 使用同一采样和写入线程，网络从 Agent Ready 前开始并随采集清退；仅根 PID 线索，不包含后代归属。JSONL 跟随不启用。");
+    AddButtonTip(page.tooltip, page.hwnd, page.apiNetworkTraffic, L"与 API 使用同一采样和写入线程；自动接管时在调用放行前追加目标，根进程退出后继续采集。报文归属仍为 PID 线索，不解密 HTTPS。JSONL 跟随不启用。");
     AddButtonTip(page.tooltip, page.hwnd, page.liveStart, L"按当前项目和来源开始采集；显式附加先确认精确实例。活采时限从 Ready 起算，0 为持续。");
     AddButtonTip(page.tooltip, page.hwnd, page.liveFollow, L"回放本次 API 采样，或暂停、恢复 ETW 结果更新");
     for (HWND child : {page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,

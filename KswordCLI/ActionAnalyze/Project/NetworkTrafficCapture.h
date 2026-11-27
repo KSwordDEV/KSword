@@ -13,10 +13,11 @@ enum class NetworkTrafficBackend { RawSocket, ExistingWfp };
 struct NetworkTrafficCapturePlan {
     std::string sampleId; // 已存在的原采样 UUID，采集器绝不另建采样。
     std::string bootId; // 本次 Windows 启动身份，用于来源时钟绑定。
-    std::uint32_t pid = 0; // 仅保留与此 PID 匹配的原生或端口表线索。
+    std::uint32_t pid = 0; // 原请求根；之后仅通过AppendTarget显式扩展同一来源的筛选成员。
     std::uint64_t creationFileTime = 0; // 整段持有同一进程句柄并验证请求身份。
     std::uint32_t durationMs = 0; // 会话为0时由外部Close结束；独立同步入口仍要求100..60000ms。
     NetworkTrafficBackend backend = NetworkTrafficBackend::RawSocket; // 显式来源，无静默回退。
+    bool keepAliveForAppendedTargets = false; // true时暂时无活动成员也等待Close/取消/时长；false在全部成员退出时结束。
 };
 
 struct NetworkTrafficCaptureReceipt {
@@ -34,6 +35,18 @@ struct NetworkTrafficCaptureReceipt {
     std::uint64_t sourceGap = 0; // WFP cursor 的已知缺口。
     bool sourceReady = false; // 至少一次观察到真实采集源已就绪。
     bool cleanupConfirmed = false; // 本次拥有的 R3 线程完成 join；只读 WFP 无启停责任。
+    std::vector<ProjectNetworkTargetWindow> targets; // 当前已准入实例及各自生命周期，不代表逐包强证据。
+};
+
+// 每次追加独立返回准入结果；失败不污染正在采集的主回执，不隐式停止其它成员。
+struct NetworkTrafficTargetReceipt {
+    ProjectResult status; // 参数、会话阶段、OpenProcess、身份和存活复核的具体错误。
+    std::uint32_t pid = 0; // 调用方请求的目标PID。
+    std::uint64_t creationFileTime = 0; // 调用方请求的强身份创建时间。
+    std::uint64_t startUtc = 0; // 成功时实际接纳时刻；重复请求保持首次值。
+    bool accepted = false; // 已加入本会话且在本次复核时仍存活。
+    bool alreadyPresent = false; // 同一PID/创建时间重复请求，不开新窗口或重启来源。
+    std::string reason; // added、already-present或明确失败机器值。
 };
 
 // 原API worker可在同一项目写租约内串行服务本会话；不建立第二writer或后台写档线程。
@@ -51,6 +64,12 @@ public:
     // 初始化已有sample/绑定、持有同实例对象并启动来源；返回是否已接受本次启动。
     // Raw Socket异步就绪，由后续Poll更新Receipt().sourceReady；重复调用不重启。
     bool Start();
+    // 由原writer worker在接管Ready/ACK前同步调用。只接纳PID+创建时间匹配且仍存活的真实对象。
+    // 不启动服务/线程/writer，不回补准入前流量；来源尚在异步准备时也可追加，sourceReady单独回读。
+    // 失败写入Receipt().diagnostics，不覆盖来源终态或撤销其它成员。
+    bool AppendTarget(std::uint32_t pid, std::uint64_t creationFileTime);
+    // 需要逐项准入回执的兼容入口，与AppendTarget使用完全相同的准入实现。
+    NetworkTrafficTargetReceipt AddTarget(std::uint32_t pid, std::uint64_t creationFileTime);
     // 不等待数据、不sleep、不join；最多读取一批并在调用线程同步分段归档。
     // reason非空表示已请求停止，调用方须Close完成清退及终态发布。
     void Poll();

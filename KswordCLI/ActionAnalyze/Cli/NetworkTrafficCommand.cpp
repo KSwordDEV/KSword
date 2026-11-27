@@ -56,6 +56,23 @@ std::wstring Attribution(archive::NetworkFlowMetadata::ProcessAttribution value)
     return L"unknown";
 }
 
+// 将同一段保存的实例窗口原样返回CLI；输入为已核验快照，输出不授予实时控制或逐包强归属。
+Json TargetWindows(const std::vector<project::ProjectNetworkTargetWindow>& windows)
+{
+    std::vector<Json> result; // 与当前网络段一致的采集范围，旧档没有窗口时保持空数组。
+    result.reserve(windows.size());
+    for (const auto& window : windows)
+    {
+        result.push_back(Json::object({{L"pid", Json::number(window.pid)},
+            {L"creationFileTime", Json::count(window.creationFileTime)},
+            {L"startUtc", Json::count(window.startUtc)},
+            {L"endUtc", window.endUtc ? Json::count(window.endUtc) : Json{}},
+            {L"root", Json::boolean(window.root)},
+            {L"endReason", Json::string(storage::WideAscii(window.endReason))}}));
+    }
+    return Json::array(result);
+}
+
 // 已存在 sample 是唯一结果归属；显式来源选择没有 R0/R3 失败后的隐式切换。
 Result Capture(const Args& args, const std::string& bootId)
 {
@@ -95,6 +112,7 @@ Result Capture(const Args& args, const std::string& bootId)
         {L"source", Json::string(source)}, {L"captureLayer", Json::string(L"ip-packet")},
         {L"captureCoverage", Json::string(L"unknown")}, {L"sourceReady", Json::boolean(receipt.sourceReady)},
         {L"requestedPid", Json::number(plan.pid)}, {L"requestedCreationFileTime", Json::count(plan.creationFileTime)},
+        {L"targetWindows", TargetWindows(receipt.targets)},
         {L"processAttribution", Json::string(source == L"raw-socket" ? L"endpoint-table-hint" : L"per-record-pid-hint")},
         {L"reason", Json::string(storage::WideAscii(receipt.reason))},
         {L"ordinal", Json::count(receipt.checkpoint.ordinal)}, {L"endOffset", Json::count(receipt.checkpoint.endOffset)},
@@ -157,6 +175,7 @@ Result Read(const Args& args)
         {L"sourceId", Json::string(storage::WideAscii(checkpoint.source.sourceId))},
         {L"requestedPid", Json::number(checkpoint.requestedPid)},
         {L"requestedCreationFileTime", Json::count(checkpoint.requestedCreation)},
+        {L"targetWindows", TargetWindows(checkpoint.targetWindows)},
         {L"stopReason", Json::string(storage::WideAscii(checkpoint.stopReason))}, {L"records", Json::array(rows)}}), {}};
 }
 } // namespace
@@ -177,7 +196,7 @@ void RegisterNetworkTrafficCommands(std::function<std::string()> bootId)
     read.syntax = L"KswordCLI.exe analyze network-read --project PATH --sample UUID --ordinal N [--record-sequence N] [--json]";
     read.summary = L"Verify and read a committed sample-local network segment and its captured bytes.";
     read.options = L"Select a committed network ordinal. Optional --record-sequence returns all retained bytes for one exact record; otherwise each record has a 64-byte preview.";
-    read.notes = L"Read-only. Verifies sample identity, checkpoint SHA-256, framing, network bodies and adjacent checkpoint chain. Source declarations and weak PID attribution remain explicit.";
+    read.notes = L"Read-only. Verifies sample identity, checkpoint SHA-256, framing, network bodies and adjacent checkpoint chain. targetWindows preserves the registered process identities and capture intervals from this checkpoint; it does not upgrade packet PID hints to verified event-time instances. Source declarations and weak PID attribution remain explicit.";
     read.run = Read;
     addCommand(std::move(read));
 }

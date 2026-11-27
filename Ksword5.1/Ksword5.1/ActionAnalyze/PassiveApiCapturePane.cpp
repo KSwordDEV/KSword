@@ -859,7 +859,7 @@ void PassiveApiCapturePane::retranslate()
     m_networkTraffic->setItemText(1, QStringLiteral("raw-socket")); // 后端稳定来源名，热切换不改变当前选择。
     m_networkTraffic->setItemText(2, QStringLiteral("existing-wfp"));
     m_networkTraffic->setAccessibleName(m_networkTrafficLabel->text()); // 辅助技术沿可见标签识别来源选择。
-    m_networkTraffic->setToolTip(sourceText(QStringLiteral("与 API 使用同一采样和写入线程，网络从 Agent Ready 前开始并随采集清退；仅根 PID 线索，不包含后代归属。JSONL 跟随不启用。")));
+    m_networkTraffic->setToolTip(sourceText(QStringLiteral("与 API 使用同一采样和写入线程；自动接管时在调用放行前追加目标，根进程退出后继续采集。报文归属仍为 PID 线索，不解密 HTTPS。JSONL 跟随不启用。")));
     m_duration->setSpecialValueText(sourceText(QStringLiteral("持续采集")));
     m_duration->setToolTip(sourceText(QStringLiteral("从 Agent Ready 与覆盖核验通过后计时，最多 120 秒；0 表示持续采集。")));
     m_pathLabel->setText(sourceText(QStringLiteral("本地 API JSONL")));
