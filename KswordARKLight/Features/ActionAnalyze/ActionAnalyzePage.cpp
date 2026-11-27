@@ -991,32 +991,26 @@ void UpdateDetails(Page& page) {
                     text += Utf8ToWide(summary) + L"\r\n";
                 }
             }
-            if (record->behaviorObservation)
+            if (!record->apiClue.empty())
             {
-                const auto& observation = *record->behaviorObservation; // 详情只读取该原包已解码的强类型事实。
+                Rules::ApiPresetEvidence ruleEvidence; // 与规则回放保持一致的本行证据集合。
+                ruleEvidence.actorPid = record->headerPid.value_or(0);
+                ruleEvidence.memory = record->apiMemoryLifecycle;
+                ruleEvidence.apc = record->apiApc;
+                ruleEvidence.apcOutcome = record->apcOutcome;
+                ruleEvidence.context = record->apiContext;
+                ruleEvidence.contextOutcome = record->contextOutcome;
+                ruleEvidence.map = record->apiSectionMap;
+                ruleEvidence.mapOutcome = record->sectionMapOutcome;
+                ruleEvidence.behavior = record->behaviorObservation;
+                const auto api = NarrowApiText(record->apiClue); // 使用生产规则输入中的原始API名称。
+                const auto family = NarrowApiText(record->apiFamily); // 使用生产分类器产生的稳定类别ID。
+                const auto fields = Rules::ProjectApiPresetFields(api, family,
+                    record->memoryWriteReturn, ruleEvidence); // 原谓词匹配器使用的本行字段。
+                const auto inputText = Rules::FormatApiPresetFields(fields); // 显示与谓词求值完全相同的已知字段。
                 const bool chinese = PRIMARYLANGID(page.behaviorLanguage) == LANG_CHINESE; // 保持详情与行为树使用同一线程语言。
                 text += chinese ? L"规则比对输入：\r\n" : L"Rule match inputs:\r\n";
-                text += L"  api.family=" + record->apiFamily + L"\r\n";
-                text += L"  api.name=" + record->apiClue + L"\r\n";
-                text += L"  result.succeeded=" + std::wstring(observation.succeeded ? L"true" : L"false") + L"\r\n";
-                    text += L"  result.returnBits=" + std::to_wstring(observation.returnBits) + L"\r\n";
-                text += L"  result.statusDomain=" + Utf8ToWide(std::string(observation.statusDomain)) + L"\r\n";
-                if (observation.status)
-                {
-                        text += L"  result.status=" + std::to_wstring(*observation.status) + L"\r\n";
-                }
-                for (const auto& parameter : observation.parameters)
-                {
-                    const auto id = Utf8ToWide(std::string(parameter.id)); // 字段 ID 来自固定规则目录，按 UTF-8 转换显示。
-                    if (const auto* number = std::get_if<std::uint64_t>(&parameter.value))
-                    {
-                        text += L"  " + id + L"=" + std::to_wstring(*number) + L"\r\n";
-                    }
-                    else
-                    {
-                        text += L"  " + id + L"=" + Utf8ToWide(std::get<std::string>(parameter.value)) + L"\r\n";
-                    }
-                }
+                text += Utf8ToWide(inputText) + L"\r\n";
             }
         }
         if (record->eventOrdinal) {

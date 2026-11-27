@@ -32,5 +32,7 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept;
 // 为一次同步求值构造已排序字段；字符串均借用参数，调用期间须保持有效。
 std::vector<FieldSample> ProjectApiPresetFields(std::string_view api, std::string_view family,
     std::optional<Evidence::ApiMonitorMemoryWriteReturn> returned, const ApiPresetEvidence& evidence);
+// 格式化生产投影器实际提交规则的已知字段；仅用于归档详情显示，不重新求值。
+std::string FormatApiPresetFields(std::span<const FieldSample> fields);
 
 } // namespace Ksword::ActionAnalyze::Rules

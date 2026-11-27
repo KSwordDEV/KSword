@@ -167,7 +167,7 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
         return "Appended NtQueryInformationProcess output marker for classes 7/30/31; 1 means a successful, sufficiently sized, safely read scalar follows; 0 means no scalar was captured; legacy summaries omit this field.";
     }
     if (id == "process.debugQueryOutputBits") {
-        return "Appended NtQueryInformationProcess scalar width; ProcessDebugPort (7) and ProcessDebugObjectHandle (30) use target pointer width, ProcessDebugFlags (31) uses 32-bit ULONG.";
+        return "Appended NtQueryInformationProcess scalar width; ProcessDebugPort (7) and ProcessDebugObjectHandle (30) use caller-ABI pointer width, ProcessDebugFlags (31) uses 32-bit ULONG.";
     }
     if (id == "process.debugQueryOutput") {
         return "Appended NtQueryInformationProcess scalar only when outputValid=1; zero and nonzero are preserved, missing remains NotCollected; no debugger presence, target identity or intent is inferred.";
@@ -290,6 +290,90 @@ std::vector<FieldSample> ProjectApiPresetFields(std::string_view api, std::strin
     }
     std::ranges::sort(output.fields, {}, &FieldSample::id);
     return std::move(output.fields);
+}
+
+// 展示生产规则实际使用的已知值；未知质量不伪装成空字符串或数值零。
+std::string FormatApiPresetFields(std::span<const FieldSample> fields)
+{
+    std::vector<const FieldSample*> known; // 借用原投影字段，避免复制可变证据。
+    known.reserve(fields.size());
+    for (const auto& field : fields) // field为生产投影中的一项，不复制其借用文本。
+    {
+        if (field.quality == Quality::Known)
+        {
+            known.push_back(&field);
+        }
+    }
+    // 比较器参数分别指向待排序字段，按稳定字段ID排序而不改变同ID原顺序。
+    std::stable_sort(known.begin(), known.end(), [](const FieldSample* left, const FieldSample* right)
+    {
+        return left->id < right->id;
+    });
+
+    std::string text; // 字段 ID 与文本值仍为 UTF-8，数字保持十进制。
+    for (const auto* field : known) // field是当前显示项，后续按真实变体类型读取。
+    {
+        std::string value; // 当前字段的可显示标量。
+        std::string_view type; // 与CLI observedFields相同的机器字段类型。
+        if (const auto* boolean = std::get_if<bool>(&field->value)) // boolean保存已知布尔值。
+        {
+            value = *boolean ? "true" : "false";
+            type = "bool";
+        }
+        else if (const auto* number = std::get_if<std::uint64_t>(&field->value)) // number保存完整无符号64位值。
+        {
+            value = std::to_string(*number);
+            type = "u64";
+        }
+        else if (const auto* string = std::get_if<std::string_view>(&field->value)) // string借用规则输入UTF-8文本。
+        {
+            if (!string->empty())
+            {
+                value.assign(string->data(), string->size());
+            }
+            std::string escaped; // 控制字符转义后维持一字段一行。
+            escaped.reserve(value.size());
+            for (const char ch : value) // ch为需保留或转义的单个UTF-8字节。
+            {
+                if (ch == '\r')
+                {
+                    escaped += "\\r";
+                }
+                else if (ch == '\n')
+                {
+                    escaped += "\\n";
+                }
+                else if (ch == '\0')
+                {
+                    escaped += "\\0";
+                }
+                else if (ch == '\t')
+                {
+                    escaped += "\\t";
+                }
+                else
+                {
+                    escaped += ch;
+                }
+            }
+            value = std::move(escaped);
+            type = "text";
+        }
+        else
+        {
+            continue; // Known字段若没有标量仍不输出虚构值。
+        }
+        if (!text.empty())
+        {
+            text.push_back('\n');
+        }
+        text.append(field->id.data(), field->id.size());
+        text += " [";
+        text += type;
+        text += "]=";
+        text += value;
+    }
+    return text;
 }
 
 } // namespace Ksword::ActionAnalyze::Rules

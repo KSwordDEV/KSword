@@ -37,6 +37,23 @@ namespace
     }
 }
 
+// 同一原始行调用生产字段投影器，供已选详情显示实际提交给规则的字段。
+QString OfflineSegmentBehaviorInputs(const SegmentRow& row)
+{
+    if (!row.archivedApi)
+    {
+        return {};
+    }
+    const auto& clue = *row.archivedApi; // 已验证读取器拥有的本行原包解码结果。
+    const auto api = clue.api.toUtf8(); // 保活到投影与格式化结束的精确导出名。
+    const auto family = clue.family.toUtf8(); // 保活到投影与格式化结束的稳定类别。
+    const auto observation = BehaviorInput(row, api, family); // 复用规则求值使用的同一证据组装。
+    const auto fields = rule::ProjectApiPresetFields(observation.api, observation.family,
+        observation.memoryWriteReturn, observation.evidence); // 与规则匹配共享唯一字段投影器。
+    const auto text = rule::FormatApiPresetFields(fields); // 只显示生产投影中已知的字段值。
+    return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
 // 在原后台读取的最终行窗口上投影一次，所有输出均由该快照拥有。
 void ProjectOfflineSegmentBehavior(SegmentSnapshot& snapshot, const CancelCheck& isCanceled)
 {

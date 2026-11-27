@@ -6,6 +6,7 @@
 namespace ks::action_analyze
 {
     struct SegmentSnapshot;
+    struct SegmentRow;
 
     // 总览只发布当前窗口的行为命中；没有请求、成功空结果与规则失败分别保留。
     enum class SegmentBehaviorState { NotRequested, Ready, Failed };
@@ -32,5 +33,7 @@ namespace ks::action_analyze
     // 原 ReadOfflineSegment 工作线程在最终窗口形成后调用一次；只使用已解码原包，不读归档。
     // snapshot 原位接收规则状态和命中，isCanceled 沿用原任务取消条件。
     void ProjectOfflineSegmentBehavior(SegmentSnapshot& snapshot, const CancelCheck& isCanceled);
+    // 将一条原始行重建为与规则求值相同的字段投影，仅用于原详情显示，不重新加载规则库。
+    QString OfflineSegmentBehaviorInputs(const SegmentRow& row);
 
 }
