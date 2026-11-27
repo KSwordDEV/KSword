@@ -283,13 +283,19 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
         }
         result.succeeded = packet.hookAddress == 0;
         result.statusDomain = family == "network-name-query" ? "addrinfo-return" : "lstatus";
-    } else if (family == "system-query") {
+    } else if (family == "system-query" || api == L"NtResumeThread") {
         if (packet.hookAddress > UINT32_MAX) {
             return std::nullopt; // 此生产包装器将 32 位 NTSTATUS 零扩展存入返回槽。
         }
         const auto low = static_cast<std::uint32_t>(packet.hookAddress); // NTSTATUS 只解释低 32 位。
         result.succeeded = (low & 0x80000000u) == 0;
         result.statusDomain = "ntstatus";
+    } else if (api == L"ResumeThread") {
+        // DWORD为旧挂起计数，0表示调用成功；只有0xffffffff是失败返回，不按BOOL解释。
+        if (packet.hookAddress > UINT32_MAX) {
+            return std::nullopt;
+        }
+        result.succeeded = packet.hookAddress != UINT32_MAX;
     } else if (family == "file-open") {
         result.succeeded = packet.hookAddress != 0 && packet.hookAddress != UINT64_MAX &&
             packet.hookAddress != UINT32_MAX; // x64 与 x86 INVALID_HANDLE_VALUE 均拒绝。
@@ -321,6 +327,10 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
             (result.statusDomain == "win32" && result.succeeded && *result.status != 0)) {
             return std::nullopt;
         }
+    }
+    if (api == L"ResumeThread" && result.succeeded) {
+        // 该值来自显式返回槽而非detail；直接NT入口的可选输出没有独立有效位，不猜计数。
+        result.parameters.push_back({"thread.previousSuspendCount", result.returnBits});
     }
     // 文本布局独立校验：无尾界、满缓冲及可识别的截断/不可读标记不作为参数来源。
     auto detail = Evidence::ApiMonitorPacketText(packet.detailText); // 完整包内的 NUL 终止视图。

@@ -12,9 +12,9 @@
       },
       {
         "ruleId": "ksword.api.thread-control-observed.v1",
-        "predicate": "api.family == \"thread-create\" || api.family == \"thread-context\" || api.family == \"apc-queue\"",
-        "summary": "Observed a thread creation, thread context, or APC queueing API.",
-        "summaryZh": "观察到线程创建、线程上下文或 APC 排队 API"
+        "predicate": "api.family == \"thread-create\" || api.family == \"thread-context\" || api.family == \"apc-queue\" || api.family == \"thread-resume\"",
+        "summary": "Observed a thread creation, thread context, APC queueing or thread resume API.",
+        "summaryZh": "观察到线程创建、线程上下文、APC 排队或线程恢复 API"
       },
       {
         "ruleId": "ksword.api.registry-operation-observed.v1",
@@ -175,6 +175,12 @@
         "summaryZh": "观察到线程上下文 API"
       },
       {
+        "ruleId": "ksword.api.thread-resume-observed.v1",
+        "predicate": "api.family == \"thread-resume\"",
+        "summary": "Observed a thread resume API; actual execution is independent evidence.",
+        "summaryZh": "观察到线程恢复 API；实际执行须有独立证据"
+      },
+      {
         "ruleId": "ksword.api.apc-queue-observed.v1",
         "predicate": "api.family == \"apc-queue\"",
         "summary": "Observed an APC queueing API.",
@@ -183,6 +189,18 @@
     ]
   },
   "behaviorRules": [
+    {
+      "ruleId": "ksword.behavior.thread-resume-returned.v1",
+      "predicate": "api.family == \"thread-resume\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
+      "summary": "A thread resume API reported success. A zero previous suspend count is valid; success does not prove execution or identify its instruction address.",
+      "summaryZh": "线程恢复 API 报告成功；旧挂起计数为零仍是有效返回，成功不证明已执行或确认实际指令地址"
+    },
+    {
+      "ruleId": "ksword.behavior.thread-resume-rejected.v1",
+      "predicate": "api.family == \"thread-resume\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded",
+      "summary": "A thread resume API reported failure; the previous suspend count and subsequent execution remain unknown.",
+      "summaryZh": "线程恢复 API 报告失败；旧挂起计数和后续执行保持未知"
+    },
     {
       "ruleId": "ksword.behavior.vm-software-registry-query-returned.v1",
       "predicate": "api.family == \"registry-query\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hklm\\software\\vmware, inc.\\vmware tools\" || registry.pathLower == @\"hklm\\software\\oracle\\virtualbox guest additions\" || registry.pathLower == @\"hklm\\software\\microsoft\\virtual machine\\guest\\parameters\")",

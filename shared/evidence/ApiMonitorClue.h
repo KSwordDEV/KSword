@@ -50,6 +50,9 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
         {L"SetThreadContext", "thread-context", C::Thread, false},
         {L"Wow64SetThreadContext", "thread-context", C::Thread, false},
         {L"NtSetContextThread", "thread-context", C::Thread, true},
+        // 恢复请求独立归类；返回旧挂起计数为零也成功，不把它当作BOOL或执行证明。
+        {L"ResumeThread", "thread-resume", C::Thread, false},
+        {L"NtResumeThread", "thread-resume", C::Thread, true},
         {L"NtMapViewOfSection", "section-map", C::Memory, true},
         {L"NtAllocateVirtualMemory", "memory-allocation", C::Memory, true},
         {L"NtProtectVirtualMemory", "memory-protection", C::Memory, true},

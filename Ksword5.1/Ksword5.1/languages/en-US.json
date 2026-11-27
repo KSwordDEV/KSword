@@ -8263,6 +8263,7 @@
     "已有实例附加需要本次确认；JSONL、合作已装载、显式附加与启动EXE来源不能混用。": "Attaching to an existing instance requires confirmation for this request. Choose one source: JSONL, a cooperative resident Agent, explicit attachment, or EXE launch.",
     "网络流量": "Network traffic",
     "API 已提交运行进度": "Committed API capture progress",
+    "线程恢复请求": "Thread resume request",
     "API 归档段": "API archive segment",
     "API 归档序号": "API archive sequence",
     "API 来源序号": "API source sequence",

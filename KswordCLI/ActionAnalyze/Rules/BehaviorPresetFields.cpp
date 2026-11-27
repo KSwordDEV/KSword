@@ -23,6 +23,7 @@ constexpr FieldBinding Catalog[] = {
     {"target.stable", FieldType::Bool, Phase::Observation},
     {"target.tid", FieldType::U64, Phase::Observation},
     {"target.threadCreationFileTime", FieldType::U64, Phase::Observation},
+    {"thread.previousSuspendCount", FieldType::U64, Phase::Observation}, // 仅ResumeThread成功返回的旧计数，不是当前线程状态。
     // 内存字段保留原请求／返回分工，不暴露“执行成功”派生字段。
     {"memory.operation", FieldType::U64, Phase::Observation},
     {"memory.newProtection", FieldType::U64, Phase::Observation},
@@ -148,6 +149,9 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
     }
     if (id.starts_with("system.")) {
         return "NtQuerySystemInformation input class; response structures and firmware contents are not projected.";
+    }
+    if (id == "thread.previousSuspendCount") {
+        return "Successful ResumeThread DWORD return only; zero is valid, 0xffffffff is failure; NtResumeThread optional output and current suspend state are not inferred.";
     }
     if (id.starts_with("process.")) {
         return "Strict CreateProcess application/command-line layout; basename is from application argument, not executable identity.";

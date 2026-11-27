@@ -33,6 +33,7 @@ namespace ks::action_analyze
         NetworkSession, // 网络会话句柄调用。
         NetworkRequest, // HTTP 请求构造或发送。
         MemoryUnmapRequest, // 解除映射请求；不代表已知解除映射字节范围。
+        ThreadResume, // 线程恢复请求；不以调用返回推断实际执行。
         Count // 分类计数数组的容量。
     };
 

@@ -284,6 +284,11 @@ std::wstring ApiFamilyLabel(std::wstring_view family) {
     if (family == L"thread-create") return L"线程创建";
     if (family == L"apc-queue") return L"APC 入队";
     if (family == L"thread-context") return L"线程上下文";
+    // 恢复请求与实际执行分别呈现，零旧挂起计数不显示为失败。
+    if (family == L"thread-resume")
+    {
+        return L"线程恢复请求";
+    }
     if (family == L"section-map") return L"节映射";
     // 生命周期分类沿用现有详情分组，不由调用成功推断内容或执行。
     if (family == L"memory-allocation")

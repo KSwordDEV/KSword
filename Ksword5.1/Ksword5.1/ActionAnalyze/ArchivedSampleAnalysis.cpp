@@ -47,6 +47,7 @@ namespace
             {"network-session", QStringLiteral("网络会话句柄")},
             {"network-request", QStringLiteral("HTTP 请求调用")},
             {"memory-unmap-request", QStringLiteral("解除映射请求")}, // 追加类别，保留既有枚举及计数索引。
+            {"thread-resume", QStringLiteral("线程恢复请求")}, // 与新增枚举同序，不重排旧采样的分类索引。
         }};
         return categories;
     }
