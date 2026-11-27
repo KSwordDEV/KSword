@@ -999,18 +999,18 @@ void UpdateDetails(Page& page) {
                 text += L"  api.family=" + record->apiFamily + L"\r\n";
                 text += L"  api.name=" + record->apiClue + L"\r\n";
                 text += L"  result.succeeded=" + std::wstring(observation.succeeded ? L"true" : L"false") + L"\r\n";
-                text += L"  result.returnBits=0x" + Number(observation.returnBits) + L"\r\n";
+                    text += L"  result.returnBits=0x" + std::to_wstring(observation.returnBits) + L"\r\n";
                 text += L"  result.statusDomain=" + Utf8ToWide(std::string(observation.statusDomain)) + L"\r\n";
                 if (observation.status)
                 {
-                    text += L"  result.status=" + Number(*observation.status) + L"\r\n";
+                        text += L"  result.status=" + std::to_wstring(*observation.status) + L"\r\n";
                 }
                 for (const auto& parameter : observation.parameters)
                 {
                     const auto id = Utf8ToWide(std::string(parameter.id)); // 字段 ID 来自固定规则目录，按 UTF-8 转换显示。
                     if (const auto* number = std::get_if<std::uint64_t>(&parameter.value))
                     {
-                        text += L"  " + id + L"=" + Number(*number) + L"\r\n";
+                        text += L"  " + id + L"=" + std::to_wstring(*number) + L"\r\n";
                     }
                     else
                     {
