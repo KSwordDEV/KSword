@@ -43,6 +43,8 @@ constexpr wchar_t kPageClass[] = L"KswordARKLight.ActionAnalyze";
 constexpr UINT kComplete = WM_APP + 936;
 constexpr UINT_PTR kLiveDisplayTimer = 1;
 constexpr UINT kLiveDisplayIntervalMs = 400;
+constexpr LPARAM kBehaviorGroup = -10; // 原关系树的前九个负值由候选、历史和网络根拥有。
+constexpr LPARAM kBehaviorLeaf = -11; // 行下标向负方向编码，不占用原树的证据叶值。
 enum ControlId {
     kOpen = 58301, kRetry, kCategories, kFilter, kTimeline, kRecords, kDetails, kStatus, kEtwOnly,
     kSampleChoice, kReplaySample, kCancelChoice, kApiOnly, kNetworkOnly,
@@ -163,6 +165,9 @@ struct Page {
     HWND status = nullptr;
     EvidenceTimeline timeline;
     ApiTransferCandidateTree transferTree; // 当前回放的写入与创建来源声明候选。
+    HTREEITEM behaviorGroup = nullptr; // 行为组复用同一关系树，不创建额外控件。
+    std::vector<RawCoordinate> behaviorCoordinates; // 只保存已发布行为叶的原包身份，不借用快照地址。
+    LANGID behaviorLanguage = ::GetThreadUILanguage(); // Light 无应用语言管理器，沿用当前线程 UI 语言。
     HWND prepareExecutionAddress = nullptr, prepareExecutionRange = nullptr; // 当前树来源的两种显式草稿动作。
     std::optional<EvidenceRecord> selectedCandidate; // 原包已滚出列表时仍供共享详情读取。
     std::optional<Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>> selectedExecution; // 只读原生来源，与 API 原行分别保存。
@@ -498,6 +503,133 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
     return snapshot;
 }
 
+// 标题与详情共同投影已求值的双语原值，语言变化不重新读取规则库。
+const std::string& BehaviorSummary(const Rules::ApiPresetBehavior& behavior, LANGID language)
+{
+    if (PRIMARYLANGID(language) == LANG_CHINESE && !behavior.summaryZh.empty())
+    {
+        return behavior.summaryZh;
+    }
+    return behavior.summary.empty() ? behavior.summaryZh : behavior.summary;
+}
+
+// 普通分类回执没有 behavior，不能据此展示为已解释的行为。
+bool HasArchivedBehaviors(const Snapshot& snapshot)
+{
+    return snapshot.apiRules && std::any_of(snapshot.apiRules->begin(), snapshot.apiRules->end(),
+        [](const ApiRuleDetails& rules) { return rules.behavior.has_value(); });
+}
+
+// 树中只存稳定坐标；发布新快照前仍可读取旧行为选择，不依赖当前表格行号。
+std::optional<RawCoordinate> SelectedBehaviorCoordinate(const Page& page)
+{
+    TVITEMW item{};
+    item.mask = TVIF_PARAM;
+    item.hItem = TreeView_GetSelection(page.transferTree.hwnd());
+    if (!item.hItem || !TreeView_GetItem(page.transferTree.hwnd(), &item) || item.lParam > kBehaviorLeaf)
+    {
+        return std::nullopt;
+    }
+    const auto index = static_cast<std::size_t>(kBehaviorLeaf - item.lParam);
+    return index < page.behaviorCoordinates.size() ? std::optional(page.behaviorCoordinates[index]) : std::nullopt;
+}
+
+struct BehaviorTreeState
+{
+    bool expanded = true;
+    bool groupSelected = false;
+    std::optional<RawCoordinate> selected;
+};
+
+// 与原 API、网络树一样，范围不变时恢复展开和选择；换采样不沿用旧节点身份。
+BehaviorTreeState CaptureBehaviorTreeState(const Page& page, bool sameScope)
+{
+    BehaviorTreeState state;
+    if (sameScope && page.behaviorGroup)
+    {
+        const auto tree = page.transferTree.hwnd();
+        state.expanded = (TreeView_GetItemState(tree, page.behaviorGroup, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+        state.groupSelected = TreeView_GetSelection(tree) == page.behaviorGroup;
+        state.selected = SelectedBehaviorCoordinate(page);
+    }
+    return state;
+}
+
+// 只追加当前不可变快照中真实带行为解释的原行，和原候选、网络根共用主题及滚动。
+void ProjectBehaviorTree(Page& page, const Snapshot* archive, const BehaviorTreeState& state)
+{
+    page.behaviorGroup = nullptr;
+    page.behaviorCoordinates.clear();
+    page.behaviorLanguage = ::GetThreadUILanguage();
+    if (!archive || !archive->apiRules)
+    {
+        return;
+    }
+    const auto tree = page.transferTree.hwnd();
+    const auto insert = [&](HTREEITEM parent, const std::wstring& text, LPARAM value)
+    {
+        TVINSERTSTRUCTW item{};
+        item.hParent = parent;
+        item.hInsertAfter = TVI_LAST;
+        item.item.mask = TVIF_TEXT | TVIF_PARAM;
+        item.item.pszText = const_cast<wchar_t*>(text.c_str());
+        item.item.lParam = value;
+        return TreeView_InsertItem(tree, &item);
+    };
+    for (std::size_t index = 0; index < archive->evidence.rows.size() && index < archive->apiRules->size(); ++index)
+    {
+        const auto& row = archive->evidence.rows[index];
+        const auto& behavior = (*archive->apiRules)[index].behavior;
+        if (!behavior || row.apiClue.empty())
+        {
+            continue;
+        }
+        if (!page.behaviorGroup)
+        {
+            page.behaviorGroup = insert(TVI_ROOT,
+                PRIMARYLANGID(page.behaviorLanguage) == LANG_CHINESE ? L"行为规则" : L"Behavior Rules", kBehaviorGroup);
+        }
+        const auto& summary = BehaviorSummary(*behavior, page.behaviorLanguage);
+        const auto title = Utf8ToWide(summary.empty() ? behavior->ruleId : summary) +
+            L" · " + RawLocation(row) + L" · " + row.apiClue;
+        const auto leaf = insert(page.behaviorGroup, title,
+            kBehaviorLeaf - static_cast<LPARAM>(page.behaviorCoordinates.size()));
+        page.behaviorCoordinates.push_back(CoordinateOf(row));
+        if (state.selected == CoordinateOf(row))
+        {
+            TreeView_SelectItem(tree, leaf);
+        }
+    }
+    if (page.behaviorGroup && state.expanded)
+    {
+        TreeView_Expand(tree, page.behaviorGroup, TVE_EXPAND);
+    }
+    if (page.behaviorGroup && state.groupSelected)
+    {
+        TreeView_SelectItem(tree, page.behaviorGroup);
+    }
+}
+
+// 激活时再次核对当前快照的同一坐标及行为回执，交给原有证据行定位路径。
+const EvidenceRecord* SelectedBehaviorRecord(const Page& page)
+{
+    const auto coordinate = SelectedBehaviorCoordinate(page);
+    const auto* archive = page.liveView ? nullptr : DisplayedArchive(page);
+    if (!coordinate || !archive || !archive->apiRules)
+    {
+        return nullptr;
+    }
+    for (std::size_t index = 0; index < archive->evidence.rows.size() && index < archive->apiRules->size(); ++index)
+    {
+        const auto& row = archive->evidence.rows[index];
+        if (CoordinateOf(row) == *coordinate && (*archive->apiRules)[index].behavior && !row.apiClue.empty())
+        {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
 HWND MakeEdit(HWND owner, int id, DWORD style) {
     return ::CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | style,
         0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
@@ -554,6 +686,7 @@ void Layout(Page& page) {
     const bool showCandidates = candidateArchive && (!candidateArchive->evidence.transferCandidates.empty() ||
         !candidateArchive->evidence.apcTransferCandidates.empty() ||
         !candidateArchive->evidence.contextTransferCandidates.empty() ||
+        HasArchivedBehaviors(*candidateArchive) ||
         candidateArchive->evidence.evictedTransferWrites ||
         candidateArchive->evidence.nativeExecution.state != Ksword::Evidence::NativeHistoryState::NotRequested); // 成功空历史与失败也显示状态。
     const int graphHeight = showCandidates ? (std::min)(Scale(150), available / 3) :
@@ -852,7 +985,7 @@ void UpdateDetails(Page& page) {
             if (const auto& behavior = rules.behavior) {
                 text += L"行为规则 ID：" + Utf8ToWide(behavior->ruleId) + L"\r\n" +
                     L"证据级别：" + Utf8ToWide(behavior->evidence) + L"\r\n";
-                const auto& summary = behavior->summaryZh.empty() ? behavior->summary : behavior->summaryZh; // Light 使用中文界面。
+                const auto& summary = BehaviorSummary(*behavior, page.behaviorLanguage); // 和树标题使用同一已求值原值。
                 if (!summary.empty()) {
                     text += Utf8ToWide(summary) + L"\r\n";
                 }
@@ -875,6 +1008,32 @@ void UpdateDetails(Page& page) {
         ::SetWindowTextW(page.details, page.displayedDetails.c_str());
     }
     ::InvalidateRect(page.hwnd, &page.graph, FALSE);
+}
+
+// Light 沿用线程 UI 语言；设置通知或重新显示时只替换行为组文字，保留原证据选择和详情。
+void RefreshBehaviorLanguage(Page& page)
+{
+    if (page.behaviorLanguage == ::GetThreadUILanguage())
+    {
+        return;
+    }
+    if (!page.behaviorGroup)
+    {
+        page.behaviorLanguage = ::GetThreadUILanguage();
+        UpdateDetails(page);
+        return;
+    }
+    const auto state = CaptureBehaviorTreeState(page, true);
+    const bool wasProjecting = page.applyingProjection;
+    page.applyingProjection = true;
+    const auto tree = page.transferTree.hwnd();
+    ::SendMessageW(tree, WM_SETREDRAW, FALSE, 0);
+    TreeView_DeleteItem(tree, page.behaviorGroup);
+    ProjectBehaviorTree(page, page.liveView ? nullptr : DisplayedArchive(page), state);
+    ::SendMessageW(tree, WM_SETREDRAW, TRUE, 0);
+    ::InvalidateRect(tree, nullptr, TRUE);
+    page.applyingProjection = wasProjecting;
+    UpdateDetails(page);
 }
 
 void UpdateStatus(Page& page) {
@@ -1234,7 +1393,11 @@ void LocateTransferCandidate(Page& page) {
         UpdateStatus(page); // 原生选择清除了API选择，状态同步显示当前来源。
         return;
     }
-    const auto* row = page.transferTree.Activate(); // 当前候选双方中的真实 raw 原包。
+    const auto* row = SelectedBehaviorRecord(page); // 行为叶复用原列表定位及 ApiRuleDetails 详情。
+    if (!row)
+    {
+        row = page.transferTree.Activate(); // 当前候选双方中的真实 raw 原包。
+    }
     const auto* archive = DisplayedArchive(page); // 当前已发布的同采样证据。
     if (!row || !archive) {
         return;
@@ -1380,8 +1543,10 @@ void PresentResults(Page& page, bool refreshLive = false, const Snapshot* previo
             page.selectedCandidate = std::move(retained);
         }
         const bool wasProjecting = page.applyingProjection; // 树重建的同步通知不得改变原选择身份。
+        const auto behaviorState = CaptureBehaviorTreeState(page, sameCandidateScope);
         page.applyingProjection = true;
         page.transferTree.Publish(archive ? &archive->evidence : nullptr, sameCandidateScope);
+        ProjectBehaviorTree(page, archive, behaviorState);
         page.applyingProjection = wasProjecting;
         page.candidateScope = archive ? archive->evidence.identity : std::nullopt;
         page.candidateSample = archive ? archive->sample : std::nullopt;
@@ -2621,13 +2786,14 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                     Ksword::Evidence::PrepareNativeExecutionSiteDraft(*source, true).has_value());
             }
             if (notice.code == TVN_SELCHANGEDW && !page->applyingProjection &&
-                (page->transferTree.Execution() || page->transferTree.History()))
+                (SelectedBehaviorRecord(*page) || page->transferTree.Execution() || page->transferTree.History()))
             {
-                LocateTransferCandidate(*page); // 原生叶随选择更新只读详情，不发起 I/O。
+                LocateTransferCandidate(*page); // 行为和原生叶随选择更新只读详情，不发起 I/O。
             }
             if (notice.code == NM_DBLCLK || (notice.code == TVN_KEYDOWN &&
                 reinterpret_cast<const NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN)) {
-                if (page->transferTree.Activate() || page->transferTree.Execution() || page->transferTree.History()) {
+                if (SelectedBehaviorRecord(*page) || page->transferTree.Activate() ||
+                    page->transferTree.Execution() || page->transferTree.History()) {
                     LocateTransferCandidate(*page);
                 } else if (notice.code == TVN_KEYDOWN) {
                     const auto node = TreeView_GetSelection(page->transferTree.hwnd()); // Enter 只切换分组展开。
@@ -2657,7 +2823,17 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     case WM_SHOWWINDOW:
         if (!wp && page->evidenceDropdown) CancelEvidenceDropdown(*page);
         else ResumeArchiveRead(*page);
-        if (wp && page->status) RefreshLive(*page);
+        if (wp && page->status)
+        {
+            RefreshBehaviorLanguage(*page);
+            RefreshLive(*page);
+        }
+        break;
+    case WM_SETTINGCHANGE:
+        if (page->status)
+        {
+            RefreshBehaviorLanguage(*page);
+        }
         break;
     case Ui::kBeginNativeRetirementMessage:
         page->retiring = true;
