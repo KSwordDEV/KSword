@@ -999,7 +999,7 @@ void UpdateDetails(Page& page) {
                 text += L"  api.family=" + record->apiFamily + L"\r\n";
                 text += L"  api.name=" + record->apiClue + L"\r\n";
                 text += L"  result.succeeded=" + std::wstring(observation.succeeded ? L"true" : L"false") + L"\r\n";
-                    text += L"  result.returnBits=0x" + std::to_wstring(observation.returnBits) + L"\r\n";
+                    text += L"  result.returnBits=" + std::to_wstring(observation.returnBits) + L"\r\n";
                 text += L"  result.statusDomain=" + Utf8ToWide(std::string(observation.statusDomain)) + L"\r\n";
                 if (observation.status)
                 {
