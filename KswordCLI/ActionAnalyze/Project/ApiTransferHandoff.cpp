@@ -698,24 +698,34 @@ public:
     {
         // 失败准入且没有可用Agent时，原API仍会放行；不能让该目标的NX停点无限等待Ready。
         if (closing || current.collectionId.empty() || !archiveStatus) return;
-        for (const auto& transfer : transfers)
+        // 集合成员保留完整恢复责任，不能依赖会淘汰的最近准入窗口。
+        // CloseMember会替换current；先冻结身份，再逐个回读对应成员。
+        std::vector<n::OwnerIdentity> owners;
+        for (const auto& member : current.members) owners.push_back(member.owner);
+        for (const auto& owner : owners)
         {
-            const auto source = sources.find(transfer.request.targetPid); // 成功准入后Agent失效也不能继续持NX等Ready。
+            const auto member = std::find_if(current.members.begin(), current.members.end(), [&](const auto& entry) {
+                return entry.owner.backendInstanceId == owner.backendInstanceId;
+            });
+            if (member == current.members.end() || owner.backendInstanceId.empty() ||
+                failedOwnerRecovery.contains(owner.backendInstanceId)) continue;
+            const auto pid = member->site.pid;
+            const auto creation = member->site.creationFileTime;
+            const auto source = sources.find(pid);
             const bool sourceFailed = source != sources.end() &&
-                source->second.creation == transfer.request.targetCreation && source->second.failed;
-            if (transfer.stage != Admission::Done || (!transfer.error && !sourceFailed) ||
-                SourceReady(transfer.request.targetPid, transfer.request.targetCreation)) continue;
+                source->second.creation == creation && source->second.failed;
+            const bool admissionFailed = std::any_of(transfers.begin(), transfers.end(), [&](const auto& transfer) {
+                return transfer.stage == Admission::Done && transfer.error &&
+                    transfer.request.targetPid == pid && transfer.request.targetCreation == creation;
+            });
+            if ((!admissionFailed && !sourceFailed) || SourceReady(pid, creation)) continue;
             const auto pendingTarget = std::any_of(transfers.begin(), transfers.end(), [&](const auto& other) {
-                return other.stage != Admission::Done && other.request.targetPid == transfer.request.targetPid &&
-                    other.request.targetCreation == transfer.request.targetCreation;
+                return other.stage != Admission::Done && other.request.targetPid == pid &&
+                    other.request.targetCreation == creation;
             }); // 同一实例尚有准入在推进时，不撤掉其仍需使用的NX范围。
             if (pendingTarget) continue;
-            const auto* member = Member(transfer.request);
-            if (!member || member->owner.backendInstanceId.empty() ||
-                failedOwnerRecovery.contains(member->owner.backendInstanceId)) continue;
-            const auto owner = member->owner; // CloseMember会更新current，不能继续借用旧成员指针。
             failedOwnerRecovery.emplace(owner.backendInstanceId, true);
-            if (source != sources.end() && source->second.creation == transfer.request.targetCreation)
+            if (source != sources.end() && source->second.creation == creation)
             {
                 // 先撤来源资格并通知停止，再撤NX/debug owner；不能同步等待被冻结的卸钩helper。
                 source->second.stopping = true;
