@@ -6,6 +6,7 @@
 #include "../Rules/BehaviorPresets.h"
 #include "../../../Ksword5.1/Ksword5.1/ksword/string/string.h"
 
+#include <iterator>
 #include <utility>
 
 namespace ks::cli::action_analyze {
@@ -228,6 +229,44 @@ Json Coverage(const Readback& read, const ProjectResult& stop)
     });
 }
 
+// 接收当前解析库与已核验检查点，返回成功/失败回执共用的规则身份字段。
+std::vector<std::pair<std::wstring, Json>> RuleIdentityFields(const rules::ApiPresetDatabase& database,
+    const project::ProjectApiCheckpoint* checkpoint)
+{
+    const bool recorded = checkpoint && !checkpoint->ruleSourceSha256.empty(); // 采集时摘要缺失则不比较。
+    const bool replayKnown = database.error.empty() && !database.sourceSha256.empty(); // 配置失败时当前身份未知。
+    return {
+        {L"presetSet", database.presetSet.empty() ? Json{} : Json::string(Wide(database.presetSet))},
+        {L"sourceSha256", database.sourceSha256.empty() ? Json{} : Json::string(Wide(database.sourceSha256))},
+        {L"recordedPresetSet", checkpoint && !checkpoint->rulePresetSet.empty()
+            ? Json::string(Wide(checkpoint->rulePresetSet)) : Json{}},
+        {L"recordedSourceSha256", recorded ? Json::string(Wide(checkpoint->ruleSourceSha256)) : Json{}},
+        {L"matchesRecordedRules", recorded && replayKnown
+            ? Json::boolean(checkpoint->ruleSourceSha256 == database.sourceSha256) : Json{}},
+        {L"configError", database.error.empty() ? Json{} :
+            Json::string(ks::str::Utf8ToUtf16(database.error))}
+    };
+}
+
+// code/status 为规则错误退出语义；projectId/sampleId 与 error 保留调用对象和首错；read/stop 提供已核验覆盖，database 提供实际可知的规则身份；返回不含部分 matches 的错误回执。
+Result RuleFailure(int code, const wchar_t* status, std::wstring_view projectId, std::wstring_view sampleId,
+    const ProjectResult& error, const Readback& read, const ProjectResult& stop,
+    const rules::ApiPresetDatabase& database)
+{
+    std::vector<std::pair<std::wstring, Json>> fields{ // 规则错误的稳定主体、错误来源和归档覆盖。
+        {L"status", Json::string(status)},
+        {L"projectId", projectId.empty() ? Json{} : Json::string(std::wstring(projectId))},
+        {L"sampleId", Json::string(std::wstring(sampleId))},
+        {L"error", ErrorJson(error)},
+        {L"coverage", Coverage(read, stop)}
+    };
+    const auto* checkpoint = read.lastCheckpoint ? &*read.lastCheckpoint : nullptr; // 只借用本次读回持有的计划。
+    auto identities = RuleIdentityFields(database, checkpoint); // 与成功回执使用相同未知值语义。
+    fields.insert(fields.end(), std::make_move_iterator(identities.begin()),
+        std::make_move_iterator(identities.end()));
+    return {code, Json::object(fields), {status}};
+}
+
 Result RunReplay(const Args& args)
 {
     const auto sampleId = args.require(L"--sample");
@@ -286,13 +325,14 @@ Result RunReplay(const Args& args)
     }
     const auto database = rules::LoadApiPresetDatabase(); // 每次离线回放独立冻结当前规则库。
     if (!database.error.empty()) {
-        return Failure(4, L"rule-profile-unavailable", projectId, sampleId,
-            storage::Failure(ProjectError::Corrupt, database.error.c_str()));
+        return RuleFailure(4, L"rule-profile-unavailable", projectId, sampleId,
+            storage::Failure(ProjectError::Corrupt, database.error.c_str()), read, stop, database);
     }
     const auto report = rules::AnalyzeVerifiedApiPresetPage(database, observations, read.verifiedClueRows, profile);
     if (report.error != rules::ApiPresetError::None) {
         const char* detail = report.error == rules::ApiPresetError::InvalidPreset ? "apiRuleReplayPreset" : "apiRuleReplayInput";
-        return Failure(4, L"rule-evaluation-failed", projectId, sampleId, storage::Failure(ProjectError::Corrupt, detail));
+        return RuleFailure(4, L"rule-evaluation-failed", projectId, sampleId,
+            storage::Failure(ProjectError::Corrupt, detail), read, stop, database);
     }
 
     std::vector<Json> matches;
@@ -322,21 +362,25 @@ Result RunReplay(const Args& args)
     // 来源与旧 archiveKind 分开输出，保留已有查询方对封装类型的判断。
     const auto source = follow && read.source == evidence::ApiMonitorArchiveSource::LegacyUnspecified ?
         std::string_view("jsonl-follow") : evidence::ApiMonitorArchiveSourceName(read.source);
-    return {stop ? 0 : 6, Json::object({{L"status", Json::string(status)}, {L"projectId", Json::string(projectId)},
-        {L"sampleId", Json::string(sampleId)}, {L"sampleDescriptionHash", Json::string(Wide(sample.info.descriptionHash))},
+    std::vector<std::pair<std::wstring, Json>> fields{ // 保留成功回执原有字段顺序及已验证分页值。
+        {L"status", Json::string(status)},
+        {L"projectId", Json::string(projectId)},
+        {L"sampleId", Json::string(sampleId)},
+        {L"sampleDescriptionHash", Json::string(Wide(sample.info.descriptionHash))},
         {L"archiveKind", Json::string(follow ? L"checkpointed-api-follow" : L"closed-api-import")},
-        {L"archiveSource", Json::string(Wide(source))},
-        {L"presetSet", Json::string(Wide(database.presetSet))},
-        {L"sourceSha256", Json::string(Wide(database.sourceSha256))},
-        {L"recordedPresetSet", read.lastCheckpoint && !read.lastCheckpoint->rulePresetSet.empty() ?
-            Json::string(Wide(read.lastCheckpoint->rulePresetSet)) : Json{}},
-        {L"recordedSourceSha256", read.lastCheckpoint && !read.lastCheckpoint->ruleSourceSha256.empty() ?
-            Json::string(Wide(read.lastCheckpoint->ruleSourceSha256)) : Json{}},
-        {L"matchesRecordedRules", read.lastCheckpoint && !read.lastCheckpoint->ruleSourceSha256.empty() ?
-            Json::boolean(read.lastCheckpoint->ruleSourceSha256 == database.sourceSha256) : Json{}},
-        {L"profile", Json::string(profileName)}, {L"coverage", Coverage(read, stop)},
-        {L"offset", Json::count(page.offset)}, {L"evaluatedClueRows", Json::count(report.analyzedRows)},
-        {L"nextOffset", more ? Json::count(next) : Json{}}, {L"matches", Json::array(matches)}}), {}};
+        {L"archiveSource", Json::string(Wide(source))}
+    };
+    const auto* checkpoint = read.lastCheckpoint ? &*read.lastCheckpoint : nullptr; // 成功页仍引用同一核验计划。
+    auto identities = RuleIdentityFields(database, checkpoint); // 成功和错误回执共享完整身份语义。
+    fields.insert(fields.end(), std::make_move_iterator(identities.begin()),
+        std::make_move_iterator(identities.end()));
+    fields.emplace_back(L"profile", Json::string(profileName));
+    fields.emplace_back(L"coverage", Coverage(read, stop));
+    fields.emplace_back(L"offset", Json::count(page.offset));
+    fields.emplace_back(L"evaluatedClueRows", Json::count(report.analyzedRows));
+    fields.emplace_back(L"nextOffset", more ? Json::count(next) : Json{});
+    fields.emplace_back(L"matches", Json::array(matches));
+    return {stop ? 0 : 6, Json::object(fields), {}};
 }
 
 // 序列化外置规则目录的一组条目；字段白名单由实际解释器提供。
