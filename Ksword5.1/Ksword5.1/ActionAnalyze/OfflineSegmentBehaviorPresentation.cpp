@@ -74,7 +74,7 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
             static_cast<qsizetype>(observation.statusDomain.size())));
         if (observation.status)
         {
-            inputs += QStringLiteral("result.status=%1\n").arg(*observation.status);
+            inputs += QStringLiteral("result.status=%1\n").arg(static_cast<qulonglong>(*observation.status));
         }
         for (const auto& parameter : observation.parameters)
         {
