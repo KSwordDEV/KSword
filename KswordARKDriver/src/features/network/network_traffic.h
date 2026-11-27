@@ -31,20 +31,10 @@ static __forceinline ULONG KswordARKNetworkTrafficReadProcessId(
     return (ULONG)Metadata->processId;
 }
 
-// 中文说明：IP 或 transport 记录共用原有捕获代次与同一 ring 写入点。
+// 中文说明：普通 IP 和回环入站 IP 记录共用原有捕获代次与同一 ring 写入点。
 VOID KswordARKNetworkTrafficRecordPacket(
     _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* PacketRow,
     _In_ ULONG CaptureGeneration);
-
-// 中文说明：真实 transport 前缀复用原 TCP/UDP 解析，不另维护第二套解析器。
-BOOLEAN KswordARKNetworkTrafficParseTransport(
-    _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* Row,
-    _In_ ULONG TransportOffset,
-    _In_ ULONG PacketLength,
-    _In_ UCHAR Protocol,
-    _In_reads_(AddressLength) const UCHAR* SourceAddress,
-    _In_reads_(AddressLength) const UCHAR* DestinationAddress,
-    _In_ ULONG AddressLength);
 
 // 中文说明：仅真实回退得到的 IP 字节才交给同一 IPv4/IPv6 解析器。
 BOOLEAN KswordARKNetworkTrafficParsePacket(_Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* Row);

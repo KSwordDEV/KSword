@@ -168,7 +168,7 @@ Routine Description:
     }
 }
 
-BOOLEAN
+static BOOLEAN
 KswordARKNetworkTrafficParseTransport(
     _Inout_ KSWORD_ARK_NETWORK_TRAFFIC_PACKET_ROW* Row,
     _In_ ULONG TransportOffset,
@@ -924,7 +924,7 @@ KswordARKNetworkTrafficRegisterRuntimeCallouts(
 
 Routine Description:
 
-    注册四个普通 IPPACKET callout，再接入四个回环 TRANSPORT callout。
+    注册四个普通 IPPACKET callout，再接入两个回环入站 TRANSPORT callout。
 
 --*/
 {
@@ -967,7 +967,7 @@ Routine Description:
         }
     }
 
-    // 中文说明：回环 transport 单独持有四个槽位，不扩大原 runtime 结构。
+    // 中文说明：回环入站 transport 单独持有两个槽位，不扩大原 runtime 结构。
     status = KswordARKNetworkTrafficLoopbackRegister(Runtime);
     // 中文说明：回环注册失败与普通层共用原子回滚路径。
     if (!NT_SUCCESS(status)) {
