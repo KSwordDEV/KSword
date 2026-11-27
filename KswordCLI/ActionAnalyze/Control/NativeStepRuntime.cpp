@@ -510,10 +510,11 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     originalDr1_ = context.Dr1;
     originalDr7_ = context.Dr7 & kSlot1Control;
     originalFlags_ = context.EFlags;
-    if (tfOnly)
+    if (!destination && (tfOnly || executionRange_))
     {
         // 无活动DR槽时，Windows的线程上下文可能不返回TF产生的DR6原因。
-        // 内部推进占用已核验空闲的DR1，地址0必须未提交；不用预测下一IP或放宽BS判定。
+        // NX用户Into/普通Over与内部推进共用已核验空闲的DR1，地址0必须未提交。
+        // 不预测下一IP或放宽BS判定；OverCall/Out有真实DR1目的地，不使用状态槽。
         MEMORY_BASIC_INFORMATION nullMapping{}; // 仅确认哨兵不是可执行目标，不取得页保护责任。
         if (VirtualQueryEx(process_, nullptr, &nullMapping, sizeof(nullMapping)) != sizeof(nullMapping))
             return Error("page-step-query-status-slot");

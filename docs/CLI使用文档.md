@@ -356,6 +356,8 @@ v3还允许两个bool字段或谓词的 `==`／`!=`，例如 `stop.firstChance =
 
 原生 Into 与 NX 跨页取指复用同一有界 AMD64 解码器，按已登记编码支持普通内存读写、算术、分支、near CALL／RET 和部分 SSE／AVX 指令。只读取当前一条指令，最多15字节；执行完成仍须来自精确原线程的真实 TF 事件。未知编码、POPF、SS 修改、特权转换和竞争调试状态拒绝。REP 字符串的一次 BS 可能只代表一轮，因此当前拒绝这种单指令完成请求；不会把一轮当成整条指令完成。Over 遇 CALL 仍按 DR1 返回边界停止，遇其它受支持指令则沿原owner执行一次真实TF，保留 `mode:over-call` 和 `destination:null`；不预测下一IP。非CALL的单条TF完成可形成 `instruction-completed`，CALL返回边界不形成此证据。Qt／Light及CLI执行集合共用此行为。Out 仍要求真实 RET 或 owner 已证明的入口帧。本增量尚未构建或运行验证。
 
+NX 停点上的用户 Into／非 CALL 的 Over 与内部页推进共用空闲 DR1 状态槽，避免没有活动硬件槽时丢失可回读的 TF 原因；地址 0 必须未提交，完成仍只接受原线程的真实 BS。状态槽、TF 和同伴暂停沿同一恢复账归还。CALL 的 Over／Out 继续使用实际 DR1 目的地。本次用户步进状态槽接入待定向实测。
+
 省略 `--watch-write-bytes` 时设执行关注，地址必须位于已提交的私有 EXECUTE／RX／RWX 区域；提供 1／2／4／8 时设对应宽度的写入关注，地址必须自然对齐且完全落在同一私有 RW／RWX 区域。附加不依赖导出符号、目标握手或父子关系；`--exe`、`--module`、`--export`、`--rva`、两种指针导出参数和双目标模式不能与附加选择器混用。回执 `targetMode=attached-private-address`，默认单地址绑定 `siteKind=private-address-execution` 或 `private-address-write`，冻结地址与区域属性。两种单目标模式均支持原条件和单步；写入模式可在真实停点读取、保存内存并采集同采样 API，Into 真正完成后的执行观测也可保存。新线程通过同一原生 owner 登记，关闭使用原恢复账本；默认单地址DR0不修改区域保护，检测到映射属性变化会清退，不自动重绑；同址同属性的分配代次仍未知。此新增入口尚未实测。
 
 `--range-bytes` 显式选择私有NX执行范围，与写关注互斥；起点及长度必须按4096字节对齐，并由原生owner接纳实际范围。示例4096表示整页关注。该机制临时撤去执行权限，保留原读写权限，关闭时恢复原保护；不占用DR0。绑定返回 `siteKind=private-page-execution`、`rangeBytes` 与范围起点，命中返回实际页内RIP，二者不必相等。Continue沿原生TF推进并重新设防后再释放同伴；推进不支持或恢复失败时保留真实停止责任及诊断。NX命中可保存为执行进入尝试，内部重新设防TF不会冒充用户单条指令完成。新增范围入口未构建、未实测。
