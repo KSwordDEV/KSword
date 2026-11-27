@@ -31,6 +31,13 @@ constexpr std::size_t kReadBytes = 64u << 10; // 顺序读的固定块大小。
 constexpr std::size_t kLineBytes = 8192; // 覆盖当前 1000 字节包及 JSON 转义字段。
 constexpr std::uint64_t kPageRows = 100; // 单份 CLI 回执最多包含的线索数。
 
+// 输入共享JSON纯值和原文字摘要，返回CLI外壳JSON；先解码UTF-8，保留中文路径与诊断。
+Json CaptureReceiptJson(const evidence::JsonValue& value, const wchar_t* display = L"unavailable")
+{
+    const auto serialized = evidence::WriteJson(value); // 共享序列化器输出UTF-8，不能逐字节扩宽。
+    return Json{ks::str::Utf8ToUtf16(serialized), display}; // 保留非JSON模式原有的简短摘要。
+}
+
 // 用只读且排斥写入者的磁盘句柄冻结归档。按行调用 visitor，返回 Win32 状态或首个损坏行号。
 struct ArchiveScan {
     DWORD error = ERROR_SUCCESS; // 文件系统错误，或超出输入配额。
@@ -572,12 +579,11 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             // 尚未登记采样的入口故障仍保留启动阶段，不能仅报成项目创建失败。
             std::vector<std::pair<std::wstring, Json>> failureFields{
                 {L"status", Json::string(L"launch-bootstrap-incomplete")},
-                {L"launch", Json{project::ProjectStorage::WideAscii(
-                    evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))}}};
+                {L"launch", CaptureReceiptJson(project::LaunchedApiProgressJson(*launched))}};
             const auto delivery = progressOutput.Finish(); // 恢复返回后排空；无订阅时不改变旧响应字段。
             if (!delivery.isNull())
             {
-                failureFields.emplace_back(L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(delivery))});
+                failureFields.emplace_back(L"captureProgress", CaptureReceiptJson(delivery));
             }
             return {cancel.token->load() ? 6 : 3, Json::object(failureFields), {}};
         }
@@ -596,7 +602,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     }
     const auto progressDelivery = progressOutput.Finish(); // 原采集及恢复已返回后才有限排空旁路通知。
     const auto deliveryJson = progressDelivery.isNull() ? Json{} :
-        Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressDelivery))};
+        CaptureReceiptJson(progressDelivery);
     if (!run.sampleStatus) {
         return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail, deliveryJson);
     }
@@ -636,20 +642,17 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"sampleId", Json::string({sample.sampleId.begin(), sample.sampleId.end()})},
         {L"revisionId", Json::string({revision.begin(), revision.end()})},
         {L"pid", Json::number(pid)}, {L"creationFileTime", Json::count(creation)},
-        {L"transferHandoff", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(run.transferHandoff))}},
-        {L"networkTraffic", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
-            project::ApiCaptureNetworkJson(run.networkTraffic)))}},
+        {L"transferHandoff", CaptureReceiptJson(run.transferHandoff)},
+        {L"networkTraffic", CaptureReceiptJson(project::ApiCaptureNetworkJson(run.networkTraffic))},
         {L"residentVerified", Json::boolean(captured.reusedResident)},
         {L"captureMode", Json::string(launch ? L"launched-r3-attachment" : attached ? L"explicit-r3-attachment" : L"cooperative-resident")},
-        {L"launch", launched ? Json{project::ProjectStorage::WideAscii(
-            evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))} : Json{}},
+        {L"launch", launched ? CaptureReceiptJson(project::LaunchedApiProgressJson(*launched)) : Json{}},
         {L"attachmentIdentityVerified", attached ? Json::boolean(captured.attachmentIdentityVerified) : Json{}},
         {L"agentLoadAttempted", attached ? Json::boolean(captured.agentLoadAttempted) : Json{}},
         {L"agentModuleVerified", attached ? Json::boolean(captured.agentModuleVerified) : Json{}},
         {L"agentPath", attached && !captured.agentPath.empty() ? Json::string(captured.agentPath) : Json{}},
         {L"configPublished", Json::boolean(captured.configPublished)},
-        {L"startup", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
-            project::ApiCaptureStartupJson(captured.startup))), L"startup"}},
+        {L"startup", CaptureReceiptJson(project::ApiCaptureStartupJson(captured.startup), L"startup")},
         {L"connected", Json::boolean(connected)}, {L"agentReady", Json::boolean(ready)},
         {L"sessionReady", connected ? Json::boolean(target->sessionReady) : Json{}},
         {L"hooksInstalled", connected ? Json::boolean(target->installed) : Json{}},
