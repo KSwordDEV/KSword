@@ -3177,8 +3177,8 @@ namespace apimon
             return resultHandle;
         }
 
-        // 输入原远程句柄和已完成操作的实际范围，只按实时回读的MEM_PRIVATE执行页交接。
-        // 分配、改保护与写入共用此扫描；不接管当前Hook/助手自身所在进程。
+        // 输入原远程句柄及待检查范围，只按实时回读的MEM_PRIVATE执行页交接。
+        // 写前请求与写后实际前缀、分配/改保护共用扫描；不接管当前Hook/助手自身所在进程。
         void PrepareRemotePrivateExecutableRange(HANDLE processHandle, const void* address, SIZE_T bytes)
         {
             const DWORD savedError = GetLastError(); // 观察查询及交接不得改变原内存API的LastError。
@@ -3234,6 +3234,22 @@ namespace apimon
             {
                 PrepareRemotePrivateExecutableRange(processHandle, address, bytes);
             }
+        }
+
+        // 已有X页必须在原写入发生前交接，否则目标已有线程可在写后ACK前执行新字节。
+        // 这里只给请求涉及的现存私有X区域设防，不宣称写入成功；实际完成仍由原AAIP1保存。
+        void PrepareExecutableWrite(HANDLE processHandle, const Ksword::Evidence::ApiInjectionFieldsV1& fields)
+        {
+            constexpr auto required = Ksword::Evidence::ApiInjectionTargetIdentity;
+            if ((fields.flags & required) != required || !fields.requestedBytes ||
+                static_cast<std::uint64_t>(static_cast<std::uintptr_t>(fields.address)) != fields.address ||
+                static_cast<std::uint64_t>(static_cast<SIZE_T>(fields.requestedBytes)) != fields.requestedBytes)
+            {
+                return;
+            }
+            PrepareRemotePrivateExecutableRange(processHandle,
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(fields.address)),
+                static_cast<SIZE_T>(fields.requestedBytes));
         }
 
         // 成功写入既有执行页也须自动接管，不能要求随后一定出现改保护或新线程API。
@@ -3335,6 +3351,7 @@ namespace apimon
             // observation：本次写入的原目标、请求范围和前后代次。
             ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::MemoryWrite,
                 processHandle, reinterpret_cast<std::uintptr_t>(baseAddress), sizeValue);
+            PrepareExecutableWrite(processHandle, observation.fields()); // 先让既有X私有页NX就绪，再执行原写入。
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const BOOL resultValue = g_writeProcessMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); // 原 BOOL 返回。
@@ -5228,6 +5245,7 @@ namespace apimon
             // observation：本次写入的目标身份、请求和实际完成长度。
             ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::MemoryWrite,
                 processHandle, reinterpret_cast<std::uintptr_t>(baseAddress), sizeValue);
+            PrepareExecutableWrite(processHandle, observation.fields()); // 直接NT写入也经过调用前的同一屏障。
             const auto callClock = BeginApiCallClock(); // 原调用计时起点。
             observation.MarkEntry();
             const NTSTATUS statusValue = g_ntWriteVirtualMemoryOriginal(processHandle, baseAddress, bufferPointer, sizeValue, bytesWrittenPointer); // 原 NTSTATUS。
