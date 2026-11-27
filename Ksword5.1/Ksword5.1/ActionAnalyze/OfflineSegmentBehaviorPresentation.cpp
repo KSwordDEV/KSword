@@ -44,20 +44,51 @@ QString SegmentBehaviorRowText(const SegmentBehaviorMatch& match)
 void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
     const SegmentSnapshot& snapshot, const SegmentRow& row)
 {
+    const bool primaryApiRow = row.archivedApi &&
+        row.evidenceLane == Ksword::ActionAnalyze::ProjectEvidenceLane::Primary; // 只对同一快照中的生产 API 原行投影字段。
     const auto found = std::find_if(snapshot.behavior.matches.cbegin(), snapshot.behavior.matches.cend(),
         [&](const SegmentBehaviorMatch& match) {
-            return row.archivedApi && row.evidenceLane == Ksword::ActionAnalyze::ProjectEvidenceLane::Primary &&
-                match.segment == row.segmentOrdinal && match.rawSequence == row.sequence &&
+            return primaryApiRow && match.segment == row.segmentOrdinal && match.rawSequence == row.sequence &&
                 match.sourceSequence == row.archivedApi->sourceSequence;
         }); // 不用窗口下标或同 PID 替代原坐标。
 
-    // 当前规则求值成功时，命中与未命中的 API 行都展示同一实际 Known 字段投影。
-    if (snapshot.behavior.state == SegmentBehaviorState::Ready && row.archivedApi &&
-        row.evidenceLane == Ksword::ActionAnalyze::ProjectEvidenceLane::Primary)
+    // 不论规则成功、失败还是加载失败，都从真实原行生成同一份生产 Known 字段投影。
+    if (primaryApiRow)
     {
         const auto inputs = OfflineSegmentBehaviorInputs(row); // 不重新读取原包或当前系统。
         document.section(QStringLiteral("规则求值输入字段"))
             .field(QStringLiteral("已知字段（缺失字段未输出）"), inputs);
+
+        // 规则身份和诊断绑定当前快照；这里不重读规则文件，也不重新执行规则求值。
+        QString status; // 当前快照的规则状态文本，供详情字段和导出共用。
+        bool translateStatus = true; // 只有原始语言键需要交给字段文档翻译。
+        switch (snapshot.behavior.state)
+        {
+        case SegmentBehaviorState::Failed:
+            status = QStringLiteral("规则求值失败");
+            break;
+        case SegmentBehaviorState::Ready:
+            status = SegmentBehaviorStatus(snapshot.behavior);
+            translateStatus = false;
+            break;
+        case SegmentBehaviorState::NotRequested:
+            status = QStringLiteral("行为规则未请求");
+            break;
+        }
+        document.section(QStringLiteral("API 规则回执"))
+            .field(QStringLiteral("规则状态"), status, translateStatus);
+        if (!snapshot.behavior.presetSet.isEmpty())
+        {
+            document.field(QStringLiteral("规则集"), snapshot.behavior.presetSet);
+        }
+        if (!snapshot.behavior.sourceSha256.isEmpty())
+        {
+            document.field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
+        }
+        if (!snapshot.behavior.error.isEmpty())
+        {
+            document.field(QStringLiteral("规则库诊断"), snapshot.behavior.error);
+        }
     }
     if (found == snapshot.behavior.matches.cend())
     {
@@ -66,8 +97,6 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
     document.section(QStringLiteral("行为规则命中（当前窗口）"))
         .field(QStringLiteral("行为规则 ID"), QString::fromStdString(found->behavior.ruleId))
         .field(QStringLiteral("证据级别"), QString::fromStdString(found->behavior.evidence))
-        .field(QStringLiteral("行为释义"), SegmentBehaviorSummary(*found))
-        .field(QStringLiteral("规则集"), snapshot.behavior.presetSet)
-        .field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
+        .field(QStringLiteral("行为释义"), SegmentBehaviorSummary(*found));
 }
 }
