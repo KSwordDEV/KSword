@@ -120,7 +120,8 @@ namespace ks::ui
                 const AsyncOperationToken& token)
             {
                 // worker 不持页面守卫；业务查询仍使用既有全局 Qt 线程池。
-                auto* task = QRunnable::create([request, worker, token, cpu]()
+                // worker可持有需要移动的值请求；mutable只作用于本任务副本，不共享页面或其它请求状态。
+                auto* task = QRunnable::create([request, worker, token, cpu]() mutable
                 {
                     const TaskCpuScope measurement(cpu, TaskCpuPhase::Worker);
 #if KSWORD_PERF_TRACE_ENABLED

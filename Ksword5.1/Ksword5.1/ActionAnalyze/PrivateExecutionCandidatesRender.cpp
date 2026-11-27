@@ -132,7 +132,7 @@ namespace ks::action_analyze
             const auto& page = *m_shown->page; // 不把新截止段值贴到旧页的来源说明上。
             constexpr std::uint64_t epoch = 116444736000000000ULL; // FILETIME到Unix毫秒的固定纪元差。
             const auto completed = m_shown->readFileTime >= epoch ?
-                QDateTime::fromMSecsSinceEpoch(static_cast<qint64>((m_shown->readFileTime - epoch) / 10000), QTimeZone::UTC)
+                QDateTime::fromMSecsSinceEpoch(static_cast<qint64>((m_shown->readFileTime - epoch) / 10000), QTimeZone::utc())
                     .toString(Qt::ISODateWithMs) : sourceText(QStringLiteral("未知"));
             auto source = sourceText(QStringLiteral("结果来源：%1\n项目 %2 / 采样 %3 / 截止段 %4 / 读取完成 %5"))
                 .arg(QString::fromStdWString(m_shown->context.projectDirectory), QString::fromStdString(page.scope.projectId),
