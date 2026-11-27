@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 最新正式CLI与跨空档接管。** 任务4已结束：c75f889ac增量Build一次SUCCESS/EXIT0，正式CLI SHA256 A1C31FF8BC2D1C51F454ACA2011B71209860B514D55BA8C3230FEF316FD14232；只ApiTransferHandoff.cpp编译链接，BelowNormal/HostX64/固定Release，无运行。任务5 sh_21c13f5c70018sJlLV3VbTCvz4/PID40148新增且只运行一次A存活、B退出后留空档再接C场景，固定handoff_idle_gap夹具，不重跑原三目标链；日志codebuddy-resumed-10/handoff-idle-gap，当前额度5/10。等待自动回执不轮询；当前正式CLI输入冻结，不借源码/构建宣称运行通过，GUI后置。
+
 - **2026-11-27 当前接续优先。** 最新产品c75f889ac（08f Ready投影、668窗口外恢复、c75取消暂停），任务3停止场景已结束：CLI取消6/双目标自然0/清退和归档成立，但owner/Ready迟到准入不可直接观测，43检查0FAIL1UNIMPLEMENTED整体BLOCKED，不能标整链通过。任务4 sh_21c1212d2001znJdFPVXnqMBNl/PID39612唯一执行最新CLI增量构建一次，禁止运行/重试；授权额度4/10。详见工程记录。不得重复已过ETW/三目标链，不为测试新增关闭后查询接口；后续应在控制器存活期间观察失败目标清退和迟到接管。用户持续推进原话有效。
 
 - **2026-11-27 最新恢复CodeBuddy授权及Ex2复验。** 用户授权约10项，已用3/10；任务1 sh_21c0462170010iLK65j3Ogsn2j完成：产品a44a89734上CLI一次增量Build成功，Ex2一次运行CLI0/27检查通过，stubRan/counter1、recursiveAgentReady=true、AAAP1结构化flags0x3f且queueFlags=0有效。源子目标由driver cleanup终止码1，未验证自然成功退出。回执codebuddy-resumed-10/recovery-ex2/receipt.md；旧失败原档保留。任务2 sh_21c04c8080012wSIOLlLeleXPx已交付主动停止/迟到请求夹具但未运行；任务3 sh_21c0a6526001d202agwFY1veFI负责其固定路径编译/运行一次，CLI停止契约6，owner/Ready状态不可观测项保持BLOCKED。主协调继续源码工作，因此任务3验证只覆盖其启动时冻结产品。不可扩大为GUI、其它链或完整11项通过。
