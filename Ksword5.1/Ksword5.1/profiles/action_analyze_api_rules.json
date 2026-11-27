@@ -442,6 +442,12 @@
       "summaryZh": "文件复制报告成功且解码到源、目标参数；文件身份、恶意内容及物理持久性未确认"
     },
     {
+      "ruleId": "ksword.behavior.file-write-pending.v1",
+      "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded && result.statusDomain == \"win32\" && result.status == 997u64",
+      "summary": "WriteFile returned ERROR_IO_PENDING: the asynchronous request is pending, not a completed write or a final I/O failure. Completion and byte count require a later observation.",
+      "summaryZh": "WriteFile 返回 ERROR_IO_PENDING：异步请求等待完成，并非写入已完成或最终 I/O 失败；完成状态和字节数需后续观察"
+    },
+    {
       "ruleId": "ksword.behavior.file-write-zero-completed.v1",
       "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && isKnown(file.requestedBytes) && file.transferredBytes == 0u64",
       "summary": "WriteFile reported success with a decoded completed count of zero bytes; no positive-byte write, file path, payload content or durable storage is established.",
