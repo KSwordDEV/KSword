@@ -3111,8 +3111,8 @@ namespace apimon
                 *armedThrough = response.rangeBase + response.rangeBytes; // 沿owner真实ACK，不使用交接前的合并RegionSize。
             }
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
-            swprintf_s(detail, L"handoff-v2 operation=%llu targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
-                request.operationId, request.targetPid, creation, address, armed ? 1u : 0u,
+            swprintf_s(detail, L"handoff-v2 operation=%llu kind=%lu targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
+                request.operationId, request.kind, request.targetPid, creation, address, armed ? 1u : 0u,
                 response.rangeBase, response.rangeBytes, error);
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ActionAnalyze", L"TransferHandoff",
                 error, detail, true, armed ? 1 : 0, ApiCallDuration{}, 0, request.operationId); // 原包结构化编号与准入回执一致。
@@ -3435,6 +3435,52 @@ namespace apimon
             return resultValue;
         }
 
+        // 输入原恢复句柄；仅对能读到真实IP的远程私有执行区发起接管，无返回值，不增加线程暂停。
+        // 读取失败、权限不足和模块IP保留原恢复路径；查询不是“线程已经暂停/已经执行”的证明。
+        void PrepareResumedPrivateExecution(HANDLE threadHandle)
+        {
+            if (ActiveConfig().transferHandoff.pipeName.empty() || !g_getThreadContextOriginal)
+            {
+                return;
+            }
+            const DWORD savedError = GetLastError(); // 还原额外身份与上下文查询之前的原调用错误状态。
+            ApiThreadTargetObservation identity(threadHandle); // 借用原句柄，采集进程与线程创建代次。
+            const auto& fields = identity.fields(); // Complete只更新当前对象，引用不跨函数保存。
+            constexpr auto required = ThreadTargetProcess | ThreadTargetThread; // 同时具备进程和线程强身份才尝试。
+            CONTEXT context{}; // 当前ABI的控制寄存器，只用原句柄已有的上下文读取权限。
+            context.ContextFlags = CONTEXT_CONTROL;
+            if ((fields.flags & required) == required && fields.targetPid != GetCurrentProcessId() &&
+                g_getThreadContextOriginal(threadHandle, &context))
+            {
+                identity.Complete(); // 读取前后核对同一线程及其所属进程，不凭TID重开替代对象。
+#if defined(_M_X64)
+                const auto ip = context.Rip; // x64控制寄存器中的实际IP，不读取目标栈或猜测入口。
+#else
+                const auto ip = context.Eip; // x86只解释本ABI返回的IP，不猜测x64/WOW64另一套上下文。
+#endif
+                if ((fields.flags & ThreadTargetStable) && ip)
+                {
+                    const HANDLE process = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE,
+                        static_cast<DWORD>(fields.targetPid)); // 只为内存类型和原进程代次回读，不取得控制权。
+                    MEMORY_BASIC_INFORMATION memory{}; // 模块/普通数据IP不发交接，避免恢复系统助手时污染准入。
+                    if (process && ks::winapi_monitor::transferProcessCreation(process) == fields.targetCreationFileTime &&
+                        VirtualQueryEx(process, reinterpret_cast<const void*>(static_cast<std::uintptr_t>(ip)),
+                            &memory, sizeof(memory)) == sizeof(memory) &&
+                        memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && !(memory.Protect & PAGE_GUARD) &&
+                        (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+                    {
+                        PrepareTransferExecution(fields.targetPid, fields.targetCreationFileTime, ip,
+                            ks::winapi_monitor::TransferHandoffKind::ThreadResume);
+                    }
+                    if (process)
+                    {
+                        CloseHandle(process); // 查询句柄仅活在本次调用内；NX/恢复责任始终属于外部owner。
+                    }
+                }
+            }
+            SetLastError(savedError);
+        }
+
         // HookedResumeThread 作用：
         // - 输入：目标线程句柄；
         // - 处理：记录线程恢复操作和原始挂起计数；
@@ -3443,6 +3489,7 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_resumeThreadOriginal(threadHandle); }
+            PrepareResumedPrivateExecution(threadHandle); // 原恢复前发现实际私有IP，不要求先捕获SetContext。
             const auto callClock = BeginApiCallClock();
             const DWORD resultValue = g_resumeThreadOriginal(threadHandle);
             const auto duration = EndApiCallClock(callClock);
@@ -5587,6 +5634,7 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_ntResumeThreadOriginal(threadHandle, previousSuspendCountPointer); }
+            PrepareResumedPrivateExecution(threadHandle); // 直接NT恢复也复用同一屏障和原始返回语义。
             const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntResumeThreadOriginal(threadHandle, previousSuspendCountPointer);
             const auto duration = EndApiCallClock(callClock);

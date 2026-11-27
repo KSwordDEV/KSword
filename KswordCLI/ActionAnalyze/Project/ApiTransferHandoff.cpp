@@ -254,7 +254,7 @@ public:
         // 输入已接收请求；先核验来源和目标对象，再查询入口所在MEM_PRIVATE范围。
         ULONG client = 0;
         if (request.size != sizeof(request) || request.version != m::kTransferHandoffVersion ||
-            request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ExecutableWritePrepare) ||
+            request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ThreadResume) ||
             !std::wmemchr(request.token, 0, std::size(request.token)) ||
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
             !SourceAuthenticated(client, request.sourceCreation) || !request.address || !request.operationId ||
