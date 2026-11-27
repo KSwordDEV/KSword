@@ -2,6 +2,10 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4/5/6项Ex2复验已定向通过。** CodeBuddy任务1 sh_21c0462170010iLK65j3Ogsn2j在冻结提交a44a89734上一次CLI Build成功（新hasha68e5455…120e2d），后复用既有夹具一次运行，driver收紧CLI必须0，27/27通过。真实NtQueueApcThreadEx2 flags0、dest pid22456 stubRan/counter1/exit0、recursiveAgentReady=true、armed1/rejected0/clean=true/savedStops3；AAAP1按16字段结构化解析flags0x3f（含queueFlags有效位）、queueFlags=0，入口raw-native和entryObservation PID/TID/create/坐标一致。receipt `.codex-build-logs/codebuddy-resumed-10/recovery-ex2/receipt.md`，新完整项目根和日志均保留。限定：src测试进程status=0但由driver cleanup以exit1终止，未证自然成功退出；无GUI/ETW/三目标链/Qt/Light/驱动验收。旧失败receipt未覆盖删除。额度2/10，任务2 sh_21c04c8080012wSIOLlLeleXPx仅编写主动停止/迟到请求夹具，未运行构建；等待自动回执。不得因此标整体完成。
+
+- **2026-11-27 恢复额度已用2/10。** 用户授权约10项，当前任务1 sh_21c0462170010iLK65j3Ogsn2j/PID39416（hy4flash）一次正式CLI增量后一次Ex2，旧driver的CLI接受0/6收紧==0，不覆盖原失败证据/完整项目根，任何失败记录停止，日志codebuddy-resumed-10/recovery-ex2；任务2 sh_21c04c8080012wSIOLlLeleXPx/PID2316（deepseek-v4.1-flash）只写apc2_stop主动取消及迟到请求夹具，禁构建运行，回执stop-fixture/receipt.md。产品a44a89734已冻结，当前没有新构建/运行结论，不自动派后续、不轮询、不重复ETW/三目标链、不GUI。结束后按实际首错继续产品，不借宿主ok判断产品通过。
+
 - **2026-11-27 第4/6项清退来源及迟到请求。** Source新增stopping，来源认证及Ready共同排除停止中的实例；失败目标恢复先Stop递归capture，再CloseMember解除NX/debug冻结，不同步等待卸钩helper；即使owner已clean仍通知capture停止。Prepare拒绝failedOwnerRecovery内同PID/create实例的新入口，历史成功ACK不能绕回恢复中owner；DrainSources继续保存尾包，Describe新增stopRequested。源码待验。用户刚授权「可以再派发约10个Codebuddy任务」，本轮按最多10个新任务计，尚未派发；覆盖此前禁令，仍禁重复ETW/三目标链及GUI。
 
 - **2026-11-27 第4/5项连续接管跨目标空档。** 自动handoff用group.Start显式开启keepAcceptingAfterClean，旧目标全部退出/单成员恢复clean后仍可Append不同新目标，不重建集合/样本、不丢历史成员。OwnedExecutionGroupResult新增acceptingMembers，CanAppendMembers以此准入且仍拒RecoveryRequired/Closing；手动集合默认false保持旧语义，集合Close关闭所有准入。共享handoff终段新增acceptingTargets，CLI执行组报告补acceptingMembers，不新增命令/参数/UI文本。直接NtCreateThreadEx此前已调用PrepareTransferExecution，本批没有重复Hook。仅源码核对，未构建/运行，CodeBuddy禁令仍有效，旧Ex2失败及后续待验不变。

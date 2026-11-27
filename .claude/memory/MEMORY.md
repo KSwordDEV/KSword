@@ -1,6 +1,6 @@
 # Memory Index
 
-- **2026-11-27 最新恢复CodeBuddy授权。** 用户原话「可以再派发约10个Codebuddy任务」。覆盖此前禁令，本轮保守最多10个新任务，当前0/10；主协调逐项计数，不自动用满。测试/构建/夹具/验收回执仍全部交CodeBuddy，主协调写产品；只定向补待验链路，不重复已过ETW/三目标链，失败保留原错不盲目重跑，GUI继续后置。
+- **2026-11-27 最新恢复CodeBuddy授权及Ex2复验。** 用户授权约10项，已用2/10；任务1 sh_21c0462170010iLK65j3Ogsn2j完成：产品a44a89734上CLI一次增量Build成功，Ex2一次运行CLI0/27检查通过，stubRan/counter1、recursiveAgentReady=true、AAAP1结构化flags0x3f且queueFlags=0有效。源子目标由driver cleanup终止码1，未验证自然成功退出。回执codebuddy-resumed-10/recovery-ex2/receipt.md；旧失败原档保留。任务2 sh_21c04c8080012wSIOLlLeleXPx仍在执行，仅写停止/迟到请求夹具、禁构建运行。不可把当前实测扩大为GUI、其它链或完整11项通过。
 
 - **2026-11-27 最新用户限制与Ex2结果。** 用户原话「从现在开始不得调用codebudy，已有的不管，等新的通知下发。继续」。禁止新增、续接、重试任何CodeBuddy调用，直到用户明确恢复；已有任务sh_21bf01c6f001ZBf4KG8eDPYaTt已结束并回执。Ex2仅一次运行，目标stubRan/counter1/exit0及raw-native、entryObservation成立，但CLI6；递归来源error31、pipeError109、coverageStale=true，保留失败证据，不重跑。工程推进记录载明具体失败及修正。主协调继续产品源码，不自行测试/构建，待验如实保留；持续推进原话有效。
 
