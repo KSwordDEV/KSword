@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "sourceFile": "readonly-replay/stdout.json",
+  "sourceSha256": "58650f5bdc15406fd8390820f33da1c8ff56efaebfd6ca5494c7d4e4fcdd97fd",
+  "sampleId": "18141f17-b514-4526-b9bb-63924ea690bd",
+  "rowCount": 88,
+  "observedFieldsRowCount": 88,
+  "observedFieldCount": 440,
+  "fieldErrors": [],
+  "behaviorRowCount": 44,
+  "behaviorErrors": [],
+  "coordinateCount": 88,
+  "behaviorCoordinateCount": 44,
+  "coordinateErrors": [],
+  "ruleProfile": {
+    "presetSet": "ksword.api.behavior-presets.v3",
+    "sourceSha256": "5067c8387c156b56e71de84d1e44877585c9090d4ab3704f745b2ce4675ff41d",
+    "recordedPresetSet": "ksword.api.behavior-presets.v3",
+    "recordedSourceSha256": "3f5283bba6ffb656ed691d92b9497ff46d3c41c6fb9c97453fb564ffef0beca8",
+    "matchesRecordedRules": false,
+    "configError": null
+  },
+  "identityErrors": [],
+  "coverage": "unknown",
+  "committedSegments": "2",
+  "finalSegment": true,
+  "nextAfter": null
+}
