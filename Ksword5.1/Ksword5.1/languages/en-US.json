@@ -8277,6 +8277,8 @@
     "API 最近命中规则": "Latest API matched rule",
     "行为命中数": "Behavior matches",
     "行为窗口截断": "Behavior window truncated",
+    "behaviorMatches": "Behavior matches",
+    "recentBehaviors": "Recent behaviors",
     "API 规则证据": "API rule evidence",
     "%1 %2 %3 → %4 · PID %5（%6）": "%1 %2 %3 → %4 · PID %5 (%6)",
     "已有采样 UUID": "Existing sample UUID",
