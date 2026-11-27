@@ -3027,6 +3027,8 @@ namespace apimon
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); }
+            ApiInjectionObservation observation(Ksword::Evidence::ApiInjectionOperation::ThreadCreate,
+                GetCurrentProcess(), reinterpret_cast<std::uintptr_t>(startAddress), 0);
             // 已接管来源在本进程另起私有代码线程时也先自动设防，不能等CREATE_THREAD后再补范围。
             // 模块入口由共享方法快速跳过，Agent及普通应用线程不产生额外同步请求。
             const DWORD beforeHandoff = GetLastError(); // 身份查询及交接不改变原CreateThread入参错误状态。
@@ -3038,9 +3040,12 @@ namespace apimon
             }
             SetLastError(beforeHandoff);
             const auto callClock = BeginApiCallClock();
+            observation.MarkEntry();
             HANDLE resultHandle = g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
+            observation.MarkReturn();
             const auto duration = EndApiCallClock(callClock);
             const DWORD lastError = ::GetLastError();
+            observation.CompleteThread(resultHandle != nullptr, resultHandle);
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"start=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(startAddress));
@@ -3049,10 +3054,12 @@ namespace apimon
             AppendWideText(detailBuffer, L" flags=");
             AppendHexText(detailBuffer, creationFlags);
             AppendWideText(detailBuffer, L" tid=");
-            AppendUnsignedText(detailBuffer, threadIdPointer != nullptr ? *threadIdPointer : 0);
+            AppendUnsignedText(detailBuffer, observation.fields().targetTid);
             AppendWideText(detailBuffer, L" handle=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(resultHandle));
-            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateThread", resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"KernelBase", L"CreateThread",
+                resultHandle != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultHandle), duration,
+                0, 0, ks::winapi_monitor::EventResultKind::StatusCode, &observation.fields());
             ::SetLastError(lastError);
             return resultHandle;
         }
