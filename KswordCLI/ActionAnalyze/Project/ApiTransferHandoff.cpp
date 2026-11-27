@@ -968,6 +968,8 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         {"activeAgents", V::makeBool(HasActiveAgents())}, {"sources", V::makeArray(std::move(sources))},
         {"admissions", V::makeArray(std::move(admissions))},
         {"recursiveAgentReady", V::makeBool(!s.sources.empty() && std::all_of(s.sources.begin(), s.sources.end(),
-            [](const auto& entry) { return entry.second.ready && !entry.second.failed; }))}});
+            [](const auto& entry) {
+                return entry.second.ready && !entry.second.failed && !entry.second.ended && !entry.second.stopping;
+            }))}});
 }
 }

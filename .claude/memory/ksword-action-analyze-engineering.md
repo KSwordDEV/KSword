@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4项Ready状态投影。** stopping来源的历史ready仍保存在sources[].ready，但顶层recursiveAgentReady现在要求ready且未failed/ended/stopping，和SourceReady的实际准入一致；stopRequested单独呈现清退事实。此小修待构建/运行。CodeBuddy任务3 sh_21c0a6526001d202agwFY1veFI/PID30288唯一执行apc2_stop固定Release夹具编译一次+停止/迟到请求场景一次，总计本轮额度3/10，UNIMPLEMENTED owner/readiness仍只能BLOCKED；等自动回执，不改夹具/产品、不重试。任务1 Ex2窄场景通过结论只覆盖a44冻结构建，不能覆盖本提交。
+
 - **2026-11-27 第4/5/6项Ex2复验已定向通过。** CodeBuddy任务1 sh_21c0462170010iLK65j3Ogsn2j在冻结提交a44a89734上一次CLI Build成功（新hasha68e5455…120e2d），后复用既有夹具一次运行，driver收紧CLI必须0，27/27通过。真实NtQueueApcThreadEx2 flags0、dest pid22456 stubRan/counter1/exit0、recursiveAgentReady=true、armed1/rejected0/clean=true/savedStops3；AAAP1按16字段结构化解析flags0x3f（含queueFlags有效位）、queueFlags=0，入口raw-native和entryObservation PID/TID/create/坐标一致。receipt `.codex-build-logs/codebuddy-resumed-10/recovery-ex2/receipt.md`，新完整项目根和日志均保留。限定：src测试进程status=0但由driver cleanup以exit1终止，未证自然成功退出；无GUI/ETW/三目标链/Qt/Light/驱动验收。旧失败receipt未覆盖删除。额度2/10，任务2 sh_21c04c8080012wSIOLlLeleXPx仅编写主动停止/迟到请求夹具，未运行构建；等待自动回执。不得因此标整体完成。
 
 - **2026-11-27 恢复额度已用2/10。** 用户授权约10项，当前任务1 sh_21c0462170010iLK65j3Ogsn2j/PID39416（hy4flash）一次正式CLI增量后一次Ex2，旧driver的CLI接受0/6收紧==0，不覆盖原失败证据/完整项目根，任何失败记录停止，日志codebuddy-resumed-10/recovery-ex2；任务2 sh_21c04c8080012wSIOLlLeleXPx/PID2316（deepseek-v4.1-flash）只写apc2_stop主动取消及迟到请求夹具，禁构建运行，回执stop-fixture/receipt.md。产品a44a89734已冻结，当前没有新构建/运行结论，不自动派后续、不轮询、不重复ETW/三目标链、不GUI。结束后按实际首错继续产品，不借宿主ok判断产品通过。

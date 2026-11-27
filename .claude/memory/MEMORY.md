@@ -1,8 +1,8 @@
 # Memory Index
 
-- **2026-11-27 最新恢复CodeBuddy授权及Ex2复验。** 用户授权约10项，已用2/10；任务1 sh_21c0462170010iLK65j3Ogsn2j完成：产品a44a89734上CLI一次增量Build成功，Ex2一次运行CLI0/27检查通过，stubRan/counter1、recursiveAgentReady=true、AAAP1结构化flags0x3f且queueFlags=0有效。源子目标由driver cleanup终止码1，未验证自然成功退出。回执codebuddy-resumed-10/recovery-ex2/receipt.md；旧失败原档保留。任务2 sh_21c04c8080012wSIOLlLeleXPx仍在执行，仅写停止/迟到请求夹具、禁构建运行。不可把当前实测扩大为GUI、其它链或完整11项通过。
+- **2026-11-27 最新恢复CodeBuddy授权及Ex2复验。** 用户授权约10项，已用3/10；任务1 sh_21c0462170010iLK65j3Ogsn2j完成：产品a44a89734上CLI一次增量Build成功，Ex2一次运行CLI0/27检查通过，stubRan/counter1、recursiveAgentReady=true、AAAP1结构化flags0x3f且queueFlags=0有效。源子目标由driver cleanup终止码1，未验证自然成功退出。回执codebuddy-resumed-10/recovery-ex2/receipt.md；旧失败原档保留。任务2 sh_21c04c8080012wSIOLlLeleXPx已交付主动停止/迟到请求夹具但未运行；任务3 sh_21c0a6526001d202agwFY1veFI负责其固定路径编译/运行一次，CLI停止契约6，owner/Ready状态不可观测项保持BLOCKED。主协调继续源码工作，因此任务3验证只覆盖其启动时冻结产品。不可扩大为GUI、其它链或完整11项通过。
 
-- **2026-11-27 最新用户限制与Ex2结果。** 用户原话「从现在开始不得调用codebudy，已有的不管，等新的通知下发。继续」。禁止新增、续接、重试任何CodeBuddy调用，直到用户明确恢复；已有任务sh_21bf01c6f001ZBf4KG8eDPYaTt已结束并回执。Ex2仅一次运行，目标stubRan/counter1/exit0及raw-native、entryObservation成立，但CLI6；递归来源error31、pipeError109、coverageStale=true，保留失败证据，不重跑。工程推进记录载明具体失败及修正。主协调继续产品源码，不自行测试/构建，待验如实保留；持续推进原话有效。
+- **2026-11-27 最新用户限制与Ex2结果。** 历史「不得调用CodeBuddy」已被用户随后明确恢复约10项授权所覆盖；当前3/10。Ex2旧失败运行只一次、CLI6/pipeError109/coverageStale，原日志及项目保留；后续冻结版a44a89734定向一次复验CLI0/27通过及AAAP1结构化flags验证，不能混淆两份结果或扩成全流程通过。详见工程推进记录。
 
 - **2026-11-27 NT Ex2最新续跑。** 产品4c57b774e新增NtQueueApcThreadEx2调用前同步接管、AAAP1全部参数/flags/NTSTATUS及三端原展示/关联接入，尚未构建实测；唯一构建sh_21bec46130013Dh5kCaf4Em70G/PID4392使用hy4flash，只两Agent+CLI各一次，日志native-ex2-build，不运行目标/GUI。原APC2契约任务在约20分钟仅工具链查询后已核对精确进程并结束，最终failed；APC2驱动任务超时无文件，不重复。详见[工程记录](ksword-action-analyze-engineering.md)。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」有效；测试/夹具/回执仍全部交CodeBuddy，主协调写产品，等待时不虚构通过或扩充无关防御。
 
