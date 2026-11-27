@@ -10,18 +10,85 @@
 #include <set>
 #include <tuple>
 #include <utility>
+#include <ws2tcpip.h>
+
+#pragma comment(lib, "Ws2_32.lib")
 
 namespace Ksword::Features::ActionAnalyze {
 namespace {
 
 using Key = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>; // 实际raw段号、序号和记录头偏移。
 using CandidateKey = std::tuple<int, Key, Key, Key, std::string>; // 类型、双方、原生物理坐标和段摘要共同区分来源。
+using NetworkKey = std::tuple<std::uint32_t, std::string, Key>; // raw stream、网络来源 lane、段/序号/偏移共同定位网络行。
 constexpr LPARAM kHistoryLeaf = 1000000; // 独立历史节点值，与三角色候选编码分开。
+constexpr LPARAM kNetworkLeaf = 2000000; // 独立网络叶值，与候选三角色和原生历史分开。
+constexpr std::size_t kNetworkLeafLimit = 512; // 与现有候选窗口相同的树内网络行上限。
+
+using NetworkFamily = ks::cli::action_analyze::archive::NetworkFamily;
+using NetworkTransport = ks::cli::action_analyze::archive::NetworkTransport;
+using NetworkDirection = ks::cli::action_analyze::archive::NetworkDirection;
+using NetworkEndpointMetadata = ks::cli::action_analyze::archive::NetworkEndpointMetadata;
+using NetworkFlowMetadata = ks::cli::action_analyze::archive::NetworkFlowMetadata;
+
+// 只用归档中的数字地址和端口，保持与网络回放详情一致，不做名称解析。
+std::wstring NetworkEndpointText(NetworkFamily family, const NetworkEndpointMetadata& endpoint)
+{
+    wchar_t address[INET6_ADDRSTRLEN]{};
+    const bool ipv6 = family == NetworkFamily::IPv6;
+    if (!::InetNtopW(ipv6 ? AF_INET6 : AF_INET, endpoint.address.data(), address, std::size(address)))
+    {
+        return L"地址格式化失败";
+    }
+    const std::wstring port = endpoint.port ? std::to_wstring(*endpoint.port) : std::wstring(L"端口未知");
+    return ipv6 ? L"[" + std::wstring(address) + L"]:" + port : std::wstring(address) + L":" + port;
+}
+
+// 网络记录的 PID 归属等级必须原样可见，弱线索不冒充强进程实例。
+const wchar_t* NetworkAttributionText(NetworkFlowMetadata::ProcessAttribution attribution)
+{
+    switch (attribution)
+    {
+    case NetworkFlowMetadata::ProcessAttribution::VerifiedInstance: return L"已核验进程实例";
+    case NetworkFlowMetadata::ProcessAttribution::EndpointTableHint: return L"端口表 PID 线索";
+    case NetworkFlowMetadata::ProcessAttribution::NativePidHint: return L"原生 PID 线索";
+    }
+    return L"未知";
+}
+
+// 输入已核验网络行，输出保留原 raw-network 坐标的紧凑叶标题。
+std::wstring NetworkLeafText(const EvidenceRecord& row, std::uint32_t streamKind)
+{
+    const auto& record = *row.network;
+    const auto& flow = record.flow.observation;
+    const auto transport = flow.transport == NetworkTransport::Tcp ? L"TCP" : L"UDP";
+    const auto family = flow.family == NetworkFamily::IPv6 ? L"IPv6" : L"IPv4";
+    const auto direction = flow.direction == NetworkDirection::Outbound ? L"出站" : L"入站";
+    const std::wstring lane = record.source.sourceId.empty() ? std::wstring(L"unknown") :
+        std::wstring(record.source.sourceId.begin(), record.source.sourceId.end());
+    return L"网络来源：raw stream/" + std::to_wstring(streamKind) + L" lane/" + lane + L" segment/" +
+        std::to_wstring(record.segmentOrdinal) + L" #" +
+        std::to_wstring(record.flow.recordSequence) + L" @" + std::to_wstring(record.flow.recordOffset) + L" · " + transport + L"/" +
+        family + L" " + direction + L" · " + NetworkEndpointText(flow.family, flow.sourceField) + L" → " +
+        NetworkEndpointText(flow.family, flow.destinationField) + L" · PID " + std::to_wstring(flow.processId) +
+        L"（" + NetworkAttributionText(flow.processAttribution) + L"）";
+}
 
 // 输入原行，输出真实坐标，不使用当前表格下标。
 Key Coordinate(const EvidenceRecord& row)
 {
     return {row.segmentOrdinal, row.sequence, row.offset};
+}
+
+// 输入已核验网络行及其所属 raw stream，输出包含来源 lane 的稳定定位键。
+NetworkKey NetworkCoordinate(const EvidenceRecord& row, std::uint32_t streamKind)
+{
+    if (!row.network)
+    {
+        return {streamKind, {}, Coordinate(row)}; // 防御性回退，正常网络树行始终带有网络投影。
+    }
+    const auto& record = *row.network;
+    return {streamKind, record.source.sourceId,
+        {record.segmentOrdinal, record.flow.recordSequence, record.flow.recordOffset}};
 }
 
 // 输入双方原行与角色，输出同一 TreeView 中可定位的叶项标题。
@@ -72,10 +139,11 @@ void ApiTransferCandidateTree::Create(HWND parent, int id)
 // 输入已发布快照及范围是否相同，同步更新三类API来源、四类执行候选及读取状态；不执行I/O。
 void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sameScope)
 {
-    std::optional<Key> selected; // 当前叶项坐标。
+    std::optional<Key> selected; // 当前候选叶项坐标，用于避免恢复时被父节点覆盖。
     std::optional<CandidateKey> selectedPair; // 当前候选类型与双方身份。
     std::optional<int> selectedRoot; // 当前分类根，不以旧节点句柄恢复。
-    std::array<bool, 8> rootExpanded{}; // 第八根同时承载历史状态和独立观察。
+    std::optional<NetworkKey> selectedNetwork; // 网络叶按 raw stream/lane、段、序号和偏移恢复。
+    std::array<bool, 9> rootExpanded{}; // 前八根保持原语义，第九根独立承载网络来源。
     std::optional<Ksword::Evidence::NativeExecutionHistoryEntry> selectedHistory; // 原历史选择按散列与坐标恢复。
     std::optional<int> selectedSide; // 原生叶与同序号 API 叶不可互换。
     std::set<CandidateKey> expanded; // 三类重叠候选分别恢复展开。
@@ -94,6 +162,14 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
         if (const auto* entry = History())
         {
             selectedHistory = *entry;
+        }
+        else if (value >= kNetworkLeaf)
+        {
+            const auto index = static_cast<std::size_t>(value - kNetworkLeaf);
+            if (index < networkRecords_.size())
+            {
+                selectedNetwork = NetworkCoordinate(networkRecords_[index], networkStreamKind_);
+            }
         }
         else if (value < 0)
         {
@@ -117,11 +193,15 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
         {
             const auto groupValue = NodeValue(hwnd_, root); // -1 创建，-2 APC，-3 上下文。
             const auto group = static_cast<int>(-groupValue - 1); // 独立根类型。
-            if (group < 0 || group >= 8)
+            if (group < 0 || group > 8)
             {
                 continue;
             }
             rootExpanded[group] = (TreeView_GetItemState(hwnd_, root, TVIS_EXPANDED) & TVIS_EXPANDED) != 0;
+            if (group >= 7)
+            {
+                continue; // -8 是原生历史状态根，-9 是网络根，二者没有 API 候选子节点。
+            }
             for (auto node = TreeView_GetChild(hwnd_, root); node; node = TreeView_GetNextSibling(hwnd_, node))
             {
                 const auto leafValue = NodeValue(hwnd_, TreeView_GetChild(hwnd_, node)); // 候选首叶。
@@ -139,9 +219,22 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
     TreeView_DeleteAllItems(hwnd_);
     candidates_.clear();
     history_.clear();
+    networkRecords_.clear();
+    networkStreamKind_ = evidence && evidence->identity ? evidence->identity->streamKind : 0;
     if (evidence)
     {
         history_.assign(evidence->nativeExecution.observations.begin(), evidence->nativeExecution.observations.end());
+        for (const auto& row : evidence->rows)
+        {
+            if (row.network)
+            {
+                if (networkRecords_.size() == kNetworkLeafLimit)
+                {
+                    networkRecords_.erase(networkRecords_.begin()); // 有界保留最新网络行，不先复制完整快照。
+                }
+                networkRecords_.push_back(row); // 仅复制当前不可变快照中已核验的网络行。
+            }
+        }
         for (const auto& pair : evidence->transferCandidates)
         {
             candidates_.push_back({pair.write, pair.threadCreate, 0,
@@ -266,6 +359,28 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
             TreeView_SelectItem(hwnd_, group);
         }
     }
+    if (evidence && !networkRecords_.empty())
+    {
+        const auto group = Insert(hwnd_, TVI_ROOT, L"网络来源记录 · 保留 " + std::to_wstring(networkRecords_.size()), -9);
+        for (std::size_t index = 0; index < networkRecords_.size(); ++index)
+        {
+            const auto& row = networkRecords_[index];
+            const auto leaf = Insert(hwnd_, group, NetworkLeafText(row, networkStreamKind_),
+                kNetworkLeaf + static_cast<LPARAM>(index));
+            if (selectedNetwork && *selectedNetwork == NetworkCoordinate(row, networkStreamKind_))
+            {
+                TreeView_SelectItem(hwnd_, leaf);
+            }
+        }
+        if (!sameScope || rootExpanded[8])
+        {
+            TreeView_Expand(hwnd_, group, TVE_EXPAND);
+        }
+        if (selectedRoot == 8)
+        {
+            TreeView_SelectItem(hwnd_, group);
+        }
+    }
     if (evidence && evidence->nativeExecution.state != Ksword::Evidence::NativeHistoryState::NotRequested)
     {
         const auto& native = evidence->nativeExecution; // 独立读取状态，候选为空也不隐藏。
@@ -324,6 +439,11 @@ void ApiTransferCandidateTree::Publish(const SegmentEvidence* evidence, bool sam
 const EvidenceRecord* ApiTransferCandidateTree::Activate() const
 {
     const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 正值才有原包定位资格。
+    if (value >= kNetworkLeaf)
+    {
+        const auto index = static_cast<std::size_t>(value - kNetworkLeaf);
+        return index < networkRecords_.size() ? &networkRecords_[index] : nullptr;
+    }
     if (value <= 0 || value >= kHistoryLeaf)
     {
         return nullptr;
@@ -346,7 +466,7 @@ const EvidenceRecord* ApiTransferCandidateTree::Activate() const
 const Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>* ApiTransferCandidateTree::Execution() const
 {
     const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 控件自持有的稳定角色编号。
-    if (value <= 0 || value >= kHistoryLeaf || (value - 1) % 3 != 2)
+    if (value <= 0 || value >= kHistoryLeaf || value >= kNetworkLeaf || (value - 1) % 3 != 2)
     {
         return nullptr;
     }
@@ -358,7 +478,7 @@ const Ksword::Evidence::ApiNativeExecutionCandidate<EvidenceRecord>* ApiTransfer
 const Ksword::Evidence::NativeExecutionHistoryEntry* ApiTransferCandidateTree::History() const
 {
     const auto value = NodeValue(hwnd_, TreeView_GetSelection(hwnd_)); // 独立编码只用于历史叶。
-    if (value < kHistoryLeaf)
+    if (value < kHistoryLeaf || value >= kNetworkLeaf)
     {
         return nullptr;
     }

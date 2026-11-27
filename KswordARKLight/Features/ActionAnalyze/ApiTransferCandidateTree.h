@@ -31,6 +31,8 @@ private:
     HWND hwnd_ = nullptr; // 页面拥有的原生 TreeView，随父窗口销毁。
     std::vector<Candidate> candidates_; // 最多512对API来源候选和512个执行候选，自持有来源防止快照更换悬空。
     std::vector<Ksword::Evidence::NativeExecutionHistoryEntry> history_; // 最近512条独立历史，按原来源恢复选择。
+    std::vector<EvidenceRecord> networkRecords_; // 最近512条已核验网络行，自持有来源供现有详情路径消费。
+    std::uint32_t networkStreamKind_ = 0; // 当前网络树的 raw stream 编号，和来源 lane 一起组成恢复身份。
 };
 
 } // namespace Ksword::Features::ActionAnalyze
