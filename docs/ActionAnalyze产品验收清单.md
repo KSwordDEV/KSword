@@ -3,16 +3,22 @@
 ## 当前正式范围
 
 1. 启动挂起：正式 CLI 旧入口已有通过事实。
-2. bounded CLI 进度：旧短场景为 11 帧、276 包、2 段、69 线索；原 wrapper FAIL 保留，原生 API progress 因 source setup EOF 尚未到产品。
-3. 归类与解释：Resume 规则真实 run02 归档回读通过；412e 文件写入字段/规则为源码状态。
+2. bounded CLI 进度：旧短场景为 11 帧、276 包、2 段、69 线索；原生 attempt07 普通显式附加已取得 9 帧 startup＋4 帧 capture progress，Held owner/停点身份保持且已有最终封段。runner 将总入队 13 误比为 capture 的 4，原 FAIL 与离线更正均保留（来源 `933fbd8b7`）；正常控制器关闭请求未完成，不登记干净 PASS。
+3. 归类与解释：Resume 规则真实 run02 归档回读通过；WriteFile 同步零字节/部分/全部完成及异步 pending 四项生产规则语义离线夹具已通过。真实 Hook 执行及 GUI 本轮无新增实证。
 4. 跨进程转移：两跳、新范围、Kind5 WPM/NTWrite 各有窄场景实证，不宣全类方法。
 5. 脏内存断点与新线程：Kind6 Resume/NTResume 及相关窄场景已有实证，不宣全类方法。
 6. 全局下断及恢复：held Continue 25/25、Step、活 F source 失败单成员清退各有窄实证，不宣全类方法。
 7. 流量抓取：旧宿主 localhost raw-socket 零包 FAIL 保留；用户授权的 Win10-20H2 19042 来宾已真实加载驱动，显式 `existing-wfp` 单次取得 3 包/191 字节，正式 `network-read` 回读原 IPv4/TCP 头及唯一 marker，本窄场景 PASS。逐包仍为 `endpoint-table-hint`、creation 未知，coverage 为 `unknown`、`sourceLossUnquantified=true`；不宣称第7项全量或11项完成，详见下方本批追加摘要。
 8. ETW 遥测：真实单跳 Agent ETW 混采 5 次观察、2 段通过；dbe 运行进度仍为源码状态。
 9. 底部树状图：Qt/Light 原坐标已有旧实测；beee+affa 两端新实时接线 Release 构建成功，无新 GUI 结论。
-10. C# 语法及复杂条件：复杂 v3 三元/位运算三值已落地；22f 二进制 mask 仍为源码待最小验。
-11. 行为规则预置：6b305d pending 仍为源码状态；待作者追加实际结果，不据等待状态扩写结论。
+10. C# 语法及复杂条件：复杂 v3 三元/位运算三值已落地；binary v3 掩码解析求值、非法数字拒绝、u64 溢出拒绝及 legacy-v2 拒绝二进制字面量四项生产解释器离线夹具已通过，不扩为完整语法验收。
+11. 行为规则预置：正式部署规则库的 WriteFile 同步零字节/部分/全部完成及异步 pending 四项离线夹具已通过；与 binary 四项合计 8/8，仅生产规则语义离线夹具，不代表真实 Hook 执行、GUI 或完整11项通过。
+
+### 2026-11-27 本批追加：规则八项与已有进度/构建回执
+
+- 规则八项仅一次适用夹具增量构建、一次 `--focused-eight`，`8 checks, 0 failures`；构建、夹具真实进程及包装器退出码均为 `0`。固定 IntDir 为 `tools/action_analyze_validation/rules/x64/Release/RuleExpressionValidation`，正式产物为 `Ksword5.1/x64/Release/ActionAnalyzeRuleExpressionValidation.exe`（609792 字节），SHA256 `0BB95B1632B05713753C2652E4D3C85EBD54863C81A5A25770828923E433E9BF`；实际加载正式规则库 SHA256 `3f5283bba6ffb656ed691d92b9497ff46d3c41c6fb9c97453fb564ffef0beca8`。BelowNormal／MSVC 14.51 HostX64，只重编译夹具并复用其余15个对象；不生成测试配置，固定产物保留，旧 FAIL 不改写。机器回执 `.codex-build-logs/action-analyze-rule-profile-identity-20261127-131519.json`，同前缀 `.log`、`.fixture.stdout.log`、`.fixture.stderr.log` 保存原始输出；逐项与来源说明 `.codex-build-logs/action-analyze-rules-eight/receipt-recovery.md`，模式提交 `85e98f4f3`。本轮未运行旧完整套件、CLI、GUI、VM 或 Agent。
+- attempt07 证据来源 `933fbd8b7`，见 `tools/action_analyze_validation/cli/native_api_progress/attempt-07/offline-correction.md` 及同目录原 `receipt.json`、`run.log`、两份 progress JSONL。正式终态 `held-complete`、`capture-partial`、capture exit `6`、`completedInterval=true`、`lastProgressSequence=4`、`droppedFrames=0`、`outputDrained=true`，原 Held owner/停点身份未变，`finalSegment=true` 已落盘。原 runner 在正常关闭请求前因 `13 != 4` 失败，最终清理已执行；保留 harness FAIL，不重跑、不将其改为干净 PASS。
+- 已有三端 Release 增量构建成功（仅构建结论）：CLI `Ksword5.1/x64/Release/KswordCLI.exe` SHA256 `6543745263B80F44A94ED701DA23301FFFF43BF9716F8FDBFFB4C0DFFF5B2E44`；Light `Ksword5.1/x64/Release/KswordARKLight.exe` SHA256 `3F29A77690BA3DBD5CDA3214A29D9953E923516F10EB14E97D78F817D3EEA330`；Qt `Ksword5.1/x64/Release/Ksword5.1.exe` SHA256 `C6FA5BEAB57D7530BFAEE8B6598D8DDFF3176C6E483B890910DBC05B6BF6F09A`。三者构建退出 `0`，使用固定 IntDir/正式 Release、HostX64、BelowNormal；来源及并发边界以 `.codex-build-logs/native-balanced-batch/balanced-release-integration-receipt-20261127.md` 为准，Qt 冻结 `6650cf92e` 且工作树 dirty。该批无新 GUI/运行验收，后续 `0e256f56a` 网络损失展示改动仍未由这些 hash 覆盖。本次仅同步已有事实，不执行测试、构建或审计。
 
 ### 2026-11-27 本批来源坐标与运行前提补记
 
