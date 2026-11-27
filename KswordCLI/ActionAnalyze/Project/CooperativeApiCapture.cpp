@@ -554,6 +554,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         }
         auto& etw = *out.etw; // 每端及终段共用的独立ETW结果。
         const auto status = etwSource->status(); // 排空前冻结本段实际PID筛选。
+        etw.source = status; // 即使尚未到封段阈值，也回显真实来源状态、排队量及损失，不滞留上段值。
         const auto now = GetTickCount64(); // 与API根Ready时钟分开，仅决定封段频率。
         if (!final && status.queued < 256 && now < etwNextFlush)
         {
