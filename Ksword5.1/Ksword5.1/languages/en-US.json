@@ -9229,6 +9229,7 @@
     "规则失败": "Rules failed",
     "规则配置错误": "Rule configuration error",
     "行为规则未请求": "Behavior rules not requested",
+    "behavior:%1:%2:%3:%4:%5": "behavior:%1:%2:%3:%4:%5",
     "行为规则不可用：%1": "Behavior rules unavailable: %1",
     "行为命中（当前窗口 %1 / 已分析 API %2）": "Behavior matches (%1 in current window / %2 APIs analyzed)",
     "raw/%1 #%2 · 来源序号 %3 · %4 · %5 · %6": "raw/%1 #%2 · source sequence %3 · %4 · %5 · %6",
