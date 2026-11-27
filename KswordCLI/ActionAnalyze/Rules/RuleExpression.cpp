@@ -64,6 +64,25 @@ bool HexDigit(char ch)
     return Digit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
 }
 
+// 按当前字面量基数判断数字，避免把后缀或其它标识符字符并入数值。
+bool NumberDigit(char ch, bool hex)
+{
+    return hex ? HexDigit(ch) : Digit(ch);
+}
+
+// v3 只接受 C# 常用的无符号后缀两种排列，并允许每个字母独立大小写。
+bool IsUnsignedLongSuffix(std::string_view suffix)
+{
+    if (suffix.size() != 2) {
+        return false;
+    }
+    const bool firstUnsigned = suffix[0] == 'u' || suffix[0] == 'U';
+    const bool secondLong = suffix[1] == 'l' || suffix[1] == 'L';
+    const bool firstLong = suffix[0] == 'l' || suffix[0] == 'L';
+    const bool secondUnsigned = suffix[1] == 'u' || suffix[1] == 'U';
+    return (firstUnsigned && secondLong) || (firstLong && secondUnsigned);
+}
+
 // 已验证的 Unicode 标量转为 UTF-8。NUL 保留在值内，后续按长度比较。
 void AppendScalar(std::string& text, unsigned scalar)
 {
@@ -738,7 +757,7 @@ bool Parser::ReadLiteral(Literal& value)
     return true;
 }
 
-// 十进制和 0x 十六进制均要求显式 u64 后缀。使用 from_chars 无损验证全宽度。
+// 十进制和 0x 十六进制均要求显式 u64 或 v3 UL/LU 后缀，使用 from_chars 无损验证全宽度。
 bool Parser::ReadNumber(Literal& value)
 {
     const auto start = position_; // 包括前缀与后缀在内的诊断起始位置。
@@ -747,21 +766,49 @@ bool Parser::ReadNumber(Literal& value)
         position_ += 2;
     }
     const auto first = position_; // 去掉基数前缀的第一位。
-    while (position_ < source_.size() && (hex ? HexDigit(source_[position_]) : Digit(source_[position_]))) {
-        ++position_;
+    std::string digits; // 去除 v3 分隔符后的连续数字，供 from_chars 无损解析。
+    bool previousDigit = false; // 分隔符前必须已有数字。
+    while (position_ < source_.size()) {
+        const char ch = source_[position_]; // 当前数字或分隔符。
+        if (NumberDigit(ch, hex)) {
+            digits.push_back(ch);
+            previousDigit = true;
+            ++position_;
+            continue;
+        }
+        if (ch == '_') {
+            // 数字分隔符只在 v3 开放，且两侧必须是当前基数的数字。
+            if (version_ < 3 || !previousDigit || position_ + 1 >= source_.size() ||
+                !NumberDigit(source_[position_ + 1], hex)) {
+                return Fail(ExpressionError::InvalidNumber, {start, position_ + 1});
+            }
+            previousDigit = false;
+            ++position_;
+            continue;
+        }
+        break;
     }
-    const auto last = position_; // 数字部分结束，不允许数字与后缀之间有空白。
-    if (first == last || !source_.substr(position_).starts_with("u64")) {
+    // 数字部分结束，不允许数字与后缀之间有空白。
+    if (first == position_ || digits.empty() || !previousDigit) {
         return Fail(ExpressionError::InvalidNumber, {start, position_});
     }
-    position_ += 3;
+    std::size_t suffixLength = 0; // 后缀长度，旧 u64 为三字节，v3 UL/LU 为两字节。
+    if (source_.substr(position_).starts_with("u64")) {
+        suffixLength = 3; // 保留所有已记录 profile 的旧写法及其大小写语义。
+    } else if (version_ >= 3 && source_.size() - position_ >= 2 &&
+        IsUnsignedLongSuffix(source_.substr(position_, 2))) {
+        suffixLength = 2; // 新的 C# 风格后缀只在 v3 生效。
+    } else {
+        return Fail(ExpressionError::InvalidNumber, {start, position_ + 1});
+    }
+    position_ += suffixLength;
     if (position_ < source_.size() &&
         (IdentifierStart(source_[position_]) || Digit(source_[position_]))) {
         return Fail(ExpressionError::InvalidNumber, {start, position_ + 1});
     }
     std::uint64_t number = 0; // 通过检查后进入类型化节点的数值。
-    const auto end = source_.data() + last; // 检查数值部分是否全部消耗。
-    const auto parsed = std::from_chars(source_.data() + first, end, number, hex ? 16 : 10);
+    const auto end = digits.data() + digits.size(); // 分隔符已去除，检查连续数字是否全宽可表示。
+    const auto parsed = std::from_chars(digits.data(), end, number, hex ? 16 : 10);
     if (parsed.ec == std::errc::result_out_of_range) {
         return Fail(ExpressionError::NumericOverflow, {start, position_});
     }

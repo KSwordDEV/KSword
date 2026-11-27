@@ -65,7 +65,7 @@ Qt旧模块caseFold与CLI ordinal-ignore-case、NUL及版本宽松解析存在�
 - 路径保留DOS／NT／UNC／长路径／注册表namespace。`Path.LexicalMatch`不访问文件、不解析reparse、不剥ADS／尾点、不擅自合并C盘与device路径。真实文件identity与词法匹配分开；HKCU保存SID、注册表视图保存WOW64。
 - API模块裸名可按明确ASCII规则忽略大小写并补`.dll`；函数导出名敏感；有路径或其它扩展不擅自改写。模块文件／映射identity条件优先于文本同名。
 - IP为family＋二进制地址＋scope，IPv4-mapped IPv6不默认等同，端口0有效；host规范化另列函数与版本，不套路径规则。
-- 十进制默认，十六进制必须`0x`，u64等用显式后缀／构造；类型不隐式窄化，溢出／除零为evaluation-error→U，常量错误校验即拒绝。地址使用`addr("0x...")`且带目标位宽／对象上下文。
+- 十进制默认，十六进制必须`0x`，u64等用显式后缀／构造；当前 `predicate-expr-v3` 另接受数字之间的 `_` 分隔符，以及大小写均可的 `UL`／`LU` 两字符无符号长整型后缀（例如 `1_000UL`、`0xFFFF_FFFFLU`），分隔符不能出现在数字首尾、连续出现或夹在后缀／空白旁。`u64` 旧写法继续保留；v1/v2 不开放新后缀和分隔符。类型不隐式窄化，溢出／除零为evaluation-error→U，常量错误校验即拒绝。地址使用`addr("0x...")`且带目标位宽／对象上下文。
 - 时间范围统一`[start,end)`；`last(30s)`创建查询时固定anchor，follow才明确滑动。跨clockId无可靠校准比较为U；UTC展示顺序不替代因果。暂停时主机时间仍走，无事件不能直接得absence。
 
 ## 5. 有限C#风格表达式
@@ -199,7 +199,7 @@ follow为独立订阅，默认不补全历史；分页→实时交接必须先�
 
 ```csharp
 api.id == apiRef("Kernel32.dll", "WriteProcessMemory")
-    && args.RequestedLength >= 4096u64
+    && args.RequestedLength >= 4_096UL
     && target.process != actor.process
     && Bytes.StartsWith(args.BufferSnapshot, hex"4D 5A")
 ```
