@@ -169,6 +169,22 @@ def invoke(*args, accepted=(0,)):
     return receipt(result.returncode, result.stdout, result.stderr, accepted)
 
 
+def self_write_detail(wire):
+    """Normalize the fixed AAIP1 slot or the legacy key=value summary."""
+    text = wire[224:864].decode('utf-16-le').split('\0', 1)[0]
+    if text.startswith('AAIP1|'):
+        fields = text.split('|')
+        assert fields[0] == 'AAIP1' and len(fields) == 15, text
+        values = [int(field, 16) for field in fields[1:]]
+        assert values[0] == 1, values
+        return dict(flags=values[1], base=values[7], requested=values[8],
+                    completed=values[9], process=values[13])
+
+    fields = dict(field.split('=', 1) for field in text.split())
+    return dict(flags=None, base=int(fields['base'], 16), requested=int(fields['size']),
+                completed=int(fields['written']), process=int(fields['process'], 16))
+
+
 def create_session_directory(directory):
     class SecurityAttributes(C.Structure):
         _fields_ = [('length', W.DWORD), ('descriptor', C.c_void_p), ('inherit_handle', W.BOOL)]
@@ -273,17 +289,21 @@ def verify_archive(project, identity, captured, emitted, require_first=False, re
             continue
         if wire[96:224].decode('utf-16-le').split('\0', 1)[0] != 'WriteProcessMemory':
             continue
-        detail = dict(field.split('=', 1) for field in wire[224:864].decode('utf-16-le').split('\0', 1)[0].split())
-        if identity.get('deniedBase') == int(detail['base'], 16):
-            assert int(detail['process'], 16) == identity['queryHandle'] and detail['size'] == '1', detail
-            assert struct.unpack_from('<i', wire, 28)[0] == ERROR_ACCESS_DENIED and detail['written'] == '0', detail
+        detail = self_write_detail(wire)
+        if identity.get('deniedBase') == detail['base']:
+            assert detail['process'] == identity['queryHandle'] and detail['requested'] == 1, detail
+            assert struct.unpack_from('<i', wire, 28)[0] == ERROR_ACCESS_DENIED and detail['completed'] == 0, detail
+            if detail['flags'] is not None:
+                assert not detail['flags'] & (1 << 3), detail
             if first_denied is None:
                 first_denied = (ordinal, index, metadata, wire)
             continue
-        offset = int(detail['base'], 16) - identity['base']
-        assert 0 <= offset < emitted and detail['size'] == detail['written'] == '1', (offset, detail)
+        offset = detail['base'] - identity['base']
+        assert 0 <= offset < emitted and detail['requested'] == detail['completed'] == 1, (offset, detail)
+        if detail['flags'] is not None:
+            assert detail['flags'] & (1 << 3), detail
         # The producer serializes GetCurrentProcess() as a 64-bit all-ones value on both architectures.
-        assert int(detail['process'], 16) == 0xFFFFFFFFFFFFFFFF, detail
+        assert detail['process'] == 0xFFFFFFFFFFFFFFFF, detail
         assert struct.unpack_from('<IIIIQIi', wire)[:4] == (1000, 0x20261003, identity['pid'], identity['tid'])
         assert struct.unpack_from('<i', wire, 28)[0] == 0
         assert struct.unpack_from('<Q', wire, 896)[0] == int(captured['sourceSessionIdentity'])

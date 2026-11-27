@@ -397,7 +397,8 @@ Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
     }
     return Json::object({{L"presetSet", rules.presetSet.empty() ? Json{} : Json::string(WideAscii(rules.presetSet))},
         {L"sourceSha256", rules.sourceSha256.empty() ? Json{} : Json::string(WideAscii(rules.sourceSha256))},
-        {L"configError", rules.configError.empty() ? Json{} : Json::string(WideAscii(rules.configError))},
+        // 外置规则错误可含用户规则ID及路径；与双语释义相同按UTF-8解码，不逐字节扩宽。
+        {L"configError", rules.configError.empty() ? Json{} : Json::string(ks::str::Utf8ToUtf16(rules.configError))},
         {L"profile", Json::string(L"by-category")}, {L"coverage", Json::string(L"unknown")},
         {L"state", Json::string(rules.failed ? L"evaluation-failed" : L"ready")},
         {L"matchedRows", Json::count(rules.matchedRows)}, {L"latest", std::move(latest)}});
