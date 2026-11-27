@@ -163,13 +163,18 @@ bool DecodeArchiveLine(std::string_view line, std::uint64_t expectedSequence, ev
 
 // 统一输出失败阶段、原始行号或存储错误。样本若已登记，始终将其 ID 随失败一起返回。
 Result Failure(int code, const wchar_t* status, std::uint64_t sequence = 0,
-    DWORD native = 0, const std::string& sample = {}, const char* detail = "")
+    DWORD native = 0, const std::string& sample = {}, const char* detail = "", const Json& progress = {})
 {
-    return {code, Json::object({{L"status", Json::string(status)},
+    std::vector<std::pair<std::wstring, Json>> fields{{L"status", Json::string(status)},
         {L"sourceSequence", sequence ? Json::count(sequence) : Json{}},
         {L"win32Error", native ? Json::number(native) : Json{}},
         {L"sampleId", sample.empty() ? Json{} : Json::string({sample.begin(), sample.end()})},
-        {L"detail", Json::string(std::wstring(detail, detail + std::char_traits<char>::length(detail)))}}), {status}};
+        {L"detail", Json::string(std::wstring(detail, detail + std::char_traits<char>::length(detail)))}};
+    if (progress.text != L"null")
+    {
+        fields.emplace_back(L"captureProgress", progress); // 只对已订阅且已创建输出通道的调用附加交付事实。
+    }
+    return {code, Json::object(fields), {status}};
 }
 
 // 将原包事实和未知项投影成 CLI 值。原包序号与 Stored 序号分别引用。
@@ -565,11 +570,16 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         if (!launched->agentReadyBeforeMainResume && run.sample.sampleId.empty())
         {
             // 尚未登记采样的入口故障仍保留启动阶段，不能仅报成项目创建失败。
-            return {cancel.token->load() ? 6 : 3, Json::object({
+            std::vector<std::pair<std::wstring, Json>> failureFields{
                 {L"status", Json::string(L"launch-bootstrap-incomplete")},
-                {L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressOutput.Finish()))}},
                 {L"launch", Json{project::ProjectStorage::WideAscii(
-                    evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))}}}), {}};
+                    evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))}}};
+            const auto delivery = progressOutput.Finish(); // 恢复返回后排空；无订阅时不改变旧响应字段。
+            if (!delivery.isNull())
+            {
+                failureFields.emplace_back(L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(delivery))});
+            }
+            return {cancel.token->load() ? 6 : 3, Json::object(failureFields), {}};
         }
     }
     else if (attached)
@@ -585,11 +595,13 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
     const auto progressDelivery = progressOutput.Finish(); // 原采集及恢复已返回后才有限排空旁路通知。
+    const auto deliveryJson = progressDelivery.isNull() ? Json{} :
+        Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressDelivery))};
     if (!run.sampleStatus) {
-        return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail);
+        return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail, deliveryJson);
     }
     if (!run.agentPathAvailable) {
-        return Failure(3, L"agent-path-unavailable");
+        return Failure(3, L"agent-path-unavailable", 0, 0, run.sample.sampleId, "", deliveryJson);
     }
     const auto& sample = run.sample; // 成功登记的实际采样，而不是当前 UI 选择。
     const auto& captured = run.capture; // 从冻结目标的真实管道回执投影。
@@ -624,7 +636,6 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"sampleId", Json::string({sample.sampleId.begin(), sample.sampleId.end()})},
         {L"revisionId", Json::string({revision.begin(), revision.end()})},
         {L"pid", Json::number(pid)}, {L"creationFileTime", Json::count(creation)},
-        {L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressDelivery))}},
         {L"transferHandoff", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(run.transferHandoff))}},
         {L"networkTraffic", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
             project::ApiCaptureNetworkJson(run.networkTraffic)))}},
@@ -672,6 +683,10 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"apiContextTransfers", apiArchived ? CooperativeContextTransfersReport(run.transfers) : Json{}},
         {L"errors", Json::strings(captured.errors)}
     };
+    if (!progressDelivery.isNull())
+    {
+        fields.emplace_back(L"captureProgress", deliveryJson);
+    }
     if (etw) {
         // 原生来源回执只含 ASCII 字段和值。封段与检查点错误各自保留本地阶段。
         const auto status = evidence::WriteJson(project::EtwSourceReceipt(etw->source)); // 活采的原生来源快照。
