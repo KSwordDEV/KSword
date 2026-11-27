@@ -102,6 +102,11 @@ void Present(NetworkTrafficView& view)
             .field(QStringLiteral("覆盖率"), QStringLiteral("unknown"))
             .field(QStringLiteral("进程归属说明"), QStringLiteral("逐包 PID 仅为归属线索，不能证明数据包发生时的进程实例；采集不保证覆盖全部流量。"), true);
         Issue(fields, QStringLiteral("归档结果"), receipt.status);
+        if (request.plan.backend == project::NetworkTrafficBackend::RawSocket)
+        {
+            // 固定来源能力说明与本次计数分别保留，不能把零报文解释成目标没有通信。
+            fields.note(QStringLiteral("Raw Socket 仅观察接口可见报文，不保证本机回环覆盖；来源就绪只表示采集源初始化完成，零报文不证明目标没有通信。"));
+        }
         for (const auto& diagnostic : receipt.diagnostics) {
             fields.field(QStringLiteral("来源诊断"), QString::fromUtf8(diagnostic.data(), diagnostic.size()));
         }

@@ -105,7 +105,7 @@ bool CreateControls(Page& page)
     Tip(page, page.capture, L"冻结项目、采样、目标实例及来源，在正式项目写租约内采集并核验网络段。");
     Tip(page, page.read, L"只读核验原 raw-network，不要求目标进程仍在运行。");
     Tip(page, page.cancel, L"停止本次来源并排空归档，保留已提交的原采样数据。");
-    Tip(page, page.source, L"raw-socket 复用接口抓包；existing-wfp 只读已启用的 WFP，不自动切换来源。");
+    Tip(page, page.source, L"raw-socket 复用接口抓包，不保证本机回环覆盖；existing-wfp 只读已启用的 WFP，不自动切换来源。");
     Tip(page, page.sequence, L"留空显示前 256 条、每包 64 字节；指定序号读取该记录全部归档字节。");
     Tip(page, page.copy, L"复制当前显示的完整回执和字节正文。");
     Tip(page, page.exportText, L"导出当前显示的完整回执和字节正文。");

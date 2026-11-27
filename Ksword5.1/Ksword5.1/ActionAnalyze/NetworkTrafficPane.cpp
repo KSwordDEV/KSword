@@ -166,7 +166,7 @@ void NetworkTrafficPane::retranslate()
     label(m_sequence, QStringLiteral("记录序号（可选）"));
 
     // 来源标识保持原值；提示解释选择结果，不改变当前选项或冻结请求。
-    m_source->setToolTip(sourceText(QStringLiteral("raw-socket 从网络接口抓包；existing-wfp 读取已启用的 WFP 抓包。采集时使用所选来源。")));
+    m_source->setToolTip(sourceText(QStringLiteral("raw-socket 从网络接口抓包，不保证捕获本机回环流量；existing-wfp 读取已启用的 WFP 抓包，不自动切换来源。")));
     m_sequence->setToolTip(sourceText(QStringLiteral("留空显示前 256 条、每包 64 字节；指定序号读取该记录全部归档字节。")));
     m_capture->setText(sourceText(QStringLiteral("采集到原采样")));
     m_capture->setToolTip(sourceText(QStringLiteral("按当前参数采集目标进程的网络数据，保存到所填采样。")));
@@ -283,8 +283,16 @@ void NetworkTrafficPane::execute(bool capture)
                 result.receipt.sourceReady && result.receipt.cleanupConfirmed && result.receipt.reason == "duration-elapsed" &&
                 !result.receipt.queueDropped && !result.receipt.sourceGap && !result.receipt.unsupportedPackets &&
                 result.receipt.checkpoint.ordinal && result.read.status : bool(result.read.status));
-            setStatus(ok ? QStringLiteral("操作已结束，实际来源与结果见回执。") :
-                QStringLiteral("操作未完整完成，错误或部分结果见回执；可修正参数后重试。"));
+            if (ok && result.request.capture && !result.receipt.packets)
+            {
+                // 正常封段但未观察到报文，与失败、未就绪和存在报文分别显示。
+                setStatus(QStringLiteral("采集已结束，未观察到目标报文；来源就绪不代表覆盖全部流量或本机回环。"));
+            }
+            else
+            {
+                setStatus(ok ? QStringLiteral("操作已结束，实际来源与结果见回执。") :
+                    QStringLiteral("操作未完整完成，错误或部分结果见回执；可修正参数后重试。"));
+            }
             return true;
         },
         [this](std::exception_ptr) {

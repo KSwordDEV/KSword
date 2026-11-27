@@ -51,6 +51,11 @@ std::wstring Present(const project::NetworkTrafficResult& result)
             std::to_wstring(receipt.capturedBytes) + L"\r\n队列丢弃：" + std::to_wstring(receipt.queueDropped) +
             L"\r\n来源游标缺口：" + std::to_wstring(receipt.sourceGap) + L"\r\n不支持的记录：" +
             std::to_wstring(receipt.unsupportedPackets) + L"\r\n覆盖率：unknown\r\n归档结果：" + Issue(receipt.status);
+        if (request.plan.backend == project::NetworkTrafficBackend::RawSocket)
+        {
+            // 与Qt使用相同来源语义，正常空归档不转换成“目标没有通信”。
+            text += L"\r\nRaw Socket 仅观察接口可见报文，不保证本机回环覆盖；来源就绪只表示采集源初始化完成，零报文不证明目标没有通信。\r\n";
+        }
         for (const auto& message : receipt.diagnostics) {
             text += L"来源诊断：" + Wide(message) + L"\r\n";
         }
