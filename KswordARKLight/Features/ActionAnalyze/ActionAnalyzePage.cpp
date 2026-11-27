@@ -473,7 +473,7 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
     for (const auto& record : snapshot.evidence.rows) {
         if (record.segmentOrdinal) {
             // API 归档可来自 Records 流；不能用 Raw 流判断挡住合作 API 的规则回放。
-            if (snapshot.evidence.apiClues && !record.apiClue.empty() && !record.apiFamily.empty()) {
+            if (!record.apiClue.empty() && !record.apiFamily.empty()) {
                 apiFamilies[record.apiFamily].push_back(rows->size());
             } else if (isRaw && record.etw) {
                 etw.rows.push_back(rows->size());
@@ -860,6 +860,26 @@ const EvidenceRecord* SelectedRecord(const Page& page) {
     return &evidence->rows[*page.selected];
 }
 
+// 通过归档行的稳定坐标查找规则结果，兼容表内选择和行为树表外选择。
+const ApiRuleDetails* RuleDetailsForRecord(const Snapshot& snapshot, const EvidenceRecord& record)
+{
+    if (!snapshot.apiRules)
+    {
+        return nullptr; // 规则加载或求值失败时不伪造空命中。
+    }
+    const auto& rows = snapshot.evidence.rows; // 规则结果与未经筛选的原始行保持同一索引。
+    const auto& details = *snapshot.apiRules; // 当前回放拥有的规则结果快照。
+    const auto limit = (std::min)(rows.size(), details.size()); // 防止旧档或失败快照发生越界。
+    for (std::size_t index = 0; index < limit; ++index)
+    {
+        if (CoordinateOf(rows[index]) == CoordinateOf(record))
+        {
+            return &details[index]; // 坐标匹配后返回同一行的汇总、细分和行为结果。
+        }
+    }
+    return nullptr; // 表外行不在当前规则结果范围时保持未知。
+}
+
 // 从当前归档行生成底部证据标签，返回空串表示没有受支持的来源分类。
 std::wstring ArchivedRelationText(const EvidenceRecord& record) {
     if (!record.segmentOrdinal) {
@@ -992,15 +1012,14 @@ void UpdateDetails(Page& page) {
         if (const auto relation = ArchivedRelationText(*record); !relation.empty()) {
             text += relation + L"\r\n";
         }
-        if (archive && page.selected) {
-            // 规则求值失败时仍保留输入字段详情；只有行为命中部分依赖完整的规则回执。
-            if (archive->apiRules && *page.selected < archive->apiRules->size()) {
-                const auto& rules = (*archive->apiRules)[*page.selected]; // 使用详情已选中的同一原始行索引。
-                if (!rules.grouped.empty()) {
-                    text += L"规则 ID（汇总）：" + Utf8ToWide(rules.grouped) + L"\r\n" +
-                        L"规则 ID（细分）：" + Utf8ToWide(rules.byCategory) + L"\r\n";
+        if (archive && !record->apiClue.empty()) {
+            const auto* rules = RuleDetailsForRecord(*archive, *record); // 表内和表外详情统一按原始坐标取结果。
+            if (rules) {
+                if (!rules->grouped.empty()) {
+                    text += L"规则 ID（汇总）：" + Utf8ToWide(rules->grouped) + L"\r\n" +
+                        L"规则 ID（细分）：" + Utf8ToWide(rules->byCategory) + L"\r\n";
                 }
-                if (const auto& behavior = rules.behavior) {
+                if (const auto& behavior = rules->behavior) {
                     text += L"行为规则 ID：" + Utf8ToWide(behavior->ruleId) + L"\r\n" +
                         L"证据级别：" + Utf8ToWide(behavior->evidence) + L"\r\n";
                     const auto& summary = BehaviorSummary(*behavior, page.behaviorLanguage); // 和树标题使用同一已求值原值。
@@ -1009,18 +1028,15 @@ void UpdateDetails(Page& page) {
                     }
                 }
             }
-            if (!record->apiClue.empty())
-            {
-                const auto ruleEvidence = RuleEvidenceOf(*record); // 与后台规则回放使用同一证据投影。
-                const auto api = NarrowApiText(record->apiClue); // 使用生产规则输入中的原始API名称。
-                const auto family = NarrowApiText(record->apiFamily); // 使用生产分类器产生的稳定类别ID。
-                const auto fields = Rules::ProjectApiPresetFields(api, family,
-                    record->memoryWriteReturn, ruleEvidence); // 原谓词匹配器使用的本行字段。
-                const auto inputText = Rules::FormatApiPresetFields(fields); // 显示与谓词求值完全相同的已知字段。
-                const bool chinese = PRIMARYLANGID(page.behaviorLanguage) == LANG_CHINESE; // 保持详情与行为树使用同一线程语言。
-                text += chinese ? L"规则比对输入：\r\n" : L"Rule match inputs:\r\n";
-                text += Utf8ToWide(inputText) + L"\r\n";
-            }
+            const auto ruleEvidence = RuleEvidenceOf(*record); // 与后台规则回放使用同一证据投影。
+            const auto api = NarrowApiText(record->apiClue); // 使用生产规则输入中的原始API名称。
+            const auto family = NarrowApiText(record->apiFamily); // 使用生产分类器产生的稳定类别ID。
+            const auto fields = Rules::ProjectApiPresetFields(api, family,
+                record->memoryWriteReturn, ruleEvidence); // 原谓词匹配器使用的本行字段。
+            const auto inputText = Rules::FormatApiPresetFields(fields); // 显示与谓词求值完全相同的已知字段。
+            const bool chinese = PRIMARYLANGID(page.behaviorLanguage) == LANG_CHINESE; // 保持详情与行为树使用同一线程语言。
+            text += chinese ? L"规则比对输入：\r\n" : L"Rule match inputs:\r\n";
+            text += Utf8ToWide(inputText) + L"\r\n";
         }
         if (record->eventOrdinal) {
             text += L"来源实例字典 ID：" + Number(record->sourceDictionaryId) + L"    来源代次字典 ID：" +
