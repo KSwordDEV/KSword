@@ -3,17 +3,69 @@
 import hashlib
 import os
 from contextlib import contextmanager
+from unittest.mock import patch
 from pathlib import Path
 import re
 import sys
+import subprocess
 
 # 独立桌面启动器已加入本端目录；先复用原Light脚本建立其现有依赖路径。
 import live_cooperative_api as existing
+import live_project_preview as preview
 from cooperative_api_capture import CLI, COOPERATIVE_ENV, cleanup_session, create_session_directory
 from continuous_etw import owned_scratch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'desktop_behavior_history'))
 from support import artifacts, light_history, preserve_project, release_arguments, screenshot, verify_archive, verify_history, write_json
+from desktop_behavior_tree import verify_tree
+
+
+@contextmanager
+def light_window(environment):
+    """适配参数布局后的真实页根；复用原启动、窗口关闭和注册表恢复，不另建GUI框架。"""
+    original_control = preview.control
+
+    def page_control(parent, identifier):
+        # 新开工程工具带是中间容器；只沿祖先回到本端明确的ActionAnalyze页面。
+        ancestor = parent
+        while ancestor and preview.gui.GetClassName(ancestor) != 'KswordARKLight.ActionAnalyze':
+            ancestor = preview.gui.GetParent(ancestor)
+        if ancestor:
+            return preview.wait_for(f'ActionAnalyze控件创建完成 {identifier}',
+                                    lambda: original_control(ancestor, identifier))
+        return original_control(parent, identifier)
+
+    with patch.object(preview, 'control', page_control):
+        with existing.light_window(env=environment) as page:
+            ancestor = page.page
+            while ancestor and preview.gui.GetClassName(ancestor) != 'KswordARKLight.ActionAnalyze':
+                ancestor = preview.gui.GetParent(ancestor)
+            assert ancestor, '原ActionAnalyze页根未找到'
+            page.page = ancestor
+            yield page
+
+
+def require_idle_environment():
+    """只检查共享Light配置拥有者及驱动；其它路径Qt实例不使用Light注册表，不关闭或操作它。"""
+    listing = subprocess.run(['tasklist.exe', '/fi', 'IMAGENAME eq KswordARKLight.exe', '/fo', 'csv', '/nh'],
+        capture_output=True, check=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+    assert b'"kswordarklight.exe"' not in listing.stdout.lower(), 'BLOCKED: Light实例使用共享配置'
+    scm = existing.win32service.OpenSCManager(None, None, existing.win32service.SC_MANAGER_CONNECT)
+    try:
+        try:
+            driver = existing.win32service.OpenService(scm, 'KswordARK', existing.win32service.SERVICE_QUERY_STATUS)
+        except existing.pywintypes.error as error:
+            if error.winerror == 1060:
+                return 'absent'
+            raise
+        try:
+            state = existing.win32service.QueryServiceStatus(driver)[1]
+            assert state == existing.win32service.SERVICE_STOPPED, ('BLOCKED: 活动驱动', state)
+            return 'stopped'
+        finally:
+            existing.win32service.CloseServiceHandle(driver)
+    finally:
+        existing.win32service.CloseServiceHandle(scm)
 
 
 @contextmanager
@@ -40,7 +92,7 @@ def capture(page, session, process, identity, directory):
     assert existing.gui.SendMessage(source, existing.con.CB_GETCURSEL, 0, 0) == 0
     existing.gui.SendMessage(source, existing.con.WM_KEYDOWN, existing.con.VK_DOWN, 0)
     assert existing.gui.SendMessage(source, existing.con.CB_GETCURSEL, 0, 0) == 1
-    assert existing.text(source, existing.con.CB_GETLBTEXT, 1) == '合作 Agent'
+    assert existing.text(source, existing.con.CB_GETLBTEXT, 1) == '合作已装载'
     for name, value in (('api_pid', identity['pid']), ('creation', identity['creation'])):
         existing.set_text(page.controls[name], str(value))
     page.click('start')
@@ -100,17 +152,17 @@ def replay(page, sample, archive, directory):
 
 def run(directory, receipt):
     """输入本端固定落点；一个正式Light窗口与一个已有合作源，关闭后恢复配置并清理。"""
-    driver = existing.require_idle_environment()
+    driver = require_idle_environment()
     existing.check_images()
     with owned_scratch(directory / 'work') as work:
         session = work / 'KswordApiMonCooperative'
-        project = work / 'project'
+        project = directory / 'archived-project'  # 同一原项目供后续正式CLI只读replay使用。
         create_session_directory(session)
         environment = os.environ | {COOPERATIVE_ENV: str(session)}
         identity = None
         controller = None
         try:
-            with existing.light_window(env=environment) as page:
+            with light_window(environment) as page:
                 controller = page.process.pid
                 page.default_page()
                 page.browse('create', existing.CREATE_TITLE, project)
@@ -124,6 +176,7 @@ def run(directory, receipt):
                 receipt.update(archive=archive, behaviorMatches=total, sourceClean=True)
                 write_json(directory, 'archive-evidence', archive)
                 replay(page, sample, archive, directory)
+                receipt['archiveBehaviorTree'] = verify_tree(page, sample, history, directory)
                 assert all(hashlib.sha256((project / path).read_bytes()).hexdigest() == digest
                            for path, digest in archive['segments'].items())
         finally:
@@ -134,7 +187,7 @@ def run(directory, receipt):
                     cleanup_session(session, identity['pid'], identity['creation'], controller)
                 assert not list(session.iterdir()), session
                 session.rmdir()
-    assert existing.require_idle_environment() == driver
+    assert require_idle_environment() == driver
     receipt['cleanup'] = {'workRemoved': not (directory / 'work').exists(), 'guiClosed': True,
                           'settingsRestored': True, 'targetExit': process.returncode}
 

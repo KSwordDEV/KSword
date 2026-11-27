@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-11-27T15:32:58.0538498-04:00",
+  "currentUserProductProcessPreserved": "Ksword5.1.exe at Ksword5.1/x64/Ksword-nice/Ksword5.1.exe was not touched",
+  "ownedGuiAndTarget": "Qt/Light owned GUI and target exited 0 in prior receipts",
+  "newLightReadOnlyGui": {
+    "exitCode": 0,
+    "settingsRestored": true,
+    "driverState": "absent",
+    "collectionStarted": false,
+    "cliInvoked": false,
+    "newSampleCreated": false
+  },
+  "residualOwnedProcesses": [],
+  "userProcessStillPresent": "Ksword5.1.exe Ksword-nice PID 28368",
+  "projectPath": "tools/action_analyze_validation/desktop_behavior_history/light/archived-project",
+  "projectWriteAttempted": false
+}

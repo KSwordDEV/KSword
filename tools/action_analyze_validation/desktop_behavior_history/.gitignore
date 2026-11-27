@@ -1,3 +1,14 @@
 # 真实运行证据和固定工作配置由各端脚本拥有；准备批次不产生这些目录。
 /qt/
 /light/
+/light-setup-fail-01/
+/light-setup-fail-02/
+/light-setup-fail-03/
+/light/cli-replay-setup-fail-02/
+/light/cli-replay-offline-setup-fail-01/
+/light/cli-replay-offline-fail-01/
+/light/cli-replay-offline-fail-02/
+/light/cli-replay-offline-verification/
+/qt-setup-fail-01/
+/light/archive-tree-inspection*/
+/qt/archive-tree-inspection*/

@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "E:\Projects\Ksword5.1\tools\action_analyze_validation\light\desktop_behavior_tree_replay.py", line 87, in main
+    tree_result = verify_tree(page, sample, history, output)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\Projects\Ksword5.1\tools\action_analyze_validation\light\desktop_behavior_tree.py", line 73, in verify_tree
+    assert shown.get('rootCount') == 1, shown
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'rootCount': 0, 'itemNames': [], 'treeName': '写入与请求候选'}

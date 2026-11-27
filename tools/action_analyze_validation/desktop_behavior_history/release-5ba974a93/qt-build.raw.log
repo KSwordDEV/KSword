@@ -1,0 +1,75 @@
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+   Qt/MSBuild: 3.5.0.0
+   Qt: 6.9.3
+   Qt/MSBuild: 3.5.0.0
+   Qt: 6.9.3
+  i18n audit passed: 32935 source strings
+  theme token audit self-test passed: 5 marked cases
+  theme token audit passed: 14 dynamic tokens, 1462 source files
+  PassiveApiCapture.cpp
+  NativePrivateExecutionPage.cpp
+  ApiTransferChain.cpp
+  ArchivedEvidenceGraph.cpp
+  NativeSectionMapAssociation.cpp
+  NativeTransferAssociation.cpp
+  PrivateExecutionCandidates.cpp
+  AttachedApiCapture.cpp
+  CooperativeApiCapture.cpp
+  ExecutionGroupArchive.cpp
+  LaunchedApiCapture.cpp
+  NativeBoundApiCapture.cpp
+  ProjectApiCheckpoint.cpp
+  ProjectApiClueArchive.cpp
+  ApiBehaviorObservation.cpp
+  BehaviorPresetFields.cpp
+  BehaviorPresets.cpp
+  ApiNativeExecutionProjection.cpp
+  PassiveApiArchiveTail.cpp
+  PassiveApiSourceDiagnosis.cpp
+  ActionAnalyzeWorkspace.cpp
+  ApiTransferPresentation.cpp
+  ArchivedSampleAnalysis.cpp
+  BehaviorPresetReplay.cpp
+  BehaviorRulesPage.cpp
+  CallbackArchivePresentation.cpp
+  DataWriteWatchPage.cpp
+  ExecutionGroupFields.cpp
+  ExecutionGroupPage.cpp
+  ExecutionGroupPageControl.cpp
+  ExecutionGroupSession.cpp
+  ExecutionGroupSiteEditor.cpp
+  LiveEtwCapture.cpp
+  LiveSampleArchive.cpp
+  NativeSessionApiFields.cpp
+  NativeSessionApiPane.cpp
+  NativeStopMemoryArchive.cpp
+  NativeStopMemoryCandidates.cpp
+  OfflineObjectEvidence.cpp
+  OfflineSegmentBehavior.cpp
+  OfflineSegmentBehaviorPresentation.cpp
+  OfflineSegmentOverview.Live.cpp
+  OfflineSegmentOverview.Loading.cpp
+  OfflineSegmentOverview.NativeControl.cpp
+  OfflineSegmentOverview.Network.cpp
+  OfflineSegmentOverview.Objects.cpp
+  OfflineSegmentOverview.Toolbar.cpp
+  OfflineSegmentOverview.cpp
+  OfflineSegmentReader.cpp
+  PassiveApiCaptureOwner.cpp
+  PassiveApiCapturePane.cpp
+  PrivateExecutionCandidatesFields.cpp
+  PrivateExecutionCandidatesLayout.cpp
+  PrivateExecutionCandidatesPane.cpp
+  PrivateExecutionCandidatesRender.cpp
+  MonitorDock.cpp
+  WinAPIDock.Actions.cpp
+E:\Projects\Ksword5.1\Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentBehavior.cpp(51,31): error C2664: “std::vector<Ksword::ActionAnalyze::Rules::FieldSample,std::allocator<Ksword::ActionAnalyze::Rules::FieldSample>> Ksword::ActionAnalyze::Rules::ProjectApiPresetFields(std::string_view,std::string_view,std::optional<Ksword::Evidence::ApiMonitorMemoryWriteReturn>,const Ksword::ActionAnalyze::Rules::ApiPresetEvidence &)”: 无法将参数 3 从“const std::optional<Ksword::ActionAnalyze::Rules::ArchivedApiMemoryWriteReturn>”转换为“std::optional<Ksword::Evidence::ApiMonitorMemoryWriteReturn>” [E:\Projects\Ksword5.1\Ksword5.1\Ksword5.1\Ksword5.1.vcxproj]
+      E:\Projects\Ksword5.1\Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentBehavior.cpp(52,20):
+      没有可用于执行该转换的用户定义的转换运算符，或者无法调用该运算符
+      E:\Projects\Ksword5.1\KswordCLI\ActionAnalyze\Rules\BehaviorPresetFields.h(33,26):
+      参见“Ksword::ActionAnalyze::Rules::ProjectApiPresetFields”的声明
+      E:\Projects\Ksword5.1\Ksword5.1\Ksword5.1\ActionAnalyze\OfflineSegmentBehavior.cpp(51,31):
+      尝试匹配参数列表“(const std::string_view, const std::string_view, const std::optional<Ksword::ActionAnalyze::Rules::ArchivedApiMemoryWriteReturn>, const Ksword::ActionAnalyze::Rules::ApiPresetEvidence)”时
+  
+  WinAPIDock.Pipe.cpp

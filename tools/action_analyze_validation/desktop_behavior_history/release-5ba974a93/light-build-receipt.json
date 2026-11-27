@@ -1,0 +1,21 @@
+{
+  "productCommit": "5ba974a93b4c373a393ce9740ed8c85f81cfacfa",
+  "endpoint": "light",
+  "status": "PASS",
+  "buildAttempts": 1,
+  "exitCode": 0,
+  "msbuild": "D:\\Software\\VS\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+  "hostTools": "D:\\Software\\VS\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64",
+  "priority": "BelowNormal",
+  "intDir": "KswordARKLight/x64/Release/obj",
+  "outDir": "Ksword5.1/x64/Release",
+  "artifact": "Ksword5.1/x64/Release/KswordARKLight.exe",
+  "artifactSha256": "F0AD50F57B911F7C06F9B9E37731986E5F57ED8B3FFAF4020917E709717F2413",
+  "driver": "reused existing signed driver; Light build did not rebuild driver",
+  "warnings": [
+    "ProjectBreakpointPane.cpp:180 C4312",
+    "ActionAnalyzePage.cpp:833 C4456",
+    "LightDataWatchSession.cpp C4244"
+  ],
+  "guiReadOnly": "release-5ba974a93/light-archive-tree/receipt.json"
+}

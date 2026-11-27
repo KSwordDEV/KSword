@@ -1,0 +1,131 @@
+IntDir=E:\Projects\Ksword5.1\KswordARKLight\x64\Release\obj
+OutDir=E:\Projects\Ksword5.1\Ksword5.1\x64\Release
+VC_ExecutablePath_x64=D:\Software\VS\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64
+Priority=BelowNormal
+
+  PassiveApiCapture.cpp
+  NativePrivateExecutionPage.cpp
+  ApiTransferChain.cpp
+  ArchivedEvidenceGraph.cpp
+  NativeSectionMapAssociation.cpp
+  NativeTransferAssociation.cpp
+  PrivateExecutionCandidates.cpp
+  AttachedApiCapture.cpp
+  CooperativeApiCapture.cpp
+  ExecutionGroupArchive.cpp
+  LaunchedApiCapture.cpp
+  NativeBoundApiCapture.cpp
+  ProjectApiCheckpoint.cpp
+  ProjectApiClueArchive.cpp
+  ApiBehaviorObservation.cpp
+  BehaviorPresetFields.cpp
+  BehaviorPresets.cpp
+  ApiNativeExecutionProjection.cpp
+  PassiveApiArchiveTail.cpp
+  PassiveApiSourceDiagnosis.cpp
+  ProjectReplay.cpp
+  MonitorFeature.cpp
+  ActionAnalyzePage.cpp
+  ApiTransferCandidateTree.cpp
+  ApiTransferPresentation.cpp
+  DataWatchPage.cpp
+  EvidenceTimeline.cpp
+  ExecutionGroupPage.cpp
+  ExecutionGroupPageCommands.cpp
+  ExecutionGroupPageLayout.cpp
+  ExecutionGroupPagePresentation.cpp
+  LightDataWatchSession.cpp
+  LightExecutionGroupSession.cpp
+  LightNativeStopArchive.cpp
+  LightPrivateExecutionCandidatesFields.cpp
+  LightPrivateExecutionCandidatesPane.cpp
+  NativeLiveSession.cpp
+  NativeSessionApiFields.cpp
+  ProjectBreakpointPane.cpp
+  StoredEvidence.cpp
+E:\Projects\Ksword5.1\KswordARKLight\Features\ActionAnalyze\ProjectBreakpointPane.cpp(180,50): warning C4312: “reinterpret_cast”: 从“const int”转换到更大的“HMENU” [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+E:\Projects\Ksword5.1\KswordARKLight\Features\ActionAnalyze\ActionAnalyzePage.cpp(833,19): warning C4456: “actionWidth”的声明隐藏了上一个本地声明 [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+      E:\Projects\Ksword5.1\KswordARKLight\Features\ActionAnalyze\ActionAnalyzePage.cpp(657,64):
+      参见“actionWidth”的声明
+  
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244: “初始化”: 从“_Ty”转换到“_Ty”，可能丢失数据 [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         with [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:             _Ty=int [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         and [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:             _Ty=unsigned char [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“Features/ActionAnalyze/LightDataWatchSession.cpp”)
+      D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(462,64):
+      模板实例化上下文(最早的实例化上下文)为
+          E:\Projects\Ksword5.1\KswordARKLight\Features\ActionAnalyze\LightDataWatchSession.cpp(433,45):
+          查看对正在编译的函数 模板 实例化“std::shared_ptr<const uint8_t> std::make_shared<const uint8_t,int>(int &&)”的引用
+          D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\memory(2913,46):
+          查看对正在编译的函数 模板 实例化“std::_Ref_count_obj2<const uint8_t>::_Ref_count_obj2<_Ty>(_Ty &&)”的引用
+          with
+          [
+              _Ty=int
+          ]
+          D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\memory(2100,18):
+          查看对正在编译的函数 模板 实例化“void std::_Construct_in_place<_Ty,int>(_Ty &,int &&) noexcept”的引用
+          with
+          [
+              _Ty=unsigned char
+          ]
+          D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(472,14):
+          查看对正在编译的函数 模板 实例化“_Ty *std::construct_at<_Ty,int>(_Ty *const ,int &&) noexcept(<expr>)”的引用
+          with
+          [
+              _Ty=unsigned char
+          ]
+  
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244: “初始化”: 从“_Ty”转换到“_Ty”，可能丢失数据 [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         with [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:             _Ty=int [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         and [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:             _Ty=unsigned char [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(476,61): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“Features/ActionAnalyze/LightDataWatchSession.cpp”)
+  
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244: “初始化”: 从“_Ty”转换到“_Ty”，可能丢失数据 [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         with [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:             _Ty=int [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         and [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         [ [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:             _Ty=unsigned char [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69): warning C4244:         ] [E:\Projects\Ksword5.1\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“Features/ActionAnalyze/LightDataWatchSession.cpp”)
+      D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(463,69):
+      模板实例化上下文(最早的实例化上下文)为
+          D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\memory(2100,18):
+          查看对正在编译的函数 模板 实例化“void std::_Construct_in_place<_Ty,int>(_Ty &,int &&) noexcept”的引用
+          with
+          [
+              _Ty=unsigned char
+          ]
+          D:\Software\VS\VC\Tools\MSVC\14.44.35207\include\xutility(472,14):
+          查看对正在编译的函数 模板 实例化“_Ty *std::construct_at<_Ty,int>(_Ty *const ,int &&) noexcept”的引用
+          with
+          [
+              _Ty=unsigned char
+          ]
+  
+  KswordARKLight: reusing existing signed driver for RCDATA embedding: E:\Projects\Ksword5.1\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign.
+  Generating code
+  526 of 115001 functions ( 0.5%) were compiled, the rest were copied from previous compilation.
+    122 functions were new in current compilation
+    856 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  KswordARKLight.vcxproj -> E:\Projects\Ksword5.1\Ksword5.1\x64\Release\KswordARKLight.exe
+  E:\Projects\Ksword5.1\Ksword5.1\x64\Release\KswordARKLight.exe: message: deploying dependencies
+SHA256=F0AD50F57B911F7C06F9B9E37731986E5F57ED8B3FFAF4020917E709717F2413
+EXIT_CODE=0
+BUILD_RESULT=SUCCESS
+LIGHT_BUILD_WRAPPER_EXIT=0

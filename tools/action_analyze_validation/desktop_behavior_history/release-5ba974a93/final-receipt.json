@@ -1,0 +1,44 @@
+{
+  "status": "FAIL",
+  "productCommit": "5ba974a93b4c373a393ce9740ed8c85f81cfacfa",
+  "scope": "Qt/Light formal Release increment and read-only archive behavior-tree/rule-input acceptance; no new collection and no CLI rerun",
+  "qt": {
+    "build": "FAIL",
+    "buildReceipt": "qt-build-receipt.json",
+    "firstFailure": "C2664 at Ksword5.1/Ksword5.1/ActionAnalyze/OfflineSegmentBehavior.cpp:51: ArchivedApiMemoryWriteReturn does not convert to Evidence::ApiMonitorMemoryWriteReturn",
+    "i18nAudit": "PASS: 32935 source strings in build log",
+    "newBinary": false,
+    "guiAcceptance": "BLOCKED_NO_NEW_BINARY",
+    "oldArtifactHash": "6D97EA33C34A01DE8DF91EA99C7D9DCA93DB9864FD948B759B11A50F27569E4C",
+    "rerun": false
+  },
+  "light": {
+    "build": "PASS",
+    "buildReceipt": "light-build-receipt.json",
+    "artifactSha256": "F0AD50F57B911F7C06F9B9E37731986E5F57ED8B3FFAF4020917E709717F2413",
+    "archiveAcceptance": "FAIL",
+    "sample": "18141f17-b514-4526-b9bb-63924ea690bd",
+    "archivePackets": 218,
+    "processQueryRows": 0,
+    "processQueryCoverage": "NOT_COVERED_NO_EXISTING_ROWS",
+    "liveHookCoverage": "NOT_TESTED",
+    "firstFailure": "Light behavior-tree UIA query found zero TreeItems under the existing 写入与请求候选 tree; behavior root was absent",
+    "readOnlyGuiExit": 0,
+    "settingsRestored": true,
+    "rerun": false
+  },
+  "collection": {
+    "qt": "not repeated",
+    "light": "not repeated",
+    "newSampleCreated": false,
+    "cliInvoked": false
+  },
+  "cleanup": "cleanup.json",
+  "hashes": "hashes.json",
+  "screenshots": [
+    "light-archive-tree/archive-loaded.bmp",
+    "light-archive-tree/archive-loaded.png"
+  ],
+  "sourceChanges": "validation scripts and evidence only; product source and user fixtures excluded",
+  "pushed": false
+}

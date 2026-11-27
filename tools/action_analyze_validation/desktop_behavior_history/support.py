@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shutil
 import struct
 import traceback
 
@@ -70,6 +69,20 @@ def artifacts(endpoint, hashes):
                     raise
     finally:
         (directory / 'receipt.json').write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
+        # 验收表只依据本轮已有回执；截图产生不自动代表深浅、窄窗或双语视觉全覆盖。
+        checks = [
+            ('正式Release镜像冻结', 'PASS'),
+            ('主采集运行进度', 'PASS' if (directory / 'running.json').exists() else '未验'),
+            ('停止后同sample行为与32条窗口', 'PASS' if receipt.get('archive') else '未验'),
+            ('归档行为根/真实叶/Enter原坐标', 'PASS' if receipt.get('archiveBehaviorTree') else '未验'),
+            ('完整项目原地保留', 'PASS' if receipt.get('archiveProject') else '未验'),
+            ('进程与临时配置清理/设置恢复', 'PASS' if receipt.get('cleanup') else '未验'),
+            ('正式CLI历史只读replay', '待后续，未重跑CLI采集'),
+            ('深浅/窄窗/语言切换矩阵', '未验，本批最小场景未扩展矩阵'),
+        ]
+        table = '| 本轮验收项 | 状态 |\n| --- | --- |\n'
+        table += ''.join(f'| {name} | {status} |\n' for name, status in checks)
+        (directory / 'acceptance.md').write_text(f'本端结果：{receipt["status"]}\n\n' + table, encoding='utf-8')
         print(f'{endpoint.upper()}_BEHAVIOR_HISTORY={receipt["status"]} RECEIPT={directory / "receipt.json"}', flush=True)
 
 
@@ -79,11 +92,10 @@ def write_json(directory, name, value):
 
 
 def preserve_project(project, directory, receipt):
-    """输入本次自有项目；保留原始归档证据后再让原scratch清理，绝不复制程序或Qt运行时。"""
+    """输入本次自有项目；项目原地保留于清理范围之外，异常时同样不删除唯一原档。"""
     if project.is_dir():
-        destination = directory / 'archived-project'  # 固定证据位置只写一次，不覆盖既有资料。
-        shutil.copytree(project, destination)
-        receipt['archiveProject'] = str(destination)
+        assert project == directory / 'archived-project', project
+        receipt['archiveProject'] = str(project)
 
 
 def screenshot(pid, directory, name):
@@ -145,7 +157,7 @@ def verify_archive(project, sample, entries, identity, decoder, reader):
         detail = self_write_detail(wire)  # 复用已更正的AAIP1与legacy解析，不另写协议。
         assert (detail['base'], detail['process'], detail['requested'], detail['completed']) == (
             identity['deniedBase'], identity['queryHandle'], 1, 0), detail
-    assert max(entry['coordinate'][0] for entry in entries) < len(digests), '行为不能迁移到停止终段'
+    # Stop排空也可提交普通包；坐标必须逐条匹配其真实Stored原包，不能假定终段永远只含尾记。
     return {'sample': sample, 'segments': {path.relative_to(project).as_posix(): digest for path, digest in digests.items()},
             'packets': len(packets), 'history': entries, 'terminal': len(digests)}
 

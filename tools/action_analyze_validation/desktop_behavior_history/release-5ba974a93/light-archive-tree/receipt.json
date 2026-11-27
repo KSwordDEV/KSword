@@ -1,0 +1,39 @@
+{
+  "status": "FAIL",
+  "sourceCommit": "5ba974a93b4c373a393ce9740ed8c85f81cfacfa",
+  "endpoint": "light",
+  "guiSha256": "f0ad50f57b911f7c06f9b9e37731986e5f57ed8b3ffaf4020917e709717f2413",
+  "collectionStarted": false,
+  "cliInvoked": false,
+  "newSampleCreated": false,
+  "driverState": "absent",
+  "existingArchive": {
+    "sample": "18141f17-b514-4526-b9bb-63924ea690bd",
+    "packets": 218,
+    "terminalRaw": 221,
+    "processQueryRows": 0,
+    "processQueryFieldCoverage": "NOT_COVERED_NO_EXISTING_ROWS",
+    "liveHookCoverage": "NOT_TESTED"
+  },
+  "guiPid": 33588,
+  "firstFailure": {
+    "stage": "behavior-tree-uia",
+    "rootCount": 0,
+    "treeName": "写入与请求候选",
+    "itemNames": [],
+    "message": "UIA未发现行为规则/Behavior Rules根；未执行Enter或规则输入断言",
+    "rerun": false
+  },
+  "readOnlyActions": {
+    "collectionStarted": false,
+    "cliInvoked": false,
+    "newSampleCreated": false,
+    "projectWriteAttempted": false
+  },
+  "cleanup": {
+    "guiExitCode": 0,
+    "settingsRestored": true,
+    "driverState": "absent",
+    "ownedProcessesRemaining": []
+  }
+}

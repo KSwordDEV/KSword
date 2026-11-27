@@ -1,0 +1,24 @@
+{
+  "productCommit": "5ba974a93b4c373a393ce9740ed8c85f81cfacfa",
+  "light": {
+    "path": "Ksword5.1/x64/Release/KswordARKLight.exe",
+    "sha256": "F0AD50F57B911F7C06F9B9E37731986E5F57ED8B3FFAF4020917E709717F2413"
+  },
+  "qtArtifactAfterFailedBuild": {
+    "path": "Ksword5.1/x64/Release/Ksword5.1.exe",
+    "sha256": "6D97EA33C34A01DE8DF91EA99C7D9DCA93DB9864FD948B759B11A50F27569E4C",
+    "isNewBinary": false,
+    "note": "Qt编译首错后未将此旧产物用于新覆盖"
+  },
+  "agent": {
+    "path": "Ksword5.1/x64/Release/APIMonitor_x64.dll",
+    "sha256": "12B65C47E3AE651477EFAC2092935ECC67403D24B1E534D68AEFA0271562147A",
+    "role": "current adjacent runtime artifact; not built in this batch"
+  },
+  "screenshot": {
+    "path": "light-archive-tree/archive-loaded.bmp",
+    "sha256": "970A15B8C349BB9051943D11E7DB3858611904005977EE84FB7F61A5D35D87AF",
+    "pngSha256": "066AD4776D4601D8B95534A3EEC93958E5947D5AC522C1CBCAAD389E1B98E958",
+    "pngPath": "light-archive-tree/archive-loaded.png"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "productCommit": "5ba974a93b4c373a393ce9740ed8c85f81cfacfa",
+  "endpoint": "qt",
+  "status": "FAIL",
+  "buildAttempts": 1,
+  "exitCode": 1,
+  "durationSeconds": 51,
+  "msbuild": "D:\\Software\\VS\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+  "hostTools": "D:\\Software\\VS\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64",
+  "priority": "BelowNormal",
+  "intDir": "Ksword5.1/Ksword5.1/Ksword5.1/x64/Release",
+  "outDir": "Ksword5.1/x64/Release",
+  "sourceDirty": true,
+  "i18nAudit": {
+    "source": "qt-build.raw.log",
+    "sourceStrings": 32935,
+    "status": "PASS"
+  },
+  "firstError": {
+    "code": "C2664",
+    "reason": "ProjectApiPresetFields argument 3: optional<Rules::ArchivedApiMemoryWriteReturn> cannot convert to optional<Evidence::ApiMonitorMemoryWriteReturn>",
+    "line": 51,
+    "path": "Ksword5.1/Ksword5.1/ActionAnalyze/OfflineSegmentBehavior.cpp"
+  },
+  "newGuiValidation": "BLOCKED_NO_NEW_BINARY",
+  "buildRetry": false,
+  "oldBinaryNotUsedForNewCoverage": true
+}
