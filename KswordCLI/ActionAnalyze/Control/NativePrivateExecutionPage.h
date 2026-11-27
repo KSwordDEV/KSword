@@ -13,6 +13,9 @@ public:
     [[nodiscard]] DWORD Resolve(HANDLE process, DWORD pid, std::uint64_t address, std::uint64_t bytes);
     [[nodiscard]] DWORD AddRange(HANDLE process, DWORD pid, std::uint64_t address, std::uint64_t bytes,
         bool& rollbackComplete);
+    // 输入原owner持有的process句柄；只在debug事件冻结目标期间调用。返回逐页重设NX的Win32错误。
+    // 地址/大小取原页目录，输出不另建范围；仅接受同一私有分配和可恢复保护。
+    [[nodiscard]] DWORD RearmExecutablePages(HANDLE process);
     [[nodiscard]] DWORD Verify(HANDLE process) const;
     [[nodiscard]] DWORD SetExecutable(HANDLE process, bool executable, std::uint64_t address = 0, std::size_t instructionBytes = 1);
     // 原事件冻结线程RIP；可能跨页时精确解码，最多开放该指令涉及的两张登记页。

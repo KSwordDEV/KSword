@@ -44,8 +44,11 @@ bool Covered(const n::ExecutionGroupMember& member, std::uint64_t base, std::uin
         return base >= range.base && base - range.base <= range.bytes && bytes <= range.bytes - (base - range.base);
     });
 }
-DWORD VerifyArmedRange(HANDLE process, const n::ExecutionGroupMember& member, std::uint64_t base, std::uint64_t bytes)
+DWORD VerifyArmedRange(HANDLE process, const n::ExecutionGroupMember& member, std::uint64_t base,
+    std::uint64_t bytes, bool* executableNeedsRearm = nullptr)
 {
+    // 输入真实目标句柄、原owner成员和冻结范围；输出核验错误，并可选标记该范围已登记但被改回基础X保护。
+    if (executableNeedsRearm) *executableNeedsRearm = false;
     // ACK前重读整段当前内存状态；旧owner登记和同地址的新分配都不能代替实际NX保护。
     const auto& ranges = member.control.breakpoint->executionRanges;
     const auto binding = std::find_if(ranges.begin(), ranges.end(), [&](const auto& range) {
@@ -67,8 +70,16 @@ DWORD VerifyArmedRange(HANDLE process, const n::ExecutionGroupMember& member, st
             // 同一范围的前一次命中正在内部TF推进时，NX暂时开放且同伴仍由原owner暂停。
             // 新调用保持在Hook屏障内，等原owner关回NX再核对；不把暂开窗口当成旧ACK失效后放行。
             const auto& advance = member.control.pageAdvance; // 只采用本次真实owner的运行状态。
-            return advance && advance->receipt.state == n::NativeStepState::Running &&
-                !advance->receipt.resourcesRestored ? ERROR_IO_PENDING : ERROR_INVALID_STATE;
+            if (advance && advance->receipt.state == n::NativeStepState::Running &&
+                !advance->receipt.resourcesRestored) return ERROR_IO_PENDING;
+            // 三种可逆基础X保护由调用者请求原owner冻结并重设NX；其它保护变化仍是失效状态。
+            if (executableNeedsRearm && (memory.Protect == PAGE_EXECUTE ||
+                memory.Protect == PAGE_EXECUTE_READ || memory.Protect == PAGE_EXECUTE_READWRITE))
+            {
+                *executableNeedsRearm = true;
+                return ERROR_SUCCESS;
+            }
+            return ERROR_INVALID_STATE;
         }
         address = std::min(base + bytes, region + static_cast<std::uint64_t>(memory.RegionSize));
     }
@@ -120,7 +131,7 @@ public:
         std::unique_ptr<ApiTransferAgentCapture> capture;
     };
     std::map<DWORD, Source> sources; // 每个强实例仅一份控制器；原来源不重装、不申请第二会话。
-    enum class Admission { Initial, Armed, Paused, Running, Agent, Done };
+    enum class Admission { Initial, Armed, Paused, Rearming, Running, Agent, Done };
     struct Transfer {
         m::TransferHandoffRequest request;
         DWORD source = 0, error = ERROR_IO_PENDING;
@@ -129,6 +140,8 @@ public:
         Handle target; // 保留从准入到ACK的真实目标对象。
         Admission stage = Admission::Initial;
         bool ownPause = false;
+        bool rearmTrackedRange = false; // 本次API操作把已登记页恢复为X，需冻结目标并由原owner重设NX。
+        bool rearmedTrackedRange = false; // 原owner在Held事件内已成功重设NX并通过完整范围回读。
         std::string pauseRequestId; // 只结清本次主动暂停票据，不按ManualPause标签释放其它请求。
         V entryObservation = V::makeNull(); // 精确请求入口的首份已核验执行坐标，不借用同进程最后一个停点。
     };
@@ -243,7 +256,7 @@ public:
             request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion) ||
             !std::wmemchr(request.token, 0, std::size(request.token)) ||
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
-            !SourceAuthenticated(client, request.sourceCreation) || !request.address ||
+            !SourceAuthenticated(client, request.sourceCreation) || !request.address || !request.operationId ||
             request.targetPid <= 4 || request.targetPid == GetCurrentProcessId() ||
              !request.targetCreation) return ERROR_ACCESS_DENIED;
         // 单成员清退后旧Agent可能尚未卸钩；同实例的新请求不能重用恢复中的NX owner。
@@ -261,6 +274,7 @@ public:
                 {"targetCreationFileTime", V::makeString(std::to_string(request.targetCreation))},
                 {"address", V::makeString(std::to_string(request.address))},
                 {"handoffKind", V::makeUInt(request.kind)},
+                {"requestOperationId", V::makeString(std::to_string(request.operationId))},
                 {"error", V::makeUInt(ERROR_OPERATION_ABORTED)},
                 {"requestOrdinal", V::makeString(std::to_string(requests))}});
             return ERROR_OPERATION_ABORTED;
@@ -279,7 +293,8 @@ public:
         const auto existing = std::find_if(transfers.begin(), transfers.end(), [&](const auto& t) {
             return t.source == client && t.request.sourceCreation == request.sourceCreation &&
                 t.request.targetPid == request.targetPid && t.request.targetCreation == request.targetCreation &&
-                t.request.address == request.address && t.request.kind == request.kind;
+                t.request.address == request.address && t.request.kind == request.kind &&
+                t.request.operationId == request.operationId;
         });
         if (existing != transfers.end()) {
             if (existing->stage != Admission::Done) return ERROR_IO_PENDING;
@@ -289,8 +304,11 @@ public:
             const auto* member = Member(request);
             if (!SourceReady(request.targetPid, request.targetCreation) || !member ||
                 !Covered(*member, existing->base, existing->bytes)) return ERROR_INVALID_STATE;
-            const auto protectionError = VerifyArmedRange(target.get(), *member, existing->base, existing->bytes);
+            bool executableNeedsRearm = false; // 旧调用重连仅复核成功态，不代替新调用触发修复。
+            const auto protectionError = VerifyArmedRange(target.get(), *member,
+                existing->base, existing->bytes, &executableNeedsRearm);
             if (protectionError) return protectionError;
+            if (executableNeedsRearm) return ERROR_INVALID_STATE;
             response.rangeBase = existing->base; response.rangeBytes = existing->bytes;
             return ERROR_SUCCESS;
         }
@@ -468,6 +486,44 @@ public:
         if (!added) Finish(transfer, error);
         else transfer.stage = Admission::Running;
     }
+    void RequestTrackedRangeRearm(Transfer& transfer, const n::ExecutionGroupMember& member)
+    {
+        // 输入正在等ACK的准入及其原owner快照；请求原owner暂停，更新transfer阶段/票据，不创建新成员。
+        // 目标线程恢复前必须由原owner确认NX；失败写入transfer.error并结束准入。
+        transfer.rearmTrackedRange = true;
+        transfer.stage = Admission::Rearming;
+        if (!n::CanPauseDataWatchSession(member.control))
+        {
+            if (member.control.status == n::NativeControlStatus::Held &&
+                n::DataWatchHeldStop(member.control))
+            {
+                // 已有停点不能再申请第二张pause票据。保持本操作Pending；该原事件恢复前，
+                // NativeDebugOwner::PrepareBreakpointResume会先让同一页owner回读并重设NX。
+                return;
+            }
+            Finish(transfer, ERROR_INVALID_STATE);
+            return;
+        }
+        const n::ExecutionGroupSessionEntry entry{member.owner, member.control}; // 冻结完整原owner与当前状态。
+        current = group.Pause(std::span(&entry, 1), false); // 暂停仅作用于已有目标，不增加集合成员。
+        const auto* paused = Member(transfer.request); // 回读原成员，拒绝依PID重建owner。
+        if (paused && paused->control.armedPause &&
+            (paused->control.armedPause->state == n::NativeArmedPauseState::Pending ||
+                paused->control.armedPause->state == n::NativeArmedPauseState::Held))
+        {
+            transfer.pauseRequestId = paused->control.armedPause->request.requestId;
+            transfer.ownPause = !transfer.pauseRequestId.empty();
+            if (transfer.ownPause) return;
+        }
+        if (paused && (paused->control.status == n::NativeControlStatus::Held &&
+            n::DataWatchHeldStop(paused->control) || paused->control.pageAdvance &&
+            paused->control.pageAdvance->receipt.state == n::NativeStepState::Running &&
+            !paused->control.pageAdvance->receipt.resourcesRestored))
+        {
+            return; // Pause提交与回读之间被真实NX事件抢先；不把该事件记成本请求的暂停债。
+        }
+        Finish(transfer, paused && paused->control.win32Error ? paused->control.win32Error : ERROR_BUSY);
+    }
     void Advance(Transfer& transfer)
     {
         const auto& r = transfer.request;
@@ -553,6 +609,69 @@ public:
             if (!Covered(*member, transfer.base, transfer.bytes)) return;
             transfer.stage = Admission::Running;
         }
+        if (transfer.stage == Admission::Rearming) {
+            if (!member) { Finish(transfer, ERROR_INVALID_STATE); return; }
+            if (!Covered(*member, transfer.base, transfer.bytes)) {
+                Finish(transfer, ERROR_INVALID_STATE); return;
+            }
+            bool executableNeedsRearm = false;
+            const auto protectionError = VerifyArmedRange(transfer.target.get(), *member,
+                transfer.base, transfer.bytes, &executableNeedsRearm);
+            if (protectionError == ERROR_IO_PENDING) return;
+            if (protectionError) { Finish(transfer, protectionError); return; }
+            if (executableNeedsRearm)
+            {
+                // 已有真实事件由Observe沿原owner恢复；暂停票据尚在途时也不能重复申请。
+                if (member->control.status == n::NativeControlStatus::Held && n::DataWatchHeldStop(member->control)) return;
+                if (transfer.ownPause && member->control.armedPause &&
+                    member->control.armedPause->request.requestId == transfer.pauseRequestId)
+                {
+                    const auto& pause = *member->control.armedPause;
+                    if (pause.state == n::NativeArmedPauseState::Pending ||
+                        pause.state == n::NativeArmedPauseState::RecoveryRequired) return;
+                    if (pause.state == n::NativeArmedPauseState::Rejected)
+                    {
+                        Finish(transfer, pause.win32Error ? pause.win32Error : ERROR_INVALID_STATE);
+                        return;
+                    }
+                }
+                RequestTrackedRangeRearm(transfer, *member);
+                return;
+            }
+            transfer.rearmedTrackedRange = true; // 无论重设发生在已有停点还是本请求暂停，均以完整范围NX回读为准。
+            if (transfer.ownPause)
+            {
+                const auto& pause = member->control.armedPause;
+                if (pause && pause->request.requestId == transfer.pauseRequestId &&
+                    pause->state == n::NativeArmedPauseState::Held)
+                {
+                    if (member->control.stopReason != n::NativeStopReason::ManualPause ||
+                        !n::OwnedExecutionGroup::CanContinueMember(*member))
+                    {
+                        Finish(transfer, ERROR_INVALID_STATE);
+                        return; // 失败不丢弃本请求仍持有的暂停债。
+                    }
+                    if (cancel.load() || closing) { Finish(transfer, ERROR_OPERATION_ABORTED); return; }
+                    const n::ExecutionGroupSessionEntry entry{member->owner, member->control};
+                    current = group.Continue(std::span(&entry, 1), false);
+                    transfer.stage = Admission::Running;
+                    return; // 原暂停实际归还后，Running才能发ACK。
+                }
+                if (pause && pause->request.requestId == transfer.pauseRequestId &&
+                    (pause->state == n::NativeArmedPauseState::Pending ||
+                        pause->state == n::NativeArmedPauseState::RecoveryRequired)) return;
+                if (pause && pause->request.requestId == transfer.pauseRequestId &&
+                    pause->state == n::NativeArmedPauseState::Rejected)
+                {
+                    Finish(transfer, pause->win32Error ? pause->win32Error : ERROR_INVALID_STATE);
+                    return;
+                }
+                transfer.ownPause = false; // 原票据已归还或被真实事件取代；不释放替代事件。
+                transfer.pauseRequestId.clear();
+            }
+            transfer.stage = Admission::Running;
+            return;
+        }
         if (transfer.stage == Admission::Paused) {
             if (!member) { Finish(transfer, ERROR_INVALID_STATE); return; }
             if (n::OwnedExecutionGroup::CanAddRangeMember(*member)) AddRange(transfer, *member);
@@ -561,9 +680,27 @@ public:
         }
         if (transfer.stage == Admission::Running) {
             if (!member || !Covered(*member, transfer.base, transfer.bytes)) return;
-            const auto protectionError = VerifyArmedRange(transfer.target.get(), *member, transfer.base, transfer.bytes);
+            bool executableNeedsRearm = false; // 只让当前新操作识别“已登记范围被重新设为X”。
+            const auto protectionError = VerifyArmedRange(transfer.target.get(), *member,
+                transfer.base, transfer.bytes, &executableNeedsRearm);
             if (protectionError == ERROR_IO_PENDING) return;
-            if (protectionError) { Finish(transfer, protectionError); return; }
+            if (protectionError)
+            {
+                Finish(transfer, protectionError);
+                return;
+            }
+            if (executableNeedsRearm)
+            {
+                if (transfer.rearmTrackedRange)
+                {
+                    Finish(transfer, ERROR_INVALID_STATE);
+                    return;
+                }
+                // 新的执行调度同样必须补回已登记范围的NX，不能依赖此前一定捕获到了保护API。
+                // 仅作用于精确登记范围；旧operationId重连仍只复核，不冒充新的保护恢复请求。
+                RequestTrackedRangeRearm(transfer, *member);
+                return;
+            }
             if (transfer.ownPause)
             {
                 // 追加范围的保护已生效，但本请求主动暂停尚未确认归还时不能发成功ACK。
@@ -612,8 +749,8 @@ public:
             if (SourceReady(r.targetPid, r.targetCreation) && member && Covered(*member, transfer.base, transfer.bytes))
             {
                 // Agent安装期间原owner仍在处理执行事件；Ready本身不能证明页已关回NX。
-                const auto protectionError = VerifyArmedRange(transfer.target.get(), *member, transfer.base, transfer.bytes);
-                if (protectionError != ERROR_IO_PENDING) Finish(transfer, protectionError);
+                // 返回同一Running准入路径，复用完整保护回读和必要的原owner重设，而非直接ACK。
+                transfer.stage = Admission::Running;
             }
         }
     }
@@ -635,7 +772,7 @@ public:
         // 超时/拒绝不能遗留本请求引入的手动暂停；真实执行停点仍由归档及Ready策略持有。
         for (auto& transfer : transfers) {
             if (cancel.load() || closing) return; // 取消后的暂停责任统一交Close恢复，不再继续业务。
-            if (!transfer.ownPause || transfer.stage == Admission::Paused) continue;
+            if (!transfer.ownPause || transfer.stage == Admission::Paused || transfer.stage == Admission::Rearming) continue;
             current = group.QueryWithoutCondition();
             const auto* member = Member(transfer.request);
             if (!member || member->control.clean || n::CanPauseDataWatchSession(member->control)) {
@@ -981,8 +1118,10 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"targetPid", V::makeUInt(transfer.request.targetPid)},
             {"targetCreationFileTime", V::makeString(std::to_string(transfer.request.targetCreation))},
             {"address", V::makeString(std::to_string(transfer.request.address))},
+            {"requestOperationId", V::makeString(std::to_string(transfer.request.operationId))},
             {"rangeBase", V::makeString(std::to_string(transfer.base))},
             {"rangeBytes", V::makeString(std::to_string(transfer.bytes))},
+            {"trackedRangeRearmed", V::makeBool(transfer.rearmedTrackedRange)},
             {"handoffKind", V::makeUInt(transfer.request.kind)},
             {"handoffPhase", V::makeString(transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)
                 ? "after-memory-operation-before-return" : "before-execution-dispatch")},

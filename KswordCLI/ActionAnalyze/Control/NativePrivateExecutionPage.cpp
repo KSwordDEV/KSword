@@ -121,6 +121,65 @@ DWORD NativePrivateExecutionPage::AddRange(HANDLE process, DWORD pid, std::uint6
     return failure;
 }
 
+DWORD NativePrivateExecutionPage::RearmExecutablePages(HANDLE process)
+{
+    if (pages_.empty()) return ERROR_INVALID_STATE;
+    // 输入一页的实际可执行保护，输出同等读写权限的NX保护；不接受未知修饰位。
+    const auto nonExecutableFor = [](DWORD executable, DWORD& nonExecutable) {
+        switch (executable) {
+        case PAGE_EXECUTE: nonExecutable = PAGE_NOACCESS; return true;
+        case PAGE_EXECUTE_READ: nonExecutable = PAGE_READONLY; return true;
+        case PAGE_EXECUTE_READWRITE: nonExecutable = PAGE_READWRITE; return true;
+        default: return false; // 保留保护修饰位/WRITECOPY 的恢复语义，不猜测可替换值。
+        }
+    };
+
+    // 先验证全目录身份和每页可接受的当前态，再改任一页，避免把未知修改半途当作合法重布防。
+    for (const auto& page : pages_)
+    {
+        if (!page.active || !page.owned || page.indeterminate || page.conflict) return ERROR_INVALID_STATE;
+        DWORD actual = 0; // 真实当前页保护，由原目标句柄的VirtualQueryEx读取。
+        if (const auto error = ReadProtection(process, page, actual)) return error;
+        DWORD ignored = 0; // 仅用于确认可执行保护可安全映射，不写入owner状态。
+        if (actual != page.nonExecutable && !nonExecutableFor(actual, ignored)) return ERROR_INVALID_DATA;
+    }
+
+    for (auto& page : pages_)
+    {
+        DWORD actual = 0; // 该页修改前实际保护，用于保留API最终请求语义。
+        if (const auto error = ReadProtection(process, page, actual)) return error;
+        if (actual == page.nonExecutable)
+        {
+            page.expected = page.nonExecutable;
+            continue;
+        }
+        DWORD nonExecutable = 0; // 当前可执行保护对应的NX形式。
+        if (!nonExecutableFor(actual, nonExecutable)) return ERROR_INVALID_DATA;
+
+        page.original = actual;
+        page.nonExecutable = nonExecutable;
+        page.indeterminate = true; // 首次写保护前登记最新保护与NX恢复责任。
+        DWORD previous = 0; // VirtualProtectEx回读的先前保护，用于检测并发外部修改。
+        const BOOL changed = VirtualProtectEx(process, reinterpret_cast<void*>(page.site.site.address),
+            static_cast<SIZE_T>(kPageBytes), nonExecutable, &previous);
+        const DWORD changeError = changed ? ERROR_SUCCESS : LastError(); // API失败保留原生错误码。
+        if (!changed) return changeError;
+        if (previous != actual)
+        {
+            page.conflict = true;
+            return ERROR_INVALID_DATA;
+        }
+        DWORD observed = 0; // 写保护后的实际回读值。
+        if (const auto error = ReadProtection(process, page, observed)) return error;
+        if (observed != nonExecutable) return ERROR_INVALID_DATA;
+
+        // 更新此页最后一次由调用者请求的可执行保护；Close仍恢复该API的有效最终语义。
+        page.expected = nonExecutable;
+        page.indeterminate = false;
+    }
+    return Verify(process);
+}
+
 DWORD NativePrivateExecutionPage::ReadProtection(HANDLE process, const Page& page, DWORD& protection) const
 {
     MEMORY_BASIC_INFORMATION region{};

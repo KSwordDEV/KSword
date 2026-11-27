@@ -3,12 +3,12 @@
 
 namespace ks::winapi_monitor {
 // 独立于原观察包ABI。调度请求在原API前交接；新执行区域在成功分配/改保护后、返回调用者前交接。
-inline constexpr DWORD kTransferHandoffVersion = 1;
+inline constexpr DWORD kTransferHandoffVersion = 2; // operationId区分同入口的不同内存API调用及Pending重连。
 enum class TransferHandoffKind : DWORD { ThreadCreate = 1, Apc = 2, Context = 3, ExecutableRegion = 4 };
 struct TransferHandoffRequest {
     DWORD size = sizeof(TransferHandoffRequest), version = kTransferHandoffVersion;
     DWORD kind = 0, targetPid = 0;
-    std::uint64_t sourceCreation = 0, targetCreation = 0, address = 0;
+    std::uint64_t sourceCreation = 0, targetCreation = 0, address = 0, operationId = 0; // 同源同入口的独立API调用编号，Pending重连沿用。
     wchar_t token[128]{};
 };
 struct TransferHandoffResponse {
@@ -16,7 +16,7 @@ struct TransferHandoffResponse {
     DWORD error = ERROR_INVALID_DATA, reserved = 0;
     std::uint64_t rangeBase = 0, rangeBytes = 0;
 };
-static_assert(sizeof(TransferHandoffRequest) == 296 && sizeof(TransferHandoffResponse) == 32);
+static_assert(sizeof(TransferHandoffRequest) == 304 && sizeof(TransferHandoffResponse) == 32);
 
 inline std::uint64_t transferProcessCreation(HANDLE process)
 {

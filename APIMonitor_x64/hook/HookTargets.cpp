@@ -29,6 +29,7 @@
 #endif
 
 #include <WinReg.h>
+#include <atomic>
 #include <bcrypt.h>
 #include <evntrace.h>
 #include <evntprov.h>
@@ -3069,6 +3070,7 @@ namespace apimon
         void PrepareTransferExecution(std::uint64_t pid, std::uint64_t creation,
             std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind)
         {
+            static std::atomic<std::uint64_t> nextOperationId{1}; // 每次原API调度唯一；IPC Pending重连复用同一请求对象。
             const auto& endpoint = ActiveConfig().transferHandoff;
             if (endpoint.pipeName.empty() || !pid || pid > MAXDWORD || !creation || !address) return;
             const DWORD savedError = GetLastError();
@@ -3091,12 +3093,21 @@ namespace apimon
             request.targetPid = static_cast<DWORD>(pid);
             request.targetCreation = creation;
             request.address = address;
+            request.operationId = nextOperationId.load(std::memory_order_relaxed);
+            for (;;)
+            {
+                if (!request.operationId) { SetLastError(savedError); return; } // 序号耗尽后永久拒绝，不绕回复用。
+                const auto next = request.operationId + 1; // CAS成功后保存的下一序号；最大值后变为永久耗尽标记0。
+                if (nextOperationId.compare_exchange_weak(request.operationId, next,
+                    std::memory_order_relaxed, std::memory_order_relaxed)) break;
+            }
             ks::winapi_monitor::TransferHandoffResponse response{};
             const bool armed = ks::winapi_monitor::requestTransferHandoff(endpoint, request, response);
             const DWORD error = armed ? ERROR_SUCCESS : GetLastError();
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
-            swprintf_s(detail, L"handoff-v1 targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
-                request.targetPid, creation, address, armed ? 1u : 0u, response.rangeBase, response.rangeBytes, error);
+            swprintf_s(detail, L"handoff-v2 operation=%llu targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
+                request.operationId, request.targetPid, creation, address, armed ? 1u : 0u,
+                response.rangeBase, response.rangeBytes, error);
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ActionAnalyze", L"TransferHandoff",
                 error, detail, true, armed ? 1 : 0, ApiCallDuration{});
             SetLastError(savedError);

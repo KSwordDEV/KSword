@@ -167,6 +167,7 @@ namespace Ksword::Evidence
             Field(group, *late, L"API 目标 PID", "targetPid");
             Field(group, *late, L"目标进程创建 FILETIME", "targetCreationFileTime");
             Field(group, *late, L"请求入口地址", "address");
+            Field(group, *late, L"请求操作序号", "requestOperationId");
             Field(group, *late, L"准入错误码", "error");
             group.failed = Failed(*late, "error");
             sections.push_back(std::move(group));
@@ -185,9 +186,11 @@ namespace Ksword::Evidence
                 Field(group, admission, L"准入处理结束", "completed");
                 Field(group, admission, L"准入错误码", "error");
                 Field(group, admission, L"请求入口地址", "address");
+                Field(group, admission, L"请求操作序号", "requestOperationId");
                 Field(group, admission, L"接管时机", "handoffPhase");
                 Field(group, admission, L"私有范围基址", "rangeBase");
                 Field(group, admission, L"私有范围字节数", "rangeBytes");
+                Field(group, admission, L"已有范围已重设 NX", "trackedRangeRearmed");
                 Field(group, admission, L"原生所有者阶段", "nativeOwnerStage");
                 Field(group, admission, L"已请求失败目标恢复", "failedTargetRecoveryRequested");
                 Field(group, admission, L"目标退出码", "nativeExitCode");

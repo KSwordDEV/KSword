@@ -164,6 +164,7 @@ private:
     NativeError CoverBreakpointThreads(const std::vector<FrozenThread>& frozen);
     NativeError RestoreBreakpoint();
     NativeError PreparePageResume();
+    NativeError EnsureExecutionPageArmed();
     NativeError RequestInterrupt();
     bool IsRequestedInterrupt(const DEBUG_EVENT& event) const;
     bool ReceivePageEvent(const DEBUG_EVENT& event); // 返回真表示本页已处理/持有该事件。
@@ -764,9 +765,16 @@ NativeControlResult NativeDebugOwner::Impl::Step(const NativeStepRequest& reques
         return Reject({"step-thread-instance-not-frozen", ERROR_INVALID_DATA}, LedgerResult::IdentityMismatch);
     if (request.mode != NativeStepMode::Into && request.mode != NativeStepMode::OverCall && request.mode != NativeStepMode::Out)
         return Reject({"step-mode-unsupported", ERROR_NOT_SUPPORTED}, LedgerResult::InvalidEvidence);
-    if (const auto error = VerifyBoundSite(); error) {
-        RetireBreakpoint(error);
-        return Reject(error, LedgerResult::IdentityMismatch);
+    auto verification = VerifyBoundSite();
+    if (verification && breakpoint_->executionPage && !breakpoint_->pageAdvancing &&
+        !step_.Running() && !step_.HasResources()) {
+        // 已有Held停点期间外部保护变化后，用户单步也先恢复原owner的NX，再打开单条指令窗口。
+        if (const auto error = EnsureExecutionPageArmed(); error) verification = error;
+        else verification = VerifyBoundSite();
+    }
+    if (verification) {
+        RetireBreakpoint(verification);
+        return Reject(verification, LedgerResult::IdentityMismatch);
     }
     std::vector<HANDLE> peers;
     for (const auto& [tid, slot] : breakpoint_->slots) if (tid != request.tid) peers.push_back(slot.thread.Get());
@@ -949,7 +957,12 @@ NativeError NativeDebugOwner::Impl::ResolveBreakpointImages(std::uintptr_t event
 
 NativeError NativeDebugOwner::Impl::EnrollThread(DWORD tid, HANDLE eventThread) {
     auto& bp = *breakpoint_;
-    if (const auto error = VerifyBoundSite(); error) return error;
+    if (const auto error = VerifyBoundSite(); error) {
+        if (!bp.executionPage || bp.pageAdvancing || step_.Running() || step_.HasResources()) return error;
+        // DebugBreakProcess先产生助手CREATE_THREAD事件；此时已冻结目标，先归还NX再登记线程。
+        // 不能在收到真正INT3前就因外部API重开X而退役原owner。
+        if (const auto rearm = EnsureExecutionPageArmed(); rearm) return rearm;
+    }
     const auto error = native_owner_detail::EnrollNativeBreakpointThread(bp.slots, bp.request.target.pid, tid,
         eventThread, bp.binding.address, bp.debugControl, breakpointMembershipRevision_, bp.executionPage.has_value());
     bp.binding.enrolledThreads = bp.slots.size();
@@ -959,7 +972,11 @@ NativeError NativeDebugOwner::Impl::EnrollThread(DWORD tid, HANDLE eventThread) 
 NativeError NativeDebugOwner::Impl::CoverBreakpointThreads(const std::vector<FrozenThread>& frozen) {
     auto& bp = *breakpoint_;
     if (!event_ || !bp.installed) return {"breakpoint-thread-coverage-requires-event", ERROR_INVALID_STATE};
-    if (const auto error = VerifyBoundSite(); error) return error;
+    if (const auto error = VerifyBoundSite(); error) {
+        if (!bp.executionPage || bp.pageAdvancing || step_.Running() || step_.HasResources()) return error;
+        // 线程集合覆盖同样先完成已登记页的恢复，避免新线程/暂停事件在原owner内被提前拒绝。
+        if (const auto rearm = EnsureExecutionPageArmed(); rearm) return rearm;
+    }
     for (const auto& thread : frozen) {
         const auto tid = thread.member.tid;
         const auto wait = WaitForSingleObject(thread.handle.Get(), 0);
@@ -1101,6 +1118,21 @@ NativeError NativeDebugOwner::Impl::VerifyBoundSite() const {
     return error ? NativeError{"private-execution-pointer-or-region-changed", error} : NativeError{};
 }
 
+NativeError NativeDebugOwner::Impl::EnsureExecutionPageArmed() {
+    if (!breakpoint_ || !breakpoint_->executionPage) return {};
+    auto& bp = *breakpoint_;
+    if (!event_ || !attached_)
+        return {"private-execution-page-rearm-requires-event", ERROR_INVALID_STATE};
+    if (bp.pageAdvancing)
+        return {"private-execution-page-rearm-owner-busy", ERROR_BUSY};
+    if (!bp.executionPage->Verify(process_.Get())) return {};
+    if (const auto error = bp.executionPage->RearmExecutablePages(process_.Get()); error)
+        return {"private-execution-page-rearm-external-protection", error};
+    if (const auto error = bp.executionPage->Verify(process_.Get()); error)
+        return {"private-execution-page-rearm-readback", error};
+    return {};
+}
+
 // 只在原生停止期间读取绑定中的既有数据。成功时返回完整范围，失败时保留系统错误。
 NativeError NativeDebugOwner::Impl::ReadWatchedData(std::array<std::uint8_t, 8>& bytes) const {
     const auto& binding = breakpoint_->binding; // 已解析且与当前映像实例绑定的可写数据。
@@ -1139,9 +1171,20 @@ NativeError NativeDebugOwner::Impl::RestoreBreakpoint() {
 
 NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataChange> dataChange, bool stepStop,
     DWORD continuation, std::optional<std::uint64_t> hitAddress, bool manualPause) {
-    if (const auto error = VerifyBoundSite(); error) {
-        RetireBreakpoint(error);
-        return error;
+    auto bindingError = VerifyBoundSite(); // 普通停点只做原有一次验证，避免每次命中额外扫描整页目录。
+    if (bindingError && breakpoint_ && breakpoint_->executionPage && !breakpoint_->pageAdvancing &&
+        !step_.Running() && !step_.HasResources()) {
+        // 调试事件持有期间目标线程整体停止；若外部保护API把已登记页改回X，先按最新保护重新撤X。
+        // 页目录/分配身份不一致仍由原Verify拒绝，不能把任意映射变化当成可恢复。
+        if (const auto error = EnsureExecutionPageArmed(); error) {
+            RetireBreakpoint(error);
+            return error;
+        }
+        bindingError = VerifyBoundSite(); // 修改后再确认页保护与原owner登记一致。
+    }
+    if (bindingError) {
+        RetireBreakpoint(bindingError);
+        return bindingError;
     }
     const auto& bp = *breakpoint_;
     if (breakpointMembershipRevision_ == std::numeric_limits<std::uint64_t>::max()) {
@@ -1237,6 +1280,11 @@ NativeError NativeDebugOwner::Impl::AdoptBreakpointHit(std::optional<NativeDataC
 
 NativeError NativeDebugOwner::Impl::PrepareBreakpointResume() {
     auto& bp = *breakpoint_;
+    if (!bp.retire && !stepSubmitting_ && bp.executionPage && !bp.pageAdvancing &&
+        !step_.Running() && !step_.HasResources()) {
+        // 先于线程覆盖回读：已有Held停点期间外部API重开X时，覆盖校验本身也会拒绝该保护。
+        if (const auto error = EnsureExecutionPageArmed(); error) return error;
+    }
     if (!bp.retire) {
         std::vector<FrozenThread> current;
         if (const auto error = CaptureThreads(bp.request.target.pid, latest_->processInstanceId, threadIds_, current); error)
@@ -1288,10 +1336,14 @@ NativeError NativeDebugOwner::Impl::PrepareBreakpointResume() {
 NativeError NativeDebugOwner::Impl::PreparePageResume() {
     auto& bp = *breakpoint_;
     if (stepSubmitting_) {
-        if (!bp.pageAdvancing) return {}; // 用户从范围外步进，不临时开放任何关注页。
+        if (!bp.pageAdvancing) {
+            if (const auto error = EnsureExecutionPageArmed(); error) return error;
+            return {}; // 用户从范围外步进，不临时开放任何关注页。
+        }
         const auto error = step_.ArmPageTrap(); // Into复用原TF；Over/Out增加可独立归还的内部TF。
         return {error.stage, error.code};
     }
+    // 正常私有页事件已在PrepareBreakpointResume统一确认；这里只处理执行窗口及原事件分派。
     if (latest_->continuation != DBG_CONTINUE) return {}; // 真正应用异常保持原分派，不添加内部TF。
     const auto slot = bp.slots.find(event_->dwThreadId);
     if (slot == bp.slots.end()) return {"page-resume-thread-not-enrolled", ERROR_INVALID_DATA};
@@ -1780,7 +1832,13 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
 
     // 初始附加和清退中断都先排空已核验的系统断点，再脱离。
     if (!bp.retire && bp.installed) {
-        if (const auto error = VerifyBoundSite(); error) RetireBreakpoint(error);
+        auto verification = VerifyBoundSite(); // 正常事件只做一次原目录核验。
+        if (verification && bp.executionPage && !bp.pageAdvancing && !step_.Running() && !step_.HasResources()) {
+            if (const auto error = EnsureExecutionPageArmed())
+                RetireBreakpoint(error);
+            else verification = VerifyBoundSite(); // 外部保护恢复后复核一次，未修复则仍沿原失败路径。
+        }
+        if (!bp.retire && verification) RetireBreakpoint(verification);
     }
     if (bp.retire) { FinishBreakpointEvent(disposition); return; }
     if (!ApplyContinue(disposition)) { return; }
