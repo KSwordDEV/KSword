@@ -11,7 +11,7 @@ import time
 
 REPO = Path(__file__).resolve().parents[3]
 EVIDENCE_ROOT = Path(__file__).with_name('native_api_progress')
-EVIDENCE = EVIDENCE_ROOT / 'attempt-02'
+EVIDENCE = EVIDENCE_ROOT / 'attempt-04'
 RUN_LOG = EVIDENCE / 'run.log'
 STDERR_LOG = EVIDENCE / 'stderr.jsonl'
 RECEIPT = EVIDENCE / 'receipt.json'
@@ -28,6 +28,8 @@ def load_module(name, path):
 
 
 def main():
+    if EVIDENCE.exists() and any(EVIDENCE.iterdir()):
+        raise RuntimeError(f'evidence directory is not empty; refusing overwrite: {EVIDENCE}')
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     os.environ['KSWORD_EXECUTION_GROUP_LOG_DIR'] = str(EVIDENCE)
     group = load_module('product_execution_group_append', APPEND_FIXTURE)
@@ -48,9 +50,9 @@ def main():
     failure = None
     capture_issued = False
     stderr_log = None
-        # The Agent validates this exact leaf name before accepting the private
-        # cooperative directory; keep the attempt evidence as its parent.
-        source_directory = EVIDENCE / 'KswordApiMonCooperative'
+    # The Agent validates this exact leaf name before accepting the private
+    # cooperative directory; keep the attempt evidence as its parent.
+    source_directory = EVIDENCE / 'KswordApiMonCooperative'
     project = EVIDENCE / 'project'
     sites = EVIDENCE / 'sites.json'
     outcome = 'FAIL'
@@ -85,16 +87,25 @@ def main():
             collection = hello['control']['collectionId']
             if not collection or hello['sampleId'] is None:
                 raise AssertionError(f'Incomplete execution-group setup: {hello}')
-            group.ok(hello['executionArchive']['writerLeaseHeld'] is True,
+            initial = controller.status()
+            group.ok(initial['executionArchive']['writerLeaseHeld'] is True,
                      'shared project/sample writer lease is held')
+            group.ok(initial['executionArchive']['setupError'] is None,
+                     'initial project/sample setup succeeded')
+            group.ok(len(initial['members']) == 1 and initial['members'][0]['site']['pid'] == child.pid,
+                     'start attached exactly the original Held candidate')
             child.fire()
             _, held_before = controller.wait_held(child.pid)
             if not held_before['held'] or held_before['control']['state'] != 'held':
                 raise AssertionError(f'Native target did not reach real Held: {held_before}')
             token = held_before['sessionToken']
+            token_owner = token.get('owner') if isinstance(token, dict) else None
+            token_control = token.get('control') if isinstance(token, dict) else None
             owner_before = json.dumps(held_before['owner'], sort_keys=True)
             stop_before = json.dumps(held_before['stopToken'], sort_keys=True)
-            group.ok(bool(token) and token.get('sessionId') == held_before['owner']['sessionId'],
+            group.ok(isinstance(token, dict) and isinstance(token_owner, dict) and
+                     isinstance(token_control, dict) and
+                     token_owner.get('sessionId') == held_before['owner']['sessionId'],
                      'complete real Held member sessionToken captured')
 
             capture_issued = True
