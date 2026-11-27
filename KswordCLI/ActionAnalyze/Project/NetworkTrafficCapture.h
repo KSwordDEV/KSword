@@ -22,7 +22,10 @@ struct NetworkTrafficCapturePlan {
 struct NetworkTrafficCaptureReceipt {
     ProjectResult status; // 采集或归档错误；来源启动失败单独以 reason 标识。
     ProjectNetworkCheckpoint checkpoint; // 最后成功发布的网络检查点。
-    std::string reason; // stopped、duration-elapsed、cancelled、target-exited、source-unavailable等。
+    // 终态原因使用稳定机器值，区分未启动、启动失败、来源失败、取消和正常停止。
+    // 典型值包括 not-started、invalid-plan、target-identity-failed、source-unavailable、
+    // duration-elapsed、cancelled、target-exited、stopped、archive-failed。
+    std::string reason;
     std::vector<std::string> diagnostics; // 真实服务状态或驱动错误，不作为完成证据。
     std::uint64_t packets = 0; // 已提交且核验的网络记录数。
     std::uint64_t capturedBytes = 0; // 实际已提交 IP 层字节，不含 ETW 计数。

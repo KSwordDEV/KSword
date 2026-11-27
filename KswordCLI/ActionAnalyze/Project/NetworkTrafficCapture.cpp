@@ -195,12 +195,19 @@ bool NetworkTrafficSession::Start()
     const auto& plan = state.plan; // 构造时冻结的身份及来源。
     auto& out = state.out; // 启动失败只更新本次回执，不返回旧网络检查点。
     out.cleanupConfirmed = true; // 在真正启动线程前，本会话尚无来源清退责任。
+
+    // 启动阶段的失败必须留下可回读的责任阶段，不能让三端收到空白结束原因。
+    const auto failStart = [&](const char* reason) {
+        out.reason = reason;
+        return false;
+    };
+
     if (!IsUuid(plan.sampleId) || !IsUuid(plan.bootId) || !plan.pid || plan.pid == UINT32_MAX ||
         !plan.creationFileTime || (plan.durationMs && plan.durationMs < 100) || plan.durationMs > 60000 ||
         (plan.backend != NetworkTrafficBackend::RawSocket && plan.backend != NetworkTrafficBackend::ExistingWfp))
     {
         out.status = Failure(ProjectError::InvalidArgument, "networkCapturePlan");
-        return false;
+        return failStart("invalid-plan");
     }
     if (state.cancelled.load())
     {
@@ -211,31 +218,31 @@ bool NetworkTrafficSession::Start()
     if (!info || info->access != ProjectAccess::ReadWrite)
     {
         out.status = Failure(info ? ProjectError::ReadOnly : ProjectError::NotOpen, "networkCaptureProject");
-        return false;
+        return failStart(info ? "project-read-only" : "project-not-open");
     }
     state.target = Handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, plan.pid));
     if (!state.target || state.target.get() == nullptr)
     {
         out.status = WinFailure("networkCaptureTarget", GetLastError());
-        return false;
+        return failStart("target-open-failed");
     }
     FILETIME created{}, exited{}, kernel{}, user{}; // 同一对象创建时间及存活状态，拒绝PID复用。
     if (!GetProcessTimes(state.target.get(), &created, &exited, &kernel, &user) ||
         FileTime(created) != plan.creationFileTime || WaitForSingleObject(state.target.get(), 0) != WAIT_TIMEOUT)
     {
         out.status = Failure(ProjectError::InvalidArgument, "networkCaptureTargetIdentity");
-        return false;
+        return failStart("target-identity-failed");
     }
     out.status = LoadNetworkEvidenceTail(state.project, plan.sampleId, state.checkpoint);
     if (!out.status)
     {
-        return false;
+        return failStart("network-tail-failed");
     }
     std::string epoch; // 每次显式会话生成来源代次，不与旧段序号混淆。
     out.status = NewId(epoch);
     if (!out.status)
     {
-        return false;
+        return failStart("source-identity-failed");
     }
     state.binding = {UuidBytes(info->projectId), UuidBytes(plan.sampleId),
         state.Wfp() ? "ksword-r0-wfp-existing" : "ksword-r3-raw-socket", UuidBytes(epoch), epoch,
@@ -534,6 +541,18 @@ void NetworkTrafficSession::Close()
     {
         return;
     }
+    if (!state.attempted)
+    {
+        // 合作采集可能在 Ready 前失败；明确记录未启动，禁止回执伪装成正常空段。
+        state.out.reason = "not-started";
+        state.out.cleanupConfirmed = true;
+    }
+    else if (!state.active && state.out.reason.empty())
+    {
+        // 这是防御性兜底，覆盖未来新增启动分支忘记填写原因的情况。
+        state.out.reason = "start-failed";
+    }
+
     if (state.active)
     {
         state.ObserveStop();
