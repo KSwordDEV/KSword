@@ -49,7 +49,7 @@ QString OfflineSegmentBehaviorInputs(const SegmentRow& row)
     const auto family = clue.family.toUtf8(); // 保活到投影与格式化结束的稳定类别。
     const auto observation = BehaviorInput(row, api, family); // 复用规则求值使用的同一证据组装。
     const auto fields = rule::ProjectApiPresetFields(observation.api, observation.family,
-        observation.memoryWriteReturn, observation.evidence); // 与规则匹配共享唯一字段投影器。
+        clue.memoryWriteReturn, observation.evidence); // 投影器接收证据层返回值，规则层副本仅用于求值。
     const auto text = rule::FormatApiPresetFields(fields); // 只显示生产投影中已知的字段值。
     return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
 }
