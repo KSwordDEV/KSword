@@ -32,4 +32,6 @@ WFP 使用原始 FILETIME；Raw Socket 保留来源毫秒精度。无法分辨�
 
 网络层及三端共用采集入口已接线：`ApiTransferHandoff::Prepare` 核验目标强实例和私有范围后，在成功 ACK 前经 `TargetDiscovered` 回调调用原网络会话的 `AppendTarget`；重复准入复用窗口。`CaptureCooperativeApi` 在自动接管模式设置 `keepAliveForAppendedTargets`，根退出后由原 API 整链生命周期决定网络关闭。追加失败保留网络诊断，并使最终网络状态进入部分结果，不撤销原生接管及其恢复责任。
 
+同一范围的先前命中处于内部 TF 推进、页暂时恢复执行时，后续交接请求继续获得 Pending，仍留在原 Hook 的同步屏障内；原 owner 重设 NX 后再回读保护并发出成功 ACK。仅有历史范围登记、已经完成的推进或无 owner 的可执行页仍不能取得成功 ACK；不为网络另开一套暂停或推进路径。
+
 Qt／Light 原字段详情沿 `ApiCaptureNetworkJson` 展示同一 `targets` 快照，CLI `network-read` 返回该检查点的 `targetWindows`，原 CLI 帮助与双语说明同步。界面入口仍为“监控 → 行为分析 → 项目与采样”的原 API 参数执行页，复用 `ParameterWorkspace`／Win32 对应结构及原字段详情，仅更新网络范围说明；参考原 API 采集、写入停点及共享参数框架，不新增页面、布局或后台任务。构建、运行、抓包覆盖率、PID 复用、根先退出、成员尾包及跨端历史重开的实证尚未完成；GUI 实测按用户要求继续后置。本次源码作者不生成测试夹具或验收回执。

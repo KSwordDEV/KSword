@@ -60,8 +60,16 @@ DWORD VerifyArmedRange(HANDLE process, const n::ExecutionGroupMember& member, st
             region > address || memory.RegionSize > UINT64_MAX - region ||
             region + memory.RegionSize <= address ||
             reinterpret_cast<std::uint64_t>(memory.AllocationBase) != binding->allocationBase ||
-            (memory.Protect & (PAGE_GUARD | PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+            (memory.Protect & PAGE_GUARD))
             return ERROR_INVALID_STATE;
+        if (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))
+        {
+            // 同一范围的前一次命中正在内部TF推进时，NX暂时开放且同伴仍由原owner暂停。
+            // 新调用保持在Hook屏障内，等原owner关回NX再核对；不把暂开窗口当成旧ACK失效后放行。
+            const auto& advance = member.control.pageAdvance; // 只采用本次真实owner的运行状态。
+            return advance && advance->receipt.state == n::NativeStepState::Running &&
+                !advance->receipt.resourcesRestored ? ERROR_IO_PENDING : ERROR_INVALID_STATE;
+        }
         address = std::min(base + bytes, region + static_cast<std::uint64_t>(memory.RegionSize));
     }
     return ERROR_SUCCESS;
