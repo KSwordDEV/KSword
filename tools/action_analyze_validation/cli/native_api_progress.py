@@ -11,9 +11,10 @@ import time
 
 REPO = Path(__file__).resolve().parents[3]
 EVIDENCE_ROOT = Path(__file__).with_name('native_api_progress')
-EVIDENCE = EVIDENCE_ROOT / 'attempt-04'
+EVIDENCE = EVIDENCE_ROOT / 'attempt-06'
 RUN_LOG = EVIDENCE / 'run.log'
 STDERR_LOG = EVIDENCE / 'stderr.jsonl'
+STARTUP_LOG = EVIDENCE / 'startup-progress.jsonl'
 RECEIPT = EVIDENCE / 'receipt.json'
 APPEND_FIXTURE = Path(__file__).with_name('product_execution_group_append.py')
 COOPERATIVE_FIXTURE = Path(__file__).with_name('cooperative_api_capture.py')
@@ -114,8 +115,9 @@ def main():
                 'sourceCreationFileTime': str(identity['creation']),
                 'durationMs': 2000,
                 'confirm': True,
+                'startupProgress': True,
                 'captureProgress': True,
-            }, {'collectionId': collection, 'sessions': [token]})
+            }, {'collectionId': collection, 'sessions': [token]}, timeout=90)
             if controller.process.poll() is not None:
                 raise AssertionError(f'Controller exited during API capture: {controller.process.returncode}')
             held_after = group.member_of(controller.status(), child.pid)
@@ -127,11 +129,41 @@ def main():
 
             group.LOG.flush()
             stderr_log.flush()
-            progress_lines = [line for line in STDERR_LOG.read_text(encoding='utf-8').splitlines()
-                              if line.strip()]
-            frames = [json.loads(line) for line in progress_lines]
+            raw_progress_lines = [line for line in STDERR_LOG.read_text(encoding='utf-8').splitlines()
+                                  if line.strip()]
+            startup_lines = []
+            progress_lines = []
+            startup_frames = []
+            frames = []
+            for line in raw_progress_lines:
+                frame = json.loads(line)
+                if frame.get('type') == 'api-capture-progress':
+                    progress_lines.append(line)
+                    frames.append(frame)
+                elif frame.get('type') is None and {
+                    'projectId', 'sampleId', 'sourcePid', 'sourceCreationFileTime',
+                    'nativePid', 'nativeCreationFileTime', 'startup'
+                }.issubset(frame):
+                    startup_lines.append(line)
+                    startup_frames.append(frame)
+                else:
+                    raise AssertionError(f'Unexpected API capture stderr frame: {frame}')
+            STARTUP_LOG.write_text('\n'.join(startup_lines) + ('\n' if startup_lines else ''),
+                                   encoding='utf-8', newline='\n')
+            if not startup_frames:
+                raise AssertionError('startupProgress produced no startup JSON frame')
+            for startup in startup_frames:
+                group.ok(startup['sampleId'] == hello['sampleId'],
+                         'startup progress remains in the execution group sample')
+                group.ok(startup['sourcePid'] == source.pid and
+                         int(startup['sourceCreationFileTime']) == int(identity['creation']) and
+                         startup['nativePid'] == child.pid and
+                         int(startup['nativeCreationFileTime']) == int(child.creation),
+                         'startup progress preserves source and native target identity')
             if not frames or any(frame.get('type') != 'api-capture-progress' for frame in frames):
                 raise AssertionError(f'Missing or unexpected stderr progress frames: {progress_lines}')
+            if any(frame.get('sampleId') != hello['sampleId'] for frame in frames):
+                raise AssertionError(f'Capture progress crossed execution-group samples: {frames}')
             sequences = [int(frame['progressSequence']) for frame in frames]
             if sequences != list(range(1, len(sequences) + 1)):
                 raise AssertionError(f'Progress sequence is not contiguous: {sequences}')
