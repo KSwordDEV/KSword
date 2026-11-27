@@ -36,6 +36,10 @@ v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == fil
 
 普通强类型参数由 `ApiBehaviorObservation.cpp/.h` 消费已有采集格式，而非执行上游脚本。读侧要求同模块、精确 API、类别、Strong、非零源会话、显式返回标记，并按 API 分别解释 BOOL／HANDLE／LSTATUS／NTSTATUS／GetAddrInfo 返回。`StatusUnknown` 不发布错误码；GetAddrInfo 的错误来自函数返回，不能把包装器残留的 WSA LastError 当成原因。返回字段可独立存在，参数无效不回填假值。
 
+`NtQueryInformationProcess` 独立归类为 `process-query`，由同一 `ReadApiPresetEvidence()` 发布真实 NTSTATUS 返回观察；32位返回位和原包状态必须一致，按 `NT_SUCCESS` 解释。`process.informationClass` 只来自完整 `process/class/size` 数值布局中的请求信息类；末尾 size 可能是输出长度或输入容量，不发布为结果。正式双语谓词只对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）、ProcessDebugFlags（31）的成功／失败查询解释为调试环境查询线索。生产 Hook 未保存三类输出值，故不提供 `debuggerPresent` 或调试器存在／不存在结论，也不从句柄推断目标身份。
+
+现有生产声明、Hook 与 formatter 没有 `IsDebuggerPresent`／`CheckRemoteDebuggerPresent` 强类型采集，不能为它们创建可触发谓词或伪字段。若后续增加 `IsDebuggerPresent` 的可信返回，FALSE 应解释为查询成功且调试器不存在，不能复用普通 BOOL 的失败约定；本次不增加 Hook 或修改协议。
+
 原通用包的文本没有独立完整性位。本读侧仅接受具名字段完整布局，文本必须有已核验后继字段，生成包装器还须有签名对应的完整 `arg1...argN` 十六进制尾部。满缓冲、无终止符、可见不可读标记、非法 UTF-16、控制字符、文本中的 `=` 等歧义分隔使参数不发布。ANSI formatter 未归档代码页，仅接受 ASCII；W 版用严格 UTF-16 转 UTF-8。配置缩短摘要导致缺尾时，返回事实仍可保留，缺参数的规则为 Unknown。没有把 NUL 结束等同于独立的完整性有效位，也未给末尾无分隔文本创建类型字段。这里的 Known 表示按已登记 formatter 语法解码成功，不是独立采集完整性认证：配置截断可能落在最终数字中；恶意输入若伪造后继布局且真正尾部又被剪掉，旧包无法与完整布局区分。除下述受生产摘要下限保护的 WriteFile 计数外，不发布最终尾数字作为业务字段，也不据此声称采集文本在对抗输入下完整可信；需要独立长度或完整性协议才能关闭该边界。
 
 `file.requestedBytes`／`file.transferredBytes` 只在 WriteFile 成功返回且完整 `handle/request/transferred` 数值布局通过时一起发布，分别是请求及安全读回的完成字节数。布局还必须短于现有 MonitorConfig 的最小摘要限制64字符；达到64字符及更长时均不发布计数，保守拒绝可能截短最终数字的包。现有 HookedWriteFile 仅非 OVERLAPPED 调用成功且安全读取输出时写完成数字；失败、异步成功及输出不可读的 `transferred=unknown` 不补零，也不单独发布请求计数。规则按零完成（包括零请求）、正数部分完成、正数全量完成依次置于原通用返回释义前，缺计数或不符合三种关系时保留原 fallback；这些计数不证明文件路径、内容或持久落盘，不关联后续异步完成包。

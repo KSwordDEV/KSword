@@ -227,6 +227,8 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 `ResumeThread`／`NtResumeThread` 的原调用回传现在独立归入 `thread-resume`，三端共用分类、返回投影及预置成功/失败释义。Win32 返回值是旧挂起计数，`0` 为有效成功、仅 `0xffffffff` 为失败；直接 NT 返回按 `NT_SUCCESS` 解释，并核对原包状态与返回位一致。行为规则字段 `thread.previousSuspendCount` 只来自成功 `ResumeThread` 的显式返回槽，直接 NT 的可选输出未投影，不能从文本零值补造。此类原包与调用前 kind6 接管、实际 `entryObservation` 分别保留，恢复调用成功不证明目标执行、解除全部挂起或具备目标强身份。
 
+`NtQueryInformationProcess` 的既有 Strong 原包归入 `process-query`，行为字段目录新增 `process.informationClass`，只发布完整 `process/class/size` 布局中的请求信息类。返回位与状态一致时按 NTSTATUS 判断，零返回是查询成功；正式规则分别解释调试端口（7）、调试对象句柄（30）、调试标志（31）查询的成功与失败。原包没有这些输出值，不提供 `debuggerPresent`，不据此判断调试器存在、反调试成功或恶意意图，也不从进程句柄补目标身份。`api-rule-catalog` 的 `typedFields.source` 说明同一来源边界，CLI／Qt／Light 共享 `ReadApiPresetEvidence()`；目前生产声明没有 IsDebuggerPresent／CheckRemoteDebuggerPresent 的强类型 Hook，未为它们创建伪字段或不可触发模板。本批仅源码接入，未构建或运行验收。
+
 `capture-progress` 的候选通知现通过 `payload.candidates` 提供最近线程创建、APC 和上下文候选，各保留至多32条及双方 `segmentOrdinal/rawSequence/sourceSequence`、进程和线程代次、实际写入范围及请求地址。累计数、窗口截断与实际执行分别显示；未采集的执行／投递状态保持 `null`。首个检查点提交前暂缺采样身份的通知只保留最近窗口，取得真实身份后交付，不另外读取归档。原生 `api-capture` 的最终响应 `transfers` 使用同一文档，原有计数字段保留。
 
 原生 `api-capture` 最终响应的 `rules.latest` 同时给出最近命中的原段、记录序号、来源序号、API、规则ID及 `behavior.summary/summaryZh/evidence`，与运行进度使用同一命中投影。没有命中时为 `null`，不要求开启进度选项，也不额外重跑规则。

@@ -35,6 +35,12 @@
         "summaryZh": "观察到进程创建 API"
       },
       {
+        "ruleId": "ksword.api.process-query-grouped.v1",
+        "predicate": "api.family == \"process-query\"",
+        "summary": "Observed a process information query API; returned information requires separate evidence.",
+        "summaryZh": "观察到进程信息查询 API；返回信息须另有证据"
+      },
+      {
         "ruleId": "ksword.api.file-operation-observed.v1",
         "predicate": "api.family == \"file-open\" || api.family == \"file-copy\" || api.family == \"file-write\"",
         "summary": "Observed a file open, copy or write API.",
@@ -89,6 +95,12 @@
         "predicate": "api.family == \"process-start\"",
         "summary": "Observed a process creation API; success requires a return marker.",
         "summaryZh": "观察到进程创建 API；成功须有返回标记"
+      },
+      {
+        "ruleId": "ksword.api.process-query-observed.v1",
+        "predicate": "api.family == \"process-query\"",
+        "summary": "Observed a process information query API; the requested class and NTSTATUS do not disclose the returned information.",
+        "summaryZh": "观察到进程信息查询 API；请求信息类和 NTSTATUS 不披露返回信息内容"
       },
       {
         "ruleId": "ksword.api.file-open-observed.v1",
@@ -189,6 +201,18 @@
     ]
   },
   "behaviorRules": [
+    {
+      "ruleId": "ksword.behavior.process-debug-information-query-returned.v1",
+      "predicate": "api.family == \"process-query\" && api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && (process.informationClass == 7u64 || process.informationClass == 30u64 || process.informationClass == 31u64)",
+      "summary": "NtQueryInformationProcess reported NT_SUCCESS for a ProcessDebugPort (7), ProcessDebugObjectHandle (30) or ProcessDebugFlags (31) query. This is a debugging-environment query clue; output values, debugger presence, the target process identity and malicious intent remain unknown.",
+      "summaryZh": "NtQueryInformationProcess 对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）或 ProcessDebugFlags（31）查询报告 NT_SUCCESS；属于调试环境查询线索，输出值、调试器是否存在、目标进程身份及恶意意图仍未知"
+    },
+    {
+      "ruleId": "ksword.behavior.process-debug-information-query-rejected.v1",
+      "predicate": "api.family == \"process-query\" && api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && !result.succeeded && (process.informationClass == 7u64 || process.informationClass == 30u64 || process.informationClass == 31u64)",
+      "summary": "NtQueryInformationProcess reported a failing NTSTATUS for a ProcessDebugPort (7), ProcessDebugObjectHandle (30) or ProcessDebugFlags (31) query. Failure does not establish debugger presence or absence, successful anti-debugging, the target process identity or malicious intent.",
+      "summaryZh": "NtQueryInformationProcess 对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）或 ProcessDebugFlags（31）查询报告失败 NTSTATUS；失败不证明调试器存在或不存在、反调试成功、目标进程身份或恶意意图"
+    },
     {
       "ruleId": "ksword.behavior.thread-resume-no-suspension.v1",
       "predicate": "api.family == \"thread-resume\" && api.name == \"ResumeThread\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && thread.previousSuspendCount == 0u64",

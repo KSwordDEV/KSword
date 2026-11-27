@@ -53,6 +53,7 @@ constexpr FieldBinding Catalog[] = {
     {"module.name", FieldType::Text, Phase::Observation},
     {"module.nameLower", FieldType::Text, Phase::Observation},
     {"system.informationClass", FieldType::U64, Phase::Observation},
+    {"process.informationClass", FieldType::U64, Phase::Observation}, // NtQueryInformationProcess请求信息类，不含输出值。
     {"process.application", FieldType::Text, Phase::Observation},
     {"process.applicationBaseLower", FieldType::Text, Phase::Observation},
     {"process.commandLine", FieldType::Text, Phase::Observation},
@@ -155,6 +156,9 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
     }
     if (id == "thread.previousSuspendCount") {
         return "Successful ResumeThread DWORD return only; zero is valid, 0xffffffff is failure; NtResumeThread optional output and current suspend state are not inferred.";
+    }
+    if (id == "process.informationClass") {
+        return "Strict NtQueryInformationProcess process/class/size formatter layout; input information class only; NTSTATUS is separate; no debug port, debug object, DebugFlags, debugger presence or target identity is inferred.";
     }
     if (id.starts_with("process.")) {
         return "Strict CreateProcess application/command-line layout; basename is from application argument, not executable identity.";

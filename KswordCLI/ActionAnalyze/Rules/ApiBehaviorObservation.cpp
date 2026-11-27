@@ -283,7 +283,7 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
         }
         result.succeeded = packet.hookAddress == 0;
         result.statusDomain = family == "network-name-query" ? "addrinfo-return" : "lstatus";
-    } else if (family == "system-query" || api == L"NtResumeThread") {
+    } else if (family == "system-query" || api == L"NtQueryInformationProcess" || api == L"NtResumeThread") {
         if (packet.hookAddress > UINT32_MAX) {
             return std::nullopt; // 此生产包装器将 32 位 NTSTATUS 零扩展存入返回槽。
         }
@@ -391,6 +391,11 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
     } else if (api == L"NtQuerySystemInformation") {
         decoded = Layout(result, detail, ansi, {{L"class=", E::Decimal, "system.informationClass"},
             {L" length=", E::Decimal}, {L" return=", E::Decimal}});
+    } else if (api == L"NtQueryInformationProcess") {
+        // 专用Hook只保存process/class/size及NTSTATUS；信息类是请求值，不是输出调试状态。
+        // size来自可选返回长度或输入容量，语义不唯一，仅核验布局，不发布为结果字段。
+        decoded = Layout(result, detail, ansi, {{L"process=", E::Hex},
+            {L" class=", E::Decimal, "process.informationClass"}, {L" size=", E::Decimal}});
     } else if (api == L"CreateProcessW" || api == L"CreateProcessA") {
         // 应用参数和命令行是两份独立数据；不根据命令行头词猜实际映像。
         decoded = Layout(result, detail, ansi, {{L"app=", E::Text, "process.application"},

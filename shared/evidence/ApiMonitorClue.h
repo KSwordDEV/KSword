@@ -83,6 +83,8 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
         {L"GetModuleHandleW", "module-query", C::Loader, false},
         {L"GetModuleHandleA", "module-query", C::Loader, false},
         {L"NtQuerySystemInformation", "system-query", C::Process, true},
+        // 直接进程信息查询保留独立类别；调试相关信息类不代表已采到调试器状态。
+        {L"NtQueryInformationProcess", "process-query", C::Process, true},
         {L"CreateProcessW", "process-start", C::Process, false},
         {L"CreateProcessA", "process-start", C::Process, false},
         // 文件打开/复制/写入分别归属，句柄打开不宣称文件内容落盘。
