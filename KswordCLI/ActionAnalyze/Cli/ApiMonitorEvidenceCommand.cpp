@@ -225,13 +225,22 @@ Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
         {L"behavior", behavior}});
 }
 
-// 输入本页冻结库，输出当前回放规则身份；不把重新求值的结果冒充采集时规则。
-Json ReplayRuleProfile(const project::Rules::ApiPresetDatabase& database)
+// 输入本页规则库及可选的已核验采集计划，输出回放与采集两份身份及内容比较结果。
+Json ReplayRuleProfile(const project::Rules::ApiPresetDatabase& database,
+    const project::ProjectApiCheckpoint* checkpoint = nullptr)
 {
+    const bool recorded = checkpoint && !checkpoint->ruleSourceSha256.empty(); // 旧导入档没有规则内容身份。
+    const bool replayKnown = database.error.empty() && !database.sourceSha256.empty(); // 配置失败不能当作已知不匹配。
     return Json::object({
         {L"presetSet", Json::string(ks::str::Utf8ToUtf16(database.presetSet))},
         {L"sourceSha256", database.sourceSha256.empty() ? Json{} :
             Json::string(ks::str::Utf8ToUtf16(database.sourceSha256))},
+        {L"recordedPresetSet", checkpoint && !checkpoint->rulePresetSet.empty() ?
+            Json::string(ks::str::Utf8ToUtf16(checkpoint->rulePresetSet)) : Json{}},
+        {L"recordedSourceSha256", recorded ?
+            Json::string(ks::str::Utf8ToUtf16(checkpoint->ruleSourceSha256)) : Json{}},
+        {L"matchesRecordedRules", recorded && replayKnown ?
+            Json::boolean(checkpoint->ruleSourceSha256 == database.sourceSha256) : Json{}},
         {L"configError", database.error.empty() ? Json{} :
             Json::string(ks::str::Utf8ToUtf16(database.error))}});
 }
@@ -385,7 +394,7 @@ std::optional<Result> ReplayCooperative(const project::ProjectDocument& document
         {L"sourceRows", Json::count(checkpoint.lastSourceSequence)}, {L"clueRows", Json::count(clues)},
         {L"coverage", Json::string(L"unknown")}, {L"sourceState", checkpoint.sourceState.empty() ? Json{} :
             Json::string(project::ProjectStorage::WideAscii(checkpoint.sourceState))},
-        {L"ruleProfile", ReplayRuleProfile(database)},
+        {L"ruleProfile", ReplayRuleProfile(database, &checkpoint)},
         {L"failedSegment", invalid ? Json::count(checkpoint.ordinal + 1) : Json{}},
         {L"nextAfter", !page.empty() && more ? Json::count(lastShown) : Json{}}, {L"rows", Json::array(page)}}), {}};
 }
@@ -813,7 +822,7 @@ void RegisterApiMonitorEvidenceCommands()
     replay.syntax = L"KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]";
     replay.options = L"Required: --project and --sample. Optional: --after, --limit (1-100) and --packet 1.";
     replay.summary = L"Read a verified page of archived WinAPI clues.";
-    replay.notes = L"Use the returned nextAfter as the next page's --after value. Each row.rule contains classification and an optional bilingual behavior explanation evaluated from that verified packet. ruleProfile identifies the current replay rules; rule errors do not prevent reading the archived packet.";
+    replay.notes = L"Use the returned nextAfter as the next page's --after value. Each row.rule contains classification and an optional bilingual behavior explanation evaluated from that verified packet. ruleProfile identifies current and recorded rules; matchesRecordedRules is null when either identity is unavailable. Rule errors do not prevent reading the archived packet.";
     replay.run = RunReplay;
     addCommand(std::move(replay));
 }
