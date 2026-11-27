@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 最新恢复CodeBuddy授权。** 用户原话「可以再派发约10个Codebuddy任务」。覆盖此前禁令，本轮保守最多10个新任务，当前0/10；主协调逐项计数，不自动用满。测试/构建/夹具/验收回执仍全部交CodeBuddy，主协调写产品；只定向补待验链路，不重复已过ETW/三目标链，失败保留原错不盲目重跑，GUI继续后置。
+
 - **2026-11-27 最新用户限制与Ex2结果。** 用户原话「从现在开始不得调用codebudy，已有的不管，等新的通知下发。继续」。禁止新增、续接、重试任何CodeBuddy调用，直到用户明确恢复；已有任务sh_21bf01c6f001ZBf4KG8eDPYaTt已结束并回执。Ex2仅一次运行，目标stubRan/counter1/exit0及raw-native、entryObservation成立，但CLI6；递归来源error31、pipeError109、coverageStale=true，保留失败证据，不重跑。工程推进记录载明具体失败及修正。主协调继续产品源码，不自行测试/构建，待验如实保留；持续推进原话有效。
 
 - **2026-11-27 NT Ex2最新续跑。** 产品4c57b774e新增NtQueueApcThreadEx2调用前同步接管、AAAP1全部参数/flags/NTSTATUS及三端原展示/关联接入，尚未构建实测；唯一构建sh_21bec46130013Dh5kCaf4Em70G/PID4392使用hy4flash，只两Agent+CLI各一次，日志native-ex2-build，不运行目标/GUI。原APC2契约任务在约20分钟仅工具链查询后已核对精确进程并结束，最终failed；APC2驱动任务超时无文件，不重复。详见[工程记录](ksword-action-analyze-engineering.md)。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」有效；测试/夹具/回执仍全部交CodeBuddy，主协调写产品，等待时不虚构通过或扩充无关防御。

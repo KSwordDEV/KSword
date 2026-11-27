@@ -111,6 +111,7 @@ public:
         DWORD pid = 0;
         std::uint64_t creation = 0, session = 0, revision = 0, dropped = 0, deliveryDropped = 0;
         bool ready = false, ended = false, failed = false;
+        bool stopping = false; // 已请求停止的采集器只排空尾包，不再授予来源认证或Ready资格。
         DWORD error = 0;
         std::deque<ks::winapi_monitor::ApiMonitorEventPacket> pendingPackets; // Ready前暂存已验包，Ready后按原序交付。
         std::optional<m::CaptureStartupProgress> startup;
@@ -219,7 +220,7 @@ public:
         if (pid == sourcePid) return creation == sourceCreation && originalReady && !originalEnded;
         const auto found = sources.find(pid);
         return found != sources.end() && found->second.creation == creation && found->second.ready &&
-            !found->second.failed && !found->second.ended;
+            !found->second.failed && !found->second.ended && !found->second.stopping;
     }
     bool SourceAuthenticated(DWORD pid, std::uint64_t creation) const
     {
@@ -231,7 +232,7 @@ public:
         }
         const auto found = sources.find(pid); // 只接受本轮已登记的capture，不凭端点token新增来源。
         return found != sources.end() && found->second.creation == creation && found->second.capture &&
-            !found->second.failed && !found->second.ended;
+            !found->second.failed && !found->second.ended && !found->second.stopping;
     }
     DWORD Prepare()
     {
@@ -242,7 +243,13 @@ public:
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
             !SourceAuthenticated(client, request.sourceCreation) || !request.address ||
             request.targetPid <= 4 || request.targetPid == GetCurrentProcessId() ||
-            !request.targetCreation) return ERROR_ACCESS_DENIED;
+             !request.targetCreation) return ERROR_ACCESS_DENIED;
+        // 单成员清退后旧Agent可能尚未卸钩；同实例的新请求不能重用恢复中的NX owner。
+        const auto retiring = std::any_of(current.members.begin(), current.members.end(), [&](const auto& member) {
+            return member.site.pid == request.targetPid && member.site.creationFileTime == request.targetCreation &&
+                failedOwnerRecovery.contains(member.owner.backendInstanceId);
+        });
+        if (retiring) return ERROR_OPERATION_ABORTED;
         const auto sourceHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, client);
         if (!sourceHandle) return GetLastError();
         Handle source(sourceHandle);
@@ -334,6 +341,7 @@ public:
             const auto found = sources.find(transfer.request.targetPid);
             if (found != sources.end() && !found->second.ready && found->second.creation == transfer.request.targetCreation) {
                 found->second.failed = true;
+                found->second.stopping = true;
                 if (!found->second.error) found->second.error = error;
                 found->second.capture->Stop(); // 过期准入不能由清退期晚到Ready重新授予执行资格。
             }
@@ -703,11 +711,17 @@ public:
             }); // 同一实例尚有准入在推进时，不撤掉其仍需使用的NX范围。
             if (pendingTarget) continue;
             const auto* member = Member(transfer.request);
-            if (!member || member->control.clean || member->owner.backendInstanceId.empty() ||
+            if (!member || member->owner.backendInstanceId.empty() ||
                 failedOwnerRecovery.contains(member->owner.backendInstanceId)) continue;
             const auto owner = member->owner; // CloseMember会更新current，不能继续借用旧成员指针。
             failedOwnerRecovery.emplace(owner.backendInstanceId, true);
-            current = group.CloseMember(owner);
+            if (source != sources.end() && source->second.creation == transfer.request.targetCreation)
+            {
+                // 先撤来源资格并通知停止，再撤NX/debug owner；不能同步等待被冻结的卸钩helper。
+                source->second.stopping = true;
+                source->second.capture->Stop();
+            }
+            if (!member->control.clean) current = group.CloseMember(owner);
         }
     }
     void Poll()
@@ -789,7 +803,11 @@ void ApiTransferHandoff::Close()
     self.ClosePipe();
     for (auto& transfer : self.transfers)
         if (transfer.stage != Impl::Admission::Done) self.Finish(transfer, ERROR_OPERATION_ABORTED);
-    for (auto& [pid, source] : self.sources) source.capture->Stop();
+    for (auto& [pid, source] : self.sources)
+    {
+        source.stopping = true; // 全轮关闭同样先撤来源准入，尾包由DrainSources继续写入。
+        source.capture->Stop();
+    }
     // 先保存已持有的停点，再撤本轮NX/调试owner；Held事件会冻结目标的卸钩线程，不能先等Agent退出。
     self.Observe();
     if (!self.current.collectionId.empty())
@@ -873,6 +891,7 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         sources.push_back(V::makeObject({{"pid", V::makeUInt(pid)},
             {"creationFileTime", V::makeString(std::to_string(source.creation))},
             {"ready", V::makeBool(source.ready)}, {"session", V::makeString(std::to_string(source.session))},
+            {"stopRequested", V::makeBool(source.stopping)},
             {"coverageRevision", V::makeString(std::to_string(source.revision))}, {"ended", V::makeBool(source.ended)},
             {"failed", V::makeBool(source.failed)}, {"error", V::makeUInt(source.error)},
             {"queueDropped", V::makeUInt(source.dropped)}, {"deliveryDropped", V::makeUInt(source.deliveryDropped)},

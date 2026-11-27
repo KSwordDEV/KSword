@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4/6项清退来源及迟到请求。** Source新增stopping，来源认证及Ready共同排除停止中的实例；失败目标恢复先Stop递归capture，再CloseMember解除NX/debug冻结，不同步等待卸钩helper；即使owner已clean仍通知capture停止。Prepare拒绝failedOwnerRecovery内同PID/create实例的新入口，历史成功ACK不能绕回恢复中owner；DrainSources继续保存尾包，Describe新增stopRequested。源码待验。用户刚授权「可以再派发约10个Codebuddy任务」，本轮按最多10个新任务计，尚未派发；覆盖此前禁令，仍禁重复ETW/三目标链及GUI。
+
 - **2026-11-27 第4/5项连续接管跨目标空档。** 自动handoff用group.Start显式开启keepAcceptingAfterClean，旧目标全部退出/单成员恢复clean后仍可Append不同新目标，不重建集合/样本、不丢历史成员。OwnedExecutionGroupResult新增acceptingMembers，CanAppendMembers以此准入且仍拒RecoveryRequired/Closing；手动集合默认false保持旧语义，集合Close关闭所有准入。共享handoff终段新增acceptingTargets，CLI执行组报告补acceptingMembers，不新增命令/参数/UI文本。直接NtCreateThreadEx此前已调用PrepareTransferExecution，本批没有重复Hook。仅源码核对，未构建/运行，CodeBuddy禁令仍有效，旧Ex2失败及后续待验不变。
 
 - **2026-11-27 第4/6项失败目标单独恢复。** OwnedExecutionGroup新增CloseMember(original OwnerIdentity)，只调用集合持有的该原session.Close，保留成员和恢复账，不关闭其余目标。ApiTransferHandoff在Observe归档之后RecoverFailedTargets：准入Done且失败或该实例Agent已经failed、没有其它在途准入且无可用Ready时，单次请求该成员恢复/脱离；归档失败则保持现场，不调用Continue冒充Ready，原Incomplete和首错保留。Describe沿三端共享终段增加failedTargetRecoveryRequested。此批仅源码、未构建实测；用户禁止新增CodeBuddy仍有效，旧Ex2失败证据不改、不重跑。当前目标继续为4/5/6接管与恢复闭合，GUI后置，所有动态验收待恢复授权。
