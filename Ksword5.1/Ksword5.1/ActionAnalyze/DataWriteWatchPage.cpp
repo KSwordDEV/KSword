@@ -747,7 +747,8 @@ namespace
         const auto accepted = m_work->submitTransaction<Action, WatchResult>(action,
             [owner, path, symbol, width, indirect, execution, privateTarget, imageAttachment, suspendedImage, imageRva, definitionId,
                 displayedStop, mode, projectDirectory, openExistingProject,
-                memory = std::move(memory), range, api, candidates, conditionSource, condition = std::move(condition)](Action command) mutable {
+                memory = std::move(memory), range, api, candidates, conditionSource, initialCondition = std::move(condition)](Action command) {
+                auto condition = initialCondition; // 定义核对可回填本次任务条件，不修改调度器持有的const闭包。
                 std::lock_guard lock(owner->access); // 串行化命令和页面销毁时的关闭。
                 if (owner->retired)
                 {

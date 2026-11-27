@@ -14,6 +14,7 @@
 #include "../UI/ThemeAccentIcon.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../theme.h" // 刷新图标尺寸由主题统一提供，不能依赖其它UI头的间接包含。
 
 #include <QAbstractTableModel>
 #include <QCheckBox>
