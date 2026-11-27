@@ -76,6 +76,38 @@ std::wstring ReportCount(const JsonValue& report, std::string_view name) {
     return field && field->tryGetU64(count) ? std::to_wstring(count) : L"—";
 }
 
+// 输入text为原详情正文、match为JSONL后端命中值；追加原归档坐标和来源行身份，不重建历史。
+void AppendPassiveRuleMatch(std::wstring& text, const JsonValue& match)
+{
+    text += L"\r\n" + Utf8ToWide(ReportString(match, "ruleId")) + L" · raw/" +
+        ReportCount(match, "segmentOrdinal") + L" #" + ReportCount(match, "rawSequence") +
+        L"（源行 " + ReportCount(match, "sourceSequence") + L"）";
+    const auto api = ReportString(match, "api"); // 窗口元素提供的原API名称，旧latest缺少时不补造。
+    if (!api.empty())
+    {
+        text += L" · " + Utf8ToWide(api);
+    }
+
+    // 释义只取该命中自身的behavior；普通分类没有该字段，不能沿用前一条释义。
+    const auto* behavior = match.find("behavior"); // 后端返回的同坐标双语行为文档。
+    if (!behavior || behavior->isNull())
+    {
+        return;
+    }
+    const auto id = ReportString(*behavior, "ruleId"); // 原行为规则ID，与分类规则ID分别保留。
+    const auto evidence = ReportString(*behavior, "evidence"); // 原求值结果的证据级别。
+    auto summary = ReportString(*behavior, "summaryZh"); // Light优先中文，缺失时回退同条原文。
+    if (summary.empty())
+    {
+        summary = ReportString(*behavior, "summary");
+    }
+    text += L"\r\n" + Utf8ToWide(id) + L" · " + Utf8ToWide(evidence);
+    if (!summary.empty())
+    {
+        text += L" · " + Utf8ToWide(summary);
+    }
+}
+
 // 投影后台的既有归档回执，向总览同时返回可用于触发读回的段水位。
 std::wstring ApiReceiptText(const Passive::PassiveApiCapture& capture, std::uint64_t& committedSegment) {
     const auto source = capture.SourceReport();
@@ -101,24 +133,32 @@ std::wstring ApiReceiptText(const Passive::PassiveApiCapture& capture, std::uint
     } else if (ReportString(rules, "state") == "evaluation-failed") {
         text += L" · 求值中断，保留已有命中";
     }
-    if (const auto* latest = rules.find("latest"); latest && !latest->isNull()) {
-        text += L" · " + Utf8ToWide(ReportString(*latest, "ruleId")) + L" · raw/" +
-            ReportCount(*latest, "segmentOrdinal") + L" #" + ReportCount(*latest, "rawSequence") +
-            L"（源行 " + ReportCount(*latest, "sourceSequence") + L"）";
-        // 独立一行保留原有计数排版，不为缺少返回证据的命中显示旧释义。
-        if (const auto* behavior = latest->find("behavior")) {
-            const auto id = ReportString(*behavior, "ruleId"); // 该坐标实际命中的行为规则。
-            const auto evidence = ReportString(*behavior, "evidence"); // 后端返回的证据级别。
-            if (!id.empty()) {
-                text += L"\r\n" + Utf8ToWide(id) + L" · " + Utf8ToWide(evidence);
-                auto summary = ReportString(*behavior, "summaryZh"); // Light 优先显示中文释义。
-                if (summary.empty()) {
-                    summary = ReportString(*behavior, "summary");
-                }
-                if (!summary.empty()) {
-                    text += L" · " + Utf8ToWide(summary);
-                }
-            }
+    text += L"\r\n行为命中数：" + ReportCount(rules, "behaviorMatches");
+    bool truncated = false; // 只展示后端真实截断回执，缺字段时保持未知。
+    const auto* truncation = rules.find("behaviorWindowTruncated"); // 同一规则文档的窗口状态。
+    text += L"\r\n行为窗口截断：";
+    text += truncation && truncation->tryGetBool(truncated) ? (truncated ? L"是" : L"否") : L"—";
+    const auto* recent = rules.find("recentBehaviors"); // 本次RulesReport已拥有的真实有界窗口。
+    const auto* behaviors = recent ? recent->asArray() : nullptr; // 只遍历已有值，不在Light累计或补历史。
+    if (behaviors)
+    {
+        for (const auto& match : *behaviors) // 每项自身保存原段、原记录序号和JSONL来源行。
+        {
+            AppendPassiveRuleMatch(text, match);
+        }
+    }
+
+    // 最近普通分类仍保留；同段、同原序号、同来源行且同规则的末条行为只显示一次。
+    if (const auto* latest = rules.find("latest"); latest && !latest->isNull())
+    {
+        const auto* last = behaviors && !behaviors->empty() ? &behaviors->back() : nullptr; // 原窗口末条，不借当前段补值。
+        const bool repeated = last && ReportCount(*last, "segmentOrdinal") == ReportCount(*latest, "segmentOrdinal") &&
+            ReportCount(*last, "rawSequence") == ReportCount(*latest, "rawSequence") &&
+            ReportCount(*last, "sourceSequence") == ReportCount(*latest, "sourceSequence") &&
+            ReportString(*last, "ruleId") == ReportString(*latest, "ruleId"); // 两项的原始命中身份。
+        if (!repeated)
+        {
+            AppendPassiveRuleMatch(text, *latest);
         }
     }
     // 保留命中计数和坐标的整行格式，规则集放在同一回执的独立行。
