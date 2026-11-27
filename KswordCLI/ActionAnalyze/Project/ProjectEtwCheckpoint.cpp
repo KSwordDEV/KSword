@@ -5,6 +5,7 @@
 #include "../Archive/SegmentInspection.h"
 #include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
+#include <algorithm>
 
 namespace Ksword::ActionAnalyze {
 namespace {
@@ -65,7 +66,8 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
         coverage.observationCount != coverage.endRawSequence - coverage.planRawSequence - 1) {
         return Failure(ProjectError::Corrupt, "checkpointRawRange");
     }
-    std::uint64_t headerPid = 0;
+    std::uint64_t headerPid = 0; // 兼容原单PID计划，仍保留根筛选身份。
+    std::vector<std::uint32_t> headerPidFilters; // 新混合ETW计划实际登记的报头PID集合，不表示事件时创建身份。
     bool continuous = false;
     Archive::RawEvidenceScanResult scan;
     const ProjectRawEvidenceRead request{project.Info()->projectId, sample.info.sampleId,
@@ -90,7 +92,24 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                         !IsString(doc.value, "configSemanticHash", sample.configSemanticHash) ||
                         !IsString(doc.value, "providerId", coverage.providerId) ||
                         !IsString(doc.value, "sourceEpoch", coverage.sourceEpoch) || !pid ||
-                        pid->type() != JsonType::UInt || !pid->tryGetU64(headerPid) || !headerPid || headerPid > UINT32_MAX) return false;
+                         pid->type() != JsonType::UInt || !pid->tryGetU64(headerPid) || !headerPid || headerPid > UINT32_MAX) return false;
+                    headerPidFilters.push_back(static_cast<std::uint32_t>(headerPid));
+                    if (const auto* filters = doc.value.find("headerPidFilters"))
+                    {
+                        // 旧计划没有列表时严格维持根PID；新列表必须非空、无重复并包含根。
+                        const auto* members = filters->asArray(); // 同段计划冻结的实际过滤成员。
+                        if (lane != ProjectEvidenceLane::MixedEtw || !members || members->empty()) return false;
+                        headerPidFilters.clear();
+                        for (const auto& value : *members)
+                        {
+                            std::uint64_t memberPid = 0; // 逐项核对原JSON数值，不接纳字符串或零。
+                            if (value.type() != JsonType::UInt || !value.tryGetU64(memberPid) || !memberPid ||
+                                memberPid > UINT32_MAX || std::find(headerPidFilters.begin(), headerPidFilters.end(),
+                                    static_cast<std::uint32_t>(memberPid)) != headerPidFilters.end()) return false;
+                            headerPidFilters.push_back(static_cast<std::uint32_t>(memberPid));
+                        }
+                        if (std::find(headerPidFilters.begin(), headerPidFilters.end(), headerPid) == headerPidFilters.end()) return false;
+                    }
                     const auto* duration = doc.value.find("durationMs");
                     std::uint64_t ms = 0;
                     continuous = duration && duration->type() == Evidence::JsonType::UInt && duration->tryGetU64(ms) && ms == 0;
@@ -116,7 +135,8 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                 } else {
                     const auto observation = Evidence::ReadArchivedEtwObservation(doc.value, raw.inlineRawBytes);
                     if (!observation || observation->providerId != coverage.providerId ||
-                        observation->sourceEpoch != coverage.sourceEpoch || observation->headerPid != headerPid) return false;
+                        observation->sourceEpoch != coverage.sourceEpoch ||
+                        std::find(headerPidFilters.begin(), headerPidFilters.end(), observation->headerPid) == headerPidFilters.end()) return false;
                 }
             }
             return true;

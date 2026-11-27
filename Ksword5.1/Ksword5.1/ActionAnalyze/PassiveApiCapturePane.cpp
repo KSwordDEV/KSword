@@ -193,6 +193,9 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_networkTrafficLabel->setBuddy(m_networkTraffic);
     form->addWidget(m_networkTrafficLabel);
     form->addWidget(m_networkTraffic);
+    m_captureAgentEtw = new QCheckBox(source); // 使用标准checkbox主题，沿原参数滚动区自然排列。
+    m_captureAgentEtw->setObjectName(QStringLiteral("action_analyze_api_capture_agent_etw"));
+    form->addWidget(m_captureAgentEtw);
     m_autoTransfer = new QCheckBox(source); // 沿用原ParameterWorkspace正文与标准主题，不增加独立布局。
     auto& language = ks::i18n::LanguageManager::instance(); // 文案随原页面热切换。
     language.bindText(m_autoTransfer, {}, QStringLiteral("自动接管跨进程私有执行目标"));
@@ -340,6 +343,7 @@ void PassiveApiCapturePane::start()
     request.creationTime = request.launched ? 0 : Identity<quint64>(m_creation);
     request.durationMs = live ? static_cast<quint32>(m_duration->value()) * 1000 : 0;
     request.autoTransfer = live && m_autoTransfer->isChecked(); // 隐藏文件草稿不授予原生控制策略。
+    request.captureAgentEtw = live && m_captureAgentEtw->isChecked(); // 文件跟随只保留勾选草稿，不提交ETW来源。
     request.networkTraffic.reset(); // 文件跟随不提交网络策略，控件中的上一份草稿继续保留。
     if (live)
     {
@@ -629,6 +633,7 @@ void PassiveApiCapturePane::updateControls()
     m_autoTransfer->setVisible(live);
     m_autoTransfer->setEnabled(!m_busy);
     m_networkTraffic->setEnabled(live && !m_busy); // JSONL保留选择，运行时冻结本轮策略。
+    m_captureAgentEtw->setEnabled(live && !m_busy); // 运行期间与来源参数一起冻结，切换JSONL不清除勾选。
     m_sourceHint->setText(sourceText(launched ? QStringLiteral("选择普通 AMD64 EXE，入口停止后自动附加 Agent；Ready 与覆盖核验通过才恢复主线程。此前 TLS/loader 不在覆盖范围。") :
         attached ? QStringLiteral("附加到明确的 PID 与创建 FILETIME；点击开始后确认装载。文件和外部会话 ID 不参与活采。") :
         cooperative ? QStringLiteral("只连接目标已主动加载的产品 Agent，不尝试装载。文件和外部会话 ID 不参与活采。") :
@@ -697,6 +702,11 @@ void PassiveApiCapturePane::renderReceipt()
         {
             document.field(QStringLiteral("同采样网络回执"), m_currentReceipt.networkTraffic);
         }
+        document.field(QStringLiteral("采集自有 Agent ETW"), yesNo(request.captureAgentEtw));
+        if (!m_currentReceipt.agentEtw.isEmpty())
+        {
+            document.field(QStringLiteral("同采样 ETW 回执"), m_currentReceipt.agentEtw); // 原规范全文留在唯一字段源。
+        }
         if (request.launched)
         {
             document.field(QStringLiteral("启动 EXE"), request.executable)
@@ -739,6 +749,11 @@ void PassiveApiCapturePane::renderReceipt()
             {
                 // 同一字段文档承担完整JSON的搜索、复制与导出，不另建过期摘要。
                 document.field(QStringLiteral("同采样网络回执"), m_receipt.networkTraffic);
+            }
+            document.field(QStringLiteral("采集自有 Agent ETW"), yesNo(m_receipt.captureAgentEtw));
+            if (!m_receipt.agentEtw.isEmpty())
+            {
+                document.field(QStringLiteral("同采样 ETW 回执"), m_receipt.agentEtw); // 不借API完成状态改写ETW阶段。
             }
             if (request.explicitAttachment || request.launched)
             {
@@ -860,6 +875,8 @@ void PassiveApiCapturePane::retranslate()
     m_networkTraffic->setItemText(2, QStringLiteral("existing-wfp"));
     m_networkTraffic->setAccessibleName(m_networkTrafficLabel->text()); // 辅助技术沿可见标签识别来源选择。
     m_networkTraffic->setToolTip(sourceText(QStringLiteral("与 API 使用同一采样和写入线程；自动接管时在调用放行前追加目标，根进程退出后继续采集。报文归属仍为 PID 线索，不解密 HTTPS。JSONL 跟随不启用。")));
+    m_captureAgentEtw->setText(sourceText(QStringLiteral("采集自有 Agent ETW")));
+    m_captureAgentEtw->setToolTip(sourceText(QStringLiteral("与 API 使用同一采样；自动接管目标在调用放行前加入同一 ETW 来源。报头 PID 仅作线索，JSONL 跟随不启用。")));
     m_duration->setSpecialValueText(sourceText(QStringLiteral("持续采集")));
     m_duration->setToolTip(sourceText(QStringLiteral("从 Agent Ready 与覆盖核验通过后计时，最多 120 秒；0 表示持续采集。")));
     m_pathLabel->setText(sourceText(QStringLiteral("本地 API JSONL")));

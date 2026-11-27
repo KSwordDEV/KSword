@@ -36,6 +36,7 @@ namespace ks::action_analyze
         QString executable; // 独立EXE草稿，不借用JSONL路径或手填身份。
         std::optional<std::uint32_t> entryRva; // 空值使用PE入口，供共享后端调用。
         std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 原worker同采样网络来源，空值关闭。
+        bool captureAgentEtw = false; // 本轮冻结的自有Agent配套ETW策略，JSONL不得启用。
     };
 
     // GUI 只读快照。数据水位与归档状态来自同一轮后端回读。
@@ -87,6 +88,8 @@ namespace ks::action_analyze
         quint64 actualCreationTime = 0; // 同一创建对象的强实例身份。
         QString launchProgress; // 两端共用LaunchedApiProgressJson规范文档。
         QString networkTraffic; // 原后端ApiCaptureNetworkJson全文，不从页面草稿推断源状态。
+        bool captureAgentEtw = false; // 回执所属请求的实际ETW开关，不读取后续草稿。
+        QString agentEtw; // 原ETW来源全文和独立阶段回执，供同一字段文档复制与导出。
 
         bool operator==(const PassiveApiCaptureReceipt&) const = default;
     };

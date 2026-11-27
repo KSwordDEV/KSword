@@ -98,12 +98,19 @@ ProjectResult CommitApiPackets(ProjectDocument& document, const SampleInfo& samp
 JsonValue AgentEtwPlan(const SampleRecord& sample, const CooperativeApiRequest& target, std::string_view epoch,
     const Etw::PassiveEtwStatus& status, const Etw::PassiveEtwOptions& options)
 {
+    JsonArray filters; // 来源实际生效的报头PID筛选，不把根创建时间套到子来源事件上。
+    for (const auto pid : status.headerPidFilters)
+    {
+        filters.push_back(JsonValue::makeUInt(pid));
+    }
     return Object({{"kind", Text("etw-capture-plan-v1")}, {"backend", Text("r3")},
         {"session", Object({{"id", Text(sample.info.sampleId)}, {"epoch", Text(epoch)}})},
         {"sourceEpoch", Text(status.sourceEpoch)}, {"revisionId", Text(sample.info.revisionId)},
         {"snapshotId", Text(sample.info.snapshotId)}, {"revisionHash", Text(sample.revisionHash)},
         {"configSemanticHash", Text(sample.configSemanticHash)}, {"providerId", Text(AgentEtw::kProviderId)},
         {"headerPid", JsonValue::makeUInt(target.pid)}, {"processCreationFileTime", Number(target.creationFileTime)},
+        {"headerPidFilters", JsonValue::makeArray(std::move(filters))},
+        {"targetScope", Text("registered-process-header-hints")},
         {"durationMs", JsonValue::makeUInt(target.durationMs)}, {"headerRole", Text("record-context")},
         {"sourceClock", Text("filetime-100ns")}, {"receiveClock", Text("local-qpc")},
         {"maxRecords", JsonValue::makeUInt(static_cast<std::uint32_t>(options.maxQueuedRecords))},
@@ -281,7 +288,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     std::optional<Etw::PassiveEtwSource> etwSource; // 仅在调用方请求配套 ETW 时创建。
     SampleRecord etwSample; // ETW 计划所需的冻结项目散列。
     std::string etwEpoch; // 本次 ETW 归档的会话代次。
-    Etw::PassiveEtwOptions etwOptions; // 仅订阅自有 Provider 及被冻结的报头 PID。
+    Etw::PassiveEtwOptions etwOptions; // 仅订阅自有Provider，调用前同步追加已准入目标的报头PID。
     if (target.captureAgentEtw) {
         auto& etw = out.etw.emplace(); // 配套流程的独立阶段回执。
         etw.setup = document.ReadSample(out.sample.sampleId, etwSample);
@@ -478,6 +485,11 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
                 if (network && !network->AppendTarget(pid, creation))
                 {
                     ++networkTargetFailures;
+                }
+                if (etwSource && !etwSource->appendHeaderPid(pid) && out.etw->setup)
+                {
+                    // 保留已归档来源及原生接管；追加失败只进入ETW独立的部分结果。
+                    out.etw->setup = Failure(ProjectError::InvalidArgument, "appendCooperativeEtwTarget");
                 }
             });
         activeHandoff = &*handoff;

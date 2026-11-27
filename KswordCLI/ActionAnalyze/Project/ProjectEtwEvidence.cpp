@@ -86,9 +86,15 @@ Evidence::JsonValue EtwSourceReceipt(const PassiveEtwStatus& status)
 {
     const auto& native = status.native; // 来源的实际原生状态。
     const auto& stop = native.stopStatuses; // 历次 STOP 的底层返回码。
+    Evidence::JsonArray filters; // 与来源同锁冻结的真实PID筛选目录，空数组为未设置过滤。
+    for (const auto pid : status.headerPidFilters)
+    {
+        filters.push_back(V::makeUInt(pid));
+    }
     // 未尝试的操作或未知计数保留为空，避免与原生零值混淆。
     const auto optional = [](bool known, ULONG value) { return known ? V::makeUInt(value) : V::makeNull(); };
     return Object({{"state", Text(SourceState(status.state))}, {"sourceEpoch", Text(status.sourceEpoch)},
+        {"headerPidFilters", V::makeArray(std::move(filters))},
         {"inputWin32Error", V::makeUInt(status.inputError)},
         {"startWin32Error", optional(native.startAttempted, native.startStatus)},
         {"enableWin32Error", native.providers.empty() ? V::makeNull() : V::makeUInt(native.providers.front().status)},

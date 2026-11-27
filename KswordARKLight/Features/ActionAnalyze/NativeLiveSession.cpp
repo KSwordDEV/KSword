@@ -7,6 +7,7 @@
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/LaunchedApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwEvidence.h"
 #include "../../../shared/usermode/backend/process/ProcessControls.h"
 #include "../../../shared/usermode/backend/process/ProcessNavigationIdentity.h"
 
@@ -62,6 +63,27 @@ const wchar_t* StartupStageText(ks::winapi_monitor::CaptureStartupStage stage)
 namespace Passive = ks::cli::action_analyze;
 using Ksword::Evidence::JsonValue;
 using ks::r3::process::Utf8ToWide;
+
+// 原worker在采集Close后调用；输入独立ETW回执，输出完整来源及各阶段事实，不查询当前进程。
+JsonValue AgentEtwReceipt(const std::optional<Ksword::ActionAnalyze::CooperativeEtwReceipt>& receipt)
+{
+    namespace Project = Ksword::ActionAnalyze;
+    if (!receipt)
+    {
+        return JsonValue::makeObject({{"receiptAvailable", JsonValue::makeBool(false)}, {"incomplete", JsonValue::makeBool(true)}});
+    }
+    const auto result = [](const Project::ProjectResult& status) { // 归档及检查点错误分别保存，API状态不能覆盖。
+        return JsonValue::makeObject({{"ok", JsonValue::makeBool(static_cast<bool>(status))},
+            {"error", JsonValue::makeString(Project::ProjectErrorName(status.error))},
+            {"detail", JsonValue::makeString(status.detail)}, {"nativeError", JsonValue::makeUInt(status.nativeError)}});
+    };
+    const auto& etw = *receipt; // 本轮Close后的冻结来源，不从草稿补值。
+    return JsonValue::makeObject({{"receiptAvailable", JsonValue::makeBool(true)},
+        {"source", Project::EtwSourceReceipt(etw.source)}, {"setup", result(etw.setup)},
+        {"started", JsonValue::makeBool(etw.started)}, {"stopped", JsonValue::makeBool(etw.stopped)},
+        {"archive", result(etw.archiveStatus)}, {"checkpoint", result(etw.checkpointStatus)},
+        {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())}, {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
+}
 
 std::string ReportString(const JsonValue& report, std::string_view name) {
     std::string value;
@@ -225,7 +247,8 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
             readbackDiagnostic = raw.diagnostic.empty() ? "cooperativeApiReadbackBoundary" : raw.diagnostic;
         }
     }
-    const bool partial = capture.code == 6 || (prefixVerified && capture.code != 0) ||
+    const bool etwIncomplete = (api.captureAgentEtw && !run.etw) || (run.etw && run.etw->Incomplete()); // 独立ETW缺口不能显示成采样完成。
+    const bool partial = etwIncomplete || capture.code == 6 || (prefixVerified && capture.code != 0) ||
         run.archivedPackets != run.ordinaryPackets || (capture.started && !last.archive);
     last.state = (capture.code == 0 || partial) ? LiveCaptureState::Stopped : LiveCaptureState::Failed;
     api.details = std::wstring(partial ? L"部分完成" : capture.code == 0 ? L"采样完成" : L"采样未完成") + L" · " + api.details;
@@ -624,7 +647,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     {
                         const auto launched = Project::CaptureLaunchedApi(project,
                             {request.api->executable, request.api->entryRva, request.api->durationMs, title,
-                                frozen.revisionId, request.api->autoTransfer, request.api->networkTraffic}, stop,
+                                frozen.revisionId, request.api->autoTransfer, request.api->networkTraffic, request.api->captureAgentEtw}, stop,
                             ready, committed, transferred, startupProgress, [&](const Project::LaunchedApiProgress& progress) {
                                 if (progress.launch)
                                 {
@@ -647,7 +670,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     else
                     {
                         run = Project::CaptureCooperativeApi(project,
-                            {last.pid, last.creationFileTime, request.api->durationMs, title, frozen.revisionId, false, mode,
+                            {last.pid, last.creationFileTime, request.api->durationMs, title, frozen.revisionId, request.api->captureAgentEtw, mode,
                                 {}, request.api->autoTransfer, request.api->networkTraffic}, stop,
                             ready, committed, transferred, startupProgress);
                     }
@@ -659,6 +682,11 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     last.projectId = frozen.projectId;
                     if (last.sampleId.empty()) last.sampleId = run.sample.sampleId;
                     project.Close(); // 交还写租约后通过正常项目读侧重新核验。
+                    if (request.api->captureAgentEtw || run.etw)
+                    {
+                        // 原采集已Close；全文保留setup/archive/checkpoint及Incomplete，页面沿原详情复制导出。
+                        api.agentEtw = Utf8ToWide(Ksword::Evidence::WriteJson(AgentEtwReceipt(run.etw)));
+                    }
                     ApplyCooperativeReceipt(next, run);
                     if (last.processError)
                     {
@@ -841,7 +869,7 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
                 (source.durationMs != 0 && (source.durationMs < 1000 || source.durationMs > 120000));
         } else {
             invalidApi = invalidApi || source.path.empty() || !source.sessionIdentity || source.durationMs != 0 ||
-                source.networkTraffic.has_value(); // JSONL只跟随文件，不启用网络源。
+                source.networkTraffic.has_value() || source.captureAgentEtw; // JSONL只跟随文件，不启用网络或配套ETW源。
         }
     }
     if ((!request.pid && !(request.api && request.api->launched)) || invalidApi || (!request.api && request.project && !request.provider)) {
@@ -863,6 +891,7 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
             next->status.api->durationMs = request.api->durationMs;
             next->status.api->launched = request.api->launched;
             next->status.api->executable = request.api->executable;
+            next->status.api->captureAgentEtw = request.api->captureAgentEtw; // 启动失败仍保留本轮策略。
         }
         std::thread([next, lease, request = std::move(request)] {
             try {
@@ -994,6 +1023,11 @@ std::wstring FormatLiveStatus(const NativeLiveSnapshot& status) {
             {
                 // 原详情与搜索/复制共用规范全文，网络失败和空结果均按后端回执呈现。
                 text += L"\r\n同采样网络回执：\r\n" + status.api->networkTraffic;
+            }
+            text += std::wstring(L"\r\n采集自有 Agent ETW：") + (status.api->captureAgentEtw ? L"是" : L"否");
+            if (!status.api->agentEtw.empty())
+            {
+                text += L"\r\n同采样 ETW 回执：\r\n" + status.api->agentEtw; // ETW独立结果沿现有全文详情展示。
             }
             if (!capture.archive) text += L"\r\n" + WideAscii(Ksword::ActionAnalyze::ProjectErrorName(capture.archive.error)) +
                 L" · " + WideAscii(capture.archive.detail) + L" · Win32 " + std::to_wstring(capture.archive.nativeError);

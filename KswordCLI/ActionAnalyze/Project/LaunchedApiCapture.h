@@ -15,7 +15,8 @@ struct LaunchedApiRequest {
     std::string_view title; // 调用期间有效的采样标题。
     std::string_view revisionId; // 原项目写者冻结的配置修订。
     bool autoTransfer = false; // 同一采样的自动跨进程接管策略。
-    std::optional<NetworkTrafficBackend> networkTraffic; // 入口Ready前启用所选原网络源，仍只归档本次根实例线索。
+    std::optional<NetworkTrafficBackend> networkTraffic; // 入口Ready前启用原网络源，自动接管追加同采样目标。
+    bool captureAgentEtw = false; // 入口Ready前启动自有ETW来源，后续目标沿同一来源追加。
 };
 
 // 原生入口到Agent的事实快照；不包含句柄、owner或ProjectDocument。

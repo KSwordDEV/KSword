@@ -80,6 +80,7 @@ namespace ks::action_analyze
         QCheckBox* m_autoTransfer = nullptr; // 启动冻结，文件回放模式不提交。
         QLabel* m_networkTrafficLabel = nullptr; // 同采样网络来源的可见标签。
         QComboBox* m_networkTraffic = nullptr; // 网络草稿，JSONL禁用但保留选择，默认不采集。
+        QCheckBox* m_captureAgentEtw = nullptr; // 原参数正文的配套ETW草稿，运行冻结，JSONL禁用但不清除。
         QLabel* m_pathLabel = nullptr; // 已授权文件的可见标签。
         QLabel* m_sessionLabel = nullptr; // 来源会话的可见标签。
         QLabel* m_pidLabel = nullptr; // 来源 PID 的可见标签。

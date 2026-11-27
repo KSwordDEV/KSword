@@ -8183,6 +8183,10 @@
     "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
+    "采集自有 Agent ETW": "采集自有 Agent ETW",
+    "与 API 使用同一采样；自动接管目标在调用放行前加入同一 ETW 来源。报头 PID 仅作线索，JSONL 跟随不启用。": "与 API 使用同一采样；自动接管目标在调用放行前加入同一 ETW 来源。报头 PID 仅作线索，JSONL 跟随不启用。",
+    "同采样 ETW 回执": "同采样 ETW 回执",
+    "NtQueueApcThreadEx": "NtQueueApcThreadEx",
     " · Win32 ": " · Win32 ",
     "ActionAnalyze (project.ksaproj)": "行为分析项目 (project.ksaproj)",
     "网络采集": "网络采集",

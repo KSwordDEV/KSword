@@ -6,6 +6,7 @@
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/LaunchedApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwEvidence.h"
 
 #include <QScopeGuard>
 #include <algorithm>
@@ -34,6 +35,26 @@ namespace
         const auto* field = object.find(key); // 字段可能是字符串或 JSON 整数。
         std::uint64_t value = 0; // 避免经 double 损失精度。
         return field && field->tryGetU64(value) ? value : 0;
+    }
+
+    // 原worker在采集Close后调用；输入独立ETW回执，输出保留来源全文及各阶段的规范JSON。
+    Json AgentEtwReceipt(const std::optional<project::CooperativeEtwReceipt>& receipt)
+    {
+        if (!receipt)
+        {
+            return Json::makeObject({{"receiptAvailable", Json::makeBool(false)}, {"incomplete", Json::makeBool(true)}});
+        }
+        const auto result = [](const project::ProjectResult& status) { // 阶段错误独立保存，不从API状态推断。
+            return Json::makeObject({{"ok", Json::makeBool(static_cast<bool>(status))},
+                {"error", Json::makeString(project::ProjectErrorName(status.error))},
+                {"detail", Json::makeString(status.detail)}, {"nativeError", Json::makeUInt(status.nativeError)}});
+        };
+        const auto& etw = *receipt; // 仅借用本轮已关闭来源，不读取现场或页面草稿。
+        return Json::makeObject({{"receiptAvailable", Json::makeBool(true)},
+            {"source", project::EtwSourceReceipt(etw.source)}, {"setup", result(etw.setup)},
+            {"started", Json::makeBool(etw.started)}, {"stopped", Json::makeBool(etw.stopped)},
+            {"archive", result(etw.archiveStatus)}, {"checkpoint", result(etw.checkpointStatus)},
+            {"flushed", Json::makeBool(etw.raw.flushed.has_value())}, {"incomplete", Json::makeBool(etw.Incomplete())}});
     }
 
     // 给启动失败保留所属阶段、项目错误和原生错误码，供 GUI 诊断。
@@ -149,7 +170,8 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collect(const ks::ui::AsyncOper
     if ((m_request.launched && (m_request.cooperative || m_request.explicitAttachment ||
             m_request.attachmentConfirmed || m_request.executable.isEmpty() || m_request.pid || m_request.creationTime)) ||
         (!m_request.launched && (!m_request.executable.isEmpty() || m_request.entryRva.has_value())) ||
-        (!(m_request.launched || m_request.cooperative || m_request.explicitAttachment) && m_request.networkTraffic.has_value()) ||
+        (!(m_request.launched || m_request.cooperative || m_request.explicitAttachment) &&
+            (m_request.networkTraffic.has_value() || m_request.captureAgentEtw)) ||
         (m_request.explicitAttachment && (!m_request.attachmentConfirmed || m_request.cooperative)) ||
         (!m_request.explicitAttachment && m_request.attachmentConfirmed) ||
         ((m_request.explicitAttachment || m_request.cooperative || m_request.launched) &&
@@ -231,6 +253,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collect(const ks::ui::AsyncOper
 PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
 {
     PassiveApiCaptureReceipt out; // 新结果只绑定本次登记的采样。
+    out.captureAgentEtw = m_request.captureAgentEtw; // 启动失败也保留本次真实请求策略。
     project::ProjectDocument document; // 工作线程持有本端写租约。
     const auto opened = document.Open(m_request.manifest.toStdWString(), project::ProjectAccess::ReadWrite);
     const auto id = m_request.projectId.toStdString(); // 用户选择时冻结的项目 ID。
@@ -323,7 +346,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     {
         const auto launched = project::CaptureLaunchedApi(document,
             {m_request.executable.toStdWString(), m_request.entryRva, durationMs, title, revision,
-                m_request.autoTransfer, m_request.networkTraffic},
+                m_request.autoTransfer, m_request.networkTraffic, m_request.captureAgentEtw},
             m_stop, ready, committed, transferred, startupProgress, [&](const project::LaunchedApiProgress& progress) {
                 if (progress.launch)
                 {
@@ -343,11 +366,16 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     else
     {
         run = project::CaptureCooperativeApi(document,
-            {m_request.pid, m_request.creationTime, durationMs, title, revision, false, mode, {},
+            {m_request.pid, m_request.creationTime, durationMs, title, revision, m_request.captureAgentEtw, mode, {},
                 m_request.autoTransfer, m_request.networkTraffic},
             m_stop, ready, committed, transferred, startupProgress);
     }
     document.Close(); // 回读前先交还写租约。
+    if (m_request.captureAgentEtw || run.etw)
+    {
+        out.agentEtw = QString::fromStdString(Ksword::Evidence::WriteJson(AgentEtwReceipt(run.etw)));
+        out.incomplete = out.incomplete || !run.etw || run.etw->Incomplete(); // API成功不能清除ETW缺口。
+    }
     if (m_request.networkTraffic || run.networkTraffic)
     {
         // 同一worker已经关闭网络源；仅搬运规范全文，网络失败不被API成功或空结果覆盖。

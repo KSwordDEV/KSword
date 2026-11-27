@@ -29,6 +29,7 @@ struct NativeLiveApiSource {
     std::wstring executable; // 普通EXE独立路径，不借用JSONL草稿。
     std::optional<std::uint32_t> entryRva; // 空值使用PE AddressOfEntryPoint。
     std::optional<Ksword::ActionAnalyze::NetworkTrafficBackend> networkTraffic; // 冻结同采样网络源，自动接管追加目标，空值关闭。
+    bool captureAgentEtw = false; // 开始时冻结的配套ETW策略；JSONL模式只保留页面草稿。
 };
 
 struct NativeLiveRequest {
@@ -62,6 +63,8 @@ struct NativeLiveApiReceipt {
     std::wstring executable; // 冻结的EXE路径，保留结果来源。
     std::wstring launchProgress; // 共享LaunchedApiProgressJson规范投影。
     std::wstring networkTraffic; // 原worker返回的ApiCaptureNetworkJson全文，与API状态独立保留。
+    bool captureAgentEtw = false; // 本轮已受理请求的ETW开关，不随下轮草稿修改。
+    std::wstring agentEtw; // Close后保留原ETW来源全文与独立阶段回执，沿既有详情展示。
 };
 
 struct NativeLiveSnapshot {

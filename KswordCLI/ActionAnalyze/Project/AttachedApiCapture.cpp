@@ -14,7 +14,7 @@ CooperativeApiReceipt CaptureAttachedApi(ProjectDocument& document, const Attach
     }
     // 一套封段、原包回读、规则与候选流水线；默认合作入口仍不装载 Agent。
     const CooperativeApiRequest capture{target.pid, target.creationFileTime, target.durationMs,
-        target.title, target.revisionId, false, ApiCaptureMode::ExplicitAttachment, target.boundSampleId,
+        target.title, target.revisionId, target.captureAgentEtw, ApiCaptureMode::ExplicitAttachment, target.boundSampleId,
         target.autoTransfer, target.networkTraffic};
     return CaptureCooperativeApi(document, capture, cancel, onReady, onCommitted, onTransfers, onStartup);
 }

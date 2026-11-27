@@ -320,6 +320,10 @@ bool PassiveEtwSource::start(const PassiveEtwOptions& options)
         frequencyHz_ = QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0 ?
             static_cast<std::uint64_t>(frequency.QuadPart) : 0;
         options_ = options;
+        headerPids_.clear();
+        if (options_.headerPid) {
+            headerPids_.insert(*options_.headerPid);
+        }
         counts_.state = PassiveEtwState::Starting;
     }
 
@@ -333,6 +337,28 @@ bool PassiveEtwSource::start(const PassiveEtwOptions& options)
     nativeAttempted_ = true;
     cleanupFailed_ = !started && controller_.cleanupPending();
     return started;
+}
+
+bool PassiveEtwSource::appendHeaderPid(std::uint32_t pid)
+{
+    const std::lock_guard lock(dataMutex_); // 与报头筛选及生命周期状态发布使用同一边界。
+    if (pid == 0 || !nativeAttempted_ || stopRequested_ || stopInFlight_ || cleanupFailed_ ||
+        counts_.inputError != ERROR_SUCCESS) {
+        return false;
+    }
+    const auto state = SessionState(controller_.evidence(), controller_.running(), false);
+    if (state != PassiveEtwState::Starting && state != PassiveEtwState::Running) {
+        return false;
+    }
+    // 全量来源保持全量；限定来源保留初始 PID，重复插入不改变集合或既有排队记录。
+    if (options_.headerPid) {
+        try {
+            headerPids_.insert(pid);
+        } catch (...) {
+            return false; // 新成员分配失败不撤销原来源，也不向调用前原生接管抛异常。
+        }
+    }
+    return true;
 }
 
 bool PassiveEtwSource::stop()
@@ -371,6 +397,8 @@ PassiveEtwStatus PassiveEtwSource::status() const
     const std::lock_guard lock(dataMutex_); // 同步本端计数和当前队列深度。
     auto result = counts_; // 返回给宿主的只读状态副本。
     result.queued = queue_.size();
+    result.headerPidFilters.assign(headerPids_.begin(), headerPids_.end());
+    std::sort(result.headerPidFilters.begin(), result.headerPidFilters.end());
     if (result.inputError != ERROR_SUCCESS) {
         result.state = PassiveEtwState::Failed;
     } else if (nativeAttempted_) {
@@ -395,7 +423,7 @@ void PassiveEtwSource::accept(const EVENT_RECORD& record)
         return;
     }
     ++counts_.providerEvents;
-    if (options_.headerPid && record.EventHeader.ProcessId != *options_.headerPid) {
+    if (!headerPids_.empty() && headerPids_.find(record.EventHeader.ProcessId) == headerPids_.end()) {
         ++counts_.headerFiltered;
         return;
     }

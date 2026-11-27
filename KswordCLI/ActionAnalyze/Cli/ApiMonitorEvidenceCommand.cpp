@@ -537,7 +537,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             };
         }
         launched = project::CaptureLaunchedApi(document,
-            {args.require(L"--exe"), entryRva, duration, title, revision, autoTransfer, networkTraffic},
+            {args.require(L"--exe"), entryRva, duration, title, revision, autoTransfer, networkTraffic, captureEtw},
             *cancel.token, {}, {}, {}, onStartup, onLaunch);
         if (launched->launch)
         {
@@ -557,7 +557,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     else if (attached)
     {
         run = project::CaptureAttachedApi(document,
-            {pid, creation, true, false, duration, title, revision, {}, autoTransfer, networkTraffic},
+            {pid, creation, true, false, duration, title, revision, {}, autoTransfer, networkTraffic, captureEtw},
             *cancel.token, {}, {}, {}, onStartup);
     }
     else
@@ -731,7 +731,7 @@ void RegisterApiMonitorEvidenceCommands()
                       L"All verified ordinary calls are committed in bounded segments. "
                      L"API rules from profiles/action_analyze_api_rules.json run on committed segments; "
                      L"the result includes their cumulative count and latest source location. "
-                       L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint. "
+                        L"--agent-etw 1 saves lifecycle events to the same sample in raw-etw with an independent checkpoint. With --auto-transfer, target header PIDs join the same ETW source before the handoff ACK; header PIDs remain hints. "
                        L"--network-traffic selects the existing packet source and archives PID hints and retained bytes to raw-network in the same sample. With --auto-transfer, admitted target instances join this source before the handoff ACK and remain in scope after the root exits; packet attribution stays a PID hint. It uses the original writer and does not decrypt HTTPS. "
                       L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
                       L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
@@ -740,10 +740,11 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command launch; // 普通EXE自动创建、入口交接和附加，复用现有采集结果及回放入口。
     launch.path = L"analyze api-evidence launch";
-    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--duration-ms MS] [--startup-progress 1] [--json]";
+    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
     launch.summary = L"Launch an AMD64 EXE suspended, hand its entry stop to the product Agent, then archive API calls.";
     launch.options = L"Select an existing project and a plain EXE. Optional nonzero --rva overrides PE AddressOfEntryPoint. No cooperative exports or manually supplied PID are required. Duration: 1,000-120,000 ms (default 3,000), or 0 until cancellation or exit.";
     launch.notes = L"The native owner arms entry DR0 before releasing the creation suspension. At the actual main-thread entry stop, the bootstrap takes one explicit main-thread suspension and detaches the debugger. It releases that suspension only after the real Agent Ready and coverage barrier. TLS and earlier loader execution remain outside this entry-based path. --auto-transfer enables automatic private-range discovery and recursive Agent handoff for the same sample. --network-traffic starts the selected existing packet source before Agent Ready releases the main thread. With --auto-transfer, admitted target instances join the same source before the handoff ACK and remain in scope after the root exits; packet attribution stays a PID hint, without HTTPS decryption. Startup failure terminates only this exact newly created process. --startup-progress 1 emits completed bootstrap and Agent stages to stderr. Replay uses analyze api-evidence replay; saved packet bytes use analyze network-read.";
+    launch.notes += L" --agent-etw 1 starts the own Agent lifecycle provider before main-thread release and saves it in raw-etw; automatic handoff adds target header PIDs to that same source before ACK. Header PIDs remain hints.";
     launch.run = [](const Args& args) { return CaptureEvidence(args, true, true); };
     addCommand(std::move(launch));
 

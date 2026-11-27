@@ -4,6 +4,7 @@
 #include "KernelFileEvidenceProjection.h"
 
 #include <deque>
+#include <unordered_set>
 
 namespace ks::r3::monitor {
 
@@ -16,7 +17,7 @@ inline constexpr std::size_t kPassiveEtwMaxQueuedPayloadBytes = 32U * 1024U * 10
 
 struct PassiveEtwOptions {
     GUID provider{};                             // 显式启用的唯一 provider。
-    std::optional<std::uint32_t> headerPid;       // 可选报头过滤，零是有效过滤值。
+    std::optional<std::uint32_t> headerPid;       // 初始报头过滤，仅未设置表示全量；零精确过滤 PID 0。
     std::uint8_t level = TRACE_LEVEL_VERBOSE;    // EnableTraceEx2 的 Level 上限。
     std::uint64_t matchAnyKeyword = 0;           // 原生关键字掩码，零沿用 Windows 语义。
     std::size_t maxPayloadBytes = 4096;          // 每条复制的 UserData 前缀上限。
@@ -39,6 +40,7 @@ struct PassiveEtwStatus {
     std::uint64_t payloadTruncated = 0;          // 接纳记录中因前缀限制而截短的条数。
     std::uint64_t malformedPayload = 0;          // 接纳记录中负载指针与长度不一致的条数。
     std::size_t queued = 0;                      // 当前排队未读取条数。
+    std::vector<std::uint32_t> headerPidFilters; // 当前报头 PID 集合的升序快照，含初始 PID（可为零）；空表示未设置的全量。
 };
 
 struct PassiveEtwRecord {
@@ -79,7 +81,7 @@ PassiveKernelFileDecode DecodePassiveKernelFileRecord(const PassiveEtwRecord& re
 KernelFileProjection ProjectPassiveKernelFileRecord(const PassiveEtwRecord& record,
     const KernelFileSourceView& source, std::string_view receiveClockId);
 
-// 各宿主持有独立实例。生命周期操作在其工作线程调用，排空/快照可在其他线程调用。
+// 各宿主持有独立实例。生命周期操作在其工作线程调用，追加报头 PID/排空/快照可在其他线程调用。
 class PassiveEtwSource final {
 public:
     PassiveEtwSource();
@@ -89,6 +91,9 @@ public:
 
     // true 表示启动已受理，查询 status() 区分 Starting、Running、原生失败和任何生产者观测。
     bool start(const PassiveEtwOptions& options);
+    // 线程安全地追加报头 PID；重复追加或全量来源返回 true，零及未启动/停止/失败状态返回 false。
+    // 仅扩大本端报头筛选，不证明进程强实例归属；不重建会话/provider，也不清空既有队列。
+    bool appendHeaderPid(std::uint32_t pid);
     // 停止唯一自有会话，等回调排空，不丢弃已入队记录。false 需保留实例并重试清退。
     bool stop();
     // 移出至多 maxRecords 个队首元素。完成排空后才能启动新来源代次。
@@ -103,6 +108,7 @@ private:
     mutable std::mutex lifecycleMutex_;   // 串行化 start 与 stop。
     mutable std::mutex dataMutex_;        // 保护本端状态和队列。
     PassiveEtwOptions options_;           // 当前来源冻结的选项。
+    std::unordered_set<std::uint32_t> headerPids_; // dataMutex_ 保护的初始及追加报头 PID。
     PassiveEtwStatus counts_;             // 当前来源的本端计数及启动准备状态。
     std::deque<PassiveEtwRecord> queue_;  // 先进先出，容量按本次选项冻结。
     std::uint64_t frequencyHz_ = 0;       // 启动时实测的 QPC 频率。

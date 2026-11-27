@@ -13,7 +13,8 @@ struct AttachedApiRequest {
     std::string_view revisionId;
     std::string_view boundSampleId; // 非空时仅写原采样的空API流，不创建另一采样或writer。
     bool autoTransfer = false;
-    std::optional<NetworkTrafficBackend> networkTraffic; // 可选根来源网络，复用原采样与writer。
+    std::optional<NetworkTrafficBackend> networkTraffic; // 可选同源多目标网络，复用原采样与writer。
+    bool captureAgentEtw = false; // 同一采样订阅自有Agent ETW，自动接管时追加目标报头PID。
 };
 // 在原工作线程借用document；输入精确实例、确认及可选原sample，输出原采集/归档完整回执。
 // boundSampleId为空沿用独立采样；非空由同一核心核验原API流未使用，不另开writer。
