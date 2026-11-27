@@ -345,6 +345,41 @@ namespace ks::action_analyze
         {
             NativeSessionApiPane::AppendProgress(document, *snapshot.apiStartup); // 在途真实阶段，原字段视图保留搜索和导出。
         }
+        if (snapshot.apiCheckpoint && snapshot.apiRules)
+        {
+            // 仍追加到同一StructuredFieldView文档，搜索、复制与导出不维护第二套结果。
+            const auto& checkpoint = *snapshot.apiCheckpoint; // 水位身份与原归档段一致，不从参数草稿取值。
+            const auto& rules = *snapshot.apiRules; // 最近命中属于其原段，不强行贴到当前检查点。
+            document.section(QStringLiteral("API 已提交运行进度"))
+                .field(QStringLiteral("采样 ID"), QString::fromStdString(checkpoint.sampleId))
+                .field(QStringLiteral("API 归档段"), QString::number(checkpoint.ordinal))
+                .field(QStringLiteral("API 归档序号"), QString::number(checkpoint.rawEnd.lastSequence))
+                .field(QStringLiteral("API 来源序号"), QString::number(checkpoint.lastSourceSequence))
+                .field(QStringLiteral("SHA256"), QString::fromStdString(checkpoint.rawSha256))
+                .field(QStringLiteral("API 终段已提交"), checkpoint.finalSegment ? QStringLiteral("是") : QStringLiteral("否"), true)
+                .field(QStringLiteral("API 规则命中数"), QString::number(rules.matchedRows))
+                .field(QStringLiteral("API 规则内容 SHA256"), QString::fromStdString(rules.sourceSha256));
+            if (rules.failed)
+            {
+                document.field(QStringLiteral("规则配置错误"), QString::fromStdString(rules.configError));
+            }
+            if (rules.latest)
+            {
+                const auto& match = *rules.latest; // 原命中回执；UI线程不重新执行表达式或推断API因果。
+                document.field(QStringLiteral("API 最近命中坐标"), QStringLiteral("raw/%1 #%2")
+                    .arg(rules.latestSegment).arg(match.rawSequence));
+                document.field(QStringLiteral("API 最近命中规则"), QString::fromStdString(match.ruleId));
+                if (match.behavior)
+                {
+                    const bool useChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
+                        .compare(QStringLiteral("zh-CN"), Qt::CaseInsensitive) == 0; // 遵守同一规则回放的释义语言选择。
+                    const auto& summary = useChinese && !match.behavior->summaryZh.empty()
+                        ? match.behavior->summaryZh : match.behavior->summary; // 缺中文时保留原英文，不伪造释义。
+                    document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
+                    document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
+                }
+            }
+        }
         for (const int row : selected)
         {
             if (row < 0 || row >= static_cast<int>(sites.size()))

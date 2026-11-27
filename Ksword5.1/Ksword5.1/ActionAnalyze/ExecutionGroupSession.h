@@ -40,6 +40,8 @@ namespace ks::action_analyze
         execution_group_native::ExecutionGroupResult result; // 本次逐成员真实回读。
         Ksword::ActionAnalyze::ExecutionGroupArchiveView archive; // 原worker的项目与保存回执纯值。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> apiStartup; // 在途身份与真实阶段，原200ms投影读取。
+        std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> apiCheckpoint; // 原writer已核验的最新水位，不用收包量推断。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> apiRules; // 随同水位冻结的规则原坐标与释义。
         std::uint64_t revision = 0; // 供UI避免重复投影。
         std::uint64_t observedFileTime = 0; // 完成本轮查询的UTC时间，不是同时冻结时间。
         bool busy = false; // 单项显式操作或查询在途。

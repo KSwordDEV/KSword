@@ -223,7 +223,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 原生单目标和执行集合长程会话的有限 `api-capture` 也复用此有界 stderr 输出队列：REPL `[progress]`／JSONL `startupProgress:true` 保留原启动字段；新增 REPL `[capture-progress]`／JSONL `captureProgress:true` 独立订阅同格式 `api-checkpoint` 和 `api-transfer-candidates` 运行帧。两个选项可独立或并用，重复或未知 REPL 选项拒绝；JSONL 两个字段都必须为 bool。采样、项目、修订及规则坐标来自原 writer 的已提交值；不启用自动接管。正常采集响应附加 `captureProgress` 交付摘要。它们仍不支持零时长，在同步采集返回前不处理其它控制命令；旁路输出不负责继续、关闭或保存原生停点，stderr消费者停读不会卡住原控制线程。
 
-Light「监控 → ActionAnalyze → 执行断点集合」的同采样 API 采集同步接收已提交检查点与规则通知，在原字段/文本详情显示采样、`raw/段 #序号`、SHA256、规则命中及最近释义的原坐标；不另开采集器或 UI 读盘。首段发布之前不凭启动 Ready 伪造水位，新一轮请求清除上轮在途通知，关闭后的只读展示仍保留原结果。该接线尚待必要构建，GUI 按既定顺序后置。
+Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → ActionAnalyze → 执行断点集合」的同采样 API 采集同步接收已提交检查点与规则通知，在原字段/文本详情显示采样、`raw/段 #序号`、SHA256、规则命中及最近释义的原坐标；Qt 复用 `ParameterWorkspace` 与 `StructuredFieldView`，Light 复用原工作区与字段/文本详情，不另开采集器或 UI 读盘。首段发布之前不凭启动 Ready 伪造水位，新一轮请求清除上轮在途通知，关闭后的只读展示仍保留原结果。该接线尚待必要构建，GUI 按既定顺序后置。
 
 进度为旁路通知：有界输出队列满、stderr断开或单帧超限时丢弃该通知，不阻塞接管、保护恢复或原归档。序号缺口及最终 `captureProgress.droppedFrames` 可识别未接纳的帧；启动进度通道后即使采样创建、Agent 路径或启动交接失败，错误响应也保留交付摘要。`enqueuedFrames` 只表示进队，`outputDrained` 才表示队列已写完，均不等于下游已处理。采集清退结束后最多沿传输层五秒等待排空，交付失败不改变采集退出码；最终 `transferHandoff` 和正式归档仍是回查依据。与 `--startup-progress 1` 同用时，启动原文和运行快照共用同一队列，避免两条JSON互相穿插。两种进度选项均不提供时不增加 `captureProgress` 字段，保留原输出行为。
 

@@ -165,6 +165,21 @@ namespace ks::action_analyze
                                         std::lock_guard lock(access); // 不持此锁执行采集或调试调用。
                                         snapshot.apiStartup = std::move(value);
                                         ++snapshot.revision;
+                                    },
+                                    [this](const Ksword::ActionAnalyze::SampleInfo& sample,
+                                        const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+                                        const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules) {
+                                        // 同一writer成功发布后才通知，后台不访问控件或额外读取归档文件。
+                                        auto savedCheckpoint = std::make_shared<const Ksword::ActionAnalyze::ProjectApiCheckpoint>(checkpoint);
+                                        auto savedRules = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt>(rules);
+                                        std::lock_guard lock(access); // 只替换不可变值，归档和恢复均在锁外进行。
+                                        if (sample.sampleId != snapshot.archive.sampleId)
+                                        {
+                                            return; // 旧采样回调不能覆盖新一轮集合的详情身份。
+                                        }
+                                        snapshot.apiCheckpoint = std::move(savedCheckpoint);
+                                        snapshot.apiRules = std::move(savedRules);
+                                        ++snapshot.revision;
                                     });
                             }
                             result = group->QueryWithoutCondition(); // API结束不求同伴条件，不自动Continue。
@@ -281,6 +296,11 @@ namespace ks::action_analyze
         {
             m_shared->apiCancel.store(false); // 在关闭检查之后清零，仅属于本次已受理请求。
             m_shared->snapshot.apiStartup.reset();
+            if (request.command == ExecutionGroupCommand::CaptureApi)
+            {
+                m_shared->snapshot.apiCheckpoint.reset();
+                m_shared->snapshot.apiRules.reset(); // 新API请求重置通知，普通内存读取保留原API结果。
+            }
         }
         m_shared->pending = std::move(request);
         m_shared->snapshot.busy = true;
