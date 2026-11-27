@@ -22,6 +22,7 @@ struct NetworkTrafficCapturePlan {
 };
 
 struct NetworkTrafficCaptureReceipt {
+    std::optional<NetworkTrafficBackend> requestedBackend; // 构造时冻结的显式来源选择，不代表来源已就绪或实际覆盖。
     ProjectResult status; // 采集或归档错误；来源启动失败单独以 reason 标识。
     ProjectNetworkCheckpoint checkpoint; // 最后成功发布的网络检查点。
     // 终态原因使用稳定机器值，区分未启动、启动失败、来源失败、取消和正常停止。

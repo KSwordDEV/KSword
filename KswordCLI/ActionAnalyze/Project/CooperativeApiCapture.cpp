@@ -187,6 +187,10 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
         return JsonValue::makeNull();
     }
     const auto& receipt = *network; // 原worker当前已发布的网络结果，cleanupConfirmed仅在真实清退后成立。
+    // 显式请求与已发布来源分开呈现；无回执值及非法枚举不能默认为Raw Socket。
+    const auto backend = !receipt.requestedBackend ? JsonValue::makeNull() :
+        *receipt.requestedBackend == NetworkTrafficBackend::RawSocket ? Text("raw-socket") :
+        *receipt.requestedBackend == NetworkTrafficBackend::ExistingWfp ? Text("existing-wfp") : Text("invalid");
     JsonArray diagnostics; // 完整源诊断，不查询当前抓包服务补值。
     for (const auto& diagnostic : receipt.diagnostics)
     {
@@ -203,10 +207,13 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
     // 网络检查点自带独立序号及摘要，实时消费者不必误用API段号或等结束后扫描目录。
     const auto published = receipt.checkpoint.ordinal ? Object({
         {"stream", Text("raw-network")}, {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
+        {"sourceId", Text(receipt.checkpoint.source.sourceId)},
+        {"clockId", Text(receipt.checkpoint.source.clockId)},
         {"lastRawSequence", Number(receipt.checkpoint.lastSequence)},
         {"endOffset", Number(receipt.checkpoint.endOffset)}, {"sha256", Text(receipt.checkpoint.sha256)}}) :
         JsonValue::makeNull();
     return Object({
+        {"requestedBackend", backend},
         {"status", Text(ProjectErrorName(receipt.status.error))},
         {"detail", Text(receipt.status.detail)},
         {"win32Error", JsonValue::makeUInt(receipt.status.nativeError)},

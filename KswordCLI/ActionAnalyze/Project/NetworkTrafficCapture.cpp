@@ -231,6 +231,7 @@ struct NetworkTrafficSession::State {
     State(ProjectDocument& document, NetworkTrafficCapturePlan frozen, const std::atomic_bool& cancel)
         : project(document), plan(std::move(frozen)), cancelled(cancel)
     {
+        out.requestedBackend = plan.backend; // 启动失败前也能回显用户实际请求的来源，绝不据Ready反推或切源。
     }
 
     // 返回当前显式来源；非法枚举由Start拒绝，不按未知值隐式选择Raw Socket。
