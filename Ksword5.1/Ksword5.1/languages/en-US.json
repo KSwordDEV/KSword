@@ -8183,6 +8183,7 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "接管时机": "Handoff phase",
     "清退目标迟到请求": "Late request for retiring target",
     "目标生命周期": "Target lifecycle",
     "原生所有者错误码": "Native owner error code",

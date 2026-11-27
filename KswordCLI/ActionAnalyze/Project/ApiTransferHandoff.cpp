@@ -240,7 +240,8 @@ public:
         // 输入已接收请求；先核验来源和目标对象，再查询入口所在MEM_PRIVATE范围。
         ULONG client = 0;
         if (request.size != sizeof(request) || request.version != m::kTransferHandoffVersion ||
-            request.kind < 1 || request.kind > 3 || !std::wmemchr(request.token, 0, std::size(request.token)) ||
+            request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion) ||
+            !std::wmemchr(request.token, 0, std::size(request.token)) ||
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
             !SourceAuthenticated(client, request.sourceCreation) || !request.address ||
             request.targetPid <= 4 || request.targetPid == GetCurrentProcessId() ||
@@ -684,7 +685,8 @@ public:
                 if (transfer.entryObservation.type() != Evidence::JsonType::Null ||
                     transfer.request.targetPid != execution->pid ||
                     transfer.request.targetCreation != execution->processCreationFileTime ||
-                    transfer.request.address != execution->instructionAddress) continue;
+                    transfer.request.address != execution->instructionAddress ||
+                    transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)) continue;
                 transfer.entryObservation = V::makeObject({
                     {"instructionAddress", V::makeString(std::to_string(execution->instructionAddress))},
                     {"observation", V::makeString(execution->kind == n::NativeExecutionKind::EnterAttempt
@@ -982,6 +984,8 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"rangeBase", V::makeString(std::to_string(transfer.base))},
             {"rangeBytes", V::makeString(std::to_string(transfer.bytes))},
             {"handoffKind", V::makeUInt(transfer.request.kind)},
+            {"handoffPhase", V::makeString(transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)
+                ? "after-memory-operation-before-return" : "before-execution-dispatch")},
             {"entryObservation", transfer.entryObservation},
             {"nativePageAdvanceScope", V::makeString("target-owner-latest")},
             {"requestPauseOutstanding", V::makeBool(transfer.ownPause)},

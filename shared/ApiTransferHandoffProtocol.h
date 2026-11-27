@@ -2,9 +2,9 @@
 #include "ApiMonitorInjectionProtocol.h"
 
 namespace ks::winapi_monitor {
-// 独立于原观察包ABI。成功ACK要求原API调用前，私有范围设防及下一目标Agent真实Ready。
+// 独立于原观察包ABI。调度请求在原API前交接；新执行区域在成功分配/改保护后、返回调用者前交接。
 inline constexpr DWORD kTransferHandoffVersion = 1;
-enum class TransferHandoffKind : DWORD { ThreadCreate = 1, Apc = 2, Context = 3 };
+enum class TransferHandoffKind : DWORD { ThreadCreate = 1, Apc = 2, Context = 3, ExecutableRegion = 4 };
 struct TransferHandoffRequest {
     DWORD size = sizeof(TransferHandoffRequest), version = kTransferHandoffVersion;
     DWORD kind = 0, targetPid = 0;

@@ -185,6 +185,7 @@ namespace Ksword::Evidence
                 Field(group, admission, L"准入处理结束", "completed");
                 Field(group, admission, L"准入错误码", "error");
                 Field(group, admission, L"请求入口地址", "address");
+                Field(group, admission, L"接管时机", "handoffPhase");
                 Field(group, admission, L"私有范围基址", "rangeBase");
                 Field(group, admission, L"私有范围字节数", "rangeBytes");
                 Field(group, admission, L"原生所有者阶段", "nativeOwnerStage");
