@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 当前优先级。** 用户明确「你把第八个弄完过后就去直接打通456」。第8项配套ETW运行中分段/尾包排空及有限时长历史回读源码收尾后，集中4/5/6自动接管、脏页新线程和统一下断恢复；GUI继续后置。最新整合真实目标stubRan=true/counter=1/exit0且清退成立，B仍因CLI6失败，发布规则函数名已修d2ac3532c待复核。当前用户允许CodeBuddy额度消耗可不计，旧数量限制为历史；测试/夹具/回执全交CodeBuddy，主协调继续写核心。详见[工程记录](ksword-action-analyze-engineering.md)。
+
 - **2026-11-27 凌晨源码接续。** 用户要求主协调直接写核心，仍用stop-that-shit，测试/脚本/回执交CodeBuddy且GUI后置。`98f018cb4`在ReceiveBreakpoint最先冻结所选线程异常CONTEXT，Observe/叠加TF共用原值，新增observedFlags/observedDr7供解释零DR6，不改变未知异常分派。`3f41e3c2f`自有Agent ETW单来源追加报头PID、三端参数及混合计划/读取、双语，`dfa9d06ef`保留APC2原flags并兼容14/15/16字段AAAP1、三端详情，`e8769313e`ETW先封段再把独立agentEtw结果写入API终段并复用三端同一文档，均已本地提交未推送。新CodeBuddy异常原值任务`sh_21b2548f1001sDFyGw787OfnyS`仅一次CLI增量(跳引用复用旧Agent)、B一次、i18n一次，等自动最终回执；后续APC2/终段增量不借其旧Agent或不明编译时序算通过。原用户脏文件仍保留。当前重点仍为NX第一条指令后中断，待原始事件值定位；全部目标未完成，不停止开发。
 
 - **2026-11-26 深夜续跑（覆盖下方11:54收工状态）。** 当前目标仍为API Monitor调用前同步发现私有范围并接管下一目标，CLI本机实测交CodeBuddy，Qt/Light GUI后置；用户最新再次明确持续推进并授权CodeBuddy承担验收。`319bb4f73`缓存Ready前递归包、`982230b61`保留Ready后的非致命HooksPartial、`df5e9a971`内部NX状态、`6468f5237`同源多目标网络归档及三端接线、`20cd5b5c4`QueueUserAPC2调用前交接与同源入口关联均已本地提交，未推送。最新已结束B仍无stubRan且目标STATUS_SINGLE_STEP/CLI6，不能以27/27认定通过；旧回执把EFlags66054误说TF置位，实际0x10206不含0x100。NX诊断同一CodeBuddy会话`01a21b17-82d8-7e00-96cb-854847e9a3fe`首次宿主120秒结束且未构建，已确认无相关残留后续接为`sh_21b1a4c0b001KF2rg1t1HlQza9`，最多一次CLI Build（跳工程引用复用既有Agent）、一次B、一次i18n；等自动回执、不轮询、不追加C或GUI。最新hook尚不在旧Agent中。保留原用户脏文件和测试证据，主代理只改产品及组织方向，测试/夹具/回执均由CodeBuddy落盘。详见[工程记录](ksword-action-analyze-engineering.md)。

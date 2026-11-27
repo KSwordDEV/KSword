@@ -424,6 +424,9 @@
         "providerId": { "$ref": "#/$defs/uuid" }, "headerPid": { "$ref": "#/$defs/openParams/properties/pid" },
         "processCreationFileTime": { "$ref": "#/$defs/openParams/properties/creationFileTime" },
         "durationMs": { "oneOf": [{ "const": 0 }, { "$ref": "#/$defs/openParams/properties/durationMs" }] },
+        "segmented": { "const": true, "description": "Use per-segment observation counts while preserving the requested duration. Missing on legacy continuous plans." },
+        "headerPidFilters": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/openParams/properties/pid" } },
+        "targetScope": { "const": "registered-process-header-hints" },
         "headerRole": { "const": "record-context" }, "sourceClock": { "const": "filetime-100ns" },
         "receiveClock": { "const": "local-qpc" }, "maxRecords": { "const": 512 }, "maxPayloadBytes": { "const": 4096 },
         "mixedEtw": { "const": true }
@@ -434,6 +437,7 @@
       "required": ["state", "sourceEpoch", "inputWin32Error", "startWin32Error", "enableWin32Error", "openWin32Error", "processAttempted", "processWin32Error", "closeWin32Error", "firstStopWin32Error", "lastStopWin32Error", "stopAttempts", "nativeSessionStopped", "callbackFailed", "eventsLost", "logBuffersLost", "realTimeBuffersLost", "providerEvents", "headerFiltered", "enqueued", "queued", "queueDropped", "payloadTruncated", "malformedPayload"],
       "properties": {
         "state": { "enum": ["idle", "starting", "running", "stopping", "stopped", "access-denied", "provider-unavailable", "failed", "cleanup-pending"] },
+        "headerPidFilters": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/openParams/properties/pid" } },
         "sourceEpoch": { "$ref": "#/$defs/plan/properties/sourceEpoch" },
         "inputWin32Error": { "$ref": "value.schema.json#/$defs/u32" },
         "startWin32Error": { "$ref": "#/$defs/nativeCode" }, "enableWin32Error": { "$ref": "#/$defs/nativeCode" },

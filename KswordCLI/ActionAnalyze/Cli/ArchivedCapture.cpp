@@ -7,6 +7,7 @@
 #include "../../../shared/evidence/ArchivedEtwObservation.h"
 
 #include <cstring>
+#include <algorithm>
 #include <utility>
 
 namespace ks::cli::action_analyze {
@@ -37,12 +38,13 @@ struct Capture {
     std::string providerId; // 采集计划中的提供程序 GUID。
     std::string sourceEpoch; // 计划、观察和结束记录共用的来源代次。
     std::uint64_t headerPid = 0; // 按采集计划过滤的报头 PID。
+    std::vector<std::uint32_t> headerPidFilters; // 混采目录保留多来源报头线索，不补造创建时间。
     std::uint64_t creationTime = 0; // 计划绑定的目标创建时间。
     std::uint64_t observations = 0; // 本次重开实际核对的 ETW 观察数。
     std::string reason; // 已归档的结束原因。
     bool nativeStopped = false; // 结束记录声明的原生会话清退结果。
     bool complete = false; // 结束记录已通过覆盖计数检查。
-    bool continuous = false; // 持续采样的段尾使用段内计数而非本次运行累计值。
+    bool continuous = false; // 分段计划的段尾使用段内计数，有限时长也可明确启用。
     bool finalSegment = true; // 旧单段采样默认就是整次采样的结尾。
 
     // 核对计划身份和冻结配置。成功时保留后续观察所需字段。
@@ -54,6 +56,26 @@ struct Capture {
         std::uint64_t milliseconds = 0;
         continuous = duration && duration->type() == Ksword::Evidence::JsonType::UInt &&
             duration->tryGetU64(milliseconds) && milliseconds == 0;
+        if (const auto* segmented = plan.find("segmented"))
+        {
+            bool enabled = false; // 分段标记只能是明确true，坏类型不能降级为旧格式。
+            if (!segmented->tryGetBool(enabled) || !enabled) return false;
+            continuous = true;
+        }
+        headerPidFilters.clear();
+        if (const auto* filters = plan.find("headerPidFilters"))
+        {
+            const auto* members = filters->asArray(); // 与检查点共用实际列表，不只接受根PID。
+            if (!members || members->empty()) return false;
+            for (const auto& member : *members)
+            {
+                std::uint64_t value = 0; // 数字PID按无损u32范围读取。
+                if (member.type() != Ksword::Evidence::JsonType::UInt || !member.tryGetU64(value) ||
+                    !value || value > UINT32_MAX || std::find(headerPidFilters.begin(), headerPidFilters.end(), value) !=
+                        headerPidFilters.end()) return false;
+                headerPidFilters.push_back(static_cast<std::uint32_t>(value));
+            }
+        }
         std::string epoch; // 仅校验原会话代次格式，不对外授予控制身份。
         return IsString(plan, "backend", "r3") && session && IsString(*session, "id", sample.info.sampleId) &&
             GetUuid(*session, "epoch", epoch) && IsString(plan, "revisionId", sample.info.revisionId) &&
@@ -71,7 +93,7 @@ struct Capture {
         const auto* stopped = source ? source->find("nativeSessionStopped") : nullptr; // 原生清退标志。
         std::uint64_t enqueued = 0; // 采集器声明的总入队条数。
         std::uint64_t queued = 0; // 收尾后应已排空的观察条数。
-        const auto* final = end.find("finalSegment"); // 仅持续模式存在。
+        const auto* final = end.find("finalSegment"); // 分段计划中明确标记整次采样的结尾。
         const bool countValid = continuous ? final && final->tryGetBool(finalSegment) &&
             GetNumber(end, "segmentObservations", enqueued) && enqueued == observations :
             source && GetNumber(*source, "enqueued", enqueued) && enqueued == observations;
@@ -231,7 +253,10 @@ JsonObject ReadEtwCapture(const Ksword::ActionAnalyze::ProjectDocument& project,
                     // 每条观察必须绑定同一来源和 PID，完整段的计数才能用于回执。
                     const auto observation = Ksword::Evidence::ReadArchivedEtwObservation(parsed.value, raw.inlineRawBytes);
                     if (!observation || observation->providerId != capture.providerId ||
-                        observation->sourceEpoch != capture.sourceEpoch || observation->headerPid != capture.headerPid ||
+                         observation->sourceEpoch != capture.sourceEpoch ||
+                         (capture.headerPidFilters.empty() ? observation->headerPid != capture.headerPid :
+                             std::find(capture.headerPidFilters.begin(), capture.headerPidFilters.end(), observation->headerPid) ==
+                                 capture.headerPidFilters.end()) ||
                         ++capture.observations > kObservationLimit) {
                         return false;
                     }

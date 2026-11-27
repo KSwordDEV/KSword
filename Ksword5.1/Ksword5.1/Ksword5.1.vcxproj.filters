@@ -1001,6 +1001,7 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwStream.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Cli\PassiveApiCapture.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -3051,6 +3052,7 @@
     <ClInclude Include="..\..\shared\evidence\ActionAnalyzeEtwProvider.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwStream.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\usermode\backend\monitor\PassiveEtwSource.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h"><Filter>Header Files</Filter></ClInclude>

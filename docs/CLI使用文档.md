@@ -201,6 +201,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 
 API 终段的 `agentEtw` 保存同次 ETW 的 setup、来源、清退、归档及检查点结果；先完成 ETW 清退封段，再发布 API 终段。Qt／Win32 活采详情与此字段使用同一文档投影，历史回放无需查询当前进程。未启用时为 `null`，旧归档缺少该字段不推定已启用或已成功。
 
+配套 ETW 在原 API worker 中按队列阈值或约一秒排空，每段最多512条，有限和持续采集均分段；计划 `segmented=true` 与原 `durationMs` 分别保存分段方式和请求时长。各段沿原 `raw-etw/records-etw/checkpoints-etw` 及连续序号发布，终段仅在来源停止并排空后写入。`agentEtw.segmentOrdinal/archivedObservations/finalSegment` 保留最后已发布段、累计观察与封段事实，写入失败保留原前缀并独立报告不完整。历史单段和旧持续计划继续读取。
+
 `QueueUserAPC2` 的调用前接管沿 AAAP1 保存请求例程、data 和独立 `queueFlags`。原包回放及入口关联 JSON 仅在调度标志有效位存在时返回 `queueFlags`，因此旧 Agent 未采集的值为 `null`，新 Agent 明确传入的零仍为 `0`。解码兼容原14字段、含 Reserve 的15字段及追加调度标志的16字段布局；入队成功仍不表示已投递或执行。
 
 `api-evidence capture` 要求自有目标主动装载正式 Agent，并用 `--confirm` 确认本轮授权。用 `process detail basic query --pid PID --json` 核对创建 FILETIME。命令核对已装载的产品模块、进程实例和本次回传管道，分别报告 `residentVerified`、`connected`、`agentReady` 和 `cleanupComplete`。采集时长从就绪后计，默认 3,000 毫秒，可设 1,000–120,000 毫秒；`--duration-ms 0` 持续到控制台取消（Ctrl+C／Ctrl+Break）或该目标实例退出，启动就绪及停止清退仍受各自超时约束。持续模式的 `completedInterval` 始终为 `false`，明确停止或目标退出沿用部分采样退出码 `6`，分别以 `cancelled`、`targetExited` 和独立清退回执说明实际结果。普通 `monitor api capture` 仍只接受原有有限时范围。普通 API 原包在采集中分段写入，每段核验后发布检查点。`ordinaryPackets` 为收到的普通包数，`archivedPackets` 为已提交的普通包数，`omittedClues` 为收到但未提交的分类线索数。`archive` 给出已核验段数和最多一条已回查线索；零线索也可有归档回执。归档失败时返回 `archiveError`，已有检查点仍可按原采样回读。

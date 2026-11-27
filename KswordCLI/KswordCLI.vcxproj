@@ -396,6 +396,7 @@
     <ClCompile Include="ActionAnalyze\Project\NativeBoundApiCapture.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwEvidence.cpp" />
+    <ClCompile Include="ActionAnalyze\Project\ProjectEtwStream.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectCallbackEvidence.cpp" />
     <ClCompile Include="ActionAnalyze\Project\ProjectNetworkEvidence.cpp" />
@@ -418,6 +419,7 @@
     <ClInclude Include="ActionAnalyze\Project\NativeBoundApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwEvidence.h" />
+    <ClInclude Include="ActionAnalyze\Project\ProjectEtwStream.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectCallbackEvidence.h" />
     <ClInclude Include="ActionAnalyze\Project\ProjectNetworkEvidence.h" />

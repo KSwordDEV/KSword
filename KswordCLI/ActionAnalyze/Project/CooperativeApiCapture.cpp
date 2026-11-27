@@ -1,6 +1,7 @@
 #include "CooperativeApiCapture.h"
 #include "ProjectApiCheckpoint.h"
 #include "ProjectEtwEvidence.h"
+#include "ProjectEtwStream.h"
 #include "ProjectStorage.h"
 #include "ApiTransferHandoff.h"
 #include "NetworkTrafficRead.h"
@@ -111,6 +112,7 @@ JsonValue AgentEtwPlan(const SampleRecord& sample, const CooperativeApiRequest& 
         {"headerPid", JsonValue::makeUInt(target.pid)}, {"processCreationFileTime", Number(target.creationFileTime)},
         {"headerPidFilters", JsonValue::makeArray(std::move(filters))},
         {"targetScope", Text("registered-process-header-hints")},
+        {"segmented", JsonValue::makeBool(true)},
         {"durationMs", JsonValue::makeUInt(target.durationMs)}, {"headerRole", Text("record-context")},
         {"sourceClock", Text("filetime-100ns")}, {"receiveClock", Text("local-qpc")},
         {"maxRecords", JsonValue::makeUInt(static_cast<std::uint32_t>(options.maxQueuedRecords))},
@@ -127,7 +129,8 @@ bool CooperativeEtwReceipt::Incomplete() const noexcept
         source.state != Etw::PassiveEtwState::Stopped || !source.enqueued || !native.statisticsKnown ||
         !native.processCompleted || native.processStatus != ERROR_SUCCESS || native.tailDeliveryUnconfirmed ||
         native.callbackFailed || native.eventsLost || native.logBuffersLost || native.realTimeBuffersLost ||
-        source.queueDropped || source.payloadTruncated || source.malformedPayload;
+        source.queueDropped || source.payloadTruncated || source.malformedPayload ||
+        !finalSegment || archivedObservations != source.enqueued;
 }
 
 // 输入本轮独立ETW终态；输出完整阶段和原生来源，历史回放不查询当前PID或新会话。
@@ -147,6 +150,8 @@ Evidence::JsonValue ApiCaptureEtwJson(const std::optional<CooperativeEtwReceipt>
         {"setup", result(etw.setup)}, {"started", JsonValue::makeBool(etw.started)},
         {"stopped", JsonValue::makeBool(etw.stopped)}, {"archive", result(etw.archiveStatus)},
         {"checkpoint", result(etw.checkpointStatus)}, {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())},
+        {"segmentOrdinal", Number(etw.segmentOrdinal)}, {"archivedObservations", Number(etw.archivedObservations)},
+        {"finalSegment", JsonValue::makeBool(etw.finalSegment)},
         {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
 }
 
@@ -309,6 +314,8 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     SampleRecord etwSample; // ETW 计划所需的冻结项目散列。
     std::string etwEpoch; // 本次 ETW 归档的会话代次。
     Etw::PassiveEtwOptions etwOptions; // 仅订阅自有Provider，调用前同步追加已准入目标的报头PID。
+    ProjectEtwStream etwStream; // 沿原writer累计已发布ETW段，不取得第二租约。
+    auto etwNextFlush = GetTickCount64() + 1000; // 静默时每秒检查一次待写队列。
     if (target.captureAgentEtw) {
         auto& etw = out.etw.emplace(); // 配套流程的独立阶段回执。
         etw.setup = document.ReadSample(out.sample.sampleId, etwSample);
@@ -522,6 +529,31 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         }
         request.transferHandoff = handoff->Endpoint();
     }
+    // 同一API worker写ETW，终段也沿同一游标排空；故障后保留首错，不重试坏段。
+    const auto flushEtw = [&](bool final, std::string_view reason)
+    {
+        if (!etwSource || !out.etw->started)
+        {
+            return;
+        }
+        auto& etw = *out.etw; // 每端及终段共用的独立ETW结果。
+        const auto status = etwSource->status(); // 排空前冻结本段实际PID筛选。
+        const auto now = GetTickCount64(); // 与API根Ready时钟分开，仅决定封段频率。
+        if (!final && status.queued < 256 && now < etwNextFlush)
+        {
+            return;
+        }
+        etwNextFlush = now + 1000;
+        etwStream.Flush(document, out.sample.sampleId, ProjectEvidenceLane::MixedEtw,
+            AgentEtwPlan(etwSample, target, etwEpoch, status, etwOptions), reason, *etwSource, final);
+        etw.archiveStatus = etwStream.archiveStatus;
+        etw.checkpointStatus = etwStream.checkpointStatus;
+        etw.raw = etwStream.raw;
+        etw.segmentOrdinal = etwStream.ordinal;
+        etw.archivedObservations = etwStream.observations;
+        etw.finalSegment = etwStream.finalized;
+        etw.source = etwSource->status();
+    };
     request.onControlPoll = [&]
     {
         if (handoff)
@@ -532,6 +564,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         {
             network->Poll();
         }
+        flushEtw(false, {});
     };
     request.onResidentPoll = [&]() {
         // 静默期间也及时提交此前的普通调用，终段仍在实际清退后写出。
@@ -604,11 +637,9 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         etw.stopped = etwSource->stop();
         etw.source = etwSource->status();
         if (etw.started && etw.stopped) {
-            const auto etwPlan = AgentEtwPlan(etwSample, target, etwEpoch, etw.source, etwOptions);
             const auto* reason = out.capture.cancelled ? "cancelled" :
                 out.capture.completedInterval ? "duration-limit" : "cooperative-ended";
-            etw.archiveStatus = CommitFiniteEtwEvidence(document, out.sample.sampleId, ProjectEvidenceLane::MixedEtw,
-                etwPlan, reason, *etwSource, etw.raw, etw.checkpointStatus);
+            flushEtw(true, reason);
             etw.source = etwSource->status();
         }
     }

@@ -113,6 +113,13 @@ ProjectResult VerifyRaw(const ProjectDocument& project, const SampleRecord& samp
                     const auto* duration = doc.value.find("durationMs");
                     std::uint64_t ms = 0;
                     continuous = duration && duration->type() == Evidence::JsonType::UInt && duration->tryGetU64(ms) && ms == 0;
+                    if (const auto* segmented = doc.value.find("segmented"))
+                    {
+                        // 新配套来源有限时长也分段；旧计划仍按原duration语义读取。
+                        bool enabled = false;
+                        if (!segmented->tryGetBool(enabled) || !enabled) return false;
+                        continuous = true;
+                    }
                     if (coverage.rawSegmentOrdinal > 1 && !continuous) return false;
                 } else if (record.recordSequence == coverage.endRawSequence) {
                     const auto* source = doc.value.find("source");

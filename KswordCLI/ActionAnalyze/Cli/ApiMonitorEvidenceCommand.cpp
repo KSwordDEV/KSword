@@ -664,7 +664,10 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             {L"started", Json::boolean(etw->started)}, {L"stopped", Json::boolean(etw->stopped)},
             {L"source", Json{project::ProjectStorage::WideAscii(status), L"ETW"}},
             {L"setupError", error(etw->setup)}, {L"archiveError", error(etw->archiveStatus)},
-            {L"checkpointError", error(etw->checkpointStatus)},
+             {L"checkpointError", error(etw->checkpointStatus)},
+             {L"segmentOrdinal", Json::count(etw->segmentOrdinal)},
+             {L"archivedObservations", Json::count(etw->archivedObservations)},
+             {L"finalSegment", Json::boolean(etw->finalSegment)},
             {L"verified", Json::boolean(etw->archiveStatus && etw->checkpointStatus && etw->raw.flushed)}}));
     }
     return {code, Json::object(fields), std::move(archiveResult.diagnostics)};

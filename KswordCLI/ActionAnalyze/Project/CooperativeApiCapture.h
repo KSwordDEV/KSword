@@ -34,7 +34,10 @@ struct CooperativeEtwReceipt {
     ks::r3::monitor::PassiveEtwStatus source; // 原生状态及源端和队列计数。
     ProjectResult archiveStatus; // ETW 原始段写入及回读结果。
     ProjectResult checkpointStatus; // ETW 覆盖、散列及检查点发布结果。
-    ks::cli::action_analyze::archive::RawEvidenceReceipt raw; // raw-etw 首段刷盘边界。
+    ks::cli::action_analyze::archive::RawEvidenceReceipt raw; // raw-etw 最近已发布段的刷盘边界。
+    std::uint64_t segmentOrdinal = 0; // ETW独立段号，不套用API段号。
+    std::uint64_t archivedObservations = 0; // 检查点成功发布的累计观察数。
+    bool finalSegment = false; // 来源停止并排空后才封ETW终段。
 
     // 当配套 ETW 仍有未完成的责任、缺失观察或来源丢失时返回真。
     bool Incomplete() const noexcept;

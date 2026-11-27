@@ -520,6 +520,7 @@
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectDocument.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.cpp" />
+    <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwStream.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectCallbackEvidence.cpp" />
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Cli\PassiveApiCapture.cpp" />
@@ -1164,6 +1165,7 @@
     <ClInclude Include="..\..\shared\evidence\ActionAnalyzeEtwProvider.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwCheckpoint.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwEvidence.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectEtwStream.h" />
     <ClInclude Include="..\..\shared\usermode\backend\monitor\KernelFileEvidenceProjection.h" />
     <ClInclude Include="..\..\shared\usermode\backend\monitor\PassiveEtwSource.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />

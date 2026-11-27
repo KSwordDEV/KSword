@@ -284,6 +284,7 @@
     <ClCompile Include="ActionAnalyze\Project\NativeBoundApiCapture.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwCheckpoint.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectEtwEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Project\ProjectEtwStream.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectApiCheckpoint.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectCallbackEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Project\ProjectNetworkEvidence.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -306,6 +307,7 @@
     <ClInclude Include="ActionAnalyze\Project\NativeBoundApiCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwCheckpoint.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectEtwEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ProjectEtwStream.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectApiCheckpoint.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectCallbackEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ProjectNetworkEvidence.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

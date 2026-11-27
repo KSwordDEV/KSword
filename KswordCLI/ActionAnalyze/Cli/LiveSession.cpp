@@ -5,6 +5,7 @@
 #include "../../CommandRegistry.h"
 #include "../Project/ProjectEtwCheckpoint.h"
 #include "../Project/ProjectEtwEvidence.h"
+#include "../Project/ProjectEtwStream.h"
 #include "../Project/ProjectRawEvidence.h"
 #include "../Project/ProjectStorage.h"
 #include "../../../shared/evidence/ActionAnalyzeEtwProvider.h"
@@ -26,7 +27,6 @@ using V = JsonValue;
 using Clock = std::chrono::steady_clock;
 constexpr unsigned kMaxDurationMs = 120000;
 constexpr unsigned kMinDurationMs = 1000;
-constexpr std::size_t kBatchSize = 32;
 constexpr std::size_t kSegmentRecords = 512;
 constexpr auto kFlushInterval = std::chrono::seconds(1);
 constexpr std::string_view kSysmonProviderId = "5770385f-c22a-43e0-bf4c-06f5698ffbd9";
@@ -65,12 +65,6 @@ std::optional<Reply> PinTarget(DWORD pid, std::uint64_t created, Handle& target)
     return std::nullopt;
 }
 
-ProjectResult AppendResult(const archive::RawEvidenceReceipt& receipt) {
-    if (receipt.result.status == archive::SegmentWriteStatus::Ok) return {};
-    if (receipt.result.status == archive::SegmentWriteStatus::IoError)
-        return WinFailure("archiveRawWrite", receipt.result.error.win32Error);
-    return Failure(ProjectError::InvalidArgument, "archiveRawInput");
-}
 } // namespace
 
 struct LiveSession::State {
@@ -85,6 +79,7 @@ struct LiveSession::State {
     Clock::time_point nextFlush;
     std::string reason;
     PassiveEtwSource source;
+    ProjectEtwStream etwStream; // 持续采集与合作API复用同一分段写入及终段排空逻辑。
     std::unique_ptr<PassiveApiCapture> api;
     bool mixedEtw = false;
     bool apiFinished = false;
@@ -130,6 +125,7 @@ struct LiveSession::State {
             {"receiveClock", Text("local-qpc")}, {"maxRecords", V::makeUInt(PassiveEtwOptions{}.maxQueuedRecords)},
             {"maxPayloadBytes", V::makeUInt(PassiveEtwOptions{}.maxPayloadBytes)}};
         if (mixedEtw) fields.emplace_back("mixedEtw", V::makeBool(true));
+        if (Continuous()) fields.emplace_back("segmented", V::makeBool(true));
         return Object(std::move(fields));
     }
 
@@ -140,7 +136,7 @@ struct LiveSession::State {
              terminal.native.tailDeliveryUnconfirmed || terminal.native.callbackFailed ||
             terminal.native.eventsLost || terminal.native.logBuffersLost ||
             terminal.native.realTimeBuffersLost || terminal.queueDropped || terminal.payloadTruncated ||
-             terminal.malformedPayload || (Continuous() && recorded != terminal.enqueued)));
+              terminal.malformedPayload || (Continuous() && (!etwStream.finalized || recorded != terminal.enqueued))));
     }
 
     V EtwArchiveReport() const {
@@ -185,54 +181,18 @@ struct LiveSession::State {
               {"source", EtwSourceReceipt(status)}, {"archive", EtwArchiveReport()}});
     }
 
-    // 写入至多一个队列快照，只有双流检查点提交后才推进对外可见的段号。
-    bool FlushContinuous(ProjectDocument& project, bool final) {
-        if (!archiveResult || !checkpointResult) return false;
-        auto records = source.drain(kSegmentRecords);
-        if (records.empty() && !final) return true;
-        const auto status = source.status();
-        const auto ordinal = segmentOrdinal + 1;
-        const auto previous = raw.flushed ? raw.flushed->lastSequence : 0;
-        archive::RawEvidenceReceipt next;
-        archiveResult = project.WriteRawEvidenceSegment({projectId, sample.sampleId, ordinal, previous,
-            [&](auto& writer) -> ProjectResult {
-                const auto plan = WriteJson(Plan(status));
-                const archive::RawEvidenceInput head{plan, {}};
-                if (const auto result = AppendResult(writer.Append(std::span(&head, 1))); !result) return result;
-                const std::span observations(records);
-                for (std::size_t i = 0; i < observations.size(); i += kBatchSize) {
-                    if (const auto result = AppendEtwObservations(writer, observations.subspan(i,
-                            (std::min)(kBatchSize, observations.size() - i))); !result) return result;
-                }
-                const auto end = WriteJson(Object({{"kind", Text("etw-capture-end-v1")},
-                    {"stopReason", Text(final ? std::string_view(reason) : "segment-rotated")},
-                    {"finalSegment", V::makeBool(final)}, {"segmentObservations", Number(records.size())},
-                    {"source", EtwSourceReceipt(status)}}));
-                const archive::RawEvidenceInput tail{end, {}};
-                return AppendResult(writer.Append(std::span(&tail, 1)));
-            }, EtwLane()}, next);
-        if (!archiveResult) return false;
-        if (!next.flushed || next.flushed->lastSequence <= previous ||
-            next.flushed->lastSequence - previous != records.size() + 2) {
-            archiveResult = Failure(ProjectError::Corrupt, "archiveRawVerification");
-            return false;
-        }
-        const auto statistic = [known = status.native.statisticsKnown](ULONG value) -> std::optional<std::uint32_t> {
-            if (!known) return std::nullopt;
-            return static_cast<std::uint32_t>(value);
-        };
-        const archive::EtwCoverageV1 coverage{providerId, status.sourceEpoch, ordinal, previous + 1,
-            next.flushed->lastSequence, records.size(), statistic(status.native.eventsLost),
-            statistic(status.native.logBuffersLost), statistic(status.native.realTimeBuffersLost),
-            status.queueDropped, status.payloadTruncated, status.malformedPayload};
-        ProjectEtwCheckpoint checkpoint;
-        checkpointResult = project.PublishEtwCheckpoint(sample.sampleId, *next.flushed, coverage, checkpoint, EtwLane());
-        if (!checkpointResult) return false;
-        raw = std::move(next);
-        segmentOrdinal = ordinal;
-        recorded += records.size();
-        verified = true;
-        return true;
+    // 原worker传入当前计划并发布共享游标；终段失败不能借前一普通段宣称完成。
+    bool FlushContinuous(ProjectDocument& project, bool final)
+    {
+        const auto complete = etwStream.Flush(project, sample.sampleId, EtwLane(),
+            Plan(source.status()), reason, source, final); // 写档及检查点均沿唯一项目租约。
+        archiveResult = etwStream.archiveStatus;
+        checkpointResult = etwStream.checkpointStatus;
+        raw = etwStream.raw;
+        segmentOrdinal = etwStream.ordinal;
+        recorded = etwStream.observations;
+        verified = segmentOrdinal != 0;
+        return complete;
     }
 
     void Stop(ProjectDocument& project, std::string_view why) {
