@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{C4A0E3A7-2D1B-4C6E-9B35-8F70D2A41E66}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\</IntDir>
+    <TargetName>ActionAnalyzeReadyOwnerFailureRunner</TargetName>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <LinkIncremental>false</LinkIncremental>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps><VcpkgEnabled>false</VcpkgEnabled>
+    <Repo>$(MSBuildProjectDirectory)\..\..\..</Repo>
+    <ControlSource>$(Repo)\KswordCLI\ActionAnalyze\Control</ControlSource>
+    <ProjectSource>$(Repo)\KswordCLI\ActionAnalyze\Project</ProjectSource>
+    <ArchiveSource>$(Repo)\KswordCLI\ActionAnalyze\Archive</ArchiveSource>
+    <SharedSource>$(Repo)\shared</SharedSource>
+  </PropertyGroup>
+  <Import Project="..\..\..\Ksword.ReleaseOutput.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>false</TreatWarningAsError>
+      <LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary><Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader><DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="ReadyOwnerFailureRunner.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeDebugOwner.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeDebugAdmission.cpp" />
+    <ClCompile Include="$(ControlSource)\NativePrivateExecutionSite.cpp" />
+    <ClCompile Include="$(ControlSource)\NativePrivateExecutionPage.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeExplicitMemorySite.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeWriteExecutionTransition.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeStepRuntime.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeBreakpointImage.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeBreakpointImageIdentity.cpp" />
+    <ClCompile Include="$(ControlSource)\StopLedger.cpp" />
+    <ClCompile Include="$(ControlSource)\NativeExecutionEvidence.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectNativeExecution.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectRawEvidence.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectDocument.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectLock.cpp" />
+    <ClCompile Include="$(ProjectSource)\SampleCatalog.cpp" />
+    <ClCompile Include="$(ProjectSource)\ProjectStorage.cpp" />
+    <ClCompile Include="$(ArchiveSource)\RawEvidenceArchive.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentBodies.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentFormat.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentInspection.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentReader.cpp" />
+    <ClCompile Include="$(ArchiveSource)\SegmentWriter.cpp" />
+    <ClCompile Include="$(SharedSource)\evidence\EvidenceJson.cpp" />
+    <ClCompile Include="$(SharedSource)\evidence\LosslessValue.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ReadyOwnerFailureRunner.h" />
+    <ClInclude Include="ReadyOwnerFailureTrigger.h" />
+    <ClInclude Include="$(ControlSource)\NativeDebugOwner.h" />
+    <ClInclude Include="$(ControlSource)\NativeWriteExecutionTransition.h" />
+    <ClInclude Include="$(ControlSource)\NativePrivateExecutionSite.h" />
+    <ClInclude Include="$(ControlSource)\NativePrivateExecutionPage.h" />
+    <ClInclude Include="$(ControlSource)\NativeExplicitMemorySite.h" />
+    <ClInclude Include="$(ControlSource)\NativeExecutionEvidence.h" />
+    <ClInclude Include="$(ProjectSource)\ProjectNativeExecution.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="PrintReadyOwnerFailureRunnerBuildPaths" BeforeTargets="ClCompile">
+    <Message Importance="High" Text="READY_OWNER_FAILURE_RUNNER_INTDIR=$([System.IO.Path]::GetFullPath('$(IntDir)'))" />
+    <Message Importance="High" Text="READY_OWNER_FAILURE_RUNNER_OUTDIR=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+    <Message Importance="High" Text="READY_OWNER_FAILURE_RUNNER_COMPILER=$(VCToolsInstallDir)bin\HostX64\x64\cl.exe" />
+    <Error Condition="'$(PreferredToolArchitecture)' != 'x64' or !Exists('$(VCToolsInstallDir)bin\HostX64\x64\cl.exe')" Text="HostX64 is required." />
+  </Target>
+</Project>

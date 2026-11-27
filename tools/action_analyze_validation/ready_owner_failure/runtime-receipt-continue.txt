@@ -1,0 +1,3 @@
+CHECK PASS trigger-started
+READY pid=48036 creation=134402757772695982 allocationBase=2406727352320 address=2406727352320 bytes=4096
+RESULT status=FAIL reason=ActionAnalyze control requires canonical owner identity

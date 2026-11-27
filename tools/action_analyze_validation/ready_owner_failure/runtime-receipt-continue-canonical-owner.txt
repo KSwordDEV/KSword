@@ -1,0 +1,23 @@
+CHECK PASS trigger-started
+READY pid=36372 creation=134402759218914510 allocationBase=2539303665664 address=2539303665664 bytes=4096
+CHECK PASS arm-accepted
+CHECK PASS armed-from-native-owner
+CHECK PASS go-accepted
+CHECK PASS native-held-status
+CHECK PASS native-held-identity
+CHECK PASS native-held-page-hit
+CHECK PASS native-held-group
+CHECK PASS native-held-event
+CHECK PASS native-owner-identity
+CHECK PASS native-recovery-branch
+OWNER_HELD processInstanceId=c71f44d9-ad58-4f49-81f6-3ed1e45e185e pid=36372 creation=134402759218914510 groupId=70000000-0000-8000-8000-000000000005 stateRevision=3 responsibilityGroupId=70000000-0000-8000-8000-000000000005 stopId=70000000-0000-8010-8000-000000000005 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 breakpointState=2 breakpointAddress=2539303665664 breakpointRangeBytes=4096 breakpointHitAddress=2539303665664 releaseRequestId=none
+CHECK PASS release-receipt
+CHECK PASS release-fields
+CHECK PASS release-exact-free
+OWNER_ACTION status=9 processInstanceId=c71f44d9-ad58-4f49-81f6-3ed1e45e185e groupId=70000000-0000-8000-8000-000000000005 responsibilityGroupId=70000000-0000-8000-8000-000000000005 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 releaseRequestId=continue/1
+CHECK PASS production-recovery-failure
+OWNER_RECOVERY status=9 stage=private-execution-page-rearm-external-protection error=487 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 releaseRequestId=continue/1
+CHECK PASS recovery-serialized
+CHECK PASS owner-close-requested
+CHECK FAIL owner-cleanup-evidence
+RESULT status=FAIL reason=owner-cleanup-evidence
