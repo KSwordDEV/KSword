@@ -9,6 +9,10 @@
 
 namespace ks::cli::action_analyze {
 
+// 输入原writer的有界候选窗口，返回带原包坐标的JSON；供进度及原生会话最终响应共用。
+Ksword::Evidence::JsonValue ApiCaptureTransferCandidatesJson(
+    const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers);
+
 // CLI采集进度只旁听原writer；stderr堵塞不能阻止原owner恢复或成为第二个归档写者。
 class ApiCaptureProgress final {
 public:
@@ -34,6 +38,7 @@ private:
     Transport output_; // 复用CLI现有有界输出worker，不读取stdin、不安装第二个控制处理器。
     std::string projectId_; // 打开文档时冻结的项目UUID。
     std::optional<Ksword::ActionAnalyze::SampleInfo> committedSample_; // 无自动接管时仍从已发布检查点取得真实采样身份。
+    std::optional<Ksword::ActionAnalyze::CooperativeApiTransferReceipt> pendingTransfers_; // 首段前尚无采样身份时仅保留最近一次有界窗口。
     bool requested_ = false; // 是否请求进度，不等于stderr实际可用。
     bool started_ = false; // 输出worker是否真正启动。
     std::uint64_t sequence_ = 0; // 已尝试发出的运行进度序号，丢帧后不回收。

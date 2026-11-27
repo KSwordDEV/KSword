@@ -35,7 +35,82 @@ Value LatestRule(const CooperativeApiRuleReceipt& rules)
         {"api", Value::makeString(match.api)}, {"ruleId", Value::makeString(match.ruleId)},
         {"behavior", behavior}});
 }
+
+// 输入已提交原包引用，输出段号、原序号及独立来源序号；不采用UI行号或当前PID补值。
+Value CandidateCoordinate(const Detection::EvidenceRef& reference)
+{
+    if (!reference.raw)
+    {
+        return Value::makeNull();
+    }
+    return Value::makeObject({{"segmentOrdinal", Number(reference.raw->segmentOrdinal)},
+        {"rawSequence", Number(reference.raw->sequence)},
+        {"sourceSequence", reference.sourceSequence ? Number(*reference.sourceSequence) : Value::makeNull()}});
+}
+
+// 输入任一候选及双方原包引用，输出共同身份和实际写入范围；返回文档不包含执行推断。
+template<class Link>
+Ksword::Evidence::JsonObject CandidateFields(const Link& link, const char* requestKey,
+    const Detection::EvidenceRef& request)
+{
+    return {{"write", CandidateCoordinate(link.write)}, {requestKey, CandidateCoordinate(request)},
+        {"actorPid", Value::makeUInt(link.actorPid)}, {"actorCreationFileTime", Number(link.actorCreationFileTime)},
+        {"targetPid", Value::makeUInt(link.targetPid)}, {"targetCreationFileTime", Number(link.targetCreationFileTime)},
+        {"writtenAddress", Number(link.writtenAddress)}, {"writtenBytes", Number(link.writtenBytes)}};
+}
 } // namespace
+
+// 三类候选各自保留原窗口和累计数量；JSON消费者可在运行期间按坐标回读，而非只有一个计数。
+Value ApiCaptureTransferCandidatesJson(const CooperativeApiTransferReceipt& transfers)
+{
+    Ksword::Evidence::JsonArray recent; // 写入到线程创建的原候选窗口。
+    for (const auto& link : transfers.recent)
+    {
+        auto fields = CandidateFields(link, "threadCreate", link.threadCreate); // 本候选两端的真实归档引用。
+        fields.emplace_back("requestedStartAddress", Number(link.requestedStartAddress));
+        fields.emplace_back("execution", Value::makeNull());
+        recent.push_back(Value::makeObject(std::move(fields)));
+    }
+
+    Ksword::Evidence::JsonArray recentApc; // APC接受不等于投递或执行；与线程创建窗口独立。
+    for (const auto& link : transfers.recentApc)
+    {
+        auto fields = CandidateFields(link, "apcQueue", link.queue); // 原写入和排队返回包坐标。
+        fields.emplace_back("targetTid", Value::makeUInt(link.targetTid));
+        fields.emplace_back("targetThreadCreationFileTime", Number(link.targetThreadCreationFileTime));
+        fields.emplace_back("requestedRoutineAddress", Number(link.requestedRoutineAddress));
+        fields.emplace_back("queueOutcome", Value::makeString("accepted"));
+        fields.emplace_back("delivery", Value::makeNull());
+        fields.emplace_back("execution", Value::makeNull());
+        recentApc.push_back(Value::makeObject(std::move(fields)));
+    }
+
+    Ksword::Evidence::JsonArray recentContext; // 上下文IP保留请求含义，不等同于目标线程采用该IP。
+    for (const auto& link : transfers.recentContext)
+    {
+        auto fields = CandidateFields(link, "context", link.context); // 原写入和上下文请求坐标。
+        fields.emplace_back("targetTid", Value::makeUInt(link.targetTid));
+        fields.emplace_back("targetThreadCreationFileTime", Number(link.targetThreadCreationFileTime));
+        fields.emplace_back("requestedIp", Number(link.requestedIp));
+        fields.emplace_back("requestedSp", Number(link.requestedSp));
+        fields.emplace_back("contextArchitecture", Number(link.contextArchitecture));
+        fields.emplace_back("requestOutcome", Value::makeString("accepted"));
+        fields.emplace_back("contextApplied", Value::makeNull());
+        fields.emplace_back("execution", Value::makeNull());
+        recentContext.push_back(Value::makeObject(std::move(fields)));
+    }
+
+    // 窗口淘汰与累计数分别呈现，三类记录不混用同一个截断标志。
+    return Value::makeObject({{"candidateCount", Number(transfers.candidateCount)},
+        {"apcCandidateCount", Number(transfers.apcCandidateCount)},
+        {"contextCandidateCount", Number(transfers.contextCandidateCount)},
+        {"evictedWrites", Number(transfers.evictedWrites)},
+        {"windowTruncated", Value::makeBool(transfers.candidateCount > transfers.recent.size())},
+        {"apcWindowTruncated", Value::makeBool(transfers.apcCandidateCount > transfers.recentApc.size())},
+        {"contextWindowTruncated", Value::makeBool(transfers.contextCandidateCount > transfers.recentContext.size())},
+        {"recent", Value::makeArray(std::move(recent))}, {"recentApc", Value::makeArray(std::move(recentApc))},
+        {"recentContext", Value::makeArray(std::move(recentContext))}});
+}
 
 ApiCaptureProgress::ApiCaptureProgress(bool requested, std::string projectId)
     : projectId_(std::move(projectId)), requested_(requested)
@@ -90,7 +165,14 @@ void ApiCaptureProgress::Committed(const SampleInfo& sample, const ProjectApiChe
         {"rulesFailed", Value::makeBool(rules.failed)}, {"ruleConfigError", Value::makeString(rules.configError)},
         {"latestRule", LatestRule(rules)},
         {"candidateCount", Number(candidateCount_)}, {"apcCandidateCount", Number(apcCandidateCount_)},
-        {"contextCandidateCount", Number(contextCandidateCount_)}}));
+         {"contextCandidateCount", Number(contextCandidateCount_)}}));
+    if (pendingTransfers_)
+    {
+        // 首段前未能发出的候选现在取得真实sample；只补最近快照，不重放历史通知。
+        const auto pending = std::move(*pendingTransfers_); // 独立拥有回执，避免Transfers覆盖同一optional。
+        pendingTransfers_.reset();
+        Transfers(pending);
+    }
 }
 
 void ApiCaptureProgress::Transfers(const CooperativeApiTransferReceipt& transfers)
@@ -106,11 +188,14 @@ void ApiCaptureProgress::Transfers(const CooperativeApiTransferReceipt& transfer
     const auto& sample = transfers.handoffSample ? transfers.handoffSample : committedSample_; // 优先取控制器自己绑定的身份。
     if (!sample)
     {
-        return; // 尚无真实采样身份时不生成一个来自命令参数的虚构活动实例。
+        pendingTransfers_ = transfers; // 保留原有界候选；不用命令参数虚构采样身份，也不丢掉首段唯一候选。
+        return;
     }
+    pendingTransfers_.reset(); // 新快照已有真实身份时取代尚未发送的旧窗口，不在下一检查点倒退展示。
     Emit(transfers.handoff.isNull() ? "api-transfer-candidates" : "transfer-handoff", *sample, Value::makeObject({
         {"candidateCount", Number(transfers.candidateCount)}, {"apcCandidateCount", Number(transfers.apcCandidateCount)},
         {"contextCandidateCount", Number(transfers.contextCandidateCount)}, {"evictedWrites", Number(transfers.evictedWrites)},
+        {"candidates", ApiCaptureTransferCandidatesJson(transfers)},
         {"transferHandoff", transfers.handoff}}));
 }
 

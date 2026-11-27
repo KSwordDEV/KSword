@@ -181,12 +181,8 @@ V Report(const project::NativeBoundApiResult& result, const control::NativeContr
             {"matchedRows", Count(run.rules.matchedRows)},
             {"latestSegment", Count(run.rules.latestSegment)}
         })},
-        {"transfers", V::makeObject({
-            {"candidateCount", Count(run.transfers.candidateCount)},
-            {"apcCandidateCount", Count(run.transfers.apcCandidateCount)},
-            {"contextCandidateCount", Count(run.transfers.contextCandidateCount)},
-            {"evictedWrites", Count(run.transfers.evictedWrites)}
-        })},
+        // 原生REPL/JSONL与运行进度使用同一候选文档，保留实际双方坐标供后续回读。
+        {"transfers", ApiCaptureTransferCandidatesJson(run.transfers)},
         {"cleanup", V::makeObject({
             {"complete", V::makeBool(capture.cleanupComplete)},
             {"stopMarkerWritten", V::makeBool(capture.stopWritten)},
