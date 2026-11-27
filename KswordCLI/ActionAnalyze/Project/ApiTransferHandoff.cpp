@@ -221,8 +221,15 @@ public:
     }
     bool SourceAuthenticated(DWORD pid, std::uint64_t creation) const
     {
-        // 根初始化期间可先接纳Pending，由主capture真实Ready后推进；递归源必须先Ready才入目录。
-        return pid == sourcePid ? creation == sourceCreation && !originalEnded : SourceReady(pid, creation);
+        // 身份准入与观察就绪分开：递归Agent安装Hook后、Ready前也可能产生下一跳调用。
+        // 已由本轮创建的精确来源先进入Pending，Advance仍要求真实Ready，不能直接发成功ACK。
+        if (pid == sourcePid)
+        {
+            return creation == sourceCreation && !originalEnded;
+        }
+        const auto found = sources.find(pid); // 只接受本轮已登记的capture，不凭端点token新增来源。
+        return found != sources.end() && found->second.creation == creation && found->second.capture &&
+            !found->second.failed && !found->second.ended;
     }
     DWORD Prepare()
     {
