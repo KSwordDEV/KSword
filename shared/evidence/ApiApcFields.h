@@ -182,7 +182,8 @@ enum class ApiApcQueueOutcome {
 inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitorEventPacket& packet) noexcept
 {
     namespace monitor = ks::winapi_monitor;
-    if (!ReadApiApcFields(packet) ||
+    const auto fields = ReadApiApcFields(packet);
+    if (!fields ||
         packet.resultKind != static_cast<std::uint32_t>(monitor::EventResultKind::StatusCode)) {
         return ApiApcQueueOutcome::Unknown;
     }
@@ -202,7 +203,9 @@ inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitor
             });
     };
     if (api == L"NtQueueApcThread" || api == L"NtQueueApcThreadEx") {
-        if (!moduleIs(L"ntdll") && !moduleIs(L"ntdll.dll")) {
+        if ((!moduleIs(L"ntdll") && !moduleIs(L"ntdll.dll")) ||
+            (fields->flags & ApiApcQueueFlags) ||
+            (api == L"NtQueueApcThread" && fields->reserveHandle)) {
             return ApiApcQueueOutcome::Unknown;
         }
         if (static_cast<std::int32_t>(packet.hookAddress) != packet.resultCode) {
@@ -210,11 +213,15 @@ inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitor
         }
         return packet.resultCode >= 0 ? ApiApcQueueOutcome::Accepted : ApiApcQueueOutcome::Failed;
     }
-    // 两个Win32入口均以非零返回表示入队已接受；特殊APC标志不改变执行证据边界。
-    if ((api != L"QueueUserAPC" && api != L"QueueUserAPC2") ||
+    // 旧APC2包没有flags有效位仍可读；其它API不能借用APC2参数或NT Reserve字段。
+    const bool apc2 = api == L"QueueUserAPC2";
+    const bool ordinaryApc = api == L"QueueUserAPC";
+    if ((!apc2 && !ordinaryApc) ||
         (!moduleIs(L"kernelbase") && !moduleIs(L"kernelbase.dll") &&
          !moduleIs(L"kernel32") && !moduleIs(L"kernel32.dll")) || packet.hookAddress > UINT32_MAX ||
-        (packet.hookAddress && packet.resultCode)) {
+        (packet.hookAddress && packet.resultCode) || fields->reserveHandle ||
+        fields->argument2 || fields->argument3 ||
+        (!apc2 && (fields->flags & ApiApcQueueFlags))) {
         return ApiApcQueueOutcome::Unknown;
     }
     return packet.hookAddress ? ApiApcQueueOutcome::Accepted : ApiApcQueueOutcome::Failed;
