@@ -868,7 +868,8 @@ public:
     }
     void RecoverFailedTargets()
     {
-        // 失败准入且没有可用Agent时，原API仍会放行；不能让该目标的NX停点无限等待Ready。
+        // 失败准入没有可用Agent，或原owner已发生恢复故障时，沿同一成员清退。
+        // Agent Ready只证明Hook采集可用，不能覆盖NX/线程恢复失败。
         if (closing || current.collectionId.empty() || !archiveStatus) return;
         // 集合成员保留完整恢复责任，不能依赖会淘汰的最近准入窗口。
         // CloseMember会替换current；先冻结身份，再逐个回读对应成员。
@@ -897,11 +898,12 @@ public:
             const auto source = sources.find(pid);
             const bool sourceFailed = source != sources.end() &&
                 source->second.creation == creation && source->second.failed;
+            const bool ownerFailed = member->control.firstRecoveryFailure.has_value();
             const bool admissionFailed = std::any_of(transfers.begin(), transfers.end(), [&](const auto& transfer) {
                 return transfer.stage == Admission::Done && transfer.error &&
                     transfer.request.targetPid == pid && transfer.request.targetCreation == creation;
             });
-            if ((!admissionFailed && !sourceFailed) || SourceReady(pid, creation)) continue;
+            if (!ownerFailed && ((!admissionFailed && !sourceFailed) || SourceReady(pid, creation))) continue;
             const auto pendingTarget = std::any_of(transfers.begin(), transfers.end(), [&](const auto& other) {
                 return other.stage != Admission::Done && other.request.targetPid == pid &&
                     other.request.targetCreation == creation;
