@@ -13,6 +13,10 @@ namespace ks::cli::action_analyze {
 Ksword::Evidence::JsonValue ApiCaptureTransferCandidatesJson(
     const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers);
 
+// 输入累计规则回执，返回最后命中的原坐标及双语释义；最终响应和进度共用原命中解释。
+Ksword::Evidence::JsonValue ApiCaptureRulesJson(
+    const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules);
+
 // CLI采集进度只旁听原writer；stderr堵塞不能阻止原owner恢复或成为第二个归档写者。
 class ApiCaptureProgress final {
 public:

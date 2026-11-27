@@ -229,6 +229,8 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 `capture-progress` 的候选通知现通过 `payload.candidates` 提供最近线程创建、APC 和上下文候选，各保留至多32条及双方 `segmentOrdinal/rawSequence/sourceSequence`、进程和线程代次、实际写入范围及请求地址。累计数、窗口截断与实际执行分别显示；未采集的执行／投递状态保持 `null`。首个检查点提交前暂缺采样身份的通知只保留最近窗口，取得真实身份后交付，不另外读取归档。原生 `api-capture` 的最终响应 `transfers` 使用同一文档，原有计数字段保留。
 
+原生 `api-capture` 最终响应的 `rules.latest` 同时给出最近命中的原段、记录序号、来源序号、API、规则ID及 `behavior.summary/summaryZh/evidence`，与运行进度使用同一命中投影。没有命中时为 `null`，不要求开启进度选项，也不额外重跑规则。
+
 进度为旁路通知：有界输出队列满、stderr断开或单帧超限时丢弃该通知，不阻塞接管、保护恢复或原归档。序号缺口及最终 `captureProgress.droppedFrames` 可识别未接纳的帧；启动进度通道后即使采样创建、Agent 路径或启动交接失败，错误响应也保留交付摘要。`enqueuedFrames` 只表示进队，`outputDrained` 才表示队列已写完，均不等于下游已处理。采集清退结束后最多沿传输层五秒等待排空，交付失败不改变采集退出码；最终 `transferHandoff` 和正式归档仍是回查依据。与 `--startup-progress 1` 同用时，启动原文和运行快照共用同一队列，避免两条JSON互相穿插。两种进度选项均不提供时不增加 `captureProgress` 字段，保留原输出行为。
 
 `--auto-transfer` 明确开启本轮跨进程私有执行接管：已覆盖的 `CreateRemoteThread`、`CreateRemoteThreadEx`、`NtCreateThreadEx`、APC 和上下文 Hook 在原调用前向目标外 owner 同步请求，自动查询请求入口所在完整已提交可执行 `MEM_PRIVATE` 区域，在原执行集合新增目标或范围。成功 ACK 同时要求原 NX 设防回读及下一目标真实 Agent Ready、有效覆盖修订；下一目标继续使用同一交接端点，后续多跳不需要手填私有地址。正在安装的请求返回 Pending 使管道可以服务其它来源，Hook 仍等待最终结果。命中由原 owner 生成真实执行停点，保存到同一 sample 的 `raw-native` 后才沿原 TF／重设防路径自动继续；保存失败保留停点。各来源原包共用原 `raw/checkpoints`，每包分别保存实际 PID、创建 FILETIME 和 session，源序号在整流连续。根进程退出后，已接管来源持续到原根 Ready 起算的时长到期、用户停止或整条链退出；结束先停止并排空各来源再发布终段。`transferHandoff.sources` 分别报告实例、Ready、会话、启动、丢失、结束和清退事实；每条 `admissions` 另报告当前 `nativeOwnerStage`／`nativeOwnerError` 与可用的 `nativeRecoveryFailureStage`／`nativeRecoveryFailureError`，用于区分原生 owner 故障和接管准入错误。拒绝、超时和未完成清退会令本轮为部分结果；交接失败后原 API 仍执行，参数和返回语义保留。此路径尚不能承诺全部入口和任意多跳零窗口；已有 NX 范围可复用，未知目标仍重新核验 PID＋创建时间及内存。Qt／Light 使用同名选项，开始时冻结。

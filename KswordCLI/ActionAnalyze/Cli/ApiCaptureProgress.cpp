@@ -60,6 +60,16 @@ Ksword::Evidence::JsonObject CandidateFields(const Link& link, const char* reque
 }
 } // namespace
 
+// 只投影原writer已匹配的规则；失败仍保留此前命中，不在CLI再次运行谓词或读规则文件。
+Value ApiCaptureRulesJson(const CooperativeApiRuleReceipt& rules)
+{
+    return Value::makeObject({{"presetSet", Value::makeString(rules.presetSet)},
+        {"sourceSha256", rules.sourceSha256.empty() ? Value::makeNull() : Value::makeString(rules.sourceSha256)},
+        {"configError", rules.configError.empty() ? Value::makeNull() : Value::makeString(rules.configError)},
+        {"failed", Value::makeBool(rules.failed)}, {"matchedRows", Number(rules.matchedRows)},
+        {"latestSegment", Number(rules.latestSegment)}, {"latest", LatestRule(rules)}});
+}
+
 // 三类候选各自保留原窗口和累计数量；JSON消费者可在运行期间按坐标回读，而非只有一个计数。
 Value ApiCaptureTransferCandidatesJson(const CooperativeApiTransferReceipt& transfers)
 {

@@ -173,14 +173,8 @@ V Report(const project::NativeBoundApiResult& result, const control::NativeContr
             {"rawErrorOffset", Count(run.archive.result.error.offset)},
             {"rawWin32Error", V::makeUInt(run.archive.result.error.win32Error)}
         })},
-        {"rules", V::makeObject({
-            {"presetSet", Text(run.rules.presetSet)},
-            {"sourceSha256", run.rules.sourceSha256.empty() ? V::makeNull() : Text(run.rules.sourceSha256)},
-            {"configError", run.rules.configError.empty() ? V::makeNull() : Text(run.rules.configError)},
-            {"failed", V::makeBool(run.rules.failed)},
-            {"matchedRows", Count(run.rules.matchedRows)},
-            {"latestSegment", Count(run.rules.latestSegment)}
-        })},
+        // 未订阅进度时最终响应也保留最近命中的双语释义与原包坐标，不只有规则计数。
+        {"rules", ApiCaptureRulesJson(run.rules)},
         // 原生REPL/JSONL与运行进度使用同一候选文档，保留实际双方坐标供后续回读。
         {"transfers", ApiCaptureTransferCandidatesJson(run.transfers)},
         {"cleanup", V::makeObject({
