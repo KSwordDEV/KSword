@@ -235,6 +235,24 @@ Fault Transport::Start(bool jsonl) {
     return {};
 }
 
+// 输入标准句柄编号，输出初始化故障；输出线程仍复用原字节/控制台Unicode写入实现。
+Fault Transport::StartOutputOnly(std::uint32_t standardHandle)
+{
+    auto& state = *state_; // 本对象独占的输出状态，不修改全局标准句柄。
+    state.out = GetStdHandle(standardHandle);
+    state.consoleOut = IsConsole(state.out);
+    if (!ValidHandle(state.out))
+    {
+        return Win32Fault("invalid-standard-stream", "Progress stream is unavailable", ERROR_INVALID_HANDLE);
+    }
+    state.writer = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, State::WriteEntry, &state, 0, nullptr));
+    if (!state.writer)
+    {
+        return {"worker-start-failed", "Could not start progress output worker", std::nullopt, 3};
+    }
+    return {};
+}
+
 bool Transport::Interactive() const { return state_->consoleIn && state_->consoleOut; }
 
 Input Transport::Next(bool wakeForTick) {
@@ -277,6 +295,21 @@ bool Transport::Finish() {
     while (state.CheckOutput() && (state.writing || !state.pending.empty()))
         state.changed.wait_for(lock, std::chrono::milliseconds(50));
     return state.CheckOutput();
+}
+
+// 进度只有旁听责任；失败不等待空位，不改变采集取消信号，也不向目标发任何请求。
+bool Transport::TrySend(std::string frame)
+{
+    auto& state = *state_; // 与独立输出线程共享的同一有界队列。
+    std::lock_guard lock(state.mutex); // 只保护入队，不持锁执行WriteFile或等待消费者。
+    if (!state.writer || state.stopping || !state.CheckOutput() || frame.size() > kOutputBytes + 1 ||
+        state.pending.size() + (state.writing ? 1 : 0) >= kPendingFrames)
+    {
+        return false;
+    }
+    state.pending.push_back({std::move(frame), Clock::now()});
+    state.changed.notify_all();
+    return true;
 }
 
 } // namespace ks::cli::action_analyze

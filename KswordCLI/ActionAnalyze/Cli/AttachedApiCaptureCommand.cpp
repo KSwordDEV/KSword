@@ -6,7 +6,7 @@ void RegisterAttachedApiCaptureCommand()
 {
     Command command;
     command.path = L"analyze api-evidence attach";
-    command.syntax = L"KswordCLI.exe analyze api-evidence attach --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
+    command.syntax = L"KswordCLI.exe analyze api-evidence attach --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
     command.summary = L"Explicitly load or reuse the product Agent on an exact authorized process and archive observed API calls.";
     command.options = L"Required: --project, --title, --pid, --creation-filetime, --confirm. R3 only. --auto-transfer arms private remote execution targets before intercepted thread/APC/context dispatch; saves and resumes native execution stops in trace mode.";
     command.notes = L"Does not require cooperative preloading. Uses the product Agent beside this executable, with no child injection or behavior modification. "
@@ -20,6 +20,7 @@ void RegisterAttachedApiCaptureCommand()
         L"Ordinary packets use the existing project checkpoint pipeline; replay reads committed segments. "
         L"HooksRemoved means hooks stopped; the pinned Agent and retired code remain until target exit. R0 is rejected without fallback.";
     command.run = RunAttachedApiEvidence;
+    command.notes += L" --capture-progress 1 emits committed API checkpoints, latest rule explanations and live transferHandoff snapshots as UTF-8 stderr JSONL. The bounded queue never waits for free space on the capture worker; final captureProgress distinguishes enqueue/drop/drain from product completion.";
     addCommand(std::move(command));
 }
 }

@@ -81,6 +81,7 @@
   <ItemGroup>
     <ClCompile Include="ActionAnalyze\Cli\Commands.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\Cli\ApiCaptureProgress.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\AttachedApiCaptureCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\ApiRuleReplayCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\Cli\NetworkCaptureCommand.cpp"><Filter>源文件\ActionAnalyze CLI</Filter></ClCompile>
@@ -208,6 +209,7 @@
     <ClInclude Include="ActionAnalyze\Detection\InjectionDiscovery.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Detection\InjectionTelemetry.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\ApiMonitorEvidenceCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Cli\ApiCaptureProgress.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\AttachedApiCaptureCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\ApiRuleReplayCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Cli\NetworkCaptureCommand.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

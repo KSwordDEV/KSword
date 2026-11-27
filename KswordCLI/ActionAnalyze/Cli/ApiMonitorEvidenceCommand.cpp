@@ -1,5 +1,6 @@
 #include "ApiMonitorEvidenceCommand.h"
 #include "ApiMemoryLifecycleProjection.h"
+#include "ApiCaptureProgress.h"
 
 #include "../../CommandRegistry.h"
 #include "../Project/CooperativeApiCapture.h"
@@ -476,6 +477,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     if (!args.has(L"--confirm") || (!launch && (pid <= 4 || pid == GetCurrentProcessId() || !creation)) ||
          title.empty() || (duration != 0 && (duration < 1000 || duration > 120000)) ||
         (args.has(L"--startup-progress") && args.get(L"--startup-progress") != L"1") ||
+        (args.has(L"--capture-progress") && args.get(L"--capture-progress") != L"1") ||
         (args.has(L"--agent-etw") && args.get(L"--agent-etw") != L"1")) {
         return Failure(1, attached ? L"invalid-attachment-scope" : L"invalid-resident-capture-scope");
     }
@@ -513,13 +515,29 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     const auto revision = document.Info()->revisionId; // 采集启动之前冻住当前保存的修订。
     Cancellation cancel; // 控制台停止由本次采样执行，不终止目标。
     const bool captureEtw = args.has(L"--agent-etw"); // 同一采样增开配套的自有 ETW 流。
+    ApiCaptureProgress progressOutput(args.has(L"--startup-progress") || args.has(L"--capture-progress"),
+        document.Info()->projectId); // 原有有界writer统一发送stderr通知，不在目标恢复线程同步写终端。
+    project::CooperativeApiCommitted onCommitted; // 仅用户选择运行进度时订阅已核验检查点。
+    project::CooperativeApiTransferCommitted onTransfers; // 直接使用原控制器的活动快照，不增设轮询。
+    if (args.has(L"--capture-progress"))
+    {
+        onCommitted = [&](const project::SampleInfo& sample, const project::ProjectApiCheckpoint& checkpoint,
+            const project::CooperativeApiRuleReceipt& rules)
+        {
+            progressOutput.Committed(sample, checkpoint, rules);
+        };
+        onTransfers = [&](const project::CooperativeApiTransferReceipt& transfers)
+        {
+            progressOutput.Transfers(transfers);
+        };
+    }
     project::CooperativeApiStartup onStartup; // 显式选择才向stderr输出，不改变stdout最终单JSON文档。
     if (args.has(L"--startup-progress"))
     {
-        onStartup = [](const monitor::CaptureStartupProgress& progress) {
+        onStartup = [&](const monitor::CaptureStartupProgress& progress) {
             // 一阶段一行，输出原快照；用户可在采样未结束时分辨装载与真正Ready。
             const auto value = project::ApiCaptureStartupJson(progress); // 使用归档与原生响应相同字段。
-            std::wcerr << project::ProjectStorage::WideAscii(evidence::WriteJson(value)) << L'\n';
+            progressOutput.Publish(value);
         };
     }
     const bool autoTransfer = args.has(L"--auto-transfer"); // 本轮显式开启API调用前目标自动设防。
@@ -530,15 +548,14 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         project::LaunchedApiLaunchProgress onLaunch; // 只有明确选择进度时才写stderr阶段回执。
         if (args.has(L"--startup-progress"))
         {
-            onLaunch = [](const project::LaunchedApiProgress& progress)
+            onLaunch = [&](const project::LaunchedApiProgress& progress)
             {
-                std::wcerr << project::ProjectStorage::WideAscii(
-                    evidence::WriteJson(project::LaunchedApiProgressJson(progress))) << L'\n';
+                progressOutput.Publish(project::LaunchedApiProgressJson(progress));
             };
         }
         launched = project::CaptureLaunchedApi(document,
             {args.require(L"--exe"), entryRva, duration, title, revision, autoTransfer, networkTraffic, captureEtw},
-            *cancel.token, {}, {}, {}, onStartup, onLaunch);
+            *cancel.token, {}, onCommitted, onTransfers, onStartup, onLaunch);
         if (launched->launch)
         {
             pid = launched->launch->pid;
@@ -550,6 +567,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             // 尚未登记采样的入口故障仍保留启动阶段，不能仅报成项目创建失败。
             return {cancel.token->load() ? 6 : 3, Json::object({
                 {L"status", Json::string(L"launch-bootstrap-incomplete")},
+                {L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressOutput.Finish()))}},
                 {L"launch", Json{project::ProjectStorage::WideAscii(
                     evidence::WriteJson(project::LaunchedApiProgressJson(*launched)))}}}), {}};
         }
@@ -558,14 +576,15 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     {
         run = project::CaptureAttachedApi(document,
             {pid, creation, true, false, duration, title, revision, {}, autoTransfer, networkTraffic, captureEtw},
-            *cancel.token, {}, {}, {}, onStartup);
+            *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
     else
     {
         run = project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw,
             project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, networkTraffic},
-            *cancel.token, {}, {}, {}, onStartup);
+            *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
+    const auto progressDelivery = progressOutput.Finish(); // 原采集及恢复已返回后才有限排空旁路通知。
     if (!run.sampleStatus) {
         return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail);
     }
@@ -605,6 +624,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"sampleId", Json::string({sample.sampleId.begin(), sample.sampleId.end()})},
         {L"revisionId", Json::string({revision.begin(), revision.end()})},
         {L"pid", Json::number(pid)}, {L"creationFileTime", Json::count(creation)},
+        {L"captureProgress", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(progressDelivery))}},
         {L"transferHandoff", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(run.transferHandoff))}},
         {L"networkTraffic", Json{project::ProjectStorage::WideAscii(evidence::WriteJson(
             project::ApiCaptureNetworkJson(run.networkTraffic)))}},
@@ -725,7 +745,7 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command capture; // 合作目标的真实管道和项目归档入口。
     capture.path = L"analyze api-evidence capture";
-    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
+    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
     capture.options = L"Requires an existing project, an explicitly selected cooperative target with the resident product Agent, "
                       L"and its private KSWORD_APIMON_COOPERATIVE_SESSION_V1 directory.";
     capture.summary = L"Collect WinAPI evidence from a cooperative target's resident Agent into a new project sample.";
@@ -739,15 +759,17 @@ void RegisterApiMonitorEvidenceCommands()
                       L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
                       L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
     capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
+    capture.notes += L" --capture-progress 1 emits committed API checkpoint/rule snapshots and live handoff state to stderr as UTF-8 JSONL, without changing final stdout. Progress uses a bounded non-blocking queue; droppedFrames and outputDrained report delivery separately from capture and recovery.";
     addCommand(std::move(capture));
 
     Command launch; // 普通EXE自动创建、入口交接和附加，复用现有采集结果及回放入口。
     launch.path = L"analyze api-evidence launch";
-    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--json]";
+    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
     launch.summary = L"Launch an AMD64 EXE suspended, hand its entry stop to the product Agent, then archive API calls.";
     launch.options = L"Select an existing project and a plain EXE. Optional nonzero --rva overrides PE AddressOfEntryPoint. No cooperative exports or manually supplied PID are required. Duration: 1,000-120,000 ms (default 3,000), or 0 until cancellation or exit.";
     launch.notes = L"The native owner arms entry DR0 before releasing the creation suspension. At the actual main-thread entry stop, the bootstrap takes one explicit main-thread suspension and detaches the debugger. It releases that suspension only after the real Agent Ready and coverage barrier. TLS and earlier loader execution remain outside this entry-based path. --auto-transfer enables automatic private-range discovery and recursive Agent handoff for the same sample. --network-traffic starts the selected existing packet source before Agent Ready releases the main thread. With --auto-transfer, admitted target instances join the same source before the handoff ACK and remain in scope after the root exits; packet attribution stays a PID hint, without HTTPS decryption. Startup failure terminates only this exact newly created process. --startup-progress 1 emits completed bootstrap and Agent stages to stderr. Replay uses analyze api-evidence replay; saved packet bytes use analyze network-read.";
     launch.notes += L" --agent-etw 1 starts the own Agent lifecycle provider before main-thread release and saves it in raw-etw; automatic handoff adds target header PIDs to that same source before ACK. Header PIDs remain hints.";
+    launch.notes += L" --capture-progress 1 emits committed checkpoint/rule and live handoff snapshots through the same bounded stderr queue. Output loss does not block target recovery; final captureProgress reports delivery separately.";
     launch.run = [](const Args& args) { return CaptureEvidence(args, true, true); };
     addCommand(std::move(launch));
 
