@@ -34,7 +34,7 @@ v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == fil
 
 目录与加载使用同一配置和字段目录，CLI `api-rule-catalog` 同时给出兼容 `fields` 列表及 `typedFields`；Qt／Light 回放只把既有归档行已核验的协议值交给相同准备结果。无返回证据的包只分类，不生成返回层级释义。
 
-Qt 和 Light 的归档 API 行详情在当前回放规则求值成功后调用 `ProjectApiPresetFields()`，命中与未命中行均显示同一规则输入投影中的 Known 字段，并用 `bool`／`u64`／`text` 标明类型；未知、未采集值不转换为空字符串或零。字段值来自当前选中的原始归档行，不重读系统状态或重新求值规则。
+Qt 和 Light 的项目及独立归档 API 行详情在当前回放规则求值成功后调用 `ProjectApiPresetFields()`，命中与未命中行均显示同一规则输入投影中的 Known 字段，并用 `bool`／`u64`／`text` 标明类型；未知、未采集值不转换为空字符串或零。字段值来自当前选中的原始归档行，不重读系统状态或重新求值规则。
 
 普通强类型参数由 `ApiBehaviorObservation.cpp/.h` 消费已有采集格式，而非执行上游脚本。读侧要求同模块、精确 API、类别、Strong、非零源会话、显式返回标记，并按 API 分别解释 BOOL／HANDLE／LSTATUS／NTSTATUS／GetAddrInfo 返回。`StatusUnknown` 不发布错误码；GetAddrInfo 的错误来自函数返回，不能把包装器残留的 WSA LastError 当成原因。返回字段可独立存在，参数无效不回填假值。
 
