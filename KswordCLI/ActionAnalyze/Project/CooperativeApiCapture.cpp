@@ -147,20 +147,13 @@ Evidence::JsonValue ApiCaptureEtwJson(const std::optional<CooperativeEtwReceipt>
             {"nativeError", JsonValue::makeUInt(status.nativeError)}});
     };
     const auto& etw = *receipt; // 只借用同一次采集已清退的来源和已发布检查点。
-    // 只有检查点已成功发布才提供可定位身份；没有段时保留null，不用零坐标冒充空归档。
-    const auto published = etw.segmentOrdinal && etw.raw.flushed ? Object({
-        {"stream", Text("raw-etw")}, {"segmentOrdinal", Number(etw.segmentOrdinal)},
-        {"firstRawSequence", Number(etw.planRawSequence)},
-        {"lastRawSequence", Number(etw.raw.flushed->lastSequence)},
-        {"endOffset", Number(etw.raw.flushed->byteOffset)}, {"sha256", Text(etw.rawSha256)},
-        {"finalSegment", JsonValue::makeBool(etw.finalSegment)}}) : JsonValue::makeNull();
     return Object({{"receiptAvailable", JsonValue::makeBool(true)}, {"source", EtwSourceReceipt(etw.source)},
         {"setup", result(etw.setup)}, {"started", JsonValue::makeBool(etw.started)},
         {"stopped", JsonValue::makeBool(etw.stopped)}, {"archive", result(etw.archiveStatus)},
         {"checkpoint", result(etw.checkpointStatus)}, {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())},
         {"segmentOrdinal", Number(etw.segmentOrdinal)}, {"archivedObservations", Number(etw.archivedObservations)},
         {"finalSegment", JsonValue::makeBool(etw.finalSegment)},
-        {"published", published},
+        {"published", etw.published},
         {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
 }
 
@@ -567,8 +560,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         etw.raw = etwStream.raw;
         etw.segmentOrdinal = etwStream.ordinal;
         etw.archivedObservations = etwStream.observations;
-        etw.planRawSequence = etwStream.planRawSequence;
-        etw.rawSha256 = etwStream.rawSha256;
+        etw.published = etwStream.PublishedJson(ProjectEvidenceLane::MixedEtw);
         etw.finalSegment = etwStream.finalized;
         etw.source = etwSource->status();
     };

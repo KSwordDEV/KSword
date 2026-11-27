@@ -15,6 +15,9 @@ struct ProjectEtwStream {
     ProjectResult checkpointStatus; // 原有覆盖与检查点发布结果。
     bool finalized = false; // 已发布唯一终段，不再消费来源。
 
+    // 输入本游标实际写入的流，返回最近已发布段的无损定位文档；尚未发布时返回null，不读盘。
+    Evidence::JsonValue PublishedJson(ProjectEvidenceLane lane) const;
+
     // 每次移出至多512条，复用原Stored writer与ETW检查点。
     // final只在来源停止且队列已完全排空的最后一段发布；失败后保留已提交前缀，不跳段。
     bool Flush(ProjectDocument& project, std::string_view sampleId, ProjectEvidenceLane lane,

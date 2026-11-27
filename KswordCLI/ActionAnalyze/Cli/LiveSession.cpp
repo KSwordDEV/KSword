@@ -150,7 +150,12 @@ struct LiveSession::State {
             {"checkpoint", Object({{"status", Text(!archiveResult ? "raw-unavailable" : !checkpointResult ? "failed" :
                 verified ? "verified" : finalized ? "raw-unavailable" : "pending")},
                 {"error", checkpointResult ? V::makeNull() : Text(checkpointResult.detail)}})}};
-        if (Continuous()) archiveStatus.emplace_back("recordedObservations", Number(recorded));
+        if (Continuous())
+        {
+            // 与配套ETW共用原游标的坐标文档；失败仍保留最后成功检查点，不扫描当前归档补值。
+            archiveStatus.emplace_back("recordedObservations", Number(recorded));
+            archiveStatus.emplace_back("published", etwStream.PublishedJson(EtwLane()));
+        }
         return Object(std::move(archiveStatus));
     }
 

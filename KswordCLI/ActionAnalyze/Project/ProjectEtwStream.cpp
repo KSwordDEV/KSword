@@ -25,6 +25,20 @@ ProjectResult Appended(const Archive::RawEvidenceReceipt& receipt)
 }
 } // namespace
 
+// 连续ETW与API配套ETW使用同一定位投影，不把主流和附属流的序号空间混在一起。
+Evidence::JsonValue ProjectEtwStream::PublishedJson(ProjectEvidenceLane lane) const
+{
+    if (!ordinal || !raw.flushed)
+    {
+        return Evidence::JsonValue::makeNull();
+    }
+    return Object({{"stream", Text(lane == ProjectEvidenceLane::MixedEtw ? "raw-etw" : "raw")},
+        {"segmentOrdinal", Number(ordinal)}, {"firstRawSequence", Number(planRawSequence)},
+        {"lastRawSequence", Number(raw.flushed->lastSequence)},
+        {"endOffset", Number(raw.flushed->byteOffset)}, {"sha256", Text(rawSha256)},
+        {"finalSegment", Evidence::JsonValue::makeBool(finalized)}});
+}
+
 // 由原worker传入冻结计划及同一来源；返回本批写入/发布是否成功，游标只在发布后推进。
 bool ProjectEtwStream::Flush(ProjectDocument& project, std::string_view sampleId,
     ProjectEvidenceLane lane, const Evidence::JsonValue& plan, std::string_view reason,
