@@ -72,6 +72,10 @@ std::wstring Present(const project::NetworkTrafficResult& result)
         Wide(read.checkpoint.source.clockId) + L"\r\n启动 ID：" + Wide(read.checkpoint.source.bootId) +
         L"\r\n结束原因：" + Wide(read.checkpoint.stopReason) + L"\r\n段内包数：" + std::to_wstring(read.totalRecords) +
         L"\r\n显示记录数：" + std::to_wstring(read.records.size()) + L"\r\n";
+    // 正文核验通过仍可能包含已知或未量化丢失，历史阅读不能拿成功状态掩盖来源缺口。
+    text += L"队列丢弃：" + std::to_wstring(read.checkpoint.loss.queueDropped) +
+        L"\r\n来源游标缺口：" + std::to_wstring(read.checkpoint.loss.sourceLost) +
+        L"\r\n存在未量化来源丢失：" + (read.checkpoint.loss.sourceLossUnquantified ? L"是" : L"否") + L"\r\n";
     // 同一检查点的接管成员窗口独立展示，不与某个报文的弱PID线索拼成强进程归属。
     for (const auto& target : read.checkpoint.targetWindows)
     {

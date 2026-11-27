@@ -150,6 +150,7 @@ ProjectResult ReadNetworkEvidence(const ProjectDocument& project, std::string_vi
         decoded.checkedBytes != draft.endOffset || decoded.framing.lastSequence != draft.lastSequence) {
         return Failure(ProjectError::Corrupt, "networkCheckpointBody", decoded.framing.error.win32Error);
     }
+    draft.loss = decoded.loss; // 只有整段正文、EOF和摘要均核验成功后才发布真实损失计数。
     out = std::move(draft);
     return {};
 }

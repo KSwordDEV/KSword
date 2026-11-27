@@ -128,6 +128,10 @@ void Present(NetworkTrafficView& view)
         .field(QStringLiteral("结束原因"), QString::fromStdString(read.checkpoint.stopReason))
         .field(QStringLiteral("段内包数"), QString::number(read.totalRecords))
         .field(QStringLiteral("显示记录数"), QString::number(read.records.size()));
+    // 历史回放也显示正文损失，不能因为成功读出零条记录就暗示没有丢包。
+    fields.field(QStringLiteral("队列丢弃"), QString::number(read.checkpoint.loss.queueDropped))
+        .field(QStringLiteral("来源游标缺口"), QString::number(read.checkpoint.loss.sourceLost))
+        .field(QStringLiteral("存在未量化来源丢失"), read.checkpoint.loss.sourceLossUnquantified ? QStringLiteral("是") : QStringLiteral("否"), true);
 
     // 展示本段实际纳入的实例窗口；这是采集筛选范围，不给任一弱PID报文补造强实例身份。
     for (const auto& target : read.checkpoint.targetWindows)

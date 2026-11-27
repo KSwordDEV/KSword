@@ -41,6 +41,7 @@ struct ProjectNetworkCheckpoint {
     std::uint64_t requestedCreation = 0; // 请求目标的创建 FILETIME，不回填到端口表线索。
     std::string stopReason; // 本段来源的实际结束原因。
     std::vector<ProjectNetworkTargetWindow> targetWindows; // 本段已接管实例窗口快照，不改变旧 raw 记录格式。
+    ks::cli::action_analyze::archive::NetworkLoss loss; // 从本段正文核验的损失，不从包数或目录标记推定。
 };
 
 // 向原 sample 的 raw-network 新增段，逐字节回读后发布 checkpoints-network/N.json。

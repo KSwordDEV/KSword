@@ -218,6 +218,11 @@ Result Read(const Args& args)
         {L"requestedPid", Json::number(checkpoint.requestedPid)},
         {L"requestedCreationFileTime", Json::count(checkpoint.requestedCreation)},
         {L"targetWindows", TargetWindows(checkpoint.targetWindows)},
+        {L"loss", Json::object({{L"queueDropped", Json::count(checkpoint.loss.queueDropped)},
+            {L"sourceLost", Json::count(checkpoint.loss.sourceLost)},
+            {L"sourceLossUnquantified", Json::boolean(checkpoint.loss.sourceLossUnquantified)},
+            {L"queueCounterSaturated", Json::boolean(checkpoint.loss.queueCounterSaturated)},
+            {L"sourceCounterSaturated", Json::boolean(checkpoint.loss.sourceCounterSaturated)}})},
         {L"stopReason", Json::string(storage::WideAscii(checkpoint.stopReason))}, {L"records", Json::array(rows)}}), {}};
 }
 } // namespace

@@ -223,7 +223,7 @@ ProjectResult CommitNetworkEvidence(ProjectDocument& project, std::string_view s
     if (const auto published = Publish(*root, dirs, NumberFile(ordinal), marker, false); !published) return published;
     checkpoint = {ordinal, out.raw.flushedBytes, *out.raw.lastFlushedSequence, std::move(hash), source,
         requestedPid, requestedCreation, std::string(stopReason),
-        std::vector<ProjectNetworkTargetWindow>(targetWindows.begin(), targetWindows.end())};
+        std::vector<ProjectNetworkTargetWindow>(targetWindows.begin(), targetWindows.end()), loss};
     return {};
 }
 
