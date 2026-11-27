@@ -243,7 +243,7 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 合作采集同时持续计算 `apiTransfers`，仅消费逐字节回读并发布检查点后的原包。四种专用 API 的结构字段用于关联同一来源会话、源/目标创建代次、稳定目标句柄身份及严格先写后创建的 QPC 顺序；请求线程入口须落在来源报告的实际成功写入半开区间内。`candidateCount` 为累计候选数，`recent` 保留最近 32 条、各自的写入与创建请求 `raw` 坐标及普通包流水号。`windowTruncated` 表示候选显示窗口已滚动，`evictedWrites` 独立报告至多 1,024 次最近写入的状态淘汰数。失败归档批次不产生候选，规则配置失败不影响此独立关联。`execution` 保持 `unknown`，创建请求和范围重合不证明实际执行或跨事件因果归因。Qt、Light 活采详情使用同一已提交回执，归档重开通过 `archive inspect ... graph` 回查各段的 `apiTransferCandidates`。
 
-`apiApcTransfers` 使用同一已提交写入窗口，独立累计 `QueueUserAPC`／`NtQueueApcThread` 的 AAAP1 请求返回。只有同来源会话、源／目标创建代次、稳定目标线程代次一致、写入返回 QPC 严格早于入队调用，且请求例程落在实际完成写入的半开范围，才保留候选。其 `recent` 同样最多 32 条，不挤占线程创建候选；`queueOutcome=accepted` 仅表示原接口接受入队，`delivery`、`execution` 均为 `null`。归档图页以 `apiApc` 显示原字段，以 `apiApcTransferCandidates` 显示分页中的候选及双方 raw 坐标；该新增源码尚未构建或实测。
+`apiApcTransfers` 使用同一已提交写入窗口，独立累计 `QueueUserAPC`、`QueueUserAPC2`、`NtQueueApcThread` 与 `NtQueueApcThreadEx` 的 AAAP1 请求返回。只有同来源会话、源／目标创建代次、稳定目标线程代次一致、写入返回 QPC 严格早于入队调用，且请求例程落在实际完成写入的半开范围，才保留候选。其 `recent` 同样最多 32 条，不挤占线程创建候选；`queueOutcome=accepted` 仅表示原接口接受入队，`delivery`、`execution` 均为 `null`。归档图页以 `apiApc` 显示原字段，以 `apiApcTransferCandidates` 显示分页中的候选及双方 raw 坐标。
 
 `apiContextTransfers` 同样只消费已提交原包，并与前两类共用 1,024 次实际写入状态，独立保留最近 32 条上下文请求候选。`SetThreadContext`／`NtSetContextThread` 的 AACT1 必须报告完整目标线程代次、安全读取的 CONTROL 请求和接受返回；同来源写入严格早于设置请求，且请求 IP 落在实际完成写入范围，才记录双方 raw 坐标。`contextApplied`、`execution` 均为 `null`。归档图页的 `apiContext` 保留请求 IP／SP／flags／ABI，以 `apiContextTransferCandidates` 输出独立候选窗口；`apiSectionMap` 则分列请求与实际映射范围、原节偏移和输入句柄，不以句柄原位关联共享别名。新增部分均仅源码接入，待构建与实测。
 
