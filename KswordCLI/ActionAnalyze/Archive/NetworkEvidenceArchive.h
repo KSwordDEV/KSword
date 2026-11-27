@@ -166,6 +166,9 @@ public:
     NetworkSubmitStatus Submit(const NetworkEvidenceBinding& binding, const NetworkFlowMetadata& observation,
         const NetworkCapturedBytes& capture = {}, NetworkInlinePolicy policy = NetworkInlinePolicy::RequireInline) noexcept;
     bool ReportSourceLoss(const NetworkEvidenceBinding& binding, std::optional<std::uint64_t> delta) noexcept;
+    // 原采集邮箱已丢弃的增量沿串行writer记入队列丢失，不冒充WFP游标或来源原生丢失。
+    // binding须匹配本段，delta是尚未提交的数量；失败不修改已有计数。
+    bool ReportQueueLoss(const NetworkEvidenceBinding& binding, std::uint64_t delta) noexcept;
     NetworkArchiveReceipt Drain(); // Append at most one block, with any pending loss summary.
     NetworkArchiveReceipt Flush() noexcept;
     NetworkArchiveReceipt Finish(NetworkArchiveEnd end); // Drain, append EOF, flush, close.

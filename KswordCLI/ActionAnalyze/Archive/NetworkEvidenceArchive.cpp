@@ -733,6 +733,17 @@ bool NetworkEvidenceArchive::ReportSourceLoss(const NetworkEvidenceBinding& bind
     return true;
 }
 
+// 输入同来源绑定和采集邮箱丢弃增量；返回是否接纳，不触发文件写入或模拟队列溢出。
+bool NetworkEvidenceArchive::ReportQueueLoss(const NetworkEvidenceBinding& binding, std::uint64_t delta) noexcept
+{
+    if (closed_ || state_.result.status != SegmentWriteStatus::Ok || !Matches(binding_, binding))
+    {
+        return false;
+    }
+    AddCount(pendingLoss_.queueDropped, pendingLoss_.queueCounterSaturated, delta);
+    return true;
+}
+
 NetworkArchiveReceipt NetworkEvidenceArchive::Receipt() const noexcept
 {
     auto receipt = state_;

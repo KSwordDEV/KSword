@@ -56,6 +56,42 @@ std::wstring Attribution(archive::NetworkFlowMetadata::ProcessAttribution value)
     return L"unknown";
 }
 
+// 输入记录的实际采集层，输出稳定机器值；不根据TCP端口推测HTTPS明文或应用层负载。
+const wchar_t* CaptureLayer(archive::NetworkCaptureLayer layer)
+{
+    switch (layer)
+    {
+    case archive::NetworkCaptureLayer::FlowMetadata:
+        return L"flow-metadata";
+    case archive::NetworkCaptureLayer::TransportPayload:
+        return L"transport-payload";
+    case archive::NetworkCaptureLayer::IpPacket:
+        return L"ip-packet";
+    case archive::NetworkCaptureLayer::LinkFrame:
+        return L"link-frame";
+    }
+    return L"unknown";
+}
+
+// 输入原归档字节状态，输出与桌面详情相同的口径；captured不自动等于complete。
+const wchar_t* PayloadState(archive::NetworkPayloadState state)
+{
+    switch (state)
+    {
+    case archive::NetworkPayloadState::MetadataOnly:
+        return L"metadata-only";
+    case archive::NetworkPayloadState::NoPayload:
+        return L"no-payload";
+    case archive::NetworkPayloadState::Complete:
+        return L"complete";
+    case archive::NetworkPayloadState::Truncated:
+        return L"truncated";
+    case archive::NetworkPayloadState::Captured:
+        return L"captured";
+    }
+    return L"unknown";
+}
+
 // 将同一段保存的实例窗口原样返回CLI；输入为已核验快照，输出不授予实时控制或逐包强归属。
 Json TargetWindows(const std::vector<project::ProjectNetworkTargetWindow>& windows)
 {
@@ -161,6 +197,10 @@ Result Read(const Args& args)
                     {L"producerSequence", flow.producerSequence ? Json::count(*flow.producerSequence) : Json{}},
                     {L"packetSourceFlags", flow.packetSourceFlags ? Json::number(*flow.packetSourceFlags) : Json{}},
                     {L"capturedLength", Json::number(row.capture.capturedLength)},
+                    {L"captureLayer", Json::string(CaptureLayer(row.capture.layer))},
+                    {L"payloadState", Json::string(PayloadState(row.capture.state))},
+                    {L"producerCapturedLength", Json::count(row.capture.producerCapturedLength)},
+                    {L"sourceTruncated", Json::boolean(row.capture.sourceTruncated)},
                     {L"originalLength", row.capture.originalLength ? Json::count(*row.capture.originalLength) : Json{}},
                     {L"truncated", Json::boolean(row.capture.sourceTruncated || row.capture.state == archive::NetworkPayloadState::Truncated)},
                     {L"bytes", Json::bytes(bytes, selected ? archive::kNetworkMaxInlineBytes : 64)}}));
@@ -173,6 +213,8 @@ Result Read(const Args& args)
         {L"ordinal", Json::count(checkpoint.ordinal)}, {L"checkpointVerified", Json::boolean(true)},
         {L"sha256", Json::string(storage::WideAscii(checkpoint.sha256))},
         {L"sourceId", Json::string(storage::WideAscii(checkpoint.source.sourceId))},
+        {L"sourceClockId", Json::string(storage::WideAscii(checkpoint.source.clockId))},
+        {L"sourceTimeDomain", Json::string(checkpoint.source.clockDomain == archive::NetworkTimeDomain::FileTime ? L"filetime" : L"qpc")},
         {L"requestedPid", Json::number(checkpoint.requestedPid)},
         {L"requestedCreationFileTime", Json::count(checkpoint.requestedCreation)},
         {L"targetWindows", TargetWindows(checkpoint.targetWindows)},
@@ -197,6 +239,7 @@ void RegisterNetworkTrafficCommands(std::function<std::string()> bootId)
     read.summary = L"Verify and read a committed sample-local network segment and its captured bytes.";
     read.options = L"Select a committed network ordinal. Optional --record-sequence returns all retained bytes for one exact record; otherwise each record has a 64-byte preview.";
     read.notes = L"Read-only. Verifies sample identity, checkpoint SHA-256, framing, network bodies and adjacent checkpoint chain. targetWindows preserves the registered process identities and capture intervals from this checkpoint; it does not upgrade packet PID hints to verified event-time instances. Source declarations and weak PID attribution remain explicit.";
+    read.notes += L" Each record preserves captureLayer, payloadState, producerCapturedLength and sourceTruncated separately from retained bytes. IP packet bytes are not application payload or decrypted HTTPS. sourceTimeDomain and sourceClockId describe the original timestamp scale.";
     read.run = Read;
     addCommand(std::move(read));
 }

@@ -769,7 +769,8 @@ void NetworkTrafficSession::State::Commit(const std::deque<CapturedRecord>& batc
         return;
     }
     Archive::NetworkLoss loss; // 原来源没有完整系统丢包计数，覆盖始终未知。
-    loss.sourceLost = out.sourceGap - reportedGap + out.queueDropped - reportedDrops;
+    loss.sourceLost = out.sourceGap - reportedGap; // 来源游标缺口不混入本地邮箱溢出。
+    loss.queueDropped = out.queueDropped - reportedDrops; // 每段只提交本地队列尚未归档的丢弃增量。
     loss.sourceLossUnquantified = true;
     ProjectNetworkEvidenceReceipt receipt; // 本批次原归档器回执，成功后才推进外部水位。
     const auto reason = finished ? out.reason : "segment-rotated"; // 末段才携带终态原因。

@@ -51,7 +51,7 @@ static ProjectResult WriteNetworkSegment(ProjectDocument& project, std::string_v
         UuidBytes(sample.info.sampleId)};
     const auto name = Archive::NameInspectionSegment(identity);
     if (!name || identity.project != source.project || identity.sample != source.sample ||
-        observations.size() > Archive::kNetworkQueueCapacity || sourceLoss.queueDropped ||
+        observations.size() > Archive::kNetworkQueueCapacity ||
         sourceLoss.queueCounterSaturated || sourceLoss.sourceCounterSaturated) {
         return Failure(ProjectError::InvalidArgument, "networkWriterBinding");
     }
@@ -74,7 +74,9 @@ static ProjectResult WriteNetworkSegment(ProjectDocument& project, std::string_v
             return Failure(ProjectError::InvalidArgument, "networkWriterObservation");
         }
     }
-    if ((sourceLoss.sourceLost && !writer.ReportSourceLoss(source, sourceLoss.sourceLost)) ||
+    // 邮箱丢包与来源缺口使用原格式的两个独立字段，不能相加后写入sourceLost。
+    if ((sourceLoss.queueDropped && !writer.ReportQueueLoss(source, sourceLoss.queueDropped)) ||
+        (sourceLoss.sourceLost && !writer.ReportSourceLoss(source, sourceLoss.sourceLost)) ||
         (sourceLoss.sourceLossUnquantified && !writer.ReportSourceLoss(source, std::nullopt))) {
         return Failure(ProjectError::InvalidArgument, "networkWriterLoss");
     }
@@ -110,7 +112,8 @@ static ProjectResult WriteNetworkSegment(ProjectDocument& project, std::string_v
     if (checked.framing.status != Archive::SegmentScanStatus::FramingComplete ||
         checked.checkedBytes != out.raw.flushedBytes || checked.framing.lastSequence != out.raw.lastFlushedSequence ||
         checked.eof != end || checked.loss.sourceLost != sourceLoss.sourceLost ||
-        checked.loss.sourceLossUnquantified != sourceLoss.sourceLossUnquantified || checked.loss.queueDropped ||
+        checked.loss.sourceLossUnquantified != sourceLoss.sourceLossUnquantified ||
+        checked.loss.queueDropped != sourceLoss.queueDropped ||
         checked.loss.sourceCounterSaturated || checked.loss.queueCounterSaturated || !matches || locations.size() != observations.size()) {
         return Failure(ProjectError::Corrupt, "networkWriterReadback");
     }
