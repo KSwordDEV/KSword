@@ -40,7 +40,7 @@ QString SegmentBehaviorRowText(const SegmentBehaviorMatch& match)
             SegmentBehaviorSummary(match));
 }
 
-// 原详情文档按实际原包坐标关联；输入显示复用生产投影，命中说明只用冻结结果。
+// OfflineSegmentOverview 重建详情时传入文档、同次快照和选中行；按原包坐标追加字段，无返回值。
 void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
     const SegmentSnapshot& snapshot, const SegmentRow& row)
 {

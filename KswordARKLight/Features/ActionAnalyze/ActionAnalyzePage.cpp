@@ -900,6 +900,7 @@ std::wstring ArchivedRelationText(const EvidenceRecord& record) {
     return std::wstring(kind) + L" · " + RawLocation(record);
 }
 
+// 由选择、回放发布和语言刷新路径调用；读取 Page 当前快照与选择，更新详情控件，不返回值。
 void UpdateDetails(Page& page) {
     if (!page.liveView && (page.selectedExecution || page.selectedNativeHistory))
     {

@@ -224,7 +224,7 @@ QString FormatPresetVerifiedPrefix(const PresetReplayResult& result)
         .arg(result.verifiedSegments).arg(result.firstUnverifiedSegment).arg(ArchiveEndCode(result.end));
 }
 
-// 生成由 CodeEditorWidget 显示、查找及导出的单一文本回执。
+// BehaviorRulesPage 收到成功回放值后调用；输入已冻结的 PresetReplayResult，返回供 CodeEditorWidget 显示、查找和导出的文本。
 QString FormatBehaviorPresets(const PresetReplayResult& result)
 {
     const bool useChinese = ks::i18n::LanguageManager::instance().currentLanguageId()
