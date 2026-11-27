@@ -239,6 +239,7 @@ V Report(const n::ExecutionGroupResult& result, bool repl)
             {"triggerEvent", Event(result.peerHold->triggerEvent)}, {"outcomes", V::makeArray(std::move(outcomes))}});
     }
     return V::makeObject({{"collectionId", Text(result.collectionId)}, {"state", Text(State(result.state))}, {"clean", V::makeBool(result.clean)},
+        {"acceptingMembers", V::makeBool(result.acceptingMembers)},
         {"holdPeersOnHit", V::makeBool(result.holdPeersOnHit)}, {"peerHold", std::move(peerHold)},
         {"simultaneousFreeze", V::makeBool(false)}, {"observation", Text("sequential-member-readback")},
         {"members", V::makeArray(std::move(members))}, {"sessions", V::makeArray(std::move(sessions))}, {"operation", std::move(operation)}});

@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4/5项连续接管跨目标空档。** 自动handoff用group.Start显式开启keepAcceptingAfterClean，旧目标全部退出/单成员恢复clean后仍可Append不同新目标，不重建集合/样本、不丢历史成员。OwnedExecutionGroupResult新增acceptingMembers，CanAppendMembers以此准入且仍拒RecoveryRequired/Closing；手动集合默认false保持旧语义，集合Close关闭所有准入。共享handoff终段新增acceptingTargets，CLI执行组报告补acceptingMembers，不新增命令/参数/UI文本。直接NtCreateThreadEx此前已调用PrepareTransferExecution，本批没有重复Hook。仅源码核对，未构建/运行，CodeBuddy禁令仍有效，旧Ex2失败及后续待验不变。
+
 - **2026-11-27 第4/6项失败目标单独恢复。** OwnedExecutionGroup新增CloseMember(original OwnerIdentity)，只调用集合持有的该原session.Close，保留成员和恢复账，不关闭其余目标。ApiTransferHandoff在Observe归档之后RecoverFailedTargets：准入Done且失败或该实例Agent已经failed、没有其它在途准入且无可用Ready时，单次请求该成员恢复/脱离；归档失败则保持现场，不调用Continue冒充Ready，原Incomplete和首错保留。Describe沿三端共享终段增加failedTargetRecoveryRequested。此批仅源码、未构建实测；用户禁止新增CodeBuddy仍有效，旧Ex2失败证据不改、不重跑。当前目标继续为4/5/6接管与恢复闭合，GUI后置，所有动态验收待恢复授权。
 
 - **2026-11-27 已有Ex2任务结束，失败保留。** sh_21bf01c6f001ZBf4KG8eDPYaTt自动回执已到，仅一次运行，目标stubRan/counter1/exit0、admission armed1/rejected0、entryObservation入口2251867357184及坐标段1/序号1/hash保留；CLI6，递归源37036 ready=true但failed=true/error31，process exited=true/cleanPipeEof=true/pipeError109/coverageStale=true，不能按26/27判通过。回执native-ex2-build/runtime-receipt.md、原日志scenario-ex2.log及完整project-root-9ba37cab-e046-4025-9cf0-b3c9c5442534保留。回执仅凭原包marker不能独立证明flags0有效位，源端exit1也不满足所有目标exit0，仍待正式闭合；禁止重跑和新增CodeBuddy。主协调沿失败路径发现finishPipeRead沿用pollReader读包前的exited快照，65f7b99ed新增EOF时由保留的同一进程句柄即时重读，继续严格保留截断包/非EOF/覆盖接收器失效。c538afced使handoff Observe在取消时只归档不自动Continue，并在Continue前二次检查；当前继续补Advance/AddRange/新Agent创建路径的停止门，防止取消后继续新增owner或Agent。各修正均待构建运行，不承诺关闭已经并发提交的控制动作。

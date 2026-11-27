@@ -466,7 +466,7 @@ public:
                 site.pid = r.targetPid; site.creationFileTime = r.targetCreation;
                 site.address = transfer.base; site.rangeBytes = transfer.bytes;
                 if (current.collectionId.empty())
-                    current = group.Start({site}, true, n::NativeTargetDisposition::ResumeAndDetach, sample);
+                    current = group.Start({site}, true, n::NativeTargetDisposition::ResumeAndDetach, sample, false, true);
                 else current = group.AppendMembers({site}, true, current.collectionId);
                 if (current.operation && !current.operation->admitted) {
                     Finish(transfer, current.operation->win32Error ? current.operation->win32Error : ERROR_ACCESS_DENIED); return;
@@ -944,6 +944,7 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         {"lastError", V::makeUInt(s.lastError)}, {"archiveError", V::makeUInt(s.archiveStatus.nativeError)},
         {"pipeFailures", V::makeUInt(s.pipeFailures)}, {"firstPipeError", V::makeUInt(s.firstPipeError)},
         {"collectionId", V::makeString(s.current.collectionId)}, {"members", V::makeUInt(s.current.members.size())},
+        {"acceptingTargets", V::makeBool(!s.closing && !s.cancel.load() && s.current.acceptingMembers)},
         {"clean", V::makeBool(s.current.clean)}, {"callbackFailed", V::makeBool(s.callbackFailed)},
         {"activeAgents", V::makeBool(HasActiveAgents())}, {"sources", V::makeArray(std::move(sources))},
         {"admissions", V::makeArray(std::move(admissions))},

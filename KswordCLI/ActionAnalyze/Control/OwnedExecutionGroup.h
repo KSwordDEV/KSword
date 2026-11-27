@@ -66,6 +66,7 @@ struct ExecutionGroupResult {
     std::string collectionId; // 本集合身份，与各成员 stop groupId 完全独立。
     ExecutionGroupState state = ExecutionGroupState::Idle;
     bool clean = true;
+    bool acceptingMembers = false; // 原集合仍接收新实例；所有旧成员clean不一定意味着采样已关闭。
     std::vector<ExecutionGroupMember> members; // 原成员顺序不变，显式追加只加到末尾，不隐式增加后代。
     std::optional<ExecutionGroupOperation> operation; // 最近一次操作回执，与当前状态分别报告。
     bool holdPeersOnHit = false; // Start冻结的显式联停策略，默认保持各成员独立命中。
@@ -81,8 +82,10 @@ public:
     OwnedExecutionGroup(const OwnedExecutionGroup&) = delete;
     OwnedExecutionGroup& operator=(const OwnedExecutionGroup&) = delete;
 
+    // keepAcceptingAfterClean只供连续采样显式冻结；旧成员全clean后仍可追加，Close始终终止准入。
     [[nodiscard]] ExecutionGroupResult Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
-        NativeTargetDisposition disposition, std::string_view sampleId = {}, bool holdPeersOnHit = false);
+        NativeTargetDisposition disposition, std::string_view sampleId = {}, bool holdPeersOnHit = false,
+        bool keepAcceptingAfterClean = false);
     // 输入新实例站点、显式授权及原集合ID；沿本轮sample追加独立owner，不释放或替换原成员。
     [[nodiscard]] ExecutionGroupResult AppendMembers(std::vector<ExecutionGroupSite> sites,
         bool explicitlyAuthorized, std::string_view collectionId);

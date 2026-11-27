@@ -119,6 +119,7 @@ public:
     std::string sampleId; // 整个集合唯一采样；无项目时也生成一次，追加成员不另起采样。
     bool started = false;
     bool closing = false;
+    bool keepAcceptingAfterClean = false; // 自动转移采样显式启用，普通手动集合保留全部清退后不追加的语义。
     std::optional<ExecutionGroupOperation> operation;
     bool holdPeersOnHit = false; // 显式Start策略，追加成员不能热改本轮行为。
     std::optional<ExecutionGroupPeerHold> peerHold; // 独立保留联停回执，不覆盖用户操作回执。
@@ -217,6 +218,7 @@ public:
                 (!member.current.clean && member.session->ConditionReport().last &&
                     member.session->ConditionReport().last->failureStage);
         }
+        result.acceptingMembers = started && !closing && (!result.clean || keepAcceptingAfterClean);
         if (!started) result.state = closing ? ExecutionGroupState::Closed : ExecutionGroupState::Idle;
         else if (closing) result.state = result.clean ? ExecutionGroupState::Closed :
             recovery ? ExecutionGroupState::RecoveryRequired : ExecutionGroupState::Closing;
@@ -283,7 +285,7 @@ ExecutionGroupResult OwnedExecutionGroup::QueryWithoutCondition()
 }
 
 ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> sites, bool explicitlyAuthorized,
-    NativeTargetDisposition disposition, std::string_view sampleId, bool holdPeersOnHit)
+    NativeTargetDisposition disposition, std::string_view sampleId, bool holdPeersOnHit, bool keepAcceptingAfterClean)
 {
     auto& self = *impl_;
     if (self.started || self.closing)
@@ -311,6 +313,7 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
     }
     self.members = std::move(frozen);
     self.holdPeersOnHit = holdPeersOnHit;
+    self.keepAcceptingAfterClean = keepAcceptingAfterClean;
     self.started = true;
     self.operation = ExecutionGroupOperation{ExecutionGroupAction::Start, true, "execution-group-start-submitted", 0, {}};
     for (auto& member : self.members) {
@@ -322,9 +325,10 @@ ExecutionGroupResult OwnedExecutionGroup::Start(std::vector<ExecutionGroupSite> 
 // 输入当前纯值快照，返回是否可显式追加；清退/恢复阶段不扩张原控制责任。
 bool OwnedExecutionGroup::CanAppendMembers(const ExecutionGroupResult& current)
 {
-    return !current.collectionId.empty() && !current.clean &&
+    return !current.collectionId.empty() && current.acceptingMembers &&
         (current.state == ExecutionGroupState::Active || current.state == ExecutionGroupState::HeldPartial ||
-            current.state == ExecutionGroupState::HeldComplete || current.state == ExecutionGroupState::PartialFailure);
+            current.state == ExecutionGroupState::HeldComplete || current.state == ExecutionGroupState::PartialFailure ||
+            (current.clean && current.state == ExecutionGroupState::Closed));
 }
 
 // 新成员在任何附加前统一核对并分配；已有成员只无条件回读，保持原停点、条件和恢复资源。
