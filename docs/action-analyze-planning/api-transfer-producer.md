@@ -106,19 +106,19 @@ x64/x86 各 35/35：LastError 保持、QPC 顺序、null/失败/不可读输出�
 
 | 族 | 新共享头 | marker / prefix | 精确源 API | 结构 / 解码入口 |
 | --- | --- | --- | --- | --- |
-| APC 入队 | `shared/evidence/ApiApcFields.h` | `0x41505631` / `AAAP1\|` | `QueueUserAPC`、`NtQueueApcThread`、`NtQueueApcThreadEx` | `ApiApcFieldsV1` / `ReadApiApcFields` |
+| APC 入队 | `shared/evidence/ApiApcFields.h` | `0x41505631` / `AAAP1\|` | `QueueUserAPC`、`QueueUserAPC2`、`NtQueueApcThread`、`NtQueueApcThreadEx` | `ApiApcFieldsV1` / `ReadApiApcFields` |
 | 请求上下文 | `shared/evidence/ApiContextFields.h` | `0x43545631` / `AACT1\|` | `SetThreadContext`、`NtSetContextThread` | `ApiContextFieldsV1` / `ReadApiContextFields` |
 | 节映射 | `shared/evidence/ApiSectionMapFields.h` | `0x534d5631` / `AASM1\|` | `NtMapViewOfSection` | `ApiSectionMapFieldsV1` / `ReadApiSectionMapFields` |
 
-旧 AAIP1 operation 1/2 和只读头不变。每族使用自己的 operation enum，目前分别只有 Queue/Set/Map=1，不能把不同族的 operation 数值互相解释。固定 1000B 包、协议版本、返回位 marker、耗时 marker、definition SHA、会话身份和原队列均沿用。只有对应 Hook 传入新增可选字段；普通 Hook、Raw、coverage 默认不传。当前三族文本长度分别 260/260/260 字符；AAAP1 解码兼容旧的 243 字符十四字段档案。写入不受摘要 detailLimit 截断；末尾仍可由原有栈 trailer 在空间允许时保存调用栈。解码器核对 marker、前缀、布局长度、规范十六进制、类别和 Strong/ApiCall/返回 marker，再核对字段有效位与零值关系；消费者还必须独立匹配精确 API 和模块族、原返回语义、来源和归档身份。
+旧 AAIP1 operation 1/2 和只读头不变。每族使用自己的 operation enum，目前分别只有 Queue/Set/Map=1，不能把不同族的 operation 数值互相解释。固定 1000B 包、协议版本、返回位 marker、耗时 marker、definition SHA、会话身份和原队列均沿用。只有对应 Hook 传入新增可选字段；普通 Hook、Raw、coverage 默认不传。当前 AAAP1/AACT1/AASM1 正文长度分别为 277/260/260 字符；AAAP1 解码兼容旧的 243 字符十四字段及 260 字符十五字段档案。写入不受摘要 detailLimit 截断；末尾仍可由原有栈 trailer 在空间允许时保存调用栈。解码器核对 marker、前缀、布局长度、规范十六进制、类别和 Strong/ApiCall/返回 marker，再核对字段有效位与零值关系；消费者还必须独立匹配精确 API 和模块族、原返回语义、来源和归档身份。
 
 ### APC 字段顺序与语义
 
-当前 AAAP1 为 15 个固定 64 位十六进制字段：`operation, flags, actorCreationFileTime, targetPid, targetCreationFileTime, targetTid, targetThreadCreationFileTime, routineAddress, enterQpc, returnQpc, inputThreadHandle, argument1, argument2, argument3, reserveHandle`。旧 14 字段档案读取时将 `reserveHandle` 保持为零。
+当前 AAAP1 为 16 个固定 64 位十六进制字段：`operation, flags, actorCreationFileTime, targetPid, targetCreationFileTime, targetTid, targetThreadCreationFileTime, routineAddress, enterQpc, returnQpc, inputThreadHandle, argument1, argument2, argument3, reserveHandle, queueFlags`。旧 14 字段档案读取时将 `reserveHandle` 保持为零；旧 14/15 字段均无 `ApiApcQueueFlags` 有效位，不能把填充值零解释为实际采集的调度标志。新布局正文长 277 字符，旧 14/15 字段布局仍兼容。
 
 flags 位 0/1/2/3/4 分别为源进程身份、目标进程身份、目标线程身份、请求例程地址、目标前后稳定。Win32 入队只有 argument1，另两个参数按该原 API 的参数形态置零；NT 保留三个原始参数地址，不解引用。`NtQueueApcThreadEx` 另保留原 `reserveHandle` 位模式；它与 APC 是否入队成功无关，不解引用。
 
-`ApiApcCallOutcome` 精确检查三个 API 的模块族、返回位和 resultCode；返回 Unknown/Failed/Accepted。**Accepted 只表示调用接受入队，既不表示投递，也不表示例程执行。** NULL 例程依然是已记录的请求地址，不推断合法或可执行。
+`ApiApcCallOutcome` 精确检查四个 API 的模块族、返回位和 resultCode；返回 Unknown/Failed/Accepted。`QueueUserAPC2` 保留独立 `queueFlags` 和有效位，包括已知零；历史缺有效位的 APC2 档案仍可读。Win32 入队记录不能携带 NT Reserve、第二/第三参数，非 APC2 记录不能携带 APC2 flags 有效位，普通 `NtQueueApcThread` 不能携带 Ex 的 Reserve；字段与 API 名矛盾时返回 Unknown。**Accepted 只表示调用接受入队，既不表示投递，也不表示例程执行。** NULL 例程依然是已记录的请求地址，不推断合法或可执行。
 
 ### 线程身份采集与成本边界
 
@@ -148,7 +148,7 @@ flags 位 0/1/2/3/4/5/6/7 分别为源身份、目标身份、目标前后稳定
 
 按主协调转达的最新要求，本轮为三个新协议、五个 observation 辅助模块及受影响 Hook/发送入口补中文用途注释；说明字段、局部变量、函数参数、有效位、借用句柄和资源边界，并展开单行函数、分支、多变量声明及编码字段列表。此轮只做注释、排版和局部变量可读性命名，没有改变公开字段顺序、类型、枚举数值、marker、前缀或解析/采集条件。AAIP1 共享头未改。
 
-`shared/evidence/ApiApcFields.h` 由 API 源端独占维护；主协调仅 include，独立实现消费者 APC 关联、归档图与 CLI 投影。AAAP1 当前接口为上述 15 字段，同时兼容旧 14 字段档案；`0x41505631`、`AAAP1|` 和成功接受语义不变。关联还需消费者独立核对同来源、目标线程创建代次及先前实际写入范围。接受入队不证明投递或执行。
+`shared/evidence/ApiApcFields.h` 由 API 源端独占维护；主协调仅 include，独立实现消费者 APC 关联、归档图与 CLI 投影。AAAP1 当前接口为上述 16 字段，同时兼容旧 14/15 字段档案；`0x41505631`、`AAAP1|` 和成功接受语义不变。关联还需消费者独立核对同来源、目标线程创建代次及先前实际写入范围。接受入队不证明投递或执行。
 
 本轮未新增/续接/重试 CodeBuddy，未自行运行替代验收、构建或 GUI。仅做定向源码和空白检查；三个新增协议的双架构构建、运行及性能结论仍待验。未提交或推送。
 
