@@ -592,9 +592,14 @@ CaptureResult Capture::run() {
     result.cancelled = cancel.load();
     try { cleanup(); } catch (...) { error(L"capture cleanup exception; stop confirmation unavailable"); }
     bool partial = !result.completedInterval || result.cancelled || !result.cleanupComplete || result.bufferDropped || result.invalidPackets || !result.errors.empty();
+    // 自动接管已通过同一严格Ready屏障时，HooksPartial保留为覆盖诊断；
+    // 根来源与递归来源使用相同语义，不能在最终退出码又把该诊断升级成采集失败。
+    const bool handoffReady = strictObservation() && result.started && result.readyCoverageRevision &&
+        !request.transferHandoff.pipeName.empty();
     for (auto& reader : readers) {
         const auto& state = reader->evidence;
-        partial = partial || state.pipeError || state.agentDropped || state.partialHooks || state.installFailed || !state.installed || !state.coverageComplete || state.coverageStale;
+        partial = partial || state.pipeError || state.agentDropped || (state.partialHooks && !handoffReady) ||
+            state.installFailed || !state.installed || !state.coverageComplete || state.coverageStale;
         result.processes.push_back(std::move(reader->evidence));
     }
     result.code = result.started ? (partial ? 6 : 0) : result.cancelled ? 6 : 3;
