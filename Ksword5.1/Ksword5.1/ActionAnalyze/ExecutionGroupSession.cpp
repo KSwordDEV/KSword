@@ -111,6 +111,13 @@ namespace ks::action_analyze
                         {
                         case ExecutionGroupCommand::Start:
                             started = true;
+                            {
+                                std::lock_guard lock(access); // 新采样清除旧通知，不能把上一组水位挂到新项目。
+                                snapshot.apiStartup.reset();
+                                snapshot.apiCheckpoint.reset();
+                                snapshot.apiRules.reset();
+                                snapshot.apiTransfers.reset();
+                            }
                             if (archive.Prepare(request.projectDirectory, request.openExistingProject, request.autoSaveExecution) && archive.ResolveSites(request.sites))
                             {
                                 // 先创建本轮采样，再给全部原成员同一真实sample；失败不附加任何目标。
@@ -179,6 +186,13 @@ namespace ks::action_analyze
                                         }
                                         snapshot.apiCheckpoint = std::move(savedCheckpoint);
                                         snapshot.apiRules = std::move(savedRules);
+                                        ++snapshot.revision;
+                                    },
+                                    [this](const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers) {
+                                        // 同一采集线程只发布已提交前缀的候选；不在UI重复匹配或读取正在写入的段。
+                                        auto value = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt>(transfers);
+                                        std::lock_guard lock(access); // 与检查点采用同一快照修订，不改变原owner的停点责任。
+                                        snapshot.apiTransfers = std::move(value);
                                         ++snapshot.revision;
                                     });
                             }
@@ -300,6 +314,7 @@ namespace ks::action_analyze
             {
                 m_shared->snapshot.apiCheckpoint.reset();
                 m_shared->snapshot.apiRules.reset(); // 新API请求重置通知，普通内存读取保留原API结果。
+                m_shared->snapshot.apiTransfers.reset();
             }
         }
         m_shared->pending = std::move(request);

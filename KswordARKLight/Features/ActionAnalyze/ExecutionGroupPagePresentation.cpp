@@ -1,5 +1,6 @@
 #include "ExecutionGroupPageState.h"
 #include "NativeSessionApiFields.h"
+#include "ApiTransferPresentation.h"
 #include "../../Ui/Dpi.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/MenuUtil.h"
@@ -359,6 +360,11 @@ void RefreshText(Page& page)
                         L"\r\nSHA256=" + Widen(origin.nativeSha256); // 同一正文供搜索、复制和导出。
                 }
             }
+        }
+        if (page.shown.apiTransfers)
+        {
+            // 原文本详情保留搜索、复制与导出；共享格式化器不把候选升级为执行证据。
+            text += ApiTransferProgress(*page.shown.apiTransfers);
         }
         const auto selected = SelectedRows(page);
         if (selected.empty()) text += L"\r\n请选择成员查看冻结站点、原生身份和完整票据。";

@@ -1,6 +1,7 @@
 #include "../Framework.h"
 #include "ExecutionGroupFields.h"
 #include "NativeSessionApiPane.h"
+#include "ApiTransferPresentation.h"
 #include "ProcessGroupMemoryPane.h"
 #include "../Internationalization/LanguageManager.h"
 
@@ -379,6 +380,17 @@ namespace ks::action_analyze
                     document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
                 }
             }
+        }
+        if (snapshot.apiTransfers)
+        {
+            // 候选与实际执行分别显示；共享投影保留最近写入/请求双方各自的归档坐标。
+            const auto& transfers = *snapshot.apiTransfers; // 同一worker发布的累计数和有界窗口。
+            AppendApiTransferProgress(document, transfers.candidateCount, transfers.evictedWrites,
+                transfers.recent.empty() ? nullptr : &transfers.recent.back());
+            AppendApiApcProgress(document, transfers.apcCandidateCount,
+                transfers.recentApc.empty() ? nullptr : &transfers.recentApc.back());
+            AppendApiContextProgress(document, transfers.contextCandidateCount,
+                transfers.recentContext.empty() ? nullptr : &transfers.recentContext.back());
         }
         for (const int row : selected)
         {

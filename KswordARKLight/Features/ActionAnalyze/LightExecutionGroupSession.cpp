@@ -182,6 +182,13 @@ struct LightExecutionGroupSession::Shared {
                                     status.apiCheckpoint = std::move(savedCheckpoint);
                                     status.apiRules = std::move(savedRules);
                                     ++status.revision;
+                                },
+                                [this](const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers) {
+                                    // 回调来自同一有限采集，候选匹配已由原writer完成，不另开观察器。
+                                    auto value = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt>(transfers);
+                                    std::lock_guard lock(mutex); // 仅复制有界纯值，原生控制与归档均不在此锁内执行。
+                                    status.apiTransfers = std::move(value);
+                                    ++status.revision;
                                 });
                             Publish(group->QueryWithoutCondition(), true, &archive->View()); // 不求值同伴条件或Continue。
                         }
@@ -282,6 +289,7 @@ bool LightExecutionGroupSession::Submit(LightExecutionGroupRequest request)
         shared_->status.apiStartup.reset(); // 新采样不沿用上轮采集阶段。
         shared_->status.apiCheckpoint.reset();
         shared_->status.apiRules.reset(); // 规则释义与检查点作为同一份结果一起换代。
+        shared_->status.apiTransfers.reset();
     }
     if (request.command == LightExecutionGroupCommand::CaptureApi || request.command == LightExecutionGroupCommand::ReadMemory)
     {
@@ -291,6 +299,7 @@ bool LightExecutionGroupSession::Submit(LightExecutionGroupRequest request)
         {
             shared_->status.apiCheckpoint.reset();
             shared_->status.apiRules.reset(); // 新API请求不沿用上次结果；普通内存读取不清除API水位。
+            shared_->status.apiTransfers.reset();
         }
     }
     shared_->pending = std::move(request);
@@ -349,6 +358,7 @@ void LightExecutionGroupSession::CancelRetirement()
             shared_->status.apiStartup = previous.apiStartup;
             shared_->status.apiCheckpoint = previous.apiCheckpoint;
             shared_->status.apiRules = previous.apiRules; // 已clean展示worker重建时保留结果原身份。
+            shared_->status.apiTransfers = previous.apiTransfers;
             shared_->status.observedFileTime = previous.observedFileTime;
             shared_->status.operationFileTime = previous.operationFileTime;
             shared_->status.revision = previous.revision + 1;
