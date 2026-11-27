@@ -416,6 +416,13 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
     };
     request.onVerifiedPacket = [&](const Monitor::ApiMonitorEventPacket& packet)
     {
+        // 根管道也在归档前核对实际包身份；不能让一个非根PID或空会话包借用根创建时间进入同一流。
+        if (packet.pid != target.pid || !packet.sessionIdentity || (rootSession &&
+            packet.sessionIdentity != rootSession))
+        {
+            out.archiveStatus = Failure(ProjectError::InvalidArgument, "apiRootPacketIdentity");
+            return;
+        }
         acceptPacket(packet, target.creationFileTime);
     };
 

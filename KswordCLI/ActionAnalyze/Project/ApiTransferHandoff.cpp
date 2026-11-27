@@ -324,6 +324,16 @@ public:
             }
             if (source.dropped) { source.failed = true; source.error = ERROR_BUFFER_OVERFLOW; }
             for (const auto& packet : batch.packets) {
+                // 后台Agent只交付纯值；进入项目writer前再次核对PID、非空会话及该来源Ready身份。
+                // 这一步阻止错代次/错来源原包借用递归来源的创建时间写入同一raw流。
+                if (packet.pid != pid || !source.ready || !source.session ||
+                    packet.sessionIdentity != source.session)
+                {
+                    source.failed = true;
+                    if (!source.error) source.error = ERROR_INVALID_DATA;
+                    ++source.deliveryDropped;
+                    continue;
+                }
                 if (callbackFailed) { ++source.deliveryDropped; continue; }
                 try { onPacket(pid, source.creation, packet); }
                 catch (...) {
