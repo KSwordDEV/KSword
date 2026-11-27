@@ -287,6 +287,23 @@ QString FormatBehaviorPresets(const PresetReplayResult& result)
         // 两份摘要分别来自采集计划和当前规则文件，旧档不补造采集时的内容身份。
         lines << sourceText(QStringLiteral("采集规则 SHA-256：%1")).arg(result.recordedRuleSourceSha256);
     }
+    else
+    {
+        lines << sourceText(QStringLiteral("采集规则 SHA-256：未记录")); // 旧档明确标记采集时的规则身份未知。
+    }
+    QString identityMatch = sourceText(QStringLiteral("未知")); // 任一摘要缺失时保持未知。
+    if (!result.recordedRuleSourceSha256.isEmpty() && !result.ruleSourceSha256.isEmpty())
+    {
+        if (result.recordedRuleSourceSha256 == result.ruleSourceSha256)
+        {
+            identityMatch = sourceText(QStringLiteral("一致"));
+        }
+        else
+        {
+            identityMatch = sourceText(QStringLiteral("不一致"));
+        }
+    }
+    lines << sourceText(QStringLiteral("规则内容一致性")) + QStringLiteral("：") + identityMatch;
     lines << sourceText(QStringLiteral("汇总：%1")).arg(FormatPresetCounts(result.groupedCounts, useChinese));
     lines << sourceText(QStringLiteral("细分：%1")).arg(FormatPresetCounts(result.categoryCounts, useChinese));
     lines << sourceText(QStringLiteral("以下为 API 观测。目标身份、调用效果和采集覆盖未知。"));
