@@ -126,6 +126,11 @@ namespace
         const bool native = clue.api == QLatin1String("NtQueueApcThread") ||
             clue.api == QLatin1String("NtQueueApcThreadEx"); // 两个原生入口都有参数2/3。
         document.field(QStringLiteral("APC 参数 1"), QString::number(fields.argument1, 16));
+        if (clue.api == QLatin1String("QueueUserAPC2"))
+        {
+            // 有效位区分原始零flags与旧Agent未采集；不从接受入队推断投递方式已生效。
+            document.field(QStringLiteral("APC 调度标志"), identity(ApiApcQueueFlags, fields.queueFlags), true);
+        }
         if (clue.api == QLatin1String("NtQueueApcThreadEx"))
         {
             document.field(QStringLiteral("APC Reserve 句柄"), QString::number(fields.reserveHandle, 16), true);

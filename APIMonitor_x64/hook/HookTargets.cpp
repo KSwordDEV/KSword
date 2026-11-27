@@ -3318,7 +3318,8 @@ namespace apimon
             if (guardValue.bypass()) {
                 return g_queueUserAPC2Original(callback, thread, data, flags);
             }
-            ApiApcObservation observation(thread, reinterpret_cast<std::uintptr_t>(callback), data);
+            ApiApcObservation observation(thread, reinterpret_cast<std::uintptr_t>(callback), data,
+                0, 0, 0, static_cast<std::uint32_t>(flags)); // 原调度flags沿AAAP1保留，包括显式零。
             PrepareTransferExecution(observation.fields().targetPid, observation.fields().targetCreationFileTime,
                 reinterpret_cast<std::uintptr_t>(callback), ks::winapi_monitor::TransferHandoffKind::Apc);
             const auto callClock = BeginApiCallClock(); // 交接等待不计入原 API 耗时。

@@ -309,7 +309,8 @@ JsonValue NativeExecutionSourceDocument(int kind, const ActionAnalyze::Detection
             {"argument1", apc ? count(apc->argument1) : JsonValue{}},
             {"argument2", apc ? count(apc->argument2) : JsonValue{}},
             {"argument3", apc ? count(apc->argument3) : JsonValue{}},
-            {"reserveHandle", apc ? count(apc->reserveHandle) : JsonValue{}}
+            {"reserveHandle", apc ? count(apc->reserveHandle) : JsonValue{}},
+            {"queueFlags", apc && (apc->flags & ApiApcQueueFlags) ? count(apc->queueFlags) : JsonValue{}}
         });
     }
     return JsonValue::makeObject({

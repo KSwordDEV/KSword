@@ -21,6 +21,7 @@ enum ApiApcFieldFlag : std::uint64_t {
     ApiApcThreadIdentity = 1ull << 2, // 已从输入句柄采到目标 TID 和创建时间。
     ApiApcRoutineAddress = 1ull << 3, // 已记录原请求例程地址，允许请求值为零。
     ApiApcTargetStable = 1ull << 4, // 调用前后的目标进程和线程身份复核一致。
+    ApiApcQueueFlags = 1ull << 5, // QueueUserAPC2的原始调度flags已采集；零也是已知值。
 };
 
 // ApiApcOperation：本版本只表达一次入队请求，不能解释为其它协议的 operation。
@@ -45,15 +46,19 @@ struct ApiApcFieldsV1 {
     std::uint64_t argument2 = 0; // NT 原始第二个参数；Win32 接口不存在此参数。
     std::uint64_t argument3 = 0; // NT 原始第三个参数；Win32 接口不存在此参数。
     std::uint64_t reserveHandle = 0; // NtQueueApcThreadEx 的 Reserve 句柄位模式，其它接口保持零。
+    std::uint64_t queueFlags = 0; // QueueUserAPC2的ULONG flags，不与协议有效位混用。
 };
 
-// kApiApcValueCount：当前 AAAP1 文本编码的数值个数；旧档案仍按14个字段读取。
-inline constexpr std::size_t kApiApcValueCount = 15;
+// 新包追加调度flags；原14字段和含Reserve的15字段历史布局均继续读取。
+inline constexpr std::size_t kApiApcValueCount = 16;
+inline constexpr std::size_t kApiApcReserveValueCount = 15;
 inline constexpr std::size_t kApiApcLegacyValueCount = 14;
 // 文本长度由前缀、十六进制字段和分隔符共同决定，不含终止符。
 inline constexpr std::size_t kApiApcTextLength = kApiApcFieldsPrefix.size() + kApiApcValueCount * 17 - 1;
 inline constexpr std::size_t kApiApcLegacyTextLength =
     kApiApcFieldsPrefix.size() + kApiApcLegacyValueCount * 17 - 1;
+inline constexpr std::size_t kApiApcReserveTextLength =
+    kApiApcFieldsPrefix.size() + kApiApcReserveValueCount * 17 - 1;
 static_assert(kApiApcTextLength < ks::winapi_monitor::kMaxDetailChars);
 static_assert(kApiApcLegacyTextLength < ks::winapi_monitor::kMaxDetailChars);
 
@@ -78,6 +83,7 @@ inline void StoreApiApcFields(ks::winapi_monitor::ApiMonitorEventPacket& packet,
         fields.argument2,
         fields.argument3,
         fields.reserveHandle,
+        fields.queueFlags,
     };
     std::fill(std::begin(packet.detailText), std::end(packet.detailText), L'\0');
     std::copy(kApiApcFieldsPrefix.begin(), kApiApcFieldsPrefix.end(), packet.detailText);
@@ -111,7 +117,8 @@ inline std::optional<ApiApcFieldsV1> ReadApiApcFields(
     }
     // 先按终止位置识别新旧布局；旧包的扩展字段保持零，保证历史档案可回读。
     const std::size_t valueCount = packet.detailText[kApiApcLegacyTextLength] == L'\0'
-        ? kApiApcLegacyValueCount : kApiApcValueCount;
+        ? kApiApcLegacyValueCount : packet.detailText[kApiApcReserveTextLength] == L'\0'
+        ? kApiApcReserveValueCount : kApiApcValueCount;
     std::array<std::uint64_t, kApiApcValueCount> values{}; // 验证成功前的局部解码值。
     std::size_t cursor = kApiApcFieldsPrefix.size(); // 下一处文本读取位置。
     for (std::size_t index = 0; index < valueCount; ++index) { // 当前字段序号。
@@ -127,11 +134,15 @@ inline std::optional<ApiApcFieldsV1> ReadApiApcFields(
                 c <= L'9' ? c - L'0' : c - L'a' + 10);
         }
     }
-    if (values[0] != 1 || (values[1] & ~31ull) || values[3] > UINT32_MAX ||
+    if (values[0] != 1 || (values[1] & ~63ull) || values[3] > UINT32_MAX ||
         values[5] > UINT32_MAX || !values[8] || values[9] < values[8]) {
         return std::nullopt;
     }
     const auto flags = values[1]; // 单独命名有效位，核对字段是否与声明一致。
+    if ((flags & ApiApcQueueFlags) ? (valueCount != kApiApcValueCount || values[15] > UINT32_MAX) : values[15] != 0)
+    {
+        return std::nullopt; // 旧包不能凭零填充值宣称已采到调度flags。
+    }
     if (((flags & ApiApcActorIdentity) ? values[2] == 0 : values[2] != 0) ||
         ((flags & ApiApcTargetIdentity) ? (!values[3] || !values[4]) : (values[3] || values[4])) ||
         ((flags & ApiApcThreadIdentity) ? (!values[5] || !values[6]) : (values[5] || values[6])) ||
@@ -156,6 +167,7 @@ inline std::optional<ApiApcFieldsV1> ReadApiApcFields(
         values[12],
         values[13],
         values[14],
+        values[15],
     };
 }
 

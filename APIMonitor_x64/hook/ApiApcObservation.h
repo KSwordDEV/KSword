@@ -11,7 +11,7 @@ public:
     // reserveHandle 只由 NtQueueApcThreadEx 传入；其它 APC 接口保持零，不解引用参数。
     ApiApcObservation(HANDLE thread, std::uint64_t routine, std::uint64_t argument1,
         std::uint64_t argument2 = 0, std::uint64_t argument3 = 0,
-        std::uint64_t reserveHandle = 0) noexcept;
+        std::uint64_t reserveHandle = 0, std::optional<std::uint32_t> queueFlags = std::nullopt) noexcept;
     void MarkEntry() noexcept; // 记录原 API 进入时点，保留 LastError。
     void MarkReturn() noexcept; // 记录原 API 返回时点，保留 LastError。
     void Complete() noexcept; // 复核目标身份并转换为独立 AAAP1 字段。

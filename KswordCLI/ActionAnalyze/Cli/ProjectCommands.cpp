@@ -303,6 +303,7 @@ V GraphObservationJson(const Detection::GraphObservation& observation,
             {"inputThreadHandle", Number(apc->inputThreadHandle)}, {"argument1", Number(apc->argument1)},
             {"argument2", Number(apc->argument2)}, {"argument3", Number(apc->argument3)},
             {"reserveHandle", Number(apc->reserveHandle)},
+            {"queueFlags", optional(ApiApcQueueFlags, apc->queueFlags)},
             {"queueOutcome", Text(record.apcOutcome == ApiApcQueueOutcome::Accepted ? "accepted" :
                 record.apcOutcome == ApiApcQueueOutcome::Failed ? "failed" : "unknown")},
             {"delivery", V::makeNull()}, {"execution", V::makeNull()}}));

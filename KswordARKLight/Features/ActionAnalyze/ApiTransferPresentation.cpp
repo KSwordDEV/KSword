@@ -189,6 +189,10 @@ namespace
         identity(L"APC 目标线程 TID", ApiApcThreadIdentity, fields.targetTid);
         identity(L"目标线程创建 FILETIME", ApiApcThreadIdentity, fields.targetThreadCreationFileTime);
         identity(L"请求 APC 例程地址", ApiApcRoutineAddress, fields.routineAddress);
+        if (record.apiClue == L"QueueUserAPC2")
+        {
+            identity(L"APC 调度标志", ApiApcQueueFlags, fields.queueFlags); // 旧包缺有效位显示未知，零仍可知。
+        }
         text += fields.flags & ApiApcTargetStable ? L"\r\n目标身份前后稳定：是" : L"\r\n目标身份前后稳定：否";
 
         // Win32 没有第二、第三参数，不能把保留零显示成真实 API 输入。

@@ -5,13 +5,18 @@ namespace apimon {
 // 构造时冻结 thread 的调用前身份及 routine、argument1/2/3 原参数。
 ApiApcObservation::ApiApcObservation(HANDLE thread, std::uint64_t routine,
     std::uint64_t argument1, std::uint64_t argument2, std::uint64_t argument3,
-    std::uint64_t reserveHandle) noexcept : identity_(thread)
+    std::uint64_t reserveHandle, std::optional<std::uint32_t> queueFlags) noexcept : identity_(thread)
 {
     fields_.routineAddress = routine;
     fields_.argument1 = argument1;
     fields_.argument2 = argument2;
     fields_.argument3 = argument3;
     fields_.reserveHandle = reserveHandle;
+    if (queueFlags)
+    {
+        fields_.queueFlags = *queueFlags;
+        fields_.flags |= Ksword::Evidence::ApiApcQueueFlags;
+    }
     // 调用前交接读取同一份冻结身份；Stable 仍只在原 API 返回并完成复核后产生。
     CopyIdentity();
 }
@@ -36,7 +41,7 @@ void ApiApcObservation::CopyIdentity() noexcept
 {
     const auto& identity = identity_.fields(); // 本次线程句柄的身份、有效位及 QPC。
     using namespace Ksword::Evidence;
-    fields_.flags = ApiApcRoutineAddress;
+    fields_.flags = (fields_.flags & ApiApcQueueFlags) | ApiApcRoutineAddress;
     if (identity.flags & ThreadTargetActor) {
         fields_.flags |= ApiApcActorIdentity;
     }
