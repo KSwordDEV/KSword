@@ -378,7 +378,7 @@ Rules::ApiPresetEvidence RuleEvidenceOf(const EvidenceRecord& record)
     return evidence;
 }
 
-// 在项目回放后台用同一份规则库处理已核验窗口，写入快照中的规则回执和加载诊断。
+// 在项目或独立归档回放后台用同一份规则库处理已核验窗口，写入快照中的规则回执和加载诊断。
 void EvaluateReplayApiRules(Snapshot& snapshot) {
     const auto database = Rules::LoadApiPresetDatabase(); // 两种配置均使用这次读取的版本。
     if (!database.error.empty()) {
@@ -409,9 +409,13 @@ void EvaluateReplayApiRules(Snapshot& snapshot) {
             RuleEvidenceOf(row)}); // 只传递已核验原包的拥有型值，不读取预览或活状态。
     }
 
-    // 跟随档内含计划、普通原包及尾记，实际归档序号可跳号。
-    auto grouped = Rules::AnalyzeVerifiedApiPresetPage(database, observations, evidence.apiClues, Rules::ApiPresetProfile::Grouped);
-    auto byCategory = Rules::AnalyzeVerifiedApiPresetPage(database, observations, evidence.apiClues, Rules::ApiPresetProfile::ByCategory);
+    // 项目回放使用已核验前缀；独立归档使用完整读取器确认的行数，不把两种边界混为一谈。
+    const auto analyze = [&](Rules::ApiPresetProfile profile) {
+        return snapshot.sample ? Rules::AnalyzeVerifiedApiPresetPage(database, observations, evidence.apiClues, profile)
+            : Rules::AnalyzeArchivedApiPresets(database, observations, evidence.apiClues, profile);
+    };
+    auto grouped = analyze(Rules::ApiPresetProfile::Grouped); // 汇总规则与 Qt/CLI 使用同一份配置。
+    auto byCategory = analyze(Rules::ApiPresetProfile::ByCategory); // 细分规则保留原始归档坐标。
     if (grouped.error != Rules::ApiPresetError::None || byCategory.error != Rules::ApiPresetError::None ||
         grouped.matches.size() != input.size() || byCategory.matches.size() != input.size()) {
         return;
@@ -496,7 +500,7 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
     }
     snapshot.hasApi = !apiFamilies.empty();
     snapshot.classification = ClassificationSummary(apiFamilies, snapshot.evidence.apiClues);
-    if (snapshot.sample && (snapshot.hasApi ||
+    if (snapshot.hasApi || (snapshot.sample &&
         (snapshot.checkpoint.kind == ReplayCheckpointKind::PassiveApi && snapshot.checkpoint.lastVerifiedOrdinal))) {
         EvaluateReplayApiRules(snapshot);
     }
@@ -935,8 +939,12 @@ void UpdateDetails(Page& page) {
             // 与当前采样一起复制/导出历史回执，既不读取活PID，也不授予控制入口。
             text += L"采集启动回执（历史）：\r\n" + Utf8ToWide(snapshot.checkpoint.apiStartupJson) + L"\r\n";
         }
+        const bool hasRuleReplay = snapshot.apiRules.has_value() || !snapshot.rulePresetSet.empty() ||
+            !snapshot.ruleConfigError.empty(); // 已加载、失败或配置诊断均需要在详情中留下状态。
         if (snapshot.sample && (evidence.apiClues || snapshot.checkpoint.kind == ReplayCheckpointKind::PassiveApi)) {
             text += L"采集覆盖：未知。规则使用已核验的归档 API 观测。\r\n";
+        }
+        if (hasRuleReplay) {
             if (!snapshot.rulePresetSet.empty()) {
                 text += L"规则集：" + snapshot.rulePresetSet + L"\r\n";
                 text += L"SHA-256：" + snapshot.ruleSourceSha256 + L"\r\n";
@@ -947,7 +955,7 @@ void UpdateDetails(Page& page) {
             }
             if (!snapshot.ruleConfigError.empty()) {
                 text += L"规则库加载失败：" + snapshot.ruleConfigError + L"\r\n";
-            } else if (!snapshot.apiRules && !snapshot.rulePresetSet.empty()) {
+            } else if (!snapshot.apiRules) {
                 text += L"预置规则求值失败。已核验的原始记录仍可查看。\r\n";
             }
         }
