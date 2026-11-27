@@ -1,0 +1,44 @@
+{
+  "configuration": "Release|x64",
+  "buildPriority": "BelowNormal",
+  "hostArchitecture": "HostX64",
+  "msbuild": "D:/Software/VS/MSBuild/Current/Bin/amd64/MSBuild.exe",
+  "intDir": "tools/action_analyze_validation/ready_owner_failure/x64/Release/",
+  "outDir": "Ksword5.1/x64/Release/",
+  "projects": [
+    {
+      "path": "tools/action_analyze_validation/ready_owner_failure/ReadyOwnerFailureRunner.vcxproj",
+      "exitCode": 0,
+      "rawConsoleLogCaptured": false
+    },
+    {
+      "path": "tools/action_analyze_validation/ready_owner_failure/ReadyOwnerFailureTrigger.vcxproj",
+      "exitCode": 0,
+      "rawConsoleLogCaptured": false
+    }
+  ],
+  "compileEvidence": {
+    "runnerAndProductSourcesListedInClTlog": true,
+    "nativePrivateExecutionPageObjectWritten": true,
+    "runnerObjectWritten": true,
+    "hostX64CompilerPathGuardPassed": true
+  },
+  "artifacts": [
+    {
+      "path": "Ksword5.1/x64/Release/ActionAnalyzeReadyOwnerFailureRunner.exe",
+      "sha256": "A2C631AA048198A1203D8ECA2B13C6235787617BC9A557A3CCCD29071C6F4FFC"
+    },
+    {
+      "path": "Ksword5.1/x64/Release/ActionAnalyzeReadyOwnerFailureTrigger.exe",
+      "sha256": "89D45FFBC766F89B3B64AC3684E85B60E2441596FCEAEEBAA54FA5251E249017"
+    },
+    {
+      "path": "tools/action_analyze_validation/ready_owner_failure/x64/Release/NativePrivateExecutionPage.obj",
+      "sha256": "C5152A11C873700E1C2E085AD0F461AFF5D9BD78FFCC83FCEE2BA129430442B6"
+    }
+  ],
+  "postBuildSourceOnlyFixtureDiagnostics": {
+    "runnerSourceEditedAfterSingleBuildAndRun": true,
+    "builtOrRunAgain": false
+  }
+}

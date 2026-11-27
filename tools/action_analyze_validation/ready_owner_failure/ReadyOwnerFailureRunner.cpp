@@ -366,6 +366,7 @@ int RunNativeOwnerFailure(ControlMode mode, const fs::path& receiptPath) {
     Receipt receipt;
     std::unique_ptr<TriggerProcess> trigger;
     std::unique_ptr<native::NativeDebugOwner> owner;
+    bool recoverySerializedToTrigger = false;
     try {
         const auto triggerPath = CurrentModule().parent_path() / L"ActionAnalyzeReadyOwnerFailureTrigger.exe";
         trigger = std::make_unique<TriggerProcess>(StartTrigger(triggerPath));
@@ -477,26 +478,103 @@ int RunNativeOwnerFailure(ControlMode mode, const fs::path& receiptPath) {
         const bool recoveryRead = ReadLine(trigger->output.get(), line);
         if (recoveryRead) receipt.Add(line);
         receipt.AddCheck("recovery-serialized", recoveryRead && line.starts_with("RECOVERY"));
+        recoverySerializedToTrigger = recoveryRead && line.starts_with("RECOVERY");
 
         const auto closed = owner->Close();
+        receipt.Add("OWNER_CLOSE status=" + std::to_string(static_cast<int>(closed.status)) +
+            " stage=" + (closed.stage ? closed.stage : "none") +
+            " error=" + Number(closed.win32Error) + " clean=" + Bool(closed.clean) +
+            " attached=" + Bool(closed.attached) +
+            " firstRecoveryFailurePresent=" + Bool(closed.firstRecoveryFailure.has_value()) +
+            " firstRecoveryFailureStage=" +
+                (closed.firstRecoveryFailure ? closed.firstRecoveryFailure->stage : "none") +
+            " firstRecoveryFailureError=" +
+                Number(closed.firstRecoveryFailure ? closed.firstRecoveryFailure->win32Error : 0));
         receipt.AddCheck("owner-close-requested", closed.status == native::NativeControlStatus::Closed ||
             closed.status == native::NativeControlStatus::ClosePending || closed.status == native::NativeControlStatus::RecoveryRequired);
         const auto afterClose = WaitClean(*owner);
         receipt.Add("OWNER_CLEAN status=" + std::to_string(static_cast<int>(afterClose.status)) +
-            " clean=" + Bool(afterClose.clean) + " attached=" + Bool(afterClose.attached) +
-            " firstRecoveryFailurePresent=" + Bool(afterClose.firstRecoveryFailure.has_value()));
+            " stage=" + (afterClose.stage ? afterClose.stage : "none") +
+            " error=" + Number(afterClose.win32Error) + " clean=" + Bool(afterClose.clean) +
+            " attached=" + Bool(afterClose.attached) +
+            " firstRecoveryFailurePresent=" + Bool(afterClose.firstRecoveryFailure.has_value()) +
+            " firstRecoveryFailureStage=" +
+                (afterClose.firstRecoveryFailure ? afterClose.firstRecoveryFailure->stage : "none") +
+            " firstRecoveryFailureError=" +
+                Number(afterClose.firstRecoveryFailure ? afterClose.firstRecoveryFailure->win32Error : 0));
         receipt.AddCheck("owner-cleanup-evidence", afterClose.clean && afterClose.firstRecoveryFailure.has_value());
         Send(trigger->input.get(), "STOP");
-        receipt.AddCheck("trigger-cleanup", ReadLine(trigger->output.get(), line) && line.starts_with("DONE"));
-        receipt.Add("RESULT mode=" + std::string(mode == ControlMode::Step ? "step" : "continue") + " status=PASS");
+        const bool doneRead = ReadLine(trigger->output.get(), line);
+        std::string doneCommand;
+        std::map<std::string, std::string> doneFields;
+        bool childExitObserved = false;
+        std::uint64_t childExitCode = 0;
+        std::uint64_t executionCount = 0;
+        const bool doneFieldsValid = doneRead && ParseFields(line, doneCommand, doneFields) &&
+            doneCommand == "DONE" && ParseBool(doneFields, "childExitObserved", childExitObserved) &&
+            ParseUnsigned(doneFields, "childExitCode", childExitCode) &&
+            ParseUnsigned(doneFields, "executionCount", executionCount);
+        if (doneRead) receipt.Add(line);
+        if (doneFieldsValid) {
+            receipt.Add("TARGET_EXIT observed=" + Bool(childExitObserved) +
+                " exitCode=" + Number(childExitCode) + " executionCount=" + Number(executionCount));
+        }
+        receipt.AddCheck("trigger-cleanup", doneFieldsValid && childExitObserved);
+        const DWORD triggerWait = WaitForSingleObject(trigger->process.get(), kDeadlineMs);
+        DWORD triggerExitCode = 0;
+        const bool triggerExited = triggerWait == WAIT_OBJECT_0 &&
+            GetExitCodeProcess(trigger->process.get(), &triggerExitCode) != FALSE;
+        receipt.Add("TRIGGER_PROCESS observed=" + Bool(triggerExited) +
+            " exitCode=" + Number(triggerExited ? triggerExitCode : 0));
+        receipt.AddCheck("trigger-process-cleanup", triggerExited);
+        receipt.Add("RESULT mode=" + std::string(mode == ControlMode::Step ? "step" : "continue") +
+            " status=PASS scope=native-owner-recovery targetBusinessContinuation=not-asserted");
         Persist(receiptPath, receipt);
         return 0;
     } catch (const std::exception& error) {
-        receipt.Add(std::string("RESULT status=FAIL reason=") + error.what());
-        if (trigger) trigger->Abort();
+        const std::string failureReason = error.what();
+        if (trigger && recoverySerializedToTrigger) {
+            try {
+                Send(trigger->input.get(), "STOP");
+                std::string doneLine;
+                if (ReadLine(trigger->output.get(), doneLine)) {
+                    std::string doneCommand;
+                    std::map<std::string, std::string> doneFields;
+                    bool childExitObserved = false;
+                    std::uint64_t childExitCode = 0;
+                    std::uint64_t executionCount = 0;
+                    if (ParseFields(doneLine, doneCommand, doneFields) && doneCommand == "DONE" &&
+                        ParseBool(doneFields, "childExitObserved", childExitObserved) &&
+                        ParseUnsigned(doneFields, "childExitCode", childExitCode) &&
+                        ParseUnsigned(doneFields, "executionCount", executionCount)) {
+                        receipt.Add("TARGET_EXIT observed=" + Bool(childExitObserved) +
+                            " exitCode=" + Number(childExitCode) +
+                            " executionCount=" + Number(executionCount));
+                    } else {
+                        receipt.Add("TRIGGER_DONE_UNPARSED line=" + doneLine);
+                    }
+                } else {
+                    receipt.Add("TRIGGER_DONE_READ failed=true");
+                }
+            } catch (...) {
+                receipt.Add("TRIGGER_STOP failed=true");
+                trigger->Abort();
+            }
+        } else if (trigger) {
+            trigger->Abort();
+        }
         if (owner) {
             (void)owner->Close();
         }
+        if (trigger) {
+            const DWORD wait = WaitForSingleObject(trigger->process.get(), kDeadlineMs);
+            DWORD exitCode = 0;
+            const bool exited = wait == WAIT_OBJECT_0 &&
+                GetExitCodeProcess(trigger->process.get(), &exitCode) != FALSE;
+            receipt.Add("TRIGGER_PROCESS observed=" + Bool(exited) +
+                " exitCode=" + Number(exited ? exitCode : 0));
+        }
+        receipt.Add(std::string("RESULT status=FAIL reason=") + failureReason);
         try { Persist(receiptPath, receipt); } catch (...) {}
         return 1;
     }

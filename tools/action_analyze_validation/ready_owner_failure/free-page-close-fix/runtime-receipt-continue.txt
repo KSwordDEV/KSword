@@ -1,0 +1,28 @@
+CHECK PASS trigger-started
+READY pid=40648 creation=134402772378707260 allocationBase=2073379602432 address=2073379602432 bytes=4096
+CHECK PASS arm-accepted
+CHECK PASS armed-from-native-owner
+CHECK PASS go-accepted
+CHECK PASS native-held-status
+CHECK PASS native-held-identity
+CHECK PASS native-held-page-hit
+CHECK PASS native-held-group
+CHECK PASS native-held-event
+CHECK PASS native-owner-identity
+CHECK PASS native-recovery-branch
+OWNER_HELD processInstanceId=ad623d51-cbea-4e17-bd83-ee61a85968fd pid=40648 creation=134402772378707260 groupId=70000000-0000-8000-8000-000000000005 stateRevision=3 responsibilityGroupId=70000000-0000-8000-8000-000000000005 stopId=70000000-0000-8010-8000-000000000005 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 breakpointState=2 breakpointAddress=2073379602432 breakpointRangeBytes=4096 breakpointHitAddress=2073379602432 releaseRequestId=none
+CHECK PASS release-receipt
+RELEASE mode=continue freeSucceeded=true freeError=0 preState=4096 preAllocationBase=2073379602432 preRegionBytes=4096 postState=65536 postRegionBytes=524288 regionVerifiedFree=true allocationBase=2073379602432 address=2073379602432 bytes=4096
+CHECK PASS release-fields
+CHECK PASS release-exact-free
+OWNER_ACTION status=9 processInstanceId=ad623d51-cbea-4e17-bd83-ee61a85968fd groupId=70000000-0000-8000-8000-000000000005 responsibilityGroupId=70000000-0000-8000-8000-000000000005 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 releaseRequestId=continue/1
+CHECK PASS production-recovery-failure
+OWNER_RECOVERY status=9 stage=private-execution-page-rearm-external-protection error=487 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 releaseRequestId=continue/1
+RECOVERY mode=continue status=9 firstRecoveryFailurePresent=true firstRecoveryFailureStage=private-execution-page-rearm-external-protection firstRecoveryFailureError=487 ownerSampleId=70000000-0000-4000-8000-000000000001 ownerSessionId=70000000-0000-4000-8000-000000000002 ownerEpoch=70000000-0000-4000-8000-000000000003 ownerBackendId=70000000-0000-4000-8000-000000000004 pendingEventBackendId=70000000-0000-4000-8000-000000000004 pendingEventSerial=8 releaseRequestId=continue/1
+CHECK PASS recovery-serialized
+OWNER_CLOSE status=7 stage=owner-closed error=0 clean=true attached=false firstRecoveryFailurePresent=true firstRecoveryFailureStage=private-execution-page-rearm-external-protection firstRecoveryFailureError=487
+CHECK PASS owner-close-requested
+OWNER_CLEAN status=7 clean=true attached=false firstRecoveryFailurePresent=true
+CHECK PASS owner-cleanup-evidence
+CHECK PASS trigger-cleanup
+RESULT mode=continue status=PASS
