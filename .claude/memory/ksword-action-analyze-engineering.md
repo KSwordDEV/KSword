@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 主动停止定向回执及最新构建。** 任务3 sh_21c0a6526001d202agwFY1veFI结束：固定夹具编译1次、场景1次，43检查/0FAIL/1UNIMPLEMENTED，整体BLOCKED/driver2；CLI取消6，dest/src自然0，cleanupComplete/hooksRemoved/cleanPipeEof及handoff.clean成立，取消后/迟到后保护0x40与原基线一致、存根字节未变，计数1→2。只能证明停止后无残留保护改写，未动态采样取消前NX；原API成功是预期，不应误要求原API拒绝。迟到请求未重新准入owner/Ready只有文件旁证无直接回执，继续未验，不为此新增post-CLI查询产品面。完整项目19文件及receipt在codebuddy-resumed-10/stop-fixture，清退已由执行者核实，原证据保留。任务4 sh_21c1212d2001znJdFPVXnqMBNl/PID39612只一次正式CLI增量，冻结c75f889ac，禁运行/重试，日志lifecycle-build，额度4/10。下一运行应控制器仍存活时定向验证单目标失败清退/迟到接管，不重复关闭后不可观测场景。整体11项未完成，GUI后置。
+
 - **2026-11-27 第6项取消后不自动归还业务暂停。** AddRange完成后的手动暂停归还及RestoreRequestPauses的循环/Continue提交前补cancel/closing检查；取消后原暂停账保留给统一Close恢复，不调用Continue推进业务。与Observe已有取消检查一致，仍无法承诺已并发提交动作零窗口。源码待构建运行；任务3冻结正式CLI不覆盖本次，额度仍3/10。
 
 - **2026-11-27 第4/6项准入窗口淘汰不丢恢复责任。** RecoverFailedTargets改为沿current.members冻结原owner身份后逐个回读，来源failed即可恢复对应成员，不再要求其准入仍留在最近256条transfers内；现有准入仅补失败原因及同实例在途阻挡。仍先归档、撤来源资格/Stop、再单成员Close，保留恢复去重和其它目标。不改变手动组或协议，源码待构建/运行；任务3仍使用旧正式CLI，不能覆盖本修正。持续目标与用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」有效。额度3/10，GUI后置，禁止重复已过ETW/三目标链。

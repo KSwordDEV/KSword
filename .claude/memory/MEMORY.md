@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 当前接续优先。** 最新产品c75f889ac（08f Ready投影、668窗口外恢复、c75取消暂停），任务3停止场景已结束：CLI取消6/双目标自然0/清退和归档成立，但owner/Ready迟到准入不可直接观测，43检查0FAIL1UNIMPLEMENTED整体BLOCKED，不能标整链通过。任务4 sh_21c1212d2001znJdFPVXnqMBNl/PID39612唯一执行最新CLI增量构建一次，禁止运行/重试；授权额度4/10。详见工程记录。不得重复已过ETW/三目标链，不为测试新增关闭后查询接口；后续应在控制器存活期间观察失败目标清退和迟到接管。用户持续推进原话有效。
+
 - **2026-11-27 最新恢复CodeBuddy授权及Ex2复验。** 用户授权约10项，已用3/10；任务1 sh_21c0462170010iLK65j3Ogsn2j完成：产品a44a89734上CLI一次增量Build成功，Ex2一次运行CLI0/27检查通过，stubRan/counter1、recursiveAgentReady=true、AAAP1结构化flags0x3f且queueFlags=0有效。源子目标由driver cleanup终止码1，未验证自然成功退出。回执codebuddy-resumed-10/recovery-ex2/receipt.md；旧失败原档保留。任务2 sh_21c04c8080012wSIOLlLeleXPx已交付主动停止/迟到请求夹具但未运行；任务3 sh_21c0a6526001d202agwFY1veFI负责其固定路径编译/运行一次，CLI停止契约6，owner/Ready状态不可观测项保持BLOCKED。主协调继续源码工作，因此任务3验证只覆盖其启动时冻结产品。不可扩大为GUI、其它链或完整11项通过。
 
 - **2026-11-27 最新用户限制与Ex2结果。** 历史「不得调用CodeBuddy」已被用户随后明确恢复约10项授权所覆盖；当前3/10。Ex2旧失败运行只一次、CLI6/pipeError109/coverageStale，原日志及项目保留；后续冻结版a44a89734定向一次复验CLI0/27通过及AAAP1结构化flags验证，不能混淆两份结果或扩成全流程通过。详见工程推进记录。
