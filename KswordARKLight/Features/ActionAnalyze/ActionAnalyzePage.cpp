@@ -471,14 +471,15 @@ Snapshot Load(const std::wstring& path, const std::optional<ProjectReplayRequest
     const bool isRaw = snapshot.evidence.identity &&
         snapshot.evidence.identity->streamKind == static_cast<std::uint32_t>(StreamKind::Raw);
     for (const auto& record : snapshot.evidence.rows) {
-        if (isRaw && record.segmentOrdinal) {
+        if (record.segmentOrdinal) {
+            // API 归档可来自 Records 流；不能用 Raw 流判断挡住合作 API 的规则回放。
             if (snapshot.evidence.apiClues && !record.apiClue.empty() && !record.apiFamily.empty()) {
                 apiFamilies[record.apiFamily].push_back(rows->size());
-            } else if (record.etw) {
+            } else if (isRaw && record.etw) {
                 etw.rows.push_back(rows->size());
-            } else if (record.network) {
+            } else if (isRaw && record.network) {
                 network.rows.push_back(rows->size());
-            } else if (record.callback) {
+            } else if (isRaw && record.callback) {
                 callback.rows.push_back(rows->size());
             }
         }
