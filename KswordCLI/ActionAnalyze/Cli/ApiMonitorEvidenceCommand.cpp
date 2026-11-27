@@ -730,7 +730,7 @@ void RegisterApiMonitorEvidenceCommands()
                       L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
                       L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
     capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
-    capture.notes += L" --capture-progress 1 emits committed API checkpoint/rule snapshots and live handoff state to stderr as UTF-8 JSONL, without changing final stdout. Progress uses a bounded non-blocking queue; droppedFrames and outputDrained report delivery separately from capture and recovery.";
+    capture.notes += L" --capture-progress 1 emits committed API checkpoints, rule explanations, candidate coordinates and live handoff/network/Agent-ETW snapshots to stderr as UTF-8 JSONL, without changing final stdout. Source snapshots are change-only at most every 500 ms, including silent API intervals. Progress uses a bounded non-blocking queue; droppedFrames and outputDrained report delivery separately from capture and recovery.";
     addCommand(std::move(capture));
 
     Command launch; // 普通EXE自动创建、入口交接和附加，复用现有采集结果及回放入口。
@@ -740,7 +740,7 @@ void RegisterApiMonitorEvidenceCommands()
     launch.options = L"Select an existing project and a plain EXE. Optional nonzero --rva overrides PE AddressOfEntryPoint. No cooperative exports or manually supplied PID are required. Duration: 1,000-120,000 ms (default 3,000), or 0 until cancellation or exit.";
     launch.notes = L"The native owner arms entry DR0 before releasing the creation suspension. At the actual main-thread entry stop, the bootstrap takes one explicit main-thread suspension and detaches the debugger. It releases that suspension only after the real Agent Ready and coverage barrier. TLS and earlier loader execution remain outside this entry-based path. --auto-transfer enables automatic private-range discovery and recursive Agent handoff for the same sample. --network-traffic starts the selected existing packet source before Agent Ready releases the main thread. With --auto-transfer, admitted target instances join the same source before the handoff ACK and remain in scope after the root exits; packet attribution stays a PID hint, without HTTPS decryption. Startup failure terminates only this exact newly created process. --startup-progress 1 emits completed bootstrap and Agent stages to stderr. Replay uses analyze api-evidence replay; saved packet bytes use analyze network-read.";
     launch.notes += L" --agent-etw 1 starts the own Agent lifecycle provider before main-thread release and saves it in raw-etw; automatic handoff adds target header PIDs to that same source before ACK. Header PIDs remain hints.";
-    launch.notes += L" --capture-progress 1 emits committed checkpoint/rule and live handoff snapshots through the same bounded stderr queue. Output loss does not block target recovery; final captureProgress reports delivery separately.";
+    launch.notes += L" --capture-progress 1 emits committed checkpoints, rule explanations, candidate coordinates and live handoff/network/Agent-ETW snapshots through the same bounded stderr queue. Source snapshots are change-only at most every 500 ms, including silent API intervals. Output loss does not block target recovery; final captureProgress reports delivery separately.";
     launch.run = [](const Args& args) { return CaptureEvidence(args, true, true); };
     addCommand(std::move(launch));
 

@@ -20,7 +20,7 @@ void RegisterAttachedApiCaptureCommand()
         L"Ordinary packets use the existing project checkpoint pipeline; replay reads committed segments. "
         L"HooksRemoved means hooks stopped; the pinned Agent and retired code remain until target exit. R0 is rejected without fallback.";
     command.run = RunAttachedApiEvidence;
-    command.notes += L" --capture-progress 1 emits committed API checkpoints, latest rule explanations and live transferHandoff snapshots as UTF-8 stderr JSONL. The bounded queue never waits for free space on the capture worker; final captureProgress distinguishes enqueue/drop/drain from product completion.";
+    command.notes += L" --capture-progress 1 emits committed API checkpoints, latest rule explanations, candidate coordinates and live transferHandoff/network/Agent-ETW snapshots as UTF-8 stderr JSONL. Source snapshots are change-only at most every 500 ms, including silent API intervals. The bounded queue never waits for free space on the capture worker; final captureProgress distinguishes enqueue/drop/drain from product completion.";
     addCommand(std::move(command));
 }
 }
