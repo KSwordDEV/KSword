@@ -3162,10 +3162,10 @@ namespace apimon
 
         // 远程内存操作成功后调用：只发现私有可执行范围，沿原同步端点自动解析和设防，无返回值。
         // 不接管本进程改保护，避免把当前Hook/助手正在执行的页纳入本次同步等待。
-        void PrepareRemoteExecutableRegion(HANDLE processHandle, const void* address, DWORD protection)
+        void PrepareRemoteExecutableRegion(HANDLE processHandle, const void* address, SIZE_T bytes, DWORD protection)
         {
             const DWORD savedError = GetLastError(); // 观察查询及交接不得改变原内存API的LastError。
-            if (ActiveConfig().transferHandoff.pipeName.empty() || !address ||
+            if (ActiveConfig().transferHandoff.pipeName.empty() || !address || !bytes ||
                 !(protection & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
             {
                 return;
@@ -3173,16 +3173,52 @@ namespace apimon
             const DWORD pid = GetProcessId(processHandle); // 从原调用的真实句柄取得目标，不接受裸PID替换。
             if (pid && pid != GetCurrentProcessId())
             {
-                MEMORY_BASIC_INFORMATION memory{}; // 仅作私有范围筛选，最终身份/范围/保护由外部owner重新核对。
-                if (VirtualQueryEx(processHandle, address, &memory, sizeof(memory)) == sizeof(memory) &&
-                    memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && !(memory.Protect & PAGE_GUARD))
+                auto cursor = reinterpret_cast<std::uintptr_t>(address); // 尚未检查的真实返回范围起点。
+                const auto creation = ks::winapi_monitor::transferProcessCreation(processHandle); // 全范围共用同一对象身份。
+                if (bytes > UINTPTR_MAX - cursor)
                 {
-                    const auto creation = ks::winapi_monitor::transferProcessCreation(processHandle); // 冻结同一进程实例。
-                    PrepareTransferExecution(pid, creation, reinterpret_cast<std::uintptr_t>(address),
-                        ks::winapi_monitor::TransferHandoffKind::ExecutableRegion);
+                    SetLastError(savedError);
+                    return;
+                }
+                const auto end = cursor + bytes; // 原操作实际范围的半开终点，不扫描整个目标地址空间。
+                while (creation && cursor < end)
+                {
+                    MEMORY_BASIC_INFORMATION memory{}; // 每段保护可能不同，不能只凭首地址跳过后面的执行区域。
+                    if (VirtualQueryEx(processHandle, reinterpret_cast<const void*>(cursor), &memory, sizeof(memory)) != sizeof(memory))
+                    {
+                        break;
+                    }
+                    const auto base = reinterpret_cast<std::uintptr_t>(memory.BaseAddress); // 当前区域的系统回读基址。
+                    if (!memory.RegionSize || memory.RegionSize > UINTPTR_MAX - base || base + memory.RegionSize <= cursor)
+                    {
+                        break;
+                    }
+                    if (memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && !(memory.Protect & PAGE_GUARD) &&
+                        (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+                    {
+                        PrepareTransferExecution(pid, creation, cursor,
+                            ks::winapi_monitor::TransferHandoffKind::ExecutableRegion);
+                    }
+                    cursor = base + memory.RegionSize; // 单调前进；同步交接后的拆区由外部owner目录复核。
                 }
             }
             SetLastError(savedError);
+        }
+
+        // 直接Nt内存入口成功后调用；输入已安全读回的AAIM1值，只交接强身份稳定且输出完整的实际范围。
+        void PrepareObservedExecutableRegion(HANDLE processHandle, const Ksword::Evidence::ApiMemoryLifecycleFieldsV1& fields)
+        {
+            constexpr auto required = Ksword::Evidence::ApiMemoryTargetIdentity |
+                Ksword::Evidence::ApiMemoryTargetStable | Ksword::Evidence::ApiMemoryOutputBase |
+                Ksword::Evidence::ApiMemoryOutputBytes; // 缺输出时不能用调用前请求补造实际设防范围。
+            if ((fields.flags & required) != required || fields.status < 0 ||
+                fields.outputBase > UINTPTR_MAX || fields.outputBytes > SIZE_MAX)
+            {
+                return;
+            }
+            PrepareRemoteExecutableRegion(processHandle,
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(fields.outputBase)),
+                static_cast<SIZE_T>(fields.outputBytes), static_cast<DWORD>(fields.newProtection));
         }
 
         LPVOID WINAPI HookedVirtualAllocEx(HANDLE processHandle, LPVOID addressPointer, SIZE_T sizeValue, DWORD allocationType, DWORD protectValue)
@@ -3198,7 +3234,7 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualAllocEx", resultPointer != nullptr ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultPointer), duration);
             if (resultPointer != nullptr)
             {
-                PrepareRemoteExecutableRegion(processHandle, resultPointer, protectValue); // 成功分配才交接，返回指针和原时钟不变。
+                PrepareRemoteExecutableRegion(processHandle, resultPointer, sizeValue, protectValue); // 成功分配才交接，返回指针和原时钟不变。
             }
             ::SetLastError(lastError);
             return resultPointer;
@@ -3232,7 +3268,7 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"KernelBase", L"VirtualProtectEx", resultValue != FALSE ? 0 : lastError, detailBuffer, true, ApiReturnBits(resultValue), duration);
             if (resultValue != FALSE)
             {
-                PrepareRemoteExecutableRegion(processHandle, addressPointer, newProtect); // 成功改保护后重新核对新执行范围。
+                PrepareRemoteExecutableRegion(processHandle, addressPointer, sizeValue, newProtect); // 成功改保护后重新核对新执行范围。
             }
             ::SetLastError(lastError);
             return resultValue;
@@ -5069,6 +5105,10 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtAllocateVirtualMemory",
                 statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
                 ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            if (NT_SUCCESS(statusValue))
+            {
+                PrepareObservedExecutableRegion(processHandle, observation.fields()); // 原系统调用成功后、返回前同步发现执行区域。
+            }
             ::SetLastError(lastError);
             return statusValue;
         }
@@ -5115,6 +5155,10 @@ namespace apimon
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Memory, L"ntdll", L"NtProtectVirtualMemory",
                 statusValue, L"", true, ApiReturnBits(statusValue), duration, 0, 0,
                 ks::winapi_monitor::EventResultKind::StatusCode, nullptr, nullptr, nullptr, nullptr, &observation.fields());
+            if (NT_SUCCESS(statusValue))
+            {
+                PrepareObservedExecutableRegion(processHandle, observation.fields()); // 复用安全回读，不解引用base/size输出指针。
+            }
             ::SetLastError(lastError);
             return statusValue;
         }
