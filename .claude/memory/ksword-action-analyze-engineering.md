@@ -1,5 +1,7 @@
 # ActionAnalyze 工程推进记录
 
+- **2026-11-27 本批来源坐标与前提记录。** CLI Release|x64 一次增量成功，正式 CLI SHA256 `816BDA24663C8E19FB497096B613C807E0B53D51501DCB01FE8E41A8F4788A65`；固定 IntDir/OutDir、HostX64、BelowNormal、`BuildProjectReferences=false`，来源坐标为 `e9d06d342`、`ecf708084`、`532d00fe2`、`4e34a9883`、`7b4b6a006`、`35825a4d9`，覆盖 `35825a4d9` 及以前空 ETW/警告修复。`ae42a9c21`/`fd7d548e7` 行为窗口和 `e4f3ec24d` 桌面释义仍源码待必要整合，不能借该 hash 覆盖；本批未测试、未运行、未做 GUI 验收。driver 已编译链接且 WDK `Driver is 'Universal'.` 通过，后置签名中断；当前无 service/加载、unsigned、Secure Boot true，未改启动策略，loopback 运行前提仍不满足。原生 attempt06 真实收终态但因 source 合作模式与显式附加不符而启动失败；Held/owner 保持独立实证。原 FAIL 与独立证据保留，不写成“CLI 全部不好用”，不写百分比。
+
 - **2026-11-27 最新状态优先旧历史。** 当前正式范围按已有窄场景事实记录，不用旧主表 2025 历史百分比作当前结论；run02 旧 FAIL 保留，不被阶段 `expectation addendum` 覆盖。当前 CLI `68FEC...`；`affa` 对应 Qt `2D4CB...`、Light `6F0...` 的 Release 构建已通过。driver/CLI 唯一必要构建和作者待追加结果属于待办，不写成阻塞；旧未提交事实保留，不改写。
 
 - **2026-11-27 cooperative API capture 字段解析离线更正。** 原 sample `82d12c96-2cd7-450b-b41e-5a119a52c9a8`、revision `e156434b-1998-4517-9127-bfe4bb0b26b3`、PID `34828`、source session `18286855926259294790` 的正式 CLI 运行仍为 FAIL，CLI exit `6`、wrapper exit `1`；冻结 CLI SHA256 `05C348732A16478596E6EB862D06D387EF0E02A3F8672AB201334804ACB5BEE6`。原 stderr traceback 指向旧 `dict(field.split('=', 1) ...)` 无法解析 `AAIP1|` 详情。仅修自有 `cooperative_api_capture.py`，兼容 producer 的 AAIP1 固定14值与 legacy key=value，并按 operation/flags/base/requested/completed/process 验证；原日志和 verdict 未改。静态 AST、diff-check 通过；为遵守离线边界，未重跑 CLI、归档读回或场景。回执 `.codex-build-logs/action-analyze-cli-progress/offline-correction.md`。

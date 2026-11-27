@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 本批来源坐标与前提记录。** CLI Release|x64 一次增量成功，正式 CLI SHA256 `816BDA24663C8E19FB497096B613C807E0B53D51501DCB01FE8E41A8F4788A65`，覆盖 `e9d06d342`、`ecf708084`、`532d00fe2`、`4e34a9883`、`7b4b6a006`、`35825a4d9`（含 `35825a4d9` 及以前空 ETW/警告修复）；其后 `ae42a9c21`/`fd7d548e7` 行为窗口、`e4f3ec24d` 桌面释义仍源码待必要整合，不能借新 hash 覆盖。driver 已编译链接、WDK Universal validator 通过，但后置签名中断；`KswordARK` 无 service/加载，unsigned、Secure Boot true，不改启动策略，不能产生 loopback 运行通过结论。原生 attempt06 因 source 合作模式与显式附加不符而启动失败，Held/owner 保持独立实证；不写成“CLI 全部不好用”，不写百分比。
+
 - **2026-11-27 最新状态优先旧历史。** 当前正式范围只整理已有事实，不用旧主表历史百分比替代窄场景证据；run02 旧 FAIL 保留，不被阶段 `expectation addendum` 覆盖。当前 CLI `68FEC...`；`affa` 对应 Qt `2D4CB...`、Light `6F0...` 的 Release 构建已通过。driver/CLI 唯一必要构建及作者待追加结果写待办，不写成阻塞；旧未提交记录事实保留，不重写。
 
 - **2026-11-27 cooperative API capture 离线解析更正。** 保留原 sample `82d12c96-2cd7-450b-b41e-5a119a52c9a8` 的 FAIL、CLI exit 6、wrapper exit 1 及原 stdout/stderr；旧解析器把 producer 的 `AAIP1|` 固定14值详情误作空格分隔 `key=value`，触发原 traceback。自有 fixture 现兼容 AAIP1 与 legacy 格式，并按 AAIP1 的 operation/flags/base/requested/completed/process 校验。仅 AST 与 diff-check 静态通过；未运行 CLI、回放/读档、场景或构建，不把旧运行改判 PASS。离线回执 `.codex-build-logs/action-analyze-cli-progress/offline-correction.md`。
