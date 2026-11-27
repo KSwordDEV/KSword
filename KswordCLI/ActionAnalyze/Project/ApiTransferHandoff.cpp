@@ -421,6 +421,8 @@ public:
     }
     void AddRange(Transfer& transfer, const n::ExecutionGroupMember& member)
     {
+        // 追加可能由Pause回读后进入；已收到停止时保留暂停账交给Close，不再扩展执行范围。
+        if (cancel.load() || closing) { Finish(transfer, ERROR_OPERATION_ABORTED); return; }
         current = group.AddRange(member.control, transfer.base, transfer.bytes);
         const auto* updated = Member(transfer.request);
         const bool added = updated && updated->control.executionRange &&
@@ -449,6 +451,8 @@ public:
             Finish(transfer, ERROR_INVALID_HANDLE); return;
         }
         current = group.QueryWithoutCondition();
+        // owner回读可跨越取消到达时点；新建owner、Pause及后续安装前重新确认本轮仍在执行。
+        if (cancel.load() || closing) { Finish(transfer, ERROR_OPERATION_ABORTED); return; }
         const auto* member = Member(r);
         if (member && member->control.firstRecoveryFailure) {
             const auto error = member->control.firstRecoveryFailure->win32Error;
@@ -554,6 +558,13 @@ public:
                 source.pid = r.targetPid; source.creation = r.targetCreation;
                 source.capture = std::make_unique<ApiTransferAgentCapture>(r.targetPid, r.targetCreation, endpoint, agentPath);
                 found = sources.emplace(r.targetPid, std::move(source)).first;
+                // 构造capture尚未装载Agent；取消时删除未启动对象，避免Close等待不存在的worker。
+                if (cancel.load() || closing)
+                {
+                    sources.erase(found);
+                    Finish(transfer, ERROR_OPERATION_ABORTED);
+                    return;
+                }
                 if (!found->second.capture->Start()) {
                     found->second.failed = true; found->second.error = ERROR_NOT_ENOUGH_MEMORY;
                     Finish(transfer, ERROR_NOT_ENOUGH_MEMORY); return;
