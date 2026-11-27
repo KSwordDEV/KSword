@@ -70,6 +70,29 @@ namespace Ksword::Evidence
             return value && ((value->tryGetBool(flag) && flag) ||
                 (value->tryGetU64(code) && code != 0));
         }
+
+        // 调用时传入目标分组、冻结准入、观察键、类型标签及缺值提示；原位追加同源观察字段，无返回值。
+        // 入口与范围观察复用字段格式，调用者明确选择语义，不将范围命中解释为精确入口或API因果。
+        inline void ObservationFields(HandoffReceiptSection& section, const JsonValue& admission,
+            const char* key, const wchar_t* label, const char* missingText)
+        {
+            const auto* observation = admission.find(key); // 只借用指定观察，禁止在两种语义之间补值。
+            if (!observation || !observation->asObject())
+            {
+                section.fields.push_back({label, missingText, true});
+                return;
+            }
+
+            // 原样投影实际IP、观察阶段及线程代次；原始64位身份不转换为浮点数。
+            Field(section, *observation, L"实际指令地址", "instructionAddress");
+            Field(section, *observation, label, "observation");
+            Field(section, *observation, L"观察线程 TID", "tid");
+            Field(section, *observation, L"线程创建 FILETIME", "threadCreationFileTime");
+            // 坐标和散列来自同一已归档观察，不借用owner最近一步或当前选择。
+            Field(section, *observation, L"原生归档段号", "segmentOrdinal");
+            Field(section, *observation, L"原生记录序号", "recordSequence");
+            Field(section, *observation, L"原生段 SHA-256", "sha256");
+        }
     }
 
     // 输入api-transfer-handoff-v1原回执；输出集合、来源和目标准入分组，不推导API因果或当前保护。
@@ -198,20 +221,18 @@ namespace Ksword::Evidence
                 Field(group, admission, L"恢复失败错误码", "nativeRecoveryFailureError");
                 group.failed = Failed(admission, "error") || Failed(admission, "nativeRecoveryFailureError");
 
-                const auto* entry = admission.find("entryObservation"); // 仅后端归档确认的精确入口观察。
-                if (entry && entry->asObject())
+                const auto* kind = admission.find("handoffKind"); // 准入种类决定观察口径，旧档缺失时保留入口显示。
+                std::uint64_t handoffKind = 0; // 接收原始种类值，仅明确为4时采用内存范围观察。
+                if (kind && kind->tryGetU64(handoffKind) && handoffKind == 4)
                 {
-                    Field(group, *entry, L"实际指令地址", "instructionAddress");
-                    Field(group, *entry, L"入口观察类型", "observation");
-                    Field(group, *entry, L"观察线程 TID", "tid");
-                    Field(group, *entry, L"线程创建 FILETIME", "threadCreationFileTime");
-                    Field(group, *entry, L"原生归档段号", "segmentOrdinal");
-                    Field(group, *entry, L"原生记录序号", "recordSequence");
-                    Field(group, *entry, L"原生段 SHA-256", "sha256");
+                    ObservationFields(group, admission, "rangeObservation", L"范围执行观察",
+                        "尚无已归档范围执行观察");
                 }
                 else
                 {
-                    group.fields.push_back({L"入口观察类型", "尚无已归档入口观察", true});
+                    // 精确入口保持原字段和缺值文案，不从范围观察推导入口执行。
+                    ObservationFields(group, admission, "entryObservation", L"入口观察类型",
+                        "尚无已归档入口观察");
                 }
 
                 // 页推进回执只描述同一owner最近一步，不能解释为当前准入入口已经完成执行。

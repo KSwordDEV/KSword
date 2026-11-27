@@ -144,6 +144,7 @@ public:
         bool rearmedTrackedRange = false; // 原owner在Held事件内已成功重设NX并通过完整范围回读。
         std::string pauseRequestId; // 只结清本次主动暂停票据，不按ManualPause标签释放其它请求。
         V entryObservation = V::makeNull(); // 精确请求入口的首份已核验执行坐标，不借用同进程最后一个停点。
+        V rangeObservation = V::makeNull(); // 内存操作没有调度入口，单独保留登记范围内的首份真实执行观察。
     };
     std::deque<Transfer> transfers; // 处理中请求与终态短窗口；Hook重连不会重复建owner。
     bool callbackFailed = false;
@@ -831,12 +832,20 @@ public:
             observed[member.owner.backendInstanceId] = execution->event;
             for (auto& transfer : transfers)
             {
-                if (transfer.entryObservation.type() != Evidence::JsonType::Null ||
-                    transfer.request.targetPid != execution->pid ||
-                    transfer.request.targetCreation != execution->processCreationFileTime ||
-                    transfer.request.address != execution->instructionAddress ||
-                    transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)) continue;
-                transfer.entryObservation = V::makeObject({
+                if (transfer.request.targetPid != execution->pid ||
+                    transfer.request.targetCreation != execution->processCreationFileTime) continue;
+                // 分配/改保护/写入请求中的address不是线程入口，只能按已登记范围关联观察。
+                const bool rangeRequest = transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion);
+                auto& observation = rangeRequest ? transfer.rangeObservation : transfer.entryObservation;
+                if (observation.type() != Evidence::JsonType::Null) continue;
+                if (rangeRequest)
+                {
+                    if (!transfer.bytes || execution->instructionAddress < transfer.base ||
+                        execution->instructionAddress - transfer.base >= transfer.bytes) continue;
+                }
+                else if (transfer.request.address != execution->instructionAddress) continue;
+                // 两类观察均引用刚完成核验的同一raw-native段，不从范围目录推断执行或API因果。
+                observation = V::makeObject({
                     {"instructionAddress", V::makeString(std::to_string(execution->instructionAddress))},
                     {"observation", V::makeString(execution->kind == n::NativeExecutionKind::EnterAttempt
                         ? "execution-enter-attempt" : "instruction-completed")},
@@ -1140,6 +1149,7 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"handoffPhase", V::makeString(transfer.request.kind == static_cast<DWORD>(m::TransferHandoffKind::ExecutableRegion)
                 ? "after-memory-operation-before-return" : "before-execution-dispatch")},
             {"entryObservation", transfer.entryObservation},
+            {"rangeObservation", transfer.rangeObservation},
             {"nativePageAdvanceScope", V::makeString("target-owner-latest")},
             {"requestPauseOutstanding", V::makeBool(transfer.ownPause)},
             {"completed", V::makeBool(transfer.stage == Impl::Admission::Done)}, {"error", V::makeUInt(transfer.error)},
