@@ -1037,6 +1037,7 @@
     <ClInclude Include="..\..\shared\evidence\ApiContextFields.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\evidence\ApiSectionMapFields.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\evidence\ApiMemoryLifecycleFields.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiTransferSourceView.h"><Filter>Header Files</Filter></ClInclude>
     <ClCompile Include="..\..\shared\ApiMonitorCapture.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectStorage.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="..\..\KswordCLI\ActionAnalyze\Project\SampleCatalog.cpp"><Filter>Source Files</Filter></ClCompile>

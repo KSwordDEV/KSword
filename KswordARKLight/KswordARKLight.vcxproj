@@ -515,6 +515,7 @@
     <ClInclude Include="Features\ActionAnalyze\StoredEvidence.h" />
     <ClInclude Include="Features\ActionAnalyze\ApiTransferPresentation.h" />
     <ClInclude Include="..\shared\evidence\ApiHandoffReceiptView.h" />
+    <ClInclude Include="..\shared\evidence\ApiTransferSourceView.h" />
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h" />
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h" />

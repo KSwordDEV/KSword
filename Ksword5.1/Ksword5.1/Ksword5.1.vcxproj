@@ -556,6 +556,7 @@
     <ClInclude Include="..\..\shared\evidence\ApiContextFields.h" />
     <ClInclude Include="..\..\shared\evidence\ApiSectionMapFields.h" />
     <ClInclude Include="..\..\shared\evidence\ApiMemoryLifecycleFields.h" />
+    <ClInclude Include="..\..\shared\evidence\ApiTransferSourceView.h" />
     <ClCompile Include="..\..\shared\ApiMonitorCapture.cpp">
       <PreprocessorDefinitions>KSWORD_APIMON_STRICT_CAPTURE_ONLY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>

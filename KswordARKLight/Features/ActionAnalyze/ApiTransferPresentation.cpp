@@ -2,6 +2,7 @@
 #include "StoredEvidence.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include "../../../shared/evidence/ApiHandoffReceiptView.h"
+#include "../../../shared/evidence/ApiTransferSourceView.h"
 #include "../../../shared/usermode/backend/process/ProcessControls.h"
 
 namespace Ksword::Features::ActionAnalyze
@@ -407,6 +408,22 @@ namespace
         }
         text += L"\r\n上下文已生效：未知\r\n上下文请求后的执行：未知";
         text += L"\r\nIP、SP、ContextFlags 和 ABI 仅描述请求；接受请求不证明上下文已生效或发生执行。输入句柄和 CONTEXT 地址不授予对象身份。";
+
+        // 与Qt使用同一纯值投影；摘要和原JSON均保留同一回执的字段身份。
+        const auto sourceGroups = Ksword::Evidence::BuildApiTransferSourceView(
+            receipt.networkTraffic, receipt.agentEtw);
+        for (const auto& group : sourceGroups)
+        {
+            text += L"\r\n\r\n";
+            text += group.name;
+            for (const auto& field : group.fields)
+            {
+                text += L"\r\n";
+                text += field.name;
+                text += L"：";
+                text += ks::r3::process::Utf8ToWide(field.value);
+            }
+        }
 
         // 同一不可变回执分别保留网络与ETW原文；各自为空时不显示，不借用UI选择推断采样来源。
         if (receipt.networkTraffic.type() != Ksword::Evidence::JsonType::Null)

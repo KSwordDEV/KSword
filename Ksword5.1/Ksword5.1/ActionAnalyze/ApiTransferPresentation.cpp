@@ -2,6 +2,8 @@
 #include "OfflineSegmentReader.h"
 #include "../UI/StructuredFieldView.h"
 #include "../../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
+#include "../../../shared/evidence/ApiTransferSourceView.h"
+#include <string_view>
 
 namespace ks::action_analyze
 {
@@ -32,6 +34,35 @@ namespace
             return QStringLiteral("部分成功");
         default:
             return QStringLiteral("未知");
+        }
+    }
+
+    // 输入两份冻结JSON字符串，追加共享来源摘要；解析失败时不改写原始JSON字段。
+    void AppendApiTransferSourceSummary(ks::ui::FieldDocument& document,
+        const QString& networkTraffic, const QString& agentEtw)
+    {
+        const auto parse = [](const QString& text)
+        {
+            if (text.isEmpty())
+            {
+                return Ksword::Evidence::JsonValue::makeNull();
+            }
+            const auto utf8 = text.toUtf8(); // 仅为本次只读投影借用UTF-8字节。
+            const auto parsed = Ksword::Evidence::ParseJson(
+                std::string_view(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+            return parsed.ok() ? parsed.value : Ksword::Evidence::JsonValue::makeNull();
+        };
+        const auto groups = Ksword::Evidence::BuildApiTransferSourceView(
+            parse(networkTraffic), parse(agentEtw));
+        for (const auto& group : groups)
+        {
+            auto& section = document.section(QString::fromWCharArray(group.name));
+            for (const auto& field : group.fields)
+            {
+                section.field(QString::fromWCharArray(field.name),
+                    QString::fromUtf8(field.value.data(), static_cast<int>(field.value.size())),
+                    field.translate);
+            }
         }
     }
 }
@@ -393,6 +424,9 @@ namespace
                 .field(QStringLiteral("请求线程入口地址"), QString::number(latest->requestedStartAddress, 16));
         }
         document.note(QStringLiteral("候选仅关联实际写入与后续创建请求，不证明实际执行。"));
+
+        // 先追加共享可读摘要，再追加原JSON；两者都来自同一冻结回执，互不覆盖。
+        AppendApiTransferSourceSummary(document, networkTraffic, agentEtw);
 
         // 网络与ETW是同一worker发布的独立来源文档；空文本表示当前回执没有该来源。
         if (!networkTraffic.isEmpty())

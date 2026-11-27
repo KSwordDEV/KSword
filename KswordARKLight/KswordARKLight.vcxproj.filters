@@ -765,6 +765,7 @@
     <ClInclude Include="Features\ActionAnalyze\ProjectReplay.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="Features\ActionAnalyze\ApiTransferPresentation.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\evidence\ApiHandoffReceiptView.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ApiTransferSourceView.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiCheckpoint.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
