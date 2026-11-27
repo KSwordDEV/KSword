@@ -36,7 +36,7 @@ ERROR_NOT_READY = 21
 ERROR_ACCESS_DENIED = 5
 ERROR_OPERATION_ABORTED = 995
 ERROR_TIMEOUT = 1460
-BEHAVIOR_PRESET_SET = 'ksword.api.behavior-presets.v1'
+BEHAVIOR_PRESET_SET = 'ksword.api.behavior-presets.v3'
 LOCAL_STARTUP_TIMEOUT_MS = 15000
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 IMAGE_FILE_MACHINE_AMD64 = 0x8664
@@ -50,20 +50,21 @@ def winapi(dll, name, result, *args):
     return function
 
 
-def target(identity_negative=None, behavior=False, startup_gate=False):
+def target(identity_negative=None, behavior=False, startup_gate=False, attachment_target=False):
     kernel = C.WinDLL('kernel32', use_last_error=True)
     get_current_process = winapi(kernel, 'GetCurrentProcess', W.HANDLE)
     process_times = winapi(kernel, 'GetProcessTimes', W.BOOL, W.HANDLE, *([C.POINTER(W.FILETIME)] * 4))
     native_tid = winapi(kernel, 'GetCurrentThreadId', W.DWORD)()
     process = get_current_process()  # Only this process's pseudo-handle; no PID or handle input.
-    if identity_negative:
+    if identity_negative or attachment_target:
         process_machine, native_machine = W.WORD(), W.WORD()
         architecture = winapi(kernel, 'IsWow64Process2', W.BOOL, W.HANDLE,
                               C.POINTER(W.WORD), C.POINTER(W.WORD))
         if not architecture(process, C.byref(process_machine), C.byref(native_machine)):
             raise C.WinError(C.get_last_error())
         assert (process_machine.value or native_machine.value) == IMAGE_FILE_MACHINE_AMD64, 'AMD64 target required'
-        get_module = winapi(kernel, 'GetModuleHandleW', W.HMODULE, W.LPCWSTR)
+    get_module = winapi(kernel, 'GetModuleHandleW', W.HMODULE, W.LPCWSTR)
+    if identity_negative or attachment_target:
         assert not get_module(AGENT.name), 'Agent was already present at fixture startup'
     times = [W.FILETIME() for _ in range(4)]
     if not process_times(process, *(C.byref(value) for value in times)):
@@ -78,13 +79,14 @@ def target(identity_negative=None, behavior=False, startup_gate=False):
     base = C.addressof(destination)
 
     # Never let this fresh target pick up a stale PID-scoped configuration.
-    directory = Path(os.environ[COOPERATIVE_ENV])
+    directory = None if attachment_target else Path(os.environ[COOPERATIVE_ENV])
     pid = os.getpid()
-    assert not any(directory.iterdir()), f'Unexpected files before target startup: {directory}'
+    if directory is not None:
+        assert not any(directory.iterdir()), f'Unexpected files before target startup: {directory}'
     agent = None
     startup = {}
     identity = dict(pid=pid, tid=native_tid, creation=creation, base=base)
-    if identity_negative != 'missing-agent':
+    if not attachment_target and identity_negative != 'missing-agent':
         # Opt in before loading our first-party Agent into this process.
         start = time.perf_counter_ns()
         agent = C.WinDLL(str(AGENT))
@@ -105,12 +107,13 @@ def target(identity_negative=None, behavior=False, startup_gate=False):
         if startup_gate:
             identity['localStartupBeforeController'] = wait_startup(25)
             assert identity['localStartupBeforeController'] == ERROR_TIMEOUT, identity
-    if identity_negative:
+    if identity_negative or attachment_target:
         identity['agentLoaded'] = bool(get_module(AGENT.name))
     # 只打开自己的查询句柄。失败调用使用独立缓冲区，成功样本不受影响。
     denied_destination = C.create_string_buffer(1)
     query_handle = None
-    if behavior:
+    # 显式附加夹具也需要同一采样中的拒绝调用，才能验证行为历史窗口。
+    if behavior or attachment_target:
         open_process = winapi(kernel, 'OpenProcess', W.HANDLE, W.DWORD, W.BOOL, W.DWORD)
         query_handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not query_handle:
@@ -139,7 +142,8 @@ def target(identity_negative=None, behavior=False, startup_gate=False):
             if not write(process, base + count, source, 1, C.byref(written)):
                 raise C.WinError(C.get_last_error())
             assert written.value == 1 and destination[count] == b'Z'
-            if behavior:
+            # 成功的自写和查询句柄拒绝调用必须保持相邻，便于核对分类不被行为解释覆盖。
+            if behavior or attachment_target:
                 written.value = 0
                 C.set_last_error(0)
                 returned = write(query_handle, identity['deniedBase'], source, 1, C.byref(written))
@@ -153,7 +157,7 @@ def target(identity_negative=None, behavior=False, startup_gate=False):
             if not close_handle(query_handle):
                 raise C.WinError(C.get_last_error())
     assert stop.is_set(), 'fixture lifetime expired before controller returned'
-    loaded = bool(get_module(AGENT.name)) if identity_negative else bool(agent._handle)
+    loaded = bool(get_module(AGENT.name)) if identity_negative or attachment_target else bool(agent._handle)
     if startup_gate:
         startup['localStartupAfterStop'] = wait_startup(0)
     print(json.dumps(dict(calls=count, agentLoaded=loaded, **startup)), flush=True)
@@ -162,6 +166,47 @@ def target(identity_negative=None, behavior=False, startup_gate=False):
 def receipt(code, stdout, stderr, accepted):
     assert code in accepted, (code, stdout, stderr)
     return json.loads(stdout)['data']
+
+
+def reconcile_progress(project, captured, stderr):
+    """Reconcile bounded stderr JSONL with the final stdout capture receipt."""
+    lines = [line for line in stderr.decode('utf-8-sig').splitlines() if line.strip()]
+    frames = [json.loads(line) for line in lines]
+    assert frames and all(isinstance(frame, dict) for frame in frames), frames
+    startup = [frame for frame in frames if 'stage' in frame and 'progressSequence' not in frame]
+    progress = [frame for frame in frames if frame.get('type') == 'api-capture-progress']
+    assert startup and progress and len(startup) + len(progress) == len(frames), frames
+
+    sequences = [int(frame['progressSequence']) for frame in progress]
+    assert sequences == list(range(1, len(sequences) + 1)), sequences
+    project_id = json.loads((project / 'project.ksaproj').read_bytes())['projectId']
+    sample_id = captured['sampleId']
+    revision_id = captured['revisionId']
+    assert all(frame['projectId'] == project_id and frame['sampleId'] == sample_id and
+               frame['revisionId'] == revision_id for frame in progress), progress
+
+    checkpoints = [frame for frame in progress if frame['kind'] == 'api-checkpoint']
+    assert checkpoints, progress
+    previous = (0, 0, 0)
+    for frame in checkpoints:
+        payload = frame['payload']
+        watermarks = (int(payload['segmentOrdinal']), int(payload['rawSequence']),
+                      int(payload['sourceSequence']))
+        assert watermarks >= previous, (previous, payload)
+        previous = watermarks
+    final = checkpoints[-1]['payload']
+    archive = captured['archive']
+    assert final['finalSegment'] and int(final['segmentOrdinal']) == int(archive['committedSegments'])
+    assert int(final['sourceSequence']) == int(archive['sourceRows'])
+
+    delivery = captured['captureProgress']
+    assert delivery['requested'] and delivery['started'] and delivery['outputDrained'], delivery
+    assert delivery['droppedFrames'] == '0' and delivery['enqueuedFrames'] == str(len(frames)), delivery
+    assert delivery['lastProgressSequence'] == str(sequences[-1]), delivery
+    print(f'COOPERATIVE_PROGRESS_RECONCILIATION=PASS FRAMES={len(frames)} '
+          f'STARTUP={len(startup)} CAPTURE={len(progress)} '
+          f'LAST_SEQUENCE={sequences[-1]} FINAL_SEGMENT={final["segmentOrdinal"]} '
+          f'FINAL_SOURCE={final["sourceSequence"]}', flush=True)
 
 
 def invoke(*args, accepted=(0,)):
@@ -579,7 +624,7 @@ def verify_owned_etw(etw_project, api_project, identity, etw, captured, api_time
         apiSelfWritesBetweenHookEvents=overlapping_calls)), flush=True)
 
 
-def run(project, directory, behavior=False, etw_project=None, win32=False):
+def run(project, directory, behavior=False, etw_project=None, win32=False, progress=False):
     create_project(project, 'AA-03 cooperative target')
     environment = os.environ | {COOPERATIVE_ENV: str(directory)}
     startup_gate = not behavior and etw_project is None
@@ -606,9 +651,13 @@ def run(project, directory, behavior=False, etw_project=None, win32=False):
         print(f'COOPERATIVE_AGENT_LOAD_NS={identity["agentLoadNs"]} '
               f'COOPERATIVE_AGENT_ENABLED_NS={identity["agentEnabledNs"]} TARGET_CREATION={identity["creation"]}', flush=True)
         assert not any(directory.iterdir()), f'Unexpected files before controller startup: {directory}'
-        command = [CLI, 'analyze', 'api-evidence', 'capture', '--project', project, '--title', 'AA-03 self writes',
+        command = [CLI, 'analyze', 'api-evidence', 'capture', '--project', project,
+                   '--title', 'AA-03 cooperative progress' if progress else 'AA-03 self writes',
                    '--pid', str(process.pid), '--creation-filetime', str(identity['creation']),
-                   '--confirm', '--duration-ms', '3000', '--json']
+                   '--confirm', '--duration-ms', '2000' if progress else '3000']
+        if progress:
+            command.extend(['--startup-progress', '1', '--capture-progress', '1'])
+        command.append('--json')
         with (owned_etw_session(etw_project, identity) if etw_project else nullcontext()) as etw:
             controller = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                           stderr=subprocess.PIPE, env=environment)
@@ -646,6 +695,8 @@ def run(project, directory, behavior=False, etw_project=None, win32=False):
                 print(f'COOPERATIVE_API_LIVE_READBACK=PASS SOURCE_ROWS={prefix["sourceRows"]}', flush=True)
             print(f'CLI_CAPTURE_EXIT={controller.returncode} {output.decode("utf-8", errors="replace").strip()}', flush=True)
             captured = receipt(controller.returncode, output, error, (0, 6))
+            if progress:
+                reconcile_progress(project, captured, error)
         assert process.poll() is None, 'owned target did not survive the interval'
         tail, target_error = process.communicate(timeout=10)  # Closes stdin; the owned target exits normally.
         assert process.returncode == 0, (process.returncode, tail, target_error)
@@ -657,7 +708,7 @@ def run(project, directory, behavior=False, etw_project=None, win32=False):
         assert not captured['cancelled'] and not captured['targetExited'], captured
         assert int(captured['sourceSessionIdentity']) > 0 and captured['invalidPackets'] == '0', captured
         assert captured['agentReportedDrops'] == '0', captured
-        assert int(captured['elapsedMs']) >= 3000, captured
+        assert int(captured['elapsedMs']) >= (2000 if progress else 3000), captured
         ready_revision = int(captured['readyCoverageRevision'])
         assert 0 < ready_revision <= int(captured['requiredFinalCoverageRevision']), captured
         print(f'COOPERATIVE_AGENT_READY=True SESSION={captured["sourceSessionIdentity"]} '
@@ -766,12 +817,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--target', action='store_true', help=argparse.SUPPRESS)
+    mode.add_argument('--attachment-target', action='store_true', help=argparse.SUPPRESS)
     mode.add_argument('--behavior-target', action='store_true', help=argparse.SUPPRESS)
     mode.add_argument('--startup-target', action='store_true', help=argparse.SUPPRESS)
     mode.add_argument('--win32', action='store_true', help='run the existing native Win32 target under WOW64')
     mode.add_argument('--behavior', action='store_true', help='replay real access-denied and successful self calls')
     mode.add_argument('--owned-etw', nargs=2, metavar=('AGENT_SHA256', 'CLI_SHA256'),
                       help='verify these product builds in separate, overlapping cooperative API and R3 ETW samples')
+    mode.add_argument('--progress-scenario', action='store_true',
+                      help='run the single short cooperative startup/capture progress scenario')
     mode.add_argument('--identity-negative', action='store_true',
                       help='run only the wrong-FILETIME and missing-Agent rejection fixtures')
     mode.add_argument('--missing-directory', action='store_true',
@@ -787,9 +841,12 @@ def main():
     for expected_hash in expected_hashes.values():
         if len(expected_hash) != 64 or any(digit not in '0123456789abcdefABCDEF' for digit in expected_hash):
             parser.error('--owned-etw requires 64-digit Agent and CLI SHA-256 values')
-    if args.target or args.behavior_target or args.startup_target or args.identity_negative_target:
-        target(args.identity_negative_target, behavior=args.behavior_target, startup_gate=args.startup_target)
+    if args.target or args.attachment_target or args.behavior_target or args.startup_target or args.identity_negative_target:
+        target(args.identity_negative_target, behavior=args.behavior_target, startup_gate=args.startup_target,
+               attachment_target=args.attachment_target)
         return
+    if args.progress_scenario and (args.behavior or args.owned_etw or args.identity_negative or args.missing_directory or args.win32):
+        parser.error('--progress-scenario is a standalone scenario')
     from project_v1 import owned_project_path, regular_identity
 
     if args.win32:
@@ -817,7 +874,8 @@ def main():
                 run_identity_negative(project, directory, case)
         else:
             etw_project = project.parent / 'owned Agent ETW project' if args.owned_etw else None
-            run(project, directory, behavior=args.behavior, etw_project=etw_project, win32=args.win32)
+            run(project, directory, behavior=args.behavior, etw_project=etw_project,
+                win32=args.win32, progress=args.progress_scenario)
         assert regular_identity(directory) == original_directory, directory
         assert not any(directory.iterdir()), f'Unexpected files retained in {directory}'
         directory.rmdir()
@@ -828,6 +886,8 @@ def main():
         result = 'AA03_COOPERATIVE_API_MISSING_DIRECTORY'
     elif args.owned_etw:
         result = 'AA03_COOPERATIVE_API_OWNED_ETW'
+    elif args.progress_scenario:
+        result = 'AA03_COOPERATIVE_API_PROGRESS'
     else:
         result = 'AA03_COOPERATIVE_API_IDENTITY_NEGATIVE' if args.identity_negative else 'AA03_COOPERATIVE_API_CAPTURE'
     print(f'{result}=PASS', flush=True)

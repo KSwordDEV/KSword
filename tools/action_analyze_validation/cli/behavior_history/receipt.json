@@ -1,0 +1,582 @@
+{
+  "result": "FAIL",
+  "cliSha256": "6543745263b80f44a94ed701da23301ffff43bf9716f8fdbffb4c0dfff5b2e44",
+  "targetSha256": null,
+  "evidenceDirectory": "E:\\Projects\\Ksword5.1\\tools\\action_analyze_validation\\cli\\behavior_history",
+  "failure": {
+    "type": "KeyError",
+    "message": "'failed'",
+    "captureIssued": true,
+    "controllerExitCode": 6,
+    "productResponse": {
+      "status": "capture-partial",
+      "sampleId": "42d3495b-4a5d-42e4-bad3-4fe73689317f",
+      "revisionId": "13e8b889-a76f-4383-aa0b-e1f3a2c7edba",
+      "pid": 32872,
+      "creationFileTime": "134402741765431594",
+      "transferHandoff": null,
+      "networkTraffic": null,
+      "residentVerified": false,
+      "captureMode": "explicit-r3-attachment",
+      "launch": null,
+      "attachmentIdentityVerified": true,
+      "agentLoadAttempted": true,
+      "agentModuleVerified": true,
+      "agentPath": "E:\\Projects\\Ksword5.1\\Ksword5.1\\x64\\Release\\APIMonitor_x64.dll",
+      "configPublished": true,
+      "startup": {
+        "stage": "ready",
+        "pid": 32872,
+        "creationFileTime": "134402741765431594",
+        "elapsedMs": "125",
+        "sessionIdentity": "2111645800424163775",
+        "coverageRevision": "1",
+        "attachmentIdentityVerified": true,
+        "agentLoadAttempted": true,
+        "agentModuleVerified": true,
+        "reusedResident": false,
+        "configPublished": true
+      },
+      "connected": true,
+      "agentReady": true,
+      "sessionReady": true,
+      "hooksInstalled": true,
+      "sourceSessionIdentity": "2111645800424163775",
+      "completedInterval": true,
+      "cancelled": false,
+      "targetExited": false,
+      "cleanupComplete": true,
+      "stopMarkerWritten": true,
+      "hooksRemoved": true,
+      "cleanPipeEof": true,
+      "coverageRevision": "2",
+      "requiredFinalCoverageRevision": "2",
+      "elapsedMs": "2438",
+      "readyAfterMs": "125",
+      "readyCoverageRevision": "1",
+      "intervalElapsedMs": "2000",
+      "invalidPackets": "0",
+      "ordinaryPackets": "360",
+      "archivedPackets": "360",
+      "omittedClues": "0",
+      "archiveError": null,
+      "agentReportedDrops": "0",
+      "partialHooks": true,
+      "coverageSnapshotCurrent": true,
+      "pipeError": null,
+      "archive": {
+        "status": "readback-verified",
+        "sampleId": "42d3495b-4a5d-42e4-bad3-4fe73689317f",
+        "rawSegment": "1",
+        "committedSegments": "2",
+        "finalSegment": true,
+        "archiveSource": "cooperative-pipe",
+        "mixedEtw": false,
+        "sourceRows": "360",
+        "clueRows": "144",
+        "coverage": "unknown",
+        "sourceState": "pipe-eof",
+        "failedSegment": null,
+        "nextAfter": "3",
+        "rows": [
+          {
+            "rawSegment": "1",
+            "rawSequence": "3",
+            "sourceSequence": "2",
+            "family": "memory-write",
+            "api": "WriteProcessMemory",
+            "pid": 32872,
+            "tid": 48760,
+            "sourceSessionIdentity": "2111645800424163775",
+            "time100ns": "134402741767226893",
+            "archivedCallerCreation100ns": "134402741765431594",
+            "phase": "return",
+            "reportedReturnBits": "0x1",
+            "reportedStatusCode": 0,
+            "targetIdentity": null,
+            "completedWriteBytes": null,
+            "executed": null,
+            "attribution": null,
+            "apiMemoryLifecycle": null
+          }
+        ]
+      },
+      "rules": {
+        "presetSet": "ksword.api.behavior-presets.v3",
+        "sourceSha256": "3f5283bba6ffb656ed691d92b9497ff46d3c41c6fb9c97453fb564ffef0beca8",
+        "configError": null,
+        "profile": "by-category",
+        "coverage": "unknown",
+        "state": "ready",
+        "matchedRows": "144",
+        "latest": {
+          "ruleId": "ksword.api.memory-write-observed.v1",
+          "segmentOrdinal": "2",
+          "rawSequence": "360",
+          "sourceSequence": "358",
+          "behavior": {
+            "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+            "evidence": "reported-api-return",
+            "summary": "Memory write request returned access denied.",
+            "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+          }
+        },
+        "behaviorMatches": "72",
+        "behaviorWindowTruncated": true,
+        "recentBehaviors": [
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "205",
+            "sourceSequence": "203",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "210",
+            "sourceSequence": "208",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "215",
+            "sourceSequence": "213",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "220",
+            "sourceSequence": "218",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "225",
+            "sourceSequence": "223",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "230",
+            "sourceSequence": "228",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "235",
+            "sourceSequence": "233",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "240",
+            "sourceSequence": "238",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "245",
+            "sourceSequence": "243",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "250",
+            "sourceSequence": "248",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "255",
+            "sourceSequence": "253",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "260",
+            "sourceSequence": "258",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "265",
+            "sourceSequence": "263",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "270",
+            "sourceSequence": "268",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "275",
+            "sourceSequence": "273",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "280",
+            "sourceSequence": "278",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "285",
+            "sourceSequence": "283",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "290",
+            "sourceSequence": "288",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "295",
+            "sourceSequence": "293",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "300",
+            "sourceSequence": "298",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "305",
+            "sourceSequence": "303",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "310",
+            "sourceSequence": "308",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "315",
+            "sourceSequence": "313",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "320",
+            "sourceSequence": "318",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "325",
+            "sourceSequence": "323",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "330",
+            "sourceSequence": "328",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "335",
+            "sourceSequence": "333",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "340",
+            "sourceSequence": "338",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "345",
+            "sourceSequence": "343",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "350",
+            "sourceSequence": "348",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "355",
+            "sourceSequence": "353",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          },
+          {
+            "segmentOrdinal": "2",
+            "rawSequence": "360",
+            "sourceSequence": "358",
+            "api": "WriteProcessMemory",
+            "ruleId": "ksword.api.memory-write-observed.v1",
+            "behavior": {
+              "ruleId": "ksword.behavior.memory-write-access-denied-return.v1",
+              "evidence": "reported-api-return",
+              "summary": "Memory write request returned access denied.",
+              "summaryZh": "\u5185\u5b58\u5199\u5165\u8bf7\u6c42\u8fd4\u56de\u8bbf\u95ee\u88ab\u62d2\u7edd"
+            }
+          }
+        ]
+      },
+      "apiTransfers": {
+        "evidence": "reported-api-write-to-thread-create",
+        "candidateCount": "0",
+        "evictedWrites": "0",
+        "windowTruncated": false,
+        "recent": [],
+        "execution": "unknown"
+      },
+      "apiApcTransfers": {
+        "evidence": "reported-api-write-to-apc-queue",
+        "candidateCount": "0",
+        "evictedWrites": "0",
+        "windowTruncated": false,
+        "recent": [],
+        "delivery": null,
+        "execution": null
+      },
+      "apiContextTransfers": {
+        "evidence": "reported-api-write-to-context-request",
+        "candidateCount": "0",
+        "evictedWrites": "0",
+        "windowTruncated": false,
+        "recent": [],
+        "contextApplied": null,
+        "execution": null
+      },
+      "errors": [],
+      "captureProgress": {
+        "requested": true,
+        "started": true,
+        "lastProgressSequence": "4",
+        "enqueuedFrames": "13",
+        "droppedFrames": "0",
+        "outputDrained": true
+      }
+    }
+  }
+}
