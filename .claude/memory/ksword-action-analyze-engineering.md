@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4/5/6项追加范围暂停竞态。** ApiTransferHandoff在Pause实际回读前遇到NX命中时，不再因缺少手动暂停票据立即拒绝；真实可追加Held直接沿原AddRange，保存/继续仍归Observe；内部NX推进则保留Initial等待。只有真实Pending或已Held的手动暂停票据才登记ownPause，避免把已被NX抢先的暂停当作本请求债务。源码单独提交，456定向运行待CodeBuddy；不复用正在执行的ETW回执覆盖本次改动，GUI后置。
+
 - **2026-11-27 第4/5项等待期间继续产品开发。** 用户明确「等待shell的时候写点别的」，解除本轮等待期间不改产品的工作安排。ApiTransferHandoff::Prepare现在无论原范围当前NX还是内部TF临时还X，均先按真实owner已登记目录解析入口；不把临时合并的VirtualQuery RegionSize作为新范围。新入口不在原目录且owner仍内部推进时，仅返回Pending，下一次Hook重连在回关NX后重新解析，避免冻结与原范围重叠的追加请求。最终成功ACK仍须VerifyArmedRange逐区确认真实NX。本批独立于正在运行的ETW构建实测，不能借该批产物或回执声称覆盖；待456定向实测。主协调只写产品，测试/记录仍交CodeBuddy，GUI后置。
 
 - **2026-11-27 第8项显式附加遥测修正。** etw-stream最终回执已到：CLI正式Build成功，发布29条规则已接受；B目标stubRan/counter/exit0及清退成立，但配套ETW零观察、tailDeliveryUnconfirmed使CLI退出3。既有持续ETW9普通段+1终段及历史回读通过，不能替代混采。主协调定位MonitorAgent只在合作目录模式登记ETW，显式附加跳过；现统一为管道连接后的SessionEtw，合作/附加共用生命周期提供程序。EtwSessionController移除STOP前零回调即尾丢失的推断，仍保留消费者先退/ProcessTrace错误及丢包。CodeBuddy唯一任务sh_21b8358880012S8I4dF3IB4tso负责一次两Agent+CLI正式增量及一次原带ETW的B，回执etw-attach-fix/receipt.md；无GUI/持续ETW重跑/C。产品输入构建期间冻结，完成后继续456核心，不借源码修正声称已通过。全部测试落盘由CodeBuddy负责，原脏文件保留。

@@ -472,11 +472,32 @@ public:
             else if (n::CanPauseDataWatchSession(member->control)) {
                 const n::ExecutionGroupSessionEntry entry{member->owner, member->control};
                 current = group.Pause(std::span(&entry, 1), false);
-                transfer.ownPause = true;
                 const auto* paused = Member(r);
-                if (paused && paused->control.armedPause)
+                if (paused && paused->control.armedPause &&
+                    (paused->control.armedPause->state == n::NativeArmedPauseState::Pending ||
+                        paused->control.armedPause->state == n::NativeArmedPauseState::Held &&
+                        paused->control.stopReason == n::NativeStopReason::ManualPause))
+                {
                     transfer.pauseRequestId = paused->control.armedPause->request.requestId;
-                if (transfer.pauseRequestId.empty()) { Finish(transfer, ERROR_INVALID_STATE); return; }
+                    transfer.ownPause = !transfer.pauseRequestId.empty();
+                }
+                // Pause再次回读前可能已命中NX；此时没有本请求的手动暂停债，
+                // 直接沿真实Held追加，后续由Observe保存事件并执行原继续策略。
+                if (!transfer.ownPause && paused && n::OwnedExecutionGroup::CanAddRangeMember(*paused))
+                {
+                    AddRange(transfer, *paused);
+                    return;
+                }
+                if (!transfer.ownPause && paused && paused->control.pageAdvance &&
+                    paused->control.pageAdvance->receipt.state == n::NativeStepState::Running &&
+                    !paused->control.pageAdvance->receipt.resourcesRestored)
+                {
+                    return; // 请求尚未取得暂停责任，保持Initial等内部推进完成。
+                }
+                if (!transfer.ownPause) {
+                    Finish(transfer, paused && paused->control.win32Error ? paused->control.win32Error : ERROR_INVALID_STATE);
+                    return;
+                }
                 transfer.stage = Admission::Paused;
                 return;
             } else if (n::OwnedExecutionGroup::CanAddRangeMember(*member)) { AddRange(transfer, *member); return; }
