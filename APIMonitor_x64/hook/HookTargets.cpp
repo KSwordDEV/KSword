@@ -5638,11 +5638,22 @@ namespace apimon
             const auto callClock = BeginApiCallClock();
             const NTSTATUS statusValue = g_ntResumeThreadOriginal(threadHandle, previousSuspendCountPointer);
             const auto duration = EndApiCallClock(callClock);
+            // 可选输出只在原调用成功且安全读回时解释；失败指针不能让记录器追加一次访问异常。
+            ULONG previousSuspendCount = 0; // 成功读回的原旧挂起计数，不是当前暂停状态。
+            const bool previousKnown = NT_SUCCESS(statusValue) &&
+                TrySafeIoValue(previousSuspendCountPointer, &previousSuspendCount); // 不为nullptr或不可读输出补零。
             wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
             AppendWideText(detailBuffer, L"thread=");
             AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(threadHandle));
             AppendWideText(detailBuffer, L" previous=");
-            AppendUnsignedText(detailBuffer, previousSuspendCountPointer != nullptr ? *previousSuspendCountPointer : 0);
+            if (previousKnown)
+            {
+                AppendUnsignedText(detailBuffer, previousSuspendCount);
+            }
+            else
+            {
+                AppendWideText(detailBuffer, L"unknown"); // 保留未采集语义，返回状态仍沿原包单列。
+            }
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ntdll", L"NtResumeThread", statusValue, detailBuffer, true, ApiReturnBits(statusValue), duration);
             return statusValue;
         }
