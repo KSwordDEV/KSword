@@ -374,7 +374,13 @@ public:
                 bool exited = false;
                 for (const auto& process : result.processes)
                 {
-                    failed = failed || process.pipeError || process.agentDropped || process.partialHooks ||
+                    // HooksPartial is a non-fatal installation diagnostic: this source
+                    // already crossed the strict Ready barrier and the transfer request
+                    // itself proves the relevant observation hook is active.  Do not
+                    // revoke an otherwise valid handoff because an unrelated optional
+                    // hook was unavailable; pipe loss, install failure and stale coverage
+                    // remain hard failures.
+                    failed = failed || process.pipeError || process.agentDropped ||
                         process.installFailed || !process.installed || !process.coverageComplete || process.coverageStale ||
                         (process.connected && !process.cleanPipeEof);
                     exited = exited || process.exited;
