@@ -158,6 +158,7 @@ try {
         "/t:$Action",
         '/p:Configuration=Release',
         '/p:Platform=x64',
+        '/p:BuildProjectReferences=false',
         '/p:PreferredToolArchitecture=x64',
         '/p:PROCESSOR_ARCHITECTURE=AMD64',
         '/p:PROCESSOR_ARCHITEW6432=AMD64',
