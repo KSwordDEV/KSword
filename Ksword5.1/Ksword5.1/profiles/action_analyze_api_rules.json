@@ -190,6 +190,24 @@
   },
   "behaviorRules": [
     {
+      "ruleId": "ksword.behavior.thread-resume-no-suspension.v1",
+      "predicate": "api.family == \"thread-resume\" && api.name == \"ResumeThread\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && thread.previousSuspendCount == 0u64",
+      "summary": "ResumeThread returned a previous suspend count of zero: the thread was not suspended by a suspend count at this call. The return is successful; it is not an execution observation.",
+      "summaryZh": "ResumeThread 返回旧挂起计数 0：本次调用时该线程没有挂起计数；这是成功返回，不是实际执行观察"
+    },
+    {
+      "ruleId": "ksword.behavior.thread-resume-last-suspension.v1",
+      "predicate": "api.family == \"thread-resume\" && api.name == \"ResumeThread\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && thread.previousSuspendCount == 1u64",
+      "summary": "ResumeThread reported removing the last suspend count. This permits scheduling under suspend-count semantics; debug stops and actual instruction execution are separate observations.",
+      "summaryZh": "ResumeThread 报告解除最后一层挂起计数；按挂起计数语义允许调度，调试停点及实际指令执行另行观察"
+    },
+    {
+      "ruleId": "ksword.behavior.thread-resume-count-remains.v1",
+      "predicate": "api.family == \"thread-resume\" && api.name == \"ResumeThread\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && thread.previousSuspendCount > 1u64",
+      "summary": "ResumeThread reported decrementing a suspend count greater than one. This call alone does not remove all suspend counts; later thread state is not inferred.",
+      "summaryZh": "ResumeThread 报告递减大于 1 的挂起计数；仅本次调用没有解除全部挂起计数，不推断线程之后的状态"
+    },
+    {
       "ruleId": "ksword.behavior.thread-resume-returned.v1",
       "predicate": "api.family == \"thread-resume\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
       "summary": "A thread resume API reported success. A zero previous suspend count is valid; success does not prove execution or identify its instruction address.",
