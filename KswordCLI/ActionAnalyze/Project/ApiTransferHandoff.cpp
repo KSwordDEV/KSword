@@ -103,6 +103,7 @@ public:
     std::optional<std::uint64_t> previousSequence;
     ProjectResult archiveStatus;
     std::map<std::string, n::NativeEventKey> observed;
+    std::map<std::string, bool> failedOwnerRecovery; // 已发单成员清退的原owner，后续仅回读，不反复提交Close。
     std::wstring agentPath; // 主capture使用的同一产品Agent路径，不另接受用户DLL参数。
     SourcePacket onPacket; // 借原worker合并到唯一API归档流。
     TargetDiscovered onTarget; // 同一worker登记网络目标，不等待目标首个API包。
@@ -685,6 +686,30 @@ public:
         // 归档和构造继续列表期间也可能收到取消；提交前再次检查，避免继续已经要求停止的采样。
         if (!resume.empty() && !cancel.load()) current = group.Continue(resume, false);
     }
+    void RecoverFailedTargets()
+    {
+        // 失败准入且没有可用Agent时，原API仍会放行；不能让该目标的NX停点无限等待Ready。
+        if (closing || current.collectionId.empty() || !archiveStatus) return;
+        for (const auto& transfer : transfers)
+        {
+            const auto source = sources.find(transfer.request.targetPid); // 成功准入后Agent失效也不能继续持NX等Ready。
+            const bool sourceFailed = source != sources.end() &&
+                source->second.creation == transfer.request.targetCreation && source->second.failed;
+            if (transfer.stage != Admission::Done || (!transfer.error && !sourceFailed) ||
+                SourceReady(transfer.request.targetPid, transfer.request.targetCreation)) continue;
+            const auto pendingTarget = std::any_of(transfers.begin(), transfers.end(), [&](const auto& other) {
+                return other.stage != Admission::Done && other.request.targetPid == transfer.request.targetPid &&
+                    other.request.targetCreation == transfer.request.targetCreation;
+            }); // 同一实例尚有准入在推进时，不撤掉其仍需使用的NX范围。
+            if (pendingTarget) continue;
+            const auto* member = Member(transfer.request);
+            if (!member || member->control.clean || member->owner.backendInstanceId.empty() ||
+                failedOwnerRecovery.contains(member->owner.backendInstanceId)) continue;
+            const auto owner = member->owner; // CloseMember会更新current，不能继续借用旧成员指针。
+            failedOwnerRecovery.emplace(owner.backendInstanceId, true);
+            current = group.CloseMember(owner);
+        }
+    }
     void Poll()
     {
         // 每次只处理一个已完成阶段；未完成返回原采集循环，不阻塞GUI。
@@ -692,6 +717,7 @@ public:
         AdvanceTransfers();
         RestoreRequestPauses();
         Observe();
+        RecoverFailedTargets(); // 已持有停点先归档，再沿原owner恢复；不借Continue伪造Agent就绪。
         if (!started || closing || cancel.load()) return;
         if (phase == Phase::Release) {
             // overlapped写完成只表示入管道，不能马上Disconnect丢掉尚未被Hook读取的ACK。
@@ -902,6 +928,8 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"nativeOwnerStage", member && member->control.stage
                 ? V::makeString(member->control.stage) : V::makeNull()},
             {"nativeOwnerError", V::makeUInt(member ? member->control.win32Error : 0)},
+            {"failedTargetRecoveryRequested", V::makeBool(member &&
+                s.failedOwnerRecovery.contains(member->owner.backendInstanceId))},
             {"nativePageAdvance", std::move(pageAdvance)},
             {"nativeExitCode", member && member->control.retirement && member->control.retirement->exitCode
                 ? V::makeUInt(*member->control.retirement->exitCode) : V::makeNull()},

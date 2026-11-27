@@ -638,6 +638,22 @@ ProcessMemorySnapshotResult OwnedExecutionGroup::CaptureMemory(const ExecutionGr
     return member->session->CaptureMemory(displayed.control, plan, cancel); // 不创建新暂停组或调试owner。
 }
 
+ExecutionGroupResult OwnedExecutionGroup::CloseMember(const OwnerIdentity& owner)
+{
+    auto& self = *impl_; // 调用方原worker串行执行，只接受集合实际持有的会话身份。
+    const auto found = std::find_if(self.members.begin(), self.members.end(), [&](const auto& member) {
+        return member.session->Identity() == owner;
+    });
+    if (!self.started || self.closing || owner.backendInstanceId.empty() || found == self.members.end())
+    {
+        return self.Reject(ExecutionGroupAction::Close, "execution-group-close-foreign-owner", ERROR_INVALID_STATE);
+    }
+    self.operation = ExecutionGroupOperation{ExecutionGroupAction::Close, true,
+        "execution-group-member-close-submitted", 0, {}};
+    self.Outcome(*found, found->session->Close()); // 原会话恢复NX/TF/暂停；不删除尚未clean的对象。
+    return self.Result();
+}
+
 ExecutionGroupResult OwnedExecutionGroup::Close()
 {
     auto& self = *impl_;

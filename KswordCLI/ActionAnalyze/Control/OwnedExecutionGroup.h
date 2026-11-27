@@ -107,6 +107,8 @@ public:
     [[nodiscard]] ProcessMemorySnapshotResult CaptureMemory(const ExecutionGroupSessionEntry& displayed,
         const memory::Plan& plan, const std::atomic_bool* cancel = nullptr);
     [[nodiscard]] ExecutionGroupResult Close();
+    // 输入集合内原owner，单独恢复并脱离该成员；保留成员和恢复账，不关闭其它目标或整个集合。
+    [[nodiscard]] ExecutionGroupResult CloseMember(const OwnerIdentity& owner);
 
     // 端侧可用于资格显示；实际操作还会回读并再次核对，不接受单独 stopId 或历史索引。
     [[nodiscard]] static bool Matches(const NativeControlResult& displayed, const NativeControlResult& current);
