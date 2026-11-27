@@ -350,12 +350,38 @@ DWORD NativePrivateExecutionPage::VerifyInstruction(HANDLE process, std::uint64_
         ? ERROR_SUCCESS : ERROR_INVALID_DATA;
 }
 
+// Close/回滚逐页调用：输入原目标句柄和本端责任，恢复仍存活的原页，或回读确认页已释放后结束责任。
+// 成功只说明本端保护责任已结束；原owner的firstRecoveryFailure及业务失败历史由上层保留。
 DWORD NativePrivateExecutionPage::RestorePage(HANDLE process, Page& page)
 {
     if (!page.owned) return ERROR_SUCCESS;
     if (page.conflict) return ERROR_INVALID_DATA;
-    DWORD actual = 0;
-    if (const auto error = ReadProtection(process, page, actual)) return error;
+    DWORD actual = 0; // 当前原分配的保护；已释放页只能结束责任，不能恢复旧保护。
+    if (const auto error = ReadProtection(process, page, actual))
+    {
+        if (error != ERROR_INVALID_ADDRESS)
+        {
+            return error;
+        }
+        // 实测中外部在真实Held期间释放原分配，Continue保留首恢复错误后会进入这里。
+        // 只确认当前整页MEM_FREE；同址已提交/保留的替代分配仍拒绝，不写保护或重建内存。
+        MEMORY_BASIC_INFORMATION region{}; // 由原目标句柄直接回读的完整内存区域。
+        const auto address = page.site.site.address; // 仍使用登记页坐标，绝不按新分配重绑定。
+        if (VirtualQueryEx(process, reinterpret_cast<const void*>(address), &region, sizeof(region)) != sizeof(region))
+        {
+            return LastError();
+        }
+        const auto base = reinterpret_cast<std::uintptr_t>(region.BaseAddress); // 当前空闲范围的实际起点。
+        if (region.State != MEM_FREE || address < base || region.RegionSize < kPageBytes ||
+            address - base > region.RegionSize - kPageBytes)
+        {
+            return error;
+        }
+        page.active = false; // 原页已消失，不再允许该目录项参与执行匹配或重新设防。
+        page.owned = false; // 没有本端保护残留；不是宣称恢复了已释放内存或原业务执行。
+        page.indeterminate = false;
+        return ERROR_SUCCESS;
+    }
     if (actual != page.original && actual != page.nonExecutable) return ERROR_INVALID_DATA;
     if (actual != page.original) {
         page.indeterminate = true;
