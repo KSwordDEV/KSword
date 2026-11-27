@@ -41,8 +41,13 @@ namespace Ksword::Evidence
             }
             else
             {
+                network.fields.push_back({L"发布流", "未知", true});
+                network.fields.push_back({L"发布段号", "未知", true});
                 network.fields.push_back({L"网络来源 ID", "未知", true});
                 network.fields.push_back({L"网络时钟 ID", "未知", true});
+                network.fields.push_back({L"最后原始序号", "未知", true});
+                network.fields.push_back({L"归档结束偏移", "未知", true});
+                network.fields.push_back({L"归档 SHA-256", "未知", true});
             }
             sections.push_back(std::move(network));
         }
@@ -55,13 +60,30 @@ namespace Ksword::Evidence
             Field(etw, agentEtw, L"已归档观察数", "archivedObservations");
             Field(etw, agentEtw, L"最终段", "finalSegment");
             Field(etw, agentEtw, L"回执不完整", "incomplete");
-            Field(etw, agentEtw, L"事件丢失数", "eventsLost");
-            Field(etw, agentEtw, L"日志缓冲丢失数", "logBuffersLost");
-            Field(etw, agentEtw, L"实时缓冲丢失数", "realTimeBuffersLost");
-            Field(etw, agentEtw, L"队列淘汰数", "queueDropped");
-            Field(etw, agentEtw, L"负载截断数", "payloadTruncated");
-            Field(etw, agentEtw, L"畸形负载数", "malformedPayload");
             etw.failed = Failed(agentEtw, "incomplete");
+
+            // 原生ETW状态位于source子对象；不从网络回执或根级缺失字段补造损失计数。
+            const auto* source = agentEtw.find("source");
+            if (source && source->asObject())
+            {
+                Field(etw, *source, L"来源状态", "state");
+                Field(etw, *source, L"事件丢失数", "eventsLost");
+                Field(etw, *source, L"日志缓冲丢失数", "logBuffersLost");
+                Field(etw, *source, L"实时缓冲丢失数", "realTimeBuffersLost");
+                Field(etw, *source, L"队列淘汰数", "queueDropped");
+                Field(etw, *source, L"负载截断数", "payloadTruncated");
+                Field(etw, *source, L"畸形负载数", "malformedPayload");
+            }
+            else
+            {
+                etw.fields.push_back({L"来源状态", "未知", true});
+                etw.fields.push_back({L"事件丢失数", "未知", true});
+                etw.fields.push_back({L"日志缓冲丢失数", "未知", true});
+                etw.fields.push_back({L"实时缓冲丢失数", "未知", true});
+                etw.fields.push_back({L"队列淘汰数", "未知", true});
+                etw.fields.push_back({L"负载截断数", "未知", true});
+                etw.fields.push_back({L"畸形负载数", "未知", true});
+            }
 
             // ETW发布对象没有网络sourceId/clockId；保留它自有的原始段坐标。
             const auto* published = agentEtw.find("published");
@@ -74,6 +96,16 @@ namespace Ksword::Evidence
                 Field(etw, *published, L"归档结束偏移", "endOffset");
                 Field(etw, *published, L"归档 SHA-256", "sha256");
                 Field(etw, *published, L"发布对象最终段", "finalSegment");
+            }
+            else
+            {
+                etw.fields.push_back({L"发布流", "未知", true});
+                etw.fields.push_back({L"发布段号", "未知", true});
+                etw.fields.push_back({L"首个原始序号", "未知", true});
+                etw.fields.push_back({L"最后原始序号", "未知", true});
+                etw.fields.push_back({L"归档结束偏移", "未知", true});
+                etw.fields.push_back({L"归档 SHA-256", "未知", true});
+                etw.fields.push_back({L"发布对象最终段", "未知", true});
             }
             sections.push_back(std::move(etw));
         }
