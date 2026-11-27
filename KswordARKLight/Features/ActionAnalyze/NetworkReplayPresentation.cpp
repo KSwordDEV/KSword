@@ -70,6 +70,16 @@ const wchar_t* Layer(NetworkCaptureLayer layer) {
     return L"未知";
 }
 
+// 输入原包归属等级，返回说明正文；已核验来源和逐包进程身份是不同事实。
+const wchar_t* Attribution(NetworkFlowMetadata::ProcessAttribution attribution) {
+    switch (attribution) {
+    case NetworkFlowMetadata::ProcessAttribution::VerifiedInstance: return L"已核验进程实例";
+    case NetworkFlowMetadata::ProcessAttribution::EndpointTableHint: return L"端口表 PID 线索";
+    case NetworkFlowMetadata::ProcessAttribution::NativePidHint: return L"原生 PID 线索";
+    }
+    return L"未知";
+}
+
 // 仅对缺失值返回未知，零为有效观测。
 std::wstring Number(std::optional<std::uint64_t> number) {
     return number ? std::to_wstring(*number) : L"未知";
@@ -88,10 +98,15 @@ std::wstring NetworkReplayDetails(const NetworkStoredFlowPreview& record) {
     const auto& source = record.source; // 源、时钟及代次声明。
     const auto& capture = record.flow.capture; // 字节长度按本条的采集层解释。
     const auto epoch = UuidText(source.sourceEpoch); // 来源代次 UUID，独立于采样 ID。
+    const bool instanceKnown = flow.processAttribution == NetworkFlowMetadata::ProcessAttribution::VerifiedInstance &&
+        flow.processCreatedUtc100ns != 0; // 弱PID归属没有事件时创建时间，保留未知而不是展示0。
     std::wstring text = Protocol(flow) + L"\r\n源端点：" + Endpoint(flow.family, flow.sourceField) +
         L"\r\n目的端点：" + Endpoint(flow.family, flow.destinationField) +
         L"\r\n归档进程 PID：" + std::to_wstring(flow.processId) + L"    创建 FILETIME：" +
-        std::to_wstring(flow.processCreatedUtc100ns) + L"    进程对象 ID：" + Number(flow.processObjectId) +
+        (instanceKnown ? std::to_wstring(flow.processCreatedUtc100ns) : L"未知") + L"    进程对象 ID：" + Number(flow.processObjectId) +
+        L"\r\n进程归属说明：" + Attribution(flow.processAttribution) +
+        L"\r\n网络来源绑定：" + (record.sourceTrust == NetworkSourceTrust::MatchedVerifiedBinding
+            ? L"已核验来源绑定" : L"仅归档来源声明") +
         L"\r\n来源（归档声明）：" + std::wstring(source.sourceId.begin(), source.sourceId.end()) +
         L"    代次：" + epoch + L"\r\n时钟：" + std::wstring(source.clockId.begin(), source.clockId.end()) +
         L"    启动标识：" + std::wstring(source.bootId.begin(), source.bootId.end()) +

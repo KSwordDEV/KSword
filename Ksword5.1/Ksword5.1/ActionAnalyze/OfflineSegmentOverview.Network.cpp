@@ -59,6 +59,22 @@ namespace
         }
         return {};
     }
+
+    // 输入归档的逐包归属枚举，返回本地化说明；来源绑定通过不自动提升PID线索为强实例。
+    QString AttributionText(archive::NetworkFlowMetadata::ProcessAttribution attribution)
+    {
+        using Attribution = archive::NetworkFlowMetadata::ProcessAttribution;
+        switch (attribution)
+        {
+        case Attribution::VerifiedInstance:
+            return sourceText(QStringLiteral("已核验进程实例"));
+        case Attribution::EndpointTableHint:
+            return sourceText(QStringLiteral("端口表 PID 线索"));
+        case Attribution::NativePidHint:
+            return sourceText(QStringLiteral("原生 PID 线索"));
+        }
+        return sourceText(QStringLiteral("未知"));
+    }
 }
 
 // 使用共享详情文档，同时展示记录级捕获状态及界面实际显示的字节。
@@ -67,13 +83,20 @@ void OfflineSegmentOverview::appendNetworkEvidence(ks::ui::FieldDocument& docume
     const auto& flow = evidence.flow.observation; // 经共享归档检查的端点与方向。
     const auto& capture = evidence.flow.capture; // 原始、采集方及保留范围各自独立。
     const auto outbound = flow.direction == archive::NetworkDirection::Outbound; // 以记录的方向为准。
+    const bool instanceKnown = flow.processAttribution == archive::NetworkFlowMetadata::ProcessAttribution::VerifiedInstance &&
+        flow.processCreatedUtc100ns != 0; // 弱PID线索中的保留零不能显示成一个已核验创建时间。
     document.section(QStringLiteral("网络证据"))
         .field(QStringLiteral("协议"), flow.transport == archive::NetworkTransport::Tcp ? QStringLiteral("TCP") : QStringLiteral("UDP"))
         .field(QStringLiteral("方向"), outbound ? QStringLiteral("出站") : QStringLiteral("入站"))
         .field(QStringLiteral("源端点"), EndpointText(flow.family, flow.sourceField))
         .field(QStringLiteral("目的端点"), EndpointText(flow.family, flow.destinationField))
         .field(QStringLiteral("进程 PID"), QString::number(flow.processId))
-        .field(QStringLiteral("归档中的进程创建时间（FILETIME）"), QString::number(flow.processCreatedUtc100ns))
+        .field(QStringLiteral("归档中的进程创建时间（FILETIME）"), instanceKnown
+            ? QString::number(flow.processCreatedUtc100ns) : sourceText(QStringLiteral("未知")))
+        .field(QStringLiteral("进程归属说明"), AttributionText(flow.processAttribution))
+        .field(QStringLiteral("来源 ID"), QString::fromStdString(evidence.source.sourceId))
+        .field(QStringLiteral("网络来源绑定"), evidence.sourceTrust == archive::NetworkSourceTrust::MatchedVerifiedBinding
+            ? QStringLiteral("已核验来源绑定") : QStringLiteral("仅归档来源声明"), true)
         .field(QStringLiteral("来源时间刻度"), QString::number(flow.sourceTimestamp))
         .field(QStringLiteral("归档载荷状态"), CaptureState(capture.state))
         .field(QStringLiteral("归档保留字节数"), QString::number(capture.capturedLength))
@@ -84,6 +107,11 @@ void OfflineSegmentOverview::appendNetworkEvidence(ks::ui::FieldDocument& docume
     {
         const auto verified = evidence.sourceTrust == archive::NetworkSourceTrust::MatchedVerifiedBinding;
         document.field(QStringLiteral("事件来源"), verified ? QStringLiteral("ETW（已验证来源绑定）") : QStringLiteral("ETW（归档声明，来源未验证）"));
+    }
+    else if (!evidence.source.sourceId.empty())
+    {
+        // Raw Socket/WFP已有独立绑定，不再因缺少ETW描述符被错误展示为未知来源。
+        document.field(QStringLiteral("事件来源"), QString::fromStdString(evidence.source.sourceId));
     }
     else
     {

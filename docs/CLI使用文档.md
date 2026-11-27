@@ -235,6 +235,8 @@ CLI 收到同一会话的安装回执后，会等待读回完整且有效的覆�
 
 原 owner 已报告 `firstRecoveryFailure` 时，即使该目标 Agent 仍 Ready，也会在该实例的在途准入结束后停止其递归采集，并沿原成员恢复账执行单成员清退。该实例本轮不再接纳新交接；其它实例继续采集。`failedTargetRecoveryRequested` 表示已请求恢复，最终是否归还资源仍以该目标的 `clean` 和原生恢复错误为准。
 
+同采样网络归档的 `processAttribution` 区分已核验实例、端口表 PID 线索及原生 PID 线索。Qt／Light 网络记录详情显示这一归属等级及原来源绑定，Raw Socket／WFP 不再因缺少 ETW 描述符而显示为未知来源。PID 线索没有事件时创建时间时显示未知，不把保留零值或采集目标窗口当作强实例证据；CLI 的 `analyze network-read` 保留原字段供同口径对账。
+
 普通 EXE 可用 `analyze breakpoint session --exe PATH --launch-suspended --confirm --disposition resume-detach --input jsonl` 启动并停在入口；可选 `--rva RVA`，省略时使用 PE `AddressOfEntryPoint`。不要求合作导出。原主线程创建时挂起，原 owner 在 `CREATE_PROCESS_DEBUG_EVENT` 核验实例并设置入口 DR0、登记线程，回读 Armed 后才释放一次初始挂起。`control.launch` 区分创建挂起、所有者附加、入口武装、初始挂起释放和诊断；`earliestTlsCovered=false`、`apiAgentReady=null`。此入口不覆盖此前 TLS／loader，Agent部署与Ready须看独立API回执。失败仅撤销本次尚未释放初始挂起的自有启动，不操作已有实例。
 
 需要自动进入 API 采集时使用 `analyze api-evidence launch`，不必另查 PID 或手动附加。后端先沿上述普通 EXE 入口停止，在真实原主线程入口额外持有一次挂起，再由原调试 owner 恢复断点并脱离；显式装载同目录正式 Agent，确认 SessionReady、HooksInstalled 和有效覆盖后才归还本次额外挂起。`launch` 回执分别保留实际实例、`entryHeld`、`agentReadyBeforeMainResume`、`initialMainSuspendReleased`、`bootstrapClean` 及失败阶段；这仍是入口之后的覆盖，不包括更早 TLS／loader。入口交接或 Ready 失败只撤销本次自有启动，未完整步骤不会显示为完成。可与 `--auto-transfer` 同时使用，最终原包仍由同一采样的 `api-evidence replay` 读取。
