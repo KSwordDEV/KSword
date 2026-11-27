@@ -158,6 +158,20 @@ namespace Ksword::Evidence
             }
         }
 
+        const auto* late = receipt.find("lastRetiredTargetRejection"); // 控制器存活期间实际拒绝的迟到请求，不是退出后的文件旁证。
+        if (late && late->asObject())
+        {
+            HandoffReceiptSection group{L"清退目标迟到请求"}; // 仅表示接管资格被拒绝，不表示原API被拦截。
+            Field(group, *late, L"来源 PID", "sourcePid");
+            Field(group, *late, L"源进程创建 FILETIME", "sourceCreationFileTime");
+            Field(group, *late, L"API 目标 PID", "targetPid");
+            Field(group, *late, L"目标进程创建 FILETIME", "targetCreationFileTime");
+            Field(group, *late, L"请求入口地址", "address");
+            Field(group, *late, L"准入错误码", "error");
+            group.failed = Failed(*late, "error");
+            sections.push_back(std::move(group));
+        }
+
         const auto* admissions = receipt.find("admissions"); // 请求窗口只代表回执保留的准入，不冒充全量历史。
         if (admissions && admissions->asArray())
         {

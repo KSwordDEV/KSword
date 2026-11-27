@@ -104,6 +104,7 @@ public:
     ProjectResult archiveStatus;
     std::map<std::string, n::NativeEventKey> observed;
     std::map<std::string, ULONGLONG> failedOwnerRecovery; // 原owner下一次允许重试清退的时刻；存在即永久撤销本轮准入资格。
+    V lastRetiredTargetRejection = V::makeNull(); // 最近一次已认证来源向清退实例发出的迟到请求；不由拒绝总数推断。
     std::wstring agentPath; // 主capture使用的同一产品Agent路径，不另接受用户DLL参数。
     SourcePacket onPacket; // 借原worker合并到唯一API归档流。
     TargetDiscovered onTarget; // 同一worker登记网络目标，不等待目标首个API包。
@@ -249,7 +250,20 @@ public:
             return member.site.pid == request.targetPid && member.site.creationFileTime == request.targetCreation &&
                 failedOwnerRecovery.contains(member.owner.backendInstanceId);
         });
-        if (retiring) return ERROR_OPERATION_ABORTED;
+        if (retiring)
+        {
+            // 来源已通过本轮管道认证；这里保留请求身份，不声称目标当前仍存活或原API执行失败。
+            lastRetiredTargetRejection = V::makeObject({
+                {"sourcePid", V::makeUInt(client)},
+                {"sourceCreationFileTime", V::makeString(std::to_string(request.sourceCreation))},
+                {"targetPid", V::makeUInt(request.targetPid)},
+                {"targetCreationFileTime", V::makeString(std::to_string(request.targetCreation))},
+                {"address", V::makeString(std::to_string(request.address))},
+                {"handoffKind", V::makeUInt(request.kind)},
+                {"error", V::makeUInt(ERROR_OPERATION_ABORTED)},
+                {"requestOrdinal", V::makeString(std::to_string(requests))}});
+            return ERROR_OPERATION_ABORTED;
+        }
         const auto sourceHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, client);
         if (!sourceHandle) return GetLastError();
         Handle source(sourceHandle);
@@ -1015,6 +1029,7 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         {"activeAgents", V::makeBool(HasActiveAgents())}, {"sources", V::makeArray(std::move(sources))},
         {"admissions", V::makeArray(std::move(admissions))},
         {"targets", V::makeArray(std::move(targets))},
+        {"lastRetiredTargetRejection", s.lastRetiredTargetRejection},
         {"recursiveAgentReady", V::makeBool(!s.sources.empty() && std::all_of(s.sources.begin(), s.sources.end(),
             [](const auto& entry) {
                 return entry.second.ready && !entry.second.failed && !entry.second.ended && !entry.second.stopping;
