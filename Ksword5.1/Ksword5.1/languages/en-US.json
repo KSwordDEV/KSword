@@ -9730,6 +9730,8 @@
     "模块查询": "Module query",
     "系统信息查询": "System information query",
     "进程信息查询": "Process information query",
+    "规则比对输入": "Rule match inputs",
+    "已采集条件字段": "Collected condition fields",
     "进程创建请求": "Process creation request",
     "文件句柄打开": "File handle open",
     "文件复制": "File copy",

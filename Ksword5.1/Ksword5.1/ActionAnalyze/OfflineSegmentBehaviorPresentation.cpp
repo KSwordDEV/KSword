@@ -59,5 +59,37 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
         .field(QStringLiteral("行为释义"), SegmentBehaviorSummary(*found))
         .field(QStringLiteral("规则集"), snapshot.behavior.presetSet)
         .field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
+
+    // 直接展示原读取器解码的规则输入；不从当前系统、预览摘要或其它事件补值。
+    if (row.archivedApi && row.archivedApi->behaviorObservation)
+    {
+        const auto& observation = *row.archivedApi->behaviorObservation; // 同一原包拥有的强类型参数与返回。
+        QString inputs; // 以稳定字段 ID 表示实际求值输入，便于和规则目录逐项对照。
+        inputs += QStringLiteral("api.family=%1\n").arg(row.archivedApi->family);
+        inputs += QStringLiteral("api.name=%1\n").arg(row.archivedApi->api);
+        inputs += QStringLiteral("result.succeeded=%1\n").arg(observation.succeeded ? QStringLiteral("true") : QStringLiteral("false"));
+        inputs += QStringLiteral("result.returnBits=0x%1\n")
+            .arg(QString::number(observation.returnBits, 16));
+        inputs += QStringLiteral("result.statusDomain=%1\n").arg(QString::fromLatin1(observation.statusDomain.data(),
+            static_cast<qsizetype>(observation.statusDomain.size())));
+        if (observation.status)
+        {
+            inputs += QStringLiteral("result.status=%1\n").arg(*observation.status);
+        }
+        for (const auto& parameter : observation.parameters)
+        {
+            const auto id = QString::fromLatin1(parameter.id.data(), static_cast<qsizetype>(parameter.id.size()));
+            if (const auto* number = std::get_if<std::uint64_t>(&parameter.value))
+            {
+                inputs += id + QStringLiteral("=%1\n").arg(static_cast<qulonglong>(*number));
+            }
+            else
+            {
+                inputs += id + QLatin1Char('=') + QString::fromStdString(std::get<std::string>(parameter.value)) + QLatin1Char('\n');
+            }
+        }
+        document.section(QStringLiteral("规则比对输入"))
+            .field(QStringLiteral("已采集条件字段"), inputs.trimmed());
+    }
 }
 }
