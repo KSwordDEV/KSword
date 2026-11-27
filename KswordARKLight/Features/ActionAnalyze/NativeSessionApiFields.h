@@ -2,6 +2,8 @@
 
 #include "../../Core/Win32Lean.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/NativeBoundApiCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include <string>
 
 namespace Ksword::Features::ActionAnalyze {
@@ -23,5 +25,9 @@ std::wstring FormatLightNativeSessionApi(const Ksword::ActionAnalyze::NativeBoun
 
 // 输入原worker当前在途启动值，返回原详情正文；完整回执继续使用上面的独立格式化入口。
 std::wstring FormatLightNativeSessionApiProgress(const Ksword::ActionAnalyze::NativeBoundApiProgress& progress);
+
+// 输入同一writer发布的checkpoint与规则纯值，返回共用详情文本；不重新匹配或推断规则。
+std::wstring FormatLightNativeSessionApiCheckpoint(const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+    const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules);
 
 } // namespace Ksword::Features::ActionAnalyze

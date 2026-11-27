@@ -44,6 +44,43 @@ void NativeSessionApiPane::AppendProgress(ks::ui::FieldDocument& document,
         ? QString::number(startup.coverageRevision) : QStringLiteral("—"));
 }
 
+// 输入同次回调借用的checkpoint与规则纯值，输出规范详情字段供单目标和执行集合共用。
+void NativeSessionApiPane::AppendCheckpoint(ks::ui::FieldDocument& document,
+    const project::ProjectApiCheckpoint& checkpoint, const project::CooperativeApiRuleReceipt& rules)
+{
+    document.section(QStringLiteral("API 已提交运行进度"))
+        .field(QStringLiteral("采样 ID"), QString::fromStdString(checkpoint.sampleId))
+        .field(QStringLiteral("API 归档段"), QString::number(checkpoint.ordinal))
+        .field(QStringLiteral("API 归档序号"), QString::number(checkpoint.rawEnd.lastSequence))
+        .field(QStringLiteral("API 来源序号"), QString::number(checkpoint.lastSourceSequence))
+        .field(QStringLiteral("SHA256"), QString::fromStdString(checkpoint.rawSha256))
+        .field(QStringLiteral("API 终段已提交"), checkpoint.finalSegment ? QStringLiteral("是") : QStringLiteral("否"), true)
+        .field(QStringLiteral("API 规则命中数"), QString::number(rules.matchedRows))
+        .field(QStringLiteral("API 规则内容 SHA256"), QString::fromStdString(rules.sourceSha256));
+    if (rules.failed)
+    {
+        document.field(QStringLiteral("规则配置错误"), QString::fromStdString(rules.configError));
+    }
+    if (!rules.latest)
+    {
+        return;
+    }
+
+    const auto& match = *rules.latest; // 最近命中可来自较早段，坐标沿用规则原回执。
+    document.field(QStringLiteral("API 最近命中坐标"), QStringLiteral("raw/%1 #%2")
+        .arg(rules.latestSegment).arg(match.rawSequence));
+    document.field(QStringLiteral("API 最近命中规则"), QString::fromStdString(match.ruleId));
+    if (!match.behavior)
+    {
+        return;
+    }
+
+    const auto& summary = match.behavior->summaryZh.empty()
+        ? match.behavior->summary : match.behavior->summaryZh; // 优先使用回执中文，缺失时保留英文原文。
+    document.field(QStringLiteral("行为释义"), QString::fromStdString(summary));
+    document.field(QStringLiteral("API 规则证据"), QString::fromStdString(match.behavior->evidence));
+}
+
 // 输入原文档和worker冻结回执，追加同一规范字段；不创建第二份详情或查询当前草稿。
 void NativeSessionApiPane::AppendFields(ks::ui::FieldDocument& document, const project::NativeBoundApiResult& result)
 {

@@ -86,6 +86,39 @@ std::wstring FormatLightNativeSessionApiProgress(const project::NativeBoundApiPr
     return text;
 }
 
+// 输入同次回调借用的checkpoint与规则快照，输出单目标和执行集合共用的原值文本。
+std::wstring FormatLightNativeSessionApiCheckpoint(const project::ProjectApiCheckpoint& checkpoint,
+    const project::CooperativeApiRuleReceipt& rules)
+{
+    std::wstring text = L"\r\n\r\n[API 已提交运行进度]\r\n采样=" + Wide(checkpoint.sampleId); // 规范详情追加文本。
+    text += L"\r\n归档坐标=raw/" + std::to_wstring(checkpoint.ordinal) + L" #" +
+        std::to_wstring(checkpoint.rawEnd.lastSequence);
+    text += L"\r\n原包序号=" + std::to_wstring(checkpoint.lastSourceSequence) +
+        L"\r\n段SHA256=" + Wide(checkpoint.rawSha256);
+    text += L"\r\n终段=" + std::wstring(checkpoint.finalSegment ? L"是" : L"否") +
+        L"\r\n规则命中=" + std::to_wstring(rules.matchedRows) +
+        L"\r\n规则内容SHA256=" + Wide(rules.sourceSha256);
+    if (rules.failed)
+    {
+        text += L"\r\n规则派生失败=" + Wide(rules.configError);
+    }
+    if (!rules.latest)
+    {
+        return text;
+    }
+
+    const auto& match = *rules.latest; // 最近命中保留自己的原段坐标，不贴到当前checkpoint。
+    text += L"\r\n最近命中=raw/" + std::to_wstring(rules.latestSegment) + L" #" +
+        std::to_wstring(match.rawSequence) + L" · " + Wide(match.api) + L" · " + Wide(match.ruleId);
+    if (match.behavior)
+    {
+        text += L"\r\n行为释义=" + Wide(match.behavior->summaryZh.empty()
+            ? match.behavior->summary : match.behavior->summaryZh);
+        text += L"\r\n规则证据=" + Wide(match.behavior->evidence);
+    }
+    return text;
+}
+
 bool PrepareLightNativeSessionApi(const std::wstring& pid, const std::wstring& creation,
     const std::wstring& duration, const project::NativeBoundApiTarget& nativeTarget,
     project::NativeBoundApiRequest& out, std::wstring& reason)

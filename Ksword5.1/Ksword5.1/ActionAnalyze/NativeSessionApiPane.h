@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../../../KswordCLI/ActionAnalyze/Project/NativeBoundApiCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include <QWidget>
 
 class QLineEdit;
@@ -28,6 +30,10 @@ public:
     // 输入在途启动快照，追加本次来源、采样和真实阶段；不把它当成最终采集回执。
     static void AppendProgress(ks::ui::FieldDocument& document,
         const Ksword::ActionAnalyze::NativeBoundApiProgress& progress);
+    // 输入同一writer发布的已提交水位和规则快照，追加原值字段；不重新匹配或推断规则。
+    static void AppendCheckpoint(ks::ui::FieldDocument& document,
+        const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+        const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules);
 
 private:
     QLineEdit* m_pid = nullptr; // 显式API来源PID草稿，不自动填native目标。
