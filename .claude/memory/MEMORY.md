@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-26 深夜续跑（覆盖下方11:54收工状态）。** 当前目标仍为API Monitor调用前同步发现私有范围并接管下一目标，CLI本机实测交CodeBuddy，Qt/Light GUI后置；用户最新再次明确持续推进并授权CodeBuddy承担验收。`319bb4f73`缓存Ready前递归包、`982230b61`保留Ready后的非致命HooksPartial、`df5e9a971`内部NX状态、`6468f5237`同源多目标网络归档及三端接线、`20cd5b5c4`QueueUserAPC2调用前交接与同源入口关联均已本地提交，未推送。最新已结束B仍无stubRan且目标STATUS_SINGLE_STEP/CLI6，不能以27/27认定通过；旧回执把EFlags66054误说TF置位，实际0x10206不含0x100。NX诊断同一CodeBuddy会话`01a21b17-82d8-7e00-96cb-854847e9a3fe`首次宿主120秒结束且未构建，已确认无相关残留后续接为`sh_21b1a4c0b001KF2rg1t1HlQza9`，最多一次CLI Build（跳工程引用复用既有Agent）、一次B、一次i18n；等自动回执、不轮询、不追加C或GUI。最新hook尚不在旧Agent中。保留原用户脏文件和测试证据，主代理只改产品及组织方向，测试/夹具/回执均由CodeBuddy落盘。详见[工程记录](ksword-action-analyze-engineering.md)。
+
 - **2026-11-26 11:54已冻结并清退。** 收工优先于持续推进，不再启动新任务。新增5项额度最终用3/5。最后CodeBuddy已完成CLI正式增量Build（exit0、SHA256 `CBB7034F96693C6939EFD4C51520DF9164332F145E692AB30506CC508E42298A`）及i18n（32875源串/exit0），日志位于`.codex-build-logs/codebuddy-five-tests/final-close/`；整理receipt未及时完成，11:54按硬截止结束精确宿主3864、node41936及子bash/conhost，未在编译/运行中中断产品。11:54:12实际核对：本次三个宿主/子node与MSBuild/cl/link/python/CLI/自有夹具残留数0，11:55 automation已删除。旧dispatch status.json可能仍写running，但不是活进程，明日不得据此重做构建或认为仍在执行。未写完receipt不算已有；B/C未执行。原脏文件与runtime证据原样保留，全部产品改动和夹具已有本地提交，未推送。
 
 - **2026-11-26 本地恢复点。** 当前`ActionAnalyze`最新源码提交`a0e5abe25`；本轮所有产品改动、共享记忆和新增入口夹具已提交，未推送。保留用户原有`KswordCLI/KswordCLI.cpp`、`Control/tests/Invoke-NativeStepValidation.ps1`及未跟踪`product_execution_group_append.py`、`TextFieldComparisonValidation.cpp`、runtime测试证据，禁止回滚/清空。原11:55收尾automation已删除，不留明日自动作业；最后CodeBuddy只做收尾，不运行新场景。
