@@ -10,6 +10,8 @@ ApiApcObservation::ApiApcObservation(HANDLE thread, std::uint64_t routine,
     fields_.argument1 = argument1;
     fields_.argument2 = argument2;
     fields_.argument3 = argument3;
+    // 调用前交接读取同一份冻结身份；Stable 仍只在原 API 返回并完成复核后产生。
+    CopyIdentity();
 }
 // 原调用进入时点由共享采集器记录，避免把额外身份查询计入 QPC 区间。
 void ApiApcObservation::MarkEntry() noexcept
@@ -25,6 +27,11 @@ void ApiApcObservation::MarkReturn() noexcept
 void ApiApcObservation::Complete() noexcept
 {
     identity_.Complete();
+    CopyIdentity();
+}
+// 无输入输出参数；复制当前采集结果，不改写原 APC 参数或自行推定调用成功。
+void ApiApcObservation::CopyIdentity() noexcept
+{
     const auto& identity = identity_.fields(); // 本次线程句柄的身份、有效位及 QPC。
     using namespace Ksword::Evidence;
     fields_.flags = ApiApcRoutineAddress;

@@ -26,6 +26,8 @@ public:
         return fields_;
     }
 private:
+    // CopyIdentity：把现有身份/时点合入请求字段；不重新查询，也不改写请求寄存器。
+    void CopyIdentity() noexcept;
     ApiThreadTargetObservation identity_; // 共用线程及所属进程身份采集器。
     Ksword::Evidence::ApiContextFieldsV1 fields_{}; // 本次上下文请求的字段和有效位。
 };

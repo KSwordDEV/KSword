@@ -179,7 +179,7 @@ inline ApiApcQueueOutcome ApiApcCallOutcome(const ks::winapi_monitor::ApiMonitor
                 return (value >= L'A' && value <= L'Z' ? value + (L'a' - L'A') : value) == lower;
             });
     };
-    if (api == L"NtQueueApcThread") {
+    if (api == L"NtQueueApcThread" || api == L"NtQueueApcThreadEx") {
         if (!moduleIs(L"ntdll") && !moduleIs(L"ntdll.dll")) {
             return ApiApcQueueOutcome::Unknown;
         }

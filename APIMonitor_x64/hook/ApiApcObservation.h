@@ -20,6 +20,8 @@ public:
         return fields_;
     }
 private:
+    // CopyIdentity：把已采到的身份与时点投影到协议字段；构造及调用后复核共用，不额外查询。
+    void CopyIdentity() noexcept;
     ApiThreadTargetObservation identity_; // 共用的线程/所属进程代次采集器。
     Ksword::Evidence::ApiApcFieldsV1 fields_{}; // 当前 APC 请求的独立协议字段。
 };

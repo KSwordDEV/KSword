@@ -39,12 +39,19 @@ ApiContextObservation::ApiContextObservation(HANDLE thread, const CONTEXT* conte
     fields_.contextArchitecture = sizeof(void*) * 8;
     fields_.inputContextAddress = reinterpret_cast<std::uintptr_t>(context);
     ReadRequestedContext(context, fields_);
+    // 请求 IP 和目标强实例必须同时在调用前可见，供外部 owner 同步准备下一目标。
+    CopyIdentity();
     ::SetLastError(error);
 }
 // 把复核后的身份与计时追加到此前冻结的请求字段，保持请求和返回语义分离。
 void ApiContextObservation::Complete() noexcept
 {
     identity_.Complete();
+    CopyIdentity();
+}
+// 无输入输出参数；投影采集结果，保留构造时安全读取的原请求上下文及其有效位。
+void ApiContextObservation::CopyIdentity() noexcept
+{
     const auto& identity = identity_.fields(); // 本次调用的完整身份采集结果。
     using namespace Ksword::Evidence;
     if (identity.flags & ThreadTargetActor) {
