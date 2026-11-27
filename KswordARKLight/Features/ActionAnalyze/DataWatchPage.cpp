@@ -6,6 +6,7 @@
 #include "ProjectBreakpointPane.h"
 #include "LightPrivateExecutionCandidatesPane.h"
 #include "NativeSessionApiFields.h"
+#include "ApiTransferPresentation.h"
 #include "ProcessGroupPage.h"
 #include "../Memory/DriverMemoryModel.h"
 #include "../../Ui/AsyncTask.h"
@@ -838,6 +839,14 @@ void Refresh(Page& page) {
     if (result.apiStartup)
     {
         text += FormatLightNativeSessionApiProgress(*result.apiStartup); // 复用原刷新与详情正文，不另建timer。
+    }
+    if (result.apiCheckpoint && result.apiRules)
+    {
+        text += FormatLightNativeSessionApiCheckpoint(*result.apiCheckpoint, *result.apiRules);
+    }
+    if (result.apiTransfers)
+    {
+        text += ApiTransferProgress(*result.apiTransfers); // 复用同一writer的累计计数和最近转移坐标。
     }
     if (!result.apiDiagnostic.empty()) text += L"\r\n" + result.apiDiagnostic;
     if (!page.inputError.empty()) text += L"\r\n" + page.inputError;

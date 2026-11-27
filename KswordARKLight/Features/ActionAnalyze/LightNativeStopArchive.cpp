@@ -243,13 +243,16 @@ std::shared_ptr<const process_group_native::ProcessMemorySnapshotResult> LightNa
 // 原串行worker调用；API停止与清退不接触原native owner及事件责任。
 void LightNativeStopArchive::CaptureApi(const project::NativeBoundApiRequest& request,
     const project::NativeBoundApiTarget& nativeTarget, const std::atomic_bool& cancel,
-    const project::NativeBoundApiStartup& onStartup)
+    const project::NativeBoundApiStartup& onStartup,
+    const project::CooperativeApiCommitted& onCommitted,
+    const project::CooperativeApiTransferCommitted& onTransfers)
 {
     // 原会话关闭可提前结束有限区间，采集器仍负责停钩和排空后返回本worker。
     if (project_)
     {
         api_ = std::make_shared<const project::NativeBoundApiResult>(
-            project::CaptureNativeBoundApi(*project_, SampleId(), request, nativeTarget, cancel, onStartup));
+            project::CaptureNativeBoundApi(*project_, SampleId(), request, nativeTarget, cancel,
+                onStartup, onCommitted, onTransfers));
         return;
     }
     project::NativeBoundApiResult rejected; // 无项目失败保留本次请求，禁止新开采样。

@@ -71,6 +71,9 @@ struct LightDataWatchSnapshot {
     Ksword::ActionAnalyze::NativeBoundApiTarget nativeTarget; // 原worker最近真实回读的目标，区别于API来源草稿。
     std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> api;
     std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> apiStartup; // 当前在途API的原启动阶段。
+    std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> apiCheckpoint; // 同一writer已提交的最新水位。
+    std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> apiRules; // 同一已提交前缀的规则回执。
+    std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt> apiTransfers; // 同一已提交前缀的转移快照。
     std::wstring apiDiagnostic;
     std::shared_ptr<const ks::cli::action_analyze::control::NativeControlResult> displayedSession; // 可暂停的原Armed副本；相同绑定轮询保持身份。
     ks::cli::action_analyze::control::NativeStopReason stopReason = ks::cli::action_analyze::control::NativeStopReason::None;

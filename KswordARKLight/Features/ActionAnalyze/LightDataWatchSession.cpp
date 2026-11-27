@@ -1,6 +1,7 @@
 #include "LightDataWatchSession.h"
 
 #include "../../Ui/BackgroundWork.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 
 #include <algorithm>
 #include <chrono>
@@ -287,6 +288,20 @@ void LightDataWatchSession::Shared::Run(const LightDataWatchRequest& request, ru
                             const auto snapshot = std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress);
                             std::lock_guard lock(mutex); // 原采集在锁外执行，因此关闭请求始终可以置位取消。
                             status.apiStartup = snapshot;
+                        },
+                        [this](const Ksword::ActionAnalyze::SampleInfo& sample,
+                            const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+                            const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules) {
+                            // 只接受当前项目采样的提交回调，旧采样不能覆盖页面已确认的来源。
+                            std::lock_guard lock(mutex);
+                            if (sample.sampleId != status.memoryProject.sampleId) return;
+                            status.apiCheckpoint = std::make_shared<const Ksword::ActionAnalyze::ProjectApiCheckpoint>(checkpoint);
+                            status.apiRules = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt>(rules);
+                        },
+                        [this](const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers) {
+                            // 转移回执已经由同一writer裁剪，页面只保存不可变值，不重新匹配原包。
+                            std::lock_guard lock(mutex);
+                            status.apiTransfers = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt>(transfers);
                         });
                     apiResult = archive.ApiView();
                     result = backend->QueryWithoutCondition(); // 采集期间可能真实命中；回投实际native状态，不ApplyCondition/自动Continue。
@@ -619,6 +634,9 @@ bool LightDataWatchSession::CaptureApi(const LightDataWatchSnapshot& confirmedSe
         session_->queued.apiSample = status.memoryProject.sampleId;
         session_->queued.apiTarget = status.nativeTarget;
         status.apiStartup.reset(); // 新请求尚未完成任何启动阶段，不借用旧Ready快照。
+        status.apiCheckpoint.reset(); // 新请求不沿用上一轮已提交checkpoint。
+        status.apiRules.reset(); // 新请求不沿用上一轮规则回执。
+        status.apiTransfers.reset(); // 新请求不沿用上一轮转移窗口。
         status.apiDiagnostic = L"正在附加明确API来源并采集有限区间；关闭可取消采集，排空后处理原会话清退。";
         status.continuing = true;
     }

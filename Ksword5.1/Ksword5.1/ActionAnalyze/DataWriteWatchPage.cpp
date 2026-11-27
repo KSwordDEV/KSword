@@ -6,8 +6,10 @@
 #include "PrivateExecutionRangePane.h"
 #include "PrivateExecutionCandidatesPane.h"
 #include "NativeSessionApiPane.h"
+#include "ApiTransferPresentation.h"
 
 #include "../../../KswordCLI/ActionAnalyze/Control/OwnedDataWatchSession.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
@@ -76,6 +78,9 @@ namespace
         ProcessGroupSessionSnapshot memory; // 原session同回合的内存及独立归档投影。
         NativeExecutionArchiveView execution; // raw-native独立流回执与去重结果。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> api; // 原writer同采样API采集回执。
+        std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> apiCheckpoint; // 同一writer已提交的最新水位。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> apiRules; // 同一已提交前缀的规则回执。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt> apiTransfers; // 同一已提交前缀的转移快照。
         std::shared_ptr<const NativeExecutionCandidatesResult> candidates; // 同document只读候选及原请求身份。
         std::wstring conditionSource; // 原会话实际采用的冻结条件，含项目定义继承值。
         std::optional<native::SuspendedImageLaunchReceipt> launch; // 启动核心实际里程碑，与API进度分开。
@@ -93,6 +98,9 @@ namespace
         std::atomic_bool apiCancel = false; // 关闭请求立即取消在途API，原调试Close仍等同worker返回。
         // 只存不可变启动值；GUI不用等待持有access锁的采集worker，也不查询原生owner。
         std::atomic<std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress>> apiStartup;
+        std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> apiCheckpoint; // 当前请求同writer发布的水位。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> apiRules; // 当前请求同writer发布的规则值。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt> apiTransfers; // 当前请求同writer发布的转移值。
         std::shared_ptr<ks::ui::AsyncCleanupRegistry::Lease> lease; // 正常退出等待原owner真正clean。
 
         // 新会话先登记退出责任，弱引用回调不形成lease到owner的引用环。
@@ -197,6 +205,9 @@ namespace
         QPushButton* m_captureApi = nullptr; // 固定动作栏发起一次已确认API采集，不新增worker。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiResult> m_apiShown; // 原worker完整纯值结果。
         std::shared_ptr<const Ksword::ActionAnalyze::NativeBoundApiProgress> m_apiStartupShown; // 当前在途请求的阶段。
+        std::shared_ptr<const Ksword::ActionAnalyze::ProjectApiCheckpoint> m_apiCheckpointShown; // 当前显示的已提交水位。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> m_apiRulesShown; // 当前显示的规则回执。
+        std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt> m_apiTransfersShown; // 当前显示的转移快照。
         ProcessGroupSessionSnapshot m_memoryShown; // 旧结果不由新地址草稿或后续停点改写。
         NativeExecutionArchiveView m_executionShown; // 执行观测归档结果，独立于raw-memory。
         QPushButton* m_saveExecution = nullptr; // 只对真实可提取执行事件显式保存。
@@ -713,6 +724,9 @@ namespace
             m_memoryShown = {}; // 新会话开始前旧内存仍可查；显式Start才切换身份。
             m_executionShown = {};
             m_apiShown.reset(); // 新一轮会话的API回执不沿用上轮采样。
+            m_apiCheckpointShown.reset(); // 新会话不显示上轮writer的提交水位。
+            m_apiRulesShown.reset(); // 新会话不显示上轮writer的规则回执。
+            m_apiTransfersShown.reset(); // 新会话不显示上轮writer的转移窗口。
             m_candidatesShown.reset(); // 旧目录仍由Pane保留原归属，不能授予新会话草稿资格。
             m_launchShown.reset(); // 新请求不能继承上次的首次Resume回执。
         }
@@ -741,6 +755,12 @@ namespace
         if (action == Action::CaptureApi)
         {
             owner->apiStartup.store(nullptr); // 本次请求不沿用前一次启动阶段，原最终回执仍保留。
+            owner->apiCheckpoint.reset(); // 新请求从空的已提交水位开始，避免混入上一轮采样。
+            owner->apiRules.reset(); // 新请求从空的规则回执开始，直到同一writer重新发布。
+            owner->apiTransfers.reset(); // 新请求从空的转移快照开始，保留后续实际发布值。
+            m_apiCheckpointShown.reset(); // 请求在途时不继续显示上一轮checkpoint。
+            m_apiRulesShown.reset(); // 请求在途时不继续显示上一轮rules。
+            m_apiTransfersShown.reset(); // 请求在途时不继续显示上一轮transfers。
             m_apiStartupShown.reset();
         }
         const auto candidatesSerial = candidates ? candidates->serial : 0; // 任务失败时解除目录该请求等待态。
@@ -799,6 +819,17 @@ namespace
                             [owner](const Ksword::ActionAnalyze::NativeBoundApiProgress& progress) {
                                 // 只发布纯值，不持有页面或回调GUI；关闭取消仍由原worker排空。
                                 owner->apiStartup.store(std::make_shared<const Ksword::ActionAnalyze::NativeBoundApiProgress>(progress));
+                            },
+                            [owner](const Ksword::ActionAnalyze::SampleInfo&,
+                                const Ksword::ActionAnalyze::ProjectApiCheckpoint& checkpoint,
+                                const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules) {
+                                // 回调在同一串行worker内执行，直接替换值，不再次取得已持有的access锁。
+                                owner->apiCheckpoint = std::make_shared<const Ksword::ActionAnalyze::ProjectApiCheckpoint>(checkpoint);
+                                owner->apiRules = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt>(rules);
+                            },
+                            [owner](const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& transfers) {
+                                // 只接收已提交前缀，保留累计数和最近有界窗口，不在UI侧重算。
+                                owner->apiTransfers = std::make_shared<const Ksword::ActionAnalyze::CooperativeApiTransferReceipt>(transfers);
                             });
                     }
                     result = owner->session.QueryWithoutCondition(); // 有限采集期间可能出现真实命中，回投实际状态而不自动放行。
@@ -855,8 +886,8 @@ namespace
                     owner->memory.CloseProject(); // 同串行worker释放，不在GUI回投时析构writer。
                 }
                 return WatchResult{std::move(result), owner->session.ConditionReport(), owner->memory.View(),
-                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->memory.CandidateView(), owner->conditionSource,
-                    owner->session.LaunchReceipt()};
+                    owner->memory.ExecutionView(), owner->memory.ApiView(), owner->apiCheckpoint, owner->apiRules,
+                    owner->apiTransfers, owner->memory.CandidateView(), owner->conditionSource, owner->session.LaunchReceipt()};
             }, [this, action](const auto& result, std::uint64_t) {
                 m_mutating = false;
                 m_owner->apiStartup.store(nullptr); // 完整回执接替在途快照，下一次timer不重新显示旧阶段。
@@ -899,6 +930,9 @@ namespace
         m_memoryShown = receipt.memory; // 后续Query只复制原内存结果，不重新采集或改写来源。
         m_executionShown = receipt.execution;
         m_apiShown = receipt.api; // API附加、清退和归档状态均由共享服务独立提供。
+        m_apiCheckpointShown = receipt.apiCheckpoint; // checkpoint与API结果保持同一worker回合的来源。
+        m_apiRulesShown = receipt.apiRules; // rules只显示同一已提交前缀的规则回执。
+        m_apiTransfersShown = receipt.apiTransfers; // transfers只显示同一writer已发布的有界窗口。
         m_candidatesShown = receipt.candidates; // 来源快照与本轮native控制值在同一worker回合发布。
         m_launchShown = receipt.launch; // TLS/loader覆盖和Agent Ready均不从界面状态推断。
         if (action == Action::ReadCandidates)
@@ -1396,6 +1430,20 @@ namespace
         if (m_apiStartupShown)
         {
             NativeSessionApiPane::AppendProgress(document, *m_apiStartupShown); // 原状态区运行时可回查本次身份。
+        }
+        if (m_apiCheckpointShown && m_apiRulesShown)
+        {
+            NativeSessionApiPane::AppendCheckpoint(document, *m_apiCheckpointShown, *m_apiRulesShown);
+        }
+        if (m_apiTransfersShown)
+        {
+            const auto& transfers = *m_apiTransfersShown; // 使用worker发布的累计数和最近转移坐标。
+            AppendApiTransferProgress(document, transfers.candidateCount, transfers.evictedWrites,
+                transfers.recent.empty() ? nullptr : &transfers.recent.back());
+            AppendApiApcProgress(document, transfers.apcCandidateCount,
+                transfers.recentApc.empty() ? nullptr : &transfers.recentApc.back());
+            AppendApiContextProgress(document, transfers.contextCandidateCount,
+                transfers.recentContext.empty() ? nullptr : &transfers.recentContext.back());
         }
         if (const auto observed = native::NativeExecutionFromOwnedStop(m_result))
         {
