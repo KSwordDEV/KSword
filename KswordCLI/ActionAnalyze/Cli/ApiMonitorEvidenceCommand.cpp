@@ -383,11 +383,11 @@ Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
     Json latest; // 最近命中及原始坐标；没有命中时为空。
     if (rules.latest) {
         const auto& match = *rules.latest; // 已提交原包中的末条匹配结果。
-        std::vector<std::pair<std::wstring, Json>> fields{{L"ruleId", Json::string(WideAscii(match.ruleId))},
+        std::vector<std::pair<std::wstring, Json>> fields{{L"ruleId", Json::string(ks::str::Utf8ToUtf16(match.ruleId))},
             {L"segmentOrdinal", Json::count(rules.latestSegment)}, {L"rawSequence", Json::count(match.rawSequence)},
             {L"sourceSequence", Json::count(match.sourceSequence)}};
         if (match.behavior) {
-            fields.emplace_back(L"behavior", Json::object({{L"ruleId", Json::string(WideAscii(match.behavior->ruleId))},
+            fields.emplace_back(L"behavior", Json::object({{L"ruleId", Json::string(ks::str::Utf8ToUtf16(match.behavior->ruleId))},
                 {L"evidence", Json::string(WideAscii(match.behavior->evidence))},
                 {L"summary", Json::string(ks::str::Utf8ToUtf16(match.behavior->summary))},
                 {L"summaryZh", match.behavior->summaryZh.empty() ? Json{} :
@@ -404,81 +404,32 @@ Json CooperativeRulesReport(const project::CooperativeApiRuleReceipt& rules)
         {L"matchedRows", Json::count(rules.matchedRows)}, {L"latest", std::move(latest)}});
 }
 
-// 只从已提交的跨段链投影候选，保留双方原始坐标及调用时身份，不将线程入口改称执行位置。
-Json CooperativeTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
+// 输入共享候选文档与种类，输出原命令的兼容外壳；原坐标、身份和请求值只有一处投影所有者。
+Json CooperativeTransfersReport(const evidence::JsonValue& candidates, unsigned kind)
 {
-    std::vector<Json> recent; // 最近候选窗口，与累计数量分别报告。
-    for (const auto& link : transfers.recent) {
-        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
-            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
-                {L"rawSequence", Json::count(evidence.raw->sequence)},
-                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
-        };
-        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"threadCreate", coordinate(link.threadCreate)},
-            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
-            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
-            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
-            {L"requestedStartAddress", Json::count(link.requestedStartAddress)}}));
+    // 固定三类窗口分别对应原有apiTransfers/apiApcTransfers/apiContextTransfers，不改变顶层接口。
+    constexpr const char* counts[] = {"candidateCount", "apcCandidateCount", "contextCandidateCount"};
+    constexpr const char* truncated[] = {"windowTruncated", "apcWindowTruncated", "contextWindowTruncated"};
+    constexpr const char* windows[] = {"recent", "recentApc", "recentContext"};
+    constexpr const wchar_t* sources[] = {L"reported-api-write-to-thread-create",
+        L"reported-api-write-to-apc-queue", L"reported-api-write-to-context-request"};
+    // 输入只由ApiCaptureTransferCandidatesJson生成，固定成员包含64位十进制字符串，不再逐字段扩宽重建。
+    std::vector<std::pair<std::wstring, Json>> fields{
+        {L"evidence", Json::string(sources[kind])},
+        {L"candidateCount", CaptureReceiptJson(*candidates.find(counts[kind]))},
+        {L"evictedWrites", CaptureReceiptJson(*candidates.find("evictedWrites"))},
+        {L"windowTruncated", CaptureReceiptJson(*candidates.find(truncated[kind]))},
+        {L"recent", CaptureReceiptJson(*candidates.find(windows[kind]))}};
+    if (kind == 0)
+    {
+        fields.emplace_back(L"execution", Json::string(L"unknown")); // 保留线程创建候选原有的外层未知表示。
     }
-    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-thread-create")},
-        {L"execution", Json::string(L"unknown")}, {L"candidateCount", Json::count(transfers.candidateCount)},
-        {L"evictedWrites", Json::count(transfers.evictedWrites)},
-        {L"windowTruncated", Json::boolean(transfers.candidateCount > transfers.recent.size())},
-        {L"recent", Json::array(recent)}});
-}
-
-// APC候选保留目标线程和请求例程；接受、投递及执行三个状态不混为一个成功值。
-Json CooperativeApcTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
-{
-    std::vector<Json> recent; // 与线程创建候选独立的最近32条窗口。
-    for (const auto& link : transfers.recentApc) {
-        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
-            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
-                {L"rawSequence", Json::count(evidence.raw->sequence)},
-                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
-        };
-        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"apcQueue", coordinate(link.queue)},
-            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
-            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
-            {L"targetTid", Json::number(link.targetTid)},
-            {L"targetThreadCreationFileTime", Json::count(link.targetThreadCreationFileTime)},
-            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
-            {L"requestedRoutineAddress", Json::count(link.requestedRoutineAddress)},
-            {L"queueOutcome", Json::string(L"accepted")}, {L"delivery", Json{}}, {L"execution", Json{}}}));
+    else
+    {
+        fields.emplace_back(kind == 1 ? L"delivery" : L"contextApplied", Json{}); // 接受请求不等于投递或上下文采用。
+        fields.emplace_back(L"execution", Json{});
     }
-    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-apc-queue")},
-        {L"candidateCount", Json::count(transfers.apcCandidateCount)},
-        {L"evictedWrites", Json::count(transfers.evictedWrites)},
-        {L"windowTruncated", Json::boolean(transfers.apcCandidateCount > transfers.recentApc.size())},
-        {L"delivery", Json{}}, {L"execution", Json{}}, {L"recent", Json::array(recent)}});
-}
-
-// 两种显式准入复用同一回执投影和回读；0 为持续模式。
-// 输入已提交前缀累计的上下文回执，输出最近候选；不查询目标也不更新写入状态。
-Json CooperativeContextTransfersReport(const project::CooperativeApiTransferReceipt& transfers)
-{
-    std::vector<Json> recent; // 独立于创建和APC的最近32条响应窗口。
-    for (const auto& link : transfers.recentContext) {
-        const auto coordinate = [](const project::Detection::EvidenceRef& evidence) {
-            return Json::object({{L"segmentOrdinal", Json::count(evidence.raw->segmentOrdinal)},
-                {L"rawSequence", Json::count(evidence.raw->sequence)},
-                {L"sourceSequence", evidence.sourceSequence ? Json::count(*evidence.sourceSequence) : Json{}}});
-        }; // 输入原包引用，输出真实段、原序号及独立来源序号。
-        recent.push_back(Json::object({{L"write", coordinate(link.write)}, {L"context", coordinate(link.context)},
-            {L"actorPid", Json::number(link.actorPid)}, {L"actorCreationFileTime", Json::count(link.actorCreationFileTime)},
-            {L"targetPid", Json::number(link.targetPid)}, {L"targetCreationFileTime", Json::count(link.targetCreationFileTime)},
-            {L"targetTid", Json::number(link.targetTid)},
-            {L"targetThreadCreationFileTime", Json::count(link.targetThreadCreationFileTime)},
-            {L"writtenAddress", Json::count(link.writtenAddress)}, {L"writtenBytes", Json::count(link.writtenBytes)},
-            {L"requestedIp", Json::count(link.requestedIp)}, {L"requestedSp", Json::count(link.requestedSp)},
-            {L"contextArchitecture", Json::count(link.contextArchitecture)},
-            {L"requestOutcome", Json::string(L"accepted")}, {L"contextApplied", Json{}}, {L"execution", Json{}}}));
-    }
-    return Json::object({{L"evidence", Json::string(L"reported-api-write-to-context-request")},
-        {L"candidateCount", Json::count(transfers.contextCandidateCount)},
-        {L"evictedWrites", Json::count(transfers.evictedWrites)},
-        {L"windowTruncated", Json::boolean(transfers.contextCandidateCount > transfers.recentContext.size())},
-        {L"contextApplied", Json{}}, {L"execution", Json{}}, {L"recent", Json::array(recent)}});
+    return Json::object(fields);
 }
 
 Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
@@ -638,6 +589,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     // 目标退出也能完成清退，但不能代替生产方的停钩及完整排空回执。
     const bool hooksRemoved = connected && target->removed;
     const bool cleanPipeEof = connected && target->cleanPipeEof;
+    const auto candidates = ApiCaptureTransferCandidatesJson(run.transfers); // 三类旧响应和实时/原生响应共用同一原坐标文档。
     std::vector<std::pair<std::wstring, Json>> fields{
         {L"status", Json::string(code == 0 ? L"capture-complete" : code == 6 ? L"capture-partial" : L"capture-failed")},
         {L"sampleId", Json::string({sample.sampleId.begin(), sample.sampleId.end()})},
@@ -682,9 +634,9 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"pipeError", target && target->pipeError ? Json::number(target->pipeError) : Json{}},
         {L"archive", apiArchived ? archiveResult.data : Json{}},
         {L"rules", apiArchived ? CooperativeRulesReport(run.rules) : Json{}},
-        {L"apiTransfers", apiArchived ? CooperativeTransfersReport(run.transfers) : Json{}},
-        {L"apiApcTransfers", apiArchived ? CooperativeApcTransfersReport(run.transfers) : Json{}},
-        {L"apiContextTransfers", apiArchived ? CooperativeContextTransfersReport(run.transfers) : Json{}},
+        {L"apiTransfers", apiArchived ? CooperativeTransfersReport(candidates, 0) : Json{}},
+        {L"apiApcTransfers", apiArchived ? CooperativeTransfersReport(candidates, 1) : Json{}},
+        {L"apiContextTransfers", apiArchived ? CooperativeTransfersReport(candidates, 2) : Json{}},
         {L"errors", Json::strings(captured.errors)}
     };
     if (!progressDelivery.isNull())
