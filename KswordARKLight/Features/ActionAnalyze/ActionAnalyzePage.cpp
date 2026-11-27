@@ -766,8 +766,12 @@ void UpdateDetails(Page& page) {
         } else if (ApiMode(page)) {
             if (const auto& api = page.liveStatus.api; api) {
                 text = L"本次工程 · " + api->manifestPath;
-                text += api->explicitAttachment || api->cooperative || api->launched
-                    ? L"\r\n\r\n" + FormatLiveStatus(page.liveStatus) : L"\r\n来源文件 · " + api->sourcePath;
+                // JSONL继续保留原文件身份，仅展示其已有latest；两类来源都复用原详情宿主全文。
+                if (!api->explicitAttachment && !api->cooperative && !api->launched)
+                {
+                    text += L"\r\n来源文件 · " + api->sourcePath;
+                }
+                text += L"\r\n\r\n" + FormatLiveStatus(page.liveStatus);
             }
         } else {
             text += L"选择一条实时记录查看证据。";

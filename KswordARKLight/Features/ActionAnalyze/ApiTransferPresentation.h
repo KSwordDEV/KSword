@@ -5,6 +5,7 @@
 
 namespace Ksword::ActionAnalyze
 {
+    struct CooperativeApiRuleReceipt;
     struct CooperativeApiTransferReceipt;
 }
 
@@ -22,6 +23,8 @@ namespace Ksword::Features::ActionAnalyze
     std::wstring ApiSectionMapDetails(const EvidenceRecord& record);
     // 从活采已发布回执生成候选摘要，保留累计数、淘汰数及最近双方的 raw 坐标。
     std::wstring ApiTransferProgress(const Ksword::ActionAnalyze::CooperativeApiTransferReceipt& receipt);
+    // 输入原writer冻结的规则回执，返回进度及终态共用的行为窗口正文，不读档或再次求值。
+    std::wstring ApiRuleProgress(const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& receipt);
     // 输入本轮冻结的接管JSON；返回分组字段正文，沿原详情宿主搜索/复制/导出，不访问目标。
     std::wstring ApiHandoffDetails(const Ksword::Evidence::JsonValue& receipt);
 }

@@ -6,6 +6,10 @@
 #include "../../../shared/ApiMonitorCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/NetworkTrafficCapture.h"
 
+namespace Ksword::ActionAnalyze {
+    struct CooperativeApiRuleReceipt;
+}
+
 namespace Ksword::Features::ActionAnalyze {
 
 inline constexpr DWORD kCooperativeApiDurationMs = 0; // 活采默认持续；请求可冻结有限时长，保留启动及清退超时。
@@ -65,6 +69,7 @@ struct NativeLiveApiReceipt {
     std::wstring networkTraffic; // 原worker返回的ApiCaptureNetworkJson全文，与API状态独立保留。
     bool captureAgentEtw = false; // 本轮已受理请求的ETW开关，不随下轮草稿修改。
     std::wstring agentEtw; // Close后保留原ETW来源全文与独立阶段回执，沿既有详情展示。
+    std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> rules; // 原writer回执的值拷贝，冻结累计、最多32条行为及latest。
 };
 
 struct NativeLiveSnapshot {

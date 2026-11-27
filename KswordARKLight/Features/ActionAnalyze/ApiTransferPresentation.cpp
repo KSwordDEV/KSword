@@ -46,7 +46,73 @@ namespace
         text += L"：";
         text += known ? std::to_wstring(value) : L"未知";
     }
+
+    // 输入text为原详情正文、label为命中类型、segment和match为原求值位置；仅追加已有值。
+    void AppendRuleMatch(std::wstring& text, const wchar_t* label, std::uint64_t segment,
+        const Ksword::ActionAnalyze::Rules::ApiPresetMatch& match)
+    {
+        text += L"\r\n" + std::wstring(label) + L"：raw/" + std::to_wstring(segment) +
+            L" #" + std::to_wstring(match.rawSequence) + L" · " + ks::r3::process::Utf8ToWide(match.api) +
+            L" · " + ks::r3::process::Utf8ToWide(match.ruleId);
+        text += L"\r\n合作流水号（非 JSONL 行号）：" + std::to_wstring(match.sourceSequence);
+        if (!match.behavior)
+        {
+            return; // 普通分类没有行为释义，不能沿用上一条行为或补成空命中。
+        }
+
+        const auto& behavior = *match.behavior; // 此原包命中的行为释义与证据，独立保留规则ID。
+        const auto& summary = behavior.summaryZh.empty() ? behavior.summary : behavior.summaryZh; // 中文优先，缺失才用原文。
+        text += L"\r\n行为规则 ID：" + ks::r3::process::Utf8ToWide(behavior.ruleId);
+        text += L"\r\n行为释义：" + ks::r3::process::Utf8ToWide(summary);
+        text += L"\r\nAPI 规则证据：" + ks::r3::process::Utf8ToWide(behavior.evidence);
+    }
 }
+
+    // 输入为已提交前缀的不可变规则值，输出原详情宿主正文；不把当前段号套到旧命中。
+    std::wstring ApiRuleProgress(const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& receipt)
+    {
+        std::wstring text = L"\r\n规则命中 " + std::to_wstring(receipt.matchedRows); // 与来源和归档独立的规则回执。
+        if (!receipt.configError.empty())
+        {
+            text += L" · 规则库加载失败：" + ks::r3::process::Utf8ToWide(receipt.configError);
+        }
+        else if (receipt.failed)
+        {
+            text += L" · 求值中断，保留已有命中";
+        }
+
+        // 累计数取原writer；窗口截断不等于归档丢失，普通分类不会挤掉较早行为。
+        AppendApiNumber(text, L"行为命中数", receipt.behaviorMatches);
+        text += L"\r\n行为窗口截断：";
+        text += receipt.behaviorMatches > receipt.recentBehaviors.size() ? L"是" : L"否";
+        for (const auto& behavior : receipt.recentBehaviors) // 有界窗口逐条使用自身原段与原序号。
+        {
+            AppendRuleMatch(text, L"API 归档段", behavior.segmentOrdinal, behavior.match);
+        }
+
+        // latest继续保留最近普通分类；只有同坐标、同来源序号且同规则才消除重复项。
+        bool latestInWindow = false; // 不用API名称或当前显示行推断命中身份。
+        if (receipt.latest && !receipt.recentBehaviors.empty())
+        {
+            const auto& last = receipt.recentBehaviors.back(); // writer顺序中的最近行为，不创建本端历史。
+            latestInWindow = last.segmentOrdinal == receipt.latestSegment &&
+                last.match.rawSequence == receipt.latest->rawSequence &&
+                last.match.sourceSequence == receipt.latest->sourceSequence &&
+                last.match.ruleId == receipt.latest->ruleId;
+        }
+        if (receipt.latest && !latestInWindow)
+        {
+            AppendRuleMatch(text, L"API 最近命中坐标", receipt.latestSegment, *receipt.latest);
+        }
+
+        // 版本与摘要同属这一份冻结回执；缺命中仍可展示配置，但不生成命中坐标。
+        if (!receipt.presetSet.empty())
+        {
+            text += L"\r\n规则集：" + ks::r3::process::Utf8ToWide(receipt.presetSet);
+            text += L"\r\nSHA-256：" + ks::r3::process::Utf8ToWide(receipt.sourceSha256);
+        }
+        return text;
+    }
 
     // 输入为已核验原包的行快照，输出供现有详情文本外壳读取，不查询现场或创建对象句柄。
     std::wstring ApiTransferDetails(const EvidenceRecord& record)

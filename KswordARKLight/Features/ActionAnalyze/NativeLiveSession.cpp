@@ -134,33 +134,6 @@ std::wstring ApiReceiptText(const Passive::PassiveApiCapture& capture, std::uint
     return text;
 }
 
-// 将共享累计规则回执附加到现有详情，最近命中使用合作流水号。
-void AppendCooperativeRules(std::wstring& details, const Ksword::ActionAnalyze::CooperativeApiRuleReceipt& rules) {
-    details += L"\r\n规则命中 " + std::to_wstring(rules.matchedRows);
-    if (!rules.configError.empty()) {
-        details += L" · 规则库加载失败：" + Utf8ToWide(rules.configError);
-    } else if (rules.failed) {
-        details += L" · 求值中断，保留已有命中";
-    }
-    if (const auto& latest = rules.latest) { // 只显示此命中携带的解释与原始坐标。
-        details += L" · " + Utf8ToWide(latest->ruleId) + L" · raw/" + std::to_wstring(rules.latestSegment) +
-            L" #" + std::to_wstring(latest->rawSequence) + L" · 合作流水号（非 JSONL 行号）：" +
-            std::to_wstring(latest->sourceSequence);
-        if (const auto& behavior = latest->behavior) {
-            details += L"\r\n" + Utf8ToWide(behavior->ruleId) + L" · " + Utf8ToWide(behavior->evidence);
-            const auto& summary = behavior->summaryZh.empty() ? behavior->summary : behavior->summaryZh; // 同一原包的规则释义。
-            if (!summary.empty()) {
-                details += L" · " + Utf8ToWide(summary);
-            }
-        }
-    }
-    // 与 JSONL 回执一样保留单独的规则集标识，不改变坐标格式。
-    if (!rules.presetSet.empty()) {
-        details += L"\r\n规则集：" + Utf8ToWide(rules.presetSet);
-        details += L"\r\nSHA-256：" + Utf8ToWide(rules.sourceSha256);
-    }
-}
-
 // 只投影被冻结进程的回执。EOF、停钩及清退是独立事实。
 void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnalyze::CooperativeApiReceipt& run) {
     namespace Project = Ksword::ActionAnalyze;
@@ -248,7 +221,9 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
     } else {
         api.details += L"\r\n未归档";
     }
-    AppendCooperativeRules(api.details, run.rules);
+    // 终态替换正文时冻结原writer的完整窗口，失败仍保留此前已提交行为，不从归档重建。
+    api.rules = std::make_shared<const Project::CooperativeApiRuleReceipt>(run.rules);
+    api.details += ApiRuleProgress(*api.rules);
     if (connected) api.details += L"\r\nAgent 报告丢失 " + std::to_wstring(target->agentDropped) +
         (target->partialHooks ? L" · 部分 Hook" : L"");
     if (capture.invalidPackets) api.details += L" · 无效包 " + std::to_wstring(capture.invalidPackets);
@@ -591,7 +566,9 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             api.details = L"已提交 " + std::to_wstring(checkpoint.lastSourceSequence) +
                                 L" 包 · raw/" + std::to_wstring(checkpoint.ordinal);
                             if (checkpoint.finalSegment) api.details += L" · 终段已发布";
-                            AppendCooperativeRules(api.details, rules);
+                            // 通知参数只在回调内借用；先复制完整有界回执再生成同版本详情。
+                            api.rules = std::make_shared<const Project::CooperativeApiRuleReceipt>(rules);
+                            api.details += ApiRuleProgress(*api.rules);
                             api.details += ApiTransferProgress(latestTransfers);
                             committedApiDetails = api.details;
                             api.details += ApiHandoffDetails(latestTransfers.handoff);
@@ -602,6 +579,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             status.capture.verifiedSegments = last.verifiedSegments;
                             status.capture.finalCheckpoint = last.finalCheckpoint;
                             status.api->sampleDescriptionHash = api.sampleDescriptionHash;
+                            status.api->rules = api.rules; // 与水位、正文同锁发布，旧快照继续持有旧窗口。
                             status.api->details = api.details;
                         };
                     const Project::CooperativeApiTransferCommitted transferred = [&](const Project::CooperativeApiTransferReceipt& transfers) {
