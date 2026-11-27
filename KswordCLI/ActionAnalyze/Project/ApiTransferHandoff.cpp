@@ -286,14 +286,15 @@ public:
         const auto* member = Member(request);
         bool covered = false;
         if (memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && member && member->control.breakpoint &&
-            !(memory.Protect & (PAGE_GUARD | PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
+            !(memory.Protect & PAGE_GUARD))
         {
-            // 自有NX会拆分或合并VirtualQuery区域，使用原owner已登记范围检查入口，不能拿新的RegionSize改写范围。
+            // 撤X及内部TF临时还X都会拆合VirtualQuery区域。先沿原owner目录解析入口，
+            // 不把临时合并后的RegionSize当成新范围；最终ACK仍由VerifyArmedRange确认实际NX。
             for (const auto& range : member->control.breakpoint->executionRanges)
             {
                 if (request.address >= range.base && request.address - range.base < range.bytes &&
                     range.allocationBase == reinterpret_cast<std::uint64_t>(memory.AllocationBase) &&
-                    Covered(*member, range.base, range.bytes))
+                     Covered(*member, range.base, range.bytes))
                 {
                     base = range.base; bytes = range.bytes; covered = true;
                     break;
@@ -305,6 +306,14 @@ public:
             !(memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) ||
             !bytes || base % 4096 || bytes % 4096 || base > UINT64_MAX - bytes ||
             request.address < base || request.address - base >= bytes)) return ERROR_NOT_SUPPORTED;
+        if (!covered && member && member->control.pageAdvance &&
+            member->control.pageAdvance->receipt.state == n::NativeStepState::Running &&
+            !member->control.pageAdvance->receipt.resourcesRestored)
+        {
+            // 新入口不在原目录内时，临时还X可能使其区域与旧页合并。保持Hook等待，
+            // 关回NX后重新查询新区域，不能冻结一个与旧范围重叠的追加请求。
+            return ERROR_IO_PENDING;
+        }
         Transfer transfer;
         transfer.request = request; transfer.source = client;
         transfer.base = base; transfer.bytes = bytes; transfer.started = GetTickCount64();
