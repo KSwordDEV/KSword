@@ -202,11 +202,15 @@ void ApiCaptureProgress::Transfers(const CooperativeApiTransferReceipt& transfer
         return;
     }
     pendingTransfers_.reset(); // 新快照已有真实身份时取代尚未发送的旧窗口，不在下一检查点倒退展示。
-    Emit(transfers.handoff.isNull() ? "api-transfer-candidates" : "transfer-handoff", *sample, Value::makeObject({
+    const char* kind = !transfers.handoff.isNull() ? "transfer-handoff" :
+        !transfers.networkTraffic.isNull() || !transfers.agentEtw.isNull() ? "api-source-progress" :
+        "api-transfer-candidates"; // 来源快照不冒充转移候选或执行准入。
+    Emit(kind, *sample, Value::makeObject({
         {"candidateCount", Number(transfers.candidateCount)}, {"apcCandidateCount", Number(transfers.apcCandidateCount)},
         {"contextCandidateCount", Number(transfers.contextCandidateCount)}, {"evictedWrites", Number(transfers.evictedWrites)},
         {"candidates", ApiCaptureTransferCandidatesJson(transfers)},
-        {"transferHandoff", transfers.handoff}}));
+        {"transferHandoff", transfers.handoff}, {"networkTraffic", transfers.networkTraffic},
+        {"agentEtw", transfers.agentEtw}}));
 }
 
 Value ApiCaptureProgress::Finish()

@@ -231,7 +231,11 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 原生 `api-capture` 最终响应的 `rules.latest` 同时给出最近命中的原段、记录序号、来源序号、API、规则ID及 `behavior.summary/summaryZh/evidence`，与运行进度使用同一命中投影。没有命中时为 `null`，不要求开启进度选项，也不额外重跑规则。
 
+配套网络或 Agent ETW 开启时，`capture-progress` 还会沿原采集 worker 发布 `api-source-progress`：`payload.networkTraffic` 和 `payload.agentEtw` 分别保留该来源已发布的独立段号、字节／观察数、损失及清退状态。自动接管同时启用时，这两个字段随 `transfer-handoff` 一起交付。没有 API 包也可收到来源状态变化；通知不额外采集、不读归档、不新开 writer，最多每 500ms 检查一次已有值，仅变化时发送。清退终态在各原来源停止并封段后交付，未启用的来源字段为 `null`。
+
 线程恢复的预置释义按成功 `ResumeThread` 的旧挂起计数区分：`0` 为调用时没有挂起计数，`1` 为本次解除最后一层计数，`>1` 为本次递减后仍有挂起计数。这里描述调用返回的计数变化，不以此替代实际执行观察；直接 `NtResumeThread` 未投影可选旧计数时沿用成功／失败释义。
+
+文件写入的行为字段 `file.requestedBytes`／`file.transferredBytes` 仅来自成功 `WriteFile` 的完整 `handle/request/transferred` 数值布局，分别保留请求与完成字节数；仅接受短于现有生产配置最小摘要限制64字符的布局，达到该长度及更长时保留未知，避免最终数字被截短而误判。现有 Agent 仅在非 OVERLAPPED 成功调用且安全读回输出时记录完成数字；失败、异步成功及不可读输出保持未知，不补零。预置释义在原通用返回规则前按 `zero-completed`（完成为零，含零请求）、`partial`（完成大于零且小于请求）、`full`（完成等于正数请求）首条命中；缺计数或其它关系沿用原 fallback。计数不确认文件路径、内容或持久落盘，也不关联后续异步完成。
 
 进度为旁路通知：有界输出队列满、stderr断开或单帧超限时丢弃该通知，不阻塞接管、保护恢复或原归档。序号缺口及最终 `captureProgress.droppedFrames` 可识别未接纳的帧；启动进度通道后即使采样创建、Agent 路径或启动交接失败，错误响应也保留交付摘要。`enqueuedFrames` 只表示进队，`outputDrained` 才表示队列已写完，均不等于下游已处理。采集清退结束后最多沿传输层五秒等待排空，交付失败不改变采集退出码；最终 `transferHandoff` 和正式归档仍是回查依据。与 `--startup-progress 1` 同用时，启动原文和运行快照共用同一队列，避免两条JSON互相穿插。两种进度选项均不提供时不增加 `captureProgress` 字段，保留原输出行为。
 

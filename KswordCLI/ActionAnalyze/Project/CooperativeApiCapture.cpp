@@ -184,7 +184,7 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
     {
         return JsonValue::makeNull();
     }
-    const auto& receipt = *network; // 原worker完成采集后冻结的网络结果。
+    const auto& receipt = *network; // 原worker当前已发布的网络结果，cleanupConfirmed仅在真实清退后成立。
     JsonArray diagnostics; // 完整源诊断，不查询当前抓包服务补值。
     for (const auto& diagnostic : receipt.diagnostics)
     {
@@ -554,29 +554,38 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         etw.finalSegment = etwStream.finalized;
         etw.source = etwSource->status();
     };
-    // 自动接管活动状态借用原writer回调发布；节流为每500ms，状态无变化不重发。
-    ULONGLONG nextHandoffPublish = 0; // 下一次允许更新UI纯值快照的时刻。
-    std::string publishedHandoff; // 上次已通知正文，无变化时不重发界面或重新投影字段树。
-    const auto publishHandoff = [&](bool final)
+    // 接管及配套来源共用原writer回调；静默API期间也能看到真实网络/ETW水位，不另设采集轮询。
+    ULONGLONG nextProgressPublish = 0; // 下一次允许发布不可变活动快照的时刻。
+    std::string publishedProgress; // 上次已通知正文，无变化时不重发界面或重建字段文档。
+    const auto publishProgress = [&](bool final)
     {
-        if (!handoff || !notifyTransfers)
+        if ((!handoff && !network && !out.etw) || !notifyTransfers)
         {
             return;
         }
         const auto now = GetTickCount64(); // 只控制展示频率，不参与Hook准入或保护判定。
-        if (!final && now < nextHandoffPublish)
+        if (!final && now < nextProgressPublish)
         {
             return;
         }
-        nextHandoffPublish = now + 500;
-        auto snapshot = handoff->Describe(); // 借用同一writer已拥有的状态，不向目标发送额外请求。
-        auto encoded = Evidence::WriteJson(snapshot); // 无损序列化用于检测回执变化，保留64位身份。
-        if (!final && encoded == publishedHandoff)
+        nextProgressPublish = now + 500;
+        auto snapshot = handoff ? handoff->Describe() : JsonValue::makeNull(); // 原控制器值，无handoff不制造控制身份。
+        auto traffic = network ? ApiCaptureNetworkJson(network->Receipt()) : JsonValue::makeNull(); // 已提交网络段及来源状态。
+        auto telemetry = ApiCaptureEtwJson(out.etw); // ETW沿原封段游标更新，绝不在通知路径读档或追加Flush。
+        if (final && out.networkTraffic)
+        {
+            traffic = ApiCaptureNetworkJson(out.networkTraffic); // 最终追加目标失败也保留，不能被来源正常清退覆盖。
+        }
+        const auto encoded = Evidence::WriteJson(Object({{"handoff", snapshot},
+            {"networkTraffic", traffic}, {"agentEtw", telemetry}})); // 组合检测，不让任一路变化被另一条静默掩盖。
+        if (!final && encoded == publishedProgress)
         {
             return;
         }
-        publishedHandoff = std::move(encoded);
+        publishedProgress = encoded;
         out.transfers.handoff = std::move(snapshot);
+        out.transfers.networkTraffic = std::move(traffic);
+        out.transfers.agentEtw = std::move(telemetry);
         if (!out.sample.sampleId.empty())
         {
             out.transfers.handoffSample = out.sample;
@@ -595,13 +604,13 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         if (handoff)
         {
             handoff->Poll();
-            publishHandoff(false);
         }
         if (network)
         {
             network->Poll();
         }
         flushEtw(false, {});
+        publishProgress(false); // 三路更新后发布同轮值；无API包也不需要额外线程或读盘。
     };
     request.onResidentPoll = [&]() {
         // 静默期间也及时提交此前的普通调用，终段仍在实际清退后写出。
@@ -638,7 +647,6 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         handoff->Close();
         out.capture.cancelled = out.capture.cancelled || cancel.load();
         out.transferHandoff = handoff->Describe();
-        publishHandoff(true); // 清退后的最终快照覆盖活动状态，终段仍保存原规范回执。
         if (handoff->Incomplete())
         {
             // 三端继续使用原采集状态投影；自动接管缺口独立进入回执，不能仍返回全部完成。
@@ -681,6 +689,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             etw.source = etwSource->status();
         }
     }
+    publishProgress(true); // 接管、网络及ETW分别完成真实清退/封段后再发布终态，不能提前显示clean。
     if (out.archiveStatus && !out.capture.processes.empty() && out.capture.processes.front().connected) {
         const auto& process = out.capture.processes.front(); // 合作入口固定单个进程实例。
         if (plan.empty()) {
