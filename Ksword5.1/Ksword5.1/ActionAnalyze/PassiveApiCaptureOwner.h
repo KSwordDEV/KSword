@@ -84,6 +84,7 @@ namespace ks::action_analyze
         bool agentModuleVerified = false; // 已核验所选架构 Agent 模块，不代表 Hook 已就绪。
         std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 同一次启动最后确认的阶段，终态保留失败前快照。
         QString transferHandoff; // 原后端规范JSON回执，供同一字段文档搜索/复制/导出。
+        QString transferHandoffStatus; // 同一采集worker发布的活动快照；与终态回执及参数草稿分开。
         quint32 actualPid = 0; // 原worker发布的实际新建实例，不能用空手填PID替代。
         quint64 actualCreationTime = 0; // 同一创建对象的强实例身份。
         QString launchProgress; // 两端共用LaunchedApiProgressJson规范文档。

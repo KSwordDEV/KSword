@@ -947,6 +947,7 @@
     <ClCompile Include="ActionAnalyze\LiveSampleArchive.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\PassiveApiCaptureOwner.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\PassiveApiCapturePane.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="ActionAnalyze\ApiHandoffPresentation.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="ActionAnalyze\ObjectContextMenu.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3038,6 +3039,8 @@
     </ClInclude>
     <ClInclude Include="ActionAnalyze\CallbackArchivePresentation.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\ApiTransferPresentation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\ApiHandoffPresentation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ApiHandoffReceiptView.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Archive\NetworkEvidenceArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>

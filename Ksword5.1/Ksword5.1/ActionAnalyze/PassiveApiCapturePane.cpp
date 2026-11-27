@@ -1,12 +1,14 @@
 #include "../Framework.h"
 #include "PassiveApiCapturePane.h"
 #include "ApiTransferPresentation.h"
+#include "ApiHandoffPresentation.h"
 
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/AsyncOperation.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ParameterWorkspace.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/SegmentedControl.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -25,6 +27,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <charconv>
@@ -223,11 +226,24 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_status->setTextFormat(Qt::PlainText);
     m_status->setWordWrap(true);
     workspace->results()->addWidget(m_status);
-    m_fields = new ks::ui::StructuredFieldView(workspace);
+    // 两类结果共用原参数工作区：回执保留原文档，接管页只投影同一样本的后端回执。
+    m_resultTabs = new QTabWidget(workspace);
+    m_resultTabs->setObjectName(QStringLiteral("action_analyze_api_result_tabs"));
+    m_fields = new ks::ui::StructuredFieldView(m_resultTabs);
     m_fields->setObjectName(QStringLiteral("action_analyze_api_receipt"));
     m_fields->setValueModelProjection();
     m_fields->setHiddenProjectionDeferred();
-    workspace->results()->addWidget(m_fields, 1);
+    m_handoffFields = new ks::ui::StructuredFieldView(m_resultTabs);
+    m_handoffFields->setObjectName(QStringLiteral("action_analyze_handoff_receipt"));
+    m_handoffFields->setSearchTargetPrefix(QStringLiteral("action_analyze_handoff_search"));
+    m_handoffFields->setValueModelProjection();
+    m_handoffFields->setHiddenProjectionDeferred();
+    m_handoffFields->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
+    m_resultTabs->addTab(m_fields, QString());
+    m_resultTabs->addTab(m_handoffFields, QString());
+    ks::ui::StylePageTabs(m_resultTabs);
+    ks::ui::StylePageTabsContentFrame(m_resultTabs);
+    workspace->results()->addWidget(m_resultTabs, 1);
     workspace->finish();
 
     // 后台注册分开报告真实所有者与轻量回执计时器；管理器不可暂停文件收尾。
@@ -841,6 +857,19 @@ void PassiveApiCapturePane::renderReceipt()
         }
     }
     m_fields->setDocument(document);
+    // 不以当前编辑草稿覆盖旧采样身份；新请求尚无接管回执时明确保留旧结果所属sample。
+    const auto& handoffJson = !m_receipt.transferHandoffStatus.isEmpty()
+        ? m_receipt.transferHandoffStatus : m_receipt.transferHandoff; // 活动态优先、终态回执权威，均属于同一样本。
+    auto handoff = ApiHandoffDocument(handoffJson); // 同一冻结回执的字段树，不查询现场。
+    if (m_receipt.sample)
+    {
+        ks::ui::FieldNode sample; // 保留真实结果采样身份，不用当前表单草稿重写回执来源。
+        sample.kind = ks::ui::FieldNode::Kind::Field;
+        sample.name = QStringLiteral("采样 ID");
+        sample.value = m_receipt.sample->sample.id;
+        handoff.nodes.prepend(std::move(sample));
+    }
+    m_handoffFields->setDocument(handoff);
 }
 
 // 语言变化时只重绘当前投影，不对输入值或已受理工作执行写操作。
@@ -856,6 +885,10 @@ void PassiveApiCapturePane::changeEvent(QEvent* event)
 // 所有公开动作含辅助技术可读名称；只在当前语言下发布显示用文本。
 void PassiveApiCapturePane::retranslate()
 {
+    m_resultTabs->setTabText(0, sourceText(QStringLiteral("采集回执")));
+    m_resultTabs->setTabText(1, sourceText(QStringLiteral("自动接管")));
+    m_resultTabs->setTabToolTip(0, m_resultTabs->tabText(0));
+    m_resultTabs->setTabToolTip(1, m_resultTabs->tabText(1));
     m_sourceGroup->setTitle(sourceText(QStringLiteral("API 采样")));
     m_sourceMode->setAccessibleName(sourceText(QStringLiteral("API 采样")));
     m_sourceMode->setTabText(0, sourceText(QStringLiteral("JSONL 跟随")));

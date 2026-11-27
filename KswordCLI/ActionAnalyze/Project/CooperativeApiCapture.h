@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProjectRawEvidence.h"
+#include "ProjectDocument.h"
 #include "NetworkTrafficCapture.h"
 #include "../Rules/BehaviorPresets.h"
 #include "../Detection/ApiTransferChain.h"
@@ -63,6 +64,8 @@ struct CooperativeApiTransferReceipt {
     std::vector<Detection::ApiApcTransferLink> recentApc; // 最近至多32条APC候选，不挤占创建候选窗口。
     std::uint64_t contextCandidateCount = 0; // 写入到请求IP的累计上下文候选数。
     std::vector<Detection::ApiContextTransferLink> recentContext; // 最近32条上下文候选，与APC独立。
+    Evidence::JsonValue handoff; // 同一writer发布的接管状态快照，和已归档API候选分开，不表示采集终态。
+    std::optional<SampleInfo> handoffSample; // 活动快照的真实采样目录身份，首个API段尚未提交也不借用UI草稿。
 };
 
 struct CooperativeApiReceipt {
@@ -91,7 +94,7 @@ using CooperativeApiReady = std::function<void(std::uint64_t session, std::uint6
 // onCommitted 在采集线程发布冻结身份、已核验段及累计规则回执；参数只在本次通知内借用。
 using CooperativeApiCommitted = std::function<void(const SampleInfo&, const ProjectApiCheckpoint&,
     const CooperativeApiRuleReceipt&)>;
-// 与规则通知独立，配置或规则求值故障不停止原包候选分析；参数只在通知期间借用。
+// 与规则通知独立；API候选仅来自已提交原包，handoff为当前控制快照，参数只在通知期间借用。
 using CooperativeApiTransferCommitted = std::function<void(const CooperativeApiTransferReceipt&)>;
 // 启动中同步通知原控制器里程碑；不等于原包已归档，参数仅在回调期间借用。
 using CooperativeApiStartup = std::function<void(const ks::winapi_monitor::CaptureStartupProgress&)>;

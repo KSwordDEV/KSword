@@ -233,7 +233,8 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
     api.details = std::wstring(partial ? L"部分完成" : capture.code == 0 ? L"采样完成" : L"采样未完成") + L" · " + api.details;
     if (run.transferHandoff.type() != Ksword::Evidence::JsonType::Null)
     {
-        api.details += L"\r\n自动接管回执=" + Utf8ToWide(Ksword::Evidence::WriteJson(run.transferHandoff)); // 同一正文供原共享文本宿主复制与导出。
+        api.details += ApiHandoffDetails(run.transferHandoff); // 两端共用分组字段，失败与执行观察独立呈现。
+        api.details += L"\r\n自动接管原始回执=" + Utf8ToWide(Ksword::Evidence::WriteJson(run.transferHandoff)); // 同一正文保留完整可复核原文。
     }
     api.details += L"\r\n普通调用 " + std::to_wstring(run.ordinaryPackets) + L" · 已提交 " +
         std::to_wstring(run.archivedPackets) + L" 包 · 已保留线索 " + std::to_wstring(run.retainedClues) +
@@ -567,6 +568,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                         std::string(request.api->explicitAttachment ? "Attached API / PID " :
                             "Cooperative API / PID ") + std::to_string(request.pid); // 本采样冻结标题，不伪造PID。
                     Project::CooperativeApiTransferReceipt latestTransfers; // 与最近成功发布的规则水位一同显示。
+                    std::wstring committedApiDetails; // 已归档API摘要与活动接管状态分开，避免每次回调重复追加正文。
                     const Project::CooperativeApiReady ready = [this, &api](std::uint64_t session, std::uint64_t revision) {
                             // 回调在本工作线程同步执行，GUI 一次读到同一会话及其修订。
                             api.sourceSessionId = session;
@@ -591,6 +593,8 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             if (checkpoint.finalSegment) api.details += L" · 终段已发布";
                             AppendCooperativeRules(api.details, rules);
                             api.details += ApiTransferProgress(latestTransfers);
+                            committedApiDetails = api.details;
+                            api.details += ApiHandoffDetails(latestTransfers.handoff);
                             // 锁内一次发布，读取端不会把新水位和旧采样混用。
                             std::lock_guard lock(mutex);
                             status.capture.projectId = last.projectId;
@@ -601,8 +605,25 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                             status.api->details = api.details;
                         };
                     const Project::CooperativeApiTransferCommitted transferred = [&](const Project::CooperativeApiTransferReceipt& transfers) {
-                            // 通知在同一采集线程内先于 onCommitted，无并发借用或重复查询。
+                            // 候选及接管快照都由同一worker通知；控制快照不冒充新的API归档水位。
                             latestTransfers = transfers;
+                            if (!transfers.handoff.isNull())
+                            {
+                                api.details = committedApiDetails + ApiHandoffDetails(transfers.handoff);
+                                {
+                                    std::lock_guard lock(mutex); // 页面只读取同一冻结快照，不访问控制器。
+                                    status.api->details = api.details;
+                                    if (transfers.handoffSample)
+                                    {
+                                        last.projectId = frozen.projectId;
+                                        last.sampleId = transfers.handoffSample->sampleId;
+                                        status.capture.projectId = last.projectId;
+                                        status.capture.sampleId = last.sampleId;
+                                        api.sampleDescriptionHash = transfers.handoffSample->descriptionHash;
+                                        status.api->sampleDescriptionHash = api.sampleDescriptionHash;
+                                    }
+                                }
+                            }
                         };
                     const Project::CooperativeApiStartup startupProgress = [&](const ks::winapi_monitor::CaptureStartupProgress& startup) {
                             // 只在阶段快照变化时搬运事实，Ready仍只由原onReady回调确认。

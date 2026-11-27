@@ -1,9 +1,39 @@
 #include "ApiTransferPresentation.h"
 #include "StoredEvidence.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
+#include "../../../shared/evidence/ApiHandoffReceiptView.h"
+#include "../../../shared/usermode/backend/process/ProcessControls.h"
 
 namespace Ksword::Features::ActionAnalyze
 {
+    // 输入本轮接管回执，输出同一详情正文的字段分组；原JSON仍保留，不以摘要替代取证原文。
+    std::wstring ApiHandoffDetails(const Ksword::Evidence::JsonValue& receipt)
+    {
+        std::wstring text; // 由原生详情宿主统一提供搜索、复制及导出。
+        if (receipt.type() == Ksword::Evidence::JsonType::Null)
+        {
+            return {};
+        }
+        const auto groups = Ksword::Evidence::BuildHandoffReceiptView(receipt); // 与Qt使用同一字段定义和缺值规则。
+        if (groups.empty())
+        {
+            return L"\r\n\r\n自动接管\r\n接管回执状态：接管回执格式不可用";
+        }
+        for (const auto& group : groups)
+        {
+            text += L"\r\n\r\n";
+            text += group.name;
+            for (const auto& field : group.fields)
+            {
+                text += L"\r\n";
+                text += field.name;
+                text += L"：";
+                text += ks::r3::process::Utf8ToWide(field.value);
+            }
+        }
+        return text;
+    }
+
 namespace
 {
     // 调用时传入 text 输出正文、label 字段名、value 原数值和 known 有效性；原位追加，无返回值。

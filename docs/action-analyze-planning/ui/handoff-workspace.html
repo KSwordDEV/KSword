@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 采样与自动接管 · 静态设计稿</title>
+<!--
+  静态设计稿（仅视觉交接）：本文件是单文件 HTML，无服务器、无框架下载、无运行时复制。
+  不是 Qt / Win32 实机界面；页面中的采样、回执与目标状态均为明确标注的演示数据。
+  图标 path 取自仓库 Ksword5.1/Ksword5.1/Resource/Icon/ 的真实 SVG，颜色改为 currentColor 以适配深浅主题。
+-->
+<style>
+  :root{
+    --bg:#eef1f5; --surface:#ffffff; --surface-alt:#f6f8fb; --input:#ffffff;
+    --border:#dfe4ea; --border-strong:#cbd3de;
+    --text:#1c2430; --muted:#5f6b7a; --faint:#8591a0;
+    --accent:#1f6fbf; --accent-ink:#ffffff;
+    --ok:#1f7d55; --ok-bg:#e7f5ee;
+    --fail:#ad2f26; --fail-bg:#fceceb;
+    --warn:#8a5a06; --warn-bg:#fdf3dd;
+    --info:#255f99; --info-bg:#e9f2fb;
+    --draft-bg:#fff6de; --draft-ink:#69500e;
+    --r-panel:8px; --r-input:5px; --edge:6px;
+  }
+  [data-theme="dark"]{
+    --bg:#11161d; --surface:#1a212a; --surface-alt:#222b36; --input:#222b36;
+    --border:#33404f; --border-strong:#465769;
+    --text:#e6edf5; --muted:#a4b1c1; --faint:#7f8d9e;
+    --accent:#6cb4ff; --accent-ink:#08131f;
+    --ok:#58c893; --ok-bg:#15382a;
+    --fail:#ff9088; --fail-bg:#3d1c1c;
+    --warn:#e6b85e; --warn-bg:#3a2d14;
+    --info:#8cc4ff; --info-bg:#173147;
+    --draft-bg:#3a3117; --draft-ink:#f4dc96;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; padding:var(--edge); display:flex; flex-direction:column; gap:var(--edge);
+    background:var(--bg); color:var(--text); overflow:hidden;
+    font:14px/1.5 "Microsoft YaHei UI","Segoe UI",system-ui,sans-serif;
+  }
+  .ico{width:16px;height:16px;flex:0 0 16px;fill:currentColor;display:block}
+  .ico.sm{width:14px;height:14px;flex-basis:14px}
+
+  /* 顶部静态设计稿标记 */
+  .draft{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px;
+    background:var(--draft-bg); color:var(--draft-ink);
+    border-radius:var(--r-panel); padding:7px 12px; font-size:13px;
+  }
+  .draft .left{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
+  .theme-btn{
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+    border:1px solid currentColor;background:transparent;color:inherit;
+    border-radius:var(--r-input);padding:4px 9px;font:inherit;font-size:13px;cursor:pointer;
+  }
+  .theme-btn:hover{opacity:.82}
+
+  .pagehead{flex:0 0 auto;padding:2px 2px 7px}
+  .crumb{font-size:12px;color:var(--faint);margin-bottom:4px}
+  .crumb b{color:var(--muted);font-weight:600}
+  h1{font-size:18px;font-weight:600;margin:0;line-height:1.4}
+  .sub{font-size:13px;color:var(--muted);margin-top:3px}
+
+  .workspace{flex:1;min-height:0;display:grid;grid-template-columns:320px minmax(0,1fr);gap:var(--edge)}
+  @media(max-width:1100px){.workspace{grid-template-columns:288px minmax(0,1fr)}}
+  @media(max-width:900px){
+    html,body{height:auto;overflow:auto}
+    body{min-height:100vh}
+    .workspace{grid-template-columns:1fr;grid-template-rows:auto minmax(560px,1fr)}
+  }
+
+  /* 左侧参数栏：自然高度，动作固定底部 */
+  .params,.results{
+    min-width:0;min-height:0;display:flex;flex-direction:column;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--r-panel);overflow:hidden;
+  }
+  .params-body{flex:1;min-height:0;overflow:auto;padding:16px}
+  .sec-title{font-size:13px;font-weight:600;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  .field{margin-bottom:14px}
+  .field-label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .seg{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:2px;
+    background:var(--surface-alt);border:1px solid var(--border);border-radius:var(--r-input);
+  }
+  .seg button{
+    appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;
+    padding:6px 1px;border-radius:4px;cursor:pointer;white-space:nowrap;
+  }
+  .seg button:hover{color:var(--text)}
+  .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+  .input,.select{
+    width:100%;height:32px;border:1px solid var(--border-strong);border-radius:var(--r-input);
+    background:var(--input);color:var(--text);font:inherit;padding:0 9px;
+  }
+  .input[readonly]{color:var(--muted)}
+  .file-row{display:flex;gap:6px}
+  .file-row .input{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .icon-btn{
+    width:32px;height:32px;flex:0 0 32px;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--border-strong);border-radius:var(--r-input);
+    background:var(--input);color:var(--muted);cursor:pointer;
+  }
+  .icon-btn .ico{width:18px;height:18px;flex-basis:18px}
+  .icon-btn:hover{color:var(--accent);border-color:var(--accent)}
+  .icon-btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .icon-btn.primary:hover{filter:brightness(1.08)}
+  .inline-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .inline-row .select{width:auto;flex:1;min-width:120px}
+  .num{width:76px}
+  .suffix{font-size:13px;color:var(--muted)}
+  .switch-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:14px}
+  .switch{position:relative;width:36px;height:20px;flex:0 0 36px;margin-top:1px}
+  .switch input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}
+  .track{position:absolute;inset:0;background:var(--border-strong);border-radius:10px;transition:background .15s}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+  .switch input:checked + .track{background:var(--accent)}
+  .switch input:checked + .track::after{transform:translateX(16px)}
+  .switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+  .switch-text{min-width:0}
+  .switch-title{font-size:14px}
+  .switch-desc{font-size:12px;color:var(--muted);margin-top:2px}
+  .hint{
+    font-size:12px;color:var(--muted);border-top:1px solid var(--border);
+    padding-top:10px;margin-top:4px;line-height:1.6;
+  }
+  .params-actions{
+    flex:0 0 auto;border-top:1px solid var(--border);padding:8px 16px;
+    display:flex;align-items:center;gap:8px;background:var(--surface-alt);
+  }
+  .params-actions .spacer{flex:1}
+  .has-tip{position:relative}
+  .has-tip::after{
+    content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+    white-space:nowrap;background:var(--text);color:var(--surface);font-size:12px;
+    padding:4px 8px;border-radius:var(--r-input);opacity:0;pointer-events:none;transition:opacity .12s;z-index:5;
+  }
+  .has-tip:hover::after,.has-tip:focus-visible::after{opacity:1}
+  .actions-note{font-size:12px;color:var(--faint)}
+
+  /* 右侧结果区：占主要空间 */
+  .tabs{display:flex;gap:0;padding:0 12px;border-bottom:1px solid var(--border);background:var(--surface-alt);flex:0 0 auto}
+  .tab{
+    appearance:none;border:0;background:transparent;font:inherit;color:var(--muted);
+    padding:11px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+  }
+  .tab:hover{color:var(--text)}
+  .tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+  .tabpanel{flex:1;min-height:0;overflow:auto;padding:12px 16px 16px}
+  .tabpanel[hidden]{display:none}
+  .notice{
+    display:flex;gap:8px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--r-panel);
+    padding:10px 12px;background:var(--surface-alt);font-size:13px;color:var(--muted);margin-bottom:12px;
+  }
+  .notice .ico{color:var(--info);margin-top:2px}
+  .notice-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--faint)}
+
+  .source{
+    border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:var(--r-panel);background:var(--surface-alt);padding:10px 12px;
+  }
+  .source-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .source-name{font-weight:600}
+  .source-meta{font-size:12px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+  .tree{margin-left:18px}
+  .node{
+    position:relative;border:1px solid var(--border);border-radius:var(--r-panel);
+    background:var(--surface);margin-top:10px;
+  }
+  .node::before{
+    content:"";position:absolute;left:-11px;top:-10px;width:11px;height:22px;
+    border-left:1px solid var(--border-strong);border-bottom:1px solid var(--border-strong);border-radius:0 0 0 6px;
+  }
+  .node > summary{
+    list-style:none;cursor:pointer;padding:10px 12px;
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:12px;align-items:start;
+  }
+  .node > summary::-webkit-details-marker{display:none}
+  .node[open] > summary{border-bottom:1px solid var(--border)}
+  .node-head{display:flex;gap:8px;align-items:flex-start;min-width:0}
+  .chev{width:16px;height:16px;flex:0 0 16px;color:var(--muted);transition:transform .15s;margin-top:1px}
+  .node[open] > summary .chev{transform:rotate(90deg)}
+  .node-name{font-weight:600;min-width:0;overflow-wrap:anywhere;line-height:1.4}
+  .node-meta{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5;overflow-wrap:anywhere}
+  .status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;min-width:0}
+  @media(min-width:1240px){.status-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+  .status-cell{min-width:0}
+  .status-label{display:block;font-size:12px;color:var(--faint);margin-bottom:4px}
+  .chip{
+    display:inline-flex;align-items:center;gap:4px;max-width:100%;font-size:13px;
+    padding:3px 7px;border-radius:var(--r-input);line-height:1.35;
+    background:var(--surface-alt);color:var(--text);
+  }
+  .chip .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip.mono .txt{font-family:Consolas,"Microsoft YaHei UI",monospace;font-size:12px}
+  .chip.ok{background:var(--ok-bg);color:var(--ok)}
+  .chip.fail{background:var(--fail-bg);color:var(--fail)}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .chip.info{background:var(--info-bg);color:var(--info)}
+  .chip-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+  .detail-body{padding:10px 12px 12px 38px;font-size:13px;color:var(--muted)}
+  .kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px}
+  @media(max-width:700px){.kv{grid-template-columns:1fr}}
+  .kv dt{color:var(--faint);font-size:12px;margin-bottom:3px}
+  .kv dd{margin:0;color:var(--text);font-size:13px;overflow-wrap:anywhere}
+
+  .receipt{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+  @media(max-width:700px){.receipt{grid-template-columns:1fr}}
+  .rt{border:1px solid var(--border);border-radius:var(--r-panel);padding:10px 12px;background:var(--surface-alt)}
+  .rt .k{font-size:12px;color:var(--faint)}
+  .rt .v{font-size:14px;margin-top:4px;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+
+<!-- 仓库真实 SVG path 图标；fill=currentColor 以跟随主题 -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.575 5.708a62.407 62.407 0 0 0-.302 6.287c0 2.801.17 4.997.302 6.289a62.713 62.713 0 0 0 5.595-2.887 62.704 62.704 0 0 0 5.296-3.401 62.886 62.886 0 0 0-5.295-3.405 62.882 62.882 0 0 0-5.596-2.883M5.67 4.76a1.469 1.469 0 0 1 2.04-1.177c1.062.454 3.442 1.533 6.462 3.276 3.021 1.744 5.146 3.267 6.069 3.958.788.591.79 1.763.001 2.356-.914.687-3.013 2.19-6.07 3.956-3.06 1.766-5.412 2.832-6.464 3.28-.906.387-1.92-.2-2.038-1.177-.138-1.142-.396-3.735-.396-7.237 0-3.5.257-6.092.396-7.235"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm14 0H6v12h12z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M9.52 3a2 2 0 0 1 1.442.614l.12.137L12.48 5.5H20a2 2 0 0 1 1.995 1.85L22 7.5V19a2 2 0 0 1-1.85 1.995L20 21H4a2 2 0 0 1-1.995-1.85L2 19V5a2 2 0 0 1 1.85-1.995L4 3zM20 11H4v8h16zM9.52 5H4v4h16V7.5h-7.52a2 2 0 0 1-1.442-.614l-.12-.137z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M20 17a1 1 0 0 1 .117 1.993L20 19h-8a1 1 0 0 1-.117-1.993L12 17zM3.636 5.636a1 1 0 0 1 1.32-.083l.094.083 5.657 5.657a1 1 0 0 1 .083 1.32l-.083.094-5.657 5.657a1 1 0 0 1-1.497-1.32l.083-.094L8.586 12l-4.95-4.95a1 1 0 0 1 0-1.414"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m-.01 6c.558 0 1.01.452 1.01 1.01v5.124A1 1 0 0 1 12.5 18h-.49A1.01 1.01 0 0 1 11 16.99V12a1 1 0 1 1 0-2zM12 7a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m0 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2m0-9a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0V7a1 1 0 0 1 1-1"/></symbol>
+  <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M15.297 7.05a1 1 0 0 0 0 1.415L17.833 11H9a1 1 0 0 0 0 2h8.833l-2.536 2.536a1 1 0 0 0 1.415 1.414l4.242-4.243a1 1 0 0 0 0-1.414L16.712 7.05a1 1 0 0 0-1.415 0ZM3 19a1 1 0 1 0 2 0V5a1 1 0 1 0-2 0v14Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 2h14v14H5zm11.95 4.795a1 1 0 1 0-1.414-1.414l-4.95 4.95-2.121-2.121a1 1 0 0 0-1.415 1.414l2.758 2.758a1.1 1.1 0 0 0 1.556 0z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m12 13.414 5.657 5.657a1 1 0 0 0 1.414-1.414L13.414 12l5.657-5.657a1 1 0 0 0-1.414-1.414L12 10.586 6.343 4.929A1 1 0 0 0 4.93 6.343L10.586 12l-5.657 5.657a1 1 0 1 0 1.414 1.414z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m0 2a1 1 0 0 1 .993.883L13 7v4.586l2.707 2.707a1 1 0 0 1-1.32 1.497l-.094-.083-3-3a1 1 0 0 1-.284-.576L11 12V7a1 1 0 0 1 1-1"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M13.586 2A2 2 0 0 1 15 2.586L19.414 7A2 2 0 0 1 20 8.414V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM12 4H6v16h12V10h-4.5A1.5 1.5 0 0 1 12 8.5zm-.793 8.173a1 1 0 0 1 0 1.414l-1.414 1.414 1.414 1.415a1 1 0 0 1-1.414 1.414l-2.121-2.122a1 1 0 0 1 0-1.414l2.12-2.121a1 1 0 0 1 1.415 0m3 0 2.121 2.121a1 1 0 0 1 0 1.414l-2.12 2.122a1 1 0 0 1-1.415-1.414L14.207 15l-1.414-1.414a1 1 0 0 1 1.414-1.414ZM14 4.414V8h3.586z"/></symbol>
+  <symbol id="i-toggle" viewBox="0 0 24 24"><path d="M7 6a6 6 0 1 0 0 12h10a6 6 0 0 0 0-12zm5.528 2H7a4 4 0 1 0 0 8h5.528A5.978 5.978 0 0 1 11 12c0-1.537.578-2.938 1.528-4M17 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M9.93 19.728a8.004 8.004 0 0 0 9.146-3.99 1 1 0 1 1 1.77.932c-2.13 4.04-6.836 6.221-11.434 4.99-5.335-1.43-8.5-6.913-7.071-12.248 1.43-5.335 6.913-8.5 12.247-7.071a10.003 10.003 0 0 1 7.414 9.58c.007.903-.995 1.402-1.713.92l-2.673-1.802c-1.008-.68-.332-2.251.854-1.986l1.058.236A8 8 0 1 0 9.93 19.728"/></symbol>
+</svg>
+
+<div class="draft">
+  <div class="left">
+    <svg class="ico"><use href="#i-info"/></svg>
+    <span>静态设计稿 · 仅用于视觉交接，非 Qt / Win32 实机界面；页内采样、回执与目标状态均为演示数据。</span>
+  </div>
+  <button class="theme-btn" id="themeBtn" type="button" aria-label="切换深浅主题">
+    <svg class="ico"><use href="#i-toggle"/></svg><span class="tlabel">浅色</span>
+  </button>
+</div>
+
+<header class="pagehead">
+  <div class="crumb">监控 <svg class="ico sm" style="display:inline;vertical-align:-2px"><use href="#i-arrow-r"/></svg> 行为分析 <svg class="ico sm" style="display:inline;vertical-align:-2px"><use href="#i-arrow-r"/></svg> <b>API采样</b></div>
+  <h1>API 采样与自动接管</h1>
+  <div class="sub">配置采样来源与范围，查看采集回执与自动接管的逐目标独立状态。</div>
+</header>
+
+<main class="workspace">
+  <!-- 左：参数正文自然高度，执行动作固定底部 -->
+  <section class="params" aria-label="采样参数">
+    <div class="params-body">
+      <h2 class="sec-title">采样来源</h2>
+      <div class="field">
+        <span class="field-label">来源模式</span>
+        <div class="seg" role="group" aria-label="来源模式">
+          <button type="button" aria-pressed="false">JSONL</button>
+          <button type="button" aria-pressed="false">合作</button>
+          <button type="button" aria-pressed="false">已有进程</button>
+          <button type="button" aria-pressed="true">启动EXE</button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="exePath">目标程序</label>
+        <div class="file-row">
+          <input class="input" id="exePath" readonly value="C:\Samples\ApiProbe\probe.exe">
+          <button class="icon-btn has-tip" type="button" data-tip="选择要启动并采样的 EXE" aria-label="选择 EXE">
+            <svg class="ico"><use href="#i-folder"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <h2 class="sec-title" style="margin-top:18px">采样范围</h2>
+      <div class="field">
+        <span class="field-label">持续时间</span>
+        <div class="inline-row">
+          <label class="switch" title="启用后按秒数持续采样">
+            <input type="checkbox" checked aria-label="持续采样"><span class="track"></span>
+          </label>
+          <input class="input num" type="number" value="30" min="1" max="120" aria-label="持续秒数">
+          <span class="suffix">秒</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="netSrc">网络来源</label>
+        <select class="select" id="netSrc">
+          <option>全部接口</option>
+          <option selected>仅实体网卡</option>
+          <option>不采集</option>
+        </select>
+      </div>
+
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" checked aria-label="ETW 观察"><span class="track"></span></label>
+        <div class="switch-text">
+          <div class="switch-title">ETW 观察</div>
+          <div class="switch-desc">叠加事件跟踪观察，与 API 回执分开记录。</div>
+        </div>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input type="checkbox" checked aria-label="自动接管"><span class="track"></span></label>
+        <div class="switch-text">
+          <div class="switch-title">自动接管</div>
+          <div class="switch-desc">发现跨进程行为后解析私有范围并接管下一目标。</div>
+        </div>
+      </div>
+
+      <p class="hint">来源与范围修改只形成待执行草稿；实际采样以底部动作触发，结果保留本次对应的来源与范围。</p>
+    </div>
+    <div class="params-actions">
+      <button class="icon-btn primary has-tip" type="button" data-tip="开始采样（Play）" aria-label="开始采样"><svg class="ico"><use href="#i-play"/></svg></button>
+      <button class="icon-btn has-tip" type="button" data-tip="停止采样（Stop）" aria-label="停止采样"><svg class="ico"><use href="#i-stop"/></svg></button>
+      <button class="icon-btn has-tip" type="button" data-tip="打开归档目录（Folder）" aria-label="打开归档目录"><svg class="ico"><use href="#i-folder"/></svg></button>
+      <span class="spacer"></span>
+      <span class="actions-note">30s · 启动EXE</span>
+    </div>
+  </section>
+
+  <!-- 右：结果页签占主要空间 -->
+  <section class="results" aria-label="采样结果">
+    <div class="tabs" role="tablist">
+      <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-receipt" id="tab-receipt">采集回执</button>
+      <button class="tab" type="button" role="tab" aria-selected="true" aria-controls="panel-takeover" id="tab-takeover">自动接管</button>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-receipt" aria-labelledby="tab-receipt" hidden>
+      <div class="notice">
+        <svg class="ico"><use href="#i-info"/></svg>
+        <span>演示回执：状态为 <b>capture-partial</b>，原因是 <b>partialHooks=true</b>，管道的 <b>pipe109</b> 提前 EOF 单独记录；本页不是真实 Qt / Win32 采样结果。</span>
+      </div>
+      <div class="notice-head"><span>会话 sess-9c41 · 来源 启动EXE · 采样 2026-11-27 03:12:08</span><span>静态演示数据</span></div>
+      <div class="receipt">
+        <div class="rt"><div class="k">回执状态</div><div class="v">capture-partial</div></div>
+        <div class="rt"><div class="k">退出码</div><div class="v">6</div></div>
+        <div class="rt"><div class="k">partialHooks</div><div class="v">true</div></div>
+        <div class="rt"><div class="k">invalidPackets</div><div class="v">0</div></div>
+        <div class="rt"><div class="k">omittedClues</div><div class="v">0</div></div>
+        <div class="rt"><div class="k">cleanPipeEof</div><div class="v">false · pipe109</div></div>
+        <div class="rt"><div class="k">cleanupComplete</div><div class="v">true</div></div>
+        <div class="rt"><div class="k">hooksRemoved</div><div class="v">true</div></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-takeover" aria-labelledby="tab-takeover">
+      <div class="notice">
+        <svg class="ico"><use href="#i-info"/></svg>
+        <span>准入、真实入口观察坐标、采集故障、资源恢复<b>各自独立</b>：目标 B 已执行但采集失败（pipe109），目标 C 已执行且退出但覆盖快照过期（coverageStale），均不以单个绿色成功合并。</span>
+      </div>
+      <div class="notice-head">
+        <span>来源 A › 目标 B / C · 自动接管链 · 预算 30s</span>
+        <span>点击目标行可折叠 / 展开详情</span>
+      </div>
+
+      <div class="source">
+        <div class="source-head">
+          <svg class="ico" style="color:var(--accent)"><use href="#i-terminal"/></svg>
+          <span class="source-name">来源 A · sess-9c41</span>
+          <span class="chip info"><svg class="ico sm"><use href="#i-code"/></svg><span class="txt">JSONL 回放 · 4 候选 Hook</span></span>
+        </div>
+        <div class="source-meta">冻结身份 2026-11-27T03:12:08 · 来源范围：启动 EXE + 跨进程发现 · 2 个自动接管目标：1 采集失败 / 1 已退出</div>
+
+        <div class="tree">
+          <details class="node" open>
+            <summary>
+              <div class="node-head">
+                <svg class="ico chev"><use href="#i-arrow-r"/></svg>
+                <div>
+                  <div class="node-name">目标 B · calc.exe (PID 4820)</div>
+                  <div class="node-meta">来源 A 发现 → 自动接管附加 · 已执行 03:12:11 → 03:12:14</div>
+                </div>
+              </div>
+              <div class="status-grid">
+                <div class="status-cell">
+                  <span class="status-label">准入</span>
+                  <span class="chip ok"><svg class="ico sm"><use href="#i-check"/></svg><span class="txt">已准入 · attach/3f2a</span></span>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">真实入口观察坐标</span>
+                  <span class="chip info mono"><svg class="ico sm"><use href="#i-terminal"/></svg><span class="txt">kernel32!CreateRemoteThread 0x00007FFA…</span></span>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">采集故障</span>
+                  <span class="chip fail"><svg class="ico sm"><use href="#i-close"/></svg><span class="txt">失败 · pipe109 管道 EOF</span></span>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">资源恢复</span>
+                  <span class="chip warn"><svg class="ico sm"><use href="#i-warning"/></svg><span class="txt">部分 · Hook 已移除，管道未 clean</span></span>
+                </div>
+              </div>
+            </summary>
+            <div class="detail-body">
+              <dl class="kv">
+                <div><dt>请求票据</dt><dd>attach/3f2a91c · 目标 B 冻结身份</dd></div>
+                <div><dt>候选哈希</dt><dd>sha256:9c41e8b2…（与来源 A 同一修订）</dd></div>
+                <div><dt>原始错误</dt><dd>pipe109 · EOF before final checkpoint；invalidPackets=0</dd></div>
+                <div><dt>恢复入口</dt><dd>重新采样 / 清理残留 Hook，保留本次故障记录</dd></div>
+                <div><dt>执行结果</dt><dd>已执行；采集未形成完整回执，不标记为成功</dd></div>
+                <div><dt>观察时间</dt><dd>2026-11-27 03:12:11 → 03:12:14</dd></div>
+              </dl>
+            </div>
+          </details>
+
+          <details class="node">
+            <summary>
+              <div class="node-head">
+                <svg class="ico chev"><use href="#i-arrow-r"/></svg>
+                <div>
+                  <div class="node-name">目标 C · notepad.exe (PID 7316)</div>
+                  <div class="node-meta">自动接管 → 已执行且退出 03:12:15 → 03:12:17 · 退出码 0</div>
+                </div>
+              </div>
+              <div class="status-grid">
+                <div class="status-cell">
+                  <span class="status-label">准入</span>
+                  <span class="chip ok"><svg class="ico sm"><use href="#i-check"/></svg><span class="txt">已准入 · attach/7bd0</span></span>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">真实入口观察坐标</span>
+                  <span class="chip mono"><svg class="ico sm"><use href="#i-terminal"/></svg><span class="txt">ntdll!NtCreateThreadEx 0x00007FFB…</span></span>
+                  <div class="chip-row"><span class="chip warn"><svg class="ico sm"><use href="#i-warning"/></svg><span class="txt">coverageStale · 覆盖快照已过期</span></span></div>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">采集故障</span>
+                  <span class="chip ok"><svg class="ico sm"><use href="#i-check"/></svg><span class="txt">无故障 · 完整回执</span></span>
+                </div>
+                <div class="status-cell">
+                  <span class="status-label">资源恢复</span>
+                  <span class="chip ok"><svg class="ico sm"><use href="#i-check"/></svg><span class="txt">完成 · 句柄已清退</span></span>
+                </div>
+              </div>
+            </summary>
+            <div class="detail-body">
+              <dl class="kv">
+                <div><dt>请求票据</dt><dd>attach/7bd0c2 · 目标 C 冻结身份</dd></div>
+                <div><dt>候选哈希</dt><dd>sha256:4a02fd17…（来源 A 同一修订）</dd></div>
+                <div><dt>覆盖状态</dt><dd>coverageStale=true · 末次采样 03:09，需刷新覆盖后重采</dd></div>
+                <div><dt>执行结果</dt><dd>已执行并退出；退出码 0，cleanPipeEof=true</dd></div>
+                <div><dt>恢复入口</dt><dd>刷新覆盖快照后重采；不改写本次退出结论</dd></div>
+                <div><dt>观察时间</dt><dd>2026-11-27 03:12:15 → 03:12:17</dd></div>
+              </dl>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // 仅用于静态稿的交互演示：主题切换、页签切换、来源模式选中态。
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    var dark = root.getAttribute('data-theme') === 'dark';
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+    this.querySelector('.tlabel').textContent = dark ? '浅色' : '深色';
+  });
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    });
+  });
+
+  var segButtons = Array.prototype.slice.call(document.querySelectorAll('.seg button'));
+  segButtons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      segButtons.forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    });
+  });
+</script>
+</body>
+</html>

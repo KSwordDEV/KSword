@@ -286,6 +286,18 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
             publish(out);
         };
     const project::CooperativeApiTransferCommitted transferred = [&](const project::CooperativeApiTransferReceipt& transfers) {
+            // 同一writer的活动快照独立于API候选归档水位；不以历史Ready推导当前可用。
+            if (!transfers.handoff.isNull())
+            {
+                const auto* handoffSample = transfers.handoffSample
+                    ? &*transfers.handoffSample : nullptr; // 本次通知借用的真实采样身份，仅在回调期间有效。
+                if (handoffSample)
+                {
+                    bindSample(*handoffSample);
+                }
+                out.transferHandoffStatus = QString::fromStdString(Ksword::Evidence::WriteJson(transfers.handoff));
+                publish(out); // 持锁发布同一样本与状态，读侧不观察半更新快照。
+            }
             // 只发布已提交前缀内的候选，原始包继续由该采样的归档入口读取。
             out.transferCandidates = transfers.candidateCount;
             out.evictedTransferWrites = transfers.evictedWrites;
@@ -388,7 +400,8 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     out.cleanupComplete = capture.cleanupComplete;
     if (m_request.autoTransfer)
     {
-        out.transferHandoff = QString::fromStdString(Ksword::Evidence::WriteJson(run.transferHandoff)); // 回执归本轮采样，不查询当前目标。
+        out.transferHandoff = QString::fromStdString(Ksword::Evidence::WriteJson(run.transferHandoff)); // 终态权威回执独立保存。
+        out.transferHandoffStatus.clear(); // 终态切换后不遗留较早的活动快照。
     }
     out.validatedRows = run.ordinaryPackets;
     out.incomplete = out.incomplete || capture.code != 0 || run.archivedPackets != run.ordinaryPackets || !run.archiveStatus;

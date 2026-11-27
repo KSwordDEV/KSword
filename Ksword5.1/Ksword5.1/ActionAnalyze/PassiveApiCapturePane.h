@@ -14,6 +14,7 @@ class QTimer;
 class QSpinBox;
 class QCheckBox;
 class QComboBox;
+class QTabWidget;
 
 namespace ks::ui
 {
@@ -98,6 +99,8 @@ namespace ks::action_analyze
         QPushButton* m_archive = nullptr; // 查看已提交且读回的独立采样。
         QLabel* m_status = nullptr; // 生命周期摘要，独立于存量字段。
         ks::ui::StructuredFieldView* m_fields = nullptr; // 正规回执的唯一可复制字段源。
+        QTabWidget* m_resultTabs = nullptr; // 采集回执和接管树分工明确，切换不改变当前采样或草稿。
+        ks::ui::StructuredFieldView* m_handoffFields = nullptr; // 同一冻结接管JSON的可搜索、可复制树状投影。
         PassiveApiCaptureRequest m_context; // 下一次开始时冻结的项目身份。
         std::shared_ptr<PassiveApiCaptureOwner> m_owner; // 当前或最近一次本端请求。
         std::shared_ptr<PassiveApiCaptureOwner> m_resultOwner; // 已提交回执实际所属的请求。

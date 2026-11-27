@@ -554,11 +554,48 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         etw.finalSegment = etwStream.finalized;
         etw.source = etwSource->status();
     };
+    // 自动接管活动状态借用原writer回调发布；节流为每500ms，状态无变化不重发。
+    ULONGLONG nextHandoffPublish = 0; // 下一次允许更新UI纯值快照的时刻。
+    std::string publishedHandoff; // 上次已通知正文，无变化时不重发界面或重新投影字段树。
+    const auto publishHandoff = [&](bool final)
+    {
+        if (!handoff || !notifyTransfers)
+        {
+            return;
+        }
+        const auto now = GetTickCount64(); // 只控制展示频率，不参与Hook准入或保护判定。
+        if (!final && now < nextHandoffPublish)
+        {
+            return;
+        }
+        nextHandoffPublish = now + 500;
+        auto snapshot = handoff->Describe(); // 借用同一writer已拥有的状态，不向目标发送额外请求。
+        auto encoded = Evidence::WriteJson(snapshot); // 无损序列化用于检测回执变化，保留64位身份。
+        if (!final && encoded == publishedHandoff)
+        {
+            return;
+        }
+        publishedHandoff = std::move(encoded);
+        out.transfers.handoff = std::move(snapshot);
+        if (!out.sample.sampleId.empty())
+        {
+            out.transfers.handoffSample = out.sample;
+        }
+        try
+        {
+            onTransfers(out.transfers);
+        }
+        catch (...)
+        {
+            notifyTransfers = false; // 展示失败不打断已承担的保护恢复及归档责任。
+        }
+    };
     request.onControlPoll = [&]
     {
         if (handoff)
         {
             handoff->Poll();
+            publishHandoff(false);
         }
         if (network)
         {
@@ -601,6 +638,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         handoff->Close();
         out.capture.cancelled = out.capture.cancelled || cancel.load();
         out.transferHandoff = handoff->Describe();
+        publishHandoff(true); // 清退后的最终快照覆盖活动状态，终段仍保存原规范回执。
         if (handoff->Incomplete())
         {
             // 三端继续使用原采集状态投影；自动接管缺口独立进入回执，不能仍返回全部完成。
