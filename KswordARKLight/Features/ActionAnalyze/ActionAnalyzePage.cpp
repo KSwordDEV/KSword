@@ -362,6 +362,22 @@ std::string NarrowApiText(std::wstring_view text) {
     return ascii;
 }
 
+// 把一条已核验归档记录转换为规则引擎唯一认可的证据投影，不读取当前系统状态。
+Rules::ApiPresetEvidence RuleEvidenceOf(const EvidenceRecord& record)
+{
+    Rules::ApiPresetEvidence evidence; // 当前归档行拥有的规则输入集合。
+    evidence.actorPid = record.headerPid.value_or(0); // 仅保留原包报头 PID，零表示原包没有提供。
+    evidence.memory = record.apiMemoryLifecycle; // 复制 AAIM1 的有效位与请求/返回字段。
+    evidence.apc = record.apiApc; // 复制 AAAP1 的线程、例程和目标身份字段。
+    evidence.apcOutcome = record.apcOutcome; // 保留原始入队结果，不把请求当成执行结果。
+    evidence.context = record.apiContext; // 复制 AACT1 的上下文请求字段。
+    evidence.contextOutcome = record.contextOutcome; // 保留原始上下文调用结果。
+    evidence.map = record.apiSectionMap; // 复制 AASM1 的节映射请求及返回字段。
+    evidence.mapOutcome = record.sectionMapOutcome; // 保留原始映射调用结果。
+    evidence.behavior = record.behaviorObservation; // 复制普通强类型返回及严格解码参数。
+    return evidence;
+}
+
 // 在项目回放后台用同一份规则库处理已核验窗口，写入快照中的规则回执和加载诊断。
 void EvaluateReplayApiRules(Snapshot& snapshot) {
     const auto database = Rules::LoadApiPresetDatabase(); // 两种配置均使用这次读取的版本。
@@ -387,20 +403,10 @@ void EvaluateReplayApiRules(Snapshot& snapshot) {
             continue;
         }
         const auto& text = input.emplace_back(InputText{index, NarrowApiText(row.apiClue), NarrowApiText(row.apiFamily)});
-        const auto& outcome = row.memoryWriteReturn;
+        const auto& outcome = row.memoryWriteReturn; // 同一归档行的显式内存写入返回值。
         observations.push_back({row.sequence, row.apiSourceSequence, text.api, text.family,
-            outcome ? std::optional{Rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt});
-        // 规则仅接同一归档行已核验的协议值；关联候选和活控制状态不作为谓词输入。
-        auto& fields = observations.back().evidence;
-        fields.actorPid = row.headerPid.value_or(0);
-        fields.memory = row.apiMemoryLifecycle;
-        fields.apc = row.apiApc;
-        fields.apcOutcome = row.apcOutcome;
-        fields.context = row.apiContext;
-        fields.contextOutcome = row.contextOutcome;
-        fields.map = row.apiSectionMap;
-        fields.mapOutcome = row.sectionMapOutcome;
-        fields.behavior = row.behaviorObservation; // 只传递已核验原包的拥有型值，不读取预览。
+            outcome ? std::optional{Rules::ArchivedApiMemoryWriteReturn{outcome->returned, outcome->statusCode}} : std::nullopt,
+            RuleEvidenceOf(row)}); // 只传递已核验原包的拥有型值，不读取预览或活状态。
     }
 
     // 跟随档内含计划、普通原包及尾记，实际归档序号可跳号。
@@ -993,16 +999,7 @@ void UpdateDetails(Page& page) {
             }
             if (!record->apiClue.empty())
             {
-                Rules::ApiPresetEvidence ruleEvidence; // 与规则回放保持一致的本行证据集合。
-                ruleEvidence.actorPid = record->headerPid.value_or(0);
-                ruleEvidence.memory = record->apiMemoryLifecycle;
-                ruleEvidence.apc = record->apiApc;
-                ruleEvidence.apcOutcome = record->apcOutcome;
-                ruleEvidence.context = record->apiContext;
-                ruleEvidence.contextOutcome = record->contextOutcome;
-                ruleEvidence.map = record->apiSectionMap;
-                ruleEvidence.mapOutcome = record->sectionMapOutcome;
-                ruleEvidence.behavior = record->behaviorObservation;
+                const auto ruleEvidence = RuleEvidenceOf(*record); // 与后台规则回放使用同一证据投影。
                 const auto api = NarrowApiText(record->apiClue); // 使用生产规则输入中的原始API名称。
                 const auto family = NarrowApiText(record->apiFamily); // 使用生产分类器产生的稳定类别ID。
                 const auto fields = Rules::ProjectApiPresetFields(api, family,
