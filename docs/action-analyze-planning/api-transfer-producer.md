@@ -106,7 +106,7 @@ x64/x86 各 35/35：LastError 保持、QPC 顺序、null/失败/不可读输出�
 
 | 族 | 新共享头 | marker / prefix | 精确源 API | 结构 / 解码入口 |
 | --- | --- | --- | --- | --- |
-| APC 入队 | `shared/evidence/ApiApcFields.h` | `0x41505631` / `AAAP1\|` | `QueueUserAPC`、`QueueUserAPC2`、`NtQueueApcThread`、`NtQueueApcThreadEx` | `ApiApcFieldsV1` / `ReadApiApcFields` |
+| APC 入队 | `shared/evidence/ApiApcFields.h` | `0x41505631` / `AAAP1\|` | `QueueUserAPC`、`QueueUserAPC2`、`NtQueueApcThread`、`NtQueueApcThreadEx`、`NtQueueApcThreadEx2` | `ApiApcFieldsV1` / `ReadApiApcFields` |
 | 请求上下文 | `shared/evidence/ApiContextFields.h` | `0x43545631` / `AACT1\|` | `SetThreadContext`、`NtSetContextThread` | `ApiContextFieldsV1` / `ReadApiContextFields` |
 | 节映射 | `shared/evidence/ApiSectionMapFields.h` | `0x534d5631` / `AASM1\|` | `NtMapViewOfSection` | `ApiSectionMapFieldsV1` / `ReadApiSectionMapFields` |
 
@@ -116,9 +116,9 @@ x64/x86 各 35/35：LastError 保持、QPC 顺序、null/失败/不可读输出�
 
 当前 AAAP1 为 16 个固定 64 位十六进制字段：`operation, flags, actorCreationFileTime, targetPid, targetCreationFileTime, targetTid, targetThreadCreationFileTime, routineAddress, enterQpc, returnQpc, inputThreadHandle, argument1, argument2, argument3, reserveHandle, queueFlags`。旧 14 字段档案读取时将 `reserveHandle` 保持为零；旧 14/15 字段均无 `ApiApcQueueFlags` 有效位，不能把填充值零解释为实际采集的调度标志。新布局正文长 277 字符，旧 14/15 字段布局仍兼容。
 
-flags 位 0/1/2/3/4 分别为源进程身份、目标进程身份、目标线程身份、请求例程地址、目标前后稳定。Win32 入队只有 argument1，另两个参数按该原 API 的参数形态置零；NT 保留三个原始参数地址，不解引用。`NtQueueApcThreadEx` 另保留原 `reserveHandle` 位模式；它与 APC 是否入队成功无关，不解引用。
+flags 位 0/1/2/3/4 分别为源进程身份、目标进程身份、目标线程身份、请求例程地址、目标前后稳定；位 5 表示已采集独立的 `queueFlags`，不与调度标志本身混用。Win32 入队只有 argument1，另两个参数按该原 API 的参数形态置零；NT 保留三个原始参数地址，不解引用。`NtQueueApcThreadEx` 和 `NtQueueApcThreadEx2` 另保留原 `reserveHandle` 位模式；它与 APC 是否入队成功无关，不解引用。Ex2 使用七参数 NTAPI 签名，在 Reserve 后、例程前传入原 ULONG flags，并在调用前执行已有同步接管；不经 Win32 包装器时仍有独立观察。
 
-`ApiApcCallOutcome` 精确检查四个 API 的模块族、返回位和 resultCode；返回 Unknown/Failed/Accepted。`QueueUserAPC2` 保留独立 `queueFlags` 和有效位，包括已知零；历史缺有效位的 APC2 档案仍可读。Win32 入队记录不能携带 NT Reserve、第二/第三参数，非 APC2 记录不能携带 APC2 flags 有效位，普通 `NtQueueApcThread` 不能携带 Ex 的 Reserve；字段与 API 名矛盾时返回 Unknown。**Accepted 只表示调用接受入队，既不表示投递，也不表示例程执行。** NULL 例程依然是已记录的请求地址，不推断合法或可执行。
+`ApiApcCallOutcome` 精确检查五个 API 的模块族、返回位和 resultCode；返回 Unknown/Failed/Accepted。`QueueUserAPC2` 和 `NtQueueApcThreadEx2` 保留独立 `queueFlags` 和有效位，包括已知零；历史缺有效位的 Win32 APC2 档案仍可读，新接入的 NT Ex2 要求该位存在。Win32 入队记录不能携带 NT Reserve、第二/第三参数，普通 APC/NT Ex 记录不能携带 Ex2 flags 有效位，普通 `NtQueueApcThread` 不能携带 Ex 的 Reserve；字段与 API 名矛盾时返回 Unknown。**Accepted 只表示调用接受入队，既不表示投递，也不表示例程执行。** NULL 例程依然是已记录的请求地址，不推断合法或可执行。
 
 ### 线程身份采集与成本边界
 

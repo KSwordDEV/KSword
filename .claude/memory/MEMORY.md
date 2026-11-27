@@ -1,5 +1,7 @@
 # Memory Index
 
+- **2026-11-27 NT Ex2最新续跑。** 产品4c57b774e新增NtQueueApcThreadEx2调用前同步接管、AAAP1全部参数/flags/NTSTATUS及三端原展示/关联接入，尚未构建实测；唯一构建sh_21bec46130013Dh5kCaf4Em70G/PID4392使用hy4flash，只两Agent+CLI各一次，日志native-ex2-build，不运行目标/GUI。原APC2契约任务在约20分钟仅工具链查询后已核对精确进程并结束，最终failed；APC2驱动任务超时无文件，不重复。详见[工程记录](ksword-action-analyze-engineering.md)。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」有效；测试/夹具/回执仍全部交CodeBuddy，主协调写产品，等待时不虚构通过或扩充无关防御。
+
 - **2026-11-27 03时接续优先。** CLI30313DBE…/Agent40372585…新包三目标链一次实际运行9/9、CLI0、A/B/C退出0、三个计数各1；样本5505df0a-91e2-4e04-a439-8ee0d3a0a553，B第二范围tid41928/create134402358157052790，三范围各5条真实IP，清退leftOwned0。回执local-thread-integrated/runtime-receipt.md。原夹具只留samples导致正式CLI replay缺项目根，AAIP1离线核对待sh_21bcdb6710011ny1zT3pU2kpIo，不再重复replay或整链。5bde7e334逐入口entryObservation已一次正式CLI构建成功，hash4F1C01D0…4002339、entry-build.log；未实测该增量，不借旧链覆盖。APC2/主动停止准备旧任务超时仅有读取；同短批重新限定只写APC2源码，禁止运行。所有验收及记录仍CodeBuddy负责，主协调写产品，GUI继续后置；完整11项未闭合，持续推进要求有效。
 
 - **2026-11-27 最新接续。** 第456项旧样本已离线结构化核对：三范围各5条顶层instructionAddress观察且精确命中入口，第二范围tid2792/create一致；旧字节命中判据作废。0134a8303/318ae1a34两Agent+CLI正式增量成功（CLI30313DBE…、x6440372585…、x86106C6581…），回执codebuddy-five-tests/local-thread-integrated/receipt.md。独立读侧任务超时143，无结果不计通过、不续跑。唯一新包整合运行sh_21bba2127001dQowZaXEppOuXX待自动回执，只准一次、复用产物禁构建，旧证据保留，GUI后置；不轮询或重复ETW。主协调持续推进产品，测试/夹具/验收记录仍交CodeBuddy。用户原话「严禁在我问一个问题过后就停下来，任务完成之前不能停下来，全部继续推进」。下一步按新包真实回执修实际问题，再补QueueUserAPC2及统一停止恢复尚缺实证；详见[工程记录](ksword-action-analyze-engineering.md)。
