@@ -184,16 +184,50 @@ Result Failure(int code, const wchar_t* status, std::uint64_t sequence = 0,
     return {code, Json::object(fields), {status}};
 }
 
-// 输入本页冻结规则库和已核验原包坐标，返回本条分类及行为；失败不妨碍原包回读。
+// 输入当前原包的同一份规则字段投影，输出带类型的已采事实，缺字段不补零或空字符串。
+Json ReplayObservedFields(const project::Rules::ArchivedApiObservation& observation,
+    const std::optional<evidence::ApiMonitorMemoryWriteReturn>& returned)
+{
+    const auto fields = project::Rules::ProjectApiPresetFields(observation.api, observation.family,
+        returned, observation.evidence); // 与生产谓词求值使用相同目录和缺值语义。
+    std::vector<Json> values; // 本行拥有的 JSON 值，不保留投影器借用的字符串视图。
+    values.reserve(fields.size());
+    for (const auto& field : fields)
+    {
+        Json value; // 仅由真实已采类型分支赋值，未知值不作为已知事实发布。
+        const wchar_t* type = nullptr; // 字段实际类型，数值序列化为十进制字符串以保全 u64。
+        if (const auto* boolean = std::get_if<bool>(&field.value))
+        {
+            value = Json::boolean(*boolean);
+            type = L"bool";
+        }
+        else if (const auto* number = std::get_if<std::uint64_t>(&field.value))
+        {
+            value = Json::count(*number);
+            type = L"u64";
+        }
+        else if (const auto* text = std::get_if<std::string_view>(&field.value))
+        {
+            value = Json::string(ks::str::Utf8ToUtf16(std::string(*text)));
+            type = L"text";
+        }
+        // 当前生产投影只添加 Known；不让未来新增的缺值质量意外落入已知值分支。
+        if (field.quality != project::Rules::Quality::Known || !type)
+        {
+            continue;
+        }
+        values.push_back(Json::object({
+            {L"id", Json::string(ks::str::Utf8ToUtf16(std::string(field.id)))},
+            {L"type", Json::string(type)}, {L"value", value}}));
+    }
+    return Json::array(values);
+}
+
+// 输入本页冻结规则库和已核验原包坐标，返回本条分类、行为及同一原包的已采规则输入。
 Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
     const evidence::ArchivedApiMonitorClue& row, std::uint64_t rawSequence)
 {
     // 单条沿生产页投影器求值，不从API名称、预览文本或活采latest推导历史行为。
-    if (!database.error.empty())
-    {
-        return Json::object({{L"status", Json::string(L"configuration-failed")},
-            {L"error", Json::string(ks::str::Utf8ToUtf16(database.error))}});
-    }
     const auto api = ks::str::Utf16ToUtf8(std::wstring(row.clue->api)); // 同步求值期间持有精确API名。
     const auto returned = evidence::ReadApiMonitorMemoryWriteReturn(row.packet); // 独立的真实返回证据。
     const project::Rules::ArchivedApiObservation observation{
@@ -201,13 +235,21 @@ Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
         returned ? std::optional{project::Rules::ArchivedApiMemoryWriteReturn{
             returned->returned, returned->statusCode}} : std::nullopt,
         project::Rules::ReadApiPresetEvidence(row.packet)}; // 不套用活采计划序号，兼容首条导入记录#1。
+    const auto observed = ReplayObservedFields(observation, returned); // 规则坏配置也保留原包可解释的已采值。
+    if (!database.error.empty())
+    {
+        return Json::object({{L"status", Json::string(L"configuration-failed")},
+            {L"error", Json::string(ks::str::Utf8ToUtf16(database.error))},
+            {L"observedFields", observed}});
+    }
     const auto report = project::Rules::AnalyzeVerifiedApiPresetPage(database,
         std::span<const project::Rules::ArchivedApiObservation>(&observation, 1), 1,
         project::Rules::ApiPresetProfile::ByCategory);
     if (report.error != project::Rules::ApiPresetError::None || report.matches.size() != 1)
     {
         return Json::object({{L"status", Json::string(L"evaluation-failed")},
-            {L"error", Json::number(static_cast<std::uint32_t>(report.error))}});
+            {L"error", Json::number(static_cast<std::uint32_t>(report.error))},
+            {L"observedFields", observed}});
     }
     const auto& match = report.matches.front(); // 同一原包的拥有型分类及可选行为释义。
     Json behavior; // 普通分类未附行为时保持null，不冒充无意义的空释义。
@@ -222,6 +264,7 @@ Json ReplayRuleJson(const project::Rules::ApiPresetDatabase& database,
     }
     return Json::object({{L"status", Json::string(L"evaluated")},
         {L"ruleId", Json::string(ks::str::Utf8ToUtf16(match.ruleId))},
+        {L"observedFields", observed},
         {L"behavior", behavior}});
 }
 
@@ -822,7 +865,7 @@ void RegisterApiMonitorEvidenceCommands()
     replay.syntax = L"KswordCLI.exe analyze api-evidence replay --project PATH --sample UUID [--after SEQUENCE] [--limit N] [--packet 1] [--json]";
     replay.options = L"Required: --project and --sample. Optional: --after, --limit (1-100) and --packet 1.";
     replay.summary = L"Read a verified page of archived WinAPI clues.";
-    replay.notes = L"Use the returned nextAfter as the next page's --after value. Each row.rule contains classification and an optional bilingual behavior explanation evaluated from that verified packet. ruleProfile identifies current and recorded rules; matchesRecordedRules is null when either identity is unavailable. Rule errors do not prevent reading the archived packet.";
+    replay.notes = L"Use the returned nextAfter as the next page's --after value. Each row.rule contains classification, optional bilingual behavior and typed observedFields from the verified packet; omitted fields remain uncollected. ruleProfile identifies current and recorded rules; matchesRecordedRules is null when either identity is unavailable. Rule errors do not prevent reading archived packets or observed fields.";
     replay.run = RunReplay;
     addCommand(std::move(replay));
 }
