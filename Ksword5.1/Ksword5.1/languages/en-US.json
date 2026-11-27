@@ -8183,6 +8183,8 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "目标生命周期": "Target lifecycle",
+    "原生所有者错误码": "Native owner error code",
     "自动接管概览": "Auto handoff overview",
     "继续接收目标": "Accepting targets",
     "成员资源已归还": "Member resources restored",

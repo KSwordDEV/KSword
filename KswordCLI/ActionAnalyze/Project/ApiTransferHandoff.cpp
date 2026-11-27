@@ -984,6 +984,25 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
                 ? V::makeString(recovery->stage) : V::makeNull()},
             {"nativeRecoveryFailureError", V::makeUInt(recovery ? recovery->win32Error : 0)}}));
     }
+    // 完整成员目录独立于最近256条准入；历史请求淘汰后仍保留每个原owner的恢复归属。
+    Evidence::JsonArray targets; // 同一worker已经持有的快照，不为展示调用Query或打开进程。
+    for (const auto& member : s.current.members)
+    {
+        const auto* recovery = member.control.firstRecoveryFailure
+            ? &*member.control.firstRecoveryFailure : nullptr; // 首次恢复错误不会被后续clean抹掉。
+        const bool retiring = s.failedOwnerRecovery.contains(member.owner.backendInstanceId); // 永久撤销本轮该实例准入。
+        targets.push_back(V::makeObject({
+            {"targetPid", V::makeUInt(member.site.pid)},
+            {"targetCreationFileTime", V::makeString(std::to_string(member.site.creationFileTime))},
+            {"backendInstanceId", V::makeString(member.owner.backendInstanceId)},
+            {"sampleId", V::makeString(member.owner.sampleId)},
+            {"failedTargetRecoveryRequested", V::makeBool(retiring)},
+            {"clean", V::makeBool(member.control.clean)},
+            {"nativeOwnerStage", member.control.stage ? V::makeString(member.control.stage) : V::makeNull()},
+            {"nativeOwnerError", V::makeUInt(member.control.win32Error)},
+            {"nativeRecoveryFailureStage", recovery && recovery->stage ? V::makeString(recovery->stage) : V::makeNull()},
+            {"nativeRecoveryFailureError", V::makeUInt(recovery ? recovery->win32Error : 0)}}));
+    }
     return V::makeObject({{"kind", V::makeString("api-transfer-handoff-v1")}, {"enabled", V::makeBool(s.started)},
         {"sourcePid", V::makeUInt(s.sourcePid)}, {"sourceCreationFileTime", V::makeString(std::to_string(s.sourceCreation))},
         {"requests", V::makeUInt(s.requests)}, {"armed", V::makeUInt(s.armed)}, {"rejected", V::makeUInt(s.rejected)},
@@ -995,6 +1014,7 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
         {"clean", V::makeBool(s.current.clean)}, {"callbackFailed", V::makeBool(s.callbackFailed)},
         {"activeAgents", V::makeBool(HasActiveAgents())}, {"sources", V::makeArray(std::move(sources))},
         {"admissions", V::makeArray(std::move(admissions))},
+        {"targets", V::makeArray(std::move(targets))},
         {"recursiveAgentReady", V::makeBool(!s.sources.empty() && std::all_of(s.sources.begin(), s.sources.end(),
             [](const auto& entry) {
                 return entry.second.ready && !entry.second.failed && !entry.second.ended && !entry.second.stopping;

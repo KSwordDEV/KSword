@@ -136,6 +136,28 @@ namespace Ksword::Evidence
             }
         }
 
+        // 完整owner目录单独呈现，避免准入窗口淘汰后恢复中的目标从Qt/Win32详情消失。
+        const auto* targets = receipt.find("targets"); // 旧版回执缺此字段时保持原展示，不补造目标状态。
+        if (targets && targets->asArray())
+        {
+            for (const auto& target : *targets->asArray())
+            {
+                HandoffReceiptSection group{L"目标生命周期"}; // 已请求恢复、当前clean及历史失败分别保存。
+                Field(group, target, L"API 目标 PID", "targetPid");
+                Field(group, target, L"目标进程创建 FILETIME", "targetCreationFileTime");
+                Field(group, target, L"后端实例 ID", "backendInstanceId");
+                Field(group, target, L"采样 ID", "sampleId");
+                Field(group, target, L"已请求失败目标恢复", "failedTargetRecoveryRequested");
+                Field(group, target, L"清退完成", "clean");
+                Field(group, target, L"原生所有者阶段", "nativeOwnerStage");
+                Field(group, target, L"原生所有者错误码", "nativeOwnerError");
+                Field(group, target, L"恢复失败阶段", "nativeRecoveryFailureStage");
+                Field(group, target, L"恢复失败错误码", "nativeRecoveryFailureError");
+                group.failed = Failed(target, "nativeOwnerError") || Failed(target, "nativeRecoveryFailureError");
+                sections.push_back(std::move(group));
+            }
+        }
+
         const auto* admissions = receipt.find("admissions"); // 请求窗口只代表回执保留的准入，不冒充全量历史。
         if (admissions && admissions->asArray())
         {
