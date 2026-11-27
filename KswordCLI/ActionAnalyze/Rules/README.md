@@ -38,6 +38,6 @@ v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == fil
 
 `registry.path`/`registry.pathLower` 仅来自 RegOpenKey 的明确 HKLM/HKCU 根，或 RegGetValue／RegSetKeyValue 的预定义根 HKEY 加子键。普通句柄不查当前系统、不做历史映射。`*Lower` 仅折叠 ASCII 大写，不变换斜杠、不展开环境变量、不删除 `..`；目录里的 ASCII 键路径可用精确相等或明确分支前缀匹配。无名默认值当前不投影为已知空字符串。`registry.valueNameLower` 同样按 ASCII 大小写匹配。RegSetValueEx 虽有值名，但没有键路径，不能命中 Run 键规则。
 
-默认行为覆盖虚拟化软件／服务／ACPI 键查询的成功与拒绝、精确隔离模块查询、来宾服务打开、进程／模块枚举和指定系统信息类查询；所有环境规则只称探测线索。启动配置包括 Run／RunOnce、Winlogon、AppInit；服务与任务包括服务 ImagePath、TaskCache 分支写入、服务创建／启动请求／配置修改／标记删除，以及应用参数名为 schtasks.exe 的进程创建。后者不证明任务注册；文件规则不把打开句柄称为载荷落地，网络规则不把会话句柄称为 TCP 已连接，也不作数据外传归因。`network.domainLower` 只接受 ASCII DNS 标签并移除一个尾点，不从 IP、URL 或未知 IDN 猜域名。
+默认行为覆盖虚拟化软件／服务／ACPI 键查询的成功与拒绝、精确隔离模块查询、来宾服务打开、进程／模块枚举，以及 Basic、Process、Module、Firmware、KernelDebugger、Hypervisor、CodeIntegrity、HypervisorDetail、IsolatedUserMode 等指定系统信息类查询；所有环境规则只称探测线索。启动配置包括 Run／RunOnce、Winlogon、AppInit；服务与任务包括服务 ImagePath、TaskCache 分支写入、服务创建／启动请求／配置修改／标记删除，以及应用参数名为 schtasks.exe 的进程创建。后者不证明任务注册；文件规则不把打开句柄称为载荷落地，网络规则不把会话句柄称为 TCP 已连接，也不作数据外传归因。`network.domainLower` 只接受 ASCII DNS 标签并移除一个尾点，不从 IP、URL 或未知 IDN 猜域名。
 
 本次未增加任务 COM 方法采集、注册表值数据、全局 HKEY／文件句柄历史、进程枚举末尾名称、网络响应正文或跨事件链。它们没有伪字段或默认不可触发模板。规则按文件顺序首条命中，特定语义放在同类一般返回之前；缺字段比较保持 Unknown，失败不能被解释为痕迹不存在。

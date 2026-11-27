@@ -280,6 +280,36 @@
       "summaryZh": "SystemFirmwareTableInformation 查询报告 NT 成功；固件字节、厂商身份及沙箱结论仍未知"
     },
     {
+      "ruleId": "ksword.behavior.system-kernel-debugger-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && result.statusDomain == \"ntstatus\" && system.informationClass == 35u64",
+      "summary": "A SystemKernelDebuggerInformation query reported NT success; debugger state flags and any caller decision are not projected.",
+      "summaryZh": "SystemKernelDebuggerInformation 查询报告 NT 成功；调试器状态标志及调用方判断未被投影"
+    },
+    {
+      "ruleId": "ksword.behavior.system-hypervisor-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && result.statusDomain == \"ntstatus\" && system.informationClass == 91u64",
+      "summary": "A SystemHypervisorInformation query reported NT success; hypervisor flags and whether the caller treated them as virtualization evidence are not projected.",
+      "summaryZh": "SystemHypervisorInformation 查询报告 NT 成功；Hypervisor 标志及调用方是否将其视为虚拟化证据未被投影"
+    },
+    {
+      "ruleId": "ksword.behavior.system-code-integrity-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && result.statusDomain == \"ntstatus\" && system.informationClass == 103u64",
+      "summary": "A SystemCodeIntegrityInformation query reported NT success; Code Integrity options and any VBS, HVCI or debug-mode interpretation are not projected.",
+      "summaryZh": "SystemCodeIntegrityInformation 查询报告 NT 成功；代码完整性选项及 VBS、HVCI 或调试模式解释未被投影"
+    },
+    {
+      "ruleId": "ksword.behavior.system-hypervisor-detail-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && result.statusDomain == \"ntstatus\" && system.informationClass == 159u64",
+      "summary": "A SystemHypervisorDetailInformation query reported NT success; hypervisor vendor, version and detail fields are not projected.",
+      "summaryZh": "SystemHypervisorDetailInformation 查询报告 NT 成功；Hypervisor 厂商、版本及详细字段未被投影"
+    },
+    {
+      "ruleId": "ksword.behavior.system-isolated-user-mode-information-query.v1",
+      "predicate": "api.name == \"NtQuerySystemInformation\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && result.statusDomain == \"ntstatus\" && system.informationClass == 165u64",
+      "summary": "A SystemIsolatedUserModeInformation query reported NT success; isolated-user-mode flags and any sandbox interpretation are not projected.",
+      "summaryZh": "SystemIsolatedUserModeInformation 查询报告 NT 成功；隔离用户模式标志及任何沙箱解释未被投影"
+    },
+    {
       "ruleId": "ksword.behavior.autorun-registry-write-returned.v1",
       "predicate": "(api.name == \"RegSetKeyValueW\" || api.name == \"RegSetKeyValueA\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && (registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\run\" || registry.pathLower == @\"hkcu\\software\\microsoft\\windows\\currentversion\\runonce\" || registry.pathLower == @\"hklm\\software\\microsoft\\windows\\currentversion\\runonce\") && registry.valueName != \"\"",
       "summary": "A value write to an exact Run/RunOnce key reported success. Startup persistence configuration is a candidate; the value data, payload execution and persistence effectiveness remain unknown.",
