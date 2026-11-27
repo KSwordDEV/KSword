@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第5项本地线程证据读侧补齐。** shared/evidence/ApiMonitorClue.h登记CreateThread为thread-create，ApiInjectionCallOutcome沿原HANDLE/独立状态码一致性检查接纳该包装器；沿ArchivedEvidenceGraph保留AAIP1身份与实际返回结果。ApiTransferChain及ReadNativeExecutionRequest继续拒绝同进程跨进程候选，不扩大关系语义。0134a8303及本批共享头尚未构建/实测，不借当前chain旧Agent结论。用户再次要求shell执行时继续独立工作。chain首次三个admissions全部error0/armed3，8为管道请求数而非8个目标；原错误阶段判断已撤回。已定位夹具本地计数未发布到共享计数、duration0取消契约应为6两处问题，CodeBuddy唯一修正任务sh_21bb1e9f6001ld9rsBW4YnsRAG仅修夹具、复用CLI c1a3fc19…/旧Agent，一次有限期场景及回执，禁产品重建/GUI；主协调继续产品读侧开发。
+
 - **2026-11-27 第8项单跳混采实证、转456。** etw-attach-fix/receipt.md已由CodeBuddy落盘：正式CLI hash3223ECB2…56371、两Agent新hash；B目标stubRan/counter1/exit0、CLI0、NX/Agent及自有清退成立，ETW5观察/2段/verified=true，真实普通段final=false及末段、duration45000/segmented计划和2检查点已在保留归档确认。强驱动仍14/18，4失败为删scratch后错路径及graph错误期待readback-verified，保留失败不再重跑B。唯一456任务sh_21ba2ba62001By3253KcjU9VdV复用两Agent，仅一次CLI增量及一次既有chain --execute，限12分钟，禁GUI/其他回归。主协调继续第5项：本地CreateThread沿原ApiInjectionObservation记录AAIP1入口/返回时钟、进程及真实返回线程身份，替代直接解引用调用者tid输出指针。此Agent增量不在当前456复用产物中，待后续适用验证，不借旧产物标通过。
 
 - **2026-11-27 第4/6项成功准入与实际保护一致。** ApiTransferHandoff::Advance在Running及Agent Ready两处均用保留的真实目标句柄逐区VerifyArmedRange，临时开放返回Pending，实际错误保留失败；不再只靠owner范围登记先增加armed再等Hook重连才查NX。最终回包仍复核，不取消原保护/身份检查。源码待456定向实测。ETW CodeBuddy原宿主30分钟超时143：已有build-all.console.log确认两Agent/CLI成功，尚无运行回执；唯一原会话续接sh_21b9f6915001e7z5BlQJgNjpdb强制第一条业务命令运行原B一次，禁源码研究/重建/修驱动/追加场景，8分钟运行上限，测试与receipt仍由CodeBuddy完成。

@@ -122,7 +122,7 @@ inline ApiInjectionOutcome ApiInjectionCallOutcome(const ks::winapi_monitor::Api
     const bool write = fields.operation == ApiInjectionOperation::MemoryWrite;
     const bool native = clue->api == L"NtWriteVirtualMemory" || clue->api == L"NtCreateThreadEx";
     if ((write && clue->api != L"WriteProcessMemory" && clue->api != L"NtWriteVirtualMemory") ||
-        (!write && clue->api != L"CreateRemoteThread" && clue->api != L"CreateRemoteThreadEx" &&
+        (!write && clue->api != L"CreateThread" && clue->api != L"CreateRemoteThread" && clue->api != L"CreateRemoteThreadEx" &&
             clue->api != L"NtCreateThreadEx")) {
         return ApiInjectionOutcome::Unknown;
     }

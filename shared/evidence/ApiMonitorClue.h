@@ -38,6 +38,7 @@ inline const ApiMonitorClue* ClassifyApiMonitorClue(const ks::winapi_monitor::Ap
     static constexpr ApiMonitorClue catalog[] = {
         {L"WriteProcessMemory", "memory-write", C::Memory, false},
         {L"NtWriteVirtualMemory", "memory-write", C::Memory, true},
+        {L"CreateThread", "thread-create", C::Thread, false},
         {L"CreateRemoteThread", "thread-create", C::Thread, false},
         {L"CreateRemoteThreadEx", "thread-create", C::Thread, false},
         {L"NtCreateThreadEx", "thread-create", C::Thread, true},
