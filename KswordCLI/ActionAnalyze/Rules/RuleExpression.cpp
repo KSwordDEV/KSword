@@ -65,9 +65,12 @@ bool HexDigit(char ch)
 }
 
 // 按当前字面量基数判断数字，避免把后缀或其它标识符字符并入数值。
-bool NumberDigit(char ch, bool hex)
+bool NumberDigit(char ch, int base)
 {
-    return hex ? HexDigit(ch) : Digit(ch);
+    if (base == 2) {
+        return ch == '0' || ch == '1'; // 二进制只消费0/1，不能借十进制扫描接纳2..9。
+    }
+    return base == 16 ? HexDigit(ch) : Digit(ch);
 }
 
 // v3 只接受 C# 常用的无符号后缀两种排列，并允许每个字母独立大小写。
@@ -757,12 +760,15 @@ bool Parser::ReadLiteral(Literal& value)
     return true;
 }
 
-// 十进制和 0x 十六进制均要求显式 u64 或 v3 UL/LU 后缀，使用 from_chars 无损验证全宽度。
+// 数值要求显式u64或v3 UL/LU；v3支持C#二进制和大小写基数前缀，旧profile保留原十进制/0x。
 bool Parser::ReadNumber(Literal& value)
 {
     const auto start = position_; // 包括前缀与后缀在内的诊断起始位置。
-    const bool hex = source_.substr(position_).starts_with("0x"); // 字面量的基数。
-    if (hex) {
+    const auto remaining = source_.substr(position_); // 当前数值及后继token，不复制用户表达式。
+    const bool hex = remaining.starts_with("0x") || (version_ >= 3 && remaining.starts_with("0X")); // 大写前缀仅v3。
+    const bool binary = version_ >= 3 && (remaining.starts_with("0b") || remaining.starts_with("0B")); // 二进制仅v3。
+    const int base = binary ? 2 : hex ? 16 : 10; // from_chars与词法扫描共用基数，不按值大小猜格式。
+    if (hex || binary) {
         position_ += 2;
     }
     const auto first = position_; // 去掉基数前缀的第一位。
@@ -770,7 +776,7 @@ bool Parser::ReadNumber(Literal& value)
     bool previousDigit = false; // 分隔符前必须已有数字。
     while (position_ < source_.size()) {
         const char ch = source_[position_]; // 当前数字或分隔符。
-        if (NumberDigit(ch, hex)) {
+        if (NumberDigit(ch, base)) {
             digits.push_back(ch);
             previousDigit = true;
             ++position_;
@@ -779,7 +785,7 @@ bool Parser::ReadNumber(Literal& value)
         if (ch == '_') {
             // 数字分隔符只在 v3 开放，且两侧必须是当前基数的数字。
             if (version_ < 3 || !previousDigit || position_ + 1 >= source_.size() ||
-                !NumberDigit(source_[position_ + 1], hex)) {
+                !NumberDigit(source_[position_ + 1], base)) {
                 return Fail(ExpressionError::InvalidNumber, {start, position_ + 1});
             }
             previousDigit = false;
@@ -808,7 +814,7 @@ bool Parser::ReadNumber(Literal& value)
     }
     std::uint64_t number = 0; // 通过检查后进入类型化节点的数值。
     const auto end = digits.data() + digits.size(); // 分隔符已去除，检查连续数字是否全宽可表示。
-    const auto parsed = std::from_chars(digits.data(), end, number, hex ? 16 : 10);
+    const auto parsed = std::from_chars(digits.data(), end, number, base);
     if (parsed.ec == std::errc::result_out_of_range) {
         return Fail(ExpressionError::NumericOverflow, {start, position_});
     }
