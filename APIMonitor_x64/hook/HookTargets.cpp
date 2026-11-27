@@ -3019,10 +3019,24 @@ namespace apimon
             return resultValue;
         }
 
+        // 本地创建与远程调度共用调用前交接；定义在后，避免为一个入口另建同步协议。
+        void PrepareTransferExecution(std::uint64_t pid, std::uint64_t creation,
+            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind);
+
         HANDLE WINAPI HookedCreateThread(LPSECURITY_ATTRIBUTES threadAttributesPointer, SIZE_T stackSize, LPTHREAD_START_ROUTINE startAddress, LPVOID parameterPointer, DWORD creationFlags, LPDWORD threadIdPointer)
         {
             ScopedHookGuard guardValue;
             if (guardValue.bypass()) { return g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer); }
+            // 已接管来源在本进程另起私有代码线程时也先自动设防，不能等CREATE_THREAD后再补范围。
+            // 模块入口由共享方法快速跳过，Agent及普通应用线程不产生额外同步请求。
+            const DWORD beforeHandoff = GetLastError(); // 身份查询及交接不改变原CreateThread入参错误状态。
+            if (!ActiveConfig().transferHandoff.pipeName.empty())
+            {
+                PrepareTransferExecution(GetCurrentProcessId(),
+                    ks::winapi_monitor::transferProcessCreation(GetCurrentProcess()),
+                    reinterpret_cast<std::uintptr_t>(startAddress), ks::winapi_monitor::TransferHandoffKind::ThreadCreate);
+            }
+            SetLastError(beforeHandoff);
             const auto callClock = BeginApiCallClock();
             HANDLE resultHandle = g_createThreadOriginal(threadAttributesPointer, stackSize, startAddress, parameterPointer, creationFlags, threadIdPointer);
             const auto duration = EndApiCallClock(callClock);
@@ -3049,8 +3063,22 @@ namespace apimon
             std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind)
         {
             const auto& endpoint = ActiveConfig().transferHandoff;
-            if (endpoint.pipeName.empty() || !pid || pid == GetCurrentProcessId() || pid > MAXDWORD || !creation || !address) return;
+            if (endpoint.pipeName.empty() || !pid || pid > MAXDWORD || !creation || !address) return;
             const DWORD savedError = GetLastError();
+            if (pid == GetCurrentProcessId())
+            {
+                // 同进程只跟随实际私有入口：普通模块线程和加载/卸钩助手保持原路径。
+                // 自有NX已去掉X位，因此不靠当前可执行标志排除已纳入的私有范围。
+                MEMORY_BASIC_INFORMATION memory{}; // 本地查询仅筛选，不取得页保护或线程暂停责任。
+                const auto queried = VirtualQuery(reinterpret_cast<const void*>(static_cast<std::uintptr_t>(address)),
+                    &memory, sizeof(memory)); // 不读取调用者指针，不解码或执行目标代码。
+                if (queried != sizeof(memory) || memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE ||
+                    (memory.Protect & PAGE_GUARD))
+                {
+                    SetLastError(savedError);
+                    return;
+                }
+            }
             ks::winapi_monitor::TransferHandoffRequest request{};
             request.kind = static_cast<DWORD>(kind);
             request.targetPid = static_cast<DWORD>(pid);
