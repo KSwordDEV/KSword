@@ -3109,7 +3109,7 @@ namespace apimon
                 request.operationId, request.targetPid, creation, address, armed ? 1u : 0u,
                 response.rangeBase, response.rangeBytes, error);
             SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Thread, L"ActionAnalyze", L"TransferHandoff",
-                error, detail, true, armed ? 1 : 0, ApiCallDuration{});
+                error, detail, true, armed ? 1 : 0, ApiCallDuration{}, 0, request.operationId); // 原包结构化编号与准入回执一致。
             SetLastError(savedError);
         }
 
