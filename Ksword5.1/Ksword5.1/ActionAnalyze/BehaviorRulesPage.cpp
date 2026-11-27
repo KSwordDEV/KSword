@@ -710,6 +710,8 @@ namespace
             auto& issue = m_archiveIssue.emplace(); // 状态只需要诊断及段边界，旧编辑器正文不变。
             issue.error = result.error;
             issue.configError = result.configError;
+            issue.recordedRulePresetSet = result.recordedRulePresetSet; // 规则失败时仍保留已核验计划的声明。
+            issue.recordedRuleSourceSha256 = result.recordedRuleSourceSha256; // 不因当前规则库失败丢失采集摘要。
             issue.end = result.end;
             issue.verifiedSegments = result.verifiedSegments;
             issue.firstUnverifiedSegment = result.firstUnverifiedSegment;
@@ -735,9 +737,26 @@ namespace
         // 外置规则库失败保留诊断原文，修正规则文件后可从原入口重试。
         const auto error = issue.configError.isEmpty() ? issue.error :
             sourceText(QStringLiteral("规则库加载失败：%1")).arg(issue.configError);
+        QStringList identityLines; // 只列读取器已核验到的采集身份，不把未读到推断为未记录。
+        if (!issue.recordedRulePresetSet.isEmpty())
+        {
+            identityLines << sourceText(QStringLiteral("采集规则集：%1")).arg(issue.recordedRulePresetSet);
+        }
+        if (!issue.recordedRuleSourceSha256.isEmpty())
+        {
+            identityLines << sourceText(QStringLiteral("采集规则 SHA-256：%1")).arg(issue.recordedRuleSourceSha256);
+        }
+        QString identitySuffix; // 错误状态中可选的采集身份段。
+        if (!identityLines.isEmpty())
+        {
+            identitySuffix = identityLines.join(QLatin1Char('\n'));
+            identitySuffix.prepend(QLatin1Char('\n'));
+        }
         if (!request.sample)
         {
-            return sourceText(QStringLiteral("归档预置失败：%1\n%2")).arg(request.path, error);
+            auto status = sourceText(QStringLiteral("归档预置失败：%1\n%2")).arg(request.path, error);
+            status += identitySuffix;
+            return status;
         }
         const auto& sample = *request.sample; // 显示请求身份，不能取当前目录选择。
         if (issue.error.isEmpty())
@@ -746,8 +765,12 @@ namespace
         }
         const auto detail = issue.firstUnverifiedSegment // 无合法前缀时仍显示已知的失败段。
             ? QStringLiteral("%1 · raw/%2").arg(error).arg(issue.firstUnverifiedSegment) : error;
-        return sourceText(QStringLiteral("采样 %1 回放失败（%2）。请在项目与采样中重试。"))
-            .arg(sample.sample.id, detail) + QLatin1Char('\n') + request.path;
+        auto status = sourceText(QStringLiteral("采样 %1 回放失败（%2）。请在项目与采样中重试。"))
+            .arg(sample.sample.id, detail);
+        status += QLatin1Char('\n');
+        status += request.path;
+        status += identitySuffix;
+        return status;
     }
 
     // 更新当前文件会话。读取和写入失败都原位保留草稿、路径和最近回放结果。
