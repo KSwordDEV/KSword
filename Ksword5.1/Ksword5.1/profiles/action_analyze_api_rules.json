@@ -442,6 +442,24 @@
       "summaryZh": "文件复制报告成功且解码到源、目标参数；文件身份、恶意内容及物理持久性未确认"
     },
     {
+      "ruleId": "ksword.behavior.file-write-zero-completed.v1",
+      "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && isKnown(file.requestedBytes) && file.transferredBytes == 0u64",
+      "summary": "WriteFile reported success with a decoded completed count of zero bytes; no positive-byte write, file path, payload content or durable storage is established.",
+      "summaryZh": "WriteFile 报告成功且解码到完成字节数为零；未确认正字节写入、文件路径、载荷内容或持久落盘"
+    },
+    {
+      "ruleId": "ksword.behavior.file-write-partial.v1",
+      "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && file.transferredBytes > 0u64 && file.transferredBytes < file.requestedBytes",
+      "summary": "WriteFile reported success with a positive decoded completed count smaller than the requested byte count; file path, payload content and durable storage remain unconfirmed.",
+      "summaryZh": "WriteFile 报告成功且解码到完成字节数大于零、小于请求字节数；文件路径、载荷内容及持久落盘仍未确认"
+    },
+    {
+      "ruleId": "ksword.behavior.file-write-full.v1",
+      "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && file.requestedBytes > 0u64 && file.transferredBytes == file.requestedBytes",
+      "summary": "WriteFile reported success with a positive decoded completed count equal to the requested byte count; this does not establish the file path, payload content or durable storage.",
+      "summaryZh": "WriteFile 报告成功且解码到完成字节数等于正数请求字节数；这不确认文件路径、载荷内容或持久落盘"
+    },
+    {
       "ruleId": "ksword.behavior.file-write-returned.v1",
       "predicate": "api.name == \"WriteFile\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded",
       "summary": "WriteFile returned true; the file path, exact completed byte count, payload content and durable storage are not established by this rule.",

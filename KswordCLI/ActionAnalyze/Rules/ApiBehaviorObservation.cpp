@@ -404,9 +404,12 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
         decoded = Layout(result, detail, ansi, {{L"src=", E::Text, "file.sourcePath"},
             {L" dst=", E::Text, "file.path"}, {L" flags=", E::Hex}});
     } else if (family == "file-write") {
-        // 当前 WriteFile 只有同步成功且安全读回字节数时才写数字；unknown 不转换成零。
-        decoded = result.succeeded && Layout(result, detail, ansi, {{L"handle=", E::Hex},
-            {L" request=", E::Decimal}, {L" transferred=", E::Decimal}});
+        // HookedWriteFile 仅成功、非 OVERLAPPED 且安全读回时输出完成数字；两项计数只随完整布局一起发布。
+        // 失败、异步成功或输出不可读时的 transferred=unknown 不转换成零，也不据句柄补造路径。
+        // MonitorConfig 将摘要限制下限设为 64；只接受更短布局，避免最终数字在截断边界仍被误认为完整。
+        decoded = result.succeeded && detail.size() < 64 && Layout(result, detail, ansi, {{L"handle=", E::Hex},
+            {L" request=", E::Decimal, "file.requestedBytes"},
+            {L" transferred=", E::Decimal, "file.transferredBytes"}});
     } else if (api == L"CreateServiceW" || api == L"CreateServiceA") {
         // 只采服务创建请求中的名称、启动类型与路径；不查询运行状态或密码。
         decoded = Layout(result, detail, ansi, {{L"service=", E::Text, "service.name"},

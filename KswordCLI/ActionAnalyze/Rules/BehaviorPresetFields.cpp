@@ -60,6 +60,9 @@ constexpr FieldBinding Catalog[] = {
     {"file.sourcePath", FieldType::Text, Phase::Observation},
     {"file.desiredAccess", FieldType::U64, Phase::Observation},
     {"file.creationDisposition", FieldType::U64, Phase::Observation},
+    // WriteFile 的请求及完成计数只来自成功返回的完整数值布局，不证明内容、路径或持久落盘。
+    {"file.requestedBytes", FieldType::U64, Phase::Observation},
+    {"file.transferredBytes", FieldType::U64, Phase::Observation},
     // 网络域名只来自当前调用；不将 WinHttpConnect 的句柄当作已建立 TCP 连接。
     {"service.name", FieldType::Text, Phase::Observation},
     {"service.nameLower", FieldType::Text, Phase::Observation},
@@ -155,6 +158,10 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
     }
     if (id.starts_with("process.")) {
         return "Strict CreateProcess application/command-line layout; basename is from application argument, not executable identity.";
+    }
+    if (id == "file.requestedBytes" || id == "file.transferredBytes") {
+        // 64 为现有生产配置的摘要长度下限；不发布可能落在截断边界的最终数字。
+        return "Successful WriteFile return with a complete numeric handle/request/transferred layout shorter than the producer's 64-character minimum detail limit; completion is reported only for non-OVERLAPPED calls with safely read output; failure, unknown or longer detail omits both counts; no path, content or durability inference.";
     }
     if (id.starts_with("file.")) {
         return "Strict CreateFile or CopyFile request layout; no current handle lookup, payload contents or durability inference.";
