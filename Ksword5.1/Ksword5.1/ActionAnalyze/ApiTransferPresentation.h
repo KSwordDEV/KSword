@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-
-class QString;
+// 默认来源参数要构造空 QString；头文件自身提供完整类型，不依赖包含顺序。
+#include <QString>
 
 namespace Ksword::ActionAnalyze::Detection
 {
