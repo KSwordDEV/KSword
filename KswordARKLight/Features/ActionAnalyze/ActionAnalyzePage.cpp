@@ -980,9 +980,15 @@ void UpdateDetails(Page& page) {
                 text += Utf8ToWide(recordedSha) + L"\r\n";
                 const bool currentShaKnown = !snapshot.ruleSourceSha256.empty(); // 加载失败或旧配置缺少摘要时不比较。
                 const auto recordedWideSha = Utf8ToWide(recordedSha); // 用同一 UTF-8 转换器比较两个摘要文本。
-                const bool sameRuleContent = currentShaKnown && recordedWideSha == snapshot.ruleSourceSha256;
-                const auto comparison = !currentShaKnown ? (chinese ? L"未知" : L"unknown") :
-                    sameRuleContent ? (chinese ? L"一致" : L"Match") : (chinese ? L"不一致" : L"Mismatch");
+                const bool sameRuleContent = currentShaKnown && recordedWideSha == snapshot.ruleSourceSha256; // 仅比较两份已存在的原始摘要。
+                std::wstring comparison; // 当前和采集 SHA 的三态内容比较结果。
+                if (!currentShaKnown) {
+                    comparison = chinese ? L"未知" : L"unknown";
+                } else if (sameRuleContent) {
+                    comparison = chinese ? L"一致" : L"Match";
+                } else {
+                    comparison = chinese ? L"不一致" : L"Mismatch";
+                }
                 text += chinese ? L"规则内容一致性：" : L"Rule content match: ";
                 text += comparison;
                 text += L"\r\n";

@@ -91,8 +91,14 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
         QString identityMatch = sourceText(QStringLiteral("未知")); // 任一侧缺少真实摘要时不推断相同或不同。
         if (!recordedSha.isEmpty() && !snapshot.behavior.sourceSha256.isEmpty())
         {
-            identityMatch = sourceText(recordedSha == snapshot.behavior.sourceSha256
-                ? QStringLiteral("一致") : QStringLiteral("不一致"));
+            if (recordedSha == snapshot.behavior.sourceSha256)
+            {
+                identityMatch = sourceText(QStringLiteral("一致"));
+            }
+            else
+            {
+                identityMatch = sourceText(QStringLiteral("不一致"));
+            }
         }
         document.field(QStringLiteral("规则内容一致性"), identityMatch);
         if (!snapshot.behavior.error.isEmpty())
