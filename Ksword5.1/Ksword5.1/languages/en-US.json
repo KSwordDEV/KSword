@@ -9118,6 +9118,8 @@
     "规则集：%1": "Rule set: %1",
     "采集规则 SHA-256：%1": "Capture rule SHA-256: %1",
     "采集规则 SHA-256：未记录": "Capture rule SHA-256: not recorded",
+    "采集规则集：%1": "Captured rule set: %1",
+    "采集规则集": "Captured rule set",
     "规则内容一致性": "Rule content match",
     "不一致": "Mismatch",
     "未记录": "Not recorded",

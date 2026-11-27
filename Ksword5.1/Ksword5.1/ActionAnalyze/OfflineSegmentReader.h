@@ -209,6 +209,7 @@ namespace ks::action_analyze
         std::optional<quint64> apiFollowSourceRows; // API 跟随的来源水位，包含未分类原包，单位由来源决定。
         QString apiStartupJson; // 已核验终段中的历史启动回执全文，旧档为空，不跟随当前进程变化。
         std::optional<Ksword::Evidence::ApiMonitorArchiveSource> apiArchiveSource; // 最新核验的 API 检查点来源，含零线索段。
+        QString recordedRulePresetSet; // 已核验采集计划声明的规则集标识，旧档缺失时为空。
         QString recordedRuleSourceSha256; // 已核验采集计划的规则内容摘要，旧档缺失时为空。
         quint64 verifiedApiClueRows = 0; // 连续核验的 API 线索总数，含被最近窗口移出的线索。
         quint64 lastVerifiedOrdinal = 0; // 项目回放的连续提交水位。

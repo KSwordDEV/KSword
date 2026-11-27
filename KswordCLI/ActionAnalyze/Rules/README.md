@@ -34,7 +34,7 @@ v3还支持两个已登记文本字段的 `==`／`!=`，例如 `file.path == fil
 
 目录与加载使用同一配置和字段目录，CLI `api-rule-catalog` 同时给出兼容 `fields` 列表及 `typedFields`；Qt／Light 回放只把既有归档行已核验的协议值交给相同准备结果。无返回证据的包只分类，不生成返回层级释义。
 
-CLI、Qt 和 Light 的项目及独立归档 API 回放共用生产字段投影。规则加载或求值失败时 CLI 仍返回同源 typed `observedFields`；Qt／Light 对命中、未命中和失败行均从当前原始归档行展示已知字段，并用 `bool`／`u64`／`text` 标明类型。未知、未采集值不转换为空字符串或零。详情不重读系统状态或重新求值规则。三个入口并列显示当前与采集时规则 SHA；两份摘要都存在时明确报告一致或不一致，缺摘要或当前规则加载失败时保持未知，旧档采集摘要显示未记录。
+CLI、Qt 和 Light 的项目及独立归档 API 回放共用生产字段投影。规则加载或求值失败时 CLI 仍返回同源 typed `observedFields`；Qt／Light 对命中、未命中和失败行均从当前原始归档行展示已知字段，并用 `bool`／`u64`／`text` 标明类型。未知、未采集值不转换为空字符串或零。详情不重读系统状态或重新求值规则。三个入口显示当前与采集时规则集标识及规则 SHA；两份摘要都存在时明确报告一致或不一致，缺摘要或当前规则加载失败时保持未知，旧档采集身份显示未记录。
 
 普通强类型参数由 `ApiBehaviorObservation.cpp/.h` 消费已有采集格式，而非执行上游脚本。读侧要求同模块、精确 API、类别、Strong、非零源会话、显式返回标记，并按 API 分别解释 BOOL／HANDLE／LSTATUS／NTSTATUS／GetAddrInfo 返回。`StatusUnknown` 不发布错误码；GetAddrInfo 的错误来自函数返回，不能把包装器残留的 WSA LastError 当成原因。返回字段可独立存在，参数无效不回填假值。
 

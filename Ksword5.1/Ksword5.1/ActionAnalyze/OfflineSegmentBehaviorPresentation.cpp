@@ -85,6 +85,8 @@ void AppendSegmentBehaviorFields(ks::ui::FieldDocument& document,
         {
             document.field(QStringLiteral("规则 SHA-256"), snapshot.behavior.sourceSha256);
         }
+        document.field(sourceText(QStringLiteral("采集规则集")), snapshot.recordedRulePresetSet.isEmpty()
+            ? sourceText(QStringLiteral("未记录")) : snapshot.recordedRulePresetSet);
         const auto& recordedSha = snapshot.recordedRuleSourceSha256; // 已核验计划中的采集规则内容摘要。
         document.field(QStringLiteral("采集规则 SHA-256"), recordedSha.isEmpty()
             ? sourceText(QStringLiteral("未记录")) : recordedSha);

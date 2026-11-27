@@ -30,6 +30,7 @@ namespace ks::action_analyze
         std::optional<Ksword::Evidence::ApiMonitorArchiveSource> archiveSource; // 来自已核验的导入尾记或检查点计划。
         QString presetSet; // 本次回放实际加载的规则集标识。
         QString ruleSourceSha256; // 本次回放实际解析的规则文件字节摘要，不借版本名推断内容。
+        QString recordedRulePresetSet; // 已核验采集计划声明的规则集标识，旧档缺失时为空。
         QString recordedRuleSourceSha256; // 采集时计划中的摘要，旧档未知时保持空值。
         QString configError; // 外置规则库加载失败时的诊断。
         Ksword::ActionAnalyze::Rules::ApiPresetReport report; // 细分配置的求值结果。

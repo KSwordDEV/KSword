@@ -839,6 +839,7 @@ SegmentSnapshot ReadApiFollowReplay(const QString& path, const CancelCheck& isCa
         sourceEpoch = std::move(stagedEpoch);
         mixedEtw = checkpoint.mixedEtw;
         snapshot.apiArchiveSource = checkpoint.source;
+        snapshot.recordedRulePresetSet = QString::fromStdString(checkpoint.rulePresetSet);
         snapshot.recordedRuleSourceSha256 = QString::fromStdString(checkpoint.ruleSourceSha256);
         if (checkpoint.source == Ksword::Evidence::ApiMonitorArchiveSource::CooperativePipe)
         {

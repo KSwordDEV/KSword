@@ -108,6 +108,7 @@ PresetReplayResult ReadBehaviorPresets(const PresetReplayRequest& request, const
     {
         // 检查点计划标识来源，线索窗口为空时也能确认输入类型。
         result.archiveSource = segment.apiArchiveSource;
+        result.recordedRulePresetSet = segment.recordedRulePresetSet;
         result.recordedRuleSourceSha256 = segment.recordedRuleSourceSha256;
     }
     if (sample)
@@ -282,6 +283,8 @@ QString FormatBehaviorPresets(const PresetReplayResult& result)
         .arg(qulonglong(result.report.analyzedRows)).arg(result.report.importedRows).arg(qulonglong(result.report.matches.size()));
     lines << sourceText(QStringLiteral("%1\nSHA-256：%2")).arg(
         sourceText(QStringLiteral("规则集：%1")).arg(result.presetSet), result.ruleSourceSha256);
+    lines << sourceText(QStringLiteral("采集规则集：%1")).arg(result.recordedRulePresetSet.isEmpty()
+        ? sourceText(QStringLiteral("未记录")) : result.recordedRulePresetSet);
     if (!result.recordedRuleSourceSha256.isEmpty())
     {
         // 两份摘要分别来自采集计划和当前规则文件，旧档不补造采集时的内容身份。
