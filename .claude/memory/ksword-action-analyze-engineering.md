@@ -2,6 +2,8 @@
 
 ## 持续推进与交接
 
+- **2026-11-27 第4/6项成功准入与实际保护一致。** ApiTransferHandoff::Advance在Running及Agent Ready两处均用保留的真实目标句柄逐区VerifyArmedRange，临时开放返回Pending，实际错误保留失败；不再只靠owner范围登记先增加armed再等Hook重连才查NX。最终回包仍复核，不取消原保护/身份检查。源码待456定向实测。ETW CodeBuddy原宿主30分钟超时143：已有build-all.console.log确认两Agent/CLI成功，尚无运行回执；唯一原会话续接sh_21b9f6915001e7z5BlQJgNjpdb强制第一条业务命令运行原B一次，禁源码研究/重建/修驱动/追加场景，8分钟运行上限，测试与receipt仍由CodeBuddy完成。
+
 - **2026-11-27 第4/5/6项追加范围暂停竞态。** ApiTransferHandoff在Pause实际回读前遇到NX命中时，不再因缺少手动暂停票据立即拒绝；真实可追加Held直接沿原AddRange，保存/继续仍归Observe；内部NX推进则保留Initial等待。只有真实Pending或已Held的手动暂停票据才登记ownPause，避免把已被NX抢先的暂停当作本请求债务。源码单独提交，456定向运行待CodeBuddy；不复用正在执行的ETW回执覆盖本次改动，GUI后置。
 
 - **2026-11-27 第4/5项等待期间继续产品开发。** 用户明确「等待shell的时候写点别的」，解除本轮等待期间不改产品的工作安排。ApiTransferHandoff::Prepare现在无论原范围当前NX还是内部TF临时还X，均先按真实owner已登记目录解析入口；不把临时合并的VirtualQuery RegionSize作为新范围。新入口不在原目录且owner仍内部推进时，仅返回Pending，下一次Hook重连在回关NX后重新解析，避免冻结与原范围重叠的追加请求。最终成功ACK仍须VerifyArmedRange逐区确认真实NX。本批独立于正在运行的ETW构建实测，不能借该批产物或回执声称覆盖；待456定向实测。主协调只写产品，测试/记录仍交CodeBuddy，GUI后置。

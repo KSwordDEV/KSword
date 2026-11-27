@@ -527,6 +527,9 @@ public:
         }
         if (transfer.stage == Admission::Running) {
             if (!member || !Covered(*member, transfer.base, transfer.bytes)) return;
+            const auto protectionError = VerifyArmedRange(transfer.target.get(), *member, transfer.base, transfer.bytes);
+            if (protectionError == ERROR_IO_PENDING) return;
+            if (protectionError) { Finish(transfer, protectionError); return; }
             if (transfer.ownPause)
             {
                 // 追加范围的保护已生效，但本请求主动暂停尚未确认归还时不能发成功ACK。
@@ -566,7 +569,11 @@ public:
                 Finish(transfer, found == sources.end() || !found->second.error ? ERROR_INVALID_STATE : found->second.error); return;
             }
             if (SourceReady(r.targetPid, r.targetCreation) && member && Covered(*member, transfer.base, transfer.bytes))
-                Finish(transfer, ERROR_SUCCESS);
+            {
+                // Agent安装期间原owner仍在处理执行事件；Ready本身不能证明页已关回NX。
+                const auto protectionError = VerifyArmedRange(transfer.target.get(), *member, transfer.base, transfer.bytes);
+                if (protectionError != ERROR_IO_PENDING) Finish(transfer, protectionError);
+            }
         }
     }
     void AdvanceTransfers()
