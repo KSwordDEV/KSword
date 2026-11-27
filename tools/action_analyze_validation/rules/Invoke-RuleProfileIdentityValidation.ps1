@@ -58,11 +58,14 @@ $fixtureCode = $null
 $fixtureLines = @()
 $build = $null
 
-# 与 README 相同的十三个源文件。夹具自带 main，不登记到任何产品工程。
+# 与 README 相同的十六个源文件。夹具自带 main，不登记到任何产品工程。
 $sources = @(
     'KswordCLI/ActionAnalyze/Rules/FilterAst.cpp'
     'KswordCLI/ActionAnalyze/Rules/AnalysisRun.cpp'
+    'KswordCLI/ActionAnalyze/Rules/NumericOperations.cpp'
     'KswordCLI/ActionAnalyze/Rules/RuleExpression.cpp'
+    'KswordCLI/ActionAnalyze/Rules/ApiBehaviorObservation.cpp'
+    'KswordCLI/ActionAnalyze/Rules/BehaviorPresetFields.cpp'
     'KswordCLI/ActionAnalyze/Rules/BehaviorPresets.cpp'
     'KswordCLI/ActionAnalyze/Archive/RawEvidenceArchive.cpp'
     'KswordCLI/ActionAnalyze/Archive/SegmentBodies.cpp'

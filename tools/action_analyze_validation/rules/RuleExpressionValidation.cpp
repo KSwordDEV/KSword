@@ -7,11 +7,13 @@
 #include <Windows.h>
 #include <bcrypt.h>
 
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -192,11 +194,11 @@ void TestRejection()
     Reject("true false", UnexpectedToken);
     Reject("true; false", UnexpectedToken);
     Reject("arg.flag = false", UnexpectedToken);
-    Reject("arg.flag & true", UnexpectedToken);
-    Reject("!arg.n == 1u64", UnexpectedToken);
-    Reject("arg.n == arg.n", ExpectedLiteral);
-    Reject("arg.n == -1", ExpectedLiteral);
-    Reject("arg.n == 1", InvalidNumber);
+    Truth("arg.flag & true", rule::Truth::Unknown);
+    Reject("!arg.n == 1u64", PreparationFailed, rule::PrepareError::TypeMismatch);
+    Truth("arg.n == arg.n", rule::Truth::Unknown);
+    Reject("arg.n == -1", ExpectedPredicate);
+    Reject("arg.n == 1x", InvalidNumber);
     Reject("arg.n == 0xu64", InvalidNumber);
     Reject("arg.n == 1u64extra", InvalidNumber);
     Reject("arg.n == 18446744073709551616u64", NumericOverflow);
@@ -212,8 +214,8 @@ void TestRejection()
     Reject("arg.text == \"\xed\xa0\x80\"", PreparationFailed, rule::PrepareError::InvalidUtf8);
     Reject("true || missing", PreparationFailed, rule::PrepareError::UnknownField);
     Reject("false && result.ok", PreparationFailed, rule::PrepareError::FieldNotInPhase);
-    Reject("arg.n", PreparationFailed, rule::PrepareError::TypeMismatch);
-    Reject("arg.n == true", PreparationFailed, rule::PrepareError::TypeMismatch);
+    Reject("arg.n", ExpectedPredicate, rule::PrepareError::TypeMismatch);
+    Reject("arg.n == true", ExpectedU64Operands, rule::PrepareError::TypeMismatch);
     Reject("Text.Equals(arg.flag, \"a\")", PreparationFailed, rule::PrepareError::TypeMismatch);
     Reject(std::string(rule::MaxPredicateExpressionBytes + 1, ' '), TextLimit);
     Reject(std::string(33, '(') + "true" + std::string(33, ')'), NestingLimit);
@@ -232,6 +234,114 @@ void TestRejection()
     const auto invalid = rule::PreparePredicateExpression(source, Entry, Catalog); // 阶段错误应定位字段本身。
     Check(invalid.location.offset == source.find("result.ok") && invalid.location.length == 9 &&
         invalid.location.line == 2 && invalid.location.byteColumn == 2, "phase diagnostic location");
+}
+
+// 通过生产表达式入口覆盖二进制字面量的准入、求值、非法字符和全宽溢出。
+void TestBinaryNumericLiterals()
+{
+    using enum rule::ExpressionError;
+    constexpr rule::FieldSample fields[] = {
+        {"arg.n", rule::Quality::Known, std::uint64_t{14}}
+    }; // 14 与二进制掩码共同验证数值字段和位运算。
+    const auto normal = rule::PreparePredicateExpression(
+        "(arg.n & 0b1110u64) == 0b1110u64", Entry, Catalog); // v3 二进制掩码。
+    const auto evaluated = normal.error == None ?
+        rule::EvaluatePredicate(normal.predicate, Entry, fields) : rule::Evaluation{};
+    Check(normal.error == None && normal.predicate.valid() && evaluated.truth == rule::Truth::True &&
+        evaluated.fault == rule::EvaluationFault::None, "binary mask parsing and evaluation");
+    const auto invalid = rule::PreparePredicateExpression(
+        "arg.n == 0b102u64", Entry, Catalog); // 二进制数字出现非法数字时必须拒绝。
+    Check(invalid.error == InvalidNumber && !invalid.predicate.valid(), "binary mask invalid digit");
+    const auto overflow = rule::PreparePredicateExpression(
+        "arg.n == 0b11111111111111111111111111111111111111111111111111111111111111111u64",
+        Entry, Catalog); // 65 个 1 超出 u64，不允许截断高位。
+    Check(overflow.error == NumericOverflow && !overflow.predicate.valid(), "binary mask u64 overflow");
+    const auto legacy = rule::PreparePredicateExpression(
+        "arg.n == 0b101u64", Entry, Catalog, "predicate-expr-v2"); // legacy-v2 不开放二进制前缀。
+    Check(legacy.error != None && !legacy.predicate.valid(), "legacy-v2 rejects binary mask");
+}
+
+// 创建满足生产分类器要求的 WriteFile 返回包；本函数不调用包中声明的目标 API。
+apiMonitor::ApiMonitorEventPacket MakeWriteFilePacket(bool succeeded, std::uint32_t status,
+    std::wstring_view detail, apiMonitor::EventResultKind resultKind = apiMonitor::EventResultKind::StatusCode)
+{
+    apiMonitor::ApiMonitorEventPacket packet; // 当前一次 API Monitor 返回观察。
+    packet.pid = 41; // 非零进程身份满足协议有效包要求。
+    packet.tid = 42; // 非零线程身份保持夹具包完整。
+    packet.category = static_cast<std::uint32_t>(apiMonitor::EventCategory::File);
+    packet.resultCode = static_cast<std::int32_t>(status); // 与返回值配套的 Win32 状态。
+    packet.resultKind = static_cast<std::uint32_t>(resultKind);
+    packet.hookKind = static_cast<std::uint32_t>(apiMonitor::HookKind::Strong);
+    packet.snapshotIndex = apiMonitor::kApiCallReturnValueMarker;
+    packet.sessionIdentity = 43; // 生产读侧要求同一包带稳定采集会话身份。
+    packet.hookAddress = succeeded ? 1 : 0; // WriteFile 的 BOOL 返回槽，仅使用低 32 位。
+    wcscpy_s(packet.moduleName, L"KernelBase"); // 由生产分类表识别 Win32 包装器模块族。
+    wcscpy_s(packet.apiName, L"WriteFile"); // 由生产分类表识别文件写入导出。
+    const auto detailLength = std::min(detail.size(), std::size(packet.detailText) - 1); // 保留终止符空间。
+    std::copy_n(detail.begin(), detailLength, packet.detailText); // 复制确切详情，不假定视图自带终止符。
+    packet.detailText[detailLength] = L'\0'; // 生产读侧按定长包中的首个终止符读取详情。
+    return packet;
+}
+
+// 直接用部署 profile 的行为谓词评估生产投影，返回本次规则是否确定命中。
+bool EvaluateWriteFileRule(const rule::ApiPresetDatabase& database,
+    const apiMonitor::ApiMonitorEventPacket& packet, std::string_view ruleId,
+    std::optional<std::uint64_t> requested, std::optional<std::uint64_t> transferred)
+{
+    const auto observed = rule::ReadApiBehaviorObservation(packet); // 生产返回值及详情解析。
+    const auto evidence = rule::ReadApiPresetEvidence(packet); // 生产协议证据读取入口。
+    if (!observed || !evidence.behavior || observed->succeeded != evidence.behavior->succeeded) {
+        return false;
+    }
+    const auto fields = rule::ProjectApiPresetFields("WriteFile", "file-write", std::nullopt, evidence);
+    const rule::ApiPresetDefinition* definition = nullptr; // 部署 profile 中的目标行为规则。
+    for (const auto& candidate : database.behaviorRules) {
+        if (candidate.description.ruleId == ruleId) {
+            definition = &candidate;
+            break;
+        }
+    }
+    if (!definition) {
+        return false;
+    }
+    const auto evaluation = rule::EvaluatePredicate(definition->prepared, rule::Phase::Observation, fields);
+    bool hasRequested = false; // 投影是否发布请求计数。
+    bool hasTransferred = false; // 投影是否发布完成计数。
+    std::uint64_t requestedValue = 0; // 生产投影中的请求计数。
+    std::uint64_t transferredValue = 0; // 生产投影中的完成计数。
+    for (const auto& field : fields) {
+        if (field.id == "file.requestedBytes") {
+            hasRequested = std::holds_alternative<std::uint64_t>(field.value);
+            if (hasRequested) requestedValue = std::get<std::uint64_t>(field.value);
+        } else if (field.id == "file.transferredBytes") {
+            hasTransferred = std::holds_alternative<std::uint64_t>(field.value);
+            if (hasTransferred) transferredValue = std::get<std::uint64_t>(field.value);
+        }
+    }
+    return evaluation.truth == rule::Truth::True && evaluation.fault == rule::EvaluationFault::None &&
+        hasRequested == requested.has_value() && hasTransferred == transferred.has_value() &&
+        (!requested || requestedValue == *requested) && (!transferred || transferredValue == *transferred);
+}
+
+// 覆盖 WriteFile 同步零字节、部分完成、完整完成，以及异步 pending 的未知计数。
+void TestWriteFileBehavior(const rule::ApiPresetDatabase& database)
+{
+    const auto zero = MakeWriteFilePacket(true, ERROR_SUCCESS,
+        L"handle=0x123 request=0 transferred=0"); // 同步成功且实际完成零字节。
+    Check(EvaluateWriteFileRule(database, zero, "ksword.behavior.file-write-zero-completed.v1", 0, 0),
+        "WriteFile synchronous zero transferred");
+    const auto partial = MakeWriteFilePacket(true, ERROR_SUCCESS,
+        L"handle=0x123 request=16 transferred=7"); // 同步成功但只完成请求的一部分。
+    Check(EvaluateWriteFileRule(database, partial, "ksword.behavior.file-write-partial.v1", 16, 7),
+        "WriteFile synchronous partial transferred");
+    const auto full = MakeWriteFilePacket(true, ERROR_SUCCESS,
+        L"handle=0x123 request=16 transferred=16"); // 同步成功且完成计数等于请求计数。
+    Check(EvaluateWriteFileRule(database, full, "ksword.behavior.file-write-full.v1", 16, 16),
+        "WriteFile synchronous full transferred");
+    const auto pending = MakeWriteFilePacket(false, ERROR_IO_PENDING,
+        L"handle=0x123 request=16 transferred=unknown"); // ERROR_IO_PENDING 表示异步未知完成计数。
+    Check(EvaluateWriteFileRule(database, pending, "ksword.behavior.file-write-pending.v1", std::nullopt, std::nullopt),
+        "WriteFile asynchronous ERROR_IO_PENDING unknown count");
 }
 
 // 验证质量标记条件、普通比较的 Unknown 和受限解释器的诊断。
@@ -777,6 +887,7 @@ int wmain(int argc, wchar_t** argv)
     if (!evidenceOnly) {
         TestEvaluation();
         TestRejection();
+        TestBinaryNumericLiterals();
         TestDraft();
     }
     TestQualityConditions();
@@ -788,6 +899,7 @@ int wmain(int argc, wchar_t** argv)
     }
     TestPresets(database);
     TestBehaviorPreset(database);
+    TestWriteFileBehavior(database);
     TestPresetFile(argv[1]);
     TestDeployedProfileIdentity(database);
     TestStoredPreset(database, argv[1], true);
