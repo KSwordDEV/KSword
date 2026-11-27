@@ -991,18 +991,21 @@ void UpdateDetails(Page& page) {
         if (const auto relation = ArchivedRelationText(*record); !relation.empty()) {
             text += relation + L"\r\n";
         }
-        if (archive && archive->apiRules && page.selected) {
-            const auto& rules = (*archive->apiRules)[*page.selected]; // 使用详情已选中的同一原始行索引。
-            if (!rules.grouped.empty()) {
-                text += L"规则 ID（汇总）：" + Utf8ToWide(rules.grouped) + L"\r\n" +
-                    L"规则 ID（细分）：" + Utf8ToWide(rules.byCategory) + L"\r\n";
-            }
-            if (const auto& behavior = rules.behavior) {
-                text += L"行为规则 ID：" + Utf8ToWide(behavior->ruleId) + L"\r\n" +
-                    L"证据级别：" + Utf8ToWide(behavior->evidence) + L"\r\n";
-                const auto& summary = BehaviorSummary(*behavior, page.behaviorLanguage); // 和树标题使用同一已求值原值。
-                if (!summary.empty()) {
-                    text += Utf8ToWide(summary) + L"\r\n";
+        if (archive && page.selected) {
+            // 规则求值失败时仍保留输入字段详情；只有行为命中部分依赖完整的规则回执。
+            if (archive->apiRules && *page.selected < archive->apiRules->size()) {
+                const auto& rules = (*archive->apiRules)[*page.selected]; // 使用详情已选中的同一原始行索引。
+                if (!rules.grouped.empty()) {
+                    text += L"规则 ID（汇总）：" + Utf8ToWide(rules.grouped) + L"\r\n" +
+                        L"规则 ID（细分）：" + Utf8ToWide(rules.byCategory) + L"\r\n";
+                }
+                if (const auto& behavior = rules.behavior) {
+                    text += L"行为规则 ID：" + Utf8ToWide(behavior->ruleId) + L"\r\n" +
+                        L"证据级别：" + Utf8ToWide(behavior->evidence) + L"\r\n";
+                    const auto& summary = BehaviorSummary(*behavior, page.behaviorLanguage); // 和树标题使用同一已求值原值。
+                    if (!summary.empty()) {
+                        text += Utf8ToWide(summary) + L"\r\n";
+                    }
                 }
             }
             if (!record->apiClue.empty())
