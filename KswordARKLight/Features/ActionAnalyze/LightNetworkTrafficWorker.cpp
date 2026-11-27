@@ -72,6 +72,16 @@ std::wstring Present(const project::NetworkTrafficResult& result)
         Wide(read.checkpoint.source.clockId) + L"\r\n启动 ID：" + Wide(read.checkpoint.source.bootId) +
         L"\r\n结束原因：" + Wide(read.checkpoint.stopReason) + L"\r\n段内包数：" + std::to_wstring(read.totalRecords) +
         L"\r\n显示记录数：" + std::to_wstring(read.records.size()) + L"\r\n";
+    // 同一检查点的接管成员窗口独立展示，不与某个报文的弱PID线索拼成强进程归属。
+    for (const auto& target : read.checkpoint.targetWindows)
+    {
+        text += L"\r\n网络采集目标窗口\r\nPID：" + std::to_wstring(target.pid) +
+            L"\r\n创建 FILETIME：" + std::to_wstring(target.creationFileTime) +
+            L"\r\n根目标：" + (target.root ? L"true" : L"false") +
+            L"\r\n准入 FILETIME：" + std::to_wstring(target.startUtc) +
+            L"\r\n窗口截止 FILETIME：" + (target.endUtc ? std::to_wstring(target.endUtc) : L"尚未关闭") +
+            L"\r\n结束原因：" + Wide(target.endReason) + L"\r\n";
+    }
     for (const auto& record : read.records) {
         const auto attribution = record.flow.observation.processAttribution; // 标签保留弱PID线索语义。
         text += L"\r\n记录序号：" + std::to_wstring(record.flow.recordSequence) + L"  偏移：" +

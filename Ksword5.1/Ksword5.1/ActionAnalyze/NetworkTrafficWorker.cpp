@@ -129,6 +129,18 @@ void Present(NetworkTrafficView& view)
         .field(QStringLiteral("段内包数"), QString::number(read.totalRecords))
         .field(QStringLiteral("显示记录数"), QString::number(read.records.size()));
 
+    // 展示本段实际纳入的实例窗口；这是采集筛选范围，不给任一弱PID报文补造强实例身份。
+    for (const auto& target : read.checkpoint.targetWindows)
+    {
+        fields.section(QStringLiteral("网络采集目标窗口"))
+            .field(QStringLiteral("PID"), QString::number(target.pid))
+            .field(QStringLiteral("创建 FILETIME"), QString::number(target.creationFileTime))
+            .field(QStringLiteral("根目标"), target.root ? QStringLiteral("true") : QStringLiteral("false"))
+            .field(QStringLiteral("准入 FILETIME"), QString::number(target.startUtc))
+            .field(QStringLiteral("窗口截止 FILETIME"), target.endUtc ? QString::number(target.endUtc) : QStringLiteral("尚未关闭"), !target.endUtc)
+            .field(QStringLiteral("结束原因"), QString::fromStdString(target.endReason));
+    }
+
     // 全段预览限制256条/每包64B；指定序号返回该记录的全部归档字节。
     for (const auto& record : read.records) {
         const auto& flow = record.flow.observation; // 原观测，弱PID标签不升级为强实例。
