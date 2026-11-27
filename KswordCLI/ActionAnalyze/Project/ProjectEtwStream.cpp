@@ -115,6 +115,8 @@ bool ProjectEtwStream::Flush(ProjectDocument& project, std::string_view sampleId
         }
         // 成功发布之后才更新对外游标；失败不能消耗段号后继续跳段。
         raw = std::move(next);
+        planRawSequence = checkpoint.planRawSequence;
+        rawSha256 = std::move(checkpoint.raw.sha256);
         ++ordinal;
         observations += rows.size();
         finalized = last;

@@ -38,6 +38,8 @@ struct CooperativeEtwReceipt {
     ks::cli::action_analyze::archive::RawEvidenceReceipt raw; // raw-etw 最近已发布段的刷盘边界。
     std::uint64_t segmentOrdinal = 0; // ETW独立段号，不套用API段号。
     std::uint64_t archivedObservations = 0; // 检查点成功发布的累计观察数。
+    std::uint64_t planRawSequence = 0; // 最近已发布ETW段的首记录，供实时详情定位原流。
+    std::string rawSha256; // 同一已发布ETW段的原字节摘要，不以当前文件重新计算。
     bool finalSegment = false; // 来源停止并排空后才封ETW终段。
 
     // 当配套 ETW 仍有未完成的责任、缺失观察或来源丢失时返回真。

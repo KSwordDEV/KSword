@@ -146,12 +146,20 @@ Evidence::JsonValue ApiCaptureEtwJson(const std::optional<CooperativeEtwReceipt>
             {"nativeError", JsonValue::makeUInt(status.nativeError)}});
     };
     const auto& etw = *receipt; // 只借用同一次采集已清退的来源和已发布检查点。
+    // 只有检查点已成功发布才提供可定位身份；没有段时保留null，不用零坐标冒充空归档。
+    const auto published = etw.segmentOrdinal && etw.raw.flushed ? Object({
+        {"stream", Text("raw-etw")}, {"segmentOrdinal", Number(etw.segmentOrdinal)},
+        {"firstRawSequence", Number(etw.planRawSequence)},
+        {"lastRawSequence", Number(etw.raw.flushed->lastSequence)},
+        {"endOffset", Number(etw.raw.flushed->byteOffset)}, {"sha256", Text(etw.rawSha256)},
+        {"finalSegment", JsonValue::makeBool(etw.finalSegment)}}) : JsonValue::makeNull();
     return Object({{"receiptAvailable", JsonValue::makeBool(true)}, {"source", EtwSourceReceipt(etw.source)},
         {"setup", result(etw.setup)}, {"started", JsonValue::makeBool(etw.started)},
         {"stopped", JsonValue::makeBool(etw.stopped)}, {"archive", result(etw.archiveStatus)},
         {"checkpoint", result(etw.checkpointStatus)}, {"flushed", JsonValue::makeBool(etw.raw.flushed.has_value())},
         {"segmentOrdinal", Number(etw.segmentOrdinal)}, {"archivedObservations", Number(etw.archivedObservations)},
         {"finalSegment", JsonValue::makeBool(etw.finalSegment)},
+        {"published", published},
         {"incomplete", JsonValue::makeBool(etw.Incomplete())}});
 }
 
@@ -198,6 +206,12 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
             {"endUtc", window.endUtc ? Number(window.endUtc) : JsonValue::makeNull()},
             {"root", JsonValue::makeBool(window.root)}, {"endReason", Text(window.endReason)}}));
     }
+    // 网络检查点自带独立序号及摘要，实时消费者不必误用API段号或等结束后扫描目录。
+    const auto published = receipt.checkpoint.ordinal ? Object({
+        {"stream", Text("raw-network")}, {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
+        {"lastRawSequence", Number(receipt.checkpoint.lastSequence)},
+        {"endOffset", Number(receipt.checkpoint.endOffset)}, {"sha256", Text(receipt.checkpoint.sha256)}}) :
+        JsonValue::makeNull();
     return Object({
         {"status", Text(ProjectErrorName(receipt.status.error))},
         {"detail", Text(receipt.status.detail)},
@@ -211,6 +225,7 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
         {"sourceGap", Number(receipt.sourceGap)},
         {"unsupportedPackets", Number(receipt.unsupportedPackets)},
         {"segmentOrdinal", Number(receipt.checkpoint.ordinal)},
+        {"published", published},
         {"targetScope", Text(receipt.targets.size() > 1 ? "registered-process-pid-hints" : "root-process-pid-hints")},
         {"targets", JsonValue::makeArray(std::move(targets))},
         {"eventTimeProcessIdentity", JsonValue::makeNull()},
@@ -551,6 +566,8 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
         etw.raw = etwStream.raw;
         etw.segmentOrdinal = etwStream.ordinal;
         etw.archivedObservations = etwStream.observations;
+        etw.planRawSequence = etwStream.planRawSequence;
+        etw.rawSha256 = etwStream.rawSha256;
         etw.finalSegment = etwStream.finalized;
         etw.source = etwSource->status();
     };

@@ -8,6 +8,8 @@ namespace Ksword::ActionAnalyze {
 struct ProjectEtwStream {
     std::uint64_t ordinal = 0; // 最后成功发布检查点的独立ETW段号。
     std::uint64_t observations = 0; // 已发布段中的累计观察数。
+    std::uint64_t planRawSequence = 0; // 最近已发布段的首条计划记录序号，不与API主流混用。
+    std::string rawSha256; // 最近成功发布检查点核验的原始段摘要；失败不覆盖旧身份。
     ks::cli::action_analyze::archive::RawEvidenceReceipt raw; // 最近已发布段的刷盘边界。
     ProjectResult archiveStatus; // 首个原始段失败，失败后不再追加。
     ProjectResult checkpointStatus; // 原有覆盖与检查点发布结果。

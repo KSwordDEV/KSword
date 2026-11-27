@@ -233,6 +233,8 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 配套网络或 Agent ETW 开启时，`capture-progress` 还会沿原采集 worker 发布 `api-source-progress`：`payload.networkTraffic` 和 `payload.agentEtw` 分别保留该来源已发布的独立段号、字节／观察数、损失及清退状态。自动接管同时启用时，这两个字段随 `transfer-handoff` 一起交付。没有 API 包也可收到来源状态变化；通知不额外采集、不读归档、不新开 writer，最多每 500ms 检查一次已有值，仅变化时发送。清退终态在各原来源停止并封段后交付，未启用的来源字段为 `null`。
 
+两类来源的 `published` 仅在检查点成功发布后出现：包含各自的 `stream`（`raw-network`／`raw-etw`）、`segmentOrdinal`、`lastRawSequence`、`endOffset` 和 `sha256`，ETW 另有 `firstRawSequence` 及 `finalSegment`。没有已发布段时为 `null`，后续失败仍保留最近成功段的原身份。按进度包的项目／采样身份和此坐标读取对应附属流，不把 API 主流序号或当前列表行号当作网络／ETW坐标。
+
 自有 WFP 抓包在原 IPPACKET 路径之外，增加仅匹配回环的 IPv4／IPv6 入站 TRANSPORT 观察；只有能够回退并核对真实 IP、TCP／UDP 头及端点时才保留报文字节，缺头不拼造 IP 包。记录仍使用原 `ip-packet` 捕获层和原 ring 协议，既有客户端可读；此路径只表示入站观察，不承诺双向完整覆盖。`existing-wfp` 仍只读取已经启用的抓包来源，不自动加载新驱动或改换来源；`raw-socket` 的回环能力不因这项改动而改变。
 
 线程恢复的预置释义按成功 `ResumeThread` 的旧挂起计数区分：`0` 为调用时没有挂起计数，`1` 为本次解除最后一层计数，`>1` 为本次递减后仍有挂起计数。这里描述调用返回的计数变化，不以此替代实际执行观察；直接 `NtResumeThread` 未投影可选旧计数时沿用成功／失败释义。
