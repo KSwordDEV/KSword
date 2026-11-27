@@ -356,7 +356,11 @@ namespace ks::action_analyze
             // 候选与实际执行分别显示；共享投影保留最近写入/请求双方各自的归档坐标。
             const auto& transfers = *snapshot.apiTransfers; // 同一worker发布的累计数和有界窗口。
             AppendApiTransferProgress(document, transfers.candidateCount, transfers.evictedWrites,
-                transfers.recent.empty() ? nullptr : &transfers.recent.back());
+                transfers.recent.empty() ? nullptr : &transfers.recent.back(),
+                transfers.networkTraffic.type() == Ksword::Evidence::JsonType::Null ? QString() :
+                    QString::fromStdString(Ksword::Evidence::WriteJson(transfers.networkTraffic)),
+                transfers.agentEtw.type() == Ksword::Evidence::JsonType::Null ? QString() :
+                    QString::fromStdString(Ksword::Evidence::WriteJson(transfers.agentEtw)));
             AppendApiApcProgress(document, transfers.apcCandidateCount,
                 transfers.recentApc.empty() ? nullptr : &transfers.recentApc.back());
             AppendApiContextProgress(document, transfers.contextCandidateCount,

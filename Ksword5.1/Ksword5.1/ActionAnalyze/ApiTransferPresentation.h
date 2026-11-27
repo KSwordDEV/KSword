@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+class QString;
+
 namespace Ksword::ActionAnalyze::Detection
 {
     struct ApiTransferLink;
@@ -28,9 +30,10 @@ namespace ks::action_analyze
     void AppendApiSectionMapFields(ks::ui::FieldDocument& document, const SegmentApiClue& clue);
     // 输入同一原包行和唯一规范文档；追加AAIM1请求、输出、状态和身份，缺协议时不写入。
     void AppendApiMemoryLifecycleFields(ks::ui::FieldDocument& document, const SegmentApiClue& clue);
-    // 将活采的累计候选和最近原始坐标写入同一个规范文档；latest 可空。
+    // 将活采的累计候选、最近坐标及可空网络/ETW原文写入同一个规范文档；latest 可空。
     void AppendApiTransferProgress(ks::ui::FieldDocument& document, std::uint64_t candidates,
-        std::uint64_t evictedWrites, const Ksword::ActionAnalyze::Detection::ApiTransferLink* latest);
+        std::uint64_t evictedWrites, const Ksword::ActionAnalyze::Detection::ApiTransferLink* latest,
+        const QString& networkTraffic = {}, const QString& agentEtw = {});
     // 输入同一文档、累计数及可空最近 APC 回执；追加现有字段正文，无查询、计时器或返回值。
     void AppendApiApcProgress(ks::ui::FieldDocument& document, std::uint64_t candidates,
         const Ksword::ActionAnalyze::Detection::ApiApcTransferLink* latest);

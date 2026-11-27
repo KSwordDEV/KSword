@@ -369,7 +369,8 @@ namespace
 
     // 活采工作线程已完成串链，UI 仅从不可变回执格式化最后一对同采样原包。
     void AppendApiTransferProgress(ks::ui::FieldDocument& document, std::uint64_t candidates,
-        std::uint64_t evictedWrites, const Ksword::ActionAnalyze::Detection::ApiTransferLink* latest)
+        std::uint64_t evictedWrites, const Ksword::ActionAnalyze::Detection::ApiTransferLink* latest,
+        const QString& networkTraffic, const QString& agentEtw)
     {
         document.section(QStringLiteral("API 转移候选"))
             .field(QStringLiteral("累计候选数"), QString::number(candidates))
@@ -392,5 +393,15 @@ namespace
                 .field(QStringLiteral("请求线程入口地址"), QString::number(latest->requestedStartAddress, 16));
         }
         document.note(QStringLiteral("候选仅关联实际写入与后续创建请求，不证明实际执行。"));
+
+        // 网络与ETW是同一worker发布的独立来源文档；空文本表示当前回执没有该来源。
+        if (!networkTraffic.isEmpty())
+        {
+            document.field(QStringLiteral("同采样网络回执"), networkTraffic);
+        }
+        if (!agentEtw.isEmpty())
+        {
+            document.field(QStringLiteral("同采样 ETW 回执"), agentEtw);
+        }
     }
 }

@@ -9,6 +9,7 @@
 #include "ApiTransferPresentation.h"
 
 #include "../../../KswordCLI/ActionAnalyze/Control/OwnedDataWatchSession.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../Framework/BackgroundTaskRegistry.h"
 #include "../Internationalization/LanguageManager.h"
@@ -1439,7 +1440,11 @@ namespace
         {
             const auto& transfers = *m_apiTransfersShown; // 使用worker发布的累计数和最近转移坐标。
             AppendApiTransferProgress(document, transfers.candidateCount, transfers.evictedWrites,
-                transfers.recent.empty() ? nullptr : &transfers.recent.back());
+                transfers.recent.empty() ? nullptr : &transfers.recent.back(),
+                transfers.networkTraffic.type() == Ksword::Evidence::JsonType::Null ? QString() :
+                    QString::fromStdString(Ksword::Evidence::WriteJson(transfers.networkTraffic)),
+                transfers.agentEtw.type() == Ksword::Evidence::JsonType::Null ? QString() :
+                    QString::fromStdString(Ksword::Evidence::WriteJson(transfers.agentEtw)));
             AppendApiApcProgress(document, transfers.apcCandidateCount,
                 transfers.recentApc.empty() ? nullptr : &transfers.recentApc.back());
             AppendApiContextProgress(document, transfers.contextCandidateCount,

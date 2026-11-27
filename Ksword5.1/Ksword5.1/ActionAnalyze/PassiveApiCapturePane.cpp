@@ -796,7 +796,8 @@ void PassiveApiCapturePane::renderReceipt()
                 .field(QStringLiteral("已清退"), yesNo(m_receipt.cleanupComplete))
                 .field(QStringLiteral("已核验普通包"), QString::number(m_receipt.validatedRows));
             AppendApiTransferProgress(document, m_receipt.transferCandidates, m_receipt.evictedTransferWrites,
-                m_receipt.latestTransfer ? &*m_receipt.latestTransfer : nullptr);
+                m_receipt.latestTransfer ? &*m_receipt.latestTransfer : nullptr,
+                m_receipt.networkTraffic, m_receipt.agentEtw);
             // 同一规范文档承载 APC 活采摘要，显示的仍是已提交原回执。
             AppendApiApcProgress(document, m_receipt.apcTransferCandidates,
                 m_receipt.latestApcTransfer ? &*m_receipt.latestApcTransfer : nullptr);
@@ -858,15 +859,18 @@ void PassiveApiCapturePane::renderReceipt()
     }
     m_fields->setDocument(document);
     // 不以当前编辑草稿覆盖旧采样身份；新请求尚无接管回执时明确保留旧结果所属sample。
-    const auto& handoffJson = !m_receipt.transferHandoffStatus.isEmpty()
-        ? m_receipt.transferHandoffStatus : m_receipt.transferHandoff; // 活动态优先、终态回执权威，均属于同一样本。
+    const auto& liveHandoff = !m_currentReceipt.transferHandoffStatus.isEmpty()
+        ? m_currentReceipt : m_receipt; // 新活动状态优先显示，旧结果对象与其归属不被空启动回执覆盖。
+    const auto& handoffJson = !liveHandoff.transferHandoffStatus.isEmpty()
+        ? liveHandoff.transferHandoffStatus : liveHandoff.transferHandoff; // 活动态优先、终态权威回执回退。
     auto handoff = ApiHandoffDocument(handoffJson); // 同一冻结回执的字段树，不查询现场。
-    if (m_receipt.sample)
+    const auto& resultSample = liveHandoff.sample ? liveHandoff.sample : m_receipt.sample;
+    if (resultSample)
     {
         ks::ui::FieldNode sample; // 保留真实结果采样身份，不用当前表单草稿重写回执来源。
         sample.kind = ks::ui::FieldNode::Kind::Field;
         sample.name = QStringLiteral("采样 ID");
-        sample.value = m_receipt.sample->sample.id;
+        sample.value = resultSample->sample.id;
         handoff.nodes.prepend(std::move(sample));
     }
     m_handoffFields->setDocument(handoff);
