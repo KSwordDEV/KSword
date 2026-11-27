@@ -236,6 +236,8 @@ struct NativePageAdvanceState {
     NativeStepReceipt receipt;
     std::uint64_t observedDr6 = 0;
     std::uint32_t continuation = 0;
+    std::uint32_t observedFlags = 0; // 单步事件原始EFLAGS，不是入口AV的EFLAGS。
+    std::uint64_t observedDr7 = 0; // 单步事件原始DR7，供解释TF-only与硬件槽状态。
 };
 
 struct NativeControlResult {

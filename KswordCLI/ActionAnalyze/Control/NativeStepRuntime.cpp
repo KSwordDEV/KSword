@@ -477,6 +477,9 @@ NativeStepError NativeStepRuntime::PrepareImpl(HANDLE process, HANDLE selected, 
     selectedSuspendConflict_ = false;
     eventKind_ = NativeStepEventKind::None;
     observedDr6_ = 0;
+    observedFlags_ = 0;
+    observedDr7_ = 0;
+    eventContext_.reset();
     disposition_ = DBG_CONTINUE;
     FILETIME created{}, exited{}, kernel{}, user{};
     if (GetThreadId(selected) != request.tid || GetProcessIdOfThread(selected) != GetProcessId(process) ||
@@ -561,7 +564,7 @@ NativeStepError NativeStepRuntime::FinishPageTrap(const DEBUG_EVENT& event, bool
     CONTEXT context{};
     context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
     if (!GetThreadContext(selected_, &context)) return Error("page-trap-read-stop-context");
-    const auto reasons = context.Dr6 & kReasons;
+    const auto reasons = (eventContext_ ? eventContext_->Dr6 : context.Dr6) & kReasons;
     onlyAdvance = reasons == kBs; // 写回失败时也保留已核实的本端纯BS分派，供Close清退。
     // 非本端单步原因交给原Observe/异常分派，但仍归还本端TF。
     context.EFlags = (context.EFlags & ~kTf) | (originalFlags_ & kTf);
@@ -777,6 +780,25 @@ void NativeStepRuntime::BindStop(std::string groupId, NativeEventKey event) {
     receipt_.observedEvent = std::move(event);
 }
 
+// 输入原owner尚持有的事件，只冻结本轮所选线程异常；其它事件清除旧缓存，防止跨事件复用。
+NativeStepError NativeStepRuntime::CaptureEventContext(const DEBUG_EVENT& event)
+{
+    eventContext_.reset();
+    if (!running_ || event.dwDebugEventCode != EXCEPTION_DEBUG_EVENT ||
+        event.dwProcessId != GetProcessId(process_) || event.dwThreadId != receipt_.request.tid)
+    {
+        return {};
+    }
+    CONTEXT context{}; // 控制和调试寄存器必须在任何恢复写回之前一起读取。
+    context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
+    if (!GetThreadContext(selected_, &context))
+    {
+        return Error("step-capture-event-context");
+    }
+    eventContext_ = context;
+    return {};
+}
+
 bool NativeStepRuntime::Observe(const DEBUG_EVENT& event, bool cancellationBreak, bool ownsDr0) {
     if (!running_) return false;
     if (event.dwProcessId != GetProcessId(process_)) {
@@ -795,13 +817,19 @@ bool NativeStepRuntime::Observe(const DEBUG_EVENT& event, bool cancellationBreak
     disposition_ = DBG_EXCEPTION_NOT_HANDLED;
     eventKind_ = NativeStepEventKind::None;
     observedDr6_ = 0;
+    observedFlags_ = 0;
+    observedDr7_ = 0;
     CONTEXT context{};
     context.ContextFlags = CONTEXT_CONTROL | CONTEXT_DEBUG_REGISTERS;
     if (!exit && !selectedExit && event.dwThreadId == receipt_.request.tid) {
-        if (!GetThreadContext(selected_, &context)) { MarkFailure(Error("step-read-event-context")); return true; }
+        if (eventContext_) context = *eventContext_;
+        else if (!GetThreadContext(selected_, &context)) { MarkFailure(Error("step-read-event-context")); return true; }
         receipt_.observedIp = Ip(context);
         receipt_.observedSp = Sp(context);
         observedDr6_ = context.Dr6;
+        observedFlags_ = context.EFlags;
+        observedDr7_ = context.Dr7;
+        eventContext_.reset(); // 后续恢复只读真实当前上下文，不再把原值当成可回写草稿。
         const auto& exception = event.u.Exception;
         if (exception.dwFirstChance && exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP) {
             const auto reasons = context.Dr6 & kReasons;

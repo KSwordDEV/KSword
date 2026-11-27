@@ -54,6 +54,8 @@ public:
     [[nodiscard]] NativeStepError ArmPageTrap();
     // 原owner已先重设NX；仅消费所选线程本端BS，onlyAdvance表示用户步进尚未到DR1终点。
     [[nodiscard]] NativeStepError FinishPageTrap(const DEBUG_EVENT& event, bool& onlyAdvance);
+    // 原owner收到事件后、重设页保护或写回上下文前冻结所选线程现场；Observe消费同一份原值。
+    [[nodiscard]] NativeStepError CaptureEventContext(const DEBUG_EVENT& event);
     [[nodiscard]] bool PageTrapOwned() const noexcept { return pageTrapOwned_; }
     // 原owner在当前持有事件中枚举冻结对象；允许早于该对象CREATE_THREAD事件分派。
     [[nodiscard]] NativeStepError Enroll(HANDLE thread);
@@ -70,6 +72,8 @@ public:
     // Debug status register as read at the verified single-step event, before
     // any context rewrite. Debug status bits are lost by a later write.
     [[nodiscard]] std::uint64_t ObservedDr6() const noexcept { return observedDr6_; }
+    [[nodiscard]] DWORD ObservedFlags() const noexcept { return observedFlags_; }
+    [[nodiscard]] std::uint64_t ObservedDr7() const noexcept { return observedDr7_; }
     void RequestCancel() noexcept { cancelRequested_ = true; }
     void RequestTimeout() noexcept { timeoutRequested_ = true; cancelRequested_ = true; }
     [[nodiscard]] bool CancellationRequested() const noexcept { return cancelRequested_; }
@@ -127,6 +131,9 @@ private:
     bool selectedSuspendConflict_ = false;
     NativeStepEventKind eventKind_ = NativeStepEventKind::None;
     std::uint64_t observedDr6_ = 0;
+    DWORD observedFlags_ = 0; // 异常交付时EFLAGS，区别于归档的入口取指异常现场。
+    std::uint64_t observedDr7_ = 0; // 同一事件中的实际调试槽配置，不从恢复后现场推断。
+    std::optional<CONTEXT> eventContext_; // 当前未Continue事件的原始线程现场，每次Receive重新冻结。
     DWORD disposition_ = DBG_CONTINUE;
     // Proof from this owner's immediately preceding CALL single-step. Valid only
     // at the observed callee entry and exact stack pointer/return-slot contents.

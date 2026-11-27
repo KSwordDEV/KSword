@@ -783,6 +783,8 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
                 {"startIp", V::makeString(std::to_string(advance.receipt.startIp))},
                 {"observedIp", advance.receipt.observedIp ? V::makeString(std::to_string(*advance.receipt.observedIp)) : V::makeNull()},
                 {"observedDr6", V::makeString(std::to_string(advance.observedDr6))},
+                {"observedFlags", V::makeUInt(advance.observedFlags)},
+                {"observedDr7", V::makeString(std::to_string(advance.observedDr7))},
                 {"continuation", V::makeUInt(advance.continuation)},
                 {"resourcesRestored", V::makeBool(advance.receipt.resourcesRestored)}});
         }

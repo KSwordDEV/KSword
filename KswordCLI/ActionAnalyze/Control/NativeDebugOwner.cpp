@@ -262,7 +262,8 @@ NativeControlResult NativeDebugOwner::Impl::Snapshot(const PauseRecord* record) 
     if (!step_.Receipt().request.release.requestId.empty()) { result.step = step_.Receipt(); }
     else if (breakpoint_ && breakpoint_->executionPage && step_.Receipt().request.tid) {
         // 内部推进始终与用户step分开，Close之后仍保留最后的原生原因，避免只剩owner-closed。
-        result.pageAdvance = NativePageAdvanceState{step_.Receipt(), step_.ObservedDr6(), step_.Disposition()};
+        result.pageAdvance = NativePageAdvanceState{step_.Receipt(), step_.ObservedDr6(), step_.Disposition(),
+            step_.ObservedFlags(), step_.ObservedDr7()};
     }
     if (record->lastReleaseRequestId) {
         result.release = ledger_.QueryRelease(*record->lastReleaseRequestId, record->groupId);
@@ -1509,6 +1510,11 @@ void NativeDebugOwner::Impl::FinishBreakpointEvent(DWORD disposition) {
 
 void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     auto& bp = *breakpoint_;
+    // 页保护回关和叠加TF恢复均可能先于Observe；先保存异常原值，统一用于归属和诊断。
+    if (const auto error = step_.CaptureEventContext(event); error) {
+        RequireRecovery({error.stage, error.code});
+        return;
+    }
     if (event.dwDebugEventCode == EXIT_THREAD_DEBUG_EVENT && (step_.Running() || step_.HasResources())) {
         const auto exiting = bp.slots.find(event.dwThreadId); // 槽位尚未移除，保留原线程对象供退出责任逐项核验。
         const auto eventThread = exiting == bp.slots.end() ? nullptr : exiting->second.thread.Get();
