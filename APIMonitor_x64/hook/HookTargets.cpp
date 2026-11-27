@@ -3022,7 +3022,7 @@ namespace apimon
 
         // 本地创建与远程调度共用调用前交接；定义在后，避免为一个入口另建同步协议。
         void PrepareTransferExecution(std::uint64_t pid, std::uint64_t creation,
-            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind);
+            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind, std::uint64_t* armedThrough = nullptr);
 
         HANDLE WINAPI HookedCreateThread(LPSECURITY_ATTRIBUTES threadAttributesPointer, SIZE_T stackSize, LPTHREAD_START_ROUTINE startAddress, LPVOID parameterPointer, DWORD creationFlags, LPDWORD threadIdPointer)
         {
@@ -3066,10 +3066,11 @@ namespace apimon
         }
 
         // 调用者的ScopedHookGuard覆盖身份查询、同步交接和原API，避免嵌套重复观察。
-        // 输入强实例、请求入口与入口种类；无返回值，失败通过独立原包报告，原API参数不变。
+        // 输入强实例、请求入口与入口种类；可选输出ACK实际覆盖的半开终点，失败仍通过独立原包报告。
         void PrepareTransferExecution(std::uint64_t pid, std::uint64_t creation,
-            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind)
+            std::uint64_t address, ks::winapi_monitor::TransferHandoffKind kind, std::uint64_t* armedThrough)
         {
+            if (armedThrough) *armedThrough = 0; // 未取得有效ACK时不授予范围推进依据。
             static std::atomic<std::uint64_t> nextOperationId{1}; // 每次原API调度唯一；IPC Pending重连复用同一请求对象。
             const auto& endpoint = ActiveConfig().transferHandoff;
             if (endpoint.pipeName.empty() || !pid || pid > MAXDWORD || !creation || !address) return;
@@ -3104,6 +3105,11 @@ namespace apimon
             ks::winapi_monitor::TransferHandoffResponse response{};
             const bool armed = ks::winapi_monitor::requestTransferHandoff(endpoint, request, response);
             const DWORD error = armed ? ERROR_SUCCESS : GetLastError();
+            if (armedThrough && armed && response.rangeBytes && response.rangeBase <= address &&
+                response.rangeBytes <= UINT64_MAX - response.rangeBase && address - response.rangeBase < response.rangeBytes)
+            {
+                *armedThrough = response.rangeBase + response.rangeBytes; // 沿owner真实ACK，不使用交接前的合并RegionSize。
+            }
             wchar_t detail[ks::winapi_monitor::kMaxDetailChars]{};
             swprintf_s(detail, L"handoff-v2 operation=%llu targetPid=%lu creation=%llu address=0x%llx armed=%u rangeBase=0x%llx rangeBytes=%llu error=%lu",
                 request.operationId, request.targetPid, creation, address, armed ? 1u : 0u,
@@ -3203,13 +3209,19 @@ namespace apimon
                     {
                         break;
                     }
+                    auto next = base + memory.RegionSize; // 未发生交接时按本次查询区域单调推进。
                     if (memory.State == MEM_COMMIT && memory.Type == MEM_PRIVATE && !(memory.Protect & PAGE_GUARD) &&
                         (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
                     {
+                        std::uint64_t armedThrough = 0; // 同一系统区域可能只有前半段已被原owner登记。
                         PrepareTransferExecution(pid, creation, cursor,
-                            ks::winapi_monitor::TransferHandoffKind::ExecutableRegion);
+                            ks::winapi_monitor::TransferHandoffKind::ExecutableRegion, &armedThrough);
+                        if (armedThrough > cursor && armedThrough < next)
+                        {
+                            next = static_cast<std::uintptr_t>(armedThrough); // 继续检查未覆盖尾部，不跨过新出现的相邻X页。
+                        }
                     }
-                    cursor = base + memory.RegionSize; // 单调前进；同步交接后的拆区由外部owner目录复核。
+                    cursor = next; // 下一次查询采用交接后的真实拆区，直到原内存操作范围完整检查完毕。
                 }
             }
             SetLastError(savedError);
