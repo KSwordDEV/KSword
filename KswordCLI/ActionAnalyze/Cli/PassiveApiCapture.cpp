@@ -17,6 +17,7 @@ using V = Ksword::Evidence::JsonValue;
 using Clock = std::chrono::steady_clock;
 
 constexpr std::size_t kQueueRows = 256; // 段内待写包总数。
+constexpr std::size_t kBehaviorRows = 32; // 实时回执独立保留的最近行为释义数，不代表完整档案。
 constexpr unsigned kFinalPolls = 4; // 收尾最多再读取四个有界批次。
 constexpr auto kFinalBudget = std::chrono::milliseconds(250); // 每轮开始前检查的单调预算。
 constexpr auto kPollInterval = std::chrono::milliseconds(50); // 限制前台请求触发的文件扫描频率。
@@ -378,11 +379,24 @@ V PassiveApiCapture::RulesReport() const
         }
         latest = V::makeObject(std::move(fields));
     }
+    Ksword::Evidence::JsonArray behaviors; // 仅投影已提交批次保留的行为窗口，不读档或重新求值。
+    for (const auto& entry : recentBehaviors_) {
+        const auto& match = entry.match; // 原批次的命中值及两套序号。
+        const auto& behavior = *match.behavior; // 进入独立窗口前已确认存在的行为释义。
+        behaviors.push_back(Object({{"segmentOrdinal", Number(entry.segmentOrdinal)},
+            {"rawSequence", Number(match.rawSequence)}, {"sourceSequence", Number(match.sourceSequence)},
+            {"api", Text(match.api)}, {"ruleId", Text(match.ruleId)},
+            {"behavior", Object({{"ruleId", Text(behavior.ruleId)}, {"evidence", Text(behavior.evidence)},
+                {"summary", Text(behavior.summary)}, {"summaryZh", Text(behavior.summaryZh)}})}}));
+    }
     return Object({{"presetSet", ruleDatabase_.presetSet.empty() ? V::makeNull() : Text(ruleDatabase_.presetSet)},
         {"sourceSha256", ruleDatabase_.sourceSha256.empty() ? V::makeNull() : Text(ruleDatabase_.sourceSha256)},
         {"configError", ruleDatabase_.error.empty() ? V::makeNull() : Text(ruleDatabase_.error)}, {"profile", Text("by-category")},
         {"coverage", Text("unknown")}, {"state", Text(ruleFailed_ ? "evaluation-failed" : "ready")},
-        {"matchedRows", Number(ruleMatches_)}, {"latest", std::move(latest)}});
+        {"matchedRows", Number(ruleMatches_)}, {"latest", std::move(latest)},
+        {"behaviorMatches", Number(behaviorMatches_)},
+        {"behaviorWindowTruncated", V::makeBool(behaviorMatches_ > recentBehaviors_.size())},
+        {"recentBehaviors", V::makeArray(std::move(behaviors))}});
 }
 
 void PassiveApiCapture::ObserveCommittedRules(const ProjectApiCheckpoint& committed) noexcept
@@ -399,6 +413,17 @@ void PassiveApiCapture::ObserveCommittedRules(const ProjectApiCheckpoint& commit
     if (!report.matches.empty()) {
         const auto& last = report.matches.back(); // 同一检查点内按源归档顺序的最后一次命中。
         ruleMatches_ += report.matches.size();
+        // 复用本次已提交批次的求值结果，只将带行为释义的命中按原顺序纳入有界历史。
+        for (const auto& match : report.matches) {
+            if (!match.behavior) {
+                continue;
+            }
+            ++behaviorMatches_;
+            if (recentBehaviors_.size() == kBehaviorRows) {
+                recentBehaviors_.erase(recentBehaviors_.begin());
+            }
+            recentBehaviors_.push_back({committed.ordinal, match});
+        }
         latestRuleRaw_ = RawPosition{committed.ordinal, last.rawSequence, last.sourceSequence};
         latestRule_ = std::move(report.matches.back());
     }

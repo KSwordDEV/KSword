@@ -54,6 +54,11 @@ private:
         std::uint64_t rawSequence; // Stored 内实际记录序号。
         std::uint64_t sourceSequence; // 原始 JSONL 行号。
     };
+    // 行为历史自持有原求值结果及所在段，不借最后检查点补写旧命中的坐标。
+    struct BehaviorMatch {
+        std::uint64_t segmentOrdinal; // 行为命中所在的已提交 raw 段号。
+        Ksword::ActionAnalyze::Rules::ApiPresetMatch match; // 原命中坐标、API 和双语行为释义。
+    };
 
     // 返回终段可持久化的原有字段。实时查询在这份字段上追加诊断和线索预览。
     Ksword::Evidence::JsonObject SourceReportFields() const;
@@ -90,6 +95,8 @@ private:
     std::optional<RawPosition> latestRuleRaw_; // 最近一次规则匹配的已提交原始位置。
     Ksword::ActionAnalyze::Rules::ApiPresetDatabase ruleDatabase_; // 从开始到收尾冻结同一份外置规则。
     std::optional<Ksword::ActionAnalyze::Rules::ApiPresetMatch> latestRule_; // 自持有的末次匹配与可选释义。
+    std::uint64_t behaviorMatches_ = 0; // 已提交且具有行为释义的累计命中数，与普通分类数独立。
+    std::vector<BehaviorMatch> recentBehaviors_; // 最近至多32条行为命中，普通分类不挤占此窗口。
     bool ruleFailed_ = false; // 保留首次规则失败前的有效计数和匹配。
     bool ended_ = false; // 本端已完成跟随并清退只读句柄。
 };
