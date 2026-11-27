@@ -11,14 +11,13 @@ import time
 
 REPO = Path(__file__).resolve().parents[3]
 EVIDENCE_ROOT = Path(__file__).with_name('native_api_progress')
-EVIDENCE = EVIDENCE_ROOT / 'attempt-06'
+EVIDENCE = EVIDENCE_ROOT / 'attempt-07'
 RUN_LOG = EVIDENCE / 'run.log'
 STDERR_LOG = EVIDENCE / 'stderr.jsonl'
 STARTUP_LOG = EVIDENCE / 'startup-progress.jsonl'
 RECEIPT = EVIDENCE / 'receipt.json'
 APPEND_FIXTURE = Path(__file__).with_name('product_execution_group_append.py')
 COOPERATIVE_FIXTURE = Path(__file__).with_name('cooperative_api_capture.py')
-COOPERATIVE_ENV = 'KSWORD_APIMON_COOPERATIVE_SESSION_V1'
 
 
 def load_module(name, path):
@@ -37,7 +36,6 @@ def main():
     group.LOG.close()
     log = RUN_LOG.open('w', encoding='utf-8', newline='\n')
     group.LOG = log
-    api = load_module('cooperative_api_capture', COOPERATIVE_FIXTURE)
     group.LOG.write(f'CLI_SHA256={group.fingerprint(group.CLI)}\n')
     target_context = group.built_target(group.LOG) if not group.TARGET.exists() else None
     if target_context is None:
@@ -45,15 +43,10 @@ def main():
 
     child = None
     source = controller = None
-    source_identity = None
-    controller_pid = None
     target_hash = None
     failure = None
     capture_issued = False
     stderr_log = None
-    # The Agent validates this exact leaf name before accepting the private
-    # cooperative directory; keep the attempt evidence as its parent.
-    source_directory = EVIDENCE / 'KswordApiMonCooperative'
     project = EVIDENCE / 'project'
     sites = EVIDENCE / 'sites.json'
     outcome = 'FAIL'
@@ -61,9 +54,9 @@ def main():
         with target_context:
             child = group.Child()
             sites = group.write_sites(sites, [child.site()])
-            environment = os.environ | {COOPERATIVE_ENV: str(source_directory)}
-            api.create_session_directory(source_directory)
-            source = subprocess.Popen([sys.executable, '-B', str(COOPERATIVE_FIXTURE), '--target'],
+            environment = os.environ.copy()
+            environment.pop('KSWORD_APIMON_COOPERATIVE_SESSION_V1', None)
+            source = subprocess.Popen([sys.executable, '-B', str(COOPERATIVE_FIXTURE), '--attachment-target'],
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       env=environment, cwd=REPO)
             identity_line = source.stdout.readline()
@@ -74,16 +67,14 @@ def main():
                     source.kill()
                     _, source_error = source.communicate(timeout=5)
                 (EVIDENCE / 'source-startup.stderr').write_bytes(source_error)
-                raise RuntimeError('cooperative target stdout EOF before identity JSON; '
+                raise RuntimeError('attachment target stdout EOF before identity JSON; '
                                    f'exit={source.returncode}; stderr saved')
             identity = json.loads(identity_line.decode('utf-8'))
-            source_identity = identity
             if identity['pid'] != source.pid or source.pid == child.pid:
                 raise AssertionError(f'API source identity mismatch: {identity}, native PID={child.pid}')
 
             stderr_log = STDERR_LOG.open('w', encoding='utf-8', newline='\n')
             controller = group.Cli(sites, project, stderr=stderr_log)
-            controller_pid = controller.process.pid
             hello = controller.hello
             collection = hello['control']['collectionId']
             if not collection or hello['sampleId'] is None:
@@ -183,7 +174,7 @@ def main():
             final = checkpoints[-1]['payload']
             if not final['finalSegment']:
                 raise AssertionError(f'Last checkpoint is not final: {final}')
-            if response['captureProgress']['enqueuedFrames'] != str(len(frames)) or \
+            if response['captureProgress']['enqueuedFrames'] != str(len(startup_frames) + len(frames)) or \
                     response['captureProgress']['droppedFrames'] != '0' or \
                     response['captureProgress']['outputDrained'] is not True:
                 raise AssertionError(f'Progress delivery does not reconcile: {response["captureProgress"]}')
@@ -216,8 +207,9 @@ def main():
 
             source_tail, source_error = source.communicate(timeout=15)
             if source.returncode != 0:
-                raise AssertionError(f'Cooperative source exited {source.returncode}: {source_tail!r} {source_error!r}')
-            group.ok(True, 'separate cooperative API source exited normally')
+                raise AssertionError(f'Explicit-attachment source exited {source.returncode}: '
+                                     f'{source_tail!r} {source_error!r}')
+            group.ok(True, 'separate explicit-attachment API source exited normally')
             shutdown = controller.request('execution/2', 'controller.shutdown', {})
             group.ok(shutdown['clean'] is True and shutdown['state'] == 'closed',
                      'explicit unified shutdown closes original owner cleanly')
@@ -248,10 +240,7 @@ def main():
             stderr_log.close()
         if not log.closed:
             log.close()
-        if source_directory.exists() and source_identity is not None and source is not None:
-            api.cleanup_session(source_directory, source.pid, source_identity['creation'],
-                                controller_pid if controller_pid is not None else os.getpid())
-        for path in (sites, project, source_directory):
+        for path in (sites, project):
             if path.exists():
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
         if group.TARGET.exists():

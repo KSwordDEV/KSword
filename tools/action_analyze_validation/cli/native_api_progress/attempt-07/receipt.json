@@ -1,0 +1,12 @@
+{
+  "result": "FAIL",
+  "cliSha256": "816bda24663c8e19fb497096b613c807e0b53d51501dcb01fe8e41a8f4788a65",
+  "targetSha256": "6b75ec8173a646d815f4e955da91bb45a90f8771bc35b6c41906e3b1c34058c4",
+  "evidenceDirectory": "E:\\Projects\\Ksword5.1\\tools\\action_analyze_validation\\cli\\native_api_progress\\attempt-07",
+  "failure": {
+    "type": "AssertionError",
+    "message": "Progress delivery does not reconcile: {'requested': True, 'started': True, 'lastProgressSequence': '4', 'enqueuedFrames': '13', 'droppedFrames': '0', 'outputDrained': True}",
+    "captureIssued": true,
+    "controllerStarted": true
+  }
+}

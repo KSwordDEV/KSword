@@ -1,0 +1,81 @@
+{
+  "result": "FAIL",
+  "cliSha256": "816bda24663c8e19fb497096b613c807e0b53d51501dcb01fe8e41a8f4788a65",
+  "targetSha256": "aa21648dd372ca44c59dd7b9e899dc9a8dbe08c090d487ef069dd7777c0ca822",
+  "evidenceDirectory": "E:\\Projects\\Ksword5.1\\tools\\action_analyze_validation\\cli\\native_api_progress\\attempt-06",
+  "failure": {
+    "type": "ProductCaptureFailure",
+    "message": "control.api.capture returned capture-failed after 45031ms; no api-capture-progress frames were emitted",
+    "captureIssued": true,
+    "controllerStarted": true,
+    "terminal": {
+      "state": "held-complete",
+      "clean": false,
+      "sampleId": "3786b74c-020b-47b1-b752-7181e33abfdd",
+      "apiCapture": {
+        "sampleId": "3786b74c-020b-47b1-b752-7181e33abfdd",
+        "captureSampleId": "3786b74c-020b-47b1-b752-7181e33abfdd",
+        "revisionId": "05bcbd4c-d5b7-4187-b42b-0ee886856d95",
+        "captureMode": "explicit-r3-attachment",
+        "durationMs": 2000,
+        "exitCode": 3,
+        "status": "capture-failed",
+        "source": {
+          "pid": 49828,
+          "creationFileTime": "134402697396246223",
+          "attachmentIdentityVerified": true,
+          "connected": false,
+          "sessionIdentity": null,
+          "sessionReady": null,
+          "coverageRevision": null
+        },
+        "capture": {
+          "code": 3,
+          "agentPathAvailable": true,
+          "agentLoadAttempted": false,
+          "agentModuleVerified": true,
+          "reusedResident": true,
+          "configPublished": true,
+          "started": false,
+          "hooksInstalled": false,
+          "completedInterval": false,
+          "elapsedMs": "45031",
+          "received": "0",
+          "bufferDropped": "0",
+          "invalidPackets": "0",
+          "errors": [
+            "timed out waiting for resident Agent installation and verified coverage",
+            "stop not confirmed for every target; stop markers retained for Agent retry"
+          ]
+        }
+      },
+      "captureProgress": {
+        "requested": true,
+        "started": true,
+        "lastProgressSequence": "0",
+        "enqueuedFrames": "4",
+        "droppedFrames": "0",
+        "outputDrained": true,
+        "apiCaptureProgressFrames": 0,
+        "startupFrames": 4
+      },
+      "heldOwnerPreserved": true,
+      "heldStopIdentityPreserved": true
+    },
+    "startupStages": [
+      "identity-verified",
+      "agent-resolved",
+      "config-published",
+      "agent-module-verified"
+    ],
+    "cleanup": {
+      "sourceProcessStopped": true,
+      "nativeTargetStopped": true,
+      "controllerStopped": true,
+      "cooperativeDirectoryRemoved": true,
+      "projectRemoved": true,
+      "sitesRemoved": true,
+      "temporaryTargetRemoved": true
+    }
+  }
+}
