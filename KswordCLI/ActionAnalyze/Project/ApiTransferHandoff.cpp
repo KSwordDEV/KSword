@@ -126,7 +126,6 @@ public:
         bool ready = false, ended = false, failed = false;
         bool stopping = false; // 已请求停止的采集器只排空尾包，不再授予来源认证或Ready资格。
         DWORD error = 0;
-        std::deque<ks::winapi_monitor::ApiMonitorEventPacket> pendingPackets; // Ready前暂存已验包，Ready后按原序交付。
         std::optional<m::CaptureStartupProgress> startup;
         std::optional<m::CaptureResult> result;
         std::unique_ptr<ApiTransferAgentCapture> capture;
@@ -447,6 +446,10 @@ public:
             source.startup = std::move(batch.startup);
             source.dropped = batch.dropped;
             if (batch.ready) {
+                if (source.session && source.session != batch.session) {
+                    source.failed = true;
+                    if (!source.error) source.error = ERROR_INVALID_DATA;
+                }
                 source.ready = true;
                 source.session = batch.session;
                 source.revision = batch.coverageRevision;
@@ -456,40 +459,23 @@ public:
             // Ready 前仍会发送 SessionReady、覆盖快照及 HooksInstalled；不能因
             // 控制器尚未收到 onResidentReady 就把这些正常启动包判成错来源。
             for (const auto& packet : batch.packets) {
-                if (packet.pid != pid) {
+                if (packet.pid != pid || !packet.sessionIdentity ||
+                    (source.session && source.session != packet.sessionIdentity)) {
                     source.failed = true;
                     if (!source.error) source.error = ERROR_INVALID_DATA;
                     ++source.deliveryDropped;
                     continue;
                 }
-                if (source.pendingPackets.size() >= 4096) {
-                    source.failed = true;
-                    if (!source.error) source.error = ERROR_BUFFER_OVERFLOW;
+                // 底层capture已认证真实目标和包会话，Ready不是归档准入门。
+                // 首包冻结来源session；即使安装失败或永远未Ready也保存已收到的原证据。
+                source.session = packet.sessionIdentity;
+                if (callbackFailed) { ++source.deliveryDropped; continue; }
+                try { onPacket(pid, source.creation, packet); }
+                catch (...) {
+                    callbackFailed = source.failed = true;
+                    source.error = ERROR_WRITE_FAULT;
                     ++source.deliveryDropped;
-                    source.capture->Stop();
-                    continue;
-                }
-                source.pendingPackets.push_back(packet);
-            }
-            if (source.ready) {
-                while (!source.pendingPackets.empty()) {
-                    const auto packet = source.pendingPackets.front();
-                    source.pendingPackets.pop_front();
-                    // Ready后才进入项目writer；此处最终核对来源会话，避免错代次包入档。
-                    if (!source.session || packet.sessionIdentity != source.session) {
-                        source.failed = true;
-                        if (!source.error) source.error = ERROR_INVALID_DATA;
-                        ++source.deliveryDropped;
-                        continue;
-                    }
-                    if (callbackFailed) { ++source.deliveryDropped; continue; }
-                    try { onPacket(pid, source.creation, packet); }
-                    catch (...) {
-                        callbackFailed = source.failed = true;
-                        source.error = ERROR_WRITE_FAULT;
-                        ++source.deliveryDropped;
-                        for (auto& [otherPid, other] : sources) other.capture->Stop();
-                    }
+                    for (auto& [otherPid, other] : sources) other.capture->Stop();
                 }
             }
             if (batch.finished) {
