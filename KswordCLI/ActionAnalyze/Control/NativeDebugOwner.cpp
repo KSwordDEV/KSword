@@ -131,6 +131,8 @@ private:
         NativeImageSite systemBreak;
         NativeImageSite systemBreakThread;
         NativeBreakpointImageIdentity imageIdentity; // 有固定散列约束时持有实际装载文件，不按路径替代身份。
+        Handle waitingModuleFile; // 等待时持有原文件身份，路径替换不重绑，文件索引不因关闭而复用。
+        BY_HANDLE_FILE_INFORMATION waitingModuleIdentity{}; // 冻结卷号和文件索引，用原LOAD_DLL文件识别。
         std::optional<NativePrivateExecutionSite> privateExecution;
         std::optional<NativeExplicitMemorySite> explicitSite; // 冻结原明确地址和映射属性，转换后仍复用此记录。
         std::optional<NativePrivateExecutionPage> executionPage; // 真实NX责任，和单地址DR0互斥。
@@ -1055,17 +1057,30 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint(std::uintptr_t eventImageB
         }
     } else if (bp.request.executePointerExport) {
         NativePrivateExecutionSite privateSite;
-        error = ResolveNativePrivateExecutionSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName, privateSite);
+        error = ResolveNativePrivateExecutionSite(process_.Get(), pid, bp.request.modulePath,
+            bp.request.exportName, privateSite, eventImageBase);
         if (!error) {
             site = privateSite.site;
             bp.privateExecution = privateSite;
         }
     } else error = bp.request.writeWatchPointerExport
-        ? ResolveNativePointerDataSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName, bp.request.writeWatchBytes, site)
+        ? ResolveNativePointerDataSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName,
+            bp.request.writeWatchBytes, site, eventImageBase)
         : ResolveNativeImageSite(process_.Get(), pid, bp.request.modulePath, bp.request.rva,
             bp.request.exportName, site, bp.request.writeWatchBytes, false, eventImageBase);
     if (error == ERROR_MOD_NOT_FOUND && bp.request.waitForModule)
     {
+        if (!bp.waitingModuleFile)
+        {
+            Handle file(CreateFileW(bp.request.modulePath.c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+            if (!file) return WinError("open-waiting-module-file");
+            if (!GetFileInformationByHandle(file.Get(), &bp.waitingModuleIdentity))
+                return WinError("identify-waiting-module-file");
+            if (bp.waitingModuleIdentity.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                return {"waiting-module-is-not-file", ERROR_FILE_INVALID};
+            bp.waitingModuleFile = std::move(file);
+        }
         // 只有精确模块缺席可等待；坏PE、错误RVA/导出、哈希或访问失败仍走原清退。
         // 此时尚未设置地址、DR0或页保护，原进程可继续加载模块，不报告Armed。
         bp.binding.waitingForModule = true;
@@ -1104,7 +1119,8 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint(std::uintptr_t eventImageB
         site.address == site.regionBase)
     {
         NativePrivateExecutionSite candidate; // 冻结selector自身映射和原私有区域属性。
-        if (!ResolveNativePrivateExecutionSite(process_.Get(), pid, bp.request.modulePath, bp.request.exportName, candidate) &&
+        if (!ResolveNativePrivateExecutionSite(process_.Get(), pid, bp.request.modulePath,
+            bp.request.exportName, candidate, eventImageBase) &&
             candidate.site.address == site.address && candidate.site.regionBase == site.regionBase &&
             candidate.site.regionBytes == site.regionBytes && candidate.site.allocationBase == site.allocationBase &&
             candidate.site.regionProtection == site.regionProtection)
@@ -1138,6 +1154,7 @@ NativeError NativeDebugOwner::Impl::InstallBreakpoint(std::uintptr_t eventImageB
     }
     if (const auto verification = VerifyBoundSite(); verification) return verification;
     bp.installed = true;
+    bp.waitingModuleFile.Reset(); // 已完成实际绑定，后续卸载仍由原模块基址路径退役。
     return {};
 }
 
@@ -1717,11 +1734,24 @@ void NativeDebugOwner::Impl::ReceiveBreakpoint(const DEBUG_EVENT& event) {
     if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT && bp.processVerified && !bp.awaitingAttachBreak &&
         bp.binding.waitingForModule && !bp.retire && !closing_)
     {
-        // 原加载事件仍冻结目标，复用完整路径解析、可选事件文件散列及全部现存线程登记。
-        // 安装完成后才继续本次加载；新线程随后仍由原CREATE_THREAD链路纳入。
-        if (const auto error = InstallBreakpoint(); error)
+        // loader表在本事件内可能尚未发布。只接受冻结路径的同一文件对象，直接解析原事件基址。
+        // 不同文件的加载不触发安装；缺hFile不能提供文件身份，继续等可核对的事件。
+        const auto file = event.u.LoadDll.hFile;
+        if (file && file != INVALID_HANDLE_VALUE)
         {
-            RetireBreakpoint(error);
+            BY_HANDLE_FILE_INFORMATION identity{};
+            if (!GetFileInformationByHandle(file, &identity))
+            {
+                RetireBreakpoint(WinError("identify-loaded-module-file"));
+            }
+            else if (bp.waitingModuleFile && identity.dwVolumeSerialNumber == bp.waitingModuleIdentity.dwVolumeSerialNumber &&
+                identity.nFileIndexHigh == bp.waitingModuleIdentity.nFileIndexHigh &&
+                identity.nFileIndexLow == bp.waitingModuleIdentity.nFileIndexLow)
+            {
+                const auto base = reinterpret_cast<std::uintptr_t>(event.u.LoadDll.lpBaseOfDll);
+                if (!base) RetireBreakpoint({"loaded-module-base-missing", ERROR_INVALID_ADDRESS});
+                else if (const auto error = InstallBreakpoint(base); error) RetireBreakpoint(error);
+            }
         }
     }
     if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
@@ -2156,6 +2186,7 @@ void NativeDebugOwner::Impl::Complete(NativeControlStatus status, NativeError ou
         if (breakpoint_->executionPage && status == NativeControlStatus::Ended) breakpoint_->executionPage->ProcessExited();
         breakpoint_->slots.clear();
         breakpoint_->imageIdentity.Reset(); // 真实绑定已清退，历史查询只保留实测散列，不锁住映像文件。
+        breakpoint_->waitingModuleFile.Reset();
         breakpoint_->awaitingAttachBreak = false;
         breakpoint_->interruptTid = 0;
         breakpoint_->interruptThread.Reset();

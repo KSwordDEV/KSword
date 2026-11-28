@@ -18,8 +18,9 @@ struct NativePrivateExecutionSite {
 // non-executable readable image data, including read-only data exports. The
 // destination must be committed MEM_PRIVATE with EXECUTE/RX/RWX protection.
 // Never modifies protection, writes code, follows pointer changes or rebinds.
+// A nonzero eventImageBase must come from a debug event with verified file identity.
 [[nodiscard]] DWORD ResolveNativePrivateExecutionSite(HANDLE process, DWORD pid, std::wstring_view modulePath,
-    std::string_view exportName, NativePrivateExecutionSite& result);
+    std::string_view exportName, NativePrivateExecutionSite& result, std::uintptr_t eventImageBase = 0);
 
 // Intended only while NativeDebugOwner holds a real debug event. Verifies the
 // original selector and all frozen destination attributes; does not prove an

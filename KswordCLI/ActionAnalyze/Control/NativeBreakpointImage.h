@@ -28,8 +28,10 @@ DWORD ResolveNativeImageSite(HANDLE process, DWORD pid, std::wstring_view path,
 
 // 读取 AMD64 映像中的指针数据导出，冻结其指向的单个可写私有内存区。
 // 仅选择一次，不跟随之后改变的指针，也不修改目标内存保护。
+// eventImageBase 与直接映像解析相同，只接受已核对文件身份的原始调试事件基址。
 DWORD ResolveNativePointerDataSite(HANDLE process, DWORD pid, std::wstring_view path,
-    std::string_view exportName, std::uint32_t dataBytes, NativeImageSite& site);
+    std::string_view exportName, std::uint32_t dataBytes, NativeImageSite& site,
+    std::uintptr_t eventImageBase = 0);
 
 // 在停止期间回读选择器和区域属性；失败时停止使用旧地址，不静默重绑。
 // VirtualQueryEx 没有分配代次，此核对不证明同地址释放再分配从未发生。

@@ -54,14 +54,14 @@ DWORD ReadExecutionRegion(HANDLE process, std::uintptr_t address, MEMORY_BASIC_I
 } // namespace
 
 DWORD ResolveNativePrivateExecutionSite(HANDLE process, DWORD pid, std::wstring_view modulePath,
-    std::string_view exportName, NativePrivateExecutionSite& result) {
+    std::string_view exportName, NativePrivateExecutionSite& result, std::uintptr_t eventImageBase) {
     if (!process || GetProcessId(process) != pid || exportName.empty() || exportName.size() > 255 ||
         exportName.find('\0') != std::string_view::npos) return ERROR_INVALID_PARAMETER;
     NativePrivateExecutionSite candidate;
     // Reuse the same validated AMD64 PE/export parser. Existing write sites keep
     // their default writable-only selection; this explicitly requests image data.
     if (const auto error = ResolveNativeImageSite(process, pid, modulePath, std::nullopt, exportName,
-        candidate.site, 8, true)) return error;
+        candidate.site, 8, true, eventImageBase)) return error;
     candidate.site.pointerExportAddress = candidate.site.address;
     MEMORY_BASIC_INFORMATION selector{};
     std::uintptr_t destination = 0;

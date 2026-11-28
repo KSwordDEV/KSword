@@ -220,10 +220,11 @@ DWORD ReadPointerExport(HANDLE process, std::uintptr_t moduleBase, std::uintptr_
 } // namespace
 
 DWORD ResolveNativePointerDataSite(HANDLE process, DWORD pid, std::wstring_view path,
-    std::string_view exportName, std::uint32_t dataBytes, NativeImageSite& site) {
+    std::string_view exportName, std::uint32_t dataBytes, NativeImageSite& site, std::uintptr_t eventImageBase) {
     NativeImageSite selector;
     // 选择器自身必须是完整、对齐的可写数据导出，不把代码或转发器当作指针。
-    if (const auto error = ResolveNativeImageSite(process, pid, path, std::nullopt, exportName, selector, 8)) return error;
+    if (const auto error = ResolveNativeImageSite(process, pid, path, std::nullopt, exportName,
+        selector, 8, false, eventImageBase)) return error;
     std::uintptr_t address = 0;
     if (const auto error = ReadPointerExport(process, selector.base, selector.address, address)) return error;
     MEMORY_BASIC_INFORMATION memory{};
