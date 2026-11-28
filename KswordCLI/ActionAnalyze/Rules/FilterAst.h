@@ -44,7 +44,8 @@ struct FieldSample {
 // 原有字段谓词继续支持显式常量；数值表达式及文本字段间比较使用独立类型化节点。
 enum class FieldOp {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
-    Contains, StartsWith, EndsWith, IsNull, IsComplete, IsKnown, QualityEqual, QualityNotEqual
+    Contains, StartsWith, EndsWith, IsNull, IsComplete, IsKnown, QualityEqual, QualityNotEqual,
+    IsNullOrEmpty
 };
 
 using Literal = std::variant<std::monostate, bool, std::uint64_t, std::string, Quality>;

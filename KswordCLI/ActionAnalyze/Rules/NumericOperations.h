@@ -13,7 +13,7 @@ struct NumericLiteral {
 struct NumericField {
     std::string field; // 准备阶段绑定的证据字段 ID。
 };
-enum class NumericUnaryOp { Plus, Complement };
+enum class NumericUnaryOp { Plus, Complement, ToByte, ToUInt16, ToUInt32, ToUInt64 };
 struct NumericUnary {
     NumericUnaryOp op; // 白名单一元运算。
     std::size_t child; // 后序树中的操作数。
@@ -31,7 +31,7 @@ struct NumericBinary {
 // 检查结构化 AST 提供的枚举是否属于闭集，不执行任何运算。
 bool IsValidNumericOperator(NumericUnaryOp op) noexcept;
 bool IsValidNumericOperator(NumericBinaryOp op) noexcept;
-// 输入已验证的一元运算和值，返回相同位宽的纯数值结果。
+// 输入已验证的一元运算和值；显式无符号转换保留目标低位，但结果容器仍为 u64。
 std::uint64_t ApplyNumericOperator(NumericUnaryOp op, std::uint64_t value) noexcept;
 
 // 加减乘采用 unchecked u64 环绕；移位计数只取低六位。

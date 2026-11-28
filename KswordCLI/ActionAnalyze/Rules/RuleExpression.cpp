@@ -18,7 +18,7 @@ struct TokenRange {
 struct FunctionSpec {
     std::string_view name; // 大小写敏感的完整函数名。
     FieldOp op; // 直接绑定现有解释器的操作。
-    bool takesText; // 文本函数要求一个字符串常量，质量函数只接收字段。
+    bool takesText; // 模式匹配需要第二个字符串常量；质量及空文本检查只接收字段。
 };
 
 constexpr FunctionSpec Functions[] = {
@@ -29,7 +29,41 @@ constexpr FunctionSpec Functions[] = {
     {"isKnown", FieldOp::IsKnown, false},
     {"isNull", FieldOp::IsNull, false},
     {"isComplete", FieldOp::IsComplete, false},
+    {"string.IsNullOrEmpty", FieldOp::IsNullOrEmpty, false},
+    {"String.IsNullOrEmpty", FieldOp::IsNullOrEmpty, false},
+    {"System.String.IsNullOrEmpty", FieldOp::IsNullOrEmpty, false},
 };
+
+// 仅登记四类无符号别名及完整标准名；转换与 MaxValue 使用同一份有限类型目录。
+struct UnsignedTypeSpec {
+    std::string_view name; // 大小写敏感的类型名，不做命名空间推断。
+    NumericUnaryOp conversion; // 现有一元数值节点中的低位转换。
+    std::uint64_t maximum; // 目标位宽的最大值，仍存放为 u64。
+};
+
+constexpr UnsignedTypeSpec UnsignedTypes[] = {
+    {"byte", NumericUnaryOp::ToByte, 0xffULL},
+    {"ushort", NumericUnaryOp::ToUInt16, 0xffffULL},
+    {"uint", NumericUnaryOp::ToUInt32, 0xffffffffULL},
+    {"ulong", NumericUnaryOp::ToUInt64, 0xffffffffffffffffULL},
+    {"System.Byte", NumericUnaryOp::ToByte, 0xffULL},
+    {"System.UInt16", NumericUnaryOp::ToUInt16, 0xffffULL},
+    {"System.UInt32", NumericUnaryOp::ToUInt32, 0xffffffffULL},
+    {"System.UInt64", NumericUnaryOp::ToUInt64, 0xffffffffffffffffULL},
+};
+
+// 完整名称匹配防止把自定义字段或带后缀的标识符当成系统类型。
+const UnsignedTypeSpec* UnsignedTypeByName(std::string_view name)
+{
+    for (const auto& type : UnsignedTypes)
+    {
+        if (type.name == name)
+        {
+            return &type;
+        }
+    }
+    return nullptr;
+}
 
 // 状态名与归档质量目录一致。只解释有限关键字，保留大小写。
 std::optional<Quality> QualityByName(std::string_view name)
@@ -473,6 +507,30 @@ private:
                 Emit(NumericUnary{NumericUnaryOp::Plus, nodes_.size() - 1}, site);
         }
         if (Take("(")) {
+            if (version_ >= 3)
+            {
+                const auto contentStart = position_; // 不匹配类型时恢复为普通括号表达式。
+                SkipSpace();
+                if (position_ < source_.size() && IdentifierStart(source_[position_]))
+                {
+                    TokenRange typeRange{}; // 只探查完整点分名称，不消费操作数。
+                    if (!Path(typeRange, ExpressionError::ExpectedPredicate))
+                    {
+                        return false;
+                    }
+                    if (const auto* type = UnsignedTypeByName(TextAt(typeRange)))
+                    {
+                        if (!Take(")"))
+                        {
+                            return Fail(ExpressionError::ExpectedCloseParen, Here());
+                        }
+                        const TokenRange castRange{site.begin, position_}; // 类型转换错误定位完整前缀。
+                        return Unary(nesting + 1, false) &&
+                            Emit(NumericUnary{type->conversion, nodes_.size() - 1}, castRange);
+                    }
+                }
+                position_ = contentStart;
+            }
             return Disjunction(nesting + 1) &&
                 (Take(")") || Fail(ExpressionError::ExpectedCloseParen, Here()));
         }
@@ -522,6 +580,18 @@ private:
         }
         if (name == "null") {
             return Fail(ExpressionError::ExpectedPredicate, range);
+        }
+        if (name.ends_with(".MaxValue"))
+        {
+            const auto typeName = name.substr(0, name.size() - std::string_view(".MaxValue").size()); // 完整类型前缀。
+            if (const auto* type = UnsignedTypeByName(typeName))
+            {
+                if (version_ < 3)
+                {
+                    return Fail(ExpressionError::UnexpectedToken, range);
+                }
+                return Emit(NumericLiteral{type->maximum}, range);
+            }
         }
         if (Take("(")) {
             if (name == "quality") {
@@ -679,6 +749,10 @@ private:
         for (const auto& function : Functions) {
             if (name != function.name) {
                 continue;
+            }
+            if (version_ < 3 && function.op == FieldOp::IsNullOrEmpty)
+            {
+                return Fail(ExpressionError::UnsupportedCall, site);
             }
             TokenRange field{}; // 第一个参数为字段路径。
             if (!FieldArgument(field)) {

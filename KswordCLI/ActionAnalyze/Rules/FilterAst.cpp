@@ -92,6 +92,9 @@ PrepareError CheckTest(const FieldTest& test, FieldType type)
     case FieldOp::IsNull: case FieldOp::IsComplete: case FieldOp::IsKnown:
         compatible = IsNullLiteral(test.literal);
         break;
+    case FieldOp::IsNullOrEmpty:
+        compatible = type == FieldType::Text && IsNullLiteral(test.literal);
+        break;
     case FieldOp::QualityEqual: case FieldOp::QualityNotEqual: {
         const auto* quality = std::get_if<Quality>(&test.literal); // 结构化谓词也须通过闭集检查。
         compatible = quality && *quality >= Quality::Known && *quality <= Quality::Redacted;
@@ -411,6 +414,23 @@ private:
 
     Truth Test(const FieldTest& test, FieldType type)
     {
+        if (test.op == FieldOp::IsNullOrEmpty)
+        {
+            const auto* field = TextField(test.field); // 复用原文本读取、形状、UTF-8和预算检查。
+            if (!field)
+            {
+                return Truth::Unknown;
+            }
+            if (field->quality == Quality::Null)
+            {
+                return Truth::True;
+            }
+            if (field->quality != Quality::Known)
+            {
+                return Truth::Unknown; // 截断前缀即使非空，也不替代完整字段质量。
+            }
+            return AsTruth(std::get<std::string_view>(field->value).empty());
+        }
         // 用固定上界计费，避免把字段查找视为零成本。
         constexpr std::size_t MaxLookups = 9; // 128 个字段的二分查找加最终比较
         if (!fields_.empty() && !Spend(MaxLookups * (1 + MaxKeyBytes))) {

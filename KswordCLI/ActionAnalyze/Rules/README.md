@@ -12,6 +12,10 @@ v1/v2 保留原解析路径：拒绝数值算术、位操作、数值括号和�
 
 v3 数值常量支持十进制、`0x/0X` 十六进制及 `0b/0B` 二进制，后缀为 `u64` 或大小写 `UL/LU`，数字内部可用 `_` 分隔；旧 v1/v2 仍只接受原十进制、`0x` 和 `u64`。所有基数完整检查 u64 范围，不截断溢出。优先级从高到低为 `! ~ +`、`* / %`、`+ -`、`<< >>`、关系比较、相等比较、`&`、`^`、`|`、`&&`、`||`、`?:`。普通二元操作左结合，`?:` 右结合；数值位运算两侧须为 u64，因此 `(mask & 1u64) != 0u64` 必须明确括号。没有赋值、自增自减、用户函数、对象方法、指针读取或正则执行。
 
+v3 显式无符号转换只支持 `(byte)`、`(ushort)`、`(uint)`、`(ulong)` 及 `(System.Byte)`、`(System.UInt16)`、`(System.UInt32)`、`(System.UInt64)`，大小写敏感；不支持裸 `Byte/UInt16/UInt32/UInt64`、有符号类型或自定义类型。转换与一元运算同优先级、从右向左结合，只接 u64 子树，保留低 8/16/32/64 位，结果仍是 u64，后续算术不会按窄位宽环绕。例如 `(byte)256u64 == 0u64`，但 `(byte)255u64 + 1u64 == 256u64`。这八个类型名对应的 `.MaxValue` 是 u64 常量，分别为 255、65535、4294967295、18446744073709551615，可参与比较、算术和条件分支；转换前的数值字面量仍须在 u64 范围内。没有 CLR 类型系统、整数提升、`checked/unchecked` 块或任意系统成员调用，v1/v2 拒绝本段新语法。
+
+v3 的 `string.IsNullOrEmpty(field)`、`String.IsNullOrEmpty(field)`、`System.String.IsNullOrEmpty(field)` 仅接受一个当前阶段已登记的文本字段，不接受字符串字面量、嵌套表达式、bool 或 u64 字段。完整 Known 空文本或显式 Null 为真，完整 Known 非空为假；缺失、Truncated（包括非空前缀）及其它未知质量均为 Unknown，不按缺失推断为空。复用原文本形状、UTF-8、长度和工作预算检查，坏输入或预算故障仍为带故障 Unknown；v1/v2 拒绝这三个调用。此处转换、MaxValue 与空文本检查只完成产品源码，构建和运行由后续定向验收确认。
+
 `WriteFile` 返回 `FALSE` 且原错误码为 `ERROR_IO_PENDING (997)` 时，预置释义独立标为异步等待，不把调用返回布尔值误写成最终 I/O 失败，也不推测完成字节数。同步成功的零字节、部分和全部完成沿独立计数字段解释。
 
 `condition ? whenTrue : whenFalse` 的条件必须为 bool，两个分支同为 bool 或同为 u64；顶层仍要求 bool。准备阶段检查全部分支的字段和类型，执行时条件为真／假只读取所选分支，未知条件直接返回 Unknown，不读取两个分支或推断相同分支。示例：`(stop.firstChance ? stop.thread.rax : stop.thread.rbx) == 0u64`；`stop.firstChance ? true : stop.thread.rax != 0u64`。未选择的除零分支不产生故障，选中分支沿用 `division-by-zero`。v1/v2拒绝三元语法。缺 `:`、非布尔条件、分支类型不同分别返回 `expression-expected-conditional-colon`、`expression-expected-boolean-condition`、`expression-conditional-branch-type-mismatch` 及源码位置。本次三元扩展仅完成源码，未构建或运行。
