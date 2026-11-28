@@ -132,6 +132,10 @@ namespace Ksword::Evidence
         Field(summary, receipt, L"来源 PID", "sourcePid");
         Field(summary, receipt, L"继续接收目标", "acceptingTargets");
         Field(summary, receipt, L"成员资源已归还", "clean");
+        Field(summary, receipt, L"控制请求修订", "controlRevision");
+        Field(summary, receipt, L"控制已应用修订", "appliedControlRevision");
+        Field(summary, receipt, L"请求保留暂停", "pauseRequested");
+        Field(summary, receipt, L"实际停住成员数", "heldMembers");
         Field(summary, receipt, L"请求次数", "requests");
         Field(summary, receipt, L"已设防准入数", "armed");
         Field(summary, receipt, L"拒绝次数", "rejected");

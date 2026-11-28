@@ -214,9 +214,11 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     m_executableBrowse = IconButton(footer, "action_analyze_api_executable_browse", ":/Icon/process_open_folder.svg");
     m_start = IconButton(footer, "action_analyze_api_start", ":/Icon/process_resume.svg");
     m_stop = IconButton(footer, "action_analyze_api_stop", ":/Icon/process_stop.svg");
+    m_pauseTransfers = IconButton(footer, "action_analyze_api_pause_transfers", ":/Icon/process_pause.svg");
+    m_resumeTransfers = IconButton(footer, "action_analyze_api_resume_transfers", ":/Icon/process_resume.svg");
     m_archive = IconButton(footer, "action_analyze_api_archive", ":/Icon/process_details.svg");
     ks::ui::ApplyFlatButtonTheme(m_start, ks::ui::FlatButtonTone::Accent, ks::ui::FlatButtonAppearance::Solid);
-    for (auto* button : {m_browse, m_executableBrowse, m_start, m_stop, m_archive}) // 固定动作顺序同采样步骤。
+    for (auto* button : {m_browse, m_executableBrowse, m_start, m_pauseTransfers, m_resumeTransfers, m_stop, m_archive}) // 固定动作顺序同采样步骤。
     {
         workspace->actions()->addWidget(button);
     }
@@ -271,6 +273,14 @@ PassiveApiCapturePane::PassiveApiCapturePane(QWidget* parent) : QWidget(parent)
     connect(m_executableBrowse, &QPushButton::clicked, this, &PassiveApiCapturePane::chooseFile);
     connect(m_start, &QPushButton::clicked, this, &PassiveApiCapturePane::start);
     connect(m_stop, &QPushButton::clicked, this, &PassiveApiCapturePane::stop);
+    connect(m_pauseTransfers, &QPushButton::clicked, this, [this]() {
+        if (m_busy && !m_stopping && m_owner) m_owner->requestTransferPause(true);
+        updateControls(); // 只更新请求资格，不提前显示已Held。
+    });
+    connect(m_resumeTransfers, &QPushButton::clicked, this, [this]() {
+        if (m_busy && !m_stopping && m_owner) m_owner->requestTransferPause(false);
+        updateControls(); // 实际恢复完成仍取同一worker回执。
+    });
     connect(m_sourceMode, &QTabBar::currentChanged, this, [this]() {
         m_invalid = false;
         updateControls();
@@ -648,6 +658,14 @@ void PassiveApiCapturePane::updateControls()
     m_duration->setEnabled(!m_busy);
     m_autoTransfer->setVisible(live);
     m_autoTransfer->setEnabled(!m_busy);
+    const bool transferControls = m_busy && !m_stopping && m_owner && m_owner->request().autoTransfer; // 冻结策略不取下一轮草稿。
+    const auto transferIntent = m_owner ? m_owner->transferIntent() : Ksword::ActionAnalyze::ApiTransferControl::Intent{};
+    m_pauseTransfers->setEnabled(transferControls && !transferIntent.paused);
+    m_resumeTransfers->setEnabled(transferControls && transferIntent.paused);
+    m_pauseTransfers->setAccessibleName(sourceText(QStringLiteral("暂停全部成员")));
+    m_resumeTransfers->setAccessibleName(sourceText(QStringLiteral("继续全部成员")));
+    m_pauseTransfers->setToolTip(sourceText(QStringLiteral("请求保留本轮全部接管成员；归档继续，实际暂停状态见自动接管回执。")));
+    m_resumeTransfers->setToolTip(sourceText(QStringLiteral("请求恢复本轮自动追踪；实际恢复状态见自动接管回执。")));
     m_networkTraffic->setEnabled(live && !m_busy); // JSONL保留选择，运行时冻结本轮策略。
     m_captureAgentEtw->setEnabled(live && !m_busy); // 运行期间与来源参数一起冻结，切换JSONL不清除勾选。
     m_sourceHint->setText(sourceText(launched ? QStringLiteral("选择普通 AMD64 EXE，入口停止后自动附加 Agent；Ready 与覆盖核验通过才恢复主线程。此前 TLS/loader 不在覆盖范围。") :

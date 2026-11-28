@@ -3,6 +3,7 @@
 #include "OfflineProjectReader.h"
 #include "../../../KswordCLI/ActionAnalyze/Detection/ApiTransferChain.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/NetworkTrafficCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ApiTransferControl.h"
 #include "../../../shared/ApiMonitorCapture.h"
 
 #include <atomic>
@@ -129,6 +130,10 @@ namespace ks::action_analyze
         PassiveApiCaptureReceipt receipt() const;
         // 后台任务中心只读实际跟随状态；项目租约未打开时不是运行中。
         bool running() const noexcept { return m_running.load(); }
+        // GUI仅发布本轮最后意图，实际应用和Held由原handoff回执说明。
+        bool requestTransferPause(bool paused);
+        // 返回当前请求，不把它当作原生暂停已完成。
+        Ksword::ActionAnalyze::ApiTransferControl::Intent transferIntent() const;
 
     private:
         // 发布同一工作线程生成的回执，不向 GUI 传递项目或句柄。
@@ -137,6 +142,7 @@ namespace ks::action_analyze
         PassiveApiCaptureReceipt collectCooperative();
 
         const PassiveApiCaptureRequest m_request; // 启动时冻结的项目和源身份。
+        std::shared_ptr<Ksword::ActionAnalyze::ApiTransferControl> m_transferControl; // 仅本轮活采持有，不复用旧会话。
         std::atomic_bool m_stop{false}; // GUI 请求工作线程进入收尾。
         std::atomic_bool m_running{false}; // 成功启动后至租约释放的实际会话状态。
         mutable std::mutex m_receiptMutex; // GUI 与工作线程仅共享下方值回执。

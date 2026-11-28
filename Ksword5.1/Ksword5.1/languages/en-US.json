@@ -8183,6 +8183,12 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "请求保留本轮全部接管成员；归档继续，实际暂停状态见自动接管回执。": "Request a hold on all transfer members in this capture. Archiving continues; inspect the transfer receipt for actual pause state.",
+    "请求恢复本轮自动追踪；实际恢复状态见自动接管回执。": "Request automatic tracing to resume. Inspect the transfer receipt for actual resume state.",
+    "控制请求修订": "Requested control revision",
+    "控制已应用修订": "Applied control revision",
+    "请求保留暂停": "Pause requested",
+    "实际停住成员数": "Actually held members",
     "调试器状态查询返回：所查询进程有调试器附加": "The debugger query reports a debugger attached to the queried process.",
     "调试器状态查询返回：所查询进程无调试器附加": "The debugger query reports no debugger attached to the queried process.",
     "CheckRemoteDebuggerPresent 调用成功；未采集到调试器状态输出": "CheckRemoteDebuggerPresent succeeded; its debugger-state output was not captured.",

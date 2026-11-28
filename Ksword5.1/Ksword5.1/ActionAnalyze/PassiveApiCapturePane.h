@@ -96,6 +96,8 @@ namespace ks::action_analyze
         QPushButton* m_browse = nullptr; // 原生 JSONL 文件选择入口。
         QPushButton* m_start = nullptr; // 显式开始跟随。
         QPushButton* m_stop = nullptr; // 停止读端并收尾。
+        QPushButton* m_pauseTransfers = nullptr; // 保留本轮全部接管成员，不停止归档或重建owner。
+        QPushButton* m_resumeTransfers = nullptr; // 发布恢复意图，真实应用状态在原接管树展示。
         QPushButton* m_archive = nullptr; // 查看已提交且读回的独立采样。
         QLabel* m_status = nullptr; // 生命周期摘要，独立于存量字段。
         ks::ui::StructuredFieldView* m_fields = nullptr; // 正规回执的唯一可复制字段源。

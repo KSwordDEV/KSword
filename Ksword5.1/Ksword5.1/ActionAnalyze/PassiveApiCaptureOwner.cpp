@@ -182,7 +182,26 @@ namespace
 }
 
 // GUI 创建所有者时只保存冻结值。
-PassiveApiCaptureOwner::PassiveApiCaptureOwner(PassiveApiCaptureRequest request) : m_request(std::move(request)) {}
+PassiveApiCaptureOwner::PassiveApiCaptureOwner(PassiveApiCaptureRequest request) : m_request(std::move(request))
+{
+    if (m_request.autoTransfer && (m_request.cooperative || m_request.explicitAttachment || m_request.launched)) {
+        m_transferControl = std::make_shared<project::ApiTransferControl>();
+    }
+}
+
+// 输入暂停/恢复意图，发布递增修订；停止中的旧owner不能接受新控制。
+bool PassiveApiCaptureOwner::requestTransferPause(bool paused)
+{
+    if (!m_transferControl || m_stop.load()) return false;
+    const auto intent = m_transferControl->Read(); // 仅复制内存请求，不执行原生查询。
+    return intent.revision != UINT64_MAX && m_transferControl->Publish(intent.revision + 1, paused);
+}
+
+// UI只回读请求；原生应用修订与真实Held成员来自已发布的同源JSON。
+project::ApiTransferControl::Intent PassiveApiCaptureOwner::transferIntent() const
+{
+    return m_transferControl ? m_transferControl->Read() : project::ApiTransferControl::Intent{};
+}
 
 // 返回可跨线程复制的值；锁内不执行 I/O。
 PassiveApiCaptureReceipt PassiveApiCaptureOwner::receipt() const
@@ -393,7 +412,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     {
         const auto launched = project::CaptureLaunchedApi(document,
             {m_request.executable.toStdWString(), m_request.entryRva, durationMs, title, revision,
-                m_request.autoTransfer, m_request.networkTraffic, m_request.captureAgentEtw},
+                m_request.autoTransfer, m_request.networkTraffic, m_request.captureAgentEtw, m_transferControl},
             m_stop, ready, committed, transferred, startupProgress, [&](const project::LaunchedApiProgress& progress) {
                 if (progress.launch)
                 {
@@ -414,7 +433,7 @@ PassiveApiCaptureReceipt PassiveApiCaptureOwner::collectCooperative()
     {
         run = project::CaptureCooperativeApi(document,
             {m_request.pid, m_request.creationTime, durationMs, title, revision, m_request.captureAgentEtw, mode, {},
-                m_request.autoTransfer, m_request.networkTraffic},
+                m_request.autoTransfer, m_request.networkTraffic, m_transferControl},
             m_stop, ready, committed, transferred, startupProgress);
     }
     document.Close(); // 回读前先交还写租约。
