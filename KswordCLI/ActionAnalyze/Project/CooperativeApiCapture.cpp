@@ -229,6 +229,9 @@ Evidence::JsonValue ApiCaptureNetworkJson(const std::optional<NetworkTrafficCapt
         {"win32Error", JsonValue::makeUInt(receipt.status.nativeError)},
         {"reason", Text(receipt.reason)},
         {"sourceReady", JsonValue::makeBool(receipt.sourceReady)},
+        // 网络初始化与已归档字节分别回读；零包不能被API采集成功或Ready提升为流量能力证明。
+        {"trafficObserved", JsonValue::makeBool(receipt.HasCapturedTraffic())},
+        {"sourceLossUnquantified", JsonValue::makeBool(true)},
         {"cleanupConfirmed", JsonValue::makeBool(receipt.cleanupConfirmed)},
         {"packets", Number(receipt.packets)},
         {"capturedBytes", Number(receipt.capturedBytes)},
@@ -706,8 +709,9 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
             out.networkTraffic->status = Failure(ProjectError::InvalidArgument, "networkTargetAdmission");
         }
         const auto& receipt = *out.networkTraffic; // 网络失败保留API已发布前缀并单独报告。
+        // 显式请求网络时，来源Ready但零字节也属于网络部分结果；保留已成功归档的API证据。
         const bool failed = !receipt.status || !receipt.sourceReady || !receipt.cleanupConfirmed ||
-            receipt.queueDropped || receipt.sourceGap || receipt.unsupportedPackets ||
+            !receipt.HasCapturedTraffic() || receipt.queueDropped || receipt.sourceGap || receipt.unsupportedPackets ||
             (receipt.reason != "cancelled" && receipt.reason != "target-exited" &&
                 receipt.reason != "duration-elapsed" && receipt.reason != "stopped");
         if (failed)

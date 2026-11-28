@@ -137,16 +137,19 @@ Result Capture(const Args& args, const std::string& bootId)
         if (count > 0) MultiByteToWideChar(CP_UTF8, 0, message.data(), static_cast<int>(message.size()), text.data(), count);
         diagnostics.push_back(Json::string(text));
     }
-    // 即使有有效正文，也不把原抓包器未知覆盖率包装为完整采集成功。
+    // 零包只证明本次没有观察到流量，不能用来源Ready和正常计时结束报告抓包能力通过。
+    // 即使有有效正文，覆盖率仍独立保留unknown；退出0只表示本次归档及生命周期完成。
     const int code = !receipt.status ? 3 : !receipt.sourceReady ? 5 :
-        receipt.reason == "duration-elapsed" && receipt.cleanupConfirmed && !receipt.queueDropped &&
-            !receipt.sourceGap && !receipt.unsupportedPackets ? 0 : 6;
+        receipt.HasCapturedTraffic() && receipt.reason == "duration-elapsed" && receipt.cleanupConfirmed &&
+            !receipt.queueDropped && !receipt.sourceGap && !receipt.unsupportedPackets ? 0 : 6;
     return {code, Json::object({
         {L"projectId", Json::string(storage::WideAscii(document.Info()->projectId))},
         {L"sampleId", Json::string(storage::WideAscii(plan.sampleId))}, {L"stream", Json::string(L"raw-network")},
         {L"checkpointDirectory", Json::string(L"checkpoints-network")},
         {L"source", Json::string(source)}, {L"captureLayer", Json::string(L"ip-packet")},
         {L"captureCoverage", Json::string(L"unknown")}, {L"sourceReady", Json::boolean(receipt.sourceReady)},
+        {L"trafficObserved", Json::boolean(receipt.HasCapturedTraffic())},
+        {L"sourceLossUnquantified", Json::boolean(true)},
         {L"requestedPid", Json::number(plan.pid)}, {L"requestedCreationFileTime", Json::count(plan.creationFileTime)},
         {L"targetWindows", TargetWindows(receipt.targets)},
         {L"processAttribution", Json::string(source == L"raw-socket" ? L"endpoint-table-hint" : L"per-record-pid-hint")},
@@ -235,7 +238,7 @@ void RegisterNetworkTrafficCommands(std::function<std::string()> bootId)
     capture.syntax = L"KswordCLI.exe analyze network-traffic --project PATH --sample UUID --pid PID --create-time FILETIME --duration-ms MS [--source raw-socket|existing-wfp] [--json]";
     capture.summary = L"Capture real IP packet bytes into an existing ActionAnalyze sample using the Network traffic monitor backend.";
     capture.options = L"The sample must already exist. Duration: 100..60000 ms. Source defaults to raw-socket; existing-wfp reads an already enabled WFP ring.";
-    capture.notes = L"Raw sockets observe interfaces and filter PID hints after capture. PID hints are not verified event-time process instances. Requires capture permissions. WFP is read-only and never enables, disables or resets global capture. Coverage is unknown; HTTPS decryption is deferred. Output: raw-network plus checkpoints-network; read with analyze network-read.";
+    capture.notes = L"Raw sockets observe interfaces and filter PID hints after capture; loopback visibility is not guaranteed. sourceReady means initialization only. trafficObserved requires committed packet bytes; no observed bytes returns partial-result exit 6 and does not prove the target had no traffic. Exit 0 requires observed bytes and normal completion, not complete coverage. PID hints are not verified event-time process instances. Requires capture permissions. WFP is read-only and never enables, disables or resets global capture. Coverage is unknown; HTTPS decryption is deferred. Output: raw-network plus checkpoints-network; read with analyze network-read.";
     capture.run = [bootId = std::move(bootId)](const Args& args) { return Capture(args, bootId()); };
     addCommand(std::move(capture));
     Command read;

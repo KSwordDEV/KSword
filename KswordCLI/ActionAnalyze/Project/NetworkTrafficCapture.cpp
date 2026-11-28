@@ -476,6 +476,12 @@ bool NetworkTrafficSession::Start()
         state.Wfp() ? "ksword-r0-wfp-existing" : "ksword-r3-raw-socket", UuidBytes(epoch), epoch,
         plan.bootId, Archive::NetworkTimeDomain::FileTime, std::nullopt};
 
+    // 固定来源限制进入原诊断回执，供API混采和各端统一展示；不据初始化成功承诺回环可见。
+    if (!state.Wfp())
+    {
+        out.diagnostics.push_back("raw-socket-loopback-not-guaranteed");
+    }
+
     // 回调只复制已准入成员线索到原有界邮箱；捕获稳定State指针，绝不访问ProjectDocument。
     state.service.SetPacketCallback([owner = &state](const ks::network::PacketRecord& packet) noexcept
     {
@@ -546,7 +552,9 @@ bool NetworkTrafficSession::Start()
         out.reason = "source-unavailable";
         out.cleanupConfirmed = state.service.StopCapture();
         std::lock_guard lock(state.mailbox.mutex); // 启动失败收回已停止来源的诊断。
-        out.diagnostics = std::move(state.mailbox.diagnostics);
+        out.diagnostics.insert(out.diagnostics.end(), state.mailbox.diagnostics.begin(),
+            state.mailbox.diagnostics.end());
+        state.mailbox.diagnostics.clear();
         return false;
     }
     state.startUtc = UtcNow() / 10000 * 10000;
@@ -848,7 +856,7 @@ void NetworkTrafficSession::Close()
             std::lock_guard lock(state.mailbox.mutex); // 短锁不跨归档提交。
             for (auto& diagnostic : state.mailbox.diagnostics)
             {
-                if (state.out.diagnostics.size() == 16)
+                if (state.out.diagnostics.size() >= 16)
                 {
                     break;
                 }
@@ -877,6 +885,11 @@ void NetworkTrafficSession::Close()
         state.out.queueDropped += std::exchange(state.mailbox.dropped, 0);
     }
     // 写档失败时也已先停止来源，未提交邮箱不重试；保留真实错误及最后成功水位。
+    // 正常结束的空段仍保留生命周期原因，但明确报告没有真实字节；不推断目标没有通信。
+    if (state.out.sourceReady && !state.out.HasCapturedTraffic())
+    {
+        state.out.diagnostics.push_back("no-packet-bytes-observed");
+    }
     state.active = false;
     state.closed = true;
     {

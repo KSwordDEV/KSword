@@ -239,7 +239,7 @@ Qt「监控 → 行为分析 → 执行断点集合」和 Light「监控 → Act
 
 独立持续 ETW 会话的 `archive.published` 复用相同投影；单一 ETW 主流的 `stream` 为 `raw`，混采的 ETW 附属流为 `raw-etw`。这只是已发布游标的查询，不额外采集、刷盘或改变停止语义。
 
-配套网络的 `requestedBackend` 在启动之前就保留原显式选择（`raw-socket`／`existing-wfp`），与实际 `sourceReady` 独立；成功段的 `published.sourceId`／`clockId` 来自该段原来源绑定。请求来源不是覆盖证明，不能因当前来源失败静默改换后端。
+配套网络的 `requestedBackend` 在启动之前就保留原显式选择（`raw-socket`／`existing-wfp`），与实际 `sourceReady` 独立；成功段的 `published.sourceId`／`clockId` 来自该段原来源绑定。请求来源不是覆盖证明，不能因当前来源失败静默改换后端。`trafficObserved` 只在本次已有包及真实字节提交成功时为 true；`sourceReady` 只表示初始化成功。显式请求网络而最终没有观察到包字节时，API 采集沿现有部分结果路径返回6，已归档的API证据保留。`sourceLossUnquantified=true` 表示来源损失仍未完全量化，抓到字节也不提升为完整覆盖。原来源诊断 `raw-socket-loopback-not-guaranteed` 表示 raw-socket 不保证回环可见，`no-packet-bytes-observed` 表示就绪后未归档到包字节，不表示目标没有通信。
 
 网络的 `published.loss` 与正式 `network-read` 的 `loss` 使用同一已核验段结果，包含 `queueDropped`、`sourceLost`、`sourceLossUnquantified` 及两个计数饱和位。这里的损失数是该段增量，根级 `queueDropped`／`sourceGap` 仍为采集来源累计；发布失败不把未归档的计数移进最近成功段。两桌面端在同采样来源详情中显示该段损失和覆盖状态。旧回执缺失损失对象时显示未知，不能由缺口计数为零推断完整覆盖。
 
@@ -295,7 +295,7 @@ CLI 网络回读的 `loss` 返回本段正文中已核验的队列丢弃、来�
 
 三个实时 API 入口可加 `--network-traffic raw-socket|existing-wfp`，直接使用既有“网络→流量监控”的原始抓包服务或已开启 WFP ring。网络来源在配置发布前启动；普通 EXE 路径先开网络源，再由 Ready 屏障恢复主线程。网络邮箱由原 API worker 轮询，串行写入同一项目、同一 sample 的 `raw-network/checkpoints-network`，不申请第二 writer。启用 `--auto-transfer` 后，私有执行目标通过强实例准入时即加入同一网络来源，早于调用前成功 ACK；根进程退出后继续采集已登记目标，整条 API 链结束时统一清退。`networkTraffic` 回执包含实际包数、保留字节、段号、源状态、清退、丢失及 `targets` 采集窗口；窗口的创建时间与起止时间只说明筛选范围，报文仍为 PID 归属线索，不声称事件时强实例，也不解密 HTTPS。`analyze network-read --project PATH --sample UUID` 可在停止后回读正文及检查点目标窗口。权限或来源失败独立进入部分结果。省略选项不启动抓包，`existing-wfp` 不擅自开启或关闭全局抓包。Qt／Light 在原 API 参数区选择同样来源并冻结到本轮请求。`elapsedMs` 包含各来源清退及封段，`intervalElapsedMs` 保留原根 Ready 起算的采集区间。
 
-`network-traffic` 复用“网络 → 流量监控”的 `TrafficMonitorService`／已有 WFP ring。`raw-socket` 沿用接口可见性及4096字节正文上限；`existing-wfp` 只读已经启用的来源，不启停或重置全局捕获。报文按现有 PID 线索筛选，`endpoint-table-hint/native-pid-hint` 是弱归属，创建时间保持0、对象ID留空；请求目标的强实例单独保留。检查点记录来源就绪、包数／字节、丢失、端点、来源时间／序号、flags、截断和正文散列。归档仍用原项目唯一writer，同一sample不得并发写入。退出0表示正常结束，3为项目／归档错误，5为来源不可用，6为中止或部分结果；覆盖率为 `unknown`，HTTPS解密后置。`reason` 始终记录生命周期责任：未调用启动为 `not-started`，参数／项目／目标校验失败分别为 `invalid-plan`、`project-not-open`／`project-read-only`、`target-open-failed`／`target-identity-failed`，已有网络尾部或来源身份失败分别为 `network-tail-failed`／`source-identity-failed`；来源启动失败为 `source-unavailable`，归档失败为 `archive-failed`，不会留空。
+`network-traffic` 复用“网络 → 流量监控”的 `TrafficMonitorService`／已有 WFP ring。`raw-socket` 沿用接口可见性及4096字节正文上限，不保证本机回环可见；`existing-wfp` 只读已经启用的来源，不启停或重置全局捕获。报文按现有 PID 线索筛选，`endpoint-table-hint/native-pid-hint` 是弱归属，创建时间保持0、对象ID留空；请求目标的强实例单独保留。检查点记录来源就绪、包数／字节、丢失、端点、来源时间／序号、flags、截断和正文散列。归档仍用原项目唯一writer，同一sample不得并发写入。退出0要求已归档真实包字节、正常结束、清退完成且已知损失计数为零；3为项目／归档错误，5为来源不可用，6为未观察到包字节、中止或部分结果。`trafficObserved=false` 的空结果即使 `sourceReady=true` 也返回6，不推断目标没有通信。覆盖率始终为 `unknown`，`sourceLossUnquantified=true`，HTTPS解密后置。`reason` 始终记录生命周期责任：未调用启动为 `not-started`，参数／项目／目标校验失败分别为 `invalid-plan`、`project-not-open`／`project-read-only`、`target-open-failed`／`target-identity-failed`，已有网络尾部或来源身份失败分别为 `network-tail-failed`／`source-identity-failed`；来源启动失败为 `source-unavailable`，归档失败为 `archive-failed`，不会留空。
 
 最终 `startup` 保存最后真实到达阶段及其 `elapsedMs`，失败或取消不把最后阶段改成 Ready，清退期晚到的安装包也不追认启动成功。原生同采样 `control.api.capture` 的 `capture.startup` 使用同一投影。已连接采样的终段保存 `startup` 供历史回查，不授予新控制资格。Qt／Light 在原采样回执刷新内显示同一启动事实；本次扩展尚未构建或运行。
 

@@ -38,6 +38,13 @@ struct NetworkTrafficCaptureReceipt {
     bool sourceReady = false; // 至少一次观察到真实采集源已就绪。
     bool cleanupConfirmed = false; // 本次拥有的 R3 线程完成 join；只读 WFP 无启停责任。
     std::vector<ProjectNetworkTargetWindow> targets; // 当前已准入实例及各自生命周期，不代表逐包强证据。
+
+    // 调用方读取本回执时使用：只由已提交包数和真实字节判断是否观察到流量，Ready不作为抓包证明。
+    // 返回true只说明原来源字节已归档，不证明回环、双向或全部流量覆盖。
+    bool HasCapturedTraffic() const noexcept
+    {
+        return packets != 0 && capturedBytes != 0;
+    }
 };
 
 // 每次追加独立返回准入结果；失败不污染正在采集的主回执，不隐式停止其它成员。
