@@ -5400,6 +5400,60 @@ namespace apimon
             return statusValue;
         }
 
+        // FALSE 是有效的“无调试器”查询结果，不能作为 API 失败上报。
+        BOOL WINAPI HookedIsDebuggerPresent()
+        {
+            const DWORD entryLastError = ::GetLastError();
+            ScopedHookGuard guardValue;
+            if (guardValue.bypass()) {
+                ::SetLastError(entryLastError);
+                return g_isDebuggerPresentOriginal();
+            }
+            const auto callClock = BeginApiCallClock();
+            ::SetLastError(entryLastError);
+            const BOOL resultValue = g_isDebuggerPresentOriginal();
+            const DWORD lastError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
+            AppendWideText(detailBuffer, L"debuggerPresent=");
+            AppendUnsignedText(detailBuffer, resultValue != FALSE ? 1u : 0u);
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"IsDebuggerPresent",
+                0, detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::SetLastError(lastError);
+            return resultValue;
+        }
+
+        // 原调用成功且 PBOOL 安全读回后才发布 debuggerPresent，与 NT 调试查询的有效位语义一致。
+        BOOL WINAPI HookedCheckRemoteDebuggerPresent(HANDLE processHandle, PBOOL debuggerPresentPointer)
+        {
+            const DWORD entryLastError = ::GetLastError();
+            ScopedHookGuard guardValue;
+            if (guardValue.bypass()) {
+                ::SetLastError(entryLastError);
+                return g_checkRemoteDebuggerPresentOriginal(processHandle, debuggerPresentPointer);
+            }
+            const auto callClock = BeginApiCallClock();
+            ::SetLastError(entryLastError);
+            const BOOL resultValue = g_checkRemoteDebuggerPresentOriginal(processHandle, debuggerPresentPointer);
+            const DWORD lastError = ::GetLastError();
+            const auto duration = EndApiCallClock(callClock);
+            BOOL debuggerPresent = FALSE;
+            const bool outputValid = resultValue != FALSE && TrySafeIoValue(debuggerPresentPointer, &debuggerPresent);
+            wchar_t detailBuffer[ks::winapi_monitor::kMaxDetailChars] = {};
+            AppendWideText(detailBuffer, L"process=");
+            AppendHexText(detailBuffer, reinterpret_cast<std::uint64_t>(processHandle));
+            AppendWideText(detailBuffer, L" outputValid=");
+            AppendUnsignedText(detailBuffer, outputValid ? 1u : 0u);
+            if (outputValid) {
+                AppendWideText(detailBuffer, L" debuggerPresent=");
+                AppendUnsignedText(detailBuffer, debuggerPresent != FALSE ? 1u : 0u);
+            }
+            SendRawEventWithMetrics(ks::winapi_monitor::EventCategory::Process, L"KernelBase", L"CheckRemoteDebuggerPresent",
+                resultValue != FALSE ? 0 : static_cast<std::int32_t>(lastError), detailBuffer, true, ApiReturnBits(resultValue), duration);
+            ::SetLastError(lastError);
+            return resultValue;
+        }
+
         // HookedNtQueryInformationProcess 作用：
         // - 输入：进程句柄、信息类和输出缓冲长度；
         // - 处理：记录直接进程信息查询，覆盖 PEB/调试/保护级别等原生查询路径；

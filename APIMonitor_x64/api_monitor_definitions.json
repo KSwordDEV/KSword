@@ -55659,6 +55659,79 @@
         "success": "bool",
         "error_source": "none"
       }
+    },
+    {
+      "id": 995,
+      "module": "KernelBase.dll",
+      "export": "IsDebuggerPresent",
+      "category": "Process",
+      "architectures": [
+        "x86",
+        "x64"
+      ],
+      "calling_convention": "WINAPI",
+      "return_type": "BOOL",
+      "parameters": [],
+      "return": {
+        "success": "handler",
+        "error_source": "handler"
+      },
+      "binding": {
+        "type_alias": "IsDebuggerPresentFn",
+        "record": "g_isDebuggerPresentHook",
+        "original": "g_isDebuggerPresentOriginal",
+        "hook": "HookedIsDebuggerPresent",
+        "scope": "targets"
+      },
+      "wrapper": {
+        "kind": "special",
+        "handler": "HookedIsDebuggerPresent"
+      }
+    },
+    {
+      "id": 996,
+      "module": "KernelBase.dll",
+      "export": "CheckRemoteDebuggerPresent",
+      "category": "Process",
+      "architectures": [
+        "x86",
+        "x64"
+      ],
+      "calling_convention": "WINAPI",
+      "return_type": "BOOL",
+      "parameters": [
+        {
+          "name": "processHandle",
+          "type": "HANDLE",
+          "direction": "in",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        },
+        {
+          "name": "debuggerPresentPointer",
+          "type": "PBOOL",
+          "direction": "out",
+          "encoding": "none",
+          "capture": "handler",
+          "length": null
+        }
+      ],
+      "return": {
+        "success": "handler",
+        "error_source": "handler"
+      },
+      "binding": {
+        "type_alias": "CheckRemoteDebuggerPresentFn",
+        "record": "g_checkRemoteDebuggerPresentHook",
+        "original": "g_checkRemoteDebuggerPresentOriginal",
+        "hook": "HookedCheckRemoteDebuggerPresent",
+        "scope": "targets"
+      },
+      "wrapper": {
+        "kind": "special",
+        "handler": "HookedCheckRemoteDebuggerPresent"
+      }
     }
   ]
 }
