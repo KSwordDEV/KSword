@@ -6,6 +6,7 @@
 #include "../../../KswordCLI/ActionAnalyze/Cli/PassiveApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/CooperativeApiCapture.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/LaunchedApiCapture.h"
+#include "../../../KswordCLI/ActionAnalyze/Project/ApiTransferControl.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectApiCheckpoint.h"
 #include "../../../KswordCLI/ActionAnalyze/Project/ProjectEtwEvidence.h"
 #include "../../../shared/usermode/backend/process/ProcessControls.h"
@@ -74,6 +75,18 @@ std::wstring ReportCount(const JsonValue& report, std::string_view name) {
     std::uint64_t count = 0;
     const auto* field = report.find(name);
     return field && field->tryGetU64(count) ? std::to_wstring(count) : L"—";
+}
+
+// 应用修订和Held数只从原回执读取，不能把已发送的UI意图当成原生完成。
+void ApplyTransferControlReceipt(NativeLiveApiReceipt& api, const JsonValue& handoff)
+{
+    const auto number = [&](const char* key) -> std::optional<std::uint64_t> {
+        std::uint64_t value = 0;
+        const auto* field = handoff.find(key);
+        return field && field->tryGetU64(value) ? std::optional{value} : std::nullopt;
+    };
+    api.appliedControlRevision = number("appliedControlRevision");
+    api.heldMembers = number("heldMembers");
 }
 
 // 输入text为原详情正文、match为JSONL后端命中值；追加原归档坐标和来源行身份，不重建历史。
@@ -246,6 +259,7 @@ void ApplyCooperativeReceipt(NativeLiveSnapshot& next, const Ksword::ActionAnaly
     api.details = std::wstring(partial ? L"部分完成" : capture.code == 0 ? L"采样完成" : L"采样未完成") + L" · " + api.details;
     if (run.transferHandoff.type() != Ksword::Evidence::JsonType::Null)
     {
+        ApplyTransferControlReceipt(api, run.transferHandoff);
         api.details += ApiHandoffDetails(run.transferHandoff); // 两端共用分组字段，失败与执行观察独立呈现。
         api.details += L"\r\n自动接管原始回执=" + Utf8ToWide(Ksword::Evidence::WriteJson(run.transferHandoff)); // 同一正文保留完整可复核原文。
     }
@@ -412,6 +426,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
     bool dirty = true; // 当前预览有新行等待投影。
     bool retirementRegistered = false; // 清退失败时只在现有目录登记一次。
     std::atomic_bool stop{false}; // 同一停止意图交给合作采集器。
+    std::shared_ptr<Ksword::ActionAnalyze::ApiTransferControl> transferControl; // 每轮Start独立分配，旧轮绝不复用。
 
     // 返回当前已接受的停止意图。
     bool StopRequested() const {
@@ -631,6 +646,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                                 {
                                     std::lock_guard lock(mutex); // 页面只读取同一冻结快照，不访问控制器。
                                     status.api->details = api.details;
+                                    ApplyTransferControlReceipt(*status.api, transfers.handoff);
                                     if (transfers.handoffSample)
                                     {
                                         last.projectId = frozen.projectId;
@@ -665,7 +681,8 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     {
                         const auto launched = Project::CaptureLaunchedApi(project,
                             {request.api->executable, request.api->entryRva, request.api->durationMs, title,
-                                frozen.revisionId, request.api->autoTransfer, request.api->networkTraffic, request.api->captureAgentEtw}, stop,
+                                frozen.revisionId, request.api->autoTransfer, request.api->networkTraffic, request.api->captureAgentEtw,
+                                transferControl}, stop,
                             ready, committed, transferred, startupProgress, [&](const Project::LaunchedApiProgress& progress) {
                                 if (progress.launch)
                                 {
@@ -689,7 +706,7 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
                     {
                         run = Project::CaptureCooperativeApi(project,
                             {last.pid, last.creationFileTime, request.api->durationMs, title, frozen.revisionId, request.api->captureAgentEtw, mode,
-                                {}, request.api->autoTransfer, request.api->networkTraffic}, stop,
+                                {}, request.api->autoTransfer, request.api->networkTraffic, transferControl}, stop,
                             ready, committed, transferred, startupProgress);
                     }
                     if (request.api->networkTraffic || run.networkTraffic)
@@ -719,7 +736,11 @@ struct NativeLiveSession::Shared final : std::enable_shared_from_this<Shared> {
         project.Close();
         next.active = false;
         std::lock_guard lock(mutex);
+        // 保留最后发布的UI意图用于解释终态；工作线程的旧局部快照不能覆盖它。
+        api.controlRevision = status.api->controlRevision;
+        api.pauseRequested = status.api->pauseRequested;
         status = std::move(next);
+        transferControl.reset(); // 终态撤销控制入口，归档回执仍由状态值保留。
     }
 
     // 不打开源进程；只由这一工作线程持有文件游标和项目写租约。
@@ -910,6 +931,11 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
             next->status.api->launched = request.api->launched;
             next->status.api->executable = request.api->executable;
             next->status.api->captureAgentEtw = request.api->captureAgentEtw; // 启动失败仍保留本轮策略。
+            if (request.api->autoTransfer && (request.api->cooperative || request.api->explicitAttachment || request.api->launched))
+            {
+                next->transferControl = std::make_shared<Ksword::ActionAnalyze::ApiTransferControl>();
+                next->status.api->transferControlAvailable = true;
+            }
         }
         std::thread([next, lease, request = std::move(request)] {
             try {
@@ -931,6 +957,7 @@ DWORD NativeLiveSession::Start(NativeLiveRequest request) {
                 next->status.capture.state = LiveCaptureState::Failed;
                 next->status.capture.processStage = "live-worker";
                 next->status.capture.processError = ERROR_GEN_FAILURE;
+                next->transferControl.reset();
                 next->wake.notify_all();
             }
         }).detach();
@@ -948,6 +975,29 @@ void NativeLiveSession::Stop() {
             Ui::BackgroundWorkRegistry::global().retry(true);
         }
     }
+}
+
+bool NativeLiveSession::SetApiTransferPaused(bool paused)
+{
+    if (!session_ || retiring_) {
+        return false;
+    }
+    std::lock_guard lock(session_->mutex); // 与停止、终态和下一轮准入串行，发布后立即返回。
+    auto& status = session_->status;
+    if (!status.active || session_->stop.load() || !status.api || !session_->transferControl) {
+        return false;
+    }
+    const auto intent = session_->transferControl->Read();
+    if (intent.revision == UINT64_MAX || intent.paused == paused) {
+        return false;
+    }
+    const auto revision = intent.revision + 1;
+    if (!session_->transferControl->Publish(revision, paused)) {
+        return false;
+    }
+    status.api->controlRevision = revision;
+    status.api->pauseRequested = paused;
+    return true;
 }
 
 void NativeLiveSession::BeginRetirement() {
@@ -1036,6 +1086,22 @@ std::wstring FormatLiveStatus(const NativeLiveSnapshot& status) {
                 text += L" · 就绪覆盖修订 " + std::to_wstring(*status.api->readyCoverageRevision);
             }
             if (!capture.sampleId.empty()) text += L"\r\n采样 " + WideAscii(capture.sampleId);
+            if (status.api->transferControlAvailable)
+            {
+                const auto& api = *status.api;
+                text += L"\r\n自动追踪控制修订：" + std::to_wstring(api.controlRevision) + L" · ";
+                text += api.pauseRequested ? L"已请求暂停全部成员" : api.controlRevision ? L"已请求恢复自动追踪" : L"自动追踪";
+                if (api.controlRevision && (!api.appliedControlRevision || *api.appliedControlRevision < api.controlRevision))
+                {
+                    text += L" · 等待原生应用";
+                }
+                else if (api.controlRevision && api.appliedControlRevision == api.controlRevision)
+                {
+                    text += L" · 已应用";
+                }
+                text += L" · 已应用控制修订：" + DisplayNumber(api.appliedControlRevision);
+                text += L" · Held 成员数：" + DisplayNumber(api.heldMembers);
+            }
             if (!status.api->details.empty()) text += L"\r\n" + status.api->details;
             if (!status.api->networkTraffic.empty())
             {

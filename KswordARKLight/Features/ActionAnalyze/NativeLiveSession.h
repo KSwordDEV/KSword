@@ -70,6 +70,11 @@ struct NativeLiveApiReceipt {
     bool captureAgentEtw = false; // 本轮已受理请求的ETW开关，不随下轮草稿修改。
     std::wstring agentEtw; // Close后保留原ETW来源全文与独立阶段回执，沿既有详情展示。
     std::shared_ptr<const Ksword::ActionAnalyze::CooperativeApiRuleReceipt> rules; // 原writer回执的值拷贝，冻结累计、最多32条行为及latest。
+    bool transferControlAvailable = false; // 本轮活采确实创建控制对象；不是当前页面草稿。
+    std::uint64_t controlRevision = 0; // 本端已发布的最后意图，不是原生生效证明。
+    bool pauseRequested = false; // 与controlRevision同锁发布的暂停意图。
+    std::optional<std::uint64_t> appliedControlRevision; // 只取原handoff回执，缺失保持未知。
+    std::optional<std::uint64_t> heldMembers; // 原owner实际回读的Held数，不根据请求补造。
 };
 
 struct NativeLiveSnapshot {
@@ -93,6 +98,8 @@ public:
     DWORD Start(NativeLiveRequest request);
     // 发出协作停止意图，或通过 Light 原生任务登记重试现有清退。
     void Stop();
+    // 只发布本轮自动接管意图；原worker应用，不等待Held、不创建新worker。
+    bool SetApiTransferPaused(bool paused);
     // 提交退出意图。Ready 用于主窗口轮询，无须等待原生线程。
     void BeginRetirement();
     bool Ready() const;

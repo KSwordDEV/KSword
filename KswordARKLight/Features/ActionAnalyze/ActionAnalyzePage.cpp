@@ -53,9 +53,10 @@ enum ControlId {
     kTransferCandidates, kApiDuration, kPrepareExecutionAddress, kPrepareExecutionRange, kAutoTransfer,
     kApiExecutable, kApiExecutableBrowse, // 独立EXE草稿和选择动作，不复用JSONL路径。
     kApiNetworkTraffic, // 同采样网络来源草稿，三种实时API来源共用。
-    kApiCaptureAgentEtw // 原参数页的配套ETW草稿，不创建独立页面。
+    kApiCaptureAgentEtw, // 原参数页的配套ETW草稿，不创建独立页面。
+    kLivePauseAll, kLiveResumeTransfer // 活采原动作栏的控制意图，不直接操作原生owner。
 };
-static_assert(kApiCaptureAgentEtw <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
+static_assert(kLiveResumeTransfer <= MAXWORD, "WM_COMMAND carries control IDs in its low word");
 using Ui::Scale;
 
 using ApiFamilyGroups = std::map<std::wstring, std::vector<std::size_t>>;
@@ -128,6 +129,7 @@ struct Page {
     HWND liveProvider = nullptr;
     HWND liveStart = nullptr;
     HWND liveStop = nullptr;
+    HWND livePauseAll = nullptr, liveResumeTransfer = nullptr; // 暂停不停止采集，恢复继续本轮自动追踪。
     HWND liveFollow = nullptr;
     HWND liveApi = nullptr, apiPid = nullptr, apiSession = nullptr, apiCreation = nullptr, apiBrowse = nullptr, apiPath = nullptr;
     HWND apiSource = nullptr;
@@ -670,7 +672,12 @@ void Layout(Page& page) {
     const bool liveWrapInputs = width < switchWidth + modeWidth + pidWidth + providerMin + 3 * gap;
     const int apiBrowseWidth = Scale(138);
     const int liveToolbarRows = liveSingleRow ? 1 : liveWrapInputs ? 3 : 2; // ETW保留原有工具行换列。
-    const std::array apiActions{page.liveStart, page.liveStop, page.liveFollow}; // 复用共享动作换行度量。
+    std::vector<HWND> apiActions{page.liveStart, page.liveStop, page.liveFollow}; // 复用共享动作换行度量。
+    if (api && LiveApiMode(page))
+    {
+        apiActions.push_back(page.livePauseAll);
+        apiActions.push_back(page.liveResumeTransfer);
+    }
     const int apiActionHeight = Ui::LayoutParameterActions(apiActions, inset, inset, width, actionWidth, height, gap, false);
     const int apiParameterHeight = std::clamp(static_cast<int>(area.bottom) / 3, Scale(80), Scale(210)); // 结果仍保留主体空间。
     const int toolbarTop = inset + (api ? controlStep + apiParameterHeight + gap + apiActionHeight + gap :
@@ -2062,6 +2069,10 @@ void RefreshCommittedApiPrefix(Page& page) {
 void UpdateLiveMode(Page& page) {
     const bool api = ApiMode(page);
     const bool file = api && !LiveApiMode(page);
+    for (const auto control : {page.livePauseAll, page.liveResumeTransfer})
+    {
+        ::ShowWindow(control, page.liveView && api && !file ? SW_SHOW : SW_HIDE);
+    }
     ::ShowWindow(::GetParent(page.apiParameters.Body()), page.liveView && api ? SW_SHOW : SW_HIDE);
     for (const auto control : {page.livePid, page.liveProvider}) ::ShowWindow(control, page.liveView && !api ? SW_SHOW : SW_HIDE);
     ::ShowWindow(page.apiSource, page.liveView && api ? SW_SHOW : SW_HIDE);
@@ -2103,6 +2114,10 @@ void UpdateLiveControls(Page& page) {
     };
     enable(page.liveStart, !busy && !page.retiring && !page.apiConfirming && page.project.has_value());
     enable(page.liveStop, busy && !page.retiring && (!page.liveStopRequested || retry));
+    const auto& api = page.liveStatus.api;
+    const bool canControl = busy && api && api->transferControlAvailable && !page.retiring && !page.liveStopRequested;
+    enable(page.livePauseAll, canControl && !api->pauseRequested);
+    enable(page.liveResumeTransfer, canControl && api->pauseRequested);
     enable(page.liveFollow, ApiMode(page) ? !page.retiring && CanReplayApi(page) : busy || page.liveProjection.has_value());
     for (const auto control : {page.liveApi, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiBrowse, page.apiDuration}) enable(control, !busy && !page.retiring);
     enable(page.apiExecutableBrowse, !busy && !page.retiring); // 运行期间冻结EXE选择，已有草稿不被实际PID改写。
@@ -2444,6 +2459,7 @@ LRESULT CALLBACK NavigateControls(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         const std::array order{ page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
             page.liveApi, page.livePid, page.liveProvider, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiDuration, page.apiBrowse, page.apiPath,
             page.apiExecutable, page.apiExecutableBrowse, page.apiNetworkTraffic, page.apiCaptureAgentEtw, page.autoTransfer, page.liveStart, page.liveStop, page.liveFollow,
+            page.livePauseAll, page.liveResumeTransfer,
             page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
             page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
             page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
@@ -2542,6 +2558,8 @@ bool CreateControls(Page& page) {
     page.liveStart = Ui::CreateButton(page.hwnd, kLiveStart, L"开始采集", 0, 0, 0, 0, Ui::ButtonRole::Primary);
     page.liveStop = Ui::CreateButton(page.hwnd, kLiveStop, L"停止采集", 0, 0, 0, 0);
     page.liveFollow = Ui::CreateButton(page.hwnd, kLiveFollow, L"暂停跟随", 0, 0, 0, 0);
+    page.livePauseAll = Ui::CreateButton(page.hwnd, kLivePauseAll, L"暂停全部成员", 0, 0, 0, 0);
+    page.liveResumeTransfer = Ui::CreateButton(page.hwnd, kLiveResumeTransfer, L"恢复自动追踪", 0, 0, 0, 0);
     page.actions = Ui::CreateText(page.hwnd, 0, L"工程", 0, 0, 0, 0);
     page.capability = Ui::CreateText(page.hwnd, 0, L"一个工程可保存多次行为采样。", 0, 0, 0, 0);
     page.categories = Ui::CreateButton(page.hwnd, kCategories, L"无可筛选类别", 0, 0, 0, 0);
@@ -2565,6 +2583,7 @@ bool CreateControls(Page& page) {
         ::GetModuleHandleW(nullptr), nullptr);
     page.locateEvidence = Ui::CreateButton(page.hwnd, kLocateEvidence, L"定位原始记录", 0, 0, 0, 0);
     if (!page.switchView || !page.livePid || !page.liveProvider || !page.liveStart || !page.liveStop || !page.liveFollow ||
+        !page.livePauseAll || !page.liveResumeTransfer ||
         !page.apiExecutable || !page.apiExecutableBrowse || !page.apiExecutableLabel || !page.apiCaptureAgentEtw ||
         !page.liveApi || !page.apiPid || !page.apiSession || !page.apiCreation || !page.apiBrowse || !page.apiPath || !page.autoTransfer ||
         !page.apiSourceLabel || !page.apiPidLabel || !page.apiCreationLabel || !page.apiSessionLabel || !page.apiPathLabel || !page.apiDurationLabel ||
@@ -2652,6 +2671,8 @@ bool CreateControls(Page& page) {
     AddButtonTip(page.tooltip, page.hwnd, page.livePid, L"输入自有进程的十进制 PID");
     AddButtonTip(page.tooltip, page.hwnd, page.liveProvider, L"输入 ETW 提供程序 GUID 以观察指定进程并将记录归档");
     AddButtonTip(page.tooltip, page.hwnd, page.liveStop, L"停止观察并清退本次采集会话，可重试失败的清退");
+    AddButtonTip(page.tooltip, page.hwnd, page.livePauseAll, L"仅本轮启用自动接管且尚未停止时可用。请求全部成员保持暂停；请求修订不代表已进入 Held，实际状态见原生回执。");
+    AddButtonTip(page.tooltip, page.hwnd, page.liveResumeTransfer, L"仅本轮已请求暂停时可用。恢复自动追踪由原采集线程应用，不重启采集，不创建新的执行集合。");
     AddButtonTip(page.tooltip, page.hwnd, page.liveApi, L"选中时使用 API 来源；未选中时使用 ETW");
     AddButtonTip(page.tooltip, page.hwnd, page.apiSource, L"JSONL 跟随、合作已装载、显式附加、启动EXE并采集四选一；启动EXE在入口停止后自动附加 Agent，Ready后恢复主线程，此前TLS/loader不在覆盖范围。");
     AddButtonTip(page.tooltip, page.hwnd, page.apiExecutableBrowse, L"选择普通 AMD64 EXE；开始后自动创建并采集，不需要手填PID或另行附加。");
@@ -2669,6 +2690,7 @@ bool CreateControls(Page& page) {
     for (HWND child : {page.createProject, page.open, page.switchView, page.retry, page.sampleChoice, page.replaySample, page.cancelChoice,
         page.liveApi, page.livePid, page.liveProvider, page.apiSource, page.apiPid, page.apiSession, page.apiCreation, page.apiDuration, page.apiBrowse, page.apiPath,
         page.autoTransfer, page.apiExecutable, page.apiExecutableBrowse, page.apiNetworkTraffic, page.apiCaptureAgentEtw, page.liveStart, page.liveStop, page.liveFollow,
+        page.livePauseAll, page.liveResumeTransfer,
         page.categories, page.filter, page.apiOnly, page.etwOnly, page.networkOnly,
         page.evidenceFamily, page.evidenceRecord, page.locateEvidence,
         page.timeline.hwnd(), page.list.hwnd(), page.prepareExecutionAddress, page.prepareExecutionRange,
@@ -2774,6 +2796,14 @@ LRESULT CALLBACK PageProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 if (page->liveView && ApiMode(*page) && LaunchApiMode(*page) && !page->liveStatus.active) BrowseApi(*page);
                 return 0;
             case kLiveStart: StartLive(*page); return 0;
+            case kLivePauseAll:
+            case kLiveResumeTransfer:
+                if (page->liveView && ApiMode(*page) && !page->liveStopRequested)
+                {
+                    page->live.SetApiTransferPaused(LOWORD(wp) == kLivePauseAll);
+                    RefreshLive(*page); // 即时展示已发布意图，生效及Held仍等待原worker回执。
+                }
+                return 0;
             case kLiveStop:
                 page->liveStopRequested = true;
                 page->live.Stop();
