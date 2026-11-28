@@ -1,5 +1,14 @@
 # KSword Agent Notes
 
+## ActionAnalyze 开发边界（用户明确要求）
+
+- 禁止以任何理由向当前程序新增第三方组件或采集旁路，包括 Sysmon、Npcap（含 wpcap）等；不得因宿主驱动不能加载而引入新的依赖。既有依赖不因此被批量删除。
+- 流量复用 KSword 自有采集与归档。宿主不具备驱动加载条件时，在用户指定的 `E:\VMs\` 下 Win10 虚拟机验收，允许回滚快照；不更改宿主启动安全策略。
+- ActionAnalyze 全程使用 `stop-that-shit`，主协调负责产品核心，构建、测试、实测及其落盘记录交给 subagent 或 CodeBuddy。缩减约 70% 的非必要门禁，不重复已过场景，不扩成长时间泛化验收。
+- CLI 达到可用门槛前，不进行 Qt／Win32 GUI 桌面实测；必要构建允许，Qt 构建按需合并。每完成一个逻辑功能即按自有明确路径提交，不要求提交前先构建。UI 开发使用 `design-taste-frontend` 并遵守本文件共享组件规则。
+- 阶段汇报使用【第x项】前缀，约半小时一次；待办不称阻塞，旧窄场景不能证明新提交或整体完成。完整 11 项目标未闭合前持续推进，遇到单项障碍转做其它可推进项。
+- 最新约束与接续记录见 [.claude/memory/ksword-action-analyze-current-contract.md](.claude/memory/ksword-action-analyze-current-contract.md)。
+
 ## 构建优先级
 
 所有项目构建以 `BelowNormal`（低于正常）优先级启动，编译、链接等子进程沿用低优先级，避免影响用户前台操作。主程序继续使用 `tools/Invoke-KSwordBuildCheck.ps1`；直接构建驱动或其它子项目时，也必须先降低构建宿主优先级。
