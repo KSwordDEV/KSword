@@ -822,7 +822,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     else
     {
         run = project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw,
-            project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, transferControl, networkTraffic},
+            project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, networkTraffic, transferControl},
             *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
     transferReader.Stop();

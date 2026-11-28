@@ -351,7 +351,7 @@ LaunchedApiReceipt CaptureLaunchedApi(ProjectDocument& document, const LaunchedA
         out.api = CaptureCooperativeApi(document,
             {out.launch->pid, out.launch->creationFileTime, request.durationMs, request.title, request.revisionId,
                 request.captureAgentEtw, ApiCaptureMode::ExplicitAttachment, {}, request.autoTransfer,
-                request.transferControl, request.networkTraffic}, cancel,
+                request.networkTraffic, request.transferControl}, cancel,
             [&](std::uint64_t session, std::uint64_t revision) {
                 if (!bootstrap.ResumeMain(session, revision, startup, cancel))
                 {
