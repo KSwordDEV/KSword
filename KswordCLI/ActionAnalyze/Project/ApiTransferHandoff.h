@@ -1,5 +1,6 @@
 #pragma once
 #include "ProjectNativeExecution.h"
+#include "ApiTransferControl.h"
 #include "../../../shared/ApiTransferHandoffProtocol.h"
 #include "../../../shared/ApiMonitorCapture.h"
 #include <atomic>
@@ -16,7 +17,8 @@ public:
     using TargetDiscovered = std::function<void(DWORD, std::uint64_t)>;
     ApiTransferHandoff(ProjectDocument& project, std::string sampleId, DWORD sourcePid,
         std::uint64_t sourceCreation, const std::atomic_bool& cancel,
-        const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget = {});
+        const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget = {},
+        std::shared_ptr<ApiTransferControl> control = {});
     ~ApiTransferHandoff();
     bool Start();
     void Poll();

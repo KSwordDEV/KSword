@@ -302,6 +302,7 @@
     <ClInclude Include="ActionAnalyze\Project\ProjectApiClueArchive.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\CooperativeApiCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ApiTransferHandoff.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
+    <ClInclude Include="ActionAnalyze\Project\ApiTransferControl.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\ApiTransferAgentCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="..\shared\ApiTransferHandoffProtocol.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>
     <ClInclude Include="ActionAnalyze\Project\AttachedApiCapture.h"><Filter>头文件\ActionAnalyze CLI</Filter></ClInclude>

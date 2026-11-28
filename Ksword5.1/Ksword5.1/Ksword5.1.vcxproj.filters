@@ -3081,6 +3081,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferControl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\ApiTransferHandoffProtocol.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h"><Filter>Header Files</Filter></ClInclude>

@@ -414,6 +414,7 @@
     <ClInclude Include="ActionAnalyze\Project\ProjectApiClueArchive.h" />
     <ClInclude Include="ActionAnalyze\Project\CooperativeApiCapture.h" />
     <ClInclude Include="ActionAnalyze\Project\ApiTransferHandoff.h" />
+    <ClInclude Include="ActionAnalyze\Project\ApiTransferControl.h" />
     <ClInclude Include="ActionAnalyze\Project\ApiTransferAgentCapture.h" />
     <ClInclude Include="..\shared\ApiTransferHandoffProtocol.h" />
     <ClInclude Include="ActionAnalyze\Project\AttachedApiCapture.h" />

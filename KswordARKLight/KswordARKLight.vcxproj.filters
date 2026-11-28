@@ -770,6 +770,7 @@
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
+    <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferControl.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\shared\ApiTransferHandoffProtocol.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>
     <ClInclude Include="..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h"><Filter>Features\ActionAnalyze</Filter></ClInclude>

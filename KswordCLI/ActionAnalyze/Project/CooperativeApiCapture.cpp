@@ -561,7 +561,7 @@ CooperativeApiReceipt CaptureCooperativeApi(ProjectDocument& document, const Coo
                     // 保留已归档来源及原生接管；追加失败只进入ETW独立的部分结果。
                     out.etw->setup = Failure(ProjectError::InvalidArgument, "appendCooperativeEtwTarget");
                 }
-            });
+            }, target.transferControl);
         activeHandoff = &*handoff;
         if (!target.boundSampleId.empty() || !handoff->Start())
         {

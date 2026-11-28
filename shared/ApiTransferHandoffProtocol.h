@@ -3,7 +3,8 @@
 
 namespace ks::winapi_monitor {
 // 独立于原观察包ABI。调度请求在原API前交接；新执行区域在成功分配/改保护后、返回调用者前交接。
-inline constexpr DWORD kTransferHandoffVersion = 2; // operationId区分同入口的不同内存API调用及Pending重连。
+inline constexpr DWORD kTransferHandoffVersion = 3; // v3增加已认证暂停Pending，结构及原观察包ABI不变。
+inline constexpr DWORD kTransferHandoffPaused = ERROR_IO_INCOMPLETE; // 非成功ACK；仅延长用户暂停期间的客户端预算。
 enum class TransferHandoffKind : DWORD {
     ThreadCreate = 1, Apc = 2, Context = 3, ExecutableRegion = 4,
     ExecutableWritePrepare = 5, // 写前请求范围设防，不代表原写入成功或实际完成长度。
@@ -42,7 +43,7 @@ inline bool requestTransferHandoff(const InjectionEndpoint& endpoint, TransferHa
     if (!sameHost) { SetLastError(ERROR_INVALID_HANDLE); return false; }
     wcscpy_s(request.token, endpoint.token.c_str());
     request.sourceCreation = transferProcessCreation(GetCurrentProcess());
-    const auto deadline = GetTickCount64() + 15000;
+    auto deadline = GetTickCount64() + 15000; // 普通Pending仍受原15秒预算限制。
     // Pending仅释放单客户端连接，Hook继续等待最终ACK；让后台安装期间的其它交接也能被主worker服务。
     while (GetTickCount64() < deadline) {
         HANDLE pipe = CreateFileW(endpoint.pipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
@@ -70,6 +71,13 @@ inline bool requestTransferHandoff(const InjectionEndpoint& endpoint, TransferHa
         CloseHandle(pipe);
         if (ok && (response.size != sizeof(response) || response.version != kTransferHandoffVersion || response.reserved)) {
             ok = false; error = ERROR_INVALID_DATA;
+        }
+        if (ok && response.error == kTransferHandoffPaused) {
+            // 已核对宿主进程/管道且结构匹配的暂停回包才延长；不将暂停解释为成功接管。
+            // 控制器死亡/断连仍由下一轮CreateFile和IO失败即时结束，不无限等待普通Pending。
+            deadline = GetTickCount64() + 15000;
+            Sleep(5);
+            continue;
         }
         if (ok && response.error == ERROR_IO_PENDING) { Sleep(5); continue; }
         if (ok && response.error) { ok = false; error = response.error; }

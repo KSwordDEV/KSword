@@ -3,10 +3,12 @@
 #include "ProjectRawEvidence.h"
 #include "ProjectDocument.h"
 #include "NetworkTrafficCapture.h"
+#include "ApiTransferControl.h"
 #include "../Rules/BehaviorPresets.h"
 #include "../Detection/ApiTransferChain.h"
 #include "../../../shared/ApiMonitorCapture.h"
 #include "../../../shared/usermode/backend/monitor/PassiveEtwSource.h"
+#include <memory>
 
 namespace Ksword::ActionAnalyze {
 
@@ -24,6 +26,7 @@ struct CooperativeApiRequest {
     ApiCaptureMode mode = ApiCaptureMode::CooperativeResident; // 默认保持合作准入；显式附加由调用端确认授权。
     std::string_view boundSampleId = {}; // 非空时借用原项目写租约与冻结采样；只允许首次写入空的 API 流。
     bool autoTransfer = false; // 采集时冻结调用前自动解析及接管私有执行目标的策略。
+    std::shared_ptr<ApiTransferControl> transferControl; // 本轮共享暂停请求；空值保持原自动追踪。
     std::optional<NetworkTrafficBackend> networkTraffic; // 有值时由同一writer采集根来源网络；空值不启动抓包。
 };
 

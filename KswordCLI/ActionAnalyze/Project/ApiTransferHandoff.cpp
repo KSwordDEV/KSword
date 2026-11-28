@@ -7,6 +7,7 @@
 #include <map>
 #include <new>
 #include <deque>
+#include <set>
 
 namespace Ksword::ActionAnalyze {
 namespace {
@@ -148,11 +149,18 @@ public:
     };
     std::deque<Transfer> transfers; // 处理中请求与终态短窗口；Hook重连不会重复建owner。
     bool callbackFailed = false;
+    std::shared_ptr<ApiTransferControl> control; // 本轮最后意图对象，原worker独占原生应用。
+    ApiTransferControl::Intent intent; // 当前worker已读请求，与实际Held分别报告。
+    std::uint64_t appliedControlRevision = 0; // 全体成员达到请求状态后才推进。
+    ULONGLONG controlTick = GetTickCount64(); // 暂停区间不计入交接准入预算。
+    std::set<std::string> retainedOwners; // 用户暂停保留的原owner，内部Continue不得释放。
 
     Impl(ProjectDocument& p, std::string s, DWORD pid, std::uint64_t creation, const std::atomic_bool& c,
-        const std::wstring& path, SourcePacket packets, TargetDiscovered targets)
+        const std::wstring& path, SourcePacket packets, TargetDiscovered targets,
+        std::shared_ptr<ApiTransferControl> requestedControl)
         : project(p), sample(std::move(s)), sourcePid(pid), sourceCreation(creation), cancel(c),
-          agentPath(path), onPacket(std::move(packets)), onTarget(std::move(targets)) {}
+          agentPath(path), onPacket(std::move(packets)), onTarget(std::move(targets)),
+          control(std::move(requestedControl)) {}
     ~Impl() { ClosePipe(); if (io.hEvent) CloseHandle(io.hEvent); }
 
     void PipeFailure(DWORD error)
@@ -253,7 +261,7 @@ public:
     {
         // 输入已接收请求；先核验来源和目标对象，再查询入口所在MEM_PRIVATE范围。
         ULONG client = 0;
-        if (request.size != sizeof(request) || request.version != m::kTransferHandoffVersion ||
+        if (request.size != sizeof(request) || (request.version != m::kTransferHandoffVersion && request.version != 2) ||
             request.kind < 1 || request.kind > static_cast<DWORD>(m::TransferHandoffKind::ThreadResume) ||
             !std::wmemchr(request.token, 0, std::size(request.token)) ||
             request.token != endpoint.token || !GetNamedPipeClientProcessId(pipe, &client) ||
@@ -298,7 +306,9 @@ public:
                 t.request.operationId == request.operationId;
         });
         if (existing != transfers.end()) {
-            if (existing->stage != Admission::Done) return ERROR_IO_PENDING;
+            if (intent.paused && request.version >= 3) return m::kTransferHandoffPaused;
+            if (existing->stage != Admission::Done)
+                return intent.paused && request.version >= 3 ? m::kTransferHandoffPaused : ERROR_IO_PENDING;
             if (existing->error) return existing->error;
             // ACK重试仍核对当前原owner/范围和已认证Agent；旧成功不跨清退或范围失效复用。
             current = group.QueryWithoutCondition();
@@ -363,7 +373,55 @@ public:
         transfer.target = std::move(target);
         transfers.push_back(std::move(transfer));
         if (onTarget) onTarget(request.targetPid, request.targetCreation);
-        return ERROR_IO_PENDING;
+        return intent.paused && request.version >= 3 ? m::kTransferHandoffPaused : ERROR_IO_PENDING;
+    }
+    // 原worker每轮读取最后意图；暂停仍归档和排空，仅停止准入推进和自动放行。
+    void ApplyControl()
+    {
+        if (cancel.load() || closing) return; // 已请求停止时不再提交用户Pause/Continue，统一由Close结账。
+        const auto now = GetTickCount64(); // 按上轮真实暂停区间扣除预算，不依赖CLI采样频率。
+        if (intent.paused) {
+            for (auto& transfer : transfers) {
+                if (transfer.stage != Admission::Done) transfer.started += now - controlTick;
+            }
+        }
+        controlTick = now;
+        if (control) intent = control->Read();
+        if (current.collectionId.empty()) {
+            appliedControlRevision = intent.revision;
+            return;
+        }
+        current = group.QueryWithoutCondition();
+        // 每个成员分别操作，失败成员不能阻止其它可暂停成员进入真实Held。
+        std::vector<n::OwnerIdentity> owners; // Query/操作会替换current，先冻结身份避免失效引用。
+        for (const auto& member : current.members) owners.push_back(member.owner);
+        bool complete = true; // 只有所有仍活跃成员满足意图才确认应用修订。
+        for (const auto& owner : owners) {
+            const auto found = std::find_if(current.members.begin(), current.members.end(), [&](const auto& member) {
+                return member.owner.backendInstanceId == owner.backendInstanceId;
+            });
+            if (found == current.members.end() || found->control.clean) {
+                retainedOwners.erase(owner.backendInstanceId);
+                continue;
+            }
+            const n::ExecutionGroupSessionEntry entry{found->owner, found->control}; // 当前原owner冻结控制票据。
+            if (intent.paused) {
+                retainedOwners.insert(owner.backendInstanceId);
+                if (found->control.status == n::NativeControlStatus::Held) continue;
+                complete = false;
+                if (n::CanPauseDataWatchSession(found->control))
+                    current = group.Pause(std::span(&entry, 1), false);
+            } else if (retainedOwners.contains(owner.backendInstanceId)) {
+                if (n::CanPauseDataWatchSession(found->control)) {
+                    retainedOwners.erase(owner.backendInstanceId);
+                } else {
+                    complete = false;
+                    if (n::OwnedExecutionGroup::CanContinueMember(*found))
+                        current = group.Continue(std::span(&entry, 1), false);
+                }
+            }
+        }
+        if (complete) appliedControlRevision = intent.revision;
     }
     void Finish(Transfer& transfer, DWORD error)
     {
@@ -530,6 +588,7 @@ public:
         const auto& r = transfer.request;
         if (cancel.load() || closing) { Finish(transfer, ERROR_OPERATION_ABORTED); return; }
         if (!SourceAuthenticated(transfer.source, r.sourceCreation)) { Finish(transfer, ERROR_ACCESS_DENIED); return; }
+        if (intent.paused || !retainedOwners.empty()) return; // 用户保留尚未归还前不启动下一准入。
         if (GetTickCount64() - transfer.started >= 12000) { Finish(transfer, ERROR_TIMEOUT); return; }
         if (!SourceReady(transfer.source, r.sourceCreation)) return;
         if (WaitForSingleObject(transfer.target.get(), 0) != WAIT_TIMEOUT ||
@@ -784,7 +843,7 @@ public:
     {
         // 超时/拒绝不能遗留本请求引入的手动暂停；真实执行停点仍由归档及Ready策略持有。
         for (auto& transfer : transfers) {
-            if (cancel.load() || closing) return; // 取消后的暂停责任统一交Close恢复，不再继续业务。
+            if (cancel.load() || closing || intent.paused || !retainedOwners.empty()) return; // 用户保留与取消均不自动继续。
             if (!transfer.ownPause || transfer.stage == Admission::Paused || transfer.stage == Admission::Rearming) continue;
             current = group.QueryWithoutCondition();
             const auto* member = Member(transfer.request);
@@ -817,7 +876,7 @@ public:
     {
         // 输入原集合最新停点，按同一原事件去重写raw-native；失败保留现场与首错。
         if (current.collectionId.empty()) return;
-        current = group.Query();
+        current = group.QueryWithoutCondition(); // 条件自动Continue不能绕过本轮用户暂停保留。
         for (const auto& member : current.members) {
             const auto execution = n::NativeExecutionFromOwnedStop(member.control);
             if (!execution || observed.contains(member.owner.backendInstanceId) &&
@@ -859,7 +918,7 @@ public:
                     {"sha256", V::makeString(receipt.sha256)}});
             }
         }
-        if (closing || cancel.load())
+        if (closing || cancel.load() || intent.paused || !retainedOwners.empty())
         {
             // 取消可能早于Close到达；只保存已持有事件，随后由Close恢复/脱离，不再开页或置TF。
             return;
@@ -933,6 +992,7 @@ public:
     {
         // 每次只处理一个已完成阶段；未完成返回原采集循环，不阻塞GUI。
         DrainSources();
+        ApplyControl();
         AdvanceTransfers();
         RestoreRequestPauses();
         Observe();
@@ -962,6 +1022,7 @@ public:
         if (phase == Phase::Connect) { request = {}; Begin(Phase::Read); }
         else if (phase == Phase::Read) {
             response = {};
+            response.version = request.version == 2 ? 2 : m::kTransferHandoffVersion; // 新服务兼容旧客户端回包版本。
             ++requests;
             try
             {
@@ -975,7 +1036,10 @@ public:
             {
                 response.error = ERROR_GEN_FAILURE;
             }
-            if (response.error && response.error != ERROR_IO_PENDING) { lastError = response.error; ++rejected; }
+            if (response.error && response.error != ERROR_IO_PENDING && response.error != m::kTransferHandoffPaused) {
+                lastError = response.error;
+                ++rejected;
+            }
             Begin(Phase::Reply);
         } else {
             if (bytes != sizeof(response)) PipeFailure(ERROR_INVALID_DATA);
@@ -986,9 +1050,10 @@ public:
 
 ApiTransferHandoff::ApiTransferHandoff(ProjectDocument& project, std::string sampleId,
     DWORD pid, std::uint64_t creation, const std::atomic_bool& cancel,
-    const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget)
+    const std::wstring& agentPath, SourcePacket onPacket, TargetDiscovered onTarget,
+    std::shared_ptr<ApiTransferControl> control)
     : impl_(std::make_unique<Impl>(project, std::move(sampleId), pid, creation, cancel, agentPath,
-        std::move(onPacket), std::move(onTarget))) {}
+        std::move(onPacket), std::move(onTarget), std::move(control))) {}
 ApiTransferHandoff::~ApiTransferHandoff() { Close(); }
 bool ApiTransferHandoff::Start() { return impl_->Start(); }
 void ApiTransferHandoff::Poll() { impl_->Poll(); }
@@ -1188,6 +1253,12 @@ Evidence::JsonValue ApiTransferHandoff::Describe() const
             {"nativeRecoveryFailureError", V::makeUInt(recovery ? recovery->win32Error : 0)}}));
     }
     return V::makeObject({{"kind", V::makeString("api-transfer-handoff-v1")}, {"enabled", V::makeBool(s.started)},
+        {"controlRevision", V::makeString(std::to_string(s.intent.revision))},
+        {"appliedControlRevision", V::makeString(std::to_string(s.appliedControlRevision))},
+        {"pauseRequested", V::makeBool(s.intent.paused)},
+        {"heldMembers", V::makeUInt(std::count_if(s.current.members.begin(), s.current.members.end(), [](const auto& member) {
+            return !member.control.clean && member.control.status == n::NativeControlStatus::Held;
+        }))},
         {"sourcePid", V::makeUInt(s.sourcePid)}, {"sourceCreationFileTime", V::makeString(std::to_string(s.sourceCreation))},
         {"requests", V::makeUInt(s.requests)}, {"armed", V::makeUInt(s.armed)}, {"rejected", V::makeUInt(s.rejected)},
         {"savedExecutionStops", V::makeUInt(s.saved)}, {"setupError", V::makeUInt(s.setupError)},

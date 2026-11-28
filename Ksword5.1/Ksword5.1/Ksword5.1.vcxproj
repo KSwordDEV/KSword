@@ -1194,6 +1194,7 @@
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ProjectApiClueArchive.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\CooperativeApiCapture.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferHandoff.h" />
+    <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferControl.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\ApiTransferAgentCapture.h" />
     <ClInclude Include="..\..\shared\ApiTransferHandoffProtocol.h" />
     <ClInclude Include="..\..\KswordCLI\ActionAnalyze\Project\AttachedApiCapture.h" />
