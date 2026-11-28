@@ -202,6 +202,30 @@
   },
   "behaviorRules": [
     {
+      "ruleId": "ksword.behavior.win32-debugger-present.v1",
+      "predicate": "(api.name == \"IsDebuggerPresent\" || api.name == \"CheckRemoteDebuggerPresent\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && process.debuggerPresent == 1u64",
+      "summary": "The debugger query reports a debugger attached to the queried process.",
+      "summaryZh": "调试器状态查询返回：所查询进程有调试器附加"
+    },
+    {
+      "ruleId": "ksword.behavior.win32-debugger-absent.v1",
+      "predicate": "(api.name == \"IsDebuggerPresent\" || api.name == \"CheckRemoteDebuggerPresent\") && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && process.debuggerPresent == 0u64",
+      "summary": "The debugger query reports no debugger attached to the queried process.",
+      "summaryZh": "调试器状态查询返回：所查询进程无调试器附加"
+    },
+    {
+      "ruleId": "ksword.behavior.win32-debugger-output-not-collected.v1",
+      "predicate": "api.name == \"CheckRemoteDebuggerPresent\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.succeeded && !isKnown(process.debuggerPresent)",
+      "summary": "CheckRemoteDebuggerPresent succeeded; its debugger-state output was not captured.",
+      "summaryZh": "CheckRemoteDebuggerPresent 调用成功；未采集到调试器状态输出"
+    },
+    {
+      "ruleId": "ksword.behavior.win32-debugger-query-failed.v1",
+      "predicate": "api.name == \"CheckRemoteDebuggerPresent\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && !result.succeeded",
+      "summary": "CheckRemoteDebuggerPresent failed; debugger presence remains unknown.",
+      "summaryZh": "CheckRemoteDebuggerPresent 调用失败；调试器状态未知"
+    },
+    {
       "ruleId": "ksword.behavior.process-debug-output-not-collected.v1",
       "predicate": "api.name == \"NtQueryInformationProcess\" && evidence.format == \"api-typed-return-v1\" && evidence.phase == \"return\" && result.statusDomain == \"ntstatus\" && result.succeeded && process.debugQueryOutputValid == 0u64 && (process.informationClass == 7u64 || process.informationClass == 30u64 || process.informationClass == 31u64)",
       "summary": "The debug-query output scalar was not captured. Its class-specific type width is recorded; no zero or nonzero output is inferred.",

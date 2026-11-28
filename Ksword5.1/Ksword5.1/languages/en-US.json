@@ -8183,6 +8183,10 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "调试器状态查询返回：所查询进程有调试器附加": "The debugger query reports a debugger attached to the queried process.",
+    "调试器状态查询返回：所查询进程无调试器附加": "The debugger query reports no debugger attached to the queried process.",
+    "CheckRemoteDebuggerPresent 调用成功；未采集到调试器状态输出": "CheckRemoteDebuggerPresent succeeded; its debugger-state output was not captured.",
+    "CheckRemoteDebuggerPresent 调用失败；调试器状态未知": "CheckRemoteDebuggerPresent failed; debugger presence remains unknown.",
     "已有范围已重设 NX": "Existing range re-armed NX",
     "请求操作序号": "Request operation ID",
     "接管时机": "Handoff phase",

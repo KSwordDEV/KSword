@@ -57,6 +57,8 @@ constexpr FieldBinding Catalog[] = {
     {"process.debugQueryOutputValid", FieldType::U64, Phase::Observation}, // 新版摘要的安全输出标量有效位，0不是输出数值。
     {"process.debugQueryOutputBits", FieldType::U64, Phase::Observation}, // 输出标量原生类型位数，指针类随调用端ABI位数。
     {"process.debugQueryOutput", FieldType::U64, Phase::Observation}, // 仅安全读取成功时存在，零值也是真实采样。
+    {"process.debuggerPresent", FieldType::U64, Phase::Observation}, // Win32调试查询的规范0/1，不是API成功标记。
+    {"process.debuggerOutputValid", FieldType::U64, Phase::Observation}, // CheckRemoteDebuggerPresent输出安全读取有效位。
     {"process.application", FieldType::Text, Phase::Observation},
     {"process.applicationBaseLower", FieldType::Text, Phase::Observation},
     {"process.commandLine", FieldType::Text, Phase::Observation},
@@ -162,6 +164,12 @@ std::string_view ApiPresetFieldSource(std::string_view id) noexcept
     }
     if (id == "process.informationClass") {
         return "Strict NtQueryInformationProcess process/class/size formatter layout; input information class; appended debug output is separately marked; NTSTATUS is separate.";
+    }
+    if (id == "process.debuggerPresent") {
+        return "Normalized 0/1 from IsDebuggerPresent Strong return, or successful CheckRemoteDebuggerPresent with outputValid=1 and safely read PBOOL; zero means the query reports no debugger; target identity and intent are not inferred.";
+    }
+    if (id == "process.debuggerOutputValid") {
+        return "CheckRemoteDebuggerPresent explicit outputValid marker; 0 means the output was not captured, including failure; 1 accompanies a successful safely read PBOOL; missing remains NotCollected.";
     }
     if (id == "process.debugQueryOutputValid") {
         return "Appended NtQueryInformationProcess output marker for classes 7/30/31; 1 means a successful, sufficiently sized, safely read scalar follows; 0 means no scalar was captured; legacy summaries omit this field.";

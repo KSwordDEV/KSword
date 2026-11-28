@@ -8183,6 +8183,10 @@
     "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
+    "调试器状态查询返回：所查询进程有调试器附加": "调试器状态查询返回：所查询进程有调试器附加",
+    "调试器状态查询返回：所查询进程无调试器附加": "调试器状态查询返回：所查询进程无调试器附加",
+    "CheckRemoteDebuggerPresent 调用成功；未采集到调试器状态输出": "CheckRemoteDebuggerPresent 调用成功；未采集到调试器状态输出",
+    "CheckRemoteDebuggerPresent 调用失败；调试器状态未知": "CheckRemoteDebuggerPresent 调用失败；调试器状态未知",
     "已有范围已重设 NX": "已有范围已重设 NX",
     "请求操作序号": "请求操作序号",
     "接管时机": "接管时机",

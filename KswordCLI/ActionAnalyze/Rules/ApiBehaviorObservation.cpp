@@ -290,6 +290,18 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
         const auto low = static_cast<std::uint32_t>(packet.hookAddress); // NTSTATUS 只解释低 32 位。
         result.succeeded = (low & 0x80000000u) == 0;
         result.statusDomain = "ntstatus";
+    } else if (api == L"IsDebuggerPresent") {
+        // 此查询返回的是是否存在调试器；FALSE不是调用失败，Strong Hook保存规范0/1。
+        if (packet.hookAddress > 1) {
+            return std::nullopt;
+        }
+        result.succeeded = true;
+    } else if (api == L"CheckRemoteDebuggerPresent") {
+        // 此接口的BOOL才表示调用成功；实际查询输出由独立有效位控制。
+        if (packet.hookAddress > UINT32_MAX) {
+            return std::nullopt;
+        }
+        result.succeeded = packet.hookAddress != 0;
     } else if (api == L"ResumeThread") {
         // DWORD为旧挂起计数，0表示调用成功；只有0xffffffff是失败返回，不按BOOL解释。
         if (packet.hookAddress > UINT32_MAX) {
@@ -331,6 +343,11 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
     if (api == L"ResumeThread" && result.succeeded) {
         // 该值来自显式返回槽而非detail；直接NT入口的可选输出没有独立有效位，不猜计数。
         result.parameters.push_back({"thread.previousSuspendCount", result.returnBits});
+    }
+    if (api == L"IsDebuggerPresent") {
+        // 返回槽本身就是该查询的输出，直接发布可信零/一，不依赖摘要或读端系统状态。
+        result.parameters.push_back({"process.debuggerPresent", result.returnBits});
+        return result;
     }
     // 文本布局独立校验：无尾界、满缓冲及可识别的截断/不可读标记不作为参数来源。
     auto detail = Evidence::ApiMonitorPacketText(packet.detailText); // 完整包内的 NUL 终止视图。
@@ -391,6 +408,29 @@ std::optional<ApiBehaviorObservation> ReadApiBehaviorObservation(
     } else if (api == L"NtQuerySystemInformation") {
         decoded = Layout(result, detail, ansi, {{L"class=", E::Decimal, "system.informationClass"},
             {L" length=", E::Decimal}, {L" return=", E::Decimal}});
+    } else if (api == L"CheckRemoteDebuggerPresent") {
+        // 最长合法数值摘要小于生产64字符下限，避免截尾数字变成另一合法结果。
+        ApiBehaviorObservation output = result; // 仅完整格式和有效位通过后提交查询输出。
+        const bool captured = detail.size() < 64 && Layout(output, detail, ansi, {
+            {L"process=", E::Hex},
+            {L" outputValid=", E::Decimal, "process.debuggerOutputValid"},
+            {L" debuggerPresent=", E::Decimal, "process.debuggerPresent"}});
+        if (captured && output.succeeded &&
+            std::get<std::uint64_t>(output.parameters[0].value) == 1 &&
+            std::get<std::uint64_t>(output.parameters[1].value) <= 1) {
+            result.parameters = std::move(output.parameters);
+            decoded = true;
+        } else {
+            // 调用失败或成功后未安全读到输出只保留显式0；缺失不补成无调试器。
+            output = result;
+            if (detail.size() < 64 && Layout(output, detail, ansi, {
+                    {L"process=", E::Hex},
+                    {L" outputValid=", E::Decimal, "process.debuggerOutputValid"}}) &&
+                std::get<std::uint64_t>(output.parameters[0].value) == 0) {
+                result.parameters = std::move(output.parameters);
+                decoded = true;
+            }
+        }
     } else if (api == L"NtQueryInformationProcess") {
         // 旧摘要仍按原三字段读取；追加字段只接受三种已知调试查询的精确可选格式。
         const auto base = std::initializer_list<Part>{{L"process=", E::Hex},

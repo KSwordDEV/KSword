@@ -40,7 +40,9 @@ CLI、Qt 和 Light 的项目及独立归档 API 回放共用生产字段投影�
 
 `NtQueryInformationProcess` 独立归类为 `process-query`，由同一 `ReadApiPresetEvidence()` 发布真实 NTSTATUS 返回观察；32位返回位和原包状态必须一致，按 `NT_SUCCESS` 解释。`process.informationClass` 只来自完整 `process/class/size` 数值布局中的请求信息类；旧摘要继续兼容，末尾 size 可能是输出长度或输入容量，不发布为结果。新版 Hook 只对 ProcessDebugPort（7）、ProcessDebugObjectHandle（30）、ProcessDebugFlags（31）在成功且长度充足时安全读取标量，并追加 `outputValid`、`outputBits` 和有效时的 `output`；7/30 使用调用端 ABI 指针宽度，31 是 32 位 ULONG。有效零值与非零值分别保留；未读到输出时保留显式有效位 0，不补造数值，旧摘要及其它信息类也不回填字段。ProcessDebugFlags 的零值表示 NoDebugInherit 位未置位，即没有禁用调试继承；它不是 NTSTATUS 失败值。双语规则只描述本次返回标量及位语义，不从单次查询推断调试器存在、调用方结论、目标身份或恶意意图。
 
-现有生产声明、Hook 与 formatter 没有 `IsDebuggerPresent`／`CheckRemoteDebuggerPresent` 强类型采集，不能为它们创建可触发谓词或伪字段。若后续增加 `IsDebuggerPresent` 的可信返回，FALSE 应解释为查询成功且调试器不存在，不能复用普通 BOOL 的失败约定；本次不增加 Hook 或修改协议。
+`IsDebuggerPresent`／`CheckRemoteDebuggerPresent` 的 Strong Hook 独立归类为 `process-query`。`IsDebuggerPresent` 的返回槽是规范 0/1 查询结果，`result.succeeded` 恒为 true，状态码必须为零；FALSE 表示本次查询报告无调试器。读侧直接从显式返回槽发布 u64 字段 `process.debuggerPresent`，不把它当成失败，也不依赖摘要恢复结果。
+
+`CheckRemoteDebuggerPresent` 的 BOOL 返回表示调用是否成功；其 detail 为 `process=0x... outputValid=0`，或成功安全读取 PBOOL 后的 `process=0x... outputValid=1 debuggerPresent=0/1`。`process.debuggerOutputValid` 保留独立的 0/1 有效位，只有成功且有效位为 1 才发布 `process.debuggerPresent`；失败、输出不可读、缺失或无效布局不能产生“无调试器”结论。数字布局必须短于生产摘要下限 64 字符。正式双语预置分别描述存在、不存在、成功但未采到输出与调用失败，Qt／Win32／CLI 复用同一投影和规则，不据请求句柄补造目标强身份。这批源码须由真实 Hook 及正式规则聚焦验收确认，不借旧 NtQueryInformationProcess 样本作通过结论。
 
 原通用包的文本没有独立完整性位。本读侧仅接受具名字段完整布局，文本必须有已核验后继字段，生成包装器还须有签名对应的完整 `arg1...argN` 十六进制尾部。满缓冲、无终止符、可见不可读标记、非法 UTF-16、控制字符、文本中的 `=` 等歧义分隔使参数不发布。ANSI formatter 未归档代码页，仅接受 ASCII；W 版用严格 UTF-16 转 UTF-8。配置缩短摘要导致缺尾时，返回事实仍可保留，缺参数的规则为 Unknown。没有把 NUL 结束等同于独立的完整性有效位，也未给末尾无分隔文本创建类型字段。这里的 Known 表示按已登记 formatter 语法解码成功，不是独立采集完整性认证：配置截断可能落在最终数字中；恶意输入若伪造后继布局且真正尾部又被剪掉，旧包无法与完整布局区分。除下述受生产摘要下限保护的 WriteFile 计数外，不发布最终尾数字作为业务字段，也不据此声称采集文本在对抗输入下完整可信；需要独立长度或完整性协议才能关闭该边界。
 
