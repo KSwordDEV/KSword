@@ -8,6 +8,7 @@
 - CLI 达到可用门槛前，不进行 Qt／Win32 GUI 桌面实测；必要构建允许，Qt 构建按需合并。每完成一个逻辑功能即按自有明确路径提交，不要求提交前先构建。UI 开发使用 `design-taste-frontend` 并遵守本文件共享组件规则。
 - 阶段汇报使用【第x项】前缀，约半小时一次；待办不称阻塞，旧窄场景不能证明新提交或整体完成。完整 11 项目标未闭合前持续推进，遇到单项障碍转做其它可推进项。
 - 最新约束与接续记录见 [.claude/memory/ksword-action-analyze-current-contract.md](.claude/memory/ksword-action-analyze-current-contract.md)。
+- 模型分工：后续测试、构建、实测及回执使用 `AICMP/gpt-6.1-terra`；产品代码开发使用 `gpt-6.1-sol`。派发时先查询实际模型标识，不以默认开发模型代替测试模型。
 
 ## 构建优先级
 
