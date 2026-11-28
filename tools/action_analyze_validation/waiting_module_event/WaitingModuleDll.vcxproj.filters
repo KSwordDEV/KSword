@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><Filter Include="Source"><UniqueIdentifier>{1B8DCA4B-CA0B-4262-A8D4-4F299DE9FC8C}</UniqueIdentifier></Filter></ItemGroup>
+  <ItemGroup><ClCompile Include="waiting_module_dll.c"><Filter>Source</Filter></ClCompile></ItemGroup>
+</Project>
