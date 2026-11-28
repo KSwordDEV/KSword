@@ -13,8 +13,13 @@
 #include "../../../Ksword5.1/Ksword5.1/ksword/string/string.h"
 
 #include <array>
+#include <charconv>
+#include <chrono>
+#include <condition_variable>
 #include <iterator>
 #include <iostream>
+#include <mutex>
+#include <thread>
 #include <wincrypt.h>
 
 #pragma comment(lib, "Crypt32.lib")
@@ -30,6 +35,140 @@ constexpr DWORD kInputBytes = 32u << 20; // 单次离线导入的输入配额。
 constexpr std::size_t kReadBytes = 64u << 10; // 顺序读的固定块大小。
 constexpr std::size_t kLineBytes = 8192; // 覆盖当前 1000 字节包及 JSON 转义字段。
 constexpr std::uint64_t kPageRows = 100; // 单份 CLI 回执最多包含的线索数。
+
+// 一轮命令仅有一个读者，不访问项目writer或原生owner；析构先停止并join再释放共享控制。
+class TransferControlReader final {
+public:
+    TransferControlReader(std::wstring path, std::shared_ptr<project::ApiTransferControl> control)
+        : path_(std::move(path)), control_(std::move(control))
+    {
+        if (!control_) return;
+        Poll(); // 初始文件在进入任何启动/附加路径之前发布。
+        worker_ = std::thread([this] {
+            std::unique_lock lock(mutex_);
+            while (!wake_.wait_for(lock, std::chrono::milliseconds(100), [this] { return stopped_; })) {
+                lock.unlock();
+                Poll();
+                lock.lock();
+            }
+        });
+    }
+
+    ~TransferControlReader() { Stop(); }
+
+    void Stop()
+    {
+        {
+            const std::lock_guard lock(mutex_);
+            stopped_ = true;
+        }
+        wake_.notify_one();
+        if (worker_.joinable()) worker_.join();
+    }
+
+    // 仅Stop/join后读取；这只是输入接纳诊断，实际暂停回执仍由transferHandoff提供。
+    Json Report() const
+    {
+        if (!control_) return {};
+        return Json::object({{L"path", Json::string(path_)},
+            {L"publishedRevision", publishedRevision_ ? Json::count(publishedRevision_) : Json{}},
+            {L"invalidChanges", Json::count(invalidChanges_)},
+            {L"lastError", lastError_.empty() ? Json{} : Json::string(lastError_)},
+            {L"lastWin32Error", lastWin32Error_ ? Json::number(lastWin32Error_) : Json{}}});
+    }
+
+    bool HasErrors() const { return invalidChanges_ != 0; }
+
+private:
+    void Reject(const wchar_t* reason, DWORD error = 0)
+    {
+        ++invalidChanges_;
+        lastError_ = reason;
+        lastWin32Error_ = error;
+    }
+
+    void Poll()
+    {
+        struct File {
+            HANDLE value;
+            ~File() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+        } file{CreateFileW(path_.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (file.value == INVALID_HANDLE_VALUE) {
+            const auto error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                lastReadError_ = 0;
+                return; // 缺文件不发布任何意图，也不撤销已接纳的暂停。
+            }
+            if (error != lastReadError_) Reject(L"transfer-control-open-failed", error);
+            lastReadError_ = error;
+            return;
+        }
+        std::array<char, 4097> bytes{}; // 控制文档有界，超限明确拒绝而不是截断后应用。
+        DWORD read = 0;
+        if (GetFileType(file.value) != FILE_TYPE_DISK) {
+            if (lastReadError_ != ERROR_INVALID_HANDLE) Reject(L"transfer-control-not-disk-file", ERROR_INVALID_HANDLE);
+            lastReadError_ = ERROR_INVALID_HANDLE;
+            return;
+        }
+        if (!ReadFile(file.value, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr)) {
+            const auto error = GetLastError();
+            if (error != lastReadError_) Reject(L"transfer-control-read-failed", error);
+            lastReadError_ = error;
+            return;
+        }
+        lastReadError_ = 0;
+        const std::string input(bytes.data(), read);
+        if (seenInput_ && input == lastInput_) return;
+        seenInput_ = true;
+        lastInput_ = input;
+        if (read > 4096) {
+            Reject(L"transfer-control-document-too-large");
+            return;
+        }
+        std::string_view json(input);
+        if (json.substr(0, 3) == "\xef\xbb\xbf") json.remove_prefix(3);
+        const auto parsed = evidence::ParseJson(json); // 复用严格UTF-8/重复键校验。
+        const auto* revision = parsed.ok() ? parsed.value.find("revision") : nullptr;
+        const auto* paused = parsed.ok() ? parsed.value.find("paused") : nullptr;
+        std::uint64_t value = 0;
+        bool pause = false;
+        std::string decimal;
+        bool validRevision = false;
+        if (revision && revision->tryGetString(decimal)) {
+            if (!decimal.empty() && decimal.find_first_not_of("0123456789") == std::string::npos) {
+                const auto converted = std::from_chars(decimal.data(), decimal.data() + decimal.size(), value);
+                validRevision = converted.ec == std::errc{} && converted.ptr == decimal.data() + decimal.size();
+            }
+        } else if (revision) {
+            validRevision = revision->tryGetU64(value);
+        }
+        if (!validRevision || !value || !paused || !paused->tryGetBool(pause)) {
+            Reject(L"transfer-control-invalid-json-revision-or-paused");
+            return;
+        }
+        // 同修订但更改状态也是非法新命令；未变化文档已在上方去重。
+        if (!control_->Publish(value, pause)) {
+            Reject(L"transfer-control-revision-not-increasing");
+            return;
+        }
+        publishedRevision_ = value;
+    }
+
+    std::wstring path_;
+    std::shared_ptr<project::ApiTransferControl> control_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    std::thread worker_;
+    bool stopped_ = false;
+    bool seenInput_ = false;
+    std::string lastInput_;
+    std::uint64_t publishedRevision_ = 0;
+    std::uint64_t invalidChanges_ = 0;
+    std::wstring lastError_;
+    DWORD lastWin32Error_ = 0;
+    DWORD lastReadError_ = 0;
+};
 
 // 输入共享JSON纯值和原文字摘要，返回CLI外壳JSON；先解码UTF-8，保留中文路径与诊断。
 Json CaptureReceiptJson(const evidence::JsonValue& value, const wchar_t* display = L"unavailable")
@@ -170,13 +309,15 @@ bool DecodeArchiveLine(std::string_view line, std::uint64_t expectedSequence, ev
 
 // 统一输出失败阶段、原始行号或存储错误。样本若已登记，始终将其 ID 随失败一起返回。
 Result Failure(int code, const wchar_t* status, std::uint64_t sequence = 0,
-    DWORD native = 0, const std::string& sample = {}, const char* detail = "", const Json& progress = {})
+    DWORD native = 0, const std::string& sample = {}, const char* detail = "", const Json& progress = {},
+    const Json& transferInput = {})
 {
     std::vector<std::pair<std::wstring, Json>> fields{{L"status", Json::string(status)},
         {L"sourceSequence", sequence ? Json::count(sequence) : Json{}},
         {L"win32Error", native ? Json::number(native) : Json{}},
         {L"sampleId", sample.empty() ? Json{} : Json::string({sample.begin(), sample.end()})},
         {L"detail", Json::string(std::wstring(detail, detail + std::char_traits<char>::length(detail)))}};
+    if (transferInput.text != L"null") fields.emplace_back(L"transferControlInput", transferInput);
     if (progress.text != L"null")
     {
         fields.emplace_back(L"captureProgress", progress); // 只对已订阅且已创建输出通道的调用附加交付事实。
@@ -574,6 +715,11 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         }
     }
 
+    const bool autoTransfer = args.has(L"--auto-transfer");
+    if (args.has(L"--transfer-control") && !autoTransfer) {
+        return Failure(1, L"transfer-control-requires-auto-transfer");
+    }
+    const auto transferPath = args.has(L"--transfer-control") ? args.require(L"--transfer-control") : std::wstring{};
     project::ProjectDocument document; // 本轮独占项目写入租约，避免同一采样混用修订。
     if (const auto opened = document.Open(args.require(L"--project"), project::ProjectAccess::ReadWrite); !opened) {
         return Failure(3, L"project-unavailable", 0, opened.nativeError, {}, opened.detail);
@@ -623,7 +769,9 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             progressOutput.Publish(value);
         };
     }
-    const bool autoTransfer = args.has(L"--auto-transfer"); // 本轮显式开启API调用前目标自动设防。
+    const auto transferControl = transferPath.empty() ? std::shared_ptr<project::ApiTransferControl>{} :
+        std::make_shared<project::ApiTransferControl>();
+    TransferControlReader transferReader(transferPath, transferControl);
     project::CooperativeApiReceipt run; // 三种准入最终共用同一归档、规则和退出状态投影。
     std::optional<project::LaunchedApiReceipt> launched; // 自有启动的入口交接责任独立于Agent采集。
     if (launch)
@@ -636,8 +784,10 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
                 progressOutput.Publish(project::LaunchedApiProgressJson(progress));
             };
         }
-        launched = project::CaptureLaunchedApi(document,
-            {args.require(L"--exe"), entryRva, duration, title, revision, autoTransfer, networkTraffic, captureEtw},
+        project::LaunchedApiRequest request{args.require(L"--exe"), entryRva, duration, title, revision,
+            autoTransfer, networkTraffic, captureEtw};
+        request.transferControl = transferControl;
+        launched = project::CaptureLaunchedApi(document, request,
             *cancel.token, {}, onCommitted, onTransfers, onStartup, onLaunch);
         if (launched->launch)
         {
@@ -651,6 +801,8 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
             std::vector<std::pair<std::wstring, Json>> failureFields{
                 {L"status", Json::string(L"launch-bootstrap-incomplete")},
                 {L"launch", CaptureReceiptJson(project::LaunchedApiProgressJson(*launched))}};
+            transferReader.Stop();
+            if (transferControl) failureFields.emplace_back(L"transferControlInput", transferReader.Report());
             const auto delivery = progressOutput.Finish(); // 恢复返回后排空；无订阅时不改变旧响应字段。
             if (!delivery.isNull())
             {
@@ -661,24 +813,28 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
     }
     else if (attached)
     {
-        run = project::CaptureAttachedApi(document,
-            {pid, creation, true, false, duration, title, revision, {}, autoTransfer, networkTraffic, captureEtw},
+        project::AttachedApiRequest request{pid, creation, true, false, duration, title, revision, {},
+            autoTransfer, networkTraffic, captureEtw};
+        request.transferControl = transferControl;
+        run = project::CaptureAttachedApi(document, request,
             *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
     else
     {
         run = project::CaptureCooperativeApi(document, {pid, creation, duration, title, revision, captureEtw,
-            project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, networkTraffic},
+            project::ApiCaptureMode::CooperativeResident, {}, autoTransfer, transferControl, networkTraffic},
             *cancel.token, {}, onCommitted, onTransfers, onStartup);
     }
+    transferReader.Stop();
     const auto progressDelivery = progressOutput.Finish(); // 原采集及恢复已返回后才有限排空旁路通知。
     const auto deliveryJson = progressDelivery.isNull() ? Json{} :
         CaptureReceiptJson(progressDelivery);
     if (!run.sampleStatus) {
-        return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail, deliveryJson);
+        return Failure(3, L"sample-create-failed", 0, run.sampleStatus.nativeError, {}, run.sampleStatus.detail,
+            deliveryJson, transferReader.Report());
     }
     if (!run.agentPathAvailable) {
-        return Failure(3, L"agent-path-unavailable", 0, 0, run.sample.sampleId, "", deliveryJson);
+        return Failure(3, L"agent-path-unavailable", 0, 0, run.sample.sampleId, "", deliveryJson, transferReader.Report());
     }
     const auto& sample = run.sample; // 成功登记的实际采样，而不是当前 UI 选择。
     const auto& captured = run.capture; // 从冻结目标的真实管道回执投影。
@@ -698,7 +854,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
 
     const auto* etw = run.etw ? &*run.etw : nullptr; // 仅请求时公开独立的 ETW 活采回执。
     const bool etwWriteFailed = etw && (!etw->archiveStatus || !etw->checkpointStatus); // 区分存储故障和来源缺口。
-    const bool incomplete = run.omittedClues || run.rules.failed || (etw && etw->Incomplete()) ||
+    const bool incomplete = transferReader.HasErrors() || run.omittedClues || run.rules.failed || (etw && etw->Incomplete()) ||
         (launched && (!launched->bootstrapClean || !launched->agentReadyBeforeMainResume ||
             !launched->initialMainSuspendReleased || launched->error)); // 启动交接不完整同样保留部分结果。
     const int captureCode = captured.code == 0 && incomplete ? 6 : captured.code; // 保留原 API 错误码。
@@ -758,6 +914,7 @@ Result CaptureEvidence(const Args& args, bool attached, bool launch = false)
         {L"apiContextTransfers", apiArchived ? CooperativeTransfersReport(candidates, 2) : Json{}},
         {L"errors", Json::strings(captured.errors)}
     };
+    if (transferControl) fields.emplace_back(L"transferControlInput", transferReader.Report());
     if (!progressDelivery.isNull())
     {
         fields.emplace_back(L"captureProgress", deliveryJson);
@@ -835,7 +992,7 @@ void RegisterApiMonitorEvidenceCommands()
 
     Command capture; // 合作目标的真实管道和项目归档入口。
     capture.path = L"analyze api-evidence capture";
-    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
+    capture.syntax = L"KswordCLI.exe analyze api-evidence capture --project PATH --title TITLE --pid PID --creation-filetime VALUE --confirm [--auto-transfer] [--transfer-control PATH] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
     capture.options = L"Requires an existing project, an explicitly selected cooperative target with the resident product Agent, "
                       L"and its private KSWORD_APIMON_COOPERATIVE_SESSION_V1 directory.";
     capture.summary = L"Collect WinAPI evidence from a cooperative target's resident Agent into a new project sample.";
@@ -849,18 +1006,20 @@ void RegisterApiMonitorEvidenceCommands()
                       L"--startup-progress 1 writes one JSON line per verified startup stage to stderr; stdout retains the final result. "
                       L"The final startup snapshot retains the last reached stage and its elapsedMs, including failed starts.";
     capture.run = [](const Args& args) { return CaptureEvidence(args, false); };
+    capture.notes += L" --transfer-control PATH requires --auto-transfer and reads UTF-8 JSON {\"revision\":1,\"paused\":true} about every 100 ms (4 KiB maximum). revision must be a nonzero increasing uint64 integer or decimal string; paused must be a JSON boolean. Missing files publish nothing; removal does not resume an accepted pause. Publish a higher revision with paused=false to resume. Invalid changes retain the previous intent, report transferControlInput errors and make an otherwise successful capture partial (6). Input publication is not native pause acknowledgement; inspect transferHandoff controlRevision/appliedControlRevision/pauseRequested/heldMembers.";
     capture.notes += L" --capture-progress 1 emits committed API checkpoints, rule explanations, candidate coordinates and live handoff/network/Agent-ETW snapshots to stderr as UTF-8 JSONL, without changing final stdout. Source snapshots are change-only at most every 500 ms, including silent API intervals. Progress uses a bounded non-blocking queue; droppedFrames and outputDrained report delivery separately from capture and recovery. Progress and final rules retain up to 32 recentBehaviors with original coordinates, behaviorMatches and behaviorWindowTruncated; the bounded window is not the complete archive.";
     addCommand(std::move(capture));
 
     Command launch; // 普通EXE自动创建、入口交接和附加，复用现有采集结果及回放入口。
     launch.path = L"analyze api-evidence launch";
-    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
+    launch.syntax = L"KswordCLI.exe analyze api-evidence launch --project PATH --title TITLE --exe PATH --confirm [--rva RVA] [--auto-transfer] [--transfer-control PATH] [--network-traffic raw-socket|existing-wfp] [--agent-etw 1] [--duration-ms MS] [--startup-progress 1] [--capture-progress 1] [--json]";
     launch.summary = L"Launch an AMD64 EXE suspended, hand its entry stop to the product Agent, then archive API calls.";
     launch.options = L"Select an existing project and a plain EXE. Optional nonzero --rva overrides PE AddressOfEntryPoint. No cooperative exports or manually supplied PID are required. Duration: 1,000-120,000 ms (default 3,000), or 0 until cancellation or exit.";
     launch.notes = L"The native owner arms entry DR0 before releasing the creation suspension. At the actual main-thread entry stop, the bootstrap takes one explicit main-thread suspension and detaches the debugger. It releases that suspension only after the real Agent Ready and coverage barrier. TLS and earlier loader execution remain outside this entry-based path. --auto-transfer enables automatic private-range discovery and recursive Agent handoff for the same sample. --network-traffic starts the selected existing packet source before Agent Ready releases the main thread. With --auto-transfer, admitted target instances join the same source before the handoff ACK and remain in scope after the root exits; packet attribution stays a PID hint, without HTTPS decryption. Startup failure terminates only this exact newly created process. --startup-progress 1 emits completed bootstrap and Agent stages to stderr. Replay uses analyze api-evidence replay; saved packet bytes use analyze network-read.";
     launch.notes += L" --agent-etw 1 starts the own Agent lifecycle provider before main-thread release and saves it in raw-etw; automatic handoff adds target header PIDs to that same source before ACK. Header PIDs remain hints.";
     launch.notes += L" --capture-progress 1 emits committed checkpoints, rule explanations, candidate coordinates and live handoff/network/Agent-ETW snapshots through the same bounded stderr queue. Source snapshots are change-only at most every 500 ms, including silent API intervals. Output loss does not block target recovery; final captureProgress reports delivery separately. Progress and final rules retain up to 32 recentBehaviors with original coordinates, behaviorMatches and behaviorWindowTruncated; the bounded window is not the complete archive.";
     launch.run = [](const Args& args) { return CaptureEvidence(args, true, true); };
+    launch.notes += L" --transfer-control PATH requires --auto-transfer. It reads UTF-8 JSON {\"revision\":1,\"paused\":true} about every 100 ms (4 KiB maximum); revision is a nonzero increasing uint64 integer or decimal string and paused is a boolean. Missing files publish nothing and do not resume an accepted pause. A higher revision with paused=false resumes. Invalid changes preserve prior intent, report transferControlInput errors and make an otherwise successful capture partial (6). Actual acknowledgements remain in transferHandoff controlRevision/appliedControlRevision/pauseRequested/heldMembers.";
     addCommand(std::move(launch));
 
     Command replay; // 只读重开相同采样，可按序号翻页并选读原包。

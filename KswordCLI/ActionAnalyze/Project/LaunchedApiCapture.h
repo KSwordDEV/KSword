@@ -17,6 +17,7 @@ struct LaunchedApiRequest {
     bool autoTransfer = false; // 同一采样的自动跨进程接管策略。
     std::optional<NetworkTrafficBackend> networkTraffic; // 入口Ready前启用原网络源，自动接管追加同采样目标。
     bool captureAgentEtw = false; // 入口Ready前启动自有ETW来源，后续目标沿同一来源追加。
+    std::shared_ptr<ApiTransferControl> transferControl; // 启动及后续接管共用本轮控制意图。
 };
 
 // 原生入口到Agent的事实快照；不包含句柄、owner或ProjectDocument。

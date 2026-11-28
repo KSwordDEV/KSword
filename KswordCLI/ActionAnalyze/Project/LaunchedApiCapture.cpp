@@ -350,7 +350,8 @@ LaunchedApiReceipt CaptureLaunchedApi(ProjectDocument& document, const LaunchedA
         std::optional<ks::winapi_monitor::CaptureStartupProgress> startup; // 保存控制器实际Ready阶段用于交接核验。
         out.api = CaptureCooperativeApi(document,
             {out.launch->pid, out.launch->creationFileTime, request.durationMs, request.title, request.revisionId,
-                request.captureAgentEtw, ApiCaptureMode::ExplicitAttachment, {}, request.autoTransfer, request.networkTraffic}, cancel,
+                request.captureAgentEtw, ApiCaptureMode::ExplicitAttachment, {}, request.autoTransfer,
+                request.transferControl, request.networkTraffic}, cancel,
             [&](std::uint64_t session, std::uint64_t revision) {
                 if (!bootstrap.ResumeMain(session, revision, startup, cancel))
                 {

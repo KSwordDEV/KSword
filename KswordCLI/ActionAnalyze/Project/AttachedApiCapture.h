@@ -15,6 +15,7 @@ struct AttachedApiRequest {
     bool autoTransfer = false;
     std::optional<NetworkTrafficBackend> networkTraffic; // 可选同源多目标网络，复用原采样与writer。
     bool captureAgentEtw = false; // 同一采样订阅自有Agent ETW，自动接管时追加目标报头PID。
+    std::shared_ptr<ApiTransferControl> transferControl; // 本轮共享控制意图，透传原采集worker。
 };
 // 在原工作线程借用document；输入精确实例、确认及可选原sample，输出原采集/归档完整回执。
 // boundSampleId为空沿用独立采样；非空由同一核心核验原API流未使用，不另开writer。
